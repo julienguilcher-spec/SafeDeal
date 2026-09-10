@@ -102,4 +102,5 @@ Coût indicatif : ~40 évaluations/jour × ~1 500 tokens ≈ quelques centimes p
 
 - Le score, la nationalité et l'âge sont **estimés** à partir du titre et de l'extrait public LinkedIn. Le digest le rappelle. À vérifier avant tout contact.
 - Google indexe les profils LinkedIn de façon partielle : certains jours une recette peut remonter peu de nouveaux profils. Apollo compense.
+- Apollo masque les noms de famille et cache l'URL LinkedIn dans ses résultats de recherche. Le bot résout ces profils partiels avec une requête Google (gratuit). Si Google n'est pas configuré, ou ne trouve pas, mettre `APOLLO_ENRICH=1` pour utiliser l'enrichissement Apollo (1 crédit par profil). Sans l'un ni l'autre, les profils Apollo non résolus sont ignorés.
 - Google CSE plafonne à 100 résultats par requête : après ~5 passages sur une même recette, il faut en ajouter de nouvelles dans `src/icp.ts`.

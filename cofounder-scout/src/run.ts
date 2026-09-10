@@ -3,8 +3,8 @@ import { CONFIG } from "./config.js";
 import { ICP, RECIPES, type SearchRecipe } from "./icp.js";
 import { renderDigest, sendDigest } from "./email.js";
 import { scoreAll, type ScoredCandidate } from "./score.js";
-import { apolloSource } from "./sources/apollo.js";
-import { googleSource } from "./sources/google.js";
+import { apolloEnrich, apolloSource } from "./sources/apollo.js";
+import { googleResolve, googleSource } from "./sources/google.js";
 import { mockSource } from "./sources/mock.js";
 import type { RawCandidate, Source } from "./sources/types.js";
 import { loadState, saveState } from "./state.js";
@@ -84,7 +84,26 @@ async function main() {
     state.recipePages[recipe.id] = page + 1;
   }
 
-  // 2. Dedup against history + pre-filter + cost cap
+  // 2. Resolve partial identities (Apollo masks last names and hides LinkedIn URLs)
+  for (const c of [...raw.values()].filter((c) => c.partial)) {
+    if (state.seen[c.key]) continue; // already handled on a previous day
+    let full: RawCandidate | undefined;
+    try {
+      full = await googleResolve(c);
+      if (!full && CONFIG.apollo.enrich) full = await apolloEnrich(c);
+    } catch (err) {
+      console.error(`[resolve] ${c.name}: ${(err as Error).message}`);
+    }
+    raw.delete(c.key);
+    if (full) {
+      if (!raw.has(full.key)) raw.set(full.key, full);
+    } else {
+      state.seen[c.key] = { name: c.name, firstSeen: today }; // don't retry every day
+      log(`unresolved partial profile dropped: ${c.name} (${c.currentTitle ?? "?"} @ ${c.currentCompany ?? "?"})`);
+    }
+  }
+
+  // 3. Dedup against history + pre-filter + cost cap
   const fresh = [...raw.values()].filter((c) => !state.seen[c.key]);
   const eligible = fresh.filter(prefilter).slice(0, CONFIG.maxToScore);
   log(`fetched ${raw.size} · new ${fresh.length} · to score ${eligible.length}`);
@@ -94,18 +113,18 @@ async function main() {
     state.seen[c.key] ??= { name: c.name, firstSeen: today };
   }
 
-  // 3. Score with Claude
+  // 4. Score with Claude
   const scored = await scoreAll(eligible);
   for (const c of scored) state.seen[c.key].score = c.score.score;
 
-  // 4. Shortlist
+  // 5. Shortlist
   const shortlist = rank(scored)
     .filter((c) => c.score.score >= CONFIG.minScore && c.score.verdict !== "reject")
     .slice(0, CONFIG.shortlistSize);
   for (const c of shortlist) state.seen[c.key].shortlistedOn = today;
   log(`shortlisted ${shortlist.length}: ${shortlist.map((c) => `${c.name} (${c.score.score})`).join(", ") || "none"}`);
 
-  // 5. Digest
+  // 6. Digest
   const digest = renderDigest(today, shortlist, { fetched: raw.size, scored: scored.length, recipes: recipes.map((r) => r.label) });
   fs.mkdirSync(CONFIG.lastDigestFile.replace(/[^/]+$/, ""), { recursive: true });
   fs.writeFileSync(CONFIG.lastDigestFile, digest.html);

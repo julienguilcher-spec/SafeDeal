@@ -74,3 +74,34 @@ export const googleSource: Source = {
     return out;
   },
 };
+
+/**
+ * Resolve a partial Apollo candidate ("Boris Pa***d, Co-founder @ Le Wagon")
+ * into a public LinkedIn profile with one Google query. Returns undefined if
+ * nothing convincing comes back (first name must match).
+ */
+export async function googleResolve(c: RawCandidate): Promise<RawCandidate | undefined> {
+  if (!googleSource.enabled) return undefined;
+  const firstName = c.name.split(" ")[0];
+  const q = [`"${firstName}"`, c.currentCompany ? `"${c.currentCompany}"` : "", c.currentTitle ?? "", "site:linkedin.com/in"].filter(Boolean).join(" ");
+  const params = new URLSearchParams({ key: CONFIG.google.apiKey!, cx: CONFIG.google.cx!, q, num: "5", gl: "fr", hl: "fr" });
+  const res = await fetch(`https://www.googleapis.com/customsearch/v1?${params}`);
+  const data = (await res.json()) as GoogleResponse;
+  if (!res.ok) throw new Error(`Google resolve failed (${res.status}): ${data.error?.message ?? "unknown"}`);
+  for (const it of data.items ?? []) {
+    const linkedin = normalizeLinkedin(it.link);
+    if (!linkedin || !it.title) continue;
+    const { name, headline } = parseLinkedinTitle(it.title);
+    if (!name.toLowerCase().startsWith(firstName.toLowerCase())) continue;
+    return {
+      ...c,
+      key: linkedin,
+      name,
+      headline: headline || c.headline,
+      details: [c.details, it.snippet].filter(Boolean).join(" | "),
+      linkedinUrl: linkedin,
+      partial: false,
+    };
+  }
+  return undefined;
+}

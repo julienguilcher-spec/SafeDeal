@@ -42,6 +42,8 @@ export const CONFIG = {
     apiKey: env("APOLLO_API_KEY"),
     perPage: envInt("APOLLO_PER_PAGE", 25),
     locations: (env("APOLLO_LOCATIONS", "Paris, France")!).split("|"),
+    /** Spend 1 credit per partial profile that Google could not resolve. */
+    enrich: env("APOLLO_ENRICH") === "1",
   },
 
   google: {

@@ -12,6 +12,14 @@ export interface RawCandidate {
   currentTitle?: string;
   source: "apollo" | "google" | "mock";
   recipeId: string;
+  /**
+   * True when the source only gave a partial identity (Apollo search results
+   * obfuscate last names and omit the LinkedIn URL). The runner tries to
+   * resolve these into a full profile before scoring.
+   */
+  partial?: boolean;
+  /** Apollo person id, needed for the optional people/match enrichment. */
+  apolloId?: string;
 }
 
 export interface Source {
