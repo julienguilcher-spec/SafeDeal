@@ -7,13 +7,13 @@
  */
 
 export const ICP = {
-  role: "Cofounder or first employee (business / operations lead) for a new business + AI school in France, similar to Albert School but with a more business-oriented vibe.",
+  role: "Cofounder or first employee for a new business + AI school in Paris, similar to Albert School but with a more business-oriented vibe. Both business profiles (GTM, operations, program, partnerships) and technical profiles (AI/ML engineers, CTOs, researchers with a teaching streak) are wanted; the scorer labels which one a person is and whether they fit better as cofounder or as first employee.",
 
   /** Hard-ish requirements. Claude flags violations; the pipeline demotes them. */
   must: [
     "French (nationality or clearly French background: French schools, French name + Paris-based, etc.)",
     "Roughly 25 to 40 years old (estimate from graduation year or career length)",
-    "Based in France, or willing to be (Paris-based strongly preferred)",
+    "Based in Paris (or clearly Paris-based: Paris in the headline, snippet, or current employer's Paris office)",
   ],
 
   /** Signals that make a strong profile. Any 2+ of these is a good candidate. */
@@ -24,14 +24,17 @@ export const ICP = {
     "Ex-education company: Le Wagon, Albert School, Ironhack, OpenClassrooms, Jedha, Hectar, Ecole 42, Station F programs, Eurecia, Rocket School, Schoolab, Wild Code School",
     "Ex-top consulting (McKinsey, BCG, Bain) or ex-VC / ex-startup COO/CBO with a strong business track record",
     "Has built or run a program, bootcamp, cohort, or community (evidence of go-to-market + operational execution)",
+    "Strong technical profile (ML/AI engineer, CTO, researcher) with evidence of teaching, mentoring, or building curricula (taught at Le Wagon / 42 / a university, wrote courses, ran workshops)",
+    "Currently working at an education company (Le Wagon, Albert School, etc.) counts fully: current employees are wanted, not only alumni",
   ],
 
   /** Things that lower the score. */
   negatives: [
     "Pure academic researcher with no business or operating experience",
     "Currently a senior executive at a big corporation with no startup exposure (unlikely to leave for a cofounder role)",
-    "Purely technical profile with no interest in business, sales, or education",
+    "Technical profile with zero interest in education, teaching, or building a company",
     "Not French / no link to France",
+    "Based outside Paris with no sign of moving",
     "Clearly outside the 25-40 age range",
   ],
 
@@ -123,6 +126,18 @@ export const RECIPES: SearchRecipe[] = [
     label: "Ex OpenClassrooms / Ironhack / Wild Code School",
     google: '(OpenClassrooms OR Ironhack OR "Wild Code School" OR "École 42") (Head OR Director OR VP OR Lead OR cofounder) Paris',
     apollo: { keywords: "OpenClassrooms OR Ironhack OR Wild Code School", titles: ["Head", "Director", "VP", "Co-Founder"] },
+  },
+  {
+    id: "tech-ai-engineer-teacher",
+    label: "Ingénieur·e IA/ML qui enseigne (Le Wagon, 42, université)",
+    google: '("Machine Learning" OR "AI Engineer" OR "Data Scientist" OR CTO) (enseignant OR teacher OR instructor OR "teaching assistant" OR mentor) ("Le Wagon" OR "42" OR université OR "Data Science") Paris',
+    apollo: { keywords: "machine learning teacher instructor", titles: ["Machine Learning Engineer", "AI Engineer", "CTO", "Lead Data Scientist", "Instructor"] },
+  },
+  {
+    id: "tech-ex-ai-lab-engineer",
+    label: "Ingénieur·e français·e ex AI lab prêt·e à cofonder",
+    google: '("Research Engineer" OR "Member of Technical Staff" OR "Software Engineer" OR "Applied Scientist") (Anthropic OR DeepMind OR OpenAI OR "Mistral AI" OR "Hugging Face") (Polytechnique OR CentraleSupélec OR "Télécom Paris" OR ENS OR "Mines Paris") Paris',
+    apollo: { keywords: "Anthropic OR DeepMind OR OpenAI OR Mistral OR Hugging Face", titles: ["Research Engineer", "Member of Technical Staff", "Software Engineer", "Applied Scientist"] },
   },
   {
     id: "vc-entrepreneur-in-residence",

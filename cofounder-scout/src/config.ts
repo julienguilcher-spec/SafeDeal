@@ -41,7 +41,7 @@ export const CONFIG = {
   apollo: {
     apiKey: env("APOLLO_API_KEY"),
     perPage: envInt("APOLLO_PER_PAGE", 25),
-    locations: (env("APOLLO_LOCATIONS", "Paris, France|France")!).split("|"),
+    locations: (env("APOLLO_LOCATIONS", "Paris, France")!).split("|"),
   },
 
   google: {

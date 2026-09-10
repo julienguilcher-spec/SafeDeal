@@ -10,6 +10,8 @@ export const ScoreSchema = z.object({
   verdict: z.enum(["shortlist", "maybe", "reject"]),
   is_french: z.enum(["yes", "likely", "unclear", "no"]),
   estimated_age_band: z.enum(["under_25", "25_40", "over_40", "unknown"]),
+  profile_type: z.enum(["business", "tech", "hybrid"]).describe("business = GTM/ops/program/partnerships; tech = AI/ML engineer, CTO, researcher; hybrid = both credibly"),
+  best_fit: z.enum(["cofounder", "first_employee", "either"]).describe("cofounder = has founded before or shows clear appetite for risk and ownership; first_employee = strong operator/engineer more likely to join an existing founder"),
   matched_signals: z.array(z.string()).describe("Which ICP strong signals this person matches, quoting the evidence"),
   concerns: z.array(z.string()).describe("Red flags or missing information"),
   one_liner: z.string().describe("One sentence, in French, summarizing who this person is for a busy founder"),
@@ -39,6 +41,7 @@ ${ICP.negatives.map((n) => `- ${n}`).join("\n")}
 - 80-100: shortlist. Clearly French, right age band, 2+ strong signals, plausibly open to a cofounder / early-stage role.
 - 60-79: maybe. Good signals but one thing unclear (age, nationality, appetite for risk).
 - 0-59: reject.
+Label profile_type (business / tech / hybrid). Technical profiles are welcome and scored on the same scale as business ones: a strong French AI engineer who teaches or mentors is a shortlist, not a maybe. Label best_fit: "cofounder" if the person has already founded something or clearly signals wanting to build (EIR, "next adventure", "en réflexion", exited founder); "first_employee" if the person is a strong operator or engineer without founder signals; "either" when both are plausible.
 You only see a LinkedIn headline, a snippet, and sometimes an employment history. Do not invent facts. When something is unknown, say "unclear" or "unknown" rather than guessing. Estimate age from graduation years (bachelor at ~22, grande école diploma at ~23-24) or from total career length. A French grande école, a French-sounding name combined with Paris, or French-language text are all evidence of being French; a non-French school abroad with no French link is evidence against. Write one_liner and outreach_hook in French, tutoiement is fine.`;
 
 const client = new Anthropic();
@@ -117,6 +120,8 @@ function mockScore(c: RawCandidate): Score {
     verdict: score >= 80 ? "shortlist" : score >= 60 ? "maybe" : "reject",
     is_french: french,
     estimated_age_band: /199\d|198\d/.test(text) ? "over_40" : "25_40",
+    profile_type: /engineer|scientist|cto|research/.test(text) ? "tech" : "business",
+    best_fit: has(ICP.keywords.founderTitles) || /residence|next adventure/.test(text) ? "cofounder" : "first_employee",
     matched_signals: matched,
     concerns: matched.length ? [] : ["No ICP signal detected"],
     one_liner: `${c.name} — ${c.headline}`,

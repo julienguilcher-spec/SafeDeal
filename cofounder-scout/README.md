@@ -4,6 +4,12 @@ Bot quotidien qui cherche un·e cofondateur·rice / premier·e employé·e pour 
 
 Il tourne 2 mois (date de fin configurable), ne propose jamais deux fois la même personne, et creuse chaque jour des requêtes différentes.
 
+Règles de ciblage actuelles :
+- Paris uniquement.
+- Un seul classement, mais chaque profil est étiqueté **Cofondateur·rice** / **Premier·e employé·e** / les deux.
+- Profils **business** et **tech** acceptés, étiquetés comme tels (un ingénieur IA français qui enseigne est un profil recherché).
+- Les personnes encore en poste chez Le Wagon, Albert School, etc. sont incluses, pas seulement les anciens.
+
 ## Comment ça marche
 
 ```
@@ -85,10 +91,10 @@ Le dernier digest rendu est toujours écrit dans `data/last-digest.html`.
 |---|---|---|
 | `SCOUT_SHORTLIST_SIZE` | 5 | Profils par email |
 | `SCOUT_MIN_SCORE` | 60 | Score minimum pour être retenu |
-| `SCOUT_RECIPES_PER_DAY` | 3 | Recettes interrogées par jour (10 recettes au total, rotation) |
+| `SCOUT_RECIPES_PER_DAY` | 3 | Recettes interrogées par jour (12 recettes au total, rotation) |
 | `SCOUT_MAX_TO_SCORE` | 40 | Plafond de profils envoyés à Claude par jour (maîtrise du coût) |
 | `SCOUT_MODEL` | `claude-opus-5` | Modèle de scoring |
-| `APOLLO_LOCATIONS` | `Paris, France\|France` | Filtre géographique Apollo |
+| `APOLLO_LOCATIONS` | `Paris, France` | Filtre géographique Apollo |
 
 Coût indicatif : ~40 évaluations/jour × ~1 500 tokens ≈ quelques centimes par jour avec Opus 5, le prompt système étant mis en cache.
 
