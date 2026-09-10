@@ -1,0 +1,59 @@
+name: Cofounder Scout (daily)
+
+on:
+  schedule:
+    # 06:30 UTC = 08:30 Paris (summer) / 07:30 Paris (winter)
+    - cron: "30 6 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (no email, state not saved)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: cofounder-scout
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  scout:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cofounder-scout
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: cofounder-scout/package-lock.json
+
+      - run: npm ci
+
+      - name: Run scout
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          APOLLO_API_KEY: ${{ secrets.APOLLO_API_KEY }}
+          GOOGLE_CSE_KEY: ${{ secrets.GOOGLE_CSE_KEY }}
+          GOOGLE_CSE_CX: ${{ secrets.GOOGLE_CSE_CX }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          DIGEST_TO: ${{ secrets.DIGEST_TO }}
+          SCOUT_CAMPAIGN_END: ${{ vars.SCOUT_CAMPAIGN_END }}
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then npm run scout:dry; else npm run scout; fi
+
+      - name: Persist state (seen candidates, rotation cursor)
+        if: ${{ inputs.dry_run != true }}
+        run: |
+          git config user.name "cofounder-scout[bot]"
+          git config user.email "cofounder-scout@users.noreply.github.com"
+          git add data/state.json
+          if git diff --cached --quiet; then echo "no state change"; exit 0; fi
+          git commit -m "scout: state after $(date -u +%F)"
+          git push

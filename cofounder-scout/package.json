@@ -1,0 +1,25 @@
+{
+  "name": "cofounder-scout",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Daily sourcing bot: shortlists 4-5 cofounder / first-hire candidates for a business+AI school and emails the digest.",
+  "scripts": {
+    "scout": "tsx src/run.ts",
+    "scout:dry": "tsx src/run.ts --dry-run",
+    "scout:mock": "MOCK_SOURCES=1 MOCK_SCORER=1 tsx src/run.ts --dry-run",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test src/**/*.test.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.80.0",
+    "nodemailer": "^7.0.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/nodemailer": "^6.4.17",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.4"
+  }
+}
