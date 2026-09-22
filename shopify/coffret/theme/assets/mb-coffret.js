@@ -645,7 +645,7 @@ window.MB_FORMES = (function () {
       });
     }
     const total = this.choix.reduce(function (s, c) { return s + c.prix; }, 0);
-    if (ui.total) ui.total.textContent = this.choix.length ? 'à partir de ' + euros(total) : '—';
+    if (ui.total) ui.total.textContent = this.choix.length ? 'à partir de ' + euros(total) : '';
     const mensuel = Array.prototype.some.call(ui.rythme, function (i) { return i.checked && i.value === 'mensuel'; });
     if (ui.cta) { ui.cta.disabled = this.choix.length === 0; ui.cta.textContent = mensuel ? 'Recevoir ce coffret chaque mois' : 'Ajouter ce coffret au panier'; }
   };
