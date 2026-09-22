@@ -66,7 +66,7 @@
       </div>
     </div>
   </div>
-  <script type="application/json" data-mb-coffret-donnees>{"boite":"uline-10x10x5","decor":{"oliveraie":"decor/mb-decor-oliveraie.jpg","marbre":"decor/mb-decor-marbre.jpg"}}</script>
+  <script type="application/json" data-mb-coffret-donnees>{"boite":"uline-10x10x5","decor":{"marbre":"decor/mb-decor-marbre.jpg"}}</script>
 </section>
 
 <script>
@@ -99,7 +99,9 @@ ARTICLES.forEach(function (a) {
 window.MB_COFFRET_PANIER = function (items) { console.log('PANIER', JSON.stringify(items)); document.title = 'panier:' + items.length; };
 </script>
 <script src="three.min.js"></script>
-<script src="theme/assets/mb-coffret.js"></script>
+<script src="mb-coffret-formes.js"></script>
+<script src="mb-coffret-decor.js"></script>
+<script src="mb-coffret.app.js"></script>
 <script>
 // scénario de test piloté par l'URL : ?ajoute=P-500,B-A100,P-100&vue=dessus
 const q = new URLSearchParams(location.search);
