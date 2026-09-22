@@ -50,6 +50,15 @@
    lien ne se lisait plus. On le ramène sous la bande. */
 .mb-section.mb-galerie--frise { padding-bottom: clamp(0.8rem, 1.6vw, 1.4rem); }
 
+/* ——— Les deux photos prises sur le vif ————————————————————————————————
+   Le portrait de la fondatrice montrait la chambre derrière elle, et la photo
+   de famille un gilet de chantier et des caisses de récolte. On les recadre
+   serré, comme les portraits de la famille Piro : le cadrage est fait ici
+   plutôt que dans le fichier pour rester réversible tant que les vraies
+   photos ne sont pas arrivées. */
+[id$="__fondatrice"] .mb-story__media img { transform: scale(1.45); transform-origin: 50% 14%; }
+[id$="__story"] .mb-story__media img { transform: scale(1.35); transform-origin: 64% 44%; }
+
 /* ——— Les titres de page nus ———————————————————————————————————————————
    Le titre des collections et du blog était rendu dans la police de labeur, à
    la taille d'un sous-titre, collé en haut de page. On lui donne la
