@@ -90,13 +90,18 @@ window.MB_FORMES = (function () {
     const soleil = new T.DirectionalLight(0xffefd4, 1.45);
     /* même direction qu'avant (arrière gauche, 41° de hauteur), mais placé
        plus loin pour que la couronne de l'olivier proche entre dans la
-       caméra d'ombre et projette ses feuilles sur le marbre */
+       caméra d'ombre et projette ses feuilles sur le marbre. La caméra
+       d'ombre ne couvre que la table, ses pieds et la boîte : le sol ne
+       reçoit pas l'ombre du calcul (ses ombres sont peintes dans les
+       textures, dans le même axe de soleil), ce qui évite la limite
+       rectiligne du cadre d'ombre sur l'herbe et garde toute la finesse
+       de la carte pour les feuilles sur le marbre. */
     soleil.position.set(-380 * 7, 500 * 7, -430 * 7); soleil.castShadow = true;
     soleil.shadow.mapSize.set(2048, 2048);
     soleil.shadow.camera.near = 100; soleil.shadow.camera.far = 9000;
     soleil.shadow.camera.left = -1700; soleil.shadow.camera.right = 1700; soleil.shadow.camera.top = 1900; soleil.shadow.camera.bottom = -2400;
     soleil.shadow.camera.updateProjectionMatrix();
-    soleil.shadow.bias = -0.0004; soleil.shadow.normalBias = 1.5; soleil.shadow.radius = 2;
+    soleil.shadow.bias = -0.0004; soleil.shadow.normalBias = 1.5;              // (shadow.radius est ignoré par PCFSoftShadowMap)
     s.add(soleil);
     moi.soleil = soleil;
     const rimG = new T.DirectionalLight(0xfff8ec, 0.5); rimG.position.set(-620, 300, -300); s.add(rimG);
@@ -239,10 +244,13 @@ window.MB_FORMES = (function () {
     function bruit(x, z) {
       return Math.sin(x / 1300 + 0.4) * Math.sin(z / 1700 - 0.2) * 0.5 + Math.sin(x / 430 + z / 510) * 0.3 + Math.sin(x / 210 - z / 260 + 1.3) * 0.2;
     }
-    const S_PENTE = 4420, S_TERRASSE = 5270, S_MUR = 5525, CHUTE_PENTE = 3114, CHUTE_TERRASSE = 3267, CHUTE_MUR = 4517;
+    /* le rebord du belvédère s'arrondit sur 1,5 m (et non 0,6) : pas de
+       cassure lisible entre le plat et la pente ; les paliers suivent */
+    const S_PENTE = 4420, S_TERRASSE = 5270, S_MUR = 5525;
+    const CHUTE_PENTE = 0.8 * S_PENTE * S_PENTE / (S_PENTE + 1500), CHUTE_TERRASSE = CHUTE_PENTE + (S_TERRASSE - S_PENTE) * 0.18, CHUTE_MUR = CHUTE_TERRASSE + 1250;
     function chute(sm) {
       if (sm <= 0) return 0;
-      if (sm < S_PENTE) return 0.8 * sm * sm / (sm + 600);                                   // rebord arrondi puis 38°
+      if (sm < S_PENTE) return 0.8 * sm * sm / (sm + 1500);                                  // rebord arrondi puis 38°
       if (sm < S_TERRASSE) return CHUTE_PENTE + (sm - S_PENTE) * 0.18;                        // la terrasse, presque plate
       if (sm < S_MUR) { const k = (sm - S_TERRASSE) / (S_MUR - S_TERRASSE); return CHUTE_TERRASSE + (CHUTE_MUR - CHUTE_TERRASSE) * k * k * (3 - 2 * k); } // le mur
       const d = CHUTE_MUR + 0.8 * (sm - S_MUR);
@@ -389,7 +397,7 @@ window.MB_FORMES = (function () {
           g.fillRect(R() * W, R() * H, 1 + R() * 2, 1 + R() * 5);
         }
       });
-      return { map: repete(map), normale: normaleDepuis(hc, 0.02, true) };
+      return { map: repete(map), normale: normaleDepuis(hc, 0.03, true) };
     })();
 
     /* -- les feuilles : un bouquet de rameaux, feuilles lancéolées, dessus
@@ -426,7 +434,9 @@ window.MB_FORMES = (function () {
         feuille(x1 + Math.cos(a) * 40 * k, y1 + Math.sin(a) * 40 * k, a, 110 * k, 26 * k, R() < 0.5);
       }
     }
-    const FR = [140, 150, 122];                                           // couleur des franges
+    /* la couleur des franges : un vert sombre, pour que le filtrage ne fasse
+       ni liseré noir ni halo pâle autour des feuilles */
+    const FR = [110, 120, 95];
     const texFeuilles = toileCorrigee(2048, 2048, function (g, W, H) {
       g.clearRect(0, 0, W, H);
       [[0, 0, 0.92, 0], [1, 0, 1.05, 0.7], [0, 1, 1.0, 1.9], [1, 1, 1.12, 3.1]].forEach(function (q, i) {
@@ -435,9 +445,8 @@ window.MB_FORMES = (function () {
         g.restore();
       });
     }, FR[0], FR[1], FR[2]);
-    const texFeuillesLoin = toileCorrigee(512, 512, function (g, W, H) { g.clearRect(0, 0, W, H); dessineFeuilles(g, W, H, 1.1, Alea(211), 0); }, FR[0], FR[1], FR[2]);
     /* des quads vus sous tous les angles : le filtrage anisotrope n'apporte rien et coûte cher */
-    texFeuilles.anisotropy = 1; texFeuillesLoin.anisotropy = 1;
+    texFeuilles.anisotropy = 1;
 
     /* -- les pierres sèches du mur : assises irrégulières, joints en creux,
           une tuile de 1,6 m × 0,4 m, avec sa carte de normales */
@@ -506,86 +515,33 @@ window.MB_FORMES = (function () {
       }));
     })();
 
-    /* -- le dallage du belvédère : des dalles de pierre pâle en appareil
-          irrégulier, à joints de terre, dont les dernières se perdent dans
-          l'herbe ; l'ellipse suit le plat du terrain. */
-    const DAL = { a: 1700, b: 1770, span: 4300 };
-    const dalles = (function () {
-      const R = Alea(11), out = [];
-      let z = -DAL.b - 150 + R() * 200;
-      while (z < DAL.b + 150) {
-        const h = 300 + R() * 160; let x = -DAL.a - 250 - R() * 300;
-        while (x < DAL.a + 250) {
-          const l = 300 + R() * 240;
-          const coins = [[x, z], [x + l, z], [x, z + h], [x + l, z + h]];
-          let dedans = true;
-          coins.forEach(function (c) { if (Math.hypot(c[0] / DAL.a, c[1] / DAL.b) > 1.02) dedans = false; });
-          const rc = Math.hypot((x + l / 2) / DAL.a, (z + h / 2) / DAL.b), tirage = R();
-          if (dedans && (rc < 0.72 || tirage < 0.45)) out.push({ x: x, z: z, l: l, h: h, lum: 54 + R() * 18, sat: 3 + R() * 6, hue: 36 + R() * 8, g: R(), v: [R(), R(), R(), R(), R(), R()] });
-          x += l + 22;
-        }
-        z += h + 22;
-      }
-      return out;
-    })();
-    function dessineDalles(g, S, hauteurs, R) {
-      const px = function (x) { return (x + DAL.span / 2) * S; }, py = function (z) { return (z + DAL.span / 2) * S; };
-      /* les joints de terre d'abord, en léger débord, puis chaque dalle */
-      if (!hauteurs) {
-        g.fillStyle = 'rgba(86,76,60,0.95)';
-        dalles.forEach(function (d) { g.fillRect(px(d.x - 14), py(d.z - 14), (d.l + 28) * S, (d.h + 28) * S); });
-      }
-      dalles.forEach(function (d) {
-        const x0 = px(d.x), y0 = py(d.z), l = d.l * S, h = d.h * S, v = d.v;
-        /* la dalle est un quadrilatère à peine irrégulier */
-        const poly = [[x0 + v[0] * 6 * S, y0 + v[1] * 5 * S], [x0 + l - v[2] * 7 * S, y0 + v[3] * 4 * S], [x0 + l - v[4] * 4 * S, y0 + h - v[5] * 6 * S], [x0 + v[1] * 5 * S, y0 + h - v[0] * 5 * S]];
-        function trace(c) { c.beginPath(); c.moveTo(poly[0][0], poly[0][1]); for (let i = 1; i < 4; i++) c.lineTo(poly[i][0], poly[i][1]); c.closePath(); }
-        if (hauteurs) {
-          const hr = g.createRadialGradient(x0 + l / 2, y0 + h / 2, 2, x0 + l / 2, y0 + h / 2, Math.max(l, h) * 0.6);
-          hr.addColorStop(0, 'rgb(215,215,215)'); hr.addColorStop(0.7, 'rgb(205,205,205)'); hr.addColorStop(1, 'rgb(150,150,150)');
-          trace(g); g.fillStyle = hr; g.fill();
-          return;
-        }
-        trace(g); g.fillStyle = 'hsl(' + d.hue + ',' + d.sat + '%,' + d.lum + '%)'; g.fill();
-        g.save(); trace(g); g.clip();
-        const rg = g.createRadialGradient(x0 + l * (0.3 + d.g * 0.4), y0 + h * 0.5, 4, x0 + l * 0.5, y0 + h * 0.5, Math.max(l, h) * 0.7);
-        rg.addColorStop(0, 'rgba(255,250,240,0.18)'); rg.addColorStop(1, 'rgba(90,80,65,0.16)');
-        g.fillStyle = rg; g.fillRect(x0, y0, l, h);
-        for (let k = 0; k < 420; k++) {
-          const qx = x0 + R() * l, qy = y0 + R() * h, r = (0.6 + R() * 1.6) * S * 2;
-          g.fillStyle = R() < 0.5 ? 'rgba(80,70,55,' + (0.05 + R() * 0.12) + ')' : 'rgba(255,252,245,' + (0.08 + R() * 0.16) + ')';
-          g.beginPath(); g.arc(qx, qy, r, 0, 6.29); g.fill();
-        }
-        for (let k = 0; k < 3; k++) {
-          g.strokeStyle = 'rgba(120,105,85,' + (0.06 + R() * 0.08) + ')'; g.lineWidth = (1 + R() * 2) * S * 2;
-          g.beginPath(); g.moveTo(x0 + R() * l, y0 + R() * h); g.bezierCurveTo(x0 + R() * l, y0 + R() * h, x0 + R() * l, y0 + R() * h, x0 + R() * l, y0 + R() * h); g.stroke();
-        }
-        /* le bord de la dalle : une ombre douce vers les joints */
-        g.strokeStyle = 'rgba(50,42,34,0.3)'; g.lineWidth = 9 * S; trace(g); g.stroke();
-        g.restore();
-        trace(g); g.strokeStyle = 'rgba(60,50,40,0.5)'; g.lineWidth = 1.2; g.stroke();
-      });
-    }
-    const texDallage = (function () {
-      const W = 2048, S = W / DAL.span, R = Alea(13);
-      const map = o.toile(W, W, function (g) { g.clearRect(0, 0, W, W); dessineDalles(g, S, false, R); });
-      const hc = document.createElement('canvas'); hc.width = hc.height = 1024;
-      const hg = hc.getContext('2d'); hg.fillStyle = 'rgb(40,40,40)'; hg.fillRect(0, 0, 1024, 1024);
-      dessineDalles(hg, 1024 / DAL.span, true, R);
-      corrigeFrange(map.image, 86, 76, 60); map.needsUpdate = true; map.anisotropy = 8;
-      return { map: map, normale: normaleDepuis(hc, 0.018, false) };
-    })();
-
-    /* -- l'herbe : les outils de dessin d'une prairie sèche fauchée */
+    /* -- l'herbe : les outils de dessin d'une prairie sèche fauchée, en
+          vert-gris paille plutôt qu'en jaune : des brins plus longs, à
+          l'échelle d'une herbe vue à un ou deux mètres */
+    /* autant de brins sombres (l'ombre entre les touffes) que de brins
+       clairs (ceux qui prennent le soleil) : la moyenne reste celle du fond,
+       et la surface se lit comme une herbe et non comme des rayures */
+    const COLS_HERBE = ['#5f6644', '#6b7049', '#737650', '#66704a', '#a5a274', '#b0aa7c', '#9a9c6c', '#c0b88c', '#8f9266'];
+    const FOND_HERBE = '#80875f';
     function grainHerbe(g, W, H, n, longueur, alpha, R) {
-      const cols = ['#b7a67a', '#a89a6c', '#c2b388', '#98936a', '#af9f74', '#8f8c62', '#c9ba90', '#a39668', '#b9ab7e'];
+      const cols = COLS_HERBE;
       g.lineCap = 'round';
       for (let i = 0; i < n; i++) {
         const x = R() * W, y = R() * H, l = longueur * (0.6 + R() * 0.8), a = -Math.PI / 2 + (R() - 0.5) * 1.6;
-        g.strokeStyle = cols[Math.floor(R() * cols.length)]; g.globalAlpha = alpha * (0.6 + R() * 0.4); g.lineWidth = 0.8 + R() * 1.2;
+        g.strokeStyle = cols[Math.floor(R() * cols.length)]; g.globalAlpha = alpha * (0.6 + R() * 0.4); g.lineWidth = 0.7 + R() * 0.7;
         g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke();
       }
       g.globalAlpha = 1;
+    }
+    /* le fond de la prairie, commun au terrain et à la prairie fine : la
+       même couleur et les mêmes plages (en millimètres, à la densité par
+       mètre carré près), pour que l'une se fonde dans l'autre sans limite */
+    function fondHerbe(g, W, H, R, mmParPx) {
+      const m2 = (W * mmParPx / 1000) * (H * mmParPx / 1000), k = 1 / mmParPx;
+      g.fillStyle = FOND_HERBE; g.fillRect(0, 0, W, H);
+      taches(g, W, H, Math.round(0.37 * m2), 1000 * k, 3000 * k, ['rgba(96,110,64,A)', 'rgba(146,140,96,A)', 'rgba(112,122,74,A)', 'rgba(150,134,94,A)'], 0.3, R);
+      taches(g, W, H, Math.round(0.55 * m2), 800 * k, 2100 * k, ['rgba(104,118,68,A)', 'rgba(140,126,86,A)', 'rgba(118,126,78,A)'], 0.4, R);
+      taches(g, W, H, Math.round(2.4 * m2), 250 * k, 1300 * k, ['rgba(112,118,74,A)', 'rgba(164,158,116,A)', 'rgba(132,132,88,A)', 'rgba(100,110,72,A)', 'rgba(150,132,92,A)', 'rgba(146,148,96,A)'], 0.34, R);
     }
     function taches(g, W, H, n, rMin, rMax, cols, alpha, R) {
       for (let i = 0; i < n; i++) {
@@ -596,13 +552,13 @@ window.MB_FORMES = (function () {
         g.fillStyle = c; g.fillRect(x - r, y - r, 2 * r, 2 * r);
       }
     }
+    /* quelques petites fleurs, discrètes : pas de confettis blancs */
     function fleurs(g, W, H, nColonies, rayon, R) {
       for (let c = 0; c < nColonies; c++) {
-        const cx = R() * W, cy = R() * H, n = 3 + Math.floor(R() * 9), blanc = R() < 0.25;
+        const cx = R() * W, cy = R() * H, n = 3 + Math.floor(R() * 7), blanc = R() < 0.2;
         for (let i = 0; i < n; i++) {
-          const x = cx + (R() - 0.5) * rayon, y = cy + (R() - 0.5) * rayon, r = 1.0 + R() * 0.9;
-          g.fillStyle = blanc ? '#f3efe0' : '#e2bd2c'; g.beginPath(); g.arc(x, y, r, 0, 6.3); g.fill();
-          g.fillStyle = blanc ? '#e8d86a' : '#f6da5c'; g.beginPath(); g.arc(x - 0.4, y - 0.4, r * 0.45, 0, 6.3); g.fill();
+          const x = cx + (R() - 0.5) * rayon, y = cy + (R() - 0.5) * rayon, r = 0.7 + R() * 0.7;
+          g.fillStyle = blanc ? 'rgba(232,226,204,0.8)' : 'rgba(214,176,52,0.85)'; g.beginPath(); g.arc(x, y, r, 0, 6.3); g.fill();
         }
       }
     }
@@ -627,13 +583,16 @@ window.MB_FORMES = (function () {
     [[2.6, 10], [3.1, 34], [2.5, 166], [3.0, 190], [2.7, 52], [2.9, 128]].forEach(function (ut) { ajouteArbre(posUT(ut[0] + entre(-0.1, 0.1), ut[1] + entre(-4, 4)), { echelle: entre(0.9, 1.1), etal: entre(0.2, 0.6) }); });
     /* la terrasse : deux arbres à ses extrémités, le centre reste dégagé */
     [[3.8, 204], [3.75, 336]].forEach(function (ut) { ajouteArbre(posUT(ut[0], ut[1] + entre(-3, 3)), { echelle: entre(0.9, 1.05), etal: entre(0.3, 0.6) }); });
-    /* la rangée sous le mur, dont on voit les cimes depuis la table */
-    [[4.6, 222], [4.75, 258], [4.6, 293], [4.7, 326]].forEach(function (ut) { ajouteArbre(posUT(ut[0] + entre(-0.1, 0.1), ut[1] + entre(-4, 4)), { echelle: entre(0.95, 1.15), etal: entre(0.2, 0.5) }); });
+    /* la rangée sous le mur, dont on voit les cimes depuis la table ; une
+       trouée est laissée dans l'axe de la caméra par défaut (θ ≈ 300°),
+       pour que le regard descende jusqu'au mur, au verger et au vallon
+       dans la brume au lieu de buter sur un mur de feuillage */
+    [[4.6, 222], [4.75, 258], [4.7, 332]].forEach(function (ut) { ajouteArbre(posUT(ut[0] + entre(-0.1, 0.1), ut[1] + entre(-4, 4)), { echelle: entre(0.95, 1.15), etal: entre(0.2, 0.5) }); });
     /* plus bas encore, et sur les flancs */
-    [[5.9, 206], [6.1, 240], [5.9, 275], [6.2, 309], [5.9, 343], [6.4, 188], [5.2, 8], [5.4, 172], [4.6, 40], [4.8, 140]].forEach(function (ut) { ajouteArbre(posUT(ut[0] + entre(-0.15, 0.15), ut[1] + entre(-4, 4)), { echelle: entre(0.9, 1.2), etal: entre(0.2, 0.5) }); });
+    [[5.9, 206], [6.1, 240], [5.9, 272], [5.9, 343], [6.4, 188], [5.2, 8], [5.4, 172], [4.6, 40], [4.8, 140]].forEach(function (ut) { ajouteArbre(posUT(ut[0] + entre(-0.15, 0.15), ut[1] + entre(-4, 4)), { echelle: entre(0.9, 1.2), etal: entre(0.2, 0.5) }); });
     /* les rangées lointaines, dans la brume, tout autour */
-    [[8.2, 200], [8.6, 222], [8.0, 244], [8.8, 266], [8.3, 288], [8.9, 312], [8.1, 334], [10.5, 215], [11, 250], [10.7, 285], [11.2, 320], [9.6, 190], [9.9, 350], [12.6, 205], [13.2, 228], [12.4, 252], [13.5, 270], [12.8, 296], [13.3, 318], [12.5, 342], [14.5, 240], [14.8, 300],
-      [7.4, 6], [8.8, 24], [10.4, 12], [12.2, 30], [9.4, 44], [11.8, 55], [7.6, 174], [8.9, 156], [10.6, 168], [12.3, 150], [9.6, 136], [11.7, 124], [10.2, 100], [12.6, 72], [12.8, 108], [9.2, 78], [14.2, 90], [14.6, 160], [14.4, 20]].forEach(function (ut) { ajouteArbre(posUT(ut[0] + entre(-0.2, 0.2), ut[1] + entre(-5, 5)), { niveau: 'loin', echelle: entre(1.0, 1.3), etal: entre(0.2, 0.5), chaud: entre(0.9, 0.96) }); });
+    [[8.2, 200], [8.6, 222], [8.0, 244], [8.8, 266], [8.9, 316], [8.1, 336], [10.5, 215], [11, 250], [10.7, 280], [11.2, 322], [9.6, 190], [9.9, 350], [12.6, 205], [13.2, 228], [12.4, 252], [13.5, 270], [12.8, 296], [13.3, 318], [12.5, 342], [14.5, 240], [14.8, 300],
+      [7.4, 6], [8.8, 24], [10.4, 12], [12.2, 30], [9.4, 44], [11.8, 55], [7.6, 174], [8.9, 156], [10.6, 168], [12.3, 150], [9.6, 136], [11.7, 124], [10.2, 100], [12.6, 72], [12.8, 108], [9.2, 78], [14.2, 90], [14.6, 160], [14.4, 20]].forEach(function (ut) { ajouteArbre(posUT(ut[0] + entre(-0.2, 0.2), ut[1] + entre(-5, 5)), { niveau: 'loin', echelle: entre(1.0, 1.3), etal: entre(0.2, 0.5), chaud: entre(0.85, 1.0), teinte: entre(0.7, 1.0) }); });
     arbres.forEach(function (a) { if (a.butte) monticules.push({ x: a.x, z: a.z, r: 700 * a.echelle, h: 230 * a.echelle }); });
     arbres.forEach(function (a) { a.y = hauteur(a.x, a.z); });
 
@@ -724,7 +683,7 @@ window.MB_FORMES = (function () {
           const nS = 1 + Math.floor(alea() * 2);
           for (let q = 0; q < nS; q++) {
             const t0 = entre(0.5, 0.72), k0 = Math.round(t0 * (nb - 1));
-            const start = ann[k0].p, rs = ann[k0].r * 0.75;
+            const start = ann[k0].p, rs = ann[k0].r * 0.55;
             const axe = new T.Vector3(entre(-1, 1), entre(-0.3, 0.6), entre(-1, 1)).normalize();
             const sdir = new T.Vector3().copy(dir).applyAxisAngle(axe, entre(0.6, 1.0));
             if (sdir.y < -0.1) sdir.y = -0.1;
@@ -732,7 +691,7 @@ window.MB_FORMES = (function () {
             const Ls = Lb * entre(0.45, 0.65), anS = [];
             for (let k = 0; k < 6; k++) { const t = k / 5; anS.push({ p: new T.Vector3().copy(start).addScaledVector(sdir, Ls * t).add(new T.Vector3(0, Ls * 0.2 * t * t, 0)), r: rs * (1 - 0.8 * t) + 6 * e }); }
             balayer(tronc, anS, 7, 1, 1.2, { a3: 0.08, p3: 0, a5: 0.04, p5: 1, tw: 1 });
-            lobes.push({ c: anS[5].p.clone().addScaledVector(sdir, 100 * e).add(new T.Vector3(0, 80 * e, 0)), R: entre(430, 560) * e });
+            lobes.push({ c: anS[5].p.clone().addScaledVector(sdir, 40 * e).add(new T.Vector3(0, 80 * e, 0)), R: entre(430, 560) * e });
           }
         }
       }
@@ -744,8 +703,8 @@ window.MB_FORMES = (function () {
       /* des bouquets denses et assez grands : moins de quads superposés
          à l'écran pour la même masse de feuilles (le rendu du reflet et
          du feuillage est ce qui coûte le plus sur un téléphone) */
-      const kDens = proche ? 38 : (loin ? 12 : 26);
-      const taille = proche ? 800 : (loin ? 1500 : 860);
+      const kDens = proche ? 38 : (loin ? 18 : 26);
+      const taille = proche ? 800 : (loin ? 1100 : 860);
       let yMin = Infinity, yMax = -Infinity;
       lobes.forEach(function (L) { yMin = Math.min(yMin, L.c.y - L.R); yMax = Math.max(yMax, L.c.y + L.R); });
       const cime = { x: 0, y: 0, z: 0, n: 0 };
@@ -759,8 +718,11 @@ window.MB_FORMES = (function () {
           const nrm = new T.Vector3().copy(d).multiplyScalar(0.7).add(new T.Vector3(entre(-1, 1), entre(-1, 1), entre(-1, 1)).multiplyScalar(0.5)).normalize();
           const k = (p.y - yMin) / (yMax - yMin);
           const soleilK = 0.5 + 0.5 * d.dot(SOL_DIR), prof = Math.pow(borne((rr / L.R - 0.5) / 0.5), 1.3);
-          const w = borne(melange(0.18, 1.0, prof) * melange(0.55, 1.0, k) * melange(0.5, 1.12, soleilK) * sp.teinte + entre(-0.05, 0.05));
-          const c = [melange(0.24, 0.92, w) * sp.chaud, melange(0.30, 0.9, w), melange(0.24, 0.76, w) * (2 - sp.chaud)];
+          /* plafond de clarté à l'albédo d'une feuille d'olivier (0.6) : sous
+             le soleil à 1.45, le ciel et les lampes, puis le tonemapping, une
+             touffe à 0.92 brûlait en blanc (le « halo carton ») */
+          const w = borne(melange(0.18, 1.0, prof) * melange(0.55, 1.0, k) * melange(0.5, 1.04, soleilK) * sp.teinte + entre(-0.05, 0.05));
+          const c = [melange(0.2, 0.6, w) * sp.chaud, melange(0.26, 0.62, w), melange(0.2, 0.5, w) * (2 - sp.chaud)];
           touffes.push({ p: p, n: nrm, s: taille * e * entre(0.8, 1.3), c: c });
           cime.x += p.x; cime.y += p.y; cime.z += p.z; cime.n++;
         }
@@ -780,50 +742,116 @@ window.MB_FORMES = (function () {
     });
 
     /* ================================================================== */
-    /*  4. Le sol : le grand terrain (texture à 23 mm par pixel, avec les  */
-    /*  ombres longues des arbres), la prairie fine autour du belvédère,   */
-    /*  et le dallage sous la table                                        */
+    /*  4. Le sol : le grand terrain (texture à 47 mm par pixel, avec les  */
+    /*  ombres longues des arbres), la prairie fine (5 mm par pixel)       */
+    /*  ombres longues des arbres) et la prairie fine autour de la table,  */
+    /*  qui porte l'ombre de la table et l'herbe tassée sous ses pieds.    */
+    /*  La table repose directement sur la prairie, au pied de l'olivier. */
+    /*  Le sol ne reçoit pas l'ombre calculée : toutes ses ombres sont     */
+    /*  peintes ici, dans l'axe du soleil (SOL_DIR).                       */
     /* ================================================================== */
-    /* les ombres portées des arbres et l'ombre au pied, dans l'axe du soleil */
+    /* les ombres portées des arbres et l'ombre au pied, dans l'axe du soleil.
+       Chaque couronne est une ellipse étirée dans l'axe du soleil, à
+       laquelle s'ajoutent quelques lobes décalés : un contour irrégulier,
+       comme une frondaison, et non un disque. Les décalages sont tirés
+       une fois par arbre, en millimètres, pour que texSol et texPrairie
+       dessinent exactement la même ombre. */
+    arbres.forEach(function (a, i) {
+      const R = Alea(1000 + i), lobes = [];
+      for (let k = 0; k < 6; k++) { const th = R() * 6.28, d = 0.35 + R() * 0.55; lobes.push({ dx: Math.cos(th) * d, dz: Math.sin(th) * d, r: 0.45 + R() * 0.3 }); }
+      a.lobesOmbre = lobes;
+    });
     function peindreOmbres(g, px, kPx, force) {
       const ang = Math.atan2(-OMBRE_DZ, OMBRE_DX), etire = 1 / Math.sin(41 * RAD);
       arbres.forEach(function (a) {
         const p0 = px(a.x, a.z);
-        if (!a.ombreReelle) {
-          const hc = a.cime.y - a.y, cx = a.cime.x + OMBRE_DX * hc, cz = a.cime.z + OMBRE_DZ * hc, r = a.rayon * 1.05;
-          const p = px(cx, cz), rp = r * kPx;
-          g.strokeStyle = 'rgba(44,40,26,' + 0.42 * force + ')'; g.lineWidth = 240 * a.echelle * kPx; g.lineCap = 'round';
-          g.beginPath(); g.moveTo(p0.x, p0.y); g.lineTo(p.x, p.y); g.stroke();
-          g.save(); g.translate(p.x, p.y); g.rotate(ang); g.scale(etire, 1);
-          const grd = g.createRadialGradient(0, 0, rp * 0.2, 0, 0, rp);
-          grd.addColorStop(0, 'rgba(44,40,26,' + 0.5 * force + ')'); grd.addColorStop(0.7, 'rgba(44,40,26,' + 0.42 * force + ')'); grd.addColorStop(1, 'rgba(44,40,26,0)');
-          g.fillStyle = grd; g.fillRect(-rp, -rp, 2 * rp, 2 * rp); g.restore();
-        }
+        const hc = a.cime.y - a.y, cx = a.cime.x + OMBRE_DX * hc, cz = a.cime.z + OMBRE_DZ * hc, r = a.rayon * 1.05;
+        const p = px(cx, cz), rp = r * kPx;
+        g.strokeStyle = 'rgba(44,40,26,' + 0.42 * force + ')'; g.lineWidth = 240 * a.echelle * kPx; g.lineCap = 'round';
+        g.beginPath(); g.moveTo(p0.x, p0.y); g.lineTo(p.x, p.y); g.stroke();
+        g.save(); g.translate(p.x, p.y); g.rotate(ang); g.scale(etire, 1);
+        const grd = g.createRadialGradient(0, 0, rp * 0.2, 0, 0, rp);
+        grd.addColorStop(0, 'rgba(44,40,26,' + 0.5 * force + ')'); grd.addColorStop(0.7, 'rgba(44,40,26,' + 0.42 * force + ')'); grd.addColorStop(1, 'rgba(44,40,26,0)');
+        g.fillStyle = grd; g.fillRect(-rp, -rp, 2 * rp, 2 * rp);
+        a.lobesOmbre.forEach(function (L) {
+          const lx = L.dx * rp, ly = L.dz * rp, lr = L.r * rp;
+          const gl = g.createRadialGradient(lx, ly, lr * 0.3, lx, ly, lr);
+          gl.addColorStop(0, 'rgba(44,40,26,' + 0.3 * force + ')'); gl.addColorStop(1, 'rgba(44,40,26,0)');
+          g.fillStyle = gl; g.fillRect(lx - lr, ly - lr, 2 * lr, 2 * lr);
+        });
+        g.restore();
         const ra = 640 * a.echelle * kPx;
         const gp = g.createRadialGradient(p0.x, p0.y, 1, p0.x, p0.y, ra);
         gp.addColorStop(0, 'rgba(46,40,28,0.5)'); gp.addColorStop(0.35, 'rgba(46,40,28,0.3)'); gp.addColorStop(1, 'rgba(46,40,28,0)');
         g.fillStyle = gp; g.fillRect(p0.x - ra, p0.y - ra, 2 * ra, 2 * ra);
       });
     }
-    const SOL_W = 48000, kSol = 2048 / SOL_W;
+    /* l'ombre de la table sur l'herbe : le plateau (1,80 × 0,53 m, à 73 cm
+       du sol) et ses deux pieds, projetés dans l'axe du soleil ; dessinée
+       d'abord opaque sur une toile à part, puis posée en une fois avec une
+       petite pénombre, pour que plateau et pieds ne se superposent pas */
+    const Y_SOL = -750, TABLE_H = -o.BOITE.paroi - TABLE.E / 2 - Y_SOL;    // hauteur du milieu du plateau au-dessus du sol
+    function peindreOmbreTable(g, px, kPx, W, H) {
+      const c = document.createElement('canvas'); c.width = W; c.height = H;
+      const o2 = c.getContext('2d');
+      function rectAuSol(x0, z0, x1, z1, h) {
+        const a = px(x0 + OMBRE_DX * h, z0 + OMBRE_DZ * h), b = px(x1 + OMBRE_DX * h, z1 + OMBRE_DZ * h);
+        o2.fillRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+      }
+      o2.fillStyle = '#000';
+      rectAuSol(-TABLE.L / 2, TABLE.z - TABLE.P / 2, TABLE.L / 2, TABLE.z + TABLE.P / 2, TABLE_H);
+      [-640, 640].forEach(function (x) { for (let k = 0; k <= 40; k++) rectAuSol(x - 35, TABLE.z - 200, x + 35, TABLE.z + 200, TABLE_H * k / 40); });
+      g.save();
+      g.globalAlpha = 0.36; g.drawImage(c, 0, 0);
+      const pen = Math.max(1, 12 * kPx);
+      g.globalAlpha = 0.06;
+      [[pen, 0], [-pen, 0], [0, pen], [0, -pen], [pen, pen], [-pen, -pen]].forEach(function (d) { g.drawImage(c, d[0], d[1]); });
+      g.restore();
+    }
+    /* l'herbe tassée sous la table : une plage plus rase, un peu plus sombre
+       et plus terreuse, sans bord (dégradés seulement), avec des brins couchés
+       et deux ronds de terre nue au pied des lames de marbre */
+    function peindreHerbeTassee(g, px, kPx, R) {
+      const c = px(0, TABLE.z), rx = 1250 * kPx, rz = 560 * kPx;
+      g.save(); g.translate(c.x, c.y); g.scale(1, rz / rx);
+      let gr = g.createRadialGradient(0, 0, rx * 0.1, 0, 0, rx);
+      gr.addColorStop(0, 'rgba(92,86,58,0.42)'); gr.addColorStop(0.55, 'rgba(96,90,60,0.26)'); gr.addColorStop(1, 'rgba(96,90,60,0)');
+      g.fillStyle = gr; g.fillRect(-rx, -rx, 2 * rx, 2 * rx);
+      g.restore();
+      /* des brins courts, presque couchés, dans la plage tassée */
+      g.lineCap = 'round';
+      for (let i = 0; i < 6000; i++) {
+        const u = (R() - 0.5) * 2, v = (R() - 0.5) * 2;
+        if (u * u + v * v > 1) continue;
+        const x = c.x + u * rx, y = c.y + v * rz, l = (3 + R() * 5) * kPx / 0.2, a = (R() - 0.5) * 2.4 + (R() < 0.5 ? 0 : Math.PI);
+        g.strokeStyle = R() < 0.5 ? 'rgba(112,106,72,0.5)' : 'rgba(84,82,54,0.45)'; g.lineWidth = 0.8 + R() * 1.2;
+        g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l * 0.6); g.stroke();
+      }
+      [-640, 640].forEach(function (x) {
+        const p = px(x, TABLE.z), r = 210 * kPx;
+        const gt = g.createRadialGradient(p.x, p.y, 2, p.x, p.y, r);
+        gt.addColorStop(0, 'rgba(128,110,80,0.5)'); gt.addColorStop(0.5, 'rgba(120,104,76,0.28)'); gt.addColorStop(1, 'rgba(120,104,76,0)');
+        g.fillStyle = gt; g.fillRect(p.x - r, p.y - r, 2 * r, 2 * r);
+      });
+    }
+    const SOL_W = 48000, SOL_PX = 1024, kSol = SOL_PX / SOL_W;
     function solPx(x, z) { return { x: (x + SOL_W / 2) * kSol, y: (SOL_W / 2 - z) * kSol }; }
-    const texSol = o.toile(2048, 2048, function (g, W, H) {
+    const texSol = o.toile(SOL_PX, SOL_PX, function (g, W, H) {
       const R = Alea(61);
-      g.fillStyle = '#a99e7b'; g.fillRect(0, 0, W, H);
-      taches(g, W, H, 600, 20, 120, ['rgba(140,135,88,A)', 'rgba(190,178,132,A)', 'rgba(150,146,98,A)', 'rgba(112,118,80,A)', 'rgba(178,164,116,A)', 'rgba(128,122,86,A)'], 0.32, R);
-      taches(g, W, H, 160, 120, 420, ['rgba(128,132,84,A)', 'rgba(198,184,128,A)', 'rgba(150,140,92,A)', 'rgba(160,140,100,A)'], 0.22, R);
-      grainHerbe(g, W, H, 28000, 4, 0.45, R);
-      /* la terrasse et le pied du belvédère, un peu plus verts (l'herbe y garde l'eau) */
-      g.save(); g.translate(W / 2, H / 2); g.scale(1, AZ / AX);
-      const anneau = g.createRadialGradient(0, 0, 2.9 * AX * kSol, 0, 0, 3.7 * AX * kSol);
-      anneau.addColorStop(0, 'rgba(140,146,92,0)'); anneau.addColorStop(0.5, 'rgba(140,146,92,0.28)'); anneau.addColorStop(1, 'rgba(140,146,92,0)');
-      g.fillStyle = anneau; g.fillRect(-W, -H, 2 * W, 2 * H); g.restore();
+      fondHerbe(g, W, H, R, 1 / kSol);
+      /* le verger, plus bas : des plages d'herbe plus verte et de terre
+         entre les rangs, à l'échelle de quelques mètres */
+      taches(g, W, H, 900, 40, 140, ['rgba(92,108,60,A)', 'rgba(150,130,92,A)', 'rgba(120,128,76,A)'], 0.26, R);
+      grainHerbe(g, W, H, 16000, 3, 0.5, R);
       peindreOmbres(g, solPx, kSol, 1);
+      peindreOmbreTable(g, solPx, kSol, W, H);
     });
     texSol.anisotropy = 8;
 
-    /* -- le maillage du terrain : polaire, fin près de la table, large au loin */
-    const NA = 96, NR = 84, R_MAX = 36500;
+    /* -- le maillage du terrain : polaire, fin près de la table, large au loin
+          (35 m : il reste sous le dôme de ciel de 37 m, même en z où il est
+          étiré de AZ/AX) */
+    const NA = 96, NR = 84, R_MAX = 35000;
     const terrainPos = [], terrainUv = [], terrainIdx = [];
     terrainPos.push(0, hauteur(0, ZC), ZC); terrainUv.push(0.5, 0.5);
     for (let i = 1; i <= NR; i++) {
@@ -843,25 +871,25 @@ window.MB_FORMES = (function () {
     geoTerrain.setAttribute('position', new T.Float32BufferAttribute(terrainPos, 3));
     geoTerrain.setAttribute('uv', new T.Float32BufferAttribute(terrainUv, 2));
     geoTerrain.setIndex(terrainIdx); geoTerrain.computeVertexNormals();
-    const matSol = new T.MeshStandardMaterial({ map: texSol, color: 0xe6e0d2, roughness: 0.95, metalness: 0, envMapIntensity: 0.15 });
+    const COULEUR_SOL = 0xd0d2c4;                                          // un gris légèrement froid, pour ne pas rejaunir l'herbe
+    const matSol = new T.MeshStandardMaterial({ map: texSol, color: COULEUR_SOL, roughness: 0.95, metalness: 0, envMapIntensity: 0.15 });
     const terrain = new T.Mesh(geoTerrain, matSol);
-    terrain.receiveShadow = true; terrain.name = 'terrain';
+    terrain.receiveShadow = false; terrain.name = 'terrain';
     s.add(terrain);
 
-    /* -- la prairie fine : mêmes sommets que le terrain jusqu'à 3,5 m, une
-          texture à 3,5 mm par pixel qui s'efface sur les bords */
-    const PR_SPAN = 10400, NR_PR = 28, kPr = 2048 / PR_SPAN;
+    /* -- la prairie fine : mêmes sommets que le terrain jusqu'à 5 m, une
+          texture à 5 mm par pixel qui se dissout dans le terrain dès la
+          moitié de son rayon, sans dessiner d'ellipse */
+    const PR_SPAN = 10400, NR_PR = 29, kPr = 2048 / PR_SPAN;
     function prPx(x, z) { return { x: (x + PR_SPAN / 2) * kPr, y: (PR_SPAN / 2 - (z - ZC)) * kPr }; }
     const texPrairie = o.toile(2048, 2048, function (g, W, H) {
       const R = Alea(71);
-      g.fillStyle = '#a89c6e'; g.fillRect(0, 0, W, H);
-      taches(g, W, H, 60, 160, 420, ['rgba(120,124,78,A)', 'rgba(150,132,90,A)', 'rgba(132,136,86,A)'], 0.4, R);
-      taches(g, W, H, 260, 50, 260, ['rgba(140,135,88,A)', 'rgba(196,182,134,A)', 'rgba(156,150,98,A)', 'rgba(118,122,84,A)', 'rgba(160,138,98,A)', 'rgba(184,168,120,A)'], 0.34, R);
+      fondHerbe(g, W, H, R, 1 / kPr);
       /* des plages de terre nue, avec quelques cailloux */
       for (let i = 0; i < 14; i++) {
         const x = R() * W, y = R() * H, r = 40 + R() * 90;
         const c = g.createRadialGradient(x, y, 2, x, y, r);
-        c.addColorStop(0, 'rgba(150,130,96,0.75)'); c.addColorStop(0.6, 'rgba(150,130,96,0.45)'); c.addColorStop(1, 'rgba(150,130,96,0)');
+        c.addColorStop(0, 'rgba(140,122,90,0.7)'); c.addColorStop(0.6, 'rgba(140,122,90,0.4)'); c.addColorStop(1, 'rgba(140,122,90,0)');
         g.fillStyle = c; g.fillRect(x - r, y - r, 2 * r, 2 * r);
         for (let k = 0; k < 10; k++) {
           const qx = x + (R() - 0.5) * r * 1.2, qy = y + (R() - 0.5) * r * 1.2, rq = 1 + R() * 2.2;
@@ -869,19 +897,24 @@ window.MB_FORMES = (function () {
           g.fillStyle = 'rgba(40,35,28,0.35)'; g.beginPath(); g.ellipse(qx + 0.8, qy + 1, rq, rq * 0.45, 0, 0, 6.29); g.fill();
         }
       }
-      grainHerbe(g, W, H, 60000, 7, 0.55, R);
-      grainHerbe(g, W, H, 20000, 4, 0.4, R);
+      /* les brins : 4 à 7 cm, fins, moitié sombres moitié clairs, lisibles à
+         un mètre sans se lire comme des traits */
+      grainHerbe(g, W, H, 30000, 11, 0.42, R);
+      grainHerbe(g, W, H, 12000, 6, 0.36, R);
       g.lineCap = 'round';
-      for (let i = 0; i < 12000; i++) {
-        const x = R() * W, y = R() * H, l = 3 + R() * 6, a = -Math.PI / 2 + (R() - 0.5) * 1.4;
-        g.strokeStyle = R() < 0.5 ? 'rgba(126,138,84,0.5)' : 'rgba(150,158,96,0.45)'; g.lineWidth = 1;
+      for (let i = 0; i < 6000; i++) {
+        const x = R() * W, y = R() * H, l = 4 + R() * 6, a = -Math.PI / 2 + (R() - 0.5) * 1.4;
+        g.strokeStyle = R() < 0.5 ? 'rgba(112,128,74,0.5)' : 'rgba(140,150,90,0.4)'; g.lineWidth = 0.9;
         g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke();
       }
-      fleurs(g, W, H, 36, 60, R);
-      peindreOmbres(g, prPx, kPr, 0.9);
-      /* le bord s'efface, en ellipse comme le maillage */
+      fleurs(g, W, H, 16, 60, R);
+      peindreHerbeTassee(g, prPx, kPr, R);
+      peindreOmbres(g, prPx, kPr, 1);
+      peindreOmbreTable(g, prPx, kPr, W, H);
+      /* le bord se dissout dans le terrain, en ellipse comme le maillage,
+         de la moitié du rayon jusqu'au bord : pas de contour lisible */
       const fondu = g.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, W / 2);
-      fondu.addColorStop(0, 'rgba(0,0,0,1)'); fondu.addColorStop(0.74, 'rgba(0,0,0,1)'); fondu.addColorStop(0.95, 'rgba(0,0,0,0)'); fondu.addColorStop(1, 'rgba(0,0,0,0)');
+      fondu.addColorStop(0, 'rgba(0,0,0,1)'); fondu.addColorStop(0.45, 'rgba(0,0,0,1)'); fondu.addColorStop(0.95, 'rgba(0,0,0,0)'); fondu.addColorStop(1, 'rgba(0,0,0,0)');
       g.globalCompositeOperation = 'destination-in';
       g.save(); g.translate(W / 2, H / 2); g.scale(1, AZ / AX); g.translate(-W / 2, -H / 2); g.fillStyle = fondu; g.fillRect(0, 0, W, H); g.restore();
       g.globalCompositeOperation = 'source-over';
@@ -907,18 +940,8 @@ window.MB_FORMES = (function () {
       g.setAttribute('position', new T.Float32BufferAttribute(pos, 3));
       g.setAttribute('uv', new T.Float32BufferAttribute(uv, 2));
       g.setIndex(idx); g.computeVertexNormals();
-      const m = new T.Mesh(g, new T.MeshStandardMaterial({ map: texPrairie, color: 0xe6e0d2, roughness: 0.95, metalness: 0, envMapIntensity: 0.15, transparent: true, depthWrite: true, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }));
-      m.receiveShadow = true; m.renderOrder = 1; m.name = 'prairie';
-      s.add(m);
-    }
-
-    /* -- le dallage, à plat sur le belvédère */
-    {
-      const geo = new T.PlaneGeometry(DAL.span, DAL.span);
-      const mat = new T.MeshStandardMaterial({ map: texDallage.map, color: 0xd6d2ca, normalMap: texDallage.normale, normalScale: new T.Vector2(0.8, 0.8), roughness: 0.82, metalness: 0, envMapIntensity: 0.18, alphaTest: 0.5, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 });
-      const m = new T.Mesh(geo, mat);
-      m.rotation.x = -Math.PI / 2; m.position.set(0, -750 + 4, ZC);
-      m.receiveShadow = true; m.renderOrder = 1; m.name = 'dallage';
+      const m = new T.Mesh(g, new T.MeshStandardMaterial({ map: texPrairie, color: COULEUR_SOL, roughness: 0.95, metalness: 0, envMapIntensity: 0.15, transparent: true, depthWrite: true, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }));
+      m.receiveShadow = false; m.renderOrder = 1; m.name = 'prairie';
       s.add(m);
     }
 
@@ -929,8 +952,9 @@ window.MB_FORMES = (function () {
     const ciel = new T.Mesh(new T.SphereGeometry(37000, 48, 24), new T.MeshBasicMaterial({ map: texCiel, side: T.BackSide, fog: false }));
     ciel.material.toneMapped = false; ciel.position.set(0, 0, 0); ciel.name = 'ciel';
     s.add(ciel);
-    /* la brume : rien à 3 m, un quart à 12 m, moitié à 20 m, l'horizon fondu */
-    s.fog = new T.FogExp2(BRUME_HEX, 4.2e-5);
+    /* la brume : rien à 3 m, un cinquième à 10 m, six dixièmes à 20 m : les
+       rangs lointains se fondent en couches, l'horizon est fondu */
+    s.fog = new T.FogExp2(BRUME_HEX, 4.7e-5);
 
     /* ================================================================== */
     /*  6. Les troncs et les feuillages                                    */
@@ -942,8 +966,11 @@ window.MB_FORMES = (function () {
       g.setIndex(t.idx); g.computeVertexNormals();
       return g;
     }
-    const matEcorce = new T.MeshStandardMaterial({ map: texEcorce.map, normalMap: texEcorce.normale, normalScale: new T.Vector2(1.1, 1.1), roughness: 0.94, metalness: 0, envMapIntensity: 0.1 });
-    const matEcorceLoin = new T.MeshStandardMaterial({ color: 0x776f64, roughness: 1, metalness: 0, envMapIntensity: 0 });
+    const matEcorce = new T.MeshStandardMaterial({ map: texEcorce.map, normalMap: texEcorce.normale, normalScale: new T.Vector2(1.6, 1.6), roughness: 0.94, metalness: 0, envMapIntensity: 0.1 });
+    /* les troncs lointains sont à contre-jour : une silhouette sombre que la
+       brume pâlit ; en gris clair, les lampes de face en faisaient une masse
+       beige-blanc au bord du cadre */
+    const matEcorceLoin = new T.MeshStandardMaterial({ color: 0x4a453e, roughness: 1, metalness: 0, envMapIntensity: 0 });
     [[troncOmbre, matEcorce, true, 'troncOmbre'], [troncProche, matEcorce, false, 'troncProche'], [troncAnneau, matEcorce, false, 'troncAnneau'], [troncLoin, matEcorceLoin, false, 'troncLoin']].forEach(function (d) {
       if (!d[0].pos.length) return;
       const m = new T.Mesh(geoDepuis(d[0]), d[1]); m.castShadow = d[2]; m.receiveShadow = d[2]; m.name = d[3]; s.add(m);
@@ -951,7 +978,8 @@ window.MB_FORMES = (function () {
 
     /* la carte de feuilles : deux quads croisés, centrés ; la variante k
        prend deux bouquets différents de l'atlas 2 × 2 */
-    function geoCarte(k, atlas) {
+    function geoCarte(k) {
+      const atlas = true;
       const pos = [-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0, 0, -0.5, -0.5, 0, -0.5, 0.5, 0, 0.5, 0.5, 0, 0.5, -0.5];
       const nrm = [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0];
       const uv = [];
@@ -966,20 +994,20 @@ window.MB_FORMES = (function () {
       g.setIndex([0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7]);
       return g;
     }
-    const cartes = [0, 1, 2, 3].map(function (k) { return geoCarte(k, true); }), carteLoin = geoCarte(0, false);
-    function feuillage(liste, tex, nom, ombre, alphaTest, variantes) {
+    const cartes = [0, 1, 2, 3].map(function (k) { return geoCarte(k, true); });
+    function feuillage(liste, tex, nom, ombre, alphaTest) {
       if (!liste.length) return;
       /* Lambert : sur un quad à normale constante, l'éclairage par sommet
          vaut l'éclairage par pixel, pour une fraction du coût */
-      const mat = new T.MeshLambertMaterial({ map: tex, alphaTest: alphaTest, side: T.DoubleSide, emissive: 0x1c2416, emissiveIntensity: 0.12 });
+      const mat = new T.MeshLambertMaterial({ map: tex, alphaTest: alphaTest, side: T.DoubleSide, emissive: 0x1c2416, emissiveIntensity: 0.05 });
       mat.name = 'feuilles';
-      const nV = variantes ? 4 : 1, groupes = [];
+      const nV = 4, groupes = [];
       for (let v = 0; v < nV; v++) groupes.push([]);
       liste.forEach(function (f, i) { groupes[i % nV].push(f); });
       const M = new T.Matrix4(), X = new T.Vector3(), Y = new T.Vector3(), Z = new T.Vector3(), up = new T.Vector3(), col = new T.Color();
       groupes.forEach(function (gr, v) {
         if (!gr.length) return;
-        const im = new T.InstancedMesh(variantes ? cartes[v] : carteLoin, mat, gr.length);
+        const im = new T.InstancedMesh(cartes[v], mat, gr.length);
         gr.forEach(function (f, i) {
           Z.copy(f.n);
           const roll = alea() * 6.28;
@@ -997,10 +1025,12 @@ window.MB_FORMES = (function () {
         s.add(im);
       });
     }
-    feuillage(touffesOmbre, texFeuilles, 'feuillageOmbre', true, 0.5, true);
-    feuillage(touffesProche, texFeuilles, 'feuillageProche', false, 0.5, true);
-    feuillage(touffesAnneau, texFeuilles, 'feuillageAnneau', false, 0.45, true);
-    feuillage(touffesLoin, texFeuillesLoin, 'feuillageLoin', false, 0.4, false);
+    feuillage(touffesOmbre, texFeuilles, 'feuillageOmbre', true, 0.5);
+    feuillage(touffesProche, texFeuilles, 'feuillageProche', false, 0.5);
+    feuillage(touffesAnneau, texFeuilles, 'feuillageAnneau', false, 0.45);
+    /* les arbres lointains tirent du même atlas que les autres : quatre
+       bouquets différents, et non un seul répété en papier peint */
+    feuillage(touffesLoin, texFeuilles, 'feuillageLoin', false, 0.4);
 
     /* ================================================================== */
     /*  7. Le mur de pierres sèches, au bord de la terrasse, avec son      */
