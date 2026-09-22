@@ -250,109 +250,189 @@
     r.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     r.outputEncoding = T.sRGBEncoding;
     r.toneMapping = T.ACESFilmicToneMapping;
-    r.toneMappingExposure = 1.0;
+    r.toneMappingExposure = 0.96;
     r.shadowMap.enabled = true;
     r.shadowMap.type = T.PCFSoftShadowMap;
     this.r = r;
     const s = new T.Scene(); this.s = s;
 
-    /* le studio : sombre, avec trois boîtes à lumière — c'est lui qui fait les reflets du verre */
+    /* le studio : sombre, avec trois boîtes à lumière — c'est lui qui fait les
+       reflets du verre, et les longs reflets blancs sur le marbre */
     const env = toile(1024, 512, function (g) {
       const grad = g.createLinearGradient(0, 0, 0, 512);
       grad.addColorStop(0, '#2b2926'); grad.addColorStop(0.45, '#171614'); grad.addColorStop(0.62, '#0e0d0c'); grad.addColorStop(1, '#1b1917');
       g.fillStyle = grad; g.fillRect(0, 0, 1024, 512);
-      function boite(x, y, rx, ry, force) {
+      function tache(x, y, rx, ry, force) {
         const b = g.createRadialGradient(x, y, 2, x, y, Math.max(rx, ry));
-        b.addColorStop(0, 'rgba(255,252,246,' + force + ')'); b.addColorStop(0.55, 'rgba(255,250,240,' + (force * 0.45) + ')'); b.addColorStop(1, 'rgba(255,250,240,0)');
+        b.addColorStop(0, 'rgba(255,252,244,' + force + ')'); b.addColorStop(0.5, 'rgba(255,250,238,' + (force * 0.45) + ')'); b.addColorStop(1, 'rgba(255,250,238,0)');
         g.save(); g.translate(x, y); g.scale(rx / Math.max(rx, ry), ry / Math.max(rx, ry)); g.translate(-x, -y);
         g.fillStyle = b; g.fillRect(x - rx * 2, y - ry * 2, rx * 4, ry * 4); g.restore();
       }
-      boite(250, 200, 110, 210, 1.0); boite(760, 215, 42, 190, 0.95); boite(512, 40, 420, 70, 0.55);
+      tache(250, 200, 110, 210, 1.0); tache(760, 215, 42, 190, 0.95); tache(512, 40, 420, 70, 0.55);
     });
     env.mapping = T.EquirectangularReflectionMapping;
     const pm = new T.PMREMGenerator(r); pm.compileEquirectangularShader();
     s.environment = pm.fromEquirectangular(env).texture;
 
-    s.add(new T.HemisphereLight(0xfff6e8, 0x4a423a, 0.24));
-    const cle = new T.DirectionalLight(0xfff3e0, 1.3);
-    cle.position.set(-260, 560, 380); cle.castShadow = true;
+    s.add(new T.HemisphereLight(0xdfe8f2, 0xcfc4b0, 0.3));
+    const cle = new T.DirectionalLight(0xfff0d8, 1.35);
+    cle.position.set(-380, 500, -430); cle.castShadow = true;
     cle.shadow.mapSize.set(2048, 2048);
-    cle.shadow.camera.near = 200; cle.shadow.camera.far = 1400;
-    cle.shadow.camera.left = -320; cle.shadow.camera.right = 320; cle.shadow.camera.top = 320; cle.shadow.camera.bottom = -320;
-    cle.shadow.bias = -0.0004; cle.shadow.normalBias = 1.5; cle.shadow.radius = 4;
+    cle.shadow.camera.near = 200; cle.shadow.camera.far = 1600;
+    cle.shadow.camera.left = -620; cle.shadow.camera.right = 620; cle.shadow.camera.top = 620; cle.shadow.camera.bottom = -620;
+    cle.shadow.bias = -0.0004; cle.shadow.normalBias = 1.5; cle.shadow.radius = 2;
     s.add(cle);
-    const rimG = new T.DirectionalLight(0xfff8ec, 0.9); rimG.position.set(-620, 300, -300); s.add(rimG);
-    const rimD = new T.DirectionalLight(0xf6eedd, 0.7); rimD.position.set(600, 240, -320); s.add(rimD);
-    const face = new T.DirectionalLight(0xfff6ea, 0.5); face.position.set(180, 520, 760); s.add(face);
+    const rimG = new T.DirectionalLight(0xfff8ec, 0.5); rimG.position.set(-620, 300, -300); s.add(rimG);
+    const rimD = new T.DirectionalLight(0xf6eedd, 0.45); rimD.position.set(600, 240, -320); s.add(rimD);
+    const face = new T.DirectionalLight(0xfff6ea, 0.35); face.position.set(180, 520, 760); s.add(face);
 
     this.construireDecor();
     this.construireBoite();
     this.construireSoie();
 
-    const cam = new T.PerspectiveCamera(24, 1, 50, 12000); this.cam = cam;
+    const cam = new T.PerspectiveCamera(24, 1, 50, 40000); this.cam = cam;
     this.placerCamera();
     this.redimensionner();
   };
 
-  /* Le décor : une table de bois dans l'oliveraie, au soir. La boîte est posée
-     sur la table ; derrière, l'oliveraie est un cylindre qui entoure la scène
-     et reste flou, comme un arrière-plan photographié à grande ouverture. */
+  /* Le décor : la boîte au pied d'un olivier, sur une table de marbre blanc
+     poli. Le marbre reçoit l'ombre franche du soleil et renvoie le reflet de
+     la boîte ; l'olivier est derrière, un peu flou, comme à grande ouverture. */
   Composeur.prototype.construireDecor = function () {
     const s = this.s, moi = this, d = this.donnees.decor || {};
-    const chargeur = new T.TextureLoader();
-    chargeur.setCrossOrigin('anonymous');
-    function charge(url, srgb, regle) {
-      if (!url) return null;
-      const t = chargeur.load(url, function () { moi.redessine(); });
-      if (srgb) t.encoding = T.sRGBEncoding;
-      t.anisotropy = 8;
-      if (regle) regle(t);
-      return t;
-    }
-    function planche(t, rx, ry) {
-      if (!t) return null;
-      t.wrapS = t.wrapT = T.RepeatWrapping;
-      t.repeat.set(rx, ry);
-      t.rotation = Math.PI / 2; t.center.set(0.5, 0.5);
-      return t;
-    }
+    const TABLE = { L: 1800, P: 530, E: 30, z: 65 };
+    this.table = TABLE;
 
-    /* la table : 1,80 m sur 1,10 m, plateau de 45 mm ; la boîte pose sur le
-       plateau exactement là où elle posait sur le sol d'avant */
-    const TABLE = { L: 1800, P: 530, E: 45, z: 65 };
-    const dessus = { map: planche(charge(d.bois, true), 1.8, 1.1), normalMap: planche(charge(d.boisNormale, false), 1.8, 1.1), roughnessMap: planche(charge(d.boisRugosite, false), 1.8, 1.1) };
-    const chant = { map: planche(charge(d.bois, true), 0.045, 1.8), normalMap: planche(charge(d.boisNormale, false), 0.045, 1.8), roughnessMap: planche(charge(d.boisRugosite, false), 0.045, 1.8) };
-    function bois(t) {
-      const m = new T.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, metalness: 0, envMapIntensity: 0.3 });
-      if (t.map) { m.map = t.map; m.normalMap = t.normalMap; m.roughnessMap = t.roughnessMap; m.normalScale = new T.Vector2(0.55, 0.55); }
-      else m.color.set(0xa08a6c);
-      return m;
-    }
-    const table = new T.Mesh(new T.BoxGeometry(TABLE.L, TABLE.E, TABLE.P), [bois(chant), bois(chant), bois(dessus), bois(dessus), bois(chant), bois(chant)]);
+    const marbre = new T.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.14, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.06, envMapIntensity: 0.45 });
+    const chant = new T.MeshPhysicalMaterial({ color: 0xf1ede5, roughness: 0.28, metalness: 0, clearcoat: 0.5, clearcoatRoughness: 0.2, envMapIntensity: 0.5 });
+    const table = new T.Mesh(new T.BoxGeometry(TABLE.L, TABLE.E, TABLE.P), [chant, chant, marbre, chant, chant, chant]);
     table.position.set(0, -BOITE.paroi - TABLE.E / 2, TABLE.z);
-    table.receiveShadow = true; table.castShadow = false;
-    s.add(table);
+    table.receiveShadow = true; s.add(table);
+    if (d.marbre) this.plateauMarbre(d.marbre, TABLE, marbre);
+    this.miroir = this.creerMiroir(TABLE);
 
-    /* l'oliveraie : un cylindre de 2,5 m de rayon autour de la table. La caméra
-       regarde la boîte de haut, donc l'oliveraie doit être en contrebas pour
-       apparaître derrière la boîte : la table est sur une terrasse qui domine
-       les oliviers. Les cimes et les collines (rangées 250 à 540 de la photo) passent entre
-       0,9 m et 1,7 m sous la table, là où la vue de face les cadre. */
-    const pano = charge(d.oliveraie, true);
-    if (pano) {
-      const R = 2500, mmParPx = 2.9, HIMG = 1024 * mmParPx, EN_HAUT = 1.2, EN_BAS = 2.2;
-      const hautImg = -866 + 250 * mmParPx;
+    /* l'olivier : un cylindre de 4 m de rayon autour de la table. La caméra
+       regarde la boîte de haut, donc l'arbre doit être en contrebas pour
+       apparaître derrière la boîte : la table est sur une terrasse au-dessus
+       du pré. La vue de face cadre les rangées 380 à 800 de la photo, le bas
+       de la ramure, le tronc et le pré fleuri. */
+    if (d.oliveraie) {
+      const chargeur = new T.TextureLoader(); chargeur.setCrossOrigin('anonymous');
+      const pano = chargeur.load(d.oliveraie, function () { moi.redessine(); });
+      pano.encoding = T.sRGBEncoding; pano.anisotropy = 8;
+      const R = 4000, mmParPx = 2.9, HIMG = 1024 * mmParPx, EN_HAUT = 1.2, EN_BAS = 4.5;
+      const hautImg = -1598 + 380 * mmParPx;
       const H = HIMG * (1 + EN_HAUT + EN_BAS);
-      /* au-delà de l'image, le ciel et le sol prolongent leur dernière rangée,
-         assez loin pour que la vue de dessus ne voie jamais le bord du décor */
       pano.wrapT = T.ClampToEdgeWrapping;
       pano.repeat.set(1, 1 + EN_HAUT + EN_BAS); pano.offset.set(0, -EN_BAS);
       const cyl = new T.Mesh(new T.CylinderGeometry(R, R, H, 96, 1, true),
         new T.MeshBasicMaterial({ map: pano, side: T.BackSide, fog: false }));
       cyl.material.toneMapped = false;
       cyl.position.y = hautImg + EN_HAUT * HIMG - H / 2;
+      /* l'arbre du premier panneau (angle 45°) est tourné face à la vue par défaut (150°) */
+      cyl.rotation.y = 105 * RAD;
       s.add(cyl);
     }
+  };
+
+  /* Le plateau : le marbre est dessiné dans une toile à l'échelle de la table,
+     et l'ombre des feuilles de l'olivier vient s'y poser, légère, surtout vers
+     l'arrière et la gauche ; la boîte reste dans la tache de soleil. */
+  Composeur.prototype.plateauMarbre = function (url, TABLE, materiau) {
+    const moi = this;
+    const img = new Image(); img.crossOrigin = 'anonymous';
+    img.onload = function () {
+      const W = 2048, H = Math.round(W * TABLE.P / TABLE.L), pxParMm = W / TABLE.L, tuile = Math.round(1000 * pxParMm);
+      const t = toile(W, H, function (g) {
+        for (let x = 0; x < W; x += tuile) for (let y = 0; y < H; y += tuile) g.drawImage(img, x, y, tuile, tuile);
+        g.globalCompositeOperation = 'multiply';
+        let graine = 7;
+        function alea() { graine = (graine * 16807) % 2147483647; return graine / 2147483647; }
+        for (let i = 0; i < 420; i++) {
+          const u = alea(), v = alea();
+          /* densité : forte à gauche et au fond, nulle autour de la boîte */
+          const dx = (u - 0.5) * TABLE.L, dz = (v - 0.5) * TABLE.P;
+          const loin = Math.hypot(dx, dz * 1.6);
+          const poids = Math.min(1, Math.max(0, (loin - 330) / 420)) * (0.35 + 0.65 * (1 - u));
+          if (alea() > poids) continue;
+          const x = u * W, y = v * H, l = 70 + alea() * 70, e = 16 + alea() * 14, an = alea() * Math.PI;
+          g.save(); g.translate(x, y); g.rotate(an);
+          const grad = g.createRadialGradient(0, 0, 0, 0, 0, l);
+          const a = 0.26 + alea() * 0.2;
+          grad.addColorStop(0, 'rgba(96,92,84,' + a + ')'); grad.addColorStop(0.55, 'rgba(96,92,84,' + (a * 0.55) + ')'); grad.addColorStop(1, 'rgba(96,92,84,0)');
+          g.scale(1, e / l); g.fillStyle = grad; g.fillRect(-l, -l, 2 * l, 2 * l); g.restore();
+        }
+        /* la grande ombre de la ramure, dans le coin arrière gauche */
+        const om = g.createRadialGradient(W * 0.06, H * 0.1, 0, W * 0.06, H * 0.1, W * 0.5);
+        om.addColorStop(0, 'rgba(84,80,72,0.46)'); om.addColorStop(0.55, 'rgba(84,80,72,0.16)'); om.addColorStop(1, 'rgba(84,80,72,0)');
+        g.fillStyle = om; g.fillRect(0, 0, W, H);
+      });
+      t.anisotropy = 16;
+      materiau.map = t; materiau.needsUpdate = true;
+      moi.redessine();
+    };
+    img.src = url;
+  };
+
+  /* Le reflet : la scène est rendue une seconde fois depuis la caméra
+     symétrique par rapport au plateau, et ce rendu est posé sur le marbre
+     avec une transparence qui suit l'angle de vue, comme un vrai poli. */
+  Composeur.prototype.creerMiroir = function (TABLE) {
+    const moi = this, y0 = -BOITE.paroi + 0.25;
+    const rt = new T.WebGLRenderTarget(1024, 1024);
+    rt.texture.encoding = T.sRGBEncoding;
+    const mat = new T.ShaderMaterial({
+      uniforms: { tReflet: { value: rt.texture }, matriceTexture: { value: new T.Matrix4() }, force: { value: 0.62 } },
+      vertexShader: 'uniform mat4 matriceTexture; varying vec4 vUvR; varying vec3 vN; varying vec3 vV;' +
+        'void main(){ vec4 wp = modelMatrix * vec4(position, 1.0); vUvR = matriceTexture * wp;' +
+        ' vN = normalize(mat3(modelMatrix) * normal); vV = normalize(cameraPosition - wp.xyz);' +
+        ' gl_Position = projectionMatrix * viewMatrix * wp; }',
+      fragmentShader: 'uniform sampler2D tReflet; uniform float force; varying vec4 vUvR; varying vec3 vN; varying vec3 vV;' +
+        'void main(){ vec3 c = texture2DProj(tReflet, vUvR).rgb; float f = pow(1.0 - max(dot(vN, vV), 0.0), 3.0);' +
+        ' gl_FragColor = vec4(c, force * (0.3 + 0.7 * f)); }',
+      transparent: true, depthWrite: false
+    });
+    mat.toneMapped = false;
+    const plan = new T.Mesh(new T.PlaneGeometry(TABLE.L, TABLE.P), mat);
+    plan.rotation.x = -Math.PI / 2; plan.position.set(0, y0, TABLE.z); plan.renderOrder = 2;
+    this.s.add(plan);
+
+    const camV = new T.PerspectiveCamera(), normale = new T.Vector3(0, 1, 0), origine = new T.Vector3(0, y0, TABLE.z);
+    const posCam = new T.Vector3(), vue = new T.Vector3(), cible = new T.Vector3(), rot = new T.Matrix4(), regard = new T.Vector3();
+    const planClip = new T.Plane(), clip = new T.Vector4(), q = new T.Vector4();
+    return {
+      rendre: function (cam) {
+        posCam.setFromMatrixPosition(cam.matrixWorld);
+        vue.subVectors(origine, posCam);
+        if (vue.dot(normale) > 0) return;                  // caméra sous la table
+        vue.reflect(normale).negate().add(origine);
+        rot.extractRotation(cam.matrixWorld);
+        regard.set(0, 0, -1).applyMatrix4(rot).add(posCam);
+        cible.subVectors(origine, regard).reflect(normale).negate().add(origine);
+        camV.position.copy(vue);
+        camV.up.set(0, 1, 0).applyMatrix4(rot).reflect(normale);
+        camV.lookAt(cible);
+        camV.near = cam.near; camV.far = cam.far;
+        camV.updateMatrixWorld();
+        camV.projectionMatrix.copy(cam.projectionMatrix);
+        mat.uniforms.matriceTexture.value.set(0.5, 0, 0, 0.5, 0, 0.5, 0, 0.5, 0, 0, 0.5, 0.5, 0, 0, 0, 1)
+          .multiply(camV.projectionMatrix).multiply(camV.matrixWorldInverse);
+        /* plan de coupe oblique : rien de ce qui est sous le plateau n'entre dans le reflet */
+        planClip.setFromNormalAndCoplanarPoint(normale, origine).applyMatrix4(camV.matrixWorldInverse);
+        clip.set(planClip.normal.x, planClip.normal.y, planClip.normal.z, planClip.constant);
+        const pm = camV.projectionMatrix;
+        q.x = (Math.sign(clip.x) + pm.elements[8]) / pm.elements[0];
+        q.y = (Math.sign(clip.y) + pm.elements[9]) / pm.elements[5];
+        q.z = -1; q.w = (1 + pm.elements[10]) / pm.elements[14];
+        clip.multiplyScalar(2 / clip.dot(q));
+        pm.elements[2] = clip.x; pm.elements[6] = clip.y; pm.elements[10] = clip.z + 1 - 0.003; pm.elements[14] = clip.w;
+        plan.visible = false;
+        const r = moi.r;
+        r.setRenderTarget(rt); r.setClearColor(0xe6dfd0, 1); r.clear(); r.render(moi.s, camV);
+        r.setRenderTarget(null); r.setClearColor(0x000000, 0);
+        plan.visible = true;
+      }
+    };
   };
 
   Composeur.prototype.construireBoite = function () {
@@ -484,6 +564,8 @@
       moi.anims = moi.anims.filter(function (a) { const fini = a(t); return !fini; });
       if (moi.anims.length) encore = true;
       moi.placerCamera();
+      moi.cam.updateMatrixWorld();
+      if (moi.miroir) moi.miroir.rendre(moi.cam);
       moi.r.render(moi.s, moi.cam);
       if (encore) moi.redessine();
     });
