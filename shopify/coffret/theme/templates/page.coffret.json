@@ -5,7 +5,7 @@
       "settings": {
         "eyebrow": "Le coffret",
         "heading": "L'or liquide s'invite à votre table",
-        "text": "<p>Une boîte noire mate, signée d'un trait d'or. À l'intérieur, un papier de soie, une carte écrite à la main, et les flacons que vous aurez choisis : l'huile de Toscane, le balsamique de Modène, ou les deux. Vous composez, la boîte vous dit quand elle est pleine.</p>",
+        "text": "<p>Une boîte noire, mate, qu'un seul trait d'or vient signer. On la soulève, le couvercle se relève, et la phrase apparaît. Dessous, le papier de soie, une carte écrite à la main, et ce que vous aurez choisi d'y coucher : une huile de Toscane, un balsamique de Modène, ou les deux. À vous de composer. La boîte, elle, sait quand elle est pleine.</p>",
         "show_page_content": false,
         "background_color": "#f7efe4"
       }
@@ -13,39 +13,136 @@
     "composeur": {
       "type": "mb-coffret",
       "blocks": {
-        "piro": { "type": "article", "settings": { "product": "huile-dolive-extra-vierge-piro-olivastra-seggianese", "nom": "Huile d'olive Piro" } },
-        "cucino": { "type": "article", "settings": { "product": "cucino-by-piro-huile-dolive-de-cuisson", "nom": "Cucino by Piro" } },
-        "vivace": { "type": "article", "settings": { "product": "bonini-03-vivace-condiment-balsamique-3-ans", "nom": "Bonini 03 Vivace" } },
-        "gustoso": { "type": "article", "settings": { "product": "bonini-08-gustoso-condiment-balsamique-8-ans", "nom": "Bonini 08 Gustoso" } },
-        "affinato": { "type": "article", "settings": { "product": "bonini-12-affinato-condiment-balsamique-12-ans", "nom": "Bonini 12 Affinato" } },
-        "stravecchio": { "type": "article", "settings": { "product": "bonini-25-stravecchio-condiment-balsamique-25-ans", "nom": "Bonini 25 Stravecchio" } },
-        "riserva": { "type": "article", "settings": { "product": "bonini-50-riserva-condiment-balsamique-50-ans", "nom": "Bonini 50 Riserva" } },
-        "dop": { "type": "article", "settings": { "product": "aceto-balsamico-tradizionale-di-modena-dop-bonini", "nom": "Tradizionale DOP" } },
-        "collection": { "type": "article", "settings": { "product": "bonini-collection-degustation-verticale-5-17-ml", "nom": "Bonini Collection" } }
+        "piro": {
+          "type": "article",
+          "settings": {
+            "product": "huile-dolive-extra-vierge-piro-olivastra-seggianese",
+            "nom": "Huile d'olive Piro"
+          }
+        },
+        "cucino": {
+          "type": "article",
+          "settings": {
+            "product": "cucino-by-piro-huile-dolive-de-cuisson",
+            "nom": "Cucino by Piro"
+          }
+        },
+        "vivace": {
+          "type": "article",
+          "settings": {
+            "product": "bonini-03-vivace-condiment-balsamique-3-ans",
+            "nom": "Bonini 03 Vivace"
+          }
+        },
+        "gustoso": {
+          "type": "article",
+          "settings": {
+            "product": "bonini-08-gustoso-condiment-balsamique-8-ans",
+            "nom": "Bonini 08 Gustoso"
+          }
+        },
+        "affinato": {
+          "type": "article",
+          "settings": {
+            "product": "bonini-12-affinato-condiment-balsamique-12-ans",
+            "nom": "Bonini 12 Affinato"
+          }
+        },
+        "stravecchio": {
+          "type": "article",
+          "settings": {
+            "product": "bonini-25-stravecchio-condiment-balsamique-25-ans",
+            "nom": "Bonini 25 Stravecchio"
+          }
+        },
+        "riserva": {
+          "type": "article",
+          "settings": {
+            "product": "bonini-50-riserva-condiment-balsamique-50-ans",
+            "nom": "Bonini 50 Riserva"
+          }
+        },
+        "dop": {
+          "type": "article",
+          "settings": {
+            "product": "aceto-balsamico-tradizionale-di-modena-dop-bonini",
+            "nom": "Tradizionale DOP"
+          }
+        },
+        "collection": {
+          "type": "article",
+          "settings": {
+            "product": "bonini-collection-degustation-verticale-5-17-ml",
+            "nom": "Bonini Collection"
+          }
+        }
       },
-      "block_order": ["piro", "cucino", "vivace", "gustoso", "affinato", "stravecchio", "riserva", "dop", "collection"],
+      "block_order": [
+        "piro",
+        "cucino",
+        "vivace",
+        "gustoso",
+        "affinato",
+        "stravecchio",
+        "riserva",
+        "dop",
+        "collection"
+      ],
       "settings": {
         "eyebrow": "Composer",
-        "heading": "Votre coffret",
-        "text": "<p>Choisissez vos flacons : chacun vient se coucher sur la soie, à sa vraie taille. Quand la boîte est pleine, elle le dit.</p>",
-        "invite": "Choisissez vos flacons, ils viendront se poser ici",
-        "legende": "Attrapez la boîte pour la faire tourner",
-        "ligne_boite": "Coffret Maison Bosoni, soie et carte",
+        "heading": "Le vôtre, et nul autre",
+        "text": "<p>Choisissez vos flacons. Chacun vient se coucher sur la soie, à sa taille exacte, tel qu'il voyagera jusqu'à vous. Quand il n'y a plus de place, la boîte le dit.</p>",
+        "invite": "Choisissez un flacon, il viendra se poser ici",
+        "legende": "Saisissez la boîte pour la faire tourner",
+        "ligne_boite": "Le coffret, sa soie et sa carte",
         "prix_boite": "Prix à venir",
-        "rythme_unique": "Livré sous 3 à 5 jours",
-        "rythme_mensuel": "Sans engagement",
-        "note": "Chaque flacon garde son prix. Le prix du coffret lui-même sera affiché dès qu'il sera fixé."
+        "rythme_unique": "Chez vous sous trois à cinq jours",
+        "rythme_mensuel": "Sans engagement, à votre rythme",
+        "note": "Chaque flacon garde son prix. Celui du coffret vous sera dévoilé très bientôt."
       }
     },
     "abonnement": {
       "type": "mb-icons",
       "blocks": {
-        "mois": { "type": "item", "settings": { "icon": "clock", "title": "Chaque mois", "text": "Le même coffret, ou un autre, livré à date fixe" } },
-        "libre": { "type": "item", "settings": { "icon": "leaf", "title": "Sans engagement", "text": "On suspend, on change, on arrête quand on veut" } },
-        "trois": { "type": "item", "settings": { "icon": "chat", "title": "Résiliable en trois clics", "text": "Depuis votre compte, sans appel ni courrier" } },
-        "cadeau": { "type": "item", "settings": { "icon": "gift", "title": "Un mot à la main", "text": "La carte du coffret porte votre message, écrit à l'encre" } }
+        "mois": {
+          "type": "item",
+          "settings": {
+            "icon": "clock",
+            "title": "Chaque mois",
+            "text": "Le même coffret, ou un autre, à date fixe, sans y penser"
+          }
+        },
+        "libre": {
+          "type": "item",
+          "settings": {
+            "icon": "leaf",
+            "title": "Sans engagement",
+            "text": "On suspend, on change, on s'arrête, quand on le souhaite"
+          }
+        },
+        "trois": {
+          "type": "item",
+          "settings": {
+            "icon": "chat",
+            "title": "Trois clics pour résilier",
+            "text": "Depuis votre compte, sans un appel ni une lettre"
+          }
+        },
+        "cadeau": {
+          "type": "item",
+          "settings": {
+            "icon": "gift",
+            "title": "Un mot de votre main",
+            "text": "La carte porte vos mots, écrits à l'encre, jamais imprimés"
+          }
+        }
       },
-      "block_order": ["mois", "libre", "trois", "cadeau"],
+      "block_order": [
+        "mois",
+        "libre",
+        "trois",
+        "cadeau"
+      ],
       "settings": {
         "background_color": "#f7efe4"
       }
@@ -55,10 +152,15 @@
       "settings": {
         "eyebrow": "La boîte",
         "heading": "Dehors, presque rien. Dedans, tout.",
-        "text": "<p>Un carton noir mat, une signature dorée dans l'angle, et c'est tout : la maison ne dit rien avant qu'on l'ouvre. Le couvercle se lève, et la phrase apparaît, dorée à chaud. Dessous, le papier de soie noir, fermé d'un bandeau et d'un sceau, la carte crème avec la date de récolte écrite à la main, et vos flacons, couchés dans leur calage.</p>",
+        "text": "<p>Un carton noir mat et une signature dorée dans l'angle. La maison ne dit rien avant qu'on l'ouvre. Puis le couvercle se lève, et la phrase se révèle, dorée à chaud. Dessous, le papier de soie noir, tenu par un bandeau et un sceau, la carte crème où la date de récolte est écrite à la main, et vos flacons, couchés dans leur calage, prêts à voyager.</p>",
         "show_page_content": false
       }
     }
   },
-  "order": ["head", "composeur", "abonnement", "boite"]
+  "order": [
+    "head",
+    "composeur",
+    "abonnement",
+    "boite"
+  ]
 }

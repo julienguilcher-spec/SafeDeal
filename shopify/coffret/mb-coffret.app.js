@@ -526,7 +526,7 @@
         if (b.dataset.etat === 'dedans') { moi.retirer(a.sku); return; }
         if (!moi.ajouter(a)) {
           li.dataset.refus = 'true'; setTimeout(function () { delete li.dataset.refus; }, 400);
-          moi.ui.etat.textContent = 'Plus de place pour ce format — retirez un flacon pour l’ajouter.';
+          moi.ui.etat.textContent = 'Plus de place pour ce format. Retirez un flacon pour l’accueillir.';
         } else moi.ui.etat.textContent = '';
       });
     });
@@ -570,9 +570,9 @@
     ui.jaugeBarre.style.width = pct + '%';
     const restant = ui.boutons.filter(function (b) { return b.dataset.etat === 'libre'; }).length;
     ui.jauge.dataset.plein = restant === 0 ? 'true' : 'false';
-    ui.jaugeTexte.textContent = this.choix.length === 0 ? 'Le coffret est vide'
-      : (restant === 0 ? 'Le coffret est plein — ' + this.choix.length + (this.choix.length > 1 ? ' flacons' : ' flacon')
-        : this.choix.length + (this.choix.length > 1 ? ' flacons' : ' flacon') + ' — il reste de la place');
+    ui.jaugeTexte.textContent = this.choix.length === 0 ? 'Le coffret attend vos flacons'
+      : (restant === 0 ? this.choix.length + (this.choix.length > 1 ? ' flacons' : ' flacon') + ' · le coffret est plein'
+        : this.choix.length + (this.choix.length > 1 ? ' flacons' : ' flacon') + ' · il reste de la place');
     this.scene3d.dataset.vide = this.choix.length ? 'false' : 'true';
     if (ui.contenu) {
       ui.contenu.innerHTML = '';
@@ -598,7 +598,7 @@
     this.ui.cta.disabled = true; this.ui.etat.textContent = 'Un instant…';
     fetch('/cart/add.js', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify({ items: items }) })
       .then(function (rep) { if (!rep.ok) throw new Error(rep.status); window.location.href = '/cart'; })
-      .catch(function () { moi.ui.cta.disabled = false; moi.ui.etat.textContent = 'Le panier n’a pas répondu. Réessayez.'; });
+      .catch(function () { moi.ui.cta.disabled = false; moi.ui.etat.textContent = 'Le panier n’a pas répondu. Réessayez, s’il vous plaît.'; });
   };
 
   Composeur.prototype.observer = function () {
