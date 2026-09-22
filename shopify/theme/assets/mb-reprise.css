@@ -1,0 +1,74 @@
+/* Maison Bosoni — reprise esthétique.
+ *
+ * Chargée après mb.css et les feuilles thématiques. Elle ne contient que des
+ * reprises de réglages posés ailleurs, jamais de style nouveau : chaque bloc
+ * dit ce qu'il corrige et pourquoi, pour qu'on sache le remonter à sa source
+ * le jour où la feuille d'origine bouge.
+ */
+
+/* ——— La citation —————————————————————————————————————————————————————
+   Trente ch de Bodoni italique font une colonne de 342 px sur un écran de
+   1440 : l'unité ch suit la largeur du zéro, étroite dans ce caractère. La
+   citation d'Alain Roux tombait sur neuf lignes et prenait un écran entier.
+   Largeur en pixels, guillemet ouvrant ramené à l'échelle du texte, et les
+   respirations resserrées d'autant. */
+   Les styles de section sont compilés dans une feuille servie après celle-ci :
+   les sélecteurs ci-dessous sont doublés pour passer devant sans !important. */
+.mb-section.mb-quote { padding-block: clamp(2.5rem, 5vw, 4rem); }
+.mb-quote blockquote,
+.mb-quote .mb-quote__figure { max-width: min(900px, 86vw); }
+.mb-quote .mb-quote__figure { padding-top: clamp(1.6rem, 3vw, 2.6rem); }
+.mb-quote .mb-quote__figure::before { font-size: clamp(3.4rem, 7vw, 6rem); }
+
+/* ——— Les logos de presse ————————————————————————————————————————————
+   Neuf logos dans une rangée souple tombaient en sept puis deux, la seconde
+   ligne orpheline au milieu. Trois colonnes font trois rangées pleines. */
+@media (min-width: 900px) {
+  .mb-press__logos {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    justify-items: center;
+    gap: 1.6rem 2.4rem;
+  }
+}
+
+/* ——— Le tableau des formats ——————————————————————————————————————————
+   Les vignettes étaient posées sur blanc pur au milieu d'une page crème, et
+   trop petites pour qu'on reconnaisse un flacon. */
+.mb-formats__thumb {
+  width: 64px;
+  height: 64px;
+  padding: 5px;
+  background: var(--mb-cream);
+  border-color: var(--mb-line);
+}
+.mb-formats td.mb-formats__cell-thumb { width: 78px; }
+
+/* ——— La frise et son filet ————————————————————————————————————————————
+   Le filet d'huile se remplit au défilement de la frise : c'est sa règle de
+   progression. Posé quatre-vingts pixels plus bas, il flottait seul et le
+   lien ne se lisait plus. On le ramène sous la bande. */
+.mb-section.mb-galerie--frise { padding-bottom: clamp(0.8rem, 1.6vw, 1.4rem); }
+
+/* ——— Les titres de page nus ———————————————————————————————————————————
+   Le titre des collections et du blog était rendu dans la police de labeur, à
+   la taille d'un sous-titre, collé en haut de page. On lui donne la
+   typographie des autres pages et sa place. */
+main[data-template^="collection"] .shopify-section:first-child h1,
+main[data-template^="blog"] .shopify-section:first-child h1 {
+  font-family: var(--mb-display);
+  font-weight: 400;
+  font-size: clamp(2.4rem, 5vw, 4.4rem);
+  line-height: 1.12;
+  letter-spacing: -0.005em;
+  text-wrap: balance;
+}
+main[data-template^="collection"] .shopify-section:first-child,
+main[data-template^="blog"] .shopify-section:first-child {
+  border-bottom: 1px solid var(--mb-line);
+}
+
+/* ——— La fiche produit ————————————————————————————————————————————————
+   Le bandeau d'achat est fixé en bas de l'écran : on réserve sa hauteur pour
+   qu'il ne couvre jamais la fin de la page. */
+main[data-template^="product"] { padding-bottom: clamp(4rem, 8vw, 7rem); }

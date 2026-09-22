@@ -1,0 +1,45 @@
+{%- liquid
+  comment
+    Le titre suit la page qui porte la section : une page de contenu, une
+    collection ou un blog. Sans cette cascade, poser la section sur
+    /collections ou sur le blog donnait un titre vide, puisque l'objet page
+    n'existe pas là.
+  endcomment
+  assign s = section.settings
+  assign title = s.heading
+  if title == blank
+    if page.title != blank
+      assign title = page.title
+    elsif collection.title != blank
+      assign title = collection.title
+    elsif blog.title != blank
+      assign title = blog.title
+    endif
+  endif
+-%}
+<section class="mb-section mb-page-head" style="background: {{ s.background_color | default: 'transparent' }};" id="mb-page-head-{{ section.id }}">
+  <div class="mb-inner mb-inner--narrow">
+    {%- if s.eyebrow != blank -%}<p class="mb-eyebrow">{{ s.eyebrow | escape }}</p>{%- endif -%}
+    <h1 class="mb-title mb-title--xl">{{ title }}</h1>
+    {%- if s.text != blank -%}<div class="mb-text mb-text--muted">{{ s.text }}</div>{%- endif -%}
+    {%- if s.show_page_content and page.content != blank -%}
+      <div class="mb-text" style="text-align:left; margin-top:2.5rem">{{ page.content }}</div>
+    {%- endif -%}
+  </div>
+</section>
+
+{% schema %}
+{
+  "name": "MB · Titre de page",
+  "tag": "section",
+  "class": "mb-section-wrapper",
+  "settings": [
+    { "type": "text", "id": "eyebrow", "label": "Surtitre" },
+    { "type": "inline_richtext", "id": "heading", "label": "Titre (laisser vide pour le titre de la page, de la collection ou du blog)" },
+    { "type": "richtext", "id": "text", "label": "Introduction" },
+    { "type": "checkbox", "id": "show_page_content", "label": "Afficher le contenu de la page", "default": false },
+    { "type": "color", "id": "background_color", "label": "Couleur de fond" }
+  ],
+  "presets": [ { "name": "MB · Titre de page", "category": "Maison Bosoni" } ]
+}
+{% endschema %}

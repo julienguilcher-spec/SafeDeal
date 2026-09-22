@@ -1,0 +1,13 @@
+{{ 'overflow-list.css' | asset_url | preload_tag: as: 'style' }}
+{{ 'base.css' | asset_url | stylesheet_tag: preload: true }}
+{{ 'mb.css' | asset_url | stylesheet_tag }}
+{{ 'mb-rythme.css' | asset_url | stylesheet_tag }}
+{{ 'mb-lumiere.css' | asset_url | stylesheet_tag }}
+{{ 'mb-recit.css' | asset_url | stylesheet_tag }}
+{{ 'mb-fiche.css' | asset_url | stylesheet_tag }}
+{{ 'mb-mobile.css' | asset_url | stylesheet_tag }}
+{{ 'mb-menu.css' | asset_url | stylesheet_tag }}
+{{ 'mb-reprise.css' | asset_url | stylesheet_tag }}
+<script src="{{ 'mb-memoire.js' | asset_url }}" defer="defer"></script>
+{% render 'mb-motion' %}
+{% render 'mb-relief' %}
