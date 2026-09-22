@@ -285,16 +285,74 @@
     const rimD = new T.DirectionalLight(0xf6eedd, 0.7); rimD.position.set(600, 240, -320); s.add(rimD);
     const face = new T.DirectionalLight(0xfff6ea, 0.5); face.position.set(180, 520, 760); s.add(face);
 
-    /* le sol : n'existe que pour recevoir l'ombre de la boîte */
-    const sol = new T.Mesh(new T.PlaneGeometry(3000, 3000), new T.ShadowMaterial({ opacity: 0.22 }));
-    sol.rotation.x = -Math.PI / 2; sol.position.y = -BOITE.paroi; sol.receiveShadow = true; s.add(sol);
-
+    this.construireDecor();
     this.construireBoite();
     this.construireSoie();
 
-    const cam = new T.PerspectiveCamera(24, 1, 50, 5000); this.cam = cam;
+    const cam = new T.PerspectiveCamera(24, 1, 50, 12000); this.cam = cam;
     this.placerCamera();
     this.redimensionner();
+  };
+
+  /* Le décor : une table de bois dans l'oliveraie, au soir. La boîte est posée
+     sur la table ; derrière, l'oliveraie est un cylindre qui entoure la scène
+     et reste flou, comme un arrière-plan photographié à grande ouverture. */
+  Composeur.prototype.construireDecor = function () {
+    const s = this.s, moi = this, d = this.donnees.decor || {};
+    const chargeur = new T.TextureLoader();
+    chargeur.setCrossOrigin('anonymous');
+    function charge(url, srgb, regle) {
+      if (!url) return null;
+      const t = chargeur.load(url, function () { moi.redessine(); });
+      if (srgb) t.encoding = T.sRGBEncoding;
+      t.anisotropy = 8;
+      if (regle) regle(t);
+      return t;
+    }
+    function planche(t, rx, ry) {
+      if (!t) return null;
+      t.wrapS = t.wrapT = T.RepeatWrapping;
+      t.repeat.set(rx, ry);
+      t.rotation = Math.PI / 2; t.center.set(0.5, 0.5);
+      return t;
+    }
+
+    /* la table : 1,80 m sur 1,10 m, plateau de 45 mm ; la boîte pose sur le
+       plateau exactement là où elle posait sur le sol d'avant */
+    const TABLE = { L: 1800, P: 530, E: 45, z: 65 };
+    const dessus = { map: planche(charge(d.bois, true), 1.8, 1.1), normalMap: planche(charge(d.boisNormale, false), 1.8, 1.1), roughnessMap: planche(charge(d.boisRugosite, false), 1.8, 1.1) };
+    const chant = { map: planche(charge(d.bois, true), 0.045, 1.8), normalMap: planche(charge(d.boisNormale, false), 0.045, 1.8), roughnessMap: planche(charge(d.boisRugosite, false), 0.045, 1.8) };
+    function bois(t) {
+      const m = new T.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, metalness: 0, envMapIntensity: 0.3 });
+      if (t.map) { m.map = t.map; m.normalMap = t.normalMap; m.roughnessMap = t.roughnessMap; m.normalScale = new T.Vector2(0.55, 0.55); }
+      else m.color.set(0xa08a6c);
+      return m;
+    }
+    const table = new T.Mesh(new T.BoxGeometry(TABLE.L, TABLE.E, TABLE.P), [bois(chant), bois(chant), bois(dessus), bois(dessus), bois(chant), bois(chant)]);
+    table.position.set(0, -BOITE.paroi - TABLE.E / 2, TABLE.z);
+    table.receiveShadow = true; table.castShadow = false;
+    s.add(table);
+
+    /* l'oliveraie : un cylindre de 2,5 m de rayon autour de la table. La caméra
+       regarde la boîte de haut, donc l'oliveraie doit être en contrebas pour
+       apparaître derrière la boîte : la table est sur une terrasse qui domine
+       les oliviers. Les cimes et les collines (rangées 250 à 540 de la photo) passent entre
+       0,9 m et 1,7 m sous la table, là où la vue de face les cadre. */
+    const pano = charge(d.oliveraie, true);
+    if (pano) {
+      const R = 2500, mmParPx = 2.9, HIMG = 1024 * mmParPx, EN_HAUT = 1.2, EN_BAS = 2.2;
+      const hautImg = -866 + 250 * mmParPx;
+      const H = HIMG * (1 + EN_HAUT + EN_BAS);
+      /* au-delà de l'image, le ciel et le sol prolongent leur dernière rangée,
+         assez loin pour que la vue de dessus ne voie jamais le bord du décor */
+      pano.wrapT = T.ClampToEdgeWrapping;
+      pano.repeat.set(1, 1 + EN_HAUT + EN_BAS); pano.offset.set(0, -EN_BAS);
+      const cyl = new T.Mesh(new T.CylinderGeometry(R, R, H, 96, 1, true),
+        new T.MeshBasicMaterial({ map: pano, side: T.BackSide, fog: false }));
+      cyl.material.toneMapped = false;
+      cyl.position.y = hautImg + EN_HAUT * HIMG - H / 2;
+      s.add(cyl);
+    }
   };
 
   Composeur.prototype.construireBoite = function () {
