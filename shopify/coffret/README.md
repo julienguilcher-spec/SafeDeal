@@ -10,4 +10,7 @@ refuse ce qui ne rentre plus (plancher utile 244 × 244 mm, hauteur utile 118 mm
 - `mb-coffret.app.js` — le moteur (scène, boîte, soie, rangement, interface)
 - `harnais.html` — page d'essai locale (`?ajoute=P-500,B-A100&vue=dessus`)
 
+Le mot personnalisé (« Un mot pour l'accompagner », 160 caractères) se dessine en direct sur la carte
+crème au fond de la boîte et part dans le panier comme propriété `Mot personnalisé` de chaque article.
+
 Le thème charge `assets/three.min.js` (r128, depuis cdnjs) avant `mb-coffret.js`.

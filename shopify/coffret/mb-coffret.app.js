@@ -310,9 +310,13 @@
     charniere.rotation.x = -128 * RAD;
     this.charniere = charniere;
 
-    /* la carte, adossée à la paroi du fond */
-    const carte = new T.Mesh(new T.PlaneGeometry(105, 74), new T.MeshStandardMaterial({ map: this.texteCarte(), roughness: 0.85, envMapIntensity: 0.4, side: T.DoubleSide }));
-    carte.position.set(0, 42, -L / 2 + 9); carte.rotation.x = -12 * RAD; carte.castShadow = true; carte.receiveShadow = true;
+    /* la carte, le pied sur la soie, le haut appuyé contre la paroi du fond :
+       inclinée de 24° pour qu'on la lise aussi bien de face que de dessus */
+    this.toileCarte = this.texteCarte();
+    const carte = new T.Mesh(new T.PlaneGeometry(105, 74), new T.MeshStandardMaterial({ map: this.toileCarte, roughness: 0.85, envMapIntensity: 0.4, side: T.DoubleSide }));
+    const pente = 24 * RAD, demiCarte = 37;
+    carte.position.set(0, 3.5 + demiCarte * Math.cos(pente), -L / 2 + 0.6 + demiCarte * Math.sin(pente));
+    carte.rotation.x = -pente; carte.castShadow = true; carte.receiveShadow = true;
     boite.add(carte);
   };
 
@@ -347,13 +351,60 @@
     });
     TOILES.push(t); return t;
   };
+  /* découpe un texte en lignes qui tiennent dans `large` pixels, avec la police
+     courante du contexte ; un mot trop long pour une ligne est coupé lettre à lettre */
+  function couperLignes(g, texte, large) {
+    const lignes = [];
+    let ligne = '';
+    texte.split(/\s+/).filter(Boolean).forEach(function (mot) {
+      const essai = ligne ? ligne + ' ' + mot : mot;
+      if (g.measureText(essai).width <= large) { ligne = essai; return; }
+      if (ligne) lignes.push(ligne);
+      ligne = '';
+      if (g.measureText(mot).width <= large) { ligne = mot; return; }
+      for (let i = 0; i < mot.length; i++) {
+        if (g.measureText(ligne + mot[i]).width > large && ligne) { lignes.push(ligne); ligne = ''; }
+        ligne += mot[i];
+      }
+    });
+    if (ligne) lignes.push(ligne);
+    return lignes;
+  }
+
+  /* la carte crème posée au fond de la boîte : la signature seule, ou bien,
+     quand le client a écrit un mot, la signature qui remonte, un filet doré,
+     et le mot en italique, centré, sur une à trois lignes */
   Composeur.prototype.texteCarte = function () {
+    const moi = this;
     const t = toile(1050, 740, function (g, W, H) {
+      const mot = (moi.mot || '').replace(/\s+/g, ' ').trim();
       g.fillStyle = '#F7EFE4'; g.fillRect(0, 0, W, H);
-      g.fillStyle = '#C3A059'; g.fillRect(W / 2 - 60, H * 0.36, 120, 3);
-      g.textAlign = 'center'; g.fillStyle = '#8c7534';
-      g.font = '400 100px ' + POLICES.serif; g.fillText('Maison Bosoni.', W / 2, H * 0.60);
-      g.font = '500 30px ' + POLICES.mono; g.fillText('P A R I S', W / 2, H * 0.74);
+      g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+      if (!mot) {
+        g.fillStyle = '#C3A059'; g.fillRect(W / 2 - 60, H * 0.36, 120, 3);
+        g.fillStyle = '#8c7534';
+        g.font = '400 100px ' + POLICES.serif; g.fillText('Maison Bosoni.', W / 2, H * 0.60);
+        g.font = '500 30px ' + POLICES.mono; g.fillText('P A R I S', W / 2, H * 0.74);
+        return;
+      }
+      g.fillStyle = '#8c7534';
+      g.font = '400 52px ' + POLICES.serif; g.fillText('Maison Bosoni.', W / 2, H * 0.135);
+      g.fillStyle = '#C3A059'; g.fillRect(W / 2 - 40, H * 0.19, 80, 3);
+      // le mot : on part grand, on réduit tant qu'il ne tient pas sur trois lignes
+      const large = W * 0.9;
+      let taille = 100, lignes;
+      for (;;) {
+        g.font = 'italic 400 ' + taille + 'px ' + POLICES.serif;
+        lignes = couperLignes(g, mot, large);
+        if (lignes.length <= 3 || taille <= 44) break;
+        taille -= 4;
+      }
+      // le bloc est centré un peu haut : de face, c'est le haut de la carte qui dépasse des flacons
+      const interligne = taille * 1.18;
+      const centre = H * 0.56;
+      const y0 = centre - interligne * (lignes.length - 1) / 2 + taille * 0.35;
+      g.fillStyle = '#211714';
+      lignes.forEach(function (l, i) { g.fillText(l, W / 2, y0 + i * interligne); });
     });
     TOILES.push(t); return t;
   };
@@ -506,7 +557,9 @@
       total: r.querySelector('[data-total]'),
       etat: r.querySelector('.mb-coffret__etat'),
       cta: r.querySelector('[data-panier]'),
-      rythme: r.querySelectorAll('input[name="mb-rythme"]')
+      rythme: r.querySelectorAll('input[name="mb-rythme"]'),
+      mot: r.querySelector('[data-mot]'),
+      motCompte: r.querySelector('[data-mot-compte]')
     };
     this.ui.boutons.forEach(function (b) {
       b.addEventListener('click', function () {
@@ -529,6 +582,25 @@
     });
     if (this.ui.cta) this.ui.cta.addEventListener('click', function () { moi.panier(); });
     this.ui.rythme.forEach(function (i) { i.addEventListener('change', function () { moi.majUI(); }); });
+
+    /* le mot personnalisé : le compteur suit chaque frappe, la carte se redessine
+       un instant après, quand la main s'arrête */
+    if (this.ui.mot) {
+      let minuterie = 0;
+      const compter = function () {
+        const max = +moi.ui.mot.getAttribute('maxlength') || 160, n = moi.ui.mot.value.length;
+        if (moi.ui.motCompte) moi.ui.motCompte.textContent = n + ' / ' + max;
+        const champ = moi.ui.mot.parentNode;
+        if (champ && champ.dataset) champ.dataset.plein = n >= max ? 'true' : 'false';
+      };
+      this.ui.mot.addEventListener('input', function () {
+        compter();
+        clearTimeout(minuterie);
+        minuterie = setTimeout(function () { moi.ecrireCarte(moi.ui.mot.value); }, 150);
+      });
+      compter();
+      if (this.ui.mot.value.trim()) this.ecrireCarte(this.ui.mot.value);
+    }
 
     /* on attrape la scène pour la faire tourner */
     let saisie = null;
@@ -577,10 +649,21 @@
     if (ui.cta) { ui.cta.disabled = this.choix.length === 0; ui.cta.textContent = mensuel ? 'Recevoir ce coffret chaque mois' : 'Ajouter ce coffret au panier'; }
   };
 
+  Composeur.prototype.ecrireCarte = function (texte) {
+    const mot = (texte || '').replace(/\s+/g, ' ').trim();
+    if (mot === (this.mot || '')) return;
+    this.mot = mot;
+    if (this.toileCarte) this.toileCarte.redessine();
+    this.redessine();
+  };
+
   Composeur.prototype.panier = function () {
     const mensuel = Array.prototype.some.call(this.ui.rythme, function (i) { return i.checked && i.value === 'mensuel'; });
+    const mot = this.ui.mot ? this.ui.mot.value.trim() : '';
     const items = this.choix.map(function (c) {
-      return { id: +c.variant, quantity: 1, properties: { '_Coffret': 'Maison Bosoni', 'Rythme': mensuel ? 'Chaque mois' : 'Une fois' } };
+      const props = { '_Coffret': 'Maison Bosoni', 'Rythme': mensuel ? 'Chaque mois' : 'Une fois' };
+      if (mot) props['Mot personnalisé'] = mot;
+      return { id: +c.variant, quantity: 1, properties: props };
     });
     if (window.MB_COFFRET_PANIER) return window.MB_COFFRET_PANIER(items);
     const moi = this;

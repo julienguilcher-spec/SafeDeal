@@ -58,6 +58,15 @@
           <label><input type="radio" name="mb-rythme" value="mensuel"><b>Chaque mois</b><small>Sans engagement</small></label>
         </fieldset>
 
+        <div class="mb-coffret__mot">
+          <label class="mb-coffret__mot-titre" for="mb-mot">Un mot pour l'accompagner</label>
+          <div class="mb-coffret__mot-champ">
+            <textarea id="mb-mot" class="mb-coffret__mot-texte" name="mb-mot" rows="2" maxlength="160" autocomplete="off" spellcheck="false" placeholder="Pour Anna, qui aime l'Italie autant que nous." data-mot></textarea>
+            <span class="mb-coffret__mot-compte" data-mot-compte aria-hidden="true">0 / 160</span>
+          </div>
+          <p class="mb-coffret__mot-aide">Votre mot sera glissé dans le coffret, sur la carte Maison Bosoni.</p>
+        </div>
+
         <div class="mb-coffret__actions">
           <button type="button" class="mb-btn mb-btn--solid" data-panier disabled>Ajouter ce coffret au panier</button>
           <p class="mb-coffret__etat"></p>

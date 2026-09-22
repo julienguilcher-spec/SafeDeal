@@ -85,6 +85,25 @@
           <label><input type="radio" name="mb-rythme" value="mensuel"><b>Chaque mois</b><small>{{ s.rythme_mensuel | escape }}</small></label>
         </fieldset>
 
+        <div class="mb-coffret__mot">
+          <label class="mb-coffret__mot-titre" for="mb-mot-{{ section.id }}">{{ s.mot_titre | default: "Un mot pour l'accompagner" | escape }}</label>
+          <div class="mb-coffret__mot-champ">
+            <textarea
+              id="mb-mot-{{ section.id }}"
+              class="mb-coffret__mot-texte"
+              name="mb-mot"
+              rows="2"
+              maxlength="160"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="{{ s.mot_exemple | default: "Pour Anna, qui aime l'Italie autant que nous." | escape }}"
+              data-mot
+            ></textarea>
+            <span class="mb-coffret__mot-compte" data-mot-compte aria-hidden="true">0 / 160</span>
+          </div>
+          {%- if s.mot_aide != blank -%}<p class="mb-coffret__mot-aide">{{ s.mot_aide | escape }}</p>{%- endif -%}
+        </div>
+
         <div class="mb-coffret__actions">
           <button type="button" class="mb-btn mb-btn--solid" data-panier disabled>Ajouter ce coffret au panier</button>
           <p class="mb-coffret__etat" aria-live="polite"></p>
@@ -115,6 +134,9 @@
     { "type": "text", "id": "prix_boite", "label": "Prix du coffret (texte tant qu'il n'est pas fixé)", "default": "Prix à venir" },
     { "type": "text", "id": "rythme_unique", "label": "Sous-titre « Une fois »", "default": "Livré sous 3 à 5 jours" },
     { "type": "text", "id": "rythme_mensuel", "label": "Sous-titre « Chaque mois »", "default": "Sans engagement" },
+    { "type": "text", "id": "mot_titre", "label": "Mot personnalisé : titre", "default": "Un mot pour l'accompagner" },
+    { "type": "text", "id": "mot_exemple", "label": "Mot personnalisé : exemple affiché dans le champ", "default": "Pour Anna, qui aime l'Italie autant que nous." },
+    { "type": "text", "id": "mot_aide", "label": "Mot personnalisé : phrase d'aide", "default": "Votre mot sera glissé dans le coffret, sur la carte Maison Bosoni." },
     { "type": "text", "id": "note", "label": "Note sous le bouton", "default": "Chaque flacon garde son prix. Le prix du coffret lui-même sera affiché dès qu'il sera fixé." },
     { "type": "color", "id": "background_color", "label": "Couleur de fond" }
   ],
