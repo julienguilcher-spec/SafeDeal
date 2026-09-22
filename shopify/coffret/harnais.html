@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Composeur — essai</title>
+<link rel="stylesheet" href="gf-local.css">
+<link rel="stylesheet" href="mb-coffret.css">
+<style>
+  :root { --mb-cream:#f7efe4; --mb-sand:#efe5d6; --mb-bordeaux:#6b1f2a; --mb-ink:#211714; --mb-muted:#7e6d64; --mb-line:#e3d8cb; --mb-gold:#c9a227; --mb-gold-deep:#a8861c; --mb-leaf:#6b7f3a;
+          --mb-serif:"Libre Caslon Text", Georgia, serif; --mb-mono:"IBM Plex Mono", Menlo, monospace; --mb-display:"Bodoni Moda", Georgia, serif; --mb-gutter: 48px; --header-height: 0px; }
+  body { margin: 0; background: #fbf8f3; font-family: var(--mb-serif); }
+  .mb-inner { max-width: 1440px; margin-inline: auto; padding-inline: var(--mb-gutter); }
+  .mb-eyebrow { font-family: var(--mb-mono); font-size: 0.72rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--mb-leaf); margin: 0 0 1rem; }
+  .mb-title { font-family: var(--mb-display); font-weight: 400; line-height: 1.12; margin: 0; }
+  .mb-title--md { font-size: 2rem; }
+  .mb-text { font-family: var(--mb-serif); font-size: 1.1rem; line-height: 1.6; color: var(--mb-ink); }
+  .mb-btn { display: inline-flex; align-items: center; justify-content: center; gap: .6em; font-family: var(--mb-mono); font-size: .72rem; letter-spacing: .16em; text-transform: uppercase; padding: .95em 1.9em; border-radius: 999px; border: 1px solid currentColor; text-decoration: none; cursor: pointer; }
+  .mb-btn--solid { background: var(--mb-bordeaux); border-color: var(--mb-bordeaux); color: #fff; }
+  .mb-btn[disabled] { opacity: .4; cursor: not-allowed; }
+</style>
+</head>
+<body>
+<section class="mb-section mb-coffret" data-mb-coffret>
+  <div class="mb-inner">
+    <div class="mb-coffret__grid">
+      <div class="mb-coffret__stage">
+        <div class="mb-coffret__scene" data-vide="true" data-invite="Choisissez vos flacons, ils viendront se poser ici">
+          <canvas aria-label="Le coffret Maison Bosoni en trois dimensions, avec les flacons choisis posés sur le papier de soie"></canvas>
+        </div>
+        <div class="mb-coffret__vues">
+          <button type="button" class="mb-coffret__vue" data-vue="trois-quarts" aria-pressed="true">Vue de face</button>
+          <button type="button" class="mb-coffret__vue" data-vue="dessus" aria-pressed="false">Vue de dessus</button>
+        </div>
+        <p class="mb-coffret__legende">Attrapez la boîte pour la faire tourner</p>
+      </div>
+
+      <div class="mb-coffret__panneau">
+        <p class="mb-eyebrow">Le coffret</p>
+        <h2 class="mb-title mb-title--md">Composez le vôtre</h2>
+        <p class="mb-text mb-coffret__intro">Une boîte noire, un papier de soie, et les flacons que vous choisissez. La place est comptée : la boîte vous dit quand elle est pleine.</p>
+
+        <ul class="mb-coffret__catalogue" id="catalogue"></ul>
+
+        <div class="mb-coffret__jauge" data-plein="false">
+          <div class="mb-coffret__jauge-barre"><i></i></div>
+          <p class="mb-coffret__jauge-texte">Le coffret est vide</p>
+        </div>
+
+        <div class="mb-coffret__recap">
+          <div data-contenu></div>
+          <div class="mb-coffret__ligne mb-coffret__ligne--muted"><span>Coffret Maison Bosoni, soie et carte</span><span class="mb-coffret__attente">Prix à venir</span></div>
+          <div class="mb-coffret__ligne mb-coffret__ligne--total"><span>Total</span><span data-total>—</span></div>
+        </div>
+
+        <fieldset class="mb-coffret__rythme">
+          <legend>Le rythme</legend>
+          <label><input type="radio" name="mb-rythme" value="unique" checked><b>Une fois</b><small>Livré sous 3 à 5 jours</small></label>
+          <label><input type="radio" name="mb-rythme" value="mensuel"><b>Chaque mois</b><small>Sans engagement</small></label>
+        </fieldset>
+
+        <div class="mb-coffret__actions">
+          <button type="button" class="mb-btn mb-btn--solid" data-panier disabled>Ajouter ce coffret au panier</button>
+          <p class="mb-coffret__etat"></p>
+          <p class="mb-coffret__note">Chaque flacon garde son prix. Le prix du coffret lui-même sera affiché dès qu'il sera fixé.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script type="application/json" data-mb-coffret-donnees>{"boite":"uline-10x10x5"}</script>
+</section>
+
+<script>
+const ARTICLES = [
+ {sku:'P-100', variant:'55036940550471', titre:"Huile d'olive Piro", format:'100 ml', prix:1000, image:'https://cdn.shopify.com/s/files/1/1010/2636/5767/files/mb-piro-100-v3.jpg?v=1789658866'},
+ {sku:'P-250', variant:'55036940517703', titre:"Huile d'olive Piro", format:'250 ml', prix:1900, image:'https://cdn.shopify.com/s/files/1/1010/2636/5767/files/mb-piro-250-v3.jpg?v=1789658866'},
+ {sku:'P-500', variant:'55036940484935', titre:"Huile d'olive Piro", format:'500 ml', prix:3200, image:'https://cdn.shopify.com/s/files/1/1010/2636/5767/files/mb-piro-500-v3.jpg?v=1789658866'},
+ {sku:'P-750', variant:'55036940747079', titre:'Cucino by Piro', format:'750 ml', prix:2980, image:'https://cdn.shopify.com/s/files/1/1010/2636/5767/files/mb-cucino-750-v3.jpg?v=1789658865'},
+ {sku:'B-V250', variant:'55036941140295', titre:'Bonini 03 Vivace', format:'250 ml', prix:2100, image:'https://cdn.shopify.com/s/files/1/1010/2636/5767/files/mb-03-vivace-250-v3.jpg?v=1789658759'},
+ {sku:'B-G250', variant:'55036941238599', titre:'Bonini 08 Gustoso', format:'250 ml', prix:3750, image:'https://cdn.shopify.com/s/files/1/1010/2636/5767/files/mb-08-gustoso-250-v3.jpg?v=1789658759'},
+ {sku:'B-A40', variant:'55036941304135', titre:'Bonini 12 Affinato', format:'40 ml', prix:2680, image:'https://cdn.shopify.com/s/files/1/1010/2636/5767/files/mb-12-affinato-40-v3.jpg?v=1789658759'},
+ {sku:'B-A100', variant:'55036941336903', titre:'Bonini 12 Affinato', format:'100 ml', prix:4550, image:'https://cdn.shopify.com/s/files/1/1010/2636/5767/files/mb-12-affinato-100-v3.jpg?v=1789658759'},
+ {sku:'B-A250', variant:'55036941369671', titre:'Bonini 12 Affinato', format:'250 ml', prix:7960, image:'https://cdn.shopify.com/s/files/1/1010/2636/5767/files/mb-12-affinato-250-v3.jpg?v=1789658759'},
+ {sku:'B-S40', variant:'55036941533511', titre:'Bonini 25 Stravecchio', format:'40 ml', prix:4360, image:'https://cdn.shopify.com/s/files/1/1010/2636/5767/files/mb-25-stravecchio-40-v3.jpg?v=1789658759'},
+ {sku:'B-S100', variant:'55036941566279', titre:'Bonini 25 Stravecchio', format:'100 ml', prix:9220, image:'https://cdn.shopify.com/s/files/1/1010/2636/5767/files/mb-25-stravecchio-100-v3.jpg?v=1789658759'},
+ {sku:'B-S250', variant:'55036941599047', titre:'Bonini 25 Stravecchio', format:'250 ml', prix:18500, image:'https://cdn.shopify.com/s/files/1/1010/2636/5767/files/mb-25-stravecchio-250-v3.jpg?v=1789658759'},
+ {sku:'B-R40', variant:'55036943335751', titre:'Bonini 50 Riserva', format:'40 ml', prix:5950, image:'https://cdn.shopify.com/s/files/1/1010/2636/5767/files/mb-50-riserva-40-v3.jpg?v=1789658866'},
+ {sku:'B-R100', variant:'55036943368519', titre:'Bonini 50 Riserva', format:'100 ml', prix:12450, image:'https://cdn.shopify.com/s/files/1/1010/2636/5767/files/mb-50-riserva-100-v3.jpg?v=1789658759'},
+ {sku:'B-PDO12', variant:'55036940812615', titre:'Tradizionale DOP', format:'12 ans · 100 ml', prix:7800, image:'https://cdn.shopify.com/s/files/1/1010/2636/5767/files/mb-dop-12-v3.jpg?v=1789658866'},
+ {sku:'B-PDO25', variant:'55036940845383', titre:'Tradizionale DOP', format:'25 ans · 100 ml', prix:13300, image:'https://cdn.shopify.com/s/files/1/1010/2636/5767/files/mb-dop-25-v3.jpg?v=1789658866'},
+ {sku:'B-COLL', variant:'55036943565127', titre:'Bonini Collection', format:'5 × 17 ml', prix:5080, image:'https://cdn.shopify.com/s/files/1/1010/2636/5767/files/mb-collection-17ml-v4.jpg?v=1789637917'}
+];
+const ul = document.getElementById('catalogue');
+ARTICLES.forEach(function (a) {
+  const li = document.createElement('li'); li.className = 'mb-coffret__article';
+  li.dataset.sku = a.sku; li.dataset.variant = a.variant; li.dataset.prix = a.prix; li.dataset.titre = a.titre; li.dataset.format = a.format;
+  li.innerHTML = '<img src="" alt="" width="56" height="56"><div><p class="mb-coffret__nom">' + a.titre + '</p><p class="mb-coffret__format"><b>' + a.format + '</b> · ' + (a.prix/100).toLocaleString('fr-FR',{minimumFractionDigits:2}) + ' €</p></div><button type="button" class="mb-coffret__ajout" data-etat="libre">+</button>';
+  ul.appendChild(li);
+});
+window.MB_COFFRET_PANIER = function (items) { console.log('PANIER', JSON.stringify(items)); document.title = 'panier:' + items.length; };
+</script>
+<script src="three.min.js"></script>
+<script src="theme/assets/mb-coffret.js"></script>
+<script>
+// scénario de test piloté par l'URL : ?ajoute=P-500,B-A100,P-100&vue=dessus
+const q = new URLSearchParams(location.search);
+window.addEventListener('load', function () {
+  const c = document.querySelector('[data-mb-coffret]').__composeur;
+  (q.get('ajoute') || '').split(',').filter(Boolean).forEach(function (sku) {
+    const b = document.querySelector('.mb-coffret__article[data-sku="' + sku + '"] .mb-coffret__ajout'); if (b) b.click();
+  });
+  if (q.get('vue') === 'dessus') document.querySelector('[data-vue="dessus"]').click();
+  if (q.get('az')) { c.vue.az = +q.get('az') * Math.PI / 180; c.vue.el = +(q.get('el') || 40) * Math.PI / 180; c.redessine(); }
+  setTimeout(function () {
+    if (q.get('debug')) {
+      const W = window.innerWidth, out = ['scrollW=' + document.documentElement.scrollWidth];
+      document.querySelectorAll('body *').forEach(function (el) {
+        const r = el.getBoundingClientRect();
+        if (r.right > W + 1 && r.width > 0) out.push((el.className || el.tagName).toString().slice(0, 40) + ':' + Math.round(r.width) + '@' + Math.round(r.right));
+      });
+      document.title = out.slice(0, 14).join(' | ');
+    } else document.title = 'pret';
+  }, 1500);
+});
+</script>
+</body>
+</html>

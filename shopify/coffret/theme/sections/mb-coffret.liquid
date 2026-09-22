@@ -1,0 +1,135 @@
+{%- liquid
+  assign s = section.settings
+-%}
+{{ 'mb-coffret.css' | asset_url | stylesheet_tag }}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400;1,6..96,400&display=swap">
+
+<section
+  class="mb-section mb-coffret"
+  id="mb-coffret-{{ section.id }}"
+  style="background: {{ s.background_color | default: 'transparent' }};"
+  data-mb-coffret
+>
+  <div class="mb-inner">
+    <div class="mb-coffret__grid">
+
+      <div class="mb-coffret__stage">
+        <div class="mb-coffret__scene" data-vide="true" data-invite="{{ s.invite | escape }}">
+          <canvas aria-label="Le coffret Maison Bosoni en trois dimensions, avec les flacons choisis posés sur le papier de soie"></canvas>
+        </div>
+        <div class="mb-coffret__vues">
+          <button type="button" class="mb-coffret__vue" data-vue="trois-quarts" aria-pressed="true">Vue de face</button>
+          <button type="button" class="mb-coffret__vue" data-vue="dessus" aria-pressed="false">Vue de dessus</button>
+        </div>
+        {%- if s.legende != blank -%}<p class="mb-coffret__legende">{{ s.legende | escape }}</p>{%- endif -%}
+      </div>
+
+      <div class="mb-coffret__panneau">
+        {%- if s.eyebrow != blank -%}<p class="mb-eyebrow">{{ s.eyebrow | escape }}</p>{%- endif -%}
+        {%- if s.heading != blank -%}<h2 class="mb-title mb-title--md">{{ s.heading }}</h2>{%- endif -%}
+        {%- if s.text != blank -%}<div class="mb-text mb-coffret__intro">{{ s.text }}</div>{%- endif -%}
+
+        <ul class="mb-coffret__catalogue">
+          {%- for block in section.blocks -%}
+            {%- assign p = block.settings.product -%}
+            {%- if p == blank -%}{%- continue -%}{%- endif -%}
+            {%- assign nom = block.settings.nom | default: p.title -%}
+            {%- for v in p.variants -%}
+              {%- if v.sku == blank -%}{%- continue -%}{%- endif -%}
+              {%- assign visuel = v.image | default: p.featured_image -%}
+              {%- assign format = v.title -%}
+              {%- if format == 'Default Title' -%}{%- assign format = block.settings.format -%}{%- endif -%}
+              <li
+                class="mb-coffret__article"
+                data-sku="{{ v.sku | escape }}"
+                data-variant="{{ v.id }}"
+                data-prix="{{ v.price }}"
+                data-titre="{{ nom | escape }}"
+                data-format="{{ format | escape }}"
+                {{ block.shopify_attributes }}
+              >
+                {%- if visuel != blank -%}
+                  {{ visuel | image_url: width: 112, height: 112, crop: 'center' | image_tag: loading: 'lazy', width: 56, height: 56, alt: nom }}
+                {%- else -%}
+                  <span></span>
+                {%- endif -%}
+                <div>
+                  <p class="mb-coffret__nom">{{ nom | escape }}</p>
+                  <p class="mb-coffret__format"><b>{{ format | escape }}</b> · {{ v.price | money }}</p>
+                </div>
+                <button type="button" class="mb-coffret__ajout" data-etat="libre" aria-label="Ajouter au coffret">+</button>
+              </li>
+            {%- endfor -%}
+          {%- endfor -%}
+        </ul>
+
+        <div class="mb-coffret__jauge" data-plein="false">
+          <div class="mb-coffret__jauge-barre"><i></i></div>
+          <p class="mb-coffret__jauge-texte">Le coffret est vide</p>
+        </div>
+
+        <div class="mb-coffret__recap">
+          <div data-contenu></div>
+          <div class="mb-coffret__ligne mb-coffret__ligne--muted">
+            <span>{{ s.ligne_boite | default: 'Coffret Maison Bosoni, soie et carte' | escape }}</span>
+            <span class="mb-coffret__attente">{{ s.prix_boite | default: 'Prix à venir' | escape }}</span>
+          </div>
+          <div class="mb-coffret__ligne mb-coffret__ligne--total"><span>Total</span><span data-total>—</span></div>
+        </div>
+
+        <fieldset class="mb-coffret__rythme">
+          <legend>Le rythme</legend>
+          <label><input type="radio" name="mb-rythme" value="unique" checked><b>Une fois</b><small>{{ s.rythme_unique | escape }}</small></label>
+          <label><input type="radio" name="mb-rythme" value="mensuel"><b>Chaque mois</b><small>{{ s.rythme_mensuel | escape }}</small></label>
+        </fieldset>
+
+        <div class="mb-coffret__actions">
+          <button type="button" class="mb-btn mb-btn--solid" data-panier disabled>Ajouter ce coffret au panier</button>
+          <p class="mb-coffret__etat" aria-live="polite"></p>
+          {%- if s.note != blank -%}<p class="mb-coffret__note">{{ s.note | escape }}</p>{%- endif -%}
+        </div>
+      </div>
+
+    </div>
+  </div>
+  <script type="application/json" data-mb-coffret-donnees>{ "boite": "uline-10x10x5", "devise": "{{ cart.currency.iso_code }}" }</script>
+</section>
+
+<script src="{{ 'three.min.js' | asset_url }}" defer></script>
+<script src="{{ 'mb-coffret.js' | asset_url }}" defer></script>
+
+{% schema %}
+{
+  "name": "MB · Composeur de coffret",
+  "tag": "div",
+  "class": "mb-section-wrapper",
+  "settings": [
+    { "type": "text", "id": "eyebrow", "label": "Surtitre", "default": "Le coffret" },
+    { "type": "inline_richtext", "id": "heading", "label": "Titre", "default": "Composez le vôtre" },
+    { "type": "richtext", "id": "text", "label": "Introduction" },
+    { "type": "text", "id": "invite", "label": "Invitation (boîte vide)", "default": "Choisissez vos flacons, ils viendront se poser ici" },
+    { "type": "text", "id": "legende", "label": "Légende sous la scène", "default": "Attrapez la boîte pour la faire tourner" },
+    { "type": "text", "id": "ligne_boite", "label": "Ligne du coffret dans le récapitulatif", "default": "Coffret Maison Bosoni, soie et carte" },
+    { "type": "text", "id": "prix_boite", "label": "Prix du coffret (texte tant qu'il n'est pas fixé)", "default": "Prix à venir" },
+    { "type": "text", "id": "rythme_unique", "label": "Sous-titre « Une fois »", "default": "Livré sous 3 à 5 jours" },
+    { "type": "text", "id": "rythme_mensuel", "label": "Sous-titre « Chaque mois »", "default": "Sans engagement" },
+    { "type": "text", "id": "note", "label": "Note sous le bouton", "default": "Chaque flacon garde son prix. Le prix du coffret lui-même sera affiché dès qu'il sera fixé." },
+    { "type": "color", "id": "background_color", "label": "Couleur de fond" }
+  ],
+  "blocks": [
+    {
+      "type": "article",
+      "name": "Produit proposé",
+      "settings": [
+        { "type": "product", "id": "product", "label": "Produit" },
+        { "type": "text", "id": "nom", "label": "Nom court (sinon le titre du produit)" },
+        { "type": "text", "id": "format", "label": "Format, si le produit n'a qu'une variante sans titre" }
+      ]
+    }
+  ],
+  "max_blocks": 20,
+  "presets": [ { "name": "MB · Composeur de coffret", "category": "Maison Bosoni" } ]
+}
+{% endschema %}
