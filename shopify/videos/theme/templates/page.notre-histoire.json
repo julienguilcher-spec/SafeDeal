@@ -1,0 +1,230 @@
+{
+  "sections": {
+    "head": {
+      "type": "mb-page-head",
+      "settings": {
+        "eyebrow": "Notre histoire",
+        "heading": "Une famille. Un goût pour l'excellence. Depuis 1925.",
+        "text": "<p>Des Halles de Paris jusqu'aux collines de Toscane : trois générations à traquer le meilleur, pour vous le livrer intact.</p>",
+        "show_page_content": true,
+        "background_color": "#f7efe4"
+      }
+    },
+    "portrait": {
+      "type": "mb-story",
+      "settings": {
+        "use_portrait_fallback": true,
+        "image_alt": "La fondatrice de Maison Bosoni",
+        "ratio": "4 / 5",
+        "image_position": "left",
+        "eyebrow": "La fondatrice",
+        "heading": "Faire goûter à la France ce que les grandes tables américaines connaissent déjà",
+        "text": "<p>Trois générations aux Halles, à Clichy, rue Mouffetard. La quatrième a traversé les Alpes.</p>",
+        "note": ""
+      }
+    },
+    "people": {
+      "type": "mb-people",
+      "blocks": {
+        "romain": {
+          "type": "person",
+          "settings": {
+            "media_kind": "placeholder",
+            "role": "Le producteur",
+            "name": "Romain Piro",
+            "text": "<p>Il produit de l'huile depuis 2007 à Seggiano, sur les pentes du Monte Amiata. C'est lui qui décide du jour de récolte et pilote la pression de chaque lot.</p>",
+            "image": "shopify://shop_images/portrait-romain-piro.png"
+          }
+        },
+        "mc": {
+          "type": "person",
+          "settings": {
+            "media_kind": "placeholder",
+            "role": "L'ambassadrice",
+            "name": "Marie-Charlotte Piro",
+            "text": "<p>Sœur de Romain et fondatrice d'Olio Piro aux États-Unis, elle a porté l'huile jusqu'aux tables d'Eleven Madison Park.</p>",
+            "image": "shopify://shop_images/portrait-marie-charlotte-piro.png"
+          }
+        },
+        "lawrence": {
+          "type": "person",
+          "settings": {
+            "image": "shopify://shop_images/portrait-lawrence-piro.jpg",
+            "role": "Le scientifique",
+            "name": "Lawrence Piro, M.D.",
+            "text": "<p>Oncologue et interniste à Los Angeles, il veille à ce que chaque récolte garde sa richesse en polyphénols.</p>"
+          }
+        }
+      },
+      "block_order": [
+        "romain",
+        "mc",
+        "lawrence"
+      ],
+      "settings": {
+        "eyebrow": "La famille Piro",
+        "heading": "La famille Piro, de Toscane à Modène",
+        "text": "<p>Romain presse, Marie-Charlotte fait connaître, Lawrence mesure. En 2025, Marie-Charlotte Piro a mené le rachat de l'acetaia Bonini, à Modène : huile et balsamique sont désormais une seule famille.</p>"
+      }
+    },
+    "bottle": {
+      "type": "mb-story",
+      "settings": {
+        "image": "shopify://shop_images/piro-maremme-paysage.webp",
+        "image_alt": "Les oliviers de Maremme et la bouteille Piro",
+        "ratio": "16 / 10",
+        "image_position": "right",
+        "eyebrow": "La bouteille",
+        "heading": "Une date de récolte écrite à la main",
+        "text": "<p>Chaque bouteille Piro porte sa date de récolte, écrite à la main. Les olives, Leccino, Moraiolo, Frantoio et la rare Olivastra Seggianese, sont cueillies tôt, à la main, et pressées à froid dans les heures qui suivent. Résultat : 940 mg de polyphénols par kilo en moyenne au pressage, et une acidité de 0,20 %.</p>",
+        "button_label": "Voir les huiles",
+        "button_link": "shopify://collections/huiles-piro",
+        "background_color": "#f7efe4"
+      }
+    },
+    "italie": {
+      "type": "mb-galerie",
+      "blocks": {
+        "g1": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/italie-01.jpg",
+            "alt": "Oliveraie en Toscane, lumière du soir",
+            "caption": ""
+          }
+        },
+        "g2": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/italie-02.jpg",
+            "alt": "Table dressée sous les oliviers",
+            "caption": ""
+          }
+        },
+        "g3": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/italie-03.jpg",
+            "alt": "Village perché de Maremme",
+            "caption": ""
+          }
+        },
+        "g4": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/italie-04.jpg",
+            "alt": "Huile d'olive versée, reflets dorés",
+            "caption": ""
+          }
+        },
+        "g5": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/italie-05.jpg",
+            "alt": "Ruelle italienne et façade ocre",
+            "caption": ""
+          }
+        },
+        "g6": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/italie-06.jpg",
+            "alt": "Olives fraîchement cueillies",
+            "caption": ""
+          }
+        },
+        "g7": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/italie-07.jpg",
+            "alt": "Cyprès et collines toscanes",
+            "caption": ""
+          }
+        },
+        "g8": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/italie-08.jpg",
+            "alt": "Terrasse en pierre, bouteille et pain",
+            "caption": ""
+          }
+        }
+      },
+      "block_order": [
+        "g3",
+        "g1",
+        "g7",
+        "g5",
+        "g6",
+        "g2",
+        "g4",
+        "g8"
+      ],
+      "settings": {
+        "eyebrow": "Italie",
+        "heading": "L'Italie dans l'assiette",
+        "text": "<p>Des oliveraies du Monte Amiata aux acetaie de Modène : les lieux, la lumière et la table qui ont donné naissance à Maison Bosoni.</p>",
+        "background_color": "#f7efe4",
+        "disposition": "frise"
+      }
+    },
+    "recolte": {
+      "type": "mb-videos",
+      "blocks": {
+        "fabrication": {
+          "type": "video",
+          "settings": {
+            "youtube_id": "Yp6ulL6N5iI",
+            "heading": "La fabrication de Piro",
+            "source": "Olio Piro · The Making of Piro."
+          }
+        },
+        "qualite": {
+          "type": "video",
+          "settings": {
+            "youtube_id": "RxOAUfmtxU4",
+            "heading": "Comment naît une huile d'olive extra vierge d'exception",
+            "source": "Olio Piro · How Premium Extra Virgin Olive Oil Is Made"
+          }
+        },
+        "histoire": {
+          "type": "video",
+          "settings": {
+            "youtube_id": "Lvo0Gk1O8Fc",
+            "heading": "L'histoire de Piro, en Toscane",
+            "source": "Olio Piro · The Story Behind Piro"
+          }
+        },
+        "bouteille": {
+          "type": "video",
+          "settings": {
+            "youtube_id": "5f41FksyVts",
+            "heading": "La bouteille signature Piro",
+            "source": "Olio Piro · The Piro. signature bottle"
+          }
+        }
+      },
+      "block_order": [
+        "fabrication",
+        "qualite",
+        "histoire",
+        "bouteille"
+      ],
+      "settings": {
+        "eyebrow": "En vidéo",
+        "heading": "La récolte, racontée par Piro",
+        "text": "<p>Quatre films tournés par Olio Piro, en Toscane : la fabrication de l'huile, l'histoire de la maison, et la bouteille. En anglais, sans sous-titres.</p>",
+        "note": "Les vidéos sont lues depuis YouTube sans cookie : rien n'est chargé avant que vous ne cliquiez.",
+        "background_color": "#f7efe4"
+      }
+    }
+  },
+  "order": [
+    "head",
+    "italie",
+    "portrait",
+    "people",
+    "bottle",
+    "recolte"
+  ]
+}
