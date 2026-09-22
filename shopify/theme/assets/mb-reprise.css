@@ -57,7 +57,7 @@
    plutôt que dans le fichier pour rester réversible tant que les vraies
    photos ne sont pas arrivées. */
 [id$="__fondatrice"] .mb-story__media img { transform: scale(1.45); transform-origin: 50% 14%; }
-[id$="__story"] .mb-story__media img { transform: scale(1.35); transform-origin: 64% 44%; }
+[id$="__story"] .mb-story__media img { transform: scale(1.5); transform-origin: 76% 46%; }
 
 /* ——— Les titres de page nus ———————————————————————————————————————————
    Le titre des collections et du blog était rendu dans la police de labeur, à
