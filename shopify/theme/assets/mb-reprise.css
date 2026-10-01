@@ -63,18 +63,14 @@
    Le titre des collections et du blog était rendu dans la police de labeur, à
    la taille d'un sous-titre, collé en haut de page. On lui donne la
    typographie des autres pages et sa place. */
-main[data-template^="collection"] .shopify-section:first-child h1,
-main[data-template^="blog"] .shopify-section:first-child h1 {
+main[data-template^="collection"] h1:not(.mb-title),
+main[data-template^="blog"] h1:not(.mb-title) {
   font-family: var(--mb-display);
   font-weight: 400;
   font-size: clamp(2.4rem, 5vw, 4.4rem);
   line-height: 1.12;
   letter-spacing: -0.005em;
   text-wrap: balance;
-}
-main[data-template^="collection"] .shopify-section:first-child,
-main[data-template^="blog"] .shopify-section:first-child {
-  border-bottom: 1px solid var(--mb-line);
 }
 
 /* ——— La fiche produit ————————————————————————————————————————————————

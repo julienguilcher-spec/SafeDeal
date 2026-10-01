@@ -1,0 +1,94 @@
+{%- comment -%}
+  Maison Bosoni — la carte au QR code.
+
+  L'emplacement existe avant le code : tant qu'aucune image n'est déposée, le
+  carré reste visible, dessiné en pointillé, pour qu'on voie où il ira et à
+  quelle taille. Le jour où le code arrive, il prend la place sans qu'on
+  touche à la mise en page.
+{%- endcomment -%}
+
+{%- liquid
+  assign s = section.settings
+-%}
+<section class="mb-section mb-qr" style="background: {{ s.background_color | default: 'transparent' }};" id="mb-qr-{{ section.id }}">
+  <div class="mb-inner">
+    <div class="mb-qr__carte">
+      <div class="mb-qr__code{% if s.image == blank %} mb-qr__code--vide{% endif %}">
+        {%- if s.image != blank -%}
+          {{ s.image | image_url: width: 480 | image_tag: loading: 'lazy', alt: s.image_alt }}
+        {%- else -%}
+          <span class="mb-qr__attente">{{ s.attente | escape }}</span>
+        {%- endif -%}
+      </div>
+      <div class="mb-qr__texte">
+        {%- if s.eyebrow != blank -%}<p class="mb-eyebrow">{{ s.eyebrow | escape }}</p>{%- endif -%}
+        {%- if s.heading != blank -%}<h2 class="mb-title mb-title--md">{{ s.heading }}</h2>{%- endif -%}
+        {%- if s.text != blank -%}<div class="mb-text mb-text--muted mb-qr__intro">{{ s.text }}</div>{%- endif -%}
+      </div>
+    </div>
+  </div>
+</section>
+
+{% stylesheet %}
+  .mb-qr { padding-block: clamp(2rem, 5vw, 4rem); }
+
+  .mb-qr__carte {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: clamp(1.4rem, 3vw, 2.6rem);
+    align-items: center;
+    border: 1px solid var(--mb-line);
+    padding: clamp(1.4rem, 3vw, 2.4rem);
+  }
+
+  /* Le carré fait la taille d'un code qu'on scanne à bout de bras, pas d'une
+     vignette : en dessous de cent soixante pixels, un téléphone peine. */
+  .mb-qr__code {
+    width: clamp(132px, 16vw, 168px);
+    aspect-ratio: 1;
+    display: grid;
+    place-items: center;
+    background: #fff;
+    padding: 10px;
+  }
+  .mb-qr__code img { width: 100%; height: 100%; object-fit: contain; display: block; }
+
+  .mb-qr__code--vide {
+    background: transparent;
+    border: 1px dashed var(--mb-line);
+  }
+  .mb-qr__attente {
+    font-family: var(--mb-mono);
+    font-size: 0.62rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--mb-muted);
+    text-align: center;
+    line-height: 1.6;
+    padding-inline: 0.6rem;
+  }
+
+  .mb-qr__intro { margin-top: 0.8rem; max-width: 54ch; }
+
+  @media (max-width: 640px) {
+    .mb-qr__carte { grid-template-columns: minmax(0, 1fr); justify-items: start; }
+  }
+{% endstylesheet %}
+
+{% schema %}
+{
+  "name": "MB · QR code",
+  "tag": "section",
+  "class": "mb-section-wrapper",
+  "settings": [
+    { "type": "image_picker", "id": "image", "label": "Le QR code" },
+    { "type": "text", "id": "image_alt", "label": "Texte alternatif du code", "default": "QR code Maison Bosoni" },
+    { "type": "text", "id": "attente", "label": "Mention tant qu'il n'y a pas de code", "default": "Emplacement du QR code" },
+    { "type": "text", "id": "eyebrow", "label": "Surtitre", "default": "À scanner" },
+    { "type": "inline_richtext", "id": "heading", "label": "Titre", "default": "La boutique dans votre poche" },
+    { "type": "richtext", "id": "text", "label": "Texte" },
+    { "type": "color", "id": "background_color", "label": "Couleur de fond" }
+  ],
+  "presets": [ { "name": "MB · QR code", "category": "Maison Bosoni" } ]
+}
+{% endschema %}
