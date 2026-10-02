@@ -1,0 +1,4 @@
+node_modules/
+.env
+# Tes cours, tes fiches et ton jeton : jamais commités.
+data/

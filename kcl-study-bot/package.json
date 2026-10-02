@@ -1,0 +1,25 @@
+{
+  "name": "kcl-study-bot",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "R\u00e9cup\u00e8re tes cours KEATS (KCL), en fait des fiches, des r\u00e9sum\u00e9s, des flashcards et r\u00e9pond \u00e0 tes questions / exercices avec citations.",
+  "scripts": {
+    "kcl": "tsx src/cli.ts",
+    "login": "tsx src/cli.ts login",
+    "sync": "tsx src/cli.ts sync",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test \"src/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
+    "fflate": "^0.8.2",
+    "pdfjs-dist": "^6.3.289",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.4"
+  }
+}
