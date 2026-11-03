@@ -106,10 +106,10 @@ function onClick() {
 
 /* ------------------------------------------------------------------ post-traitement */
 const post = { tier: 3, pp: null, uFocus: uniform(26), uFocalRange: uniform(16), uBokeh: uniform(1.0), uBlur: uniform(0), uCA: uniform(0.0022), uGrain: uniform(0.028), uGodRays: uniform(0.55), uFlare: uniform(0), uCore: uniform(new THREE.Vector2(0.5, 0.5)), uAspect: uniform(16 / 9), uVignette: uniform(0.55), bloomStrength: uniform(0.75) };
-const DOF_TAPS = (() => { const arr = []; const n = 22; for (let i = 0; i < n; i++) { const r = Math.sqrt((i + 0.5) / n); const a = i * 2.39996; arr.push([Math.cos(a) * r, Math.sin(a) * r]); } return arr; })();
+const DOF_TAPS = (() => { const arr = []; const n = 12; for (let i = 0; i < n; i++) { const r = Math.sqrt((i + 0.5) / n); const a = i * 2.39996; arr.push([Math.cos(a) * r, Math.sin(a) * r]); } return arr; })();
 function buildPost(tier) {
   post.tier = tier;
-  const scenePass = pass(scene, camera);
+  const scenePass = pass(scene, camera); post.scenePass = scenePass;
   const mrtDef = { output, emissive };
   if (tier >= 3) { mrtDef.normal = directionToColor(normalView); mrtDef.metalrough = vec2(metalness, roughness); }
   scenePass.setMRT(mrt(mrtDef));
@@ -119,12 +119,12 @@ function buildPost(tier) {
     const nT = scenePass.getTexture('normal'); nT.type = THREE.UnsignedByteType; const mrT = scenePass.getTexture('metalrough'); mrT.type = THREE.UnsignedByteType;
     const normalN = scenePass.getTextureNode('normal'); const mrN = scenePass.getTextureNode('metalrough');
     const sceneNormal = sample((uvN) => colorToDirection(normalN.sample(uvN)));
-    const ssrN = ssr(colorN, depthN, sceneNormal, mrN.r, mrN.g, camera); ssrN.resolutionScale = 0.5; ssrN.maxDistance.value = 0.6; ssrN.opacity.value = 0.55; ssrN.thickness.value = 0.02; ssrN.quality.value = 0.45; ssrN.blurQuality.value = 2;
+    const ssrN = ssr(colorN, depthN, sceneNormal, mrN.r, mrN.g, camera); ssrN.resolutionScale = 0.4; ssrN.maxDistance.value = 0.5; ssrN.opacity.value = 0.5; ssrN.thickness.value = 0.02; ssrN.quality.value = 0.3; ssrN.blurQuality.value = 1;
     base = blendColor(colorN, ssrN);
   }
   const bloomN = bloom(emisN, 0.55, 0.28, 0.62); post.bloomNode = bloomN;
   let comp = base.add(bloomN);
-  if (tier >= 2) { const rays = radialBlur(emisN, { center: post.uCore, count: 26, decay: 0.935, weight: 0.42, exposure: 0.9 }); comp = comp.add(rays.mul(post.uGodRays)); }
+  if (tier >= 2) { const rays = radialBlur(emisN, { center: post.uCore, count: 16, decay: 0.9, weight: 0.5, exposure: 0.9 }); comp = comp.add(rays.mul(post.uGodRays)); }
   if (tier >= 1) {
     // profondeur de champ physique (cercle de confusion, bokeh disque pondéré par la luminance)
     const compTex = convertToTexture(comp);
@@ -136,11 +136,12 @@ function buildPost(tier) {
       const radius = coc0.mul(0.016).toVar();
       const acc = compTex.sample(uvN).rgb.toVar(); const wsum = float(1).toVar();
       const texel = vec2(float(1).div(post.uAspect), 1.0);
+      /* Une seule lecture par tap : la pondération par profondeur coûtait une lecture de plus
+         par échantillon, pour un gain invisible sur un fond noir. */
       for (const [tx, ty] of DOF_TAPS) {
         const suv = uvN.add(vec2(tx, ty).mul(radius).mul(texel));
-        const c = compTex.sample(suv).rgb; const vzT = viewZAt(suv).negate();
-        const cocT = smoothstep(0.0, post.uFocalRange, vzT.sub(post.uFocus).abs()).mul(post.uBokeh).mul(smoothstep(140.0, 70.0, vzT));
-        const w = select(cocT.greaterThanEqual(coc0.mul(0.75)), float(1.0), cocT.div(coc0.add(1e-4)).clamp(0, 1)).mul(luminance(c).mul(0.9).add(0.35));
+        const c = compTex.sample(suv).rgb;
+        const w = luminance(c).mul(0.9).add(0.35);
         acc.addAssign(c.mul(w)); wsum.addAssign(w);
       }
       return vec4(acc.div(wsum), 1.0);
@@ -152,7 +153,7 @@ function buildPost(tier) {
   const lensFn = Fn(() => {
     const uvN = screenUV; const dir = uvN.sub(0.5); const rr = dir.length();
     const ca = dir.mul(post.uCA).mul(rr.mul(rr).mul(3).add(0.35));
-    const acc = vec3(0).toVar(); const N = 7; const blurCenter = post.uCore.mul(0.3).add(0.35);
+    const acc = vec3(0).toVar(); const N = 3; const blurCenter = post.uCore.mul(0.3).add(0.35);
     for (let i = 0; i < N; i++) {
       const off = uvN.sub(blurCenter).mul(post.uBlur).mul(i / (N - 1));
       acc.addAssign(vec3(lensTex.sample(uvN.sub(off).sub(ca)).r, lensTex.sample(uvN.sub(off)).g, lensTex.sample(uvN.sub(off).add(ca)).b));
@@ -174,7 +175,24 @@ function buildPost(tier) {
   post.pp.outputNode = PARAMS.get('raw') === '1' ? colorN : PARAMS.get('raw') === '2' ? comp : lensFn(); post.pp.needsUpdate = true;
   reflection.reflector.resolutionScale = tier >= 2 ? 0.6 : 0.4;
 }
-buildPost(DEBUG.quality !== null ? DEBUG.quality : 3);
+/* Palier de départ : le palier 3 (réflexions écran) ne tient que sur une carte dédiée.
+   Sur un GPU intégré, partir au palier 2 évite une reconstruction coûteuse dès les premières secondes. */
+function detectTier() {
+  const mem = navigator.deviceMemory || 8;
+  const cores = navigator.hardwareConcurrency || 4;
+  const mobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  if (mobile || cores <= 4 || mem <= 4) return 1;
+  let dedicated = false;
+  try {
+    const gl = document.createElement('canvas').getContext('webgl2');
+    const ext = gl && gl.getExtension('WEBGL_debug_renderer_info');
+    const name = ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : '';
+    dedicated = /nvidia|geforce|rtx|gtx|radeon (rx|pro)|arc a/i.test(name);
+    if (gl && gl.getExtension('WEBGL_lose_context')) gl.getExtension('WEBGL_lose_context').loseContext();
+  } catch (_) {}
+  return dedicated ? 3 : 2;
+}
+buildPost(DEBUG.quality !== null ? DEBUG.quality : detectTier());
 
 /* échelle de qualité automatique */
 const perf = { samples: [], fps: 60, low: 0, lastDrop: 0 };
@@ -184,12 +202,14 @@ function updatePerf(dt) {
   const avg = perf.samples.reduce((a, b) => a + b, 0) / perf.samples.length; perf.fps = 1 / Math.max(avg, 1e-3);
   if (clock.t > 12 && perf.samples.length >= 60) {
     if (perf.fps < 55) perf.low += dt; else perf.low = Math.max(0, perf.low - dt * 0.5);
-    if (perf.low > 2.5 && clock.t - perf.lastDrop > 6) {
+    if (perf.low > 3 && clock.t - perf.lastDrop > 10) {
+      /* Reconstruire le graphe recompile des shaders : on ne le fait qu'une fois par palier,
+         espacé de dix secondes, et jamais dans l'autre sens. */
       if (post.tier > 0) buildPost(post.tier - 1);
-      else if (!perf.dprReduced) { perf.dprReduced = true; renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5)); renderer.setSize(window.innerWidth, window.innerHeight); }
+      else if (!perf.dprReduced) { perf.dprReduced = true; renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1)); renderer.setSize(window.innerWidth, window.innerHeight); }
       perf.low = 0; perf.lastDrop = clock.t; perf.samples.length = 0;
     }
   }
 }
 
-export { OVERVIEW, cam, camApply, flyTo, updateCamera, focusAgent, focusEcosystem, goOverview, canvas, pointer, pick, onClick, post, buildPost, perf, updatePerf };
+export { OVERVIEW, detectTier, cam, camApply, flyTo, updateCamera, focusAgent, focusEcosystem, goOverview, canvas, pointer, pick, onClick, post, buildPost, perf, updatePerf };

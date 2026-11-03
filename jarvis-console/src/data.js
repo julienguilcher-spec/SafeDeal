@@ -2,7 +2,7 @@
 import * as THREE from 'three/webgpu';
 
 /* =====================================================================================
-   JARVIS — CONSOLE ÉCOSYSTÈME — moteur 3D (WebGPU, repli WebGL2) + HUD
+   JARVIS, console écosystème : moteur 3D (WebGPU, repli WebGL2) et HUD
    ===================================================================================== */
 
 const PARAMS = new URLSearchParams(location.search);
@@ -11,6 +11,8 @@ const DEBUG = {
   forceWebGL: PARAMS.get('backend') === 'webgl' || storedBackend === 'webgl',
   failInit: PARAMS.get('fail') === 'init',
   initTimeout: parseInt(PARAMS.get('initTimeout') || '15000', 10),
+  dpr: PARAMS.has('dpr') ? parseFloat(PARAMS.get('dpr')) : null,
+  noPrecompile: PARAMS.get('precompile') === '0',
   startAt: parseFloat(PARAMS.get('t') || '0') || 0,
   fixedStep: PARAMS.has('fixed') ? (parseFloat(PARAMS.get('fixed')) || 1 / 60) : null,
   quality: PARAMS.has('quality') ? parseInt(PARAMS.get('quality'), 10) : null,
@@ -97,7 +99,7 @@ const INITIAL_STATES = {
 const data = {
   title: 'JARVIS', subtitle: 'Console écosystème', connection: 'online',
   agents: AGENT_DEFS.map((d) => { const s = INITIAL_STATES[d.id]; return { id: d.id, name: d.name, role: d.role, eco: d.eco, state: s[0], load: s[1], task: s[2], actions: s[3], cost: s[4], progress: s[0] === 'working' ? 0.2 + rng() * 0.6 : 0 }; }),
-  mission: { project: 'Boutique Shopify — Maison Albane, collection printemps', progress: 0.42, elapsed: 2 * 3600 + 37 * 60, remaining: 3 * 3600 + 50 * 60, agent: 'constructeur', step: 'Construction' },
+  mission: { project: 'Boutique Shopify, Maison Albane, collection printemps', progress: 0.42, elapsed: 2 * 3600 + 37 * 60, remaining: 3 * 3600 + 50 * 60, agent: 'constructeur', step: 'Construction' },
   pipeline: ['Brief', 'Cadrage', 'Réunion de direction', 'Design', 'Maquette', 'Construction', 'Contenus', 'Contrôle qualité', 'Corrections', 'Validation client', 'Livraison'],
   pipelineIndex: 5,
   costs: { total: 15.69, cap: 40, budget: 350, spent: 212.4 },

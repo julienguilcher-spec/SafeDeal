@@ -165,7 +165,7 @@ function buildSystemPrompt() {
   return `${data.jarvisPrompt}
 
 CONTEXTE ACTUEL
-Mission : ${m.project} — ${fmtPct(m.progress)}, étape ${m.step}, temps restant ${fmtDuration(m.remaining)}.
+Mission : ${m.project}, ${fmtPct(m.progress)}, étape ${m.step}, temps restant ${fmtDuration(m.remaining)}.
 Coûts : ${fmtEUR.format(data.costs.total)} (plafond ${fmtEUR.format(data.costs.cap)} par site, budget mensuel consommé à ${Math.round(data.costs.spent / data.costs.budget * 100)} %).
 Validations en attente : ${data.validation.length ? data.validation.map((v) => v.text).join(' ; ') : 'aucune'}.
 

@@ -32,7 +32,7 @@ function openPanel(name) { document.querySelectorAll('.panel.open').forEach((o) 
 function renderMission() {
   const m = data.mission; $('mission-project').textContent = m.project; $('mission-progress').textContent = fmtPct(m.progress); $('mission-gauge').style.width = `${Math.round(m.progress * 100)}%`;
   $('mission-elapsed').textContent = fmtDuration(m.elapsed); $('mission-remaining').textContent = fmtDuration(m.remaining);
-  const ag = agentById(m.agent); $('mission-agent').textContent = ag ? ag.name : (m.agent || '—'); $('mission-step').textContent = m.step || '—'; $('mission-summary').textContent = fmtPct(m.progress);
+  const ag = agentById(m.agent); $('mission-agent').textContent = ag ? ag.name : (m.agent || '·'); $('mission-step').textContent = m.step || '·'; $('mission-summary').textContent = fmtPct(m.progress);
 }
 function renderPipeline() {
   const list = $('pipeline-list'); list.innerHTML = '';
@@ -53,19 +53,19 @@ function renderValidation() {
   if (!data.validation.length) { const li = document.createElement('li'); li.className = 'empty'; li.textContent = 'Rien à valider'; ul.appendChild(li); }
   data.validation.forEach((v) => { const li = document.createElement('li'); const ag = agentById(v.agent); li.innerHTML = `<span>${v.text}</span><span class="acts"><button class="ok" data-id="${v.id}" data-act="ok">Valider</button><button data-id="${v.id}" data-act="no">Refuser</button></span>`; if (ag) li.querySelector('span').innerHTML = `<b class="${ECO_CLASS[ag.eco]}" style="font-weight:400">${ag.name}</b> · ${v.text}`; ul.appendChild(li); });
   ul.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => resolveValidation(b.dataset.id, b.dataset.act === 'ok')));
-  $('validation-summary').textContent = data.validation.length ? String(data.validation.length) : '—';
+  $('validation-summary').textContent = data.validation.length ? String(data.validation.length) : '·';
 }
 function resolveValidation(id, ok) {
   const v = data.validation.find((x) => x.id === id); if (!v) return; data.validation = data.validation.filter((x) => x.id !== id);
   const ag = agentById(v.agent); if (ag && ag.state === 'waiting') applyAgentPatch(ag.id, { state: ok ? 'working' : 'idle', task: ok ? ag.task.replace(/^Attend .*$/, 'Reprend la tâche validée') : 'Tâche refusée, en attente de consigne' });
   api.appendLog(v.agent, ok ? `Validation accordée : ${v.text}` : `Validation refusée : ${v.text}`); renderValidation(); renderAlerts();
 }
-function renderLog() { const ul = $('live-list'); ul.innerHTML = ''; data.log.slice(-8).reverse().forEach((l) => { const li = document.createElement('li'); const ag = agentById(l.agent); li.innerHTML = `<time>${l.time}</time><span>${ag ? `<b class="${ECO_CLASS[ag.eco]}">${ag.name}</b> · ` : ''}${l.text}</span>`; ul.appendChild(li); }); $('live-summary').textContent = data.log.length ? data.log[data.log.length - 1].time : '—'; }
-function renderAlerts() { const ul = $('alerts-list'); ul.innerHTML = ''; if (!data.alerts.length) { const li = document.createElement('li'); li.className = 'empty'; li.textContent = 'Aucune alerte'; ul.appendChild(li); } data.alerts.forEach((a) => { const li = document.createElement('li'); li.className = a.level === 'info' ? 'info' : ''; li.innerHTML = `<i></i><span>${a.text}</span>`; ul.appendChild(li); }); $('alerts-summary').textContent = data.alerts.length ? String(data.alerts.length) : '—'; }
+function renderLog() { const ul = $('live-list'); ul.innerHTML = ''; data.log.slice(-8).reverse().forEach((l) => { const li = document.createElement('li'); const ag = agentById(l.agent); li.innerHTML = `<time>${l.time}</time><span>${ag ? `<b class="${ECO_CLASS[ag.eco]}">${ag.name}</b> · ` : ''}${l.text}</span>`; ul.appendChild(li); }); $('live-summary').textContent = data.log.length ? data.log[data.log.length - 1].time : '·'; }
+function renderAlerts() { const ul = $('alerts-list'); ul.innerHTML = ''; if (!data.alerts.length) { const li = document.createElement('li'); li.className = 'empty'; li.textContent = 'Aucune alerte'; ul.appendChild(li); } data.alerts.forEach((a) => { const li = document.createElement('li'); li.className = a.level === 'info' ? 'info' : ''; li.innerHTML = `<i></i><span>${a.text}</span>`; ul.appendChild(li); }); $('alerts-summary').textContent = data.alerts.length ? String(data.alerts.length) : '·'; }
 function renderMemory() { const ul = $('memory-list'); ul.innerHTML = ''; data.memory.forEach((m) => { const li = document.createElement('li'); li.textContent = m; ul.appendChild(li); }); $('memory-summary').textContent = `${data.memory.length} éléments`; }
 function showAgentDetail(a) {
   const d = a.data; $('agent-name').textContent = d.name; $('agent-role').textContent = d.role; $('agent-eco').textContent = a.eco.name; const st = $('agent-state'); st.textContent = STATE_LABEL[d.state] || d.state; st.className = `state ${d.state}`;
-  $('agent-task').textContent = d.task || '—'; const ul = $('agent-actions'); ul.innerHTML = ''; (d.actions || []).forEach((t) => { const li = document.createElement('li'); li.textContent = t; ul.appendChild(li); }); if (!(d.actions || []).length) { const li = document.createElement('li'); li.className = 'empty'; li.textContent = 'Aucune action'; ul.appendChild(li); }
+  $('agent-task').textContent = d.task || '·'; const ul = $('agent-actions'); ul.innerHTML = ''; (d.actions || []).forEach((t) => { const li = document.createElement('li'); li.textContent = t; ul.appendChild(li); }); if (!(d.actions || []).length) { const li = document.createElement('li'); li.className = 'empty'; li.textContent = 'Aucune action'; ul.appendChild(li); }
   $('agent-cost').textContent = fmtEUR.format(d.cost || 0); $('agent-summary').textContent = d.name;
   $('agent-prompt-label').textContent = promptLabel(d.id); const ta = $('agent-prompt'); ta.value = d.prompt || ''; ta.dataset.agent = d.id; autoGrow(ta); $('agent-prompt-state').textContent = '';
   openPanel('agent');

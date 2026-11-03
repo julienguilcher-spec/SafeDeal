@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>JARVIS — Console Écosystème</title>
+<title>JARVIS Console Écosystème</title>
 <meta name="theme-color" content="#000000">
 <meta name="description" content="Console 3D de pilotage des écosystèmes d'agents JARVIS : Studio Shopify, KCL et Rédacteur.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -373,7 +373,7 @@ import { radialBlur } from 'three/addons/tsl/display/radialBlur.js';
 // Données, utilitaires, constantes des écosystèmes et des agents.
 
 /* =====================================================================================
-   JARVIS — CONSOLE ÉCOSYSTÈME — moteur 3D (WebGPU, repli WebGL2) + HUD
+   JARVIS, console écosystème : moteur 3D (WebGPU, repli WebGL2) et HUD
    ===================================================================================== */
 
 const PARAMS = new URLSearchParams(location.search);
@@ -382,6 +382,8 @@ const DEBUG = {
   forceWebGL: PARAMS.get('backend') === 'webgl' || storedBackend === 'webgl',
   failInit: PARAMS.get('fail') === 'init',
   initTimeout: parseInt(PARAMS.get('initTimeout') || '15000', 10),
+  dpr: PARAMS.has('dpr') ? parseFloat(PARAMS.get('dpr')) : null,
+  noPrecompile: PARAMS.get('precompile') === '0',
   startAt: parseFloat(PARAMS.get('t') || '0') || 0,
   fixedStep: PARAMS.has('fixed') ? (parseFloat(PARAMS.get('fixed')) || 1 / 60) : null,
   quality: PARAMS.has('quality') ? parseInt(PARAMS.get('quality'), 10) : null,
@@ -468,7 +470,7 @@ const INITIAL_STATES = {
 const data = {
   title: 'JARVIS', subtitle: 'Console écosystème', connection: 'online',
   agents: AGENT_DEFS.map((d) => { const s = INITIAL_STATES[d.id]; return { id: d.id, name: d.name, role: d.role, eco: d.eco, state: s[0], load: s[1], task: s[2], actions: s[3], cost: s[4], progress: s[0] === 'working' ? 0.2 + rng() * 0.6 : 0 }; }),
-  mission: { project: 'Boutique Shopify — Maison Albane, collection printemps', progress: 0.42, elapsed: 2 * 3600 + 37 * 60, remaining: 3 * 3600 + 50 * 60, agent: 'constructeur', step: 'Construction' },
+  mission: { project: 'Boutique Shopify, Maison Albane, collection printemps', progress: 0.42, elapsed: 2 * 3600 + 37 * 60, remaining: 3 * 3600 + 50 * 60, agent: 'constructeur', step: 'Construction' },
   pipeline: ['Brief', 'Cadrage', 'Réunion de direction', 'Design', 'Maquette', 'Construction', 'Contenus', 'Contrôle qualité', 'Corrections', 'Validation client', 'Livraison'],
   pipelineIndex: 5,
   costs: { total: 15.69, cap: 40, budget: 350, spent: 212.4 },
@@ -489,8 +491,11 @@ const agentById = (id) => data.agents.find((a) => a.id === id);
 
 
 /* ------------------------------------------------------------------ rendu */
+/* Résolution de rendu : sur un écran Retina, un ratio de 2 quadruple le nombre de pixels à traiter
+   par le post-traitement. 1.5 reste net à l'œil et divise la charge par 1,8. */
+const DPR_CAP = DEBUG.dpr !== null ? DEBUG.dpr : 1.5;
 const renderer = new THREE.WebGPURenderer({ antialias: true, forceWebGL: DEBUG.forceWebGL, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
@@ -1204,6 +1209,10 @@ const poolMat = makeEmissiveMaterial({ transparent: true }); poolMat.blending = 
   poolMat.opacityNode = fall.mul(inst.w.clamp(0, 1));
 }
 const poolMesh = new THREE.InstancedMesh(cached('pool', () => new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2)), poolMat, POOL_COUNT); poolMesh.frustumCulled = false; scene.add(poolMesh);
+/* Calque 1 : ce qui ne doit pas être rendu dans le miroir du sol. Les nappes de lumière y sont
+   posées à plat, les étoiles et la poussière n'ont pas de reflet crédible, et les y inclure
+   coûtait un second remplissage plein écran par image. */
+poolMesh.layers.set(1);
 { const m4 = new THREE.Matrix4(); agents.forEach((a, i) => { m4.makeTranslation(a.pos.x, 0.01, a.pos.z); m4.scale(new THREE.Vector3(2.6, 1, 2.6)); poolMesh.setMatrixAt(i, m4); }); m4.makeTranslation(CORE_POS.x, 0.01, CORE_POS.z); m4.scale(new THREE.Vector3(5, 1, 5)); poolMesh.setMatrixAt(agents.length, m4); poolMesh.instanceMatrix.needsUpdate = true; }
 
 /* ------------------------------------------------------------------ poussière et étoiles */
@@ -1223,6 +1232,7 @@ const dust = (() => {
     const b = near.add(0.02).mul(twinkle.mul(0.6).add(0.4));
     return vec4(vec3(0.85, 0.92, 1.0).mul(b), b.clamp(0, 1));
   }, true);
+  pts.layers.set(1); // la poussière proche n'a pas de reflet crédible
   pts.material.positionNode = positionLocal.add(vec3(sin(uTime.mul(0.08).add(seedN.mul(40))).mul(0.5), sin(uTime.mul(0.06).add(seedN.mul(23))).mul(0.3), cos(uTime.mul(0.07).add(seedN.mul(31))).mul(0.5)));
   scene.add(pts); return pts;
 })();
@@ -1340,10 +1350,10 @@ function onClick() {
 
 /* ------------------------------------------------------------------ post-traitement */
 const post = { tier: 3, pp: null, uFocus: uniform(26), uFocalRange: uniform(16), uBokeh: uniform(1.0), uBlur: uniform(0), uCA: uniform(0.0022), uGrain: uniform(0.028), uGodRays: uniform(0.55), uFlare: uniform(0), uCore: uniform(new THREE.Vector2(0.5, 0.5)), uAspect: uniform(16 / 9), uVignette: uniform(0.55), bloomStrength: uniform(0.75) };
-const DOF_TAPS = (() => { const arr = []; const n = 22; for (let i = 0; i < n; i++) { const r = Math.sqrt((i + 0.5) / n); const a = i * 2.39996; arr.push([Math.cos(a) * r, Math.sin(a) * r]); } return arr; })();
+const DOF_TAPS = (() => { const arr = []; const n = 12; for (let i = 0; i < n; i++) { const r = Math.sqrt((i + 0.5) / n); const a = i * 2.39996; arr.push([Math.cos(a) * r, Math.sin(a) * r]); } return arr; })();
 function buildPost(tier) {
   post.tier = tier;
-  const scenePass = pass(scene, camera);
+  const scenePass = pass(scene, camera); post.scenePass = scenePass;
   const mrtDef = { output, emissive };
   if (tier >= 3) { mrtDef.normal = directionToColor(normalView); mrtDef.metalrough = vec2(metalness, roughness); }
   scenePass.setMRT(mrt(mrtDef));
@@ -1353,12 +1363,12 @@ function buildPost(tier) {
     const nT = scenePass.getTexture('normal'); nT.type = THREE.UnsignedByteType; const mrT = scenePass.getTexture('metalrough'); mrT.type = THREE.UnsignedByteType;
     const normalN = scenePass.getTextureNode('normal'); const mrN = scenePass.getTextureNode('metalrough');
     const sceneNormal = sample((uvN) => colorToDirection(normalN.sample(uvN)));
-    const ssrN = ssr(colorN, depthN, sceneNormal, mrN.r, mrN.g, camera); ssrN.resolutionScale = 0.5; ssrN.maxDistance.value = 0.6; ssrN.opacity.value = 0.55; ssrN.thickness.value = 0.02; ssrN.quality.value = 0.45; ssrN.blurQuality.value = 2;
+    const ssrN = ssr(colorN, depthN, sceneNormal, mrN.r, mrN.g, camera); ssrN.resolutionScale = 0.4; ssrN.maxDistance.value = 0.5; ssrN.opacity.value = 0.5; ssrN.thickness.value = 0.02; ssrN.quality.value = 0.3; ssrN.blurQuality.value = 1;
     base = blendColor(colorN, ssrN);
   }
   const bloomN = bloom(emisN, 0.55, 0.28, 0.62); post.bloomNode = bloomN;
   let comp = base.add(bloomN);
-  if (tier >= 2) { const rays = radialBlur(emisN, { center: post.uCore, count: 26, decay: 0.935, weight: 0.42, exposure: 0.9 }); comp = comp.add(rays.mul(post.uGodRays)); }
+  if (tier >= 2) { const rays = radialBlur(emisN, { center: post.uCore, count: 16, decay: 0.9, weight: 0.5, exposure: 0.9 }); comp = comp.add(rays.mul(post.uGodRays)); }
   if (tier >= 1) {
     // profondeur de champ physique (cercle de confusion, bokeh disque pondéré par la luminance)
     const compTex = convertToTexture(comp);
@@ -1370,11 +1380,12 @@ function buildPost(tier) {
       const radius = coc0.mul(0.016).toVar();
       const acc = compTex.sample(uvN).rgb.toVar(); const wsum = float(1).toVar();
       const texel = vec2(float(1).div(post.uAspect), 1.0);
+      /* Une seule lecture par tap : la pondération par profondeur coûtait une lecture de plus
+         par échantillon, pour un gain invisible sur un fond noir. */
       for (const [tx, ty] of DOF_TAPS) {
         const suv = uvN.add(vec2(tx, ty).mul(radius).mul(texel));
-        const c = compTex.sample(suv).rgb; const vzT = viewZAt(suv).negate();
-        const cocT = smoothstep(0.0, post.uFocalRange, vzT.sub(post.uFocus).abs()).mul(post.uBokeh).mul(smoothstep(140.0, 70.0, vzT));
-        const w = select(cocT.greaterThanEqual(coc0.mul(0.75)), float(1.0), cocT.div(coc0.add(1e-4)).clamp(0, 1)).mul(luminance(c).mul(0.9).add(0.35));
+        const c = compTex.sample(suv).rgb;
+        const w = luminance(c).mul(0.9).add(0.35);
         acc.addAssign(c.mul(w)); wsum.addAssign(w);
       }
       return vec4(acc.div(wsum), 1.0);
@@ -1386,7 +1397,7 @@ function buildPost(tier) {
   const lensFn = Fn(() => {
     const uvN = screenUV; const dir = uvN.sub(0.5); const rr = dir.length();
     const ca = dir.mul(post.uCA).mul(rr.mul(rr).mul(3).add(0.35));
-    const acc = vec3(0).toVar(); const N = 7; const blurCenter = post.uCore.mul(0.3).add(0.35);
+    const acc = vec3(0).toVar(); const N = 3; const blurCenter = post.uCore.mul(0.3).add(0.35);
     for (let i = 0; i < N; i++) {
       const off = uvN.sub(blurCenter).mul(post.uBlur).mul(i / (N - 1));
       acc.addAssign(vec3(lensTex.sample(uvN.sub(off).sub(ca)).r, lensTex.sample(uvN.sub(off)).g, lensTex.sample(uvN.sub(off).add(ca)).b));
@@ -1408,7 +1419,24 @@ function buildPost(tier) {
   post.pp.outputNode = PARAMS.get('raw') === '1' ? colorN : PARAMS.get('raw') === '2' ? comp : lensFn(); post.pp.needsUpdate = true;
   reflection.reflector.resolutionScale = tier >= 2 ? 0.6 : 0.4;
 }
-buildPost(DEBUG.quality !== null ? DEBUG.quality : 3);
+/* Palier de départ : le palier 3 (réflexions écran) ne tient que sur une carte dédiée.
+   Sur un GPU intégré, partir au palier 2 évite une reconstruction coûteuse dès les premières secondes. */
+function detectTier() {
+  const mem = navigator.deviceMemory || 8;
+  const cores = navigator.hardwareConcurrency || 4;
+  const mobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  if (mobile || cores <= 4 || mem <= 4) return 1;
+  let dedicated = false;
+  try {
+    const gl = document.createElement('canvas').getContext('webgl2');
+    const ext = gl && gl.getExtension('WEBGL_debug_renderer_info');
+    const name = ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : '';
+    dedicated = /nvidia|geforce|rtx|gtx|radeon (rx|pro)|arc a/i.test(name);
+    if (gl && gl.getExtension('WEBGL_lose_context')) gl.getExtension('WEBGL_lose_context').loseContext();
+  } catch (_) {}
+  return dedicated ? 3 : 2;
+}
+buildPost(DEBUG.quality !== null ? DEBUG.quality : detectTier());
 
 /* échelle de qualité automatique */
 const perf = { samples: [], fps: 60, low: 0, lastDrop: 0 };
@@ -1418,9 +1446,11 @@ function updatePerf(dt) {
   const avg = perf.samples.reduce((a, b) => a + b, 0) / perf.samples.length; perf.fps = 1 / Math.max(avg, 1e-3);
   if (clock.t > 12 && perf.samples.length >= 60) {
     if (perf.fps < 55) perf.low += dt; else perf.low = Math.max(0, perf.low - dt * 0.5);
-    if (perf.low > 2.5 && clock.t - perf.lastDrop > 6) {
+    if (perf.low > 3 && clock.t - perf.lastDrop > 10) {
+      /* Reconstruire le graphe recompile des shaders : on ne le fait qu'une fois par palier,
+         espacé de dix secondes, et jamais dans l'autre sens. */
       if (post.tier > 0) buildPost(post.tier - 1);
-      else if (!perf.dprReduced) { perf.dprReduced = true; renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5)); renderer.setSize(window.innerWidth, window.innerHeight); }
+      else if (!perf.dprReduced) { perf.dprReduced = true; renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1)); renderer.setSize(window.innerWidth, window.innerHeight); }
       perf.low = 0; perf.lastDrop = clock.t; perf.samples.length = 0;
     }
   }
@@ -1460,7 +1490,7 @@ function openPanel(name) { document.querySelectorAll('.panel.open').forEach((o) 
 function renderMission() {
   const m = data.mission; $('mission-project').textContent = m.project; $('mission-progress').textContent = fmtPct(m.progress); $('mission-gauge').style.width = `${Math.round(m.progress * 100)}%`;
   $('mission-elapsed').textContent = fmtDuration(m.elapsed); $('mission-remaining').textContent = fmtDuration(m.remaining);
-  const ag = agentById(m.agent); $('mission-agent').textContent = ag ? ag.name : (m.agent || '—'); $('mission-step').textContent = m.step || '—'; $('mission-summary').textContent = fmtPct(m.progress);
+  const ag = agentById(m.agent); $('mission-agent').textContent = ag ? ag.name : (m.agent || '·'); $('mission-step').textContent = m.step || '·'; $('mission-summary').textContent = fmtPct(m.progress);
 }
 function renderPipeline() {
   const list = $('pipeline-list'); list.innerHTML = '';
@@ -1481,19 +1511,19 @@ function renderValidation() {
   if (!data.validation.length) { const li = document.createElement('li'); li.className = 'empty'; li.textContent = 'Rien à valider'; ul.appendChild(li); }
   data.validation.forEach((v) => { const li = document.createElement('li'); const ag = agentById(v.agent); li.innerHTML = `<span>${v.text}</span><span class="acts"><button class="ok" data-id="${v.id}" data-act="ok">Valider</button><button data-id="${v.id}" data-act="no">Refuser</button></span>`; if (ag) li.querySelector('span').innerHTML = `<b class="${ECO_CLASS[ag.eco]}" style="font-weight:400">${ag.name}</b> · ${v.text}`; ul.appendChild(li); });
   ul.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => resolveValidation(b.dataset.id, b.dataset.act === 'ok')));
-  $('validation-summary').textContent = data.validation.length ? String(data.validation.length) : '—';
+  $('validation-summary').textContent = data.validation.length ? String(data.validation.length) : '·';
 }
 function resolveValidation(id, ok) {
   const v = data.validation.find((x) => x.id === id); if (!v) return; data.validation = data.validation.filter((x) => x.id !== id);
   const ag = agentById(v.agent); if (ag && ag.state === 'waiting') applyAgentPatch(ag.id, { state: ok ? 'working' : 'idle', task: ok ? ag.task.replace(/^Attend .*$/, 'Reprend la tâche validée') : 'Tâche refusée, en attente de consigne' });
   api.appendLog(v.agent, ok ? `Validation accordée : ${v.text}` : `Validation refusée : ${v.text}`); renderValidation(); renderAlerts();
 }
-function renderLog() { const ul = $('live-list'); ul.innerHTML = ''; data.log.slice(-8).reverse().forEach((l) => { const li = document.createElement('li'); const ag = agentById(l.agent); li.innerHTML = `<time>${l.time}</time><span>${ag ? `<b class="${ECO_CLASS[ag.eco]}">${ag.name}</b> · ` : ''}${l.text}</span>`; ul.appendChild(li); }); $('live-summary').textContent = data.log.length ? data.log[data.log.length - 1].time : '—'; }
-function renderAlerts() { const ul = $('alerts-list'); ul.innerHTML = ''; if (!data.alerts.length) { const li = document.createElement('li'); li.className = 'empty'; li.textContent = 'Aucune alerte'; ul.appendChild(li); } data.alerts.forEach((a) => { const li = document.createElement('li'); li.className = a.level === 'info' ? 'info' : ''; li.innerHTML = `<i></i><span>${a.text}</span>`; ul.appendChild(li); }); $('alerts-summary').textContent = data.alerts.length ? String(data.alerts.length) : '—'; }
+function renderLog() { const ul = $('live-list'); ul.innerHTML = ''; data.log.slice(-8).reverse().forEach((l) => { const li = document.createElement('li'); const ag = agentById(l.agent); li.innerHTML = `<time>${l.time}</time><span>${ag ? `<b class="${ECO_CLASS[ag.eco]}">${ag.name}</b> · ` : ''}${l.text}</span>`; ul.appendChild(li); }); $('live-summary').textContent = data.log.length ? data.log[data.log.length - 1].time : '·'; }
+function renderAlerts() { const ul = $('alerts-list'); ul.innerHTML = ''; if (!data.alerts.length) { const li = document.createElement('li'); li.className = 'empty'; li.textContent = 'Aucune alerte'; ul.appendChild(li); } data.alerts.forEach((a) => { const li = document.createElement('li'); li.className = a.level === 'info' ? 'info' : ''; li.innerHTML = `<i></i><span>${a.text}</span>`; ul.appendChild(li); }); $('alerts-summary').textContent = data.alerts.length ? String(data.alerts.length) : '·'; }
 function renderMemory() { const ul = $('memory-list'); ul.innerHTML = ''; data.memory.forEach((m) => { const li = document.createElement('li'); li.textContent = m; ul.appendChild(li); }); $('memory-summary').textContent = `${data.memory.length} éléments`; }
 function showAgentDetail(a) {
   const d = a.data; $('agent-name').textContent = d.name; $('agent-role').textContent = d.role; $('agent-eco').textContent = a.eco.name; const st = $('agent-state'); st.textContent = STATE_LABEL[d.state] || d.state; st.className = `state ${d.state}`;
-  $('agent-task').textContent = d.task || '—'; const ul = $('agent-actions'); ul.innerHTML = ''; (d.actions || []).forEach((t) => { const li = document.createElement('li'); li.textContent = t; ul.appendChild(li); }); if (!(d.actions || []).length) { const li = document.createElement('li'); li.className = 'empty'; li.textContent = 'Aucune action'; ul.appendChild(li); }
+  $('agent-task').textContent = d.task || '·'; const ul = $('agent-actions'); ul.innerHTML = ''; (d.actions || []).forEach((t) => { const li = document.createElement('li'); li.textContent = t; ul.appendChild(li); }); if (!(d.actions || []).length) { const li = document.createElement('li'); li.className = 'empty'; li.textContent = 'Aucune action'; ul.appendChild(li); }
   $('agent-cost').textContent = fmtEUR.format(d.cost || 0); $('agent-summary').textContent = d.name;
   $('agent-prompt-label').textContent = promptLabel(d.id); const ta = $('agent-prompt'); ta.value = d.prompt || ''; ta.dataset.agent = d.id; autoGrow(ta); $('agent-prompt-state').textContent = '';
   openPanel('agent');
@@ -1866,7 +1896,7 @@ function buildSystemPrompt() {
   return `${data.jarvisPrompt}
 
 CONTEXTE ACTUEL
-Mission : ${m.project} — ${fmtPct(m.progress)}, étape ${m.step}, temps restant ${fmtDuration(m.remaining)}.
+Mission : ${m.project}, ${fmtPct(m.progress)}, étape ${m.step}, temps restant ${fmtDuration(m.remaining)}.
 Coûts : ${fmtEUR.format(data.costs.total)} (plafond ${fmtEUR.format(data.costs.cap)} par site, budget mensuel consommé à ${Math.round(data.costs.spent / data.costs.budget * 100)} %).
 Validations en attente : ${data.validation.length ? data.validation.map((v) => v.text).join(' ; ') : 'aucune'}.
 
@@ -1920,6 +1950,7 @@ async function askJarvis(text) {
 
 /* ===== main.js ===== */
 // Point d'entrée : séquence d'arrivée, animation du cœur et des agents, boucle principale.
+
 
 
 
@@ -2067,11 +2098,19 @@ window.addEventListener('resize', onResize);
 /* ------------------------------------------------------------------ démarrage */
 renderAll();
 camApply();
-if (DEBUG.startAt > 0) { const n = Math.ceil(DEBUG.startAt * 30); for (let i = 0; i < n; i++) simStep(DEBUG.startAt / n); }
+
+/* La caméra principale voit le calque 1, le miroir du sol ne le voit pas. */
+camera.layers.enable(1);
+try { reflection.reflector.getVirtualCamera(camera).layers.disable(1); } catch (_) {}
+
+/* La première image compile les shaders de toute la scène : c'est le long moment derrière
+   le voile. Mesuré : une précompilation séparée fait compiler des variantes inutilisées
+   et rallonge ce temps au lieu de le réduire, donc on s'en passe. */
 $('loader-text').textContent = 'Compilation des shaders';
+if (DEBUG.startAt > 0) { const n = Math.ceil(DEBUG.startAt * 30); for (let i = 0; i < n; i++) simStep(DEBUG.startAt / n); }
 if (!DEBUG.capture) renderer.setAnimationLoop(tick); else render();
 window.__jarvisDebug = { hover(id) { DEBUG.forceHover = id; }, advance(seconds, hz = 30) { const n = Math.ceil(seconds * hz); for (let i = 0; i < n; i++) simStep(seconds / n); render(); }, coreScreen() { const v = CORE_POS.clone().project(camera); return { x: (v.x + 1) / 2 * window.innerWidth, y: (1 - v.y) / 2 * window.innerHeight }; }, state: () => ({ t: clock.t, tier: post.tier, backend: BACKEND, fps: perf.fps, rockets: rockets.length, handovers: handovers.map((l) => ({ draw: l.u.draw.value, t: l.handover && l.handover.t, launched: l.handover && l.handover.launched })), wave: jarvis.wave, cam: { pos: cam.pos.toArray(), target: cam.target.toArray() } }), api, scene, camera, renderer, post, cam };
-console.info(`JARVIS console — rendu ${BACKEND}, qualité ${post.tier}`);
+console.info(`JARVIS console : rendu ${BACKEND}, qualité ${post.tier}`);
 
 </script>
 </body>

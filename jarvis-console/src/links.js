@@ -132,6 +132,10 @@ const poolMat = makeEmissiveMaterial({ transparent: true }); poolMat.blending = 
   poolMat.opacityNode = fall.mul(inst.w.clamp(0, 1));
 }
 const poolMesh = new THREE.InstancedMesh(cached('pool', () => new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2)), poolMat, POOL_COUNT); poolMesh.frustumCulled = false; scene.add(poolMesh);
+/* Calque 1 : ce qui ne doit pas être rendu dans le miroir du sol. Les nappes de lumière y sont
+   posées à plat, les étoiles et la poussière n'ont pas de reflet crédible, et les y inclure
+   coûtait un second remplissage plein écran par image. */
+poolMesh.layers.set(1);
 { const m4 = new THREE.Matrix4(); agents.forEach((a, i) => { m4.makeTranslation(a.pos.x, 0.01, a.pos.z); m4.scale(new THREE.Vector3(2.6, 1, 2.6)); poolMesh.setMatrixAt(i, m4); }); m4.makeTranslation(CORE_POS.x, 0.01, CORE_POS.z); m4.scale(new THREE.Vector3(5, 1, 5)); poolMesh.setMatrixAt(agents.length, m4); poolMesh.instanceMatrix.needsUpdate = true; }
 
 /* ------------------------------------------------------------------ poussière et étoiles */
@@ -151,6 +155,7 @@ const dust = (() => {
     const b = near.add(0.02).mul(twinkle.mul(0.6).add(0.4));
     return vec4(vec3(0.85, 0.92, 1.0).mul(b), b.clamp(0, 1));
   }, true);
+  pts.layers.set(1); // la poussière proche n'a pas de reflet crédible
   pts.material.positionNode = positionLocal.add(vec3(sin(uTime.mul(0.08).add(seedN.mul(40))).mul(0.5), sin(uTime.mul(0.06).add(seedN.mul(23))).mul(0.3), cos(uTime.mul(0.07).add(seedN.mul(31))).mul(0.5)));
   scene.add(pts); return pts;
 })();

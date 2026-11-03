@@ -3,6 +3,7 @@ import './styles.css';
 import * as THREE from 'three/webgpu';
 import { DEBUG, clamp01, lerp, damp, seg, easeInOutQuint, easeOutQuint, easeInOutCubic, easeOutExpo, $, ECOSYSTEMS } from './data.js';
 import { renderer, BACKEND, scene, camera, clock, uTime, coreLight } from './engine.js';
+import { reflection } from './core.js';
 import { CORE_POS, core, jarvis, COIL_COUNT, nucleus, coilLitAttr, rings, geodesic, plates, shockwave, shock } from './core.js';
 import { agents, agentsById } from './agents.js';
 import { LINK_STYLE, rockets, updateRockets, updateBursts, poolAttr, starLayers } from './links.js';
@@ -146,8 +147,16 @@ window.addEventListener('resize', onResize);
 /* ------------------------------------------------------------------ démarrage */
 renderAll();
 camApply();
-if (DEBUG.startAt > 0) { const n = Math.ceil(DEBUG.startAt * 30); for (let i = 0; i < n; i++) simStep(DEBUG.startAt / n); }
+
+/* La caméra principale voit le calque 1, le miroir du sol ne le voit pas. */
+camera.layers.enable(1);
+try { reflection.reflector.getVirtualCamera(camera).layers.disable(1); } catch (_) {}
+
+/* La première image compile les shaders de toute la scène : c'est le long moment derrière
+   le voile. Mesuré : une précompilation séparée fait compiler des variantes inutilisées
+   et rallonge ce temps au lieu de le réduire, donc on s'en passe. */
 $('loader-text').textContent = 'Compilation des shaders';
+if (DEBUG.startAt > 0) { const n = Math.ceil(DEBUG.startAt * 30); for (let i = 0; i < n; i++) simStep(DEBUG.startAt / n); }
 if (!DEBUG.capture) renderer.setAnimationLoop(tick); else render();
 window.__jarvisDebug = { hover(id) { DEBUG.forceHover = id; }, advance(seconds, hz = 30) { const n = Math.ceil(seconds * hz); for (let i = 0; i < n; i++) simStep(seconds / n); render(); }, coreScreen() { const v = CORE_POS.clone().project(camera); return { x: (v.x + 1) / 2 * window.innerWidth, y: (1 - v.y) / 2 * window.innerHeight }; }, state: () => ({ t: clock.t, tier: post.tier, backend: BACKEND, fps: perf.fps, rockets: rockets.length, handovers: handovers.map((l) => ({ draw: l.u.draw.value, t: l.handover && l.handover.t, launched: l.handover && l.handover.launched })), wave: jarvis.wave, cam: { pos: cam.pos.toArray(), target: cam.target.toArray() } }), api, scene, camera, renderer, post, cam };
-console.info(`JARVIS console — rendu ${BACKEND}, qualité ${post.tier}`);
+console.info(`JARVIS console : rendu ${BACKEND}, qualité ${post.tier}`);

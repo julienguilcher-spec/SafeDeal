@@ -5,8 +5,11 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { DEBUG, $ } from './data.js';
 
 /* ------------------------------------------------------------------ rendu */
+/* Résolution de rendu : sur un écran Retina, un ratio de 2 quadruple le nombre de pixels à traiter
+   par le post-traitement. 1.5 reste net à l'œil et divise la charge par 1,8. */
+const DPR_CAP = DEBUG.dpr !== null ? DEBUG.dpr : 1.5;
 const renderer = new THREE.WebGPURenderer({ antialias: true, forceWebGL: DEBUG.forceWebGL, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
@@ -149,4 +152,4 @@ function edgeFrame(geometry, radius, material, threshold = 15, joints = true) {
 }
 function M(geo, mat, x = 0, y = 0, z = 0) { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); return m; }
 
-export { renderer, BACKEND, scene, camera, clock, uTime, keyLight, coreLight, scratchNoise, dustNoise, fresnelNode, matTitanium, matGraphite, matChrome, matGlass, matGlassSoft, makeEmissiveMaterial, cached, bevelBox, machinedRing, latheFromProfile, extrudeShape, polyShape, roundedRectShape, tubeAlong, edgeFrame, M };
+export { renderer, BACKEND, DPR_CAP, scene, camera, clock, uTime, keyLight, coreLight, scratchNoise, dustNoise, fresnelNode, matTitanium, matGraphite, matChrome, matGlass, matGlassSoft, makeEmissiveMaterial, cached, bevelBox, machinedRing, latheFromProfile, extrudeShape, polyShape, roundedRectShape, tubeAlong, edgeFrame, M };

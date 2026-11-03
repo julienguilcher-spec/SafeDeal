@@ -92,7 +92,23 @@ La console affiche un voile « Initialisation » puis « Compilation des shaders
 - erreur de chargement d'un module (réseau, CDN pour la version fichier unique) → message explicite au lieu d'un écran noir ;
 - échelle de qualité automatique sous 55 ips (réflexions écran, volumétrie, profondeur de champ, puis ratio de pixels), cadence affichée en haut à droite.
 
-Options d'URL : `?backend=webgl` force WebGL 2 ; `?quality=0…3` fixe le palier ; `?sim=0` désactive la démo.
+Options d'URL : `?backend=webgl` force WebGL 2 ; `?quality=0…3` fixe le palier ; `?dpr=1` ou `?dpr=2` fixe la résolution de rendu ; `?sim=0` désactive la démo.
+
+## Cadence
+
+La console vise 60 images par seconde. Deux réglages déterminent la charge, tous deux automatiques :
+
+- **La résolution de rendu.** Sur un écran Retina, rendre à la densité maximale quadruple le nombre de pixels à calculer. La 3D est rendue à 1,5 fois la densité logique, ce qui reste net et divise la charge par presque deux. Le HUD, lui, est du HTML : il reste toujours à la résolution native de l'écran. Pour forcer : `?dpr=2` (plus fin, plus lourd) ou `?dpr=1` (plus rapide).
+- **Le palier d'effets.** Au démarrage, la console regarde la machine : carte graphique dédiée au palier 3 (avec réflexions écran), GPU intégré au palier 2, machine légère ou mobile au palier 1. Si la cadence mesurée reste sous 55 images par seconde pendant trois secondes, elle descend d'un palier, au plus une fois toutes les dix secondes, et jamais dans l'autre sens. Au palier le plus bas elle réduit encore la résolution. La cadence est affichée en haut à droite.
+
+| Palier | Ce qu'il ajoute |
+|---|---|
+| 3 | Réflexions écran sur les objets, en plus de tout le reste |
+| 2 | Rayons de lumière depuis le cœur (par défaut sur GPU intégré) |
+| 1 | Profondeur de champ, aberration chromatique, grain, vignette, flare |
+| 0 | Reflet du sol, bloom, verre et matériaux : l'image reste la même, sans les effets d'objectif |
+
+Le reflet du sol, le bloom, le verre, les matériaux et toute la géométrie sont présents à tous les paliers : ce qui s'enlève, ce sont les effets d'objectif, pas la scène.
 
 ## Ce que le moteur fait et ne fait pas
 
