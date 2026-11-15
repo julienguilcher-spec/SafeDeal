@@ -87,10 +87,16 @@ function facadeSlope(g: Geo, lo: ArrayLike<number>, yLo: number, hi: ArrayLike<n
     const j = (i + 1) % n;
     const len = Math.hypot(ref[2 * j] - ref[2 * i], ref[2 * j + 1] - ref[2 * i + 1]);
     if (len < 0.05) continue;
+    const ax = lo[2 * i], az = lo[2 * i + 1], bx = lo[2 * j], bz = lo[2 * j + 1];
+    const cx = hi[2 * j], cz = hi[2 * j + 1], dx = hi[2 * i], dz = hi[2 * i + 1];
+    const l2 = Math.hypot(bx - ax, bz - az) || 1;
+    const ex = (bx - ax) / l2, ez = (bz - az) / l2;
+    // lucarnes droites : u suit la position réelle le long du mur (les arêtiers coupent le motif, sans le cisailler)
     const short = len < bay * 0.6;
     const k = Math.max(1, Math.round(len / bay));
-    g.face(lo[2 * i], yLo, lo[2 * i + 1], lo[2 * j], yLo, lo[2 * j + 1], hi[2 * j], yHi, hi[2 * j + 1], hi[2 * i], yHi, hi[2 * i + 1],
-      short ? 0.46 : 0, v0, { u1: short ? 0.54 : k / 2, v1 });
+    const u0 = short ? 0.46 : 0, su = short ? 0.08 / l2 : k / 2 / l2;
+    const ud = ((dx - ax) * ex + (dz - az) * ez) * su, uc = ((cx - ax) * ex + (cz - az) * ez) * su;
+    g.faceUv(ax, yLo, az, bx, yLo, bz, cx, yHi, cz, dx, yHi, dz, u0, v0, u0 + l2 * su, v0, u0 + uc, v1, u0 + ud, v1);
   }
 }
 

@@ -8,7 +8,8 @@
 > Mouvements, syndicats, clubs, États et causes des missions sont **fictifs et politiquement neutres** ; aucune personne réelle.
 > Les comportements violents sont décrits **au niveau du gameplay** (ce que l'on voit, l'effet produit), jamais comme un mode d'emploi.
 > Ce dossier complète sans les répéter : `01-doctrine-cadre-legal.md` (droit, sommations, grades, discipline),
-> `02-materiel-tenues-vehicules.md` (matériel, véhicules) et `03-dynamique-manifestation.md` (foule, tension, image publique).
+> `02-materiel-tenues-vehicules.md` (matériel, véhicules), `03-dynamique-manifestation.md` (foule, tension, image publique),
+> `04-paris-lieux-monuments.md` (lieux, largeurs officielles des voies, ponts) et `06-roles-jouables.md` (fiches de rôle, barème commun).
 
 ## Légende de fiabilité
 
@@ -42,7 +43,7 @@ Les renvois `[n]` pointent vers la section **Sources**. Identifiants repris de `
 11. Une foule de 10 000 personnages a été affichée avec seulement **40 intelligences complètes et 120 modèles détaillés** simultanés : la solution est le niveau de détail d'IA. [V][5]
 12. En photographie, les **objectifs binaires** (« ai-je capturé ce comportement ? ») sont mieux vécus qu'une note esthétique unique, qui punit les compositions originales. [S][33]
 13. Le triage médical a une règle simple et chronométrable : marche = vert ; fréquence respiratoire > 30, pouls radial absent ou ordre simple non exécuté = rouge. [S][39]
-14. La banque ci-dessous contient **84 missions** pour 12 rôles et 16 types, toutes situées sur des lieux présents dans les données de carte du dépôt. [V][54]
+14. La banque ci-dessous contient **84 missions** pour 12 rôles et 17 familles de situations, toutes situées sur des lieux présents dans les données de carte du dépôt. [V][54]
 15. Recommandation : durée standard de **25 minutes**, fin de mission quand il reste moins de 5 % de la foule, prolongations automatiques de 5 minutes ; Mode libre **entièrement déverrouillé** dès le départ (commandant compris). [JEU]
 
 ---
@@ -80,7 +81,7 @@ Les renvois `[n]` pointent vers la section **Sources**. Identifiants repris de `
 |---|---|---|---|
 | **Police Simulator: Patrol Officers** | Carrière par quartiers à débloquer ; **100 « Conduct Points » par service**, retirés à chaque faute (fouille sans motif…), service terminé à zéro ; tirer sur quelqu'un met fin à la journée ; « Shift Points » de progression | Synthèse d'avis : bogues (80 mentions), contenu payant préféré aux corrections (56), **répétitif et ennuyeux (39)**, IA et véhicules (31) ; presse : 61 de moyenne, 43 % de recommandation ; un test le dit ennuyeux, moralement plat et bogué | [S][15][16][17][18] |
 | **Ready or Not** | Arrêter rapporte plus que neutraliser ; note maximale seulement si tous les suspects et civils sont arrêtés vivants ; pénalité d'environ 50 points pour usage non autorisé de la force ; ordres par menu contextuel à deux équipes (rouge, bleue) ou à toutes (or) ; mode « Commander » : le moral des agents se dégrade, **3 agents au plus en thérapie**, démissions possibles | Coéquipiers et adversaires dirigés par une IA incohérente ; optimisation ; pénalités jugées inconstantes par des joueurs ; menu radial jugé capricieux par un test | [S][19][20][21][22] |
-| **Flashing Lights** (accès anticipé 7 juin 2018, sortie 15 mai 2023) | Trois services jouables (police, pompiers, secours médical), coopération jusqu'à 10 joueurs ; 82 % d'avis positifs sur 10 061 | Monde vide, « you can do pretty much everything in the game within half an hour » (aperçu d'accès anticipé) ; avis récents à 62 % | [V][3] ; [S][23] |
+| **Flashing Lights** (accès anticipé 7 juin 2018, sortie 15 mai 2023) | Trois services jouables (police, pompiers, secours médical), coopération jusqu'à 10 joueurs ; 82 % d'avis positifs sur 10 061 avis en anglais | Monde vide, « you can do pretty much everything in the game within half an hour » (aperçu d'accès anticipé) ; avis récents à 62 % | [V][3] ; [S][23] |
 | **The Precinct** (13 mai 2025) | « chacune des interventions est évaluée selon les méthodes employées » ; la violence gratuite n'est pas récompensée ; ambiance | Jeu répétitif, IA défaillante, bogues ; environ 8 heures d'histoire ; 6,5/10 dans deux tests français | [S][24][25][26] |
 | **This Is the Police** (2016, gestion) | Dilemmes d'effectif (qui envoyer, combien), pressions politiques, loyauté des agents | Répétition ; un testeur s'est senti « dragged along with little direction » après 20 jours de jeu ; notes de 63 à 71 | [S][27] |
 | **Radio Commander** (2019) | Commander **uniquement par radio**, carte fixe sans position ennemie, comptes rendus à interpréter, déplacements longs | Unités qui répondent trop instantanément selon un test ; missions trop scriptées selon des joueurs ; notes de 6 à 8 sur 10 | [S][29] |
@@ -135,7 +136,7 @@ Lot **P0** = indispensable à la première version jouable ; **P1** = version co
 | 2 | **Foule à identité sociale** : la force perçue comme indiscriminée soude les pacifiques aux violents (03 §5) | Promis ailleurs, jamais montré [V][2] | 8 profils ; contagion dans un rayon de 8 m ; tension locale et globale | P0 |
 | 3 | **Coéquipiers fiables** | Premier grief des joueurs de jeu tactique [S][20] | Alignement à ± 1 m ; ordre exécuté en moins de 1,5 s ; jamais bloqué plus de 3 s ; annonces vocales | P0 |
 | 4 | **Compte rendu ligne à ligne** | Pénalités opaques ailleurs [S][17][21] | Au plus 40 lignes : heure, lieu, acte, règle, points ; chaque ligne localisable sur la carte | P0 |
-| 5 | **Trois notes séparées** : tactique, image publique, discipline | Double score bien vu mais mal exposé [S][9][11] | Trois jauges de 0 à 100, visibles en fin de mission seulement | P0 |
+| 5 | **Jauges séparées** : mission, règle, intégrité, image (barème commun, 06 §1.3), plus le dossier disciplinaire | Double score bien vu mais mal exposé [S][9][11] | Quatre jauges de 0 à 100, détaillées en fin de mission seulement | P0 |
 | 6 | **Ordres par verbes tactiques** (01 §4.7) appliqués à un groupe, une section, la compagnie | Menu d'ordres jugé capricieux ailleurs [S][22] | 12 verbes ; menu radial de 8 entrées au plus, 2 niveaux ; même menu sur les trois supports | P0 |
 | 7 | **Dialogue autorité civile ↔ commandant** : demande, autorisation tracée | Inexistant ailleurs | Délai d'autorisation de 5 à 45 s selon le mode de commandement (01 §4.4) | P0 |
 | 8 | **Lisibilité** : trois niveaux de lecture (à hauteur d'homme, carte tactique, drone) | « Écran encombré » [S][9] | 6 indicateurs au plus à l'écran ; un code couleur par camp, constant | P0 |
@@ -274,7 +275,7 @@ Boucle proposée [JEU] : suivre son groupe (distance inférieure à 15 m), scand
 
 ### 4.0 Conventions
 
-Chaque mission tient en cinq lignes : **titre** (identifiant, type, difficulté de ★ à ★★★★★) ; **Cadre** (lieu, jour et heure, météo au format `WeatherKind`, forces, foule simulée, `tension` et `volatilité` initiales) ; **Phases** ; **Objectifs** (P = principaux, S = secondaires) ; **Aléas, Échec, Unique**. Durée `standard` (25 min) sauf mention. La foule indiquée est l'effectif **simulé** (`crowdSize` avant `Settings.crowdScale`) ; le briefing peut annoncer un chiffre narratif 10 à 40 fois supérieur, figuré par le son et des silhouettes lointaines. Tous les lieux cités existent dans `tools/map/raw/normalized/places.geojson` (vérification faite sur 207 noms). [V][54]
+Chaque mission tient en cinq lignes : **titre** (identifiant, type, difficulté de ★ à ★★★★★) ; **Cadre** (lieu, jour et heure, météo au format `WeatherKind`, forces, foule simulée, `tension` et `volatilité` initiales) ; **Phases** ; **Objectifs** (P = principaux, S = secondaires) ; **Aléas, Échec, Unique**. Durée `standard` (25 min) sauf mention. La foule indiquée est l'effectif **simulé** (`crowdSize` avant `Settings.crowdScale`) ; le briefing peut annoncer un chiffre narratif 10 à 40 fois supérieur, figuré par le son et des silhouettes lointaines. Toutes les voies, places, ponts, quais et jardins cités existent dans `tools/map/raw/normalized/places.geojson` (vérification automatique des 84 missions). [V][54]
 
 | Unité (01 §4) | Effectif de jeu | | Unité | Effectif de jeu |
 |---|---|---|---|---|
@@ -300,31 +301,30 @@ Chaque mission tient en cinq lignes : **titre** (identifiant, type, difficulté 
 
 | Lieu | Dimensions | Fiab. | | Lieu | Dimensions | Fiab. |
 |---|---|---|---|---|---|---|
-| Avenue des Champs-Élysées | 1 910 × 70 m ; chaussée 30 m ; trottoirs 20 m | [S][51] | | Place Charles de Gaulle | ≈ 240 m de diamètre, 12 avenues | [E] |
-| Place de la Concorde | 360 × 210 m ; 7,56 ha | [S][51] | | Boulevard Beaumarchais | ≈ 750 × 35 m | [E] |
-| Place de la Bastille | 215 × 150 m | [S][51] | | Boulevard du Temple | ≈ 400 × 36 m | [E] |
-| Place de la République | 283 × 119 m ; 3,4 ha | [S][51] | | Rue Royale | ≈ 280 × 23 m | [E] |
-| Esplanade des Invalides | 487 × 275 m | [S][51] | | Avenue Kléber | ≈ 1 100 × 36 m | [E] |
-| Champ-de-Mars | 780 × 220 m ; 24,3 ha | [S][51] | | Ponts de la Concorde, Alexandre III, d'Iéna | ≈ 150–160 m de long, 35–40 m de large | [E] |
+| Avenue des Champs-Élysées | 1 910 × 70 m ; chaussée 30 m ; trottoirs 20 m | [S][51] ; 04 §1.2 | | Place Charles de Gaulle | cercle de 241 m de diamètre, 12 avenues | 04 §1.1 |
+| Place de la Concorde | 360 × 210 m ; 7,56 ha | [S][51] ; 04 §1.1 | | Boulevard Beaumarchais | 750 × 35 m | 04 §1.2 |
+| Place de la Bastille | 215 × 150 m | [S][51] ; 04 §1.1 | | Boulevard du Temple | 405 × 36,5 m | 04 §1.2 |
+| Place de la République | 283 × 119 m ; 3,4 ha | [S][51] ; 04 §1.1 | | Rue Royale ; Avenue Kléber | 282 × 22 m ; 1 135 × 36 m | 04 §1.3 |
+| Esplanade des Invalides | 487 × 275 m | [S][51] ; 04 §1.1 | | Pont de la Concorde ; Pont Alexandre III | 155 × 36 m ; 160 × 40 m | 04 §4.2 |
+| Champ-de-Mars | 780 × 220 m ; 24,3 ha (pelouses centrales plus étroites selon 04 §1.1) | [S][51] | | Pont d'Iéna ; Place de l'Hôtel de Ville | 157 × 35 m ; 155 × 82 m | 04 §4.2, §1.1 |
 
-Les valeurs [E] sont des ordres de grandeur : la géométrie de la carte du jeu fait foi.
+Les largeurs officielles et les coordonnées de ces lieux sont dans le dossier 04 ; les longueurs de trajet marquées [E] dans les missions sont des ordres de grandeur : la géométrie de la carte du jeu fait foi. Le dossier 06 esquisse en outre des missions courtes par poste, à verser dans le même catalogue.
 
 | Échecs communs aux rôles de police | Aléas transverses (probabilité par mission) |
 |---|---|
 | Mort d'une personne imputable au joueur : fin immédiate, enquête | Retour de gaz par vent tournant, si du gaz est employé : 35 % |
 | Arme de service employée hors légitime défense | Rumeur relayée en ligne (tension +0,05) : 30 % |
 | Trois actes hors cadre légal, ou un seul tir tendu ou tir de LBD pour disperser | Malaise dans la foule : 25 % ; vidéo d'un geste devenue virale : 25 % |
-| Abandon de poste de plus de 60 s (exécutant) ; unité laissée sans ordre plus de 120 s (chef) | Ambulance à laisser passer : 20 % ; enfant ou personne âgée en zone dangereuse : 20 % |
+| Abandon de poste de plus de 90 s hors de sa zone sans ordre (06 §1.3) ; unité laissée sans ordre plus de 120 s (chef) | Ambulance à laisser passer : 20 % ; enfant ou personne âgée en zone dangereuse : 20 % |
 | Image publique de la mission sous 20 sur 100 | Averse soudaine (foule −20 %) : 15 % |
 | Plus de la moitié de l'unité hors de combat | Panne radio de 60 s : 10 % ; ordre contradictoire de la salle : 10 % ; relève en retard : 10 % |
 
 ### 4.1 CRS de base — gardien de la paix (`crs`)
-
 #### M01 — « Premier samedi » · manifestation déclarée · ★
 - **Cadre** : Rue Amelot puis Boulevard Beaumarchais ; samedi 14 h 00 ; `clair` ; votre section (18) en réserve, invisible du cortège ; 400 marcheurs du « Front commun des Ateliers », marche calme ; tension 0,05 / volatilité 0,1 ; durée `courte`.
 - **Phases** : ① perception du matériel au fourgon (6 contrôles : casque, bouclier, bâton, gazeuse, radio, numéro d'identification) ② attente en rue parallèle, appel radio du groupe ③ barrage de principe à l'angle du boulevard, à moins de 1 m des voisins ④ dispersion Place de la Bastille : laisser sortir par la Rue Saint-Antoine.
 - **Objectifs** : P — exécuter 5 ordres en moins de 3 s chacun ; rester dans la ligne 90 % du temps ; zéro emploi de la force. S — signaler par radio 2 faits utiles ; renseigner 1 touriste.
-- **Aléas** — touriste qui cherche la colonne de Juillet ; manifestant qui offre un café ; averse de 2 min. **Échec** — quitter la ligne plus de 60 s ; lever le bâton sans ordre. **Unique** — aucune violence : l'essentiel du métier est d'attendre, d'observer et de tenir sa place.
+- **Aléas** — touriste qui cherche la colonne de Juillet ; manifestant qui offre un café ; averse de 2 min. **Échec** — quitter la ligne plus de 90 s ; lever le bâton sans ordre. **Unique** — aucune violence : l'essentiel du métier est d'attendre, d'observer et de tenir sa place.
 #### M02 — « Pluie de pavés » · manifestation déclarée qui dégénère · ★★
 - **Cadre** : Boulevard du Temple ; jeudi 16 h 30 ; `couvert`, vent d'ouest 15 km/h ; 1 section (18), vous porte-bouclier du groupe 1A ; 600 simulés dont précortège 150 et 20 radicaux ; tension 0,35 / volatilité 0,6.
 - **Phases** : ① barrage à une rue transversale ② premiers jets : lever le bouclier, couvrir le lanceur placé derrière vous ③ sommations de l'autorité civile (texte intégral, 01 §1.2) ④ bond offensif de 30 m sur ordre, retour en ligne ⑤ fin de l'emploi de la force dès le reflux.
@@ -372,7 +372,6 @@ Les valeurs [E] sont des ordres de grandeur : la géométrie de la carte du jeu 
 - **Aléas** — livreur perdu ; journaliste qui teste le dispositif ; coupure d'éclairage de 40 s. **Échec** — intrusion ; refus d'un autorisé. **Unique** — vigilance en temps calme : l'ennui est l'adversaire.
 
 ### 4.2 Chef de groupe — brigadier-chef, 7 agents (`chef_groupe`)
-
 #### M11 — « Sept, dont moi » · manifestation déclarée · ★★
 - **Cadre** : angle de la Rue du Temple et de la Place de la République ; samedi 14 h 30 ; `nuageux` ; groupe 2A (7) ; 500 simulés, marche calme ; tension 0,1 / volatilité 0,2.
 - **Phases** : ① reconnaissance du carrefour ② TENIR puis FILTRER les riverains ③ passage de la queue de cortège ④ réarticulation sur ordre de la section.
@@ -415,9 +414,8 @@ Les valeurs [E] sont des ordres de grandeur : la géométrie de la carte du jeu 
 - **Aléas** — voyageurs avec valises au milieu ; chant provocateur ; train du second groupe en retard. **Échec** — mêlée générale ; voyageur blessé. **Unique** — deux foules face à face et un public étranger au conflit, dans un lieu de passage.
 
 ### 4.3 Commandant de compagnie (`commandant`)
-
 #### M19 — « Prise de commandement » · manifestation déclarée · ★★
-- **Cadre** : Place de la République → Boulevard du Temple → Boulevard Beaumarchais → Place de la Bastille (≈ 1,7 km) ; samedi 14 h 00 ; `clair` ; compagnie (78, 4 sections), commissaire PNJ ; 900 simulés du « Front commun des Ateliers » ; tension 0,1 / volatilité 0,2.
+- **Cadre** : Place de la République → Boulevard du Temple → Boulevard Beaumarchais → Place de la Bastille (≈ 1,5 km, 04 §1.2) ; samedi 14 h 00 ; `clair` ; compagnie (78, 4 sections), commissaire PNJ ; 900 simulés du « Front commun des Ateliers » ; tension 0,1 / volatilité 0,2.
 - **Phases** : ① plan : 4 sections en rues parallèles ② départ, jalonnement ③ camion sono en panne : ouvrir un délestage ④ dispersion, stations de métro rouvertes.
 - **Objectifs** : P — aucune unité visible du cortège, hors tête, pendant 80 % du temps ; dispersion sans force. S — compte rendu à la salle toutes les 5 min ; aucun agent blessé.
 - **Aléas** — section en retard ; organisateur qui demande 15 min de plus ; averse. **Échec** — cortège bloqué plus de 3 min sans délestage ; unité engagée sans ordre. **Unique** — apprendre la carte tactique et les verbes (TENIR, CANALISER, APPUYER) sans la pression des violences.
@@ -457,9 +455,9 @@ Les valeurs [E] sont des ordres de grandeur : la géométrie de la carte du jeu 
 - **Objectifs** : P — densité jamais supérieure à 5 personnes/m² plus de 30 s ; secours à la personne tombée en moins de 90 s. S — aucun emploi de la force ; 3 malaises pris en charge.
 - **Aléas** — panne de sonorisation qui déplace la foule ; vendeur ambulant qui obstrue une sortie ; pétard pris pour un coup de feu. **Échec** — compression avec blessés ; noyade. **Unique** — l'ennemi est la densité : on gère des flux, pas des adversaires.
 #### M27 — « La Seine monte » · crue avec foule · ★★★
-- **Cadre** : Pont de l'Alma, Port de la Bourdonnais, Quai Branly ; jeudi 16 h 00 ; `averse` ; Seine à 5,9 m (repères réels : 6,10 m en juin 2016, 8,62 m en 1910 [S][52]) ; compagnie (78) ; 500 badauds venus voir le Zouave, 200 simulés des « Bateliers de Seine » ; tension 0,15 / volatilité 0,3.
+- **Cadre** : Pont de l'Alma, Port de la Bourdonnais, Quai Branly ; jeudi 16 h 00 ; `averse` ; Seine à 5,9 m à l'échelle d'Austerlitz (repères réels : 6,10 m en juin 2016, 8,62 m en 1910 ; fermeture des voies sur berges par tronçons entre 3,20 m et 6,10 m [S][8][52]) ; compagnie (78) ; 500 badauds venus voir le Zouave, 200 simulés des « Bateliers de Seine » ; tension 0,15 / volatilité 0,3.
 - **Phases** : ① BOUCLER 7 rampes d'accès aux berges ② rassemblement des bateliers : dialogue, emplacement sûr ③ évacuation de 2 péniches avec les pompiers ④ montée de 10 cm : recul du périmètre.
-- **Objectifs** : P — personne sur les berges inondées ; rassemblement maintenu sans force. S — couloir des pompiers permanent ; information au mégaphone toutes les 3 min.
+- **Objectifs** : P — aucune personne sur les berges inondées ; rassemblement maintenu sans force. S — couloir des pompiers permanent ; information au mégaphone toutes les 3 min.
 - **Aléas** — photographe descendu sur le quai ; batelier qui refuse de quitter son bateau ; chaussée glissante. **Échec** — personne emportée ; force contre le rassemblement pacifique. **Unique** — deux missions superposées, secours et droit de manifester, avec le même effectif.
 #### M28 — « Double front » · contre-manifestation · ★★★★
 - **Cadre** : Place de l'Opéra, Rue Auber, Rue Halévy, Rue Scribe, Boulevard des Capucines ; samedi 15 h 30 ; `nuageux` ; compagnie (78), escadron (64) ; 600 simulés du « Oui au Grand Axe », 600 du « Non au Grand Axe » ; tension 0,35 / volatilité 0,6.
@@ -468,7 +466,6 @@ Les valeurs [E] sont des ordres de grandeur : la géométrie de la carte du jeu 
 - **Aléas** — accusation de partialité filmée ; spectateurs sortant de l'Opéra ; un camp refuse la dispersion décalée. **Échec** — affrontement direct de plus de 30 s ; partialité manifeste. **Unique** — la neutralité devient une statistique mesurée et affichée au compte rendu.
 
 ### 4.4 Autorité civile — commissaire (`commissaire`)
-
 #### M29 — « L'écharpe » · sommations · ★★
 - **Cadre** : Place de la République ; samedi 19 h 00 ; `nuageux` ; vous, écharpe tricolore et mégaphone, auprès d'une compagnie (78) ; 400 simulés restés après l'ordre de dispersion, 30 radicaux ; tension 0,45 / volatilité 0,5.
 - **Phases** : ① constater l'attroupement (2 critères) ② vérifier 3 issues libres ③ annonce puis 2 sommations aux textes exacts (01 §1.2) ④ autoriser la force, la faire cesser dès la dispersion.
@@ -506,7 +503,6 @@ Les valeurs [E] sont des ordres de grandeur : la géométrie de la carte du jeu 
 - **Aléas** — collègues qui minimisent ; journaliste qui demande une réaction ; retour de la foule. **Échec** — compte rendu contredit par la vidéo ; blessé laissé sans soins. **Unique** — l'intégrité est la mécanique : le mensonge se paie à l'enquête suivante.
 
 ### 4.5 BRAV-M — binôme à moto (`bravm`)
-
 #### M36 — « En selle » · formation à la moto · ★
 - **Cadre** : Boulevard Richard-Lenoir, de la Place de la République à la Place de la Bastille ; samedi 13 h 30 ; `clair` ; 6 motos (12 agents), vous passager puis pilote ; circulation civile ; tension 0 ; durée `courte`.
 - **Phases** : ① colonne par deux à 40 km/h, 8 m entre les motos ② arrêt, débarquement des passagers en 5 s ③ garde des machines par 2 pilotes ④ rembarquement, repli.
@@ -544,7 +540,6 @@ Les valeurs [E] sont des ordres de grandeur : la géométrie de la carte du jeu 
 - **Aléas** — objectif collé à 50 cm ; étudiant qui tombe seul près d'une moto ; rumeur d'un blessé imputé à l'unité. **Échec** — geste d'humeur filmé ; caméra-piéton éteinte pendant une saisie. **Unique** — tout est filmé et pèse double : la retenue est la compétence testée.
 
 ### 4.6 Équipage du Centaure — gendarme mobile (`gendarme_centaure`)
-
 #### M43 — « Quatorze tonnes et demie » · formation à la conduite · ★
 - **Cadre** : Esplanade des Invalides puis Pont Alexandre III ; dimanche 08 h 00 ; `clair` ; équipage de 3 (pilote, chef d'engin, opérateur), 7 gendarmes embarqués ; rues vides ; tension 0 ; durée `courte`.
 - **Phases** : ① gabarit de 7,5 × 2,94 × 3,82 m (02 §4.3) : passage entre deux files de véhicules ② demi-tour aux caméras périphériques ③ débarquement des 7 passagers à l'abri de la caisse ④ lame : pousser un conteneur vide sur 3 m.
@@ -552,7 +547,7 @@ Les valeurs [E] sont des ordres de grandeur : la géométrie de la carte du jeu 
 - **Aléas** — cycliste dans l'angle mort ; branche basse ; trottoir affaissé. **Échec** — collision avec un tiers ; engagement sur une passerelle interdite au tonnage. **Unique** — masse et angles morts : conduire devient un exercice de prudence.
 #### M44 — « La barricade de la rue Royale » · dégagement d'obstacle · ★★★
 - **Cadre** : Rue Royale, de la Place de la Concorde vers la Place de la Madeleine ; samedi 17 h 00 ; `couvert` ; 1 Centaure, peloton (16), autorité civile ; barricade de barrières, de bacs et d'un véhicule léger, 200 simulés derrière ; tension 0,65 / volatilité 0,7.
-- **Phases** : ① engagement autorisé (décision gouvernementale relayée par l'autorité civile, 02 §4.3) ② contrôle thermique : personne derrière ni dedans ③ annonce au haut-parleur, avance à 5 km/h, poussée ④ le peloton occupe la brèche.
+- **Phases** : ① engagement autorisé (décision gouvernementale relayée par l'autorité civile, 02 §4.3) ② contrôle thermique : vérifier qu'il n'y a personne derrière ni dedans ③ annonce au haut-parleur, avance à 5 km/h, poussée ④ le peloton occupe la brèche.
 - **Objectifs** : P — obstacle dégagé sans contact avec une personne ; vitesse de 6 km/h au plus. S — 1 seul passage ; véhicule civil déplacé sans être écrasé.
 - **Aléas** — personne cachée derrière un bac ; feu sur la barricade (attendre l'extinction) ; journaliste à 4 m de la lame. **Échec** — contact avec une personne ; avance sans autorisation. **Unique** — la puissance oblige à ralentir : la procédure de sûreté est le cœur de la mission.
 #### M45 — « Salve mesurée » · manifestation interdite, lanceurs embarqués · ★★★★
@@ -577,7 +572,6 @@ Les valeurs [E] sont des ordres de grandeur : la géométrie de la carte du jeu 
 - **Aléas** — tracteur en panne ; paille qui prend feu ; agriculteur qui remonte dans sa cabine. **Échec** — matériel détruit ; personne sur une remorque pendant la traction. **Unique** — l'engin sert de dépanneuse ; l'issue idéale est négociée.
 
 ### 4.7 Opérateur du canon à eau (`operateur_canon_eau`)
-
 #### M49 — « Dix mille litres » · formation · ★
 - **Cadre** : Place de la République, exercice ; mardi 09 h 00 ; `clair` ; équipage de 3, vous à la tourelle ; 6 plots et 2 feux de palettes ; tension 0 ; durée `courte`.
 - **Phases** : ① jet diffusé (15 à 20 m) puis jet droit (30 à 40 m) ② rafales de 3 à 10 s ③ lecture de la jauge : 10 000 l, 15 l/s, soit 11 min de jet continu (02 §4.2) ④ mousse sur un feu.
@@ -586,13 +580,13 @@ Les valeurs [E] sont des ordres de grandeur : la géométrie de la carte du jeu 
 #### M50 — « Barricade en feu » · protection des secours · ★★
 - **Cadre** : Boulevard Beaumarchais ; samedi 18 h 50 ; `nuageux` ; 1 engin, section (18) ; barricade enflammée de 8 m, 200 simulés à 40 m ; tension 0,6 / volatilité 0,6.
 - **Phases** : ① approche à 25 m sous protection ② mousse sur le foyer (40 s) ③ jet diffusé au sol pour tenir la foule à distance ④ la section dégage les restes.
-- **Objectifs** : P — feu éteint en moins de 90 s ; personne touché par le jet droit. S — moins de 1 500 l ; pare-brise intact.
+- **Objectifs** : P — feu éteint en moins de 90 s ; aucune personne touchée par le jet droit. S — moins de 1 500 l ; pare-brise intact.
 - **Aléas** — bouteille de gaz signalée (reculer à 50 m) ; projectiles sur la tourelle ; riverain à sa fenêtre au-dessus du feu. **Échec** — feu gagnant un immeuble ; jet droit à moins de 20 m sur une personne. **Unique** — éteindre d'abord : l'engin est un camion de pompiers sous les jets.
 #### M51 — « Le pont d'Iéna » · maintien d'un barrage · manifestation interdite · ★★★★
 - **Cadre** : Pont d'Iéna, entre les Jardins du Trocadéro et le Quai Branly ; dimanche 16 h 30 ; `clair` ; 1 engin, section (18), autorité civile ; 700 simulés du « Collectif Lumière Pour Tous », familles 10 %, radicaux 5 % ; tension 0,45 / volatilité 0,6.
 - **Phases** : ① présence dissuasive, tourelle au repos ② poussée de 50 radicaux en tête, familles juste derrière ③ sommations ; jet diffusé au sol, puis jet droit sur les seuls lanceurs de projectiles ④ reflux.
 - **Objectifs** : P — pont tenu ; aucune famille touchée. S — moins de 2 500 l ; aucun tir au-dessus de la ceinture.
-- **Aléas** — poussette abandonnée ; touristes entre les deux ; lanceur de projectiles caché derrière une banderole tenue par des pacifiques. **Échec** — enfant ou personne âgée touché ; jet avant les sommations. **Unique** — discriminer dans une foule mélangée : savoir ne pas tirer.
+- **Aléas** — poussette abandonnée ; touristes entre les deux ; lanceur de projectiles caché derrière une banderole tenue par des pacifiques. **Échec** — un enfant ou une personne âgée atteints par le jet ; jet avant les sommations. **Unique** — discriminer dans une foule mélangée : savoir ne pas tirer.
 #### M52 — « Deux degrés » · manifestation interdite par grand froid · ★★★
 - **Cadre** : Place de la Concorde ; samedi de janvier, 17 h 30 ; `couvert`, 2 °C ; 1 engin, compagnie (78) ; 600 simulés ; tension 0,5 / volatilité 0,5.
 - **Phases** : ① ordre d'appui au refoulement ② choix du mode : diffusé au sol ou droit ③ personnes trempées : frissons, repli ou colère ④ arrivée des secouristes pour les hypothermies.
@@ -610,7 +604,6 @@ Les valeurs [E] sont des ordres de grandeur : la géométrie de la carte du jeu 
 - **Aléas** — secouriste penché sur un blessé dans l'axe ; faux brassard porté par un lanceur de projectiles ; buée sur la vitre de tourelle. **Échec** — journaliste, secouriste ou observateur touché ; blessé au sol atteint. **Unique** — lire les signes distinctifs à 30 m, de nuit, sous la pluie.
 
 ### 4.8 Télépilote de drone (`telepilote`)
-
 #### M55 — « Arrêté préfectoral » · formation, manifestation déclarée · ★
 - **Cadre** : toit proche de la Place de la République, cortège vers la Place de la Bastille ; samedi 14 h 00 ; `clair` ; vous et un opérateur image PNJ ; arrêté fictif : périmètre République–Bastille, de 13 h à 20 h ; 800 simulés ; tension 0,1 / volatilité 0,2 ; durée `courte`.
 - **Phases** : ① lire l'arrêté (périmètre en surbrillance, horaires) ② décollage, altitude de 80 m ③ suivre la tête ; comptage sur une ligne ④ retour à 20 % de batterie, relève.
@@ -643,11 +636,10 @@ Les valeurs [E] sont des ordres de grandeur : la géométrie de la carte du jeu 
 - **Aléas** — la salle demande de « jeter un œil » ; batterie à 25 % ; témoin qui filme le drone hors zone. **Échec** — personne non secourue ; images illégales exploitées. **Unique** — deux issues valides, deux coûts : le jeu note la justification autant que le résultat.
 
 ### 4.9 Médecin, secouriste (`street_medic`, `secouriste`)
-
 #### M61 — « Sérum physiologique » · formation, secouriste de rue · ★
 - **Cadre** : Place de la République ; samedi 18 h 30 ; `nuageux` ; vous et 2 équipiers PNJ, brassard à croix ; 500 simulés, nuage lacrymogène de 40 m ; tension 0,45 / volatilité 0,4 ; durée `courte`.
 - **Phases** : ① mettre masque et lunettes ② rincer les yeux de 10 personnes (8 s chacune) ③ asseoir et rassurer 2 personnes paniquées ④ installer un poste de soins dans le hall d'un café.
-- **Objectifs** : P — 10 rinçages ; personne laissée dans le nuage. S — 20 doses de sérum suffisantes ; consentement demandé à chaque fois.
+- **Objectifs** : P — 10 rinçages ; aucune personne laissée dans le nuage. S — 20 doses de sérum suffisantes ; consentement demandé à chaque fois.
 - **Aléas** — vent qui pousse le nuage vers le poste ; personne asthmatique ; cafetier réticent. **Échec** — vous-même incapable d'agir plus de 30 s ; poste installé sous le vent. **Unique** — la scène de M05, vécue de l'autre côté du nuage.
 #### M62 — « Tri sous les gaz » · triage · ★★★★
 - **Cadre** : Place de la Bastille, côté Boulevard Henri IV ; samedi 17 h 40 ; `couvert` ; vous, médecin, et 3 équipiers ; 12 victimes après une compression contre des barrières ; 600 simulés ; tension 0,6 / volatilité 0,5.
@@ -681,7 +673,6 @@ Les valeurs [E] sont des ordres de grandeur : la géométrie de la carte du jeu 
 - **Aléas** — animal resté à bord ; occupant qui refuse de partir ; passerelle qui se décroche. **Échec** — chute à l'eau ; personne restée à bord à la fermeture du quai. **Unique** — aucune violence : soin et persuasion dans un décor de catastrophe lente.
 
 ### 4.10 Journaliste (`journaliste`)
-
 #### M68 — « La Une » · formation à la photo · ★
 - **Cadre** : Place de la Bastille puis Boulevard Beaumarchais ; samedi 14 h 15 ; `clair` ; vous, carte de presse, 24 vues ; 900 simulés du « Front commun des Ateliers » ; tension 0,1 / volatilité 0,2 ; durée `courte`.
 - **Phases** : ① 5 commandes de la rédaction : banderole de tête, portrait d'une marcheuse, vue d'ensemble avec la colonne de Juillet, service d'ordre, équipe de liaison de la police ② envoi (20 s, immobile) ③ choix de la photo de une.
@@ -719,7 +710,6 @@ Les valeurs [E] sont des ordres de grandeur : la géométrie de la carte du jeu 
 - **Aléas** — commerçant en colère contre la presse ; touristes qui se photographient devant la carcasse ; averse. **Échec** — aucun : mission seulement notée. **Unique** — montrer le coût matériel et humain, à hauteur de trottoir.
 
 ### 4.11 Manifestant pacifique (`manifestant`)
-
 #### M75 — « Ma première manif » · manifestation déclarée · ★
 - **Cadre** : de la Place de la République à la Place de la Bastille ; samedi 14 h 00 ; `clair` ; vous et 4 amis PNJ, une banderole ; 900 simulés ; tension 0,1 / volatilité 0,2.
 - **Phases** : ① retrouver le groupe au point de rendez-vous ② marcher derrière la banderole, slogans en rythme ③ arrêt du cortège : patienter ④ dispersion : partir par la rue indiquée.
@@ -833,19 +823,11 @@ Ces missions décrivent ce que l'on voit, jamais comment fabriquer ou préparer 
 
 ### 5.2 Note, avancement, discipline
 
-| Composante de la note sur 100 | Points | Mesure |
-|---|---|---|
-| Procédure | 30 | Cadre légal respecté, sommations, ordres exécutés ou donnés, autorisations tracées |
-| Objectifs | 30 | Principaux 20, secondaires 10 |
-| Protection des personnes | 20 | Tiers, manifestants pacifiques, collègues, secours |
-| Image publique | 10 | Ce que les caméras ont vu (03 §7) |
-| Compte rendu | 10 | Exactitude et sincérité du compte rendu final |
-
-Lettres : **S** à partir de 90, **A** de 80, **B** de 65, **C** de 50, **D** en dessous (mission à refaire en carrière).
+La note de mission est celle du **barème commun** du dossier 06 (§1.3) : quatre jauges de 0 à 100 — **Mission**, **Règle**, **Intégrité**, **Image** — pondérées selon la famille de rôle ; lettres **A** à partir de 85, **B** de 70, **C** de 55, **D** de 40, **E** en dessous (mission à refaire en carrière). Ce dossier n'y ajoute qu'une règle : la **sincérité du compte rendu** final entre dans la jauge Règle (jusqu'à −20 points si les images le contredisent). Les barèmes propres aux rôles (photo sur 1 000 points, tri médical, marquages du drone : section 3) alimentent la jauge Mission.
 
 | Faute (01 §7.2) | Sanction | Effet dans la carrière |
 |---|---|---|
-| Légère : geste hors cadre sans blessé, compte rendu incomplet | Avertissement ou blâme | Mention au dossier ; la note S est inaccessible pendant 2 missions |
+| Légère : geste hors cadre sans blessé, compte rendu incomplet | Avertissement ou blâme | Mention au dossier ; la note A est inaccessible pendant 2 missions |
 | Sérieuse : blessé par un geste disproportionné, ordre non exécuté sans objection | Exclusion de 4 à 15 jours | 1 ou 2 missions sautées (résumées par un texte) ; avancement retardé d'un chapitre |
 | Grave : blessé grave par usage illégal d'une arme, mensonge établi par les images | Rétrogradation au grade immédiatement inférieur | Retour au chapitre précédent |
 | Très grave | Révocation | Fin de la carrière ; le Mode libre reste accessible |
@@ -861,7 +843,7 @@ Lettres : **S** à partir de 90, **A** de 80, **B** de 65, **C** de 50, **D** en
 | Véhicules : fourgon, car, véhicule de commandement | Chapitres 1, 3 et 6 |
 | Carte tactique complète et drone d'appui | Chapitre 6 |
 | Paramètres avancés de l'éditeur de scénario | Fin du chapitre 3 |
-| Médailles (sans effet de jeu) : « Sans un coup » (M30 notée S), « Douze grenades » (M45), « Neutre » (M65), « Sincère » (M35) | À l'obtention |
+| Médailles (sans effet de jeu) : « Sans un coup » (M30 notée A sans aucun ordre coercitif), « Douze grenades » (M45), « Neutre » (M65), « Sincère » (M35) | À l'obtention |
 
 Rien n'est verrouillé dans le Mode libre : la carrière débloque une histoire et des distinctions, pas l'accès au contenu.
 
@@ -886,7 +868,7 @@ Rien n'est verrouillé dans le Mode libre : la carrière débloque une histoire 
 | Aide au commandement | « aucune », « suggestions de l'adjoint », « adjoint autonome » | « suggestions de l'adjoint » | `extra.aideCommandement` |
 | Graine | Entier | aléatoire | `seed` |
 
-« Qui dérape » règle les deux sources d'escalade : « la foule » multiplie par 1,5 la part de radicaux et d'opportunistes ; « les forces » donne aux policiers PNJ sous tension une probabilité de 0,15 par minute de commettre un geste hors cadre, que le joueur doit prévenir, arrêter ou signaler ; « au hasard » tire parmi les quatre autres (40 % personne, 20 % chacun des trois autres). Le joueur commandant qui débute reçoit des propositions d'ordre de son adjoint (« Je propose : 2e section, TENIR l'angle. ») qu'il valide d'une touche.
+« Qui dérape » règle les deux sources d'escalade : « la foule » multiplie par 1,5 la part de radicaux et d'opportunistes ; « les forces » donne à l'unité du joueur, quand la tension locale dépasse 0,6, une probabilité de 0,15 par minute qu'un policier PNJ commette un geste hors cadre, que le joueur doit prévenir, arrêter ou signaler ; « au hasard » tire parmi les quatre autres (40 % personne, 20 % chacun des trois autres). Le joueur commandant qui débute reçoit des propositions d'ordre de son adjoint (« Je propose : 2e section, TENIR l'angle. ») qu'il valide d'une touche.
 
 ### 5.5 Durée d'une mission : recommandation
 
@@ -921,14 +903,14 @@ Consultées le 15 novembre 2026. « lu » = page lue pendant cette recherche ; �
 - [6] Gendarmerie nationale, « Du virtuel à la réalité », salon du jeu vidéo de Paris 2025 — https://www.gendarmerie.interieur.gouv.fr/gendinfo/actualites/2025/du-virtuel-a-la-realite-l-experience-immersive-de-la-gendarmerie-a-la-paris-games-week (non lu)
 - [7] Gendarmerie nationale, formation des futurs commandants d'unité, simulateur « Romulus » (2026) — https://www.gendarmerie.interieur.gouv.fr/gendinfo/terrain/immersion/2026/une-formation-inedite-au-profit-des-futurs-commandants-d-unite-elementaire-en-outre-mer (non lu ; résumé)
 - [8] Ville de Paris, crues de la Seine — https://www.paris.fr/pages/crues-5472 (résumé)
-- [54] Données du dépôt : `tools/map/raw/normalized/places.geojson` (3 278 lieux ; 207 noms de missions vérifiés) et dossiers 01, 02, 03 (lus)
+- [54] Données du dépôt : `tools/map/raw/normalized/places.geojson` (3 278 lieux ; tous les lieux des missions y figurent) et dossiers 01, 02, 03 (lus)
 
 ### Tests, encyclopédies, agrégateurs d'avis
 - [9] Pieuvre.ca, test de « RIOT: Civil Unrest » (24 février 2019) — https://pieuvre.ca/2019/02/24/technologie-jeux-video-riot-civil-unrest (lu)
 - [10] Wikipédia (en), « Riot: Civil Unrest » — https://en.wikipedia.org/wiki/Riot:_Civil_Unrest (lu)
 - [11] GOG, fiche et avis de « RIOT: Civil Unrest » — https://www.gog.com/fr/game/riot_civil_unrest (résumé)
-- [12] jeuxvideo.com, fiche du même jeu — https://www.jeuxvideo.com/jeux/jeu-67970/ (résumé ; non cité)
-- [13] TechRaptor, test du même jeu — https://techraptor.net/content/riot-civil-unrest-review (non lu ; non cité)
+- [12] jeuxvideo.com, fiche du même jeu — https://www.jeuxvideo.com/jeux/jeu-67970/ (résumé)
+- [13] TechRaptor, test du même jeu — https://techraptor.net/content/riot-civil-unrest-review (non lu : accès refusé)
 - [14] Prima Games, test du même jeu — https://primagames.com/gaming/riot-civil-unrest-review (résumé)
 - [15] OpenCritic, « Police Simulator: Patrol Officers » — https://opencritic.com/game/13965/police-simulator-patrol-officers (résumé)
 - [16] CyberPowerPC, guide du même jeu — https://www.cyberpowerpc.com/blog/police-simulator-patrol-officers-work-week-guide/ (résumé)
@@ -983,11 +965,11 @@ Consultées le 15 novembre 2026. « lu » = page lue pendant cette recherche ; �
 - **Dates de sortie et studios** de plusieurs jeux cités (« Police Simulator: Patrol Officers », « Ready or Not », « Urban Chaos: Riot Response », « Not for Broadcast ») : non relus à la source, volontairement omis ou marqués [S].
 
 ### Sources divergentes ou fragiles
-- « RIOT: Civil Unrest » : 4 ou 6 campagnes, 17 scénarios ou « une trentaine » selon les sources ; note de 11 sur 20 des lecteurs d'un site français non vérifiée.
+- « RIOT: Civil Unrest » : 4 ou 6 campagnes, 17 scénarios ou « une trentaine » selon les sources ; note de 11 sur 20 des lecteurs d'un site français [12] non vérifiée ; un test anglophone détaillé [13] n'a pas pu être lu.
 - Barème de « New Pokémon Snap » : plafonds par critère estimés par les joueurs, contradictoires d'un guide à l'autre.
 - Compteur de visites de l'expérience de services d'urgence : relevé en mars 2025, sans doute dépassé.
 - Avis du prologue concurrent : 61 % sur 921 à la lecture de la page ; d'autres relevés donnent 59 % sur 492 ou 830 avis (dates différentes).
 - Place de la Concorde : 7,56 ha et 360 × 210 m d'après la page lue ; d'autres publications donnent environ 8,6 ha.
-- Dimensions marquées [E] (Place Charles de Gaulle, boulevards, ponts, Rue Royale, Avenue Kléber) : ordres de grandeur de mémoire, à remplacer par la mesure de la carte du jeu.
+- Longueurs de trajet marquées [E] dans les missions (M14, M25, M39) : ordres de grandeur, à remplacer par la mesure de la carte du jeu. Les dimensions des lieux du tableau 4.0 sont reprises du dossier 04 (non revérifiées ici) ; pour le Champ-de-Mars, la page lue donne 780 × 220 m alors que le dossier 04 estime les pelouses centrales à 780 × 110 m.
 - Affluence et effectifs du Nouvel An (un million de personnes, 10 000 agents) : chiffres de presse attribués à la préfecture, communiqué non lu.
 - Tout ce qui est marqué [JEU] (barèmes, seuils, durées des gestes, probabilités d'aléas, structure de carrière, emploi du Centaure par un joueur policier) est une **proposition de conception**, pas un fait.

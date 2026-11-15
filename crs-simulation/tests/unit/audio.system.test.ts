@@ -280,6 +280,31 @@ describe('câblage par événements', () => {
     expect(r.has('feu')).toBe(false);
   });
 
+  it('une grenade lacrymogène qui émet siffle, là où elle roule, et se tait quand elle est épuisée', () => {
+    const g = r.fake.addProjectile('grenade_lacrymo_56', 6, 6);
+    r.run(0.6);
+    expect(r.has('gaz_sifflement')).toBe(false);
+    g.emitting = true;
+    r.run(0.6);
+    expect(r.has('gaz_sifflement', true)).toBe(true);
+    const gain = (): number => Number(/g([0-9.]+)/.exec(r.voices().find((v) => v.includes('gaz_sifflement'))!)![1]);
+    const near = gain();
+    g.x = 30;
+    r.run(0.3);
+    expect(gain()).toBeLessThan(near);
+    g.emitting = false;
+    r.run(0.3);
+    expect(r.has('gaz_sifflement')).toBe(false);
+    // au plus six sifflements à la fois, les plus proches ; hors de portée : aucun
+    for (let i = 0; i < 12; i++) r.fake.addProjectile('palet_lacrymo', 3 + i * 3, 0).emitting = true;
+    r.fake.addProjectile('palet_lacrymo', 300, 0).emitting = true;
+    r.run(0.6);
+    expect(r.voices().filter((v) => v.includes('gaz_sifflement')).length).toBe(6);
+    r.fake.state.projectiles.length = 0;
+    r.run(0.3);
+    expect(r.has('gaz_sifflement')).toBe(false);
+  });
+
   it("'vehicle:siren' attache la sirène du bon service au véhicule et la suit", () => {
     const police = r.fake.addVehicle('voiture_police', 'police', 20, 0);
     const pompiers = r.fake.addVehicle('camion_pompiers', 'rescue', 0, 25);

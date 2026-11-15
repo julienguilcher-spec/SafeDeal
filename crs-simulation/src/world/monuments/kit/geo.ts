@@ -56,6 +56,24 @@ export class Geo {
     return this.quad(a, b, c, d);
   }
 
+  /** Quadrilatère plan a→b→c→d (antihoraire vu de face) avec les UV de chaque sommet (trapèzes sans cisaillement du motif). */
+  faceUv(
+    ax: number, ay: number, az: number, bx: number, by: number, bz: number,
+    cx: number, cy: number, cz: number, dx: number, dy: number, dz: number,
+    ua: number, va: number, ub: number, vb: number, uc: number, vc: number, ud: number, vd: number,
+  ): this {
+    const ux = bx - ax, uy = by - ay, uz = bz - az;
+    const vx = dx - ax, vy = dy - ay, vz = dz - az;
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const nl = Math.hypot(nx, ny, nz) || 1;
+    nx /= nl; ny /= nl; nz /= nl;
+    const a = this.vert(ax, ay, az, nx, ny, nz, ua, va);
+    const b = this.vert(bx, by, bz, nx, ny, nz, ub, vb);
+    const c = this.vert(cx, cy, cz, nx, ny, nz, uc, vc);
+    const d = this.vert(dx, dy, dz, nx, ny, nz, ud, vd);
+    return this.quad(a, b, c, d);
+  }
+
   /** Triangle plan (antihoraire vu de face), UV données. */
   face3(
     ax: number, ay: number, az: number, bx: number, by: number, bz: number, cx: number, cy: number, cz: number,

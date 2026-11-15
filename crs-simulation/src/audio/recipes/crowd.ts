@@ -24,8 +24,8 @@ export const GENERIC_SLOGANS: readonly string[] = [
 ];
 
 /**
- * Limite la bande passante (passe-bas double) : les textures de voix sont calculées à 16 ou
- * 22 kHz et leur relecture laisserait sinon des images spectrales dans l'extrême aigu.
+ * Limite la bande passante (passe-bas double) : les textures de voix sont calculées à 22 kHz
+ * et leur relecture laisserait sinon des images spectrales dans l'extrême aigu.
  */
 function voiceBand(k: Kit, to: AudioNode, cutoff: number): AudioNode {
   return k.bq('lowpass', cutoff, 0.6, k.bq('lowpass', cutoff, 0.8, to));

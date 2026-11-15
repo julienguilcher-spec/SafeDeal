@@ -17,11 +17,13 @@ const STOP_WORDS = new Set(['de', 'du', 'des', 'd', 'la', 'le', 'les', 'l', 'a',
  */
 const GENERIC_WORDS = new Set([
   'place', 'avenue', 'rue', 'boulevard', 'quai', 'pont', 'passerelle', 'jardin', 'jardins', 'square', 'parc', 'cours',
-  'passage', 'allee', 'impasse', 'esplanade', 'port', 'voie', 'rond', 'carrefour', 'parvis', 'galerie', 'cite', 'villa',
+  'passage', 'allee', 'impasse', 'esplanade', 'port', 'voie', 'carrefour', 'parvis', 'galerie', 'cite', 'villa',
   'chemin', 'route', 'promenade', 'quartier', 'ile', 'berge', 'berges', 'terrasse', 'cour', 'porte', 'souterrain',
   'tunnel', 'mairie', 'gare', 'station', 'eglise', 'palais', 'hotel', 'musee', 'theatre', 'tour', 'colonne', 'fontaine',
   'statue', 'marche', 'hopital', 'caserne', 'ministere', 'prefecture', 'commissariat', 'bassin', 'kiosque', 'faubourg',
 ]);
+
+const GENERIC_COMPOUNDS = new Set(['rond point', 'chemin de fer']);
 
 /** Préférence par nature de lieu, à qualité de correspondance égale. */
 const KIND_BONUS: Readonly<Record<PlaceKind, number>> = {
@@ -55,8 +57,11 @@ function significantWords(normalized: string): string[] {
 export function radioName(name: string): string {
   const trimmed = name.trim();
   if (trimmed === '') return trimmed;
-  const first = normalizeName(trimmed.split(/[\s-]/)[0] ?? '');
-  if (!GENERIC_WORDS.has(first)) return trimmed;
+  const head = trimmed.split(/\s+/)[0];
+  const norm = normalizeName(head);
+  // Mot composé générique (« Rond-Point ») : tout le mot passe en minuscules.
+  if (GENERIC_COMPOUNDS.has(norm)) return head.toLowerCase() + trimmed.slice(head.length);
+  if (!GENERIC_WORDS.has(norm)) return trimmed;
   return trimmed.charAt(0).toLowerCase() + trimmed.slice(1);
 }
 

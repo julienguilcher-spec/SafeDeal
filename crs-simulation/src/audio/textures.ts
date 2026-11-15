@@ -49,8 +49,9 @@ function build(id: TextureId): Texture {
     case 'brown': return { data: brownNoise(4.0, 44100, 37), sampleRate: 44100 };
     case 'crackle': return { data: crackle(4.0, 44100, 41), sampleRate: 44100 };
     case 'drops': return { data: drops(3.0, 44100, 53), sampleRate: 44100 };
-    case 'babble': return { data: renderBabble(8.0, 16000, 61), sampleRate: 16000 };
-    case 'boo': return { data: renderBoo(5.0, 16000, 67), sampleRate: 16000 };
+    // 22 050 Hz : bande passante suffisante pour des voix, et fréquence admise par tous les navigateurs
+    case 'babble': return { data: renderBabble(8.0, 22050, 61), sampleRate: 22050 };
+    case 'boo': return { data: renderBoo(5.0, 22050, 67), sampleRate: 22050 };
     case 'scream': return { data: renderScream(5.0, 22050, 71), sampleRate: 22050 };
     case 'choir_a': return { data: renderChoir('a', 2.4, 22050, 101), sampleRate: 22050 };
     case 'choir_o': return { data: renderChoir('o', 2.4, 22050, 103), sampleRate: 22050 };

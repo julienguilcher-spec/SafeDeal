@@ -107,8 +107,8 @@ export function sampleFromPerson(p: Person, hold: number, out: AnimSample): void
   out.upper = u;
 }
 
-function blendDuration(upper: number, postureChanged: boolean): number {
-  if (postureChanged) return 0.38;
+function blendDuration(upper: number, postureChanged: boolean, lying: boolean): number {
+  if (postureChanged) return lying ? 0.6 : 0.38;
   switch (upper) {
     case U_THROW: case U_STRIKE: case U_KICK: return 0.09;
     case U_BLOCK: case U_COVER_FACE: case U_HANDS_UP: return 0.14;
@@ -321,7 +321,9 @@ export class PeopleAnimator {
         const prev = this.prev;
         for (let i = 0; i < LOCAL_SIZE; i++) prev[lo + i] = last[lo + i];
         this.blendT[slot] = 0;
-        this.blendDur[slot] = blendDuration(sm.upper, postureChanged);
+        const lying = sm.posture === POSTURE_PRONE || sm.posture === POSTURE_DOWN
+          || this.lastPosture[slot] === POSTURE_PRONE || this.lastPosture[slot] === POSTURE_DOWN;
+        this.blendDur[slot] = blendDuration(sm.upper, postureChanged, lying);
       }
       const bd = this.blendDur[slot];
       let bt = this.blendT[slot];

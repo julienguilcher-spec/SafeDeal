@@ -198,12 +198,16 @@ function throwAnim(inp: PoseInput, P: Float64Array): void {
 function strikeAnim(inp: PoseInput, P: Float64Array): void {
   const t = inp.upperT;
   const a = ease(t / 0.18), b = ease((t - 0.18) / 0.12), c = ease((t - 0.32) / 0.28);
+  const b1 = ease((t - 0.18) / 0.06), b2 = ease((t - 0.235) / 0.07);
   armIK(P, R, 0.22, 0.02, 0.24, 0.7, -0.6, -0.35);
   handThumb(P, R, 0.1, 0.85, 0.5);
   toward(P, R, 0.30, 0.48, -0.10, a);
   thumbToward(P, R, 0.2, 0.55, -0.8, a);
-  toward(P, R, 0.0, 0.06, 0.50, b);
-  thumbToward(P, R, -0.12, -0.18, 0.97, b);
+  // la main contourne l'épaule par l'avant-haut avant de s'abattre (le coude ne se replie pas d'un coup)
+  toward(P, R, 0.27, 0.43, 0.27, b1);
+  thumbToward(P, R, 0.1, 0.9, 0.3, b1);
+  toward(P, R, 0.0, 0.06, 0.50, b2);
+  thumbToward(P, R, -0.12, -0.18, 0.97, b2);
   toward(P, R, 0.22, 0.02, 0.24, c);
   thumbToward(P, R, 0.1, 0.85, 0.5, c);
   if (inp.hold !== HOLD_SHIELD && P[L + A_MODE] !== ARM_IK) {

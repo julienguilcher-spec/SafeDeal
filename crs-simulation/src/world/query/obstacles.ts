@@ -24,6 +24,8 @@ import { SEG_BRIDGE, SEG_TUNNEL } from './roads';
 
 /** Demi-largeur minimale d'une ouverture pratiquée pour une voie (m). */
 const MIN_PASSAGE_HALF = 1.25;
+/** Demi-largeur maximale d'un tablier de pont prise en compte autour d'un plan d'eau (m). */
+const MAX_HALF_DECK = 40;
 /** Prolongement d'une capsule de passage au-delà du mur traversé (m). */
 const PASSAGE_EXTENSION = 0.3;
 /** Pas d'échantillonnage des découpes (m) ; les limites sont ensuite affinées par dichotomie. */
@@ -193,16 +195,27 @@ export class BucketBuilder {
     const roads = this.roads;
     if (roads === null) return;
     const list = this.roadScratch;
-    const count = roads.querySegments(poly.minX - 1, poly.minZ - 1, poly.maxX + 1, poly.maxZ + 1, list);
+    const water = poly.kind === SOLID_WATER;
+    // Pour l'eau, la recherche est élargie de la demi-largeur des plus grands tabliers.
+    const reach = water ? MAX_HALF_DECK : 1;
+    const count = roads.querySegments(poly.minX - reach, poly.minZ - reach, poly.maxX + reach, poly.maxZ + reach, list);
     const ts: number[] = [];
     for (let q = 0; q < count; q++) {
       const s = list[q];
       if ((roads.segFlags[s] & SEG_TUNNEL) !== 0) continue;
       const ax = roads.segXZ[4 * s], az = roads.segXZ[4 * s + 1], bx = roads.segXZ[4 * s + 2], bz = roads.segXZ[4 * s + 3];
-      if (Math.max(ax, bx) < poly.minX || Math.min(ax, bx) > poly.maxX || Math.max(az, bz) < poly.minZ || Math.min(az, bz) > poly.maxZ) continue;
+      const m = water && (roads.segFlags[s] & SEG_BRIDGE) !== 0 ? roads.halfDeck[roads.segEdge[s]] : 0;
+      if (Math.max(ax, bx) + m < poly.minX || Math.min(ax, bx) - m > poly.maxX || Math.max(az, bz) + m < poly.minZ || Math.min(az, bz) - m > poly.maxZ) continue;
       const dx = bx - ax, dz = bz - az;
       const len = Math.hypot(dx, dz);
       if (len < 1e-6) continue;
+      if (water && (roads.segFlags[s] & SEG_BRIDGE) !== 0) {
+        // Pont au-dessus de l'eau : tout le tablier est praticable, pas seulement son axe (le plan
+        // d'eau est découpé par tuile : l'axe peut passer dans la tuile voisine, à un mètre du bord).
+        poly.caps.push(ax, az, bx, bz, roads.halfDeck[roads.segEdge[s]]);
+        poly.capEdges.push(roads.segEdge[s]);
+        continue;
+      }
       // Paramètres des intersections de la voie avec les côtés du polygone.
       ts.length = 0;
       for (const ring of poly.rings) {

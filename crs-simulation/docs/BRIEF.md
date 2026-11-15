@@ -21,6 +21,21 @@ meilleur que les jeux « CRS simulation » existants. En priorité : **les manif
   grenades lacrymogènes… On peut les **interpeller**. La manifestation **peut dégénérer d'un côté ou de l'autre** selon
   le comportement de chacun (un usage aveugle de la force radicalise la foule pacifique). La mission dure tant que la
   manifestation n'est pas terminée (durée standard ≈ 25 min, réglable : 10 / 25 / 45 min / temps réel).
+- **Des manifestants détaillés, qui ont une raison d'être là** (demande explicite du commanditaire) :
+  - chaque manifestation a une **cause** identifiable (pouvoir d'achat, retraites, climat, logement, hôpital, éducation,
+    monde agricole, prix des carburants, libertés publiques…) qui se lit dans les **pancartes**, **banderoles**, slogans
+    scandés, tracts, couleurs et accessoires ; les pancartes portent de vrais textes lisibles, variés, écrits à la main ;
+  - des **familles visuelles** bien reconnaissables : **gilets jaunes** (gilet de haute visibilité jaune, souvent annoté au
+    dos), cortège syndical (chasubles, drapeaux, ballons, camion sono), étudiants et lycéens, militants climat, personnels
+    soignants en blouse, agriculteurs, retraités, familles avec enfants, et le **black bloc** ;
+  - le **black bloc** est une vraie composante de jeu : groupe compact tout en noir (capuche, masque, lunettes, gants, sac
+    à dos), banderole renforcée en tête, parapluies déployés pour masquer, qui se forme en tête de cortège, se change, agit
+    de façon **coordonnée** puis se disperse et se fond dans la foule ;
+  - la violence peut être **très élevée** : assauts organisés contre les lignes de CRS (pavés, bouteilles, mortiers
+    d'artifice tirés à tir tendu, cocktails Molotov, charges sur un agent isolé ou un véhicule), CRS blessés ou mis à terre
+    qu'il faut dégager, **boutiques attaquées** (vitrines brisées au marteau, rideaux de fer forcés, pillage, incendie),
+    banques et panneaux publicitaires ciblés, véhicules retournés et incendiés, barricades enflammées. L'intensité se règle
+    (tension et propension à dégénérer) et dépend aussi de ce que fait le joueur.
 - **Tout le matériel** : bouclier, tonfa / bâton de défense, gazeuse, grenades lacrymogènes à main et au lanceur
   (Cougar), grenades de désencerclement, LBD 40, extincteur, menottes, radio, mégaphone, arme de service
   (légitime défense uniquement). **Véhicules conduisibles** : fourgon CRS, car de transport, véhicule de commandement,
@@ -72,8 +87,10 @@ meilleur que les jeux « CRS simulation » existants. En priorité : **les manif
 
 ## 4. Règles de contenu
 
-- Jeu vidéo de simulation : **neutralité politique**. Mouvements, syndicats, partis et slogans **fictifs et génériques**.
-  Aucune personne réelle, aucun parti ou syndicat réel.
+- Jeu vidéo de simulation : **neutralité politique**. Les causes et les revendications sont des thèmes réalistes (voir
+  plus haut) présentés sans parti pris ; le mouvement des gilets jaunes est représenté par sa tenue et son ambiance.
+  **Aucune personne réelle, aucun parti ni syndicat réel nommé** ; aucun slogan visant une personne réelle ; les
+  organisations affichées (syndicats, collectifs, associations) portent des noms fictifs.
 - **Aucune marque commerciale réelle** (enseignes, constructeurs de véhicules, fabricants) : noms fictifs. Les noms de
   rues, places, monuments et institutions publiques réels sont conservés. « POLICE », « CRS », « GENDARMERIE »,
   « PRESSE », « SAMU », « SAPEURS-POMPIERS » sont utilisés tels quels.

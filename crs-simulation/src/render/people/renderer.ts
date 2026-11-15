@@ -126,6 +126,7 @@ export class PeopleRenderer {
   private readonly frustum = new THREE.Frustum();
   private readonly unsub: (() => void)[] = [];
   private quality: QualityLevel = 'moyen';
+  private growTo = 0;
   private shadowsOn = true;
 
   // placement courant (résultat de place())
@@ -232,7 +233,8 @@ export class PeopleRenderer {
   private alloc(id: number): number {
     let slot = this.freeSlots.pop();
     if (slot === undefined) {
-      if (this.nextSlot >= this.capacity) this.resize(this.capacity * 2);
+      // plus de place : la personne attend l'image suivante (les tableaux ne changent pas en cours de boucle)
+      if (this.nextSlot >= this.capacity) { this.growTo = Math.max(this.growTo, this.capacity * 2); return -1; }
       slot = this.nextSlot++;
     }
     this.slotOfId.set(id, slot);
@@ -343,7 +345,7 @@ export class PeopleRenderer {
     const m = this.modelById[this.modelOf[slot]];
     const fistR = !!m && (m.bone === BONE_HAND_R || m.twoHanded);
     const fistL = !!m && (m.bone === BONE_HAND_L || m.twoHanded);
-    const info = resolveLook(look, this.animator.variantOf(slot), fistL, fistR, p.wet, p.burning, this.atlas.cellOf, this.lookData, slot * LOOK_STRIDE);
+    const info = resolveLook(look, this.animator.variantOf(slot), fistL, fistR, p.wet, p.burning, this.atlas.cellOf, this.lookData, slot * LOOK_STRIDE, (state & 64) !== 0);
     this.visorOf[slot] = info.visor;
     this.lookRef[slot] = look;
     this.outfitRef[slot] = look.outfit;
@@ -417,6 +419,13 @@ export class PeopleRenderer {
     const people = ctx.people.list;
     const n = people.length;
     if (heldRegistryVersion() !== this.registryVersion) this.buildItemLayers();
+    // capacité : au moins toutes les personnes connues, plus une marge (puissance de deux)
+    if (this.growTo > 0 || n + 2 > this.capacity) {
+      let cap = Math.max(this.capacity, this.growTo);
+      while (cap < n + 2) cap *= 2;
+      this.growTo = 0;
+      this.resize(cap);
+    }
     if (this.listSlot.length < n) this.listSlot = new Int32Array(Math.max(n, this.listSlot.length * 2, 256));
 
     // temps d'animation : suit l'horloge de simulation (figé en pause, accéléré en avance rapide)
@@ -495,6 +504,7 @@ export class PeopleRenderer {
       if (slot <= 0 || this.slotId[slot] !== id) {
         const known = this.slotOfId.get(id);
         slot = known !== undefined ? known : this.alloc(id);
+        if (slot < 0) continue;
         this.listSlot[i] = slot;
       }
       if (id === hideId) continue;
@@ -537,10 +547,11 @@ export class PeopleRenderer {
       if (this.modelOf[slot] !== mid) { this.refreshItem(slot, p, model); lookStale = true; }
 
       // apparence : vérifiée à chaque image de près, par roulement sinon
-      const st = (p.wet * 4 | 0) + ((p.burning * 6 | 0) << 3);
+      const st = (p.wet * 4 | 0) + ((p.burning * 6 | 0) << 3) + (p.posture !== 'stand' && p.posture !== 'crouch' ? 64 : 0);
+      if (!lookStale && this.stateSig[slot] !== st) lookStale = true;
       if (!lookStale && (lod === 0 || ((frameNo + slot) & 7) === 0)) {
         const lk = p.look;
-        lookStale = this.stateSig[slot] !== st || this.outfitRef[slot] !== lk.outfit || this.headgearRef[slot] !== lk.headgear
+        lookStale = this.outfitRef[slot] !== lk.outfit || this.headgearRef[slot] !== lk.headgear
           || this.backTextRef[slot] !== lk.backText || this.extrasRef[slot] !== lk.extras || this.lookSig[slot] !== lookSignature(lk);
       }
       if (lookStale) this.writeLook(slot, p, st);

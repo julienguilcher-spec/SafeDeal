@@ -81,7 +81,7 @@ export function ribbon(path: ArrayLike<number>, y0: number, y1: number, closed =
   return g;
 }
 
-/** Surface réglée entre deux anneaux de même nombre de sommets (versants de toit, talus). UV en mètres. */
+/** Surface réglée entre deux anneaux de même nombre de sommets (versants de toit, talus). UV en mètres, sans cisaillement. */
 export function loft(ringA: ArrayLike<number>, yA: number, ringB: ArrayLike<number>, yB: number): Geo {
   const g = new Geo();
   const n = Math.min(ringA.length, ringB.length) >> 1;
@@ -92,7 +92,12 @@ export function loft(ringA: ArrayLike<number>, yA: number, ringB: ArrayLike<numb
     const cx = ringB[2 * j], cz = ringB[2 * j + 1], dx = ringB[2 * i], dz = ringB[2 * i + 1];
     const len = Math.hypot(bx - ax, bz - az);
     if (len < 1e-6) continue;
-    g.face(ax, yA, az, bx, yA, bz, cx, yB, cz, dx, yB, dz, u, 0);
+    // abscisses des sommets hauts projetées sur le côté bas : le motif reste droit sur un trapèze
+    const ex = (bx - ax) / len, ez = (bz - az) / len;
+    const ud = (dx - ax) * ex + (dz - az) * ez, uc = (cx - ax) * ex + (cz - az) * ez;
+    const perp = Math.abs((dx - ax) * ez - (dz - az) * ex);
+    const v1 = Math.hypot(yB - yA, perp);
+    g.faceUv(ax, yA, az, bx, yA, bz, cx, yB, cz, dx, yB, dz, u, 0, u + len, 0, u + uc, v1, u + ud, v1);
     u += len;
   }
   return g;

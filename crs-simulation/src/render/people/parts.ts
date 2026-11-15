@@ -51,7 +51,10 @@ export const PART_CROSS = 46;
 export const PART_LIMB_BANDS = 47;
 export const PART_SCARF = 48;
 export const PART_CHEST_TEXT_VEST = 49;
-export const PART_COUNT = 50;
+/** Écusson rouge des CRS sur la poitrine droite (vêtement léger / gilet). */
+export const PART_BADGE = 50;
+export const PART_BADGE_VEST = 51;
+export const PART_COUNT = 52;
 
 /** Nombre de bits par mot du masque (les mots sont stockés dans des flottants de texture). */
 export const MASK_BITS = 24;

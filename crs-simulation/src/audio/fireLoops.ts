@@ -1,7 +1,10 @@
 /* =====================================================================================
+ * Boucles attachées au feu et au gaz.
+ *
  * Feux : une boucle « feu » par foyer signalé ('fire:started'), coupée par 'fire:out', par
  * l'extinction constatée (ctx.hazards.fireAt, état de l'objet ou du véhicule) ou, à défaut, au
  * bout d'une durée maximale. Les foyers trop lointains restent virtuels (réserve de voix).
+ * Gaz : voir GasLoops en fin de fichier.
  * ===================================================================================== */
 
 import type { EntityId, EntityKind, GameContext } from '@/core/contracts';
@@ -95,5 +98,94 @@ export class FireLoops {
     for (let i = 0; i < this.fires.length; i++) this.engine.stop(this.fires[i]!.handle, 0.2);
     this.fires.length = 0;
     this.pollAt = 0;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────────────
+ * Gaz : une boucle « gaz_sifflement » par grenade ou palet lacrymogène en train d'émettre
+ * (Projectile.emitting) à portée d'oreille — les six plus proches —, qui suit le projectile
+ * tant qu'il roule et se tait quand il cesse d'émettre ou disparaît.
+ * ───────────────────────────────────────────────────────────────────────────────────── */
+
+interface Hiss { projectileId: EntityId; handle: number }
+
+const MAX_HISS = 6;
+const HISS_RADIUS = 45;
+
+export class GasLoops {
+  private readonly list: Hiss[] = [];
+  private readonly pickIds: number[] = [];
+  private readonly pickDist: number[] = [];
+  private time = 0;
+  private scanAt = 0;
+
+  constructor(private readonly ctx: GameContext, private readonly engine: AudioEngine) {}
+
+  get count(): number {
+    return this.list.length;
+  }
+
+  frame(dt: number): void {
+    this.time += dt;
+    const ctx = this.ctx;
+    const eng = this.engine;
+    // suivi : position à chaque image, arrêt dès que l'émission cesse
+    for (let i = this.list.length - 1; i >= 0; i--) {
+      const h = this.list[i]!;
+      const p = ctx.projectiles.get(h.projectileId);
+      if (!p || !p.emitting) {
+        eng.stop(h.handle, 0.6);
+        this.list.splice(i, 1);
+      } else {
+        eng.setVoicePosition(h.handle, p.x, p.y + 0.1, p.z);
+      }
+    }
+    if (this.time < this.scanAt) return;
+    this.scanAt = this.time + 0.25;
+    // les MAX_HISS projectiles émetteurs les plus proches de l'auditeur
+    const all = ctx.projectiles.list;
+    const ids = this.pickIds;
+    const dist = this.pickDist;
+    ids.length = 0;
+    dist.length = 0;
+    for (let i = 0; i < all.length; i++) {
+      const p = all[i]!;
+      if (!p.emitting) continue;
+      const dx = p.x - eng.lx;
+      const dz = p.z - eng.lz;
+      const d2 = dx * dx + dz * dz;
+      if (d2 > HISS_RADIUS * HISS_RADIUS) continue;
+      let j = ids.length;
+      while (j > 0 && dist[j - 1]! > d2) j--;
+      if (j >= MAX_HISS) continue;
+      ids.splice(j, 0, p.id);
+      dist.splice(j, 0, d2);
+      if (ids.length > MAX_HISS) {
+        ids.pop();
+        dist.pop();
+      }
+    }
+    for (let i = this.list.length - 1; i >= 0; i--) {
+      if (ids.indexOf(this.list[i]!.projectileId) < 0) {
+        eng.stop(this.list[i]!.handle, 0.4);
+        this.list.splice(i, 1);
+      }
+    }
+    for (let i = 0; i < ids.length; i++) {
+      const id = ids[i]!;
+      let known = false;
+      for (let k = 0; k < this.list.length; k++) if (this.list[k]!.projectileId === id) known = true;
+      if (known) continue;
+      const p = ctx.projectiles.get(id);
+      if (!p || eng.hasLoopNear('gaz_sifflement', p.x, p.z, 1.5)) continue;
+      const handle = eng.play('gaz_sifflement', { x: p.x, y: p.y + 0.1, z: p.z, loop: true, pitch: 0.9 + 0.025 * (id % 9) });
+      if (handle) this.list.push({ projectileId: id, handle });
+    }
+  }
+
+  reset(): void {
+    for (let i = 0; i < this.list.length; i++) this.engine.stop(this.list[i]!.handle, 0.1);
+    this.list.length = 0;
+    this.scanAt = 0;
   }
 }

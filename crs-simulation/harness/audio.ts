@@ -42,8 +42,8 @@ const api = {
       brun: time(() => brownNoise(4, 44100, 1)),
       crepitement: time(() => crackle(4, 44100, 1)),
       gouttes: time(() => drops(3, 44100, 1)),
-      brouhaha: time(() => renderBabble(8, 16000, 1)),
-      huees: time(() => renderBoo(5, 16000, 1)),
+      brouhaha: time(() => renderBabble(8, 22050, 1)),
+      huees: time(() => renderBoo(5, 22050, 1)),
       cris: time(() => renderScream(5, 22050, 1)),
       choeur: time(() => renderChoir('a', 2.4, 22050, 1)),
     };

@@ -8,7 +8,7 @@ import {
   SLOT_VEST,
 } from './geo';
 import {
-  MASK_BITS, PART_ARMBAND, PART_ARM_GUARDS, PART_BACKPACK, PART_BACK_TEXT, PART_BACK_TEXT_VEST,
+  MASK_BITS, PART_ARMBAND, PART_ARM_GUARDS, PART_BACKPACK, PART_BACK_TEXT, PART_BACK_TEXT_VEST, PART_BADGE, PART_BADGE_VEST,
   PART_BALACLAVA, PART_BEANIE, PART_BEARD, PART_BELT_GEAR, PART_CALOT, PART_CAP, PART_CAP_POLICE,
   PART_CHASUBLE, PART_CHEST_TEXT, PART_CHEST_TEXT_VEST, PART_COAT, PART_CROSS, PART_FACE_COVER,
   PART_GAS_MASK, PART_GOGGLES, PART_HAIR_AFRO, PART_HAIR_BUN, PART_HAIR_BUZZ, PART_HAIR_LONG,
@@ -30,11 +30,11 @@ export const UNIFORM = {
   crsVest: 0x2c303b,
   crsHelmet: 0x222a3e,
   crsStripe: 0xf2c200,
-  gendarmeBlue: 0x243560,
+  gendarmeBlue: 0x1f2740,
   gendarmeVest: 0x2b2d34,
   gendarmeHelmet: 0x2259c0,
   bravmJacket: 0x2f3138,
-  bravmTrousers: 0x262f4a,
+  bravmTrousers: 0x2a2c33,
   bravmHelmet: 0xe8ebee,
   policeArmband: 0xff5a1f,
   serviceNavy: 0x27325a,
@@ -94,11 +94,12 @@ const HELMET_CIVIL = [0x26272b, 0xe6e6e2, 0x8a1418, 0x3a404a];
 /**
  * Écrit dans `out` (à partir de `o`, LOOK_W × 4 nombres) la palette, le masque de pièces et les cellules
  * de texte d'une personne. `variant` : entier propre à la personne ; `fistL` / `fistR` : poing fermé
- * (objet en main) ; `wet`, `burning` : 0..1 ; `cellOf` : cellule d'atlas d'un texte (0 = aucune).
+ * (objet en main) ; `wet`, `burning` : 0..1 ; `cellOf` : cellule d'atlas d'un texte (0 = aucune) ;
+ * `compact` : la personne n'est pas debout (les pans rigides — manteau, jupe — sont alors raccourcis).
  */
 export function resolveLook(
   look: PersonLook, variant: number, fistL: boolean, fistR: boolean, wet: number, burning: number,
-  cellOf: (text: string) => number, out: Float32Array, o: number,
+  cellOf: (text: string) => number, out: Float32Array, o: number, compact = false,
 ): LookInfo {
   mask[0] = 0; mask[1] = 0; mask[2] = 0;
   const ex = look.extras;
@@ -128,6 +129,7 @@ export function resolveLook(
   let hoodDown = false;
   let scarf = false;
   let uniformed = false;
+  let badge = false;
 
   switch (outfit) {
     case 'crs_mo':
@@ -138,6 +140,7 @@ export function resolveLook(
       on(PART_ARM_GUARDS); on(PART_LEG_GUARDS); on(PART_BELT_GEAR);
       if (!backText) backText = 'POLICE';
       chestText = 'POLICE';
+      badge = true;
       break;
     case 'gendarme_mo':
       uniformed = true;
@@ -151,9 +154,9 @@ export function resolveLook(
     case 'bravm':
       uniformed = true;
       setc(SLOT_TOP, UNIFORM.bravmJacket); setc(SLOT_BOTTOM, UNIFORM.bravmTrousers); setc(SLOT_SHOES, UNIFORM.bootBlack);
-      setc(SLOT_GEAR, UNIFORM.bravmHelmet);
-      gloves = UNIFORM.gloveBlack; jacket = 1;
-      on(PART_BELT_GEAR);
+      setc(SLOT_GEAR, UNIFORM.bravmHelmet); setc(SLOT_VEST, UNIFORM.bravmJacket);
+      gloves = UNIFORM.gloveBlack; vestTac = true;
+      on(PART_ARM_GUARDS); on(PART_BELT_GEAR);
       if (!backText) backText = 'POLICE';
       chestText = 'POLICE';
       break;
@@ -164,6 +167,7 @@ export function resolveLook(
       jacket = 1; on(PART_BELT_GEAR);
       if (!backText) backText = 'POLICE';
       chestText = 'POLICE';
+      badge = true;
       break;
     case 'police_civil':
       setc(SLOT_ACCENT, look.armband || UNIFORM.policeArmband);
@@ -230,7 +234,7 @@ export function resolveLook(
       break;
     case 'observateur':
       setc(SLOT_VEST, look.vest || UNIFORM.observerBlue);
-      setc(SLOT_GEAR, 0xf0f0ec); setc(SLOT_BAND, 0x2a6fd6);
+      setc(SLOT_GEAR, 0x2d6cdf); setc(SLOT_BAND, 0xf0f0ec);
       chas = true;
       if (!backText) backText = 'OBSERVATEUR';
       break;
@@ -258,7 +262,7 @@ export function resolveLook(
     if (ex.jacket !== undefined) { jacket = ex.jacket | 0; if (jacket > 0) shortSleeves = false; }
     if (ex.sleeves !== undefined) shortSleeves = ex.sleeves === 0;
     if (ex.shorts) bareLegs = true;
-    if (ex.skirt) { on(PART_SKIRT); bareLegs = true; }
+    if (ex.skirt) { if (!compact) on(PART_SKIRT); bareLegs = true; }
     if (ex.beard) on(PART_BEARD);
     if (ex.scarf !== undefined) scarf = ex.scarf > 0;
     if (ex.gloves) gloves = ex.gloves;
@@ -269,6 +273,8 @@ export function resolveLook(
     if (ex.goggles) on(PART_GOGGLES);
     if (ex.hoodDown !== undefined) hoodDown = ex.hoodDown > 0;
   }
+
+  if (compact && jacket === 2) jacket = 1;
 
   // ── tête ──
   let helmeted = false;
@@ -332,11 +338,13 @@ export function resolveLook(
     on(PART_VEST_TACTICAL); torso = SLOT_VEST;
     if (backText) on(PART_BACK_TEXT_VEST);
     if (chestText) on(PART_CHEST_TEXT_VEST);
+    if (badge) on(PART_BADGE_VEST);
     if (look.rankBars > 0) on(PART_RANK);
   } else {
     if (chas) { on(PART_CHASUBLE); torso = SLOT_VEST; }
     if (backText) on(PART_BACK_TEXT);
     if (chestText && (uniformed || outfit === 'presse')) on(PART_CHEST_TEXT);
+    if (badge) on(PART_BADGE);
     if (jacket === 1 && !chas) on(PART_JACKET);
     else if (jacket === 2 && !chas) on(PART_COAT);
     if (hoodDown && !look.backpack) on(PART_HOOD_DOWN);

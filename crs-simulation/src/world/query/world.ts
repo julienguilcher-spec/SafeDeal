@@ -25,7 +25,7 @@ import { CAP_STRIDE, CollisionBucket, CollisionWorld, SOLID_BUILDING, SOLID_WATE
 import { loadMonumentColliders } from './monuments';
 import { BucketBuilder } from './obstacles';
 import {
-  CODE_BRIDGE, CODE_BUILDING, CODE_GRAVEL, CODE_PARK, CODE_PLAZA, CODE_QUAY, CODE_ROAD, CODE_SETT, CODE_SIDEWALK,
+  CODE_BRIDGE, CODE_BUILDING, CODE_GRAVEL, CODE_PARK, CODE_PLAZA, CODE_ROAD, CODE_SETT, CODE_SIDEWALK,
   CODE_VOID, CODE_WATER, GRID_SIZE, TileGrid, codeOfCarriageway, codeOfMapSurface, codeOfPedestrianWay, fillPolygon,
   heightToDm, paintCapsule, paintPolyline, surfaceOfCode,
 } from './raster';
@@ -40,8 +40,9 @@ type SourceName = 'none' | 'test' | 'paris';
 const DEFAULT_ROAD_DISTANCE = 120;
 /** Rayon libre exigé autour d'un point d'apparition (m). */
 const SPAWN_CLEARANCE = 0.45;
-/** Nombre d'essais de randomFreePoint. */
-const SPAWN_TRIES = 48;
+/** Nombre d'essais de randomFreePoint : tirages uniformes, puis tirages guidés par le réseau. */
+const SPAWN_TRIES = 32;
+const SPAWN_GUIDED_TRIES = 24;
 /** Distance maximale d'un point d'apparition au réseau de rues (m). */
 const SPAWN_ROAD_DISTANCE = 120;
 /** Période de suivi automatique du joueur (s) et délai après un setFocus explicite (s). */
@@ -595,32 +596,73 @@ export class WorldQueryImpl implements WorldQueryExt, TileHost {
   }
 
   /**
+   * Un point convient-il pour faire apparaître quelqu'un ? Sol de la bonne nature, disque libre,
+   * et liaison en ligne droite avec l'axe d'une voie proche (jamais dans une cour fermée, ni
+   * derrière une grille). Sur un pont : la chaussée vaut « road », les trottoirs « sidewalk ».
+   */
+  private acceptSpawn(px: number, pz: number, surface: 'sidewalk' | 'road' | 'any'): boolean {
+    const roads = this.base.roads;
+    const code = this.surfaceCodeAt(px, pz);
+    if (code === CODE_VOID || code === CODE_WATER || code === CODE_BUILDING) return false;
+    if (code === CODE_BRIDGE) {
+      if (!roads.nearest(px, pz, 60, ROAD_ANY)) return false;
+      const ed = roads.edges[roads.snapEdge];
+      const onCarriageway = !ed.pedestrianOnly && roads.snapDist <= ed.width / 2;
+      if (surface === 'road' ? !onCarriageway : surface === 'sidewalk' && onCarriageway) return false;
+    } else if (surface === 'sidewalk') {
+      if (code !== CODE_SIDEWALK && code !== CODE_PLAZA) return false;
+    } else if (surface === 'road') {
+      if (code !== CODE_ROAD && code !== CODE_SETT) return false;
+    }
+    if (!this.collision.isFree(px, pz, SPAWN_CLEARANCE)) return false;
+    if (surface === 'road') {
+      if (!roads.nearest(px, pz, 40, ROAD_DRIVABLE)) return false;
+      return roads.snapDist <= roads.edges[roads.snapEdge].width / 2 + 0.5;
+    }
+    if (!roads.nearest(px, pz, SPAWN_ROAD_DISTANCE, ROAD_ANY)) return false;
+    return !this.collision.blocked(px, pz, roads.snapX, roads.snapZ);
+  }
+
+  /**
    * Point libre aléatoire autour de (x, z). 'sidewalk' : trottoir ou place ; 'road' : sur la
-   * chaussée d'une voie carrossable ; 'any' : tout sol praticable. Le point est relié en ligne
-   * droite à l'axe d'une voie proche : jamais dans une cour fermée ni derrière une grille.
+   * chaussée d'une voie carrossable ; 'any' : tout sol praticable. D'abord des tirages uniformes
+   * dans le disque ; s'ils échouent (peu de surface voulue alentour), des tirages guidés par le
+   * réseau : un point de la voie la plus proche, décalé vers la chaussée ou vers un trottoir.
    */
   randomFreePoint(x: number, z: number, radius: number, surface: 'sidewalk' | 'road' | 'any', rand: () => number, out: Vec2): boolean {
-    const roads = this.base.roads;
     for (let attempt = 0; attempt < SPAWN_TRIES; attempt++) {
       const a = rand() * Math.PI * 2;
       const r = Math.sqrt(rand()) * radius;
       const px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r;
-      const code = this.surfaceCodeAt(px, pz);
-      if (surface === 'sidewalk') {
-        if (code !== CODE_SIDEWALK && code !== CODE_PLAZA) continue;
-      } else if (surface === 'road') {
-        if (code !== CODE_ROAD && code !== CODE_SETT) continue;
-      } else if (code !== CODE_SIDEWALK && code !== CODE_PLAZA && code !== CODE_ROAD && code !== CODE_SETT && code !== CODE_PARK && code !== CODE_GRAVEL && code !== CODE_BRIDGE && code !== CODE_QUAY) {
-        continue;
-      }
-      if (!this.collision.isFree(px, pz, SPAWN_CLEARANCE)) continue;
+      if (!this.acceptSpawn(px, pz, surface)) continue;
+      out.x = px;
+      out.z = pz;
+      return true;
+    }
+    const roads = this.base.roads;
+    const filter = surface === 'road' ? ROAD_DRIVABLE : ROAD_ANY;
+    for (let attempt = 0; attempt < SPAWN_GUIDED_TRIES; attempt++) {
+      const a = rand() * Math.PI * 2;
+      const r = Math.sqrt(rand()) * radius;
+      if (!roads.nearest(x + Math.cos(a) * r, z + Math.sin(a) * r, radius, filter)) continue;
+      const s = roads.snapSeg, ed = roads.edges[roads.snapEdge];
+      const sx = roads.snapX, sz = roads.snapZ;
+      const dx = roads.segXZ[4 * s + 2] - roads.segXZ[4 * s], dz = roads.segXZ[4 * s + 3] - roads.segXZ[4 * s + 1];
+      const len = Math.sqrt(dx * dx + dz * dz);
+      if (len < 1e-6) continue;
+      let offset: number;
       if (surface === 'road') {
-        if (!roads.nearest(px, pz, 40, ROAD_DRIVABLE)) continue;
-        if (roads.snapDist > roads.edges[roads.snapEdge].width / 2 + 0.5) continue;
+        offset = (rand() - 0.5) * Math.max(0, ed.width - 1.2);
+      } else if (surface === 'sidewalk') {
+        const side = rand() < 0.5 ? -1 : 1;
+        offset = side * (ed.width / 2 + 0.6 + rand() * Math.max(1, ed.sidewalk - 1.2));
       } else {
-        if (!roads.nearest(px, pz, SPAWN_ROAD_DISTANCE, ROAD_ANY)) continue;
-        if (this.collision.blocked(px, pz, roads.snapX, roads.snapZ)) continue;
+        offset = (rand() - 0.5) * (ed.width + 2 * ed.sidewalk);
       }
+      const px = sx - (dz / len) * offset, pz = sz + (dx / len) * offset;
+      const ex = px - x, ez = pz - z;
+      if (ex * ex + ez * ez > radius * radius) continue;
+      if (!this.acceptSpawn(px, pz, surface)) continue;
       out.x = px;
       out.z = pz;
       return true;

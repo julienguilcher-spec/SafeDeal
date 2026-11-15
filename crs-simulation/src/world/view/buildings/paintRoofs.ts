@@ -11,15 +11,15 @@ import { CellPainter, createCanvas, makeRandom, tone } from './paint';
 import { IRON, paintWindow } from './paintHaussmann';
 import type { PaintEnv } from './paintHaussmann';
 
-const ZINC = '#8c959c';
+const ZINC = '#848c93';
 const SLATE = '#4e555e';
 
 /** Zinc à joints debout : `seams` joints montants par cellule, recouvrements horizontaux. */
 function zinc(p: CellPainter, env: PaintEnv, base: string, seams: number, laps: number): void {
   const W = 2.8, H = 3.2;
   p.begin(W, H, base);
-  p.grain(env.blotch, 0.55, 'overlay');
-  p.grain(env.grain, 0.18, 'overlay');
+  p.grain(env.blotch, 0.2, 'overlay');
+  p.grain(env.grain, 0.14, 'overlay');
   for (let i = 0; i < seams; i++) {
     const x = ((i + 0.5) / seams) * W;
     p.vline(x - 0.012, 0, H, 0.018, 'rgba(255,255,255,0.4)');
@@ -94,12 +94,12 @@ function dormerFace(p: CellPainter, env: PaintEnv): void {
 function gravel(p: CellPainter, env: PaintEnv): void {
   const W = 2.8, H = 3.2;
   p.begin(W, H, '#8f8d86');
-  p.grain(env.blotch, 0.7, 'overlay');
-  p.grain(env.grain, 0.75, 'overlay');
+  p.grain(env.blotch, 0.3, 'overlay');
+  p.grain(env.grain, 0.5, 'overlay');
   const rnd = makeRandom(31);
   for (let i = 0; i < 260; i++) {
     const v = rnd();
-    p.rect(rnd() * W, rnd() * H, 0.03, 0.03, v < 0.5 ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.16)');
+    p.rect(rnd() * W, rnd() * H, 0.03, 0.03, v < 0.5 ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.12)');
   }
   p.hline(0, 1.6, W, 0.02, 'rgba(0,0,0,0.12)');
 }
@@ -107,7 +107,7 @@ function gravel(p: CellPainter, env: PaintEnv): void {
 /** Tuiles mécaniques : rangs réguliers, nuances de terre cuite. */
 function tiles(p: CellPainter, env: PaintEnv): void {
   const W = 2.8, H = 3.2;
-  const base = '#9a5a41';
+  const base = '#8c5a48';
   p.begin(W, H, base);
   const rows = 10, cols = 12;
   const rnd = makeRandom(555);
@@ -169,8 +169,7 @@ function plainStone(p: CellPainter, env: PaintEnv): void {
 /** Grain fin : détail vu de près (rouge = intensité, centrée sur 128). */
 function fineGrain(p: CellPainter, env: PaintEnv): void {
   p.begin(1, 1, '#808080');
-  p.grain(env.grain, 1, 'source-over');
-  p.grain(env.blotch, 0.35, 'overlay');
+  p.grain(env.fine, 1, 'source-over');
 }
 
 /** Peint les couches de toiture, dans l'ordre des indices de layers.ts (de LAYER_ZINC_BRISIS à LAYER_GRAIN). */
@@ -179,7 +178,7 @@ export function paintRoofLayers(p: CellPainter, env: PaintEnv, emit: () => void)
   zinc(p, env, ZINC, 6, 2); paintedDormer(p, '#ebe8de'); emit();      // LAYER_ZINC_LUCARNE
   slate(p, env); emit();                                              // LAYER_ARDOISE_BRISIS
   slate(p, env); paintedDormer(p, '#ebe8de'); emit();                 // LAYER_ARDOISE_LUCARNE
-  zinc(p, env, tone(ZINC, 0.1), 5, 2); emit();                        // LAYER_ZINC_PLAT
+  zinc(p, env, tone(ZINC, 0.12), 5, 2); emit();                       // LAYER_ZINC_PLAT
   gravel(p, env); emit();                                             // LAYER_GRAVIER
   tiles(p, env); emit();                                              // LAYER_TUILE
   stack(p, env); emit();                                              // LAYER_SOUCHE

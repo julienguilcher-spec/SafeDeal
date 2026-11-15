@@ -7,7 +7,7 @@
 
 import type {
   CrowdPhase, EntityId, EnvState, EventBus, GameContext, Person, PersonKind, Faction, Settings, Shop,
-  SurfaceKind, Vehicle, VehicleDef, VehicleKind, Prop, SessionPhase,
+  SurfaceKind, Vehicle, VehicleDef, VehicleKind, Prop, SessionPhase, Projectile, ProjectileKind,
 } from '@/core/contracts';
 
 type Handler = (payload: unknown) => void;
@@ -107,6 +107,7 @@ export interface FakeWorldState {
   vehicles: Vehicle[];
   shops: Shop[];
   props: Prop[];
+  projectiles: Projectile[];
   env: EnvState;
   settings: Settings;
   director: { phase: CrowdPhase; tension: number };
@@ -127,6 +128,7 @@ export interface FakeContext {
   addPerson(kind: PersonKind, faction: Faction, x: number, z: number): Person;
   addVehicle(kind: VehicleKind, faction: Faction, x: number, z: number): Vehicle;
   addShop(x: number, z: number): Shop;
+  addProjectile(kind: ProjectileKind, x: number, z: number): Projectile;
 }
 
 function segmentsCross(ax: number, az: number, bx: number, bz: number, cx: number, cz: number, dx: number, dz: number): boolean {
@@ -141,7 +143,7 @@ function segmentsCross(ax: number, az: number, bx: number, bz: number, cx: numbe
 
 export function createFakeContext(headless = false): FakeContext {
   const state: FakeWorldState = {
-    people: [], vehicles: [], shops: [], props: [],
+    people: [], vehicles: [], shops: [], props: [], projectiles: [],
     env: {
       timeOfDay: 15, clockScale: 1, weather: 'clair', rain: 0, fog: 0, clouds: 0.2, wetness: 0,
       windX: 0, windZ: 0, sunX: 0.3, sunY: 0.8, sunZ: 0.5, daylight: 1, isNight: false, streetLights: false,
@@ -198,6 +200,7 @@ export function createFakeContext(headless = false): FakeContext {
       },
     },
     vehicles: { get list() { return state.vehicles; }, get: findVehicle },
+    projectiles: { get list() { return state.projectiles; }, get: (id: EntityId) => state.projectiles.find((p) => p.id === id) },
     props: {
       get list() { return state.props; },
       get shops() { return state.shops; },
@@ -256,6 +259,14 @@ export function createFakeContext(headless = false): FakeContext {
       const v = makeVehicle(state.nextId++, kind, faction, x, z);
       state.vehicles.push(v);
       return v;
+    },
+    addProjectile(kind, x, z) {
+      const p: Projectile = {
+        id: state.nextId++, kind, ownerId: 0, x, y: 0, z, vx: 0, vy: 0, vz: 0, spin: 0, age: 0, fuse: 30,
+        resting: true, emitting: false, pickable: true, data: null,
+      };
+      state.projectiles.push(p);
+      return p;
     },
     addShop(x, z) {
       const s: Shop = {

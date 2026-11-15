@@ -284,6 +284,12 @@ export function mountHarness(left: HTMLElement, right: HTMLElement, stateEl: HTM
   ev('Blessé (coup)', () => ctx.events.emit('person:hurt', { id: victim.id, info: { amount: 18, kind: 'blunt', sourceId: 0, x: victim.x, z: victim.z }, healthAfter: 70 }));
   ev('Blessé (gaz)', () => ctx.events.emit('person:hurt', { id: victim.id, info: { amount: 1, kind: 'gas', sourceId: 0, x: victim.x, z: victim.z }, healthAfter: 95 }));
   ev('Étourdi 4 s', () => (me.stun = 4));
+  const grenade = fake.addProjectile('grenade_lacrymo_56', 3, 7);
+  button(evRow, 'Grenade lacrymogène (émet)', (btn) => {
+    grenade.emitting = !grenade.emitting;
+    btn.classList.toggle('on', grenade.emitting);
+    if (grenade.emitting) ctx.events.emit('explosion', { kind: 'grenade_lacrymo_56', x: grenade.x, y: 0, z: grenade.z, radius: 1, sourceId: 0 });
+  }).dataset.event = 'Grenade';
 
   // ── voix ──
   const vo = section(right, 'Voix (synthèse vocale du navigateur)');

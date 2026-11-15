@@ -10,7 +10,7 @@ import {
   BONE_SPINE, BONE_THIGH_R,
 } from './skeleton';
 import {
-  PART_ARMBAND, PART_ARM_GUARDS, PART_BACKPACK, PART_BACK_TEXT, PART_BACK_TEXT_VEST, PART_BELT_GEAR,
+  PART_ARMBAND, PART_ARM_GUARDS, PART_BACKPACK, PART_BACK_TEXT, PART_BACK_TEXT_VEST, PART_BADGE, PART_BADGE_VEST, PART_BELT_GEAR,
   PART_CHASUBLE, PART_CHEST_TEXT, PART_CHEST_TEXT_VEST, PART_COAT, PART_CROSS, PART_HOOD_DOWN, PART_JACKET,
   PART_LEG_GUARDS, PART_LIMB_BANDS, PART_RANK, PART_REFLECT_BANDS, PART_SASH, PART_SCARF, PART_SKIRT,
   PART_SUIT, PART_VEST_TACTICAL,
@@ -92,6 +92,11 @@ function markings(b: GeoBuilder): void {
   b.ctx(BONE_CHEST, SLOT_TORSO, PART_CHEST_TEXT_VEST, SCALE_LIMB).shade(1, 0.8);
   b.textKind = TEXT_CHEST;
   b.arc(frontVest, b.rad(4, 2, 1), HPI - 0.14, HPI - 0.70, TORSO_POWER);
+  // écusson rouge (CRS) sur la poitrine droite
+  b.ctx(BONE_CHEST, SLOT_FIXED, PART_BADGE, SCALE_LIMB).tint(0xc8102e, 0.7);
+  b.arc(frontThin, b.rad(3, 2, 1), HPI + 0.52, HPI + 0.20, TORSO_POWER);
+  b.ctx(BONE_CHEST, SLOT_FIXED, PART_BADGE_VEST, SCALE_LIMB).tint(0xc8102e, 0.7);
+  b.arc(frontVest, b.rad(3, 2, 1), HPI + 0.52, HPI + 0.20, TORSO_POWER);
   // galons au centre de la poitrine
   if (b.detail === 0) {
     b.ctx(BONE_CHEST, SLOT_TORSO, PART_RANK, SCALE_LIMB).shade(0.8, 0.8);
@@ -129,7 +134,7 @@ function sash(b: GeoBuilder): void {
   const colors = [0xef4135, 0xf6f6f2, 0x0055a4];   // rouge en bas, blanc, bleu vers le col
   for (let i = 0; i < 3; i++) {
     b.ctx(BONE_CHEST, SLOT_FIXED, PART_SASH, SCALE_LIMB).tint(colors[i], 0.55);
-    const y0 = -0.048 + i * 0.032, y1 = y0 + 0.032;
+    const y0 = -0.054 + i * 0.036, y1 = y0 + 0.036;
     b.loft([[y0, rx, rz, 0.004], [y1, rx, rz, 0.004]], r, { capStart: false, capEnd: false });
   }
   // nœud et pans frangés d'or sur la hanche gauche
@@ -141,7 +146,7 @@ function sash(b: GeoBuilder): void {
     b.tint(0xef4135, 0.55); b.box(0.190, -0.300, 0.030, 0.012, 0.150, 0.022);
     b.tint(0xf6f6f2, 0.55); b.box(0.190, -0.300, 0.052, 0.012, 0.150, 0.022);
     b.tint(0x0055a4, 0.55); b.box(0.190, -0.300, 0.074, 0.012, 0.150, 0.022);
-    b.tint(0xc9a227, 0.4); b.box(0.190, -0.388, 0.052, 0.014, 0.030, 0.070);
+    b.tint(0xc9ced6, 0.3); b.box(0.190, -0.388, 0.052, 0.014, 0.030, 0.070);
   } else {
     b.pop();
   }
@@ -150,13 +155,13 @@ function sash(b: GeoBuilder): void {
 function clothing(b: GeoBuilder): void {
   const rt = b.rad(16, 8, 6);
   // blouson : ourlet sur les hanches et col
-  b.ctx(BONE_SPINE, SLOT_TOP, PART_JACKET, SCALE_LIMB).shade(0.94, 0.95);
-  b.loft([[-0.110, 0.150, 0.096, -0.004, 0, 2], [-0.110, 0.187, 0.127, -0.004, 0, 2], [-0.040, 0.174, 0.120, 0.000, 0, 1], [0.070, 0.160, 0.112, 0.004, 0, 2]], rt, { power: TORSO_POWER, capStart: false, capEnd: false });
+  b.ctx(BONE_PELVIS, SLOT_TOP, PART_JACKET, SCALE_LIMB).shade(0.94, 0.95);
+  b.loft([[-0.010, 0.150, 0.096, -0.008, 0, 2], [-0.010, 0.187, 0.127, -0.008, 0, 2], [0.060, 0.174, 0.120, -0.004, 0, 1], [0.135, 0.158, 0.108, 0.000, 0, 2]], rt, { power: TORSO_POWER, capStart: false, capEnd: false });
   b.ctx(BONE_CHEST, SLOT_TOP, PART_JACKET, SCALE_LIMB).shade(0.86, 0.95);
   b.loft([[0.238, 0.094, 0.084, -0.010, 0, 2], [0.292, 0.070, 0.070, -0.014, 0, 2]], b.rad(12, 6, 5), { capStart: false, capEnd: false });
   // manteau / parka : pan jusqu'à mi-cuisse
-  b.ctx(BONE_SPINE, SLOT_TOP, PART_COAT, SCALE_LIMB).shade(0.96, 0.95);
-  b.loft([[-0.345, 0.196, 0.160, 0.0, 0, 2], [-0.345, 0.212, 0.178, 0.0, 0, 2], [-0.200, 0.192, 0.150, 0.0, 0, 1], [-0.030, 0.171, 0.120, 0.002, 0, 1], [0.070, 0.161, 0.113, 0.004, 0, 2]], rt, { power: TORSO_POWER, capStart: false, capEnd: false });
+  b.ctx(BONE_PELVIS, SLOT_TOP, PART_COAT, SCALE_LIMB).shade(0.96, 0.95);
+  b.loft([[-0.245, 0.196, 0.160, -0.004, 0, 2], [-0.245, 0.212, 0.178, -0.004, 0, 2], [-0.100, 0.192, 0.150, -0.004, 0, 1], [0.060, 0.174, 0.121, -0.003, 0, 1], [0.135, 0.158, 0.108, 0.000, 0, 2]], rt, { power: TORSO_POWER, capStart: false, capEnd: false });
   b.ctx(BONE_CHEST, SLOT_TOP, PART_COAT, SCALE_LIMB).shade(0.86, 0.95);
   b.loft([[0.238, 0.096, 0.086, -0.010, 0, 2], [0.300, 0.072, 0.072, -0.014, 0, 2]], b.rad(12, 6, 5), { capStart: false, capEnd: false });
   // capuche rabattue dans le dos

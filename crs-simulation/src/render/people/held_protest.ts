@@ -94,10 +94,10 @@ export function registerProtestModels(): void {
     g.fixed(0x9c7a4f, 0.85);
     g.cyl(GX, GY, -0.30, GX, GY, 1.85, 0.0135, 0.0125, 6);
     g.variant(1, 0.85);
-    const zt = 1.82, zb = 1.24;
+    const zt = 1.82, zb = 1.07;
     let px = GX, py = GY + 0.014;
     for (let i = 0; i < 4; i++) {
-      const nx = GX + (i % 2 === 0 ? 0.05 : -0.04), ny = GY + 0.014 + (i + 1) * 0.225;
+      const nx = GX + (i % 2 === 0 ? 0.06 : -0.05), ny = GY + 0.014 + (i + 1) * 0.275;
       const dz = (i + 1) * 0.03;
       g.quad(px, py, zb - dz + 0.03, nx, ny, zb - dz, nx, ny, zt - dz, px, py, zt - dz + 0.03, true);
       px = nx; py = ny;

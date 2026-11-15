@@ -147,7 +147,15 @@ export function blendLocal(a: NumArray, ao: number, b: NumArray, bo: number, w: 
     const ax = a[ao + i], ay = a[ao + i + 1], az = a[ao + i + 2], aw = a[ao + i + 3];
     let bx = b[bo + i], by = b[bo + i + 1], bz = b[bo + i + 2], bw = b[bo + i + 3];
     if (ax * bx + ay * by + az * bz + aw * bw < 0) { bx = -bx; by = -by; bz = -bz; bw = -bw; }
-    const x = ax * u + bx * w, y = ay * u + by * w, z = az * u + bz * w, q = aw * u + bw * w;
+    let d = ax * bx + ay * by + az * bz + aw * bw;
+    let ka = u, kb = w;
+    if (d < 0.8) {
+      // grand écart angulaire (retournement du corps) : interpolation sphérique, à vitesse angulaire constante
+      if (d < -1) d = -1;
+      const th = Math.acos(d), sn = Math.sin(th);
+      if (sn > 1e-4) { ka = Math.sin(u * th) / sn; kb = Math.sin(w * th) / sn; }
+    }
+    const x = ax * ka + bx * kb, y = ay * ka + by * kb, z = az * ka + bz * kb, q = aw * ka + bw * kb;
     const n = 1 / (Math.sqrt(x * x + y * y + z * z + q * q) || 1);
     out[oo + i] = x * n; out[oo + i + 1] = y * n; out[oo + i + 2] = z * n; out[oo + i + 3] = q * n;
   }

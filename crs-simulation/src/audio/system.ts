@@ -5,8 +5,8 @@
  *   init    : abonnements aux événements, déverrouillage au premier geste, suspension quand la
  *             page est masquée ;
  *   frame   : position de l'auditeur (caméra ctx.view, cap ctx.player.state.camYaw), volumes,
- *             étouffement (étourdissement, habitacle), sons attachés aux véhicules, pas, foule,
- *             météo, voix, réserve de voix.
+ *             étouffement (étourdissement, habitacle), sons attachés aux véhicules, pas, feux,
+ *             sifflement des grenades qui émettent, foule, météo, voix, réserve de voix.
  * En mode headless (tests Node) le système reste inerte : l'API est publiée mais ne fait rien.
  * ===================================================================================== */
 
@@ -16,7 +16,7 @@ import {
 import { AmbienceDirector } from './ambienceDirector';
 import { AUDIO_DEBUG_SERVICE, AUDIO_ENGINE_SERVICE, type AudioDebug, type SpeakExtra } from './api';
 import { AudioEngine } from './engine';
-import { FireLoops } from './fireLoops';
+import { FireLoops, GasLoops } from './fireLoops';
 import { Footsteps } from './footsteps';
 import { SpeechQueue } from './speech';
 import { VehicleAudio } from './vehicleSounds';
@@ -36,6 +36,7 @@ export class AudioSystem implements GameSystem, AudioApi {
   private ambience: AmbienceDirector | null = null;
   private vehicles: VehicleAudio | null = null;
   private fires: FireLoops | null = null;
+  private gas: GasLoops | null = null;
   private footsteps: Footsteps | null = null;
   private speech: SpeechQueue | null = null;
   private offs: Unsubscribe[] = [];
@@ -44,8 +45,10 @@ export class AudioSystem implements GameSystem, AudioApi {
   private muffle = 0;
   private bound = false;
 
+  // Les écouteurs restent en place toute la vie du jeu : un contexte interrompu (appel téléphonique
+  // sur mobile, changement de sortie audio) est ainsi repris au geste suivant.
   private readonly onGesture = (): void => {
-    if (this.engine.unlock() && this.engine.running) this.unbindGestures();
+    this.engine.unlock();
   };
   private readonly onVisibility = (): void => {
     const visible = typeof document === 'undefined' || document.visibilityState !== 'hidden';
@@ -78,6 +81,7 @@ export class AudioSystem implements GameSystem, AudioApi {
     if (!this.vehicles) this.vehicles = new VehicleAudio(ctx, engine);
     this.ambience = new AmbienceDirector(ctx, engine);
     this.fires = new FireLoops(ctx, engine);
+    this.gas = new GasLoops(ctx, engine);
     this.footsteps = new Footsteps(ctx, engine);
     this.speech = new SpeechQueue(engine, () => ctx.settings.values);
     engine.lineOfSight = (ax, az, bx, bz) => ctx.world.lineOfSight(ax, az, bx, bz);
@@ -146,6 +150,7 @@ export class AudioSystem implements GameSystem, AudioApi {
         this.vehicles!.frame(dt);
         this.footsteps!.frame(dt);
         this.fires!.frame(dt);
+        this.gas!.frame(dt);
         this.ambience!.frame(dt);
       }
       this.speech!.frame(dt);
@@ -160,6 +165,7 @@ export class AudioSystem implements GameSystem, AudioApi {
     this.ambience.reset();
     this.vehicles!.reset();
     this.fires!.reset();
+    this.gas!.reset();
     this.footsteps!.reset();
     this.speech!.cancel();
     this.engine.stopAll(0.15);

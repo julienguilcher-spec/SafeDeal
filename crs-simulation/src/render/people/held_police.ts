@@ -13,18 +13,18 @@ export function registerPoliceModels(): void {
   registerHeldModel('bouclier', (g) => {
     const b = g as unknown as import('./geo').GeoBuilder;
     // repère local : y = vertical (pouce), z = face avant du bouclier, x = le long de l'avant-bras
-    b.push().frame(0, 1, 0, 0, 0, 1, 1, 0, 0).translate(0.10, -0.10, 0);
-    const R = 0.95, a = 0.31, oz = 0.07 - R;
+    b.push().frame(0, 1, 0, 0, 0, 1, 1, 0, 0).translate(0.10, -0.08, 0);
+    const R = 0.95, a = 0.305, oz = 0.07 - R;
     b.fixed(0xbfd3df, 0.26);
-    b.arc([[-0.60, R, R, oz], [0.0, R, R, oz], [0.60, R, R, oz]], 6, Math.PI / 2 + a, Math.PI / 2 - a);
+    b.arc([[-0.50, R, R, oz], [0.0, R, R, oz], [0.50, R, R, oz]], 6, Math.PI / 2 + a, Math.PI / 2 - a);
     // bandeau de marquage (POLICE, CRS, GENDARMERIE)
     b.fixed(0x16233f, 0.82).text(TEXT_BACK);
-    b.arc([[0.26, R + 0.002, R + 0.002, oz], [0.40, R + 0.002, R + 0.002, oz]], 6, Math.PI / 2 + a * 0.93, Math.PI / 2 - a * 0.93);
+    b.arc([[0.24, R + 0.002, R + 0.002, oz], [0.37, R + 0.002, R + 0.002, oz]], 6, Math.PI / 2 + a * 0.93, Math.PI / 2 - a * 0.93);
     b.text(0);
     // chants renforcés
     b.fixed(0x9fb2bd, 0.6);
-    b.arc([[0.585, R + 0.001, R + 0.001, oz], [0.60, R + 0.001, R + 0.001, oz]], 6, Math.PI / 2 + a, Math.PI / 2 - a);
-    b.arc([[-0.60, R + 0.001, R + 0.001, oz], [-0.585, R + 0.001, R + 0.001, oz]], 6, Math.PI / 2 + a, Math.PI / 2 - a);
+    b.arc([[0.487, R + 0.001, R + 0.001, oz], [0.50, R + 0.001, R + 0.001, oz]], 6, Math.PI / 2 + a, Math.PI / 2 - a);
+    b.arc([[-0.50, R + 0.001, R + 0.001, oz], [-0.487, R + 0.001, R + 0.001, oz]], 6, Math.PI / 2 + a, Math.PI / 2 - a);
     b.pop();
     // poignée et sangle d'avant-bras (opaques)
     b.fixed(BLACK, 1);
@@ -47,9 +47,9 @@ export function registerPoliceModels(): void {
   // Tonfa (bâton de défense à poignée latérale)
   registerHeldModel('tonfa', (g) => {
     g.fixed(BLACK, 0.5);
-    g.cyl(GX, GY, -0.14, GX, GY, 0.45, 0.0155, 0.0155, 8);
-    g.cyl(GX, GY, 0.075, GX + 0.125, GY, 0.075, 0.015, 0.015, 8);
-    g.cyl(GX + 0.125, GY, 0.075, GX + 0.135, GY, 0.075, 0.021, 0.021, 8);
+    g.cyl(GX, GY, -0.115, GX, GY, 0.48, 0.0155, 0.0155, 8);
+    g.cyl(GX, GY, 0.058, GX + 0.125, GY, 0.058, 0.015, 0.015, 8);
+    g.cyl(GX + 0.125, GY, 0.058, GX + 0.135, GY, 0.058, 0.021, 0.021, 8);
   }, { hold: 'stick' });
 
   // Gazeuse (aérosol lacrymogène de grande capacité) : corps vertical, buse vers l'avant (-Y)
@@ -106,16 +106,16 @@ export function registerPoliceModels(): void {
   registerHeldModel('lbd40', (g) => {
     const z = 0.076;
     g.fixed(0x15161a, 0.5);
-    g.cyl(GX, GY - 0.02, z, GX, GY - 0.36, z, 0.026, 0.026, 10);         // canon
+    g.cyl(GX, GY - 0.02, z, GX, GY - 0.33, z, 0.026, 0.026, 10);         // canon
     g.fixed(0x202227, 0.55);
     g.box(GX, GY + 0.015, z, 0.046, 0.15, 0.064);                         // carcasse
     g.box(GX, GY - 0.02, z + 0.058, 0.03, 0.07, 0.04);                    // viseur
     g.fixed(0x2c3a44, 0.15);
     g.box(GX, GY - 0.056, z + 0.06, 0.024, 0.004, 0.03);
     g.fixed(0x1a1b1f, 0.6);
-    g.box(GX, GY + 0.20, z + 0.012, 0.022, 0.24, 0.02);                   // crosse (tube haut)
-    g.box(GX, GY + 0.20, z - 0.04, 0.022, 0.20, 0.016);
-    g.box(GX, GY + 0.315, z - 0.014, 0.036, 0.022, 0.10);                 // plaque de couche
+    g.box(GX, GY + 0.17, z + 0.012, 0.022, 0.18, 0.02);                   // crosse (tube haut)
+    g.box(GX, GY + 0.17, z - 0.04, 0.022, 0.16, 0.016);
+    g.box(GX, GY + 0.255, z - 0.014, 0.036, 0.022, 0.10);                 // plaque de couche
     g.push().translate(GX, GY, 0).rotX(0.22);
     g.box(0, 0.008, -0.005, 0.032, 0.042, 0.125);
     g.pop();
@@ -161,15 +161,15 @@ export function registerPoliceModels(): void {
   // Extincteur à poudre : corps rouge suspendu sous la poignée, tromblon vers l'avant
   registerHeldModel('extincteur', (g) => {
     g.fixed(0xc01e1a, 0.35);
-    g.cyl(GX, GY - 0.075, 0, GX, GY - 0.50, 0, 0.075, 0.075, 14);
-    g.ellipsoid(GX, GY - 0.075, 0, 0.075, 0.04, 0.075, 12, 4);
+    g.cyl(GX, GY - 0.075, 0, GX, GY - 0.44, 0, 0.062, 0.062, 14);
+    g.ellipsoid(GX, GY - 0.075, 0, 0.062, 0.035, 0.062, 12, 4);
     g.fixed(0x1a1a1c, 0.5);
     g.cyl(GX, GY - 0.02, 0, GX, GY - 0.05, 0, 0.022, 0.03, 8);
     g.box(GX, GY + 0.004, 0.02, 0.022, 0.016, 0.12);
     g.cyl(GX, GY - 0.03, 0.03, GX, GY - 0.18, 0.13, 0.012, 0.012, 6);
     g.cyl(GX, GY - 0.18, 0.13, GX, GY - 0.20, 0.30, 0.018, 0.04, 8);
     g.fixed(0xe8e8e2, 0.6);
-    g.cyl(GX, GY - 0.22, 0, GX, GY - 0.34, 0, 0.0756, 0.0756, 14, false);
+    g.cyl(GX, GY - 0.20, 0, GX, GY - 0.31, 0, 0.0626, 0.0626, 14, false);
   }, { hold: 'extinguisher', twoHanded: true });
 
   // Lampe torche

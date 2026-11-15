@@ -8,19 +8,26 @@ const LUT_K = LUT_N / TAU;
 const LUT = new Float64Array(LUT_N + 1);
 for (let i = 0; i <= LUT_N; i++) LUT[i] = Math.sin((i / LUT_N) * TAU);
 
-/** Sinus rapide (table + interpolation linéaire, erreur < 2e-7). */
+/** Décalage rendant l'index de table positif pour tout angle utile (|x| < 25 000 rad en négatif). */
+const LUT_BIAS = LUT_N * 4096;
+const LUT_QUARTER = LUT_N / 4;
+
+/** Sinus rapide (table + interpolation linéaire, erreur < 3e-7). */
 export function fsin(x: number): number {
-  let f = x * LUT_K;
-  const fl = Math.floor(f);
-  f -= fl;
-  const i = fl & (LUT_N - 1);
+  const f = x * LUT_K + LUT_BIAS;
+  const fi = f | 0;
+  const i = fi & (LUT_N - 1);
   const a = LUT[i];
-  return a + (LUT[i + 1] - a) * f;
+  return a + (LUT[i + 1] - a) * (f - fi);
 }
 
 /** Cosinus rapide. */
 export function fcos(x: number): number {
-  return fsin(x + HALF_PI);
+  const f = x * LUT_K + (LUT_BIAS + LUT_QUARTER);
+  const fi = f | 0;
+  const i = fi & (LUT_N - 1);
+  const a = LUT[i];
+  return a + (LUT[i + 1] - a) * (f - fi);
 }
 
 export function clamp(x: number, a: number, b: number): number {

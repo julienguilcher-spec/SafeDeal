@@ -29,8 +29,21 @@ async function capture(name, query, opts = {}) {
 if (filter === 'detail') {
   const q = process.argv[3] ?? 'anims=none';
   const name = 'detail-' + (process.argv[4] ?? q.replace(/[^a-zA-Z0-9]+/g, '-').slice(0, 60));
-  await capture(name, 'view=detail&pas=0.033&' + q, { frames: 30 });
+  await capture(name, 'view=detail&pas=0.033&' + q, { frames: 30, width: 1800, height: 560 });
   await finish({ browser: browserRef, server, errors: allErrors, label: 'people' });
+}
+// vues de détail de toutes les animations, trois par capture, sous trois angles
+const DETAILS = [
+  ['p:stand,p:crouch,p:kneel', 0], ['p:sit,p:seated,p:prone', 0], ['p:down,stagger,burn', 0],
+  ['throw,strike,kick', 0.12], ['throw,strike,kick', 0.27], ['throw,strike,kick', 0.42],
+  ['block,shield_carry,push', 0], ['aim_long,aim_pistol,spray', 0], ['megaphone,radio,point', 0],
+  ['hands_up,fist,clap', 0.2], ['carry_sign,carry_banner,umbrella', 0], ['film,photo,remote', 0],
+  ['treat,carry_person,drag', 0.2], ['pickup,hammer,spraypaint', 0.33], ['cover_face,cuffed,wave', 0.2],
+  ['drive,ride,carry_loot', 0], ['extinguish,cough,restrain', 0.2],
+];
+for (let i = 0; i < DETAILS.length; i++) {
+  const [anims, t] = DETAILS[i];
+  await capture(`detail-${String(i + 1).padStart(2, '0')}-${anims.replace(/[^a-z_]+/g, '-')}`, `view=detail&pas=0.033&anims=${anims}&t=${t}`, { frames: 16, width: 1800, height: 560 });
 }
 // (a) tenues, de face et de dos
 await capture('tenues-face-1', 'view=tenues&jeu=1&pas=0.033');
@@ -49,7 +62,7 @@ for (let page = 1; page <= 4; page++) {
 await capture('marche', 'view=marche&pas=0.033', { frames: 45 });
 await capture('marche-2', 'view=marche&pas=0.033', { frames: 52 });
 // (c) foule de 1 500 personnes
-const crowd = await capture('foule-1500', 'view=foule&n=1500&pas=0.033', { frames: 40, timeout: 600000 });
+const crowd = await capture('foule-1500', 'view=foule&n=1500&pas=0.033', { frames: 24, timeout: 900000 });
 await capture('foule-1500-sol', 'view=foule&n=1500&cam=sol&pas=0.033', { frames: 30, timeout: 600000 });
 await capture('foule-300-bas', 'view=foule&n=300&qualite=bas&pas=0.033', { frames: 30, timeout: 600000, width: 844, height: 390 });
 // (d) première personne

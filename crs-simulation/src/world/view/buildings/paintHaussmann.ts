@@ -7,7 +7,7 @@
  * Aussi : les éléments communs à tous les styles (mur de pierre, fenêtre, garde-corps).
  * ===================================================================================== */
 
-import { CellPainter, mix, rgba, tone } from './paint';
+import { CellPainter, makeRandom, mix, rgba, tone } from './paint';
 
 export const IRON = '#1b1c20';
 const IRON_LIGHT = '#3a3c42';
@@ -16,6 +16,8 @@ export interface PaintEnv {
   /** Bruit raccordable : grain fin de la pierre, et grandes taches de patine. */
   grain: HTMLCanvasElement;
   blotch: HTMLCanvasElement;
+  /** Bruit très fin, pour la couche de détail vue de près. */
+  fine: HTMLCanvasElement;
   /** Peindre les balcons et garde-corps filants dans la texture (qualité basse : pas de balcons en volume). */
   paintedBalconies: boolean;
 }
@@ -33,9 +35,9 @@ export interface HaussmannPalette {
 }
 
 export const HAUSSMANN_PALETTES: HaussmannPalette[] = [
-  { stone: '#d5c8ad', frame: '#ebe8de', door: '#1f3a2c', refends: false, pediment: false, shutters: false },
-  { stone: '#dbceb4', frame: '#e6e2d6', door: '#1c2d49', refends: true, pediment: true, shutters: false },
-  { stone: '#cbc2ae', frame: '#dcd9d0', door: '#4b2721', refends: false, pediment: false, shutters: true },
+  { stone: '#dccfb5', frame: '#ebe8de', door: '#1f3a2c', refends: false, pediment: false, shutters: false },
+  { stone: '#e0d4bb', frame: '#e6e2d6', door: '#1c2d49', refends: true, pediment: true, shutters: false },
+  { stone: '#d3cab7', frame: '#dcd9d0', door: '#4b2721', refends: false, pediment: false, shutters: true },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────────────
@@ -48,10 +50,21 @@ export const HAUSSMANN_PALETTES: HaussmannPalette[] = [
  */
 export function stoneWall(p: CellPainter, env: PaintEnv, w: number, h: number, stone: string, course: number, deep: boolean): void {
   p.begin(w, h, stone);
-  p.grain(env.blotch, 0.28, 'overlay');
-  p.grain(env.grain, 0.42, 'overlay');
   const rows = Math.round(h / course);
   const ch = h / rows;
+  const stones = 4;
+  const rnd = makeRandom(1234 + Math.round(course * 100) + (deep ? 7 : 0));
+  // chaque pierre a sa nuance : c'est ce qui fait la pierre de taille (et non un bruit uniforme)
+  for (let r = 0; r < rows; r++) {
+    for (let s = -1; s < stones; s++) {
+      const x = ((s + (r % 2) * 0.5) / stones) * w;
+      const k = rnd() - 0.5;
+      p.rect(x, r * ch, w / stones, ch, k > 0 ? `rgba(255,250,235,${(k * 0.16).toFixed(3)})` : `rgba(70,50,20,${(-k * 0.13).toFixed(3)})`);
+      if (s === -1) p.rect(x + w, r * ch, w / stones, ch, k > 0 ? `rgba(255,250,235,${(k * 0.16).toFixed(3)})` : `rgba(70,50,20,${(-k * 0.13).toFixed(3)})`);
+    }
+  }
+  p.grain(env.blotch, 0.1, 'overlay');
+  p.grain(env.grain, 0.3, 'overlay');
   for (let r = 0; r < rows; r++) {
     const y = r * ch;
     if (deep) {
@@ -62,7 +75,6 @@ export function stoneWall(p: CellPainter, env: PaintEnv, w: number, h: number, s
       p.hline(0, y - 0.014, w, 0.01, 'rgba(255,250,235,0.08)');
     }
     // joints montants en quinconce (4 pierres par travée)
-    const stones = 4;
     for (let s = 0; s < stones; s++) {
       const x = ((s + (r % 2) * 0.5) / stones) * w;
       p.vline(x, y, ch, deep ? 0.016 : 0.01, deep ? 'rgba(40,32,20,0.2)' : 'rgba(60,48,30,0.1)');
@@ -87,7 +99,7 @@ export interface WindowOptions {
 /** Fenêtre : embrasure sombre, vitrage, voilages, menuiserie, ombre de l'embrasure. */
 export function paintWindow(p: CellPainter, x: number, y: number, w: number, h: number, o: WindowOptions): void {
   const rise = o.rise ?? 0;
-  p.arch(x, y, w, h, rise, p.gradient(y, h, '#1d232a', '#3b4651'));
+  p.arch(x, y, w, h, rise, p.gradient(y, h, '#141a20', '#2d3741'));
   p.archMask(x, y, w, h, rise, o.glow ?? 1);
   p.clipArch(x, y, w, h, rise);
   if (o.curtains !== false) {
@@ -97,7 +109,7 @@ export function paintWindow(p: CellPainter, x: number, y: number, w: number, h: 
     p.rect(x, y + h - 0.22, w, 0.22, 'rgba(226,220,205,0.25)');
   }
   // reflet du ciel en haut du vitrage
-  p.light(x, y + h * 0.55, w, h * 0.45, 0, 0.13);
+  p.light(x, y + h * 0.55, w, h * 0.45, 0, 0.09);
   const f = 0.055;
   // dormant et ouvrants
   p.bar(x, y, f, h, o.frame);

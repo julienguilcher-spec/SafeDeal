@@ -318,7 +318,8 @@ function emitStack(
     // silhouette des mitrons : un plan vertical dans l'axe de la souche ; v ∈ [0 ; 0,5] de la texture
     const ax = cx - dx * hl, az = cz - dz * hl, bx = cx + dx * hl, bz = cz + dz * hl;
     rail.nx = px; rail.ny = 0; rail.nz = pz;
-    rail.quad(ax, yt, az, 0, 0.02, bx, yt, bz, pots, 0.02, bx, yt + 0.5, bz, pots, 0.48, ax, yt + 0.5, az, 0, 0.48);
+    // (la texture porte deux mitrons par période : u = nombre de mitrons / 2)
+    rail.quad(ax, yt, az, 0, 0.02, bx, yt, bz, pots / 2, 0.02, bx, yt + 0.5, bz, pots / 2, 0.48, ax, yt + 0.5, az, 0, 0.48);
   }
 }
 
@@ -336,13 +337,14 @@ function emitChimneys(m: MeshData, rail: MeshData | null, c: BuildCtx, es: EdgeS
     const dx = lx / len, dz = lz / len;
     const inx = -es.nx[i], inz = -es.nz[i];
     const h1 = hash01(c.b.id, 100 + i), h2 = hash01(c.b.id, 200 + i);
-    const count = len > 11 ? 2 : 1;
+    // une longue souche (ou deux sur un grand pignon), adossée au mur mitoyen
+    const count = len > 9 ? 2 : 1;
     for (let q = 0; q < count; q++) {
-      const t = count === 1 ? 0.35 + 0.3 * h1 : q === 0 ? 0.22 + 0.1 * h1 : 0.68 + 0.1 * h2;
-      const hl = Math.min(len * (count === 1 ? 0.3 : 0.16), 0.55 + 0.75 * (q === 0 ? h2 : h1));
-      const hd = 0.26;
+      const t = count === 1 ? 0.38 + 0.24 * h1 : q === 0 ? 0.24 + 0.06 * h1 : 0.7 + 0.08 * h2;
+      const hl = Math.min(len * (count === 1 ? 0.36 : 0.19), 0.9 + 1.5 * (q === 0 ? h2 : h1));
+      const hd = 0.27;
       const cx = qax + lx * t + inx * (hd + 0.04), cz = qaz + lz * t + inz * (hd + 0.04);
-      emitStack(m, rail, c, cx, cz, dx, dz, hl, hd, yTop - 0.05, yTop + 1.15 + 0.8 * (q === 0 ? h1 : h2));
+      emitStack(m, rail, c, cx, cz, dx, dz, hl, hd, yTop - 0.05, yTop + 1.25 + 0.9 * (q === 0 ? h1 : h2));
       placed++;
     }
   }
