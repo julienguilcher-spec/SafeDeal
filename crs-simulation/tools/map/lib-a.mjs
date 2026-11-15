@@ -660,3 +660,31 @@ export const feature = (geometry, properties) => ({ type: 'Feature', properties,
 export const polygonGeom = (polys) => (polys.length === 1 ? { type: 'Polygon', coordinates: polys[0] } : { type: 'MultiPolygon', coordinates: polys });
 /** Géométrie GeoJSON Polygon/MultiPolygon → liste de polygones. */
 export const polysOf = (g) => (g.type === 'Polygon' ? [g.coordinates] : g.type === 'MultiPolygon' ? g.coordinates : []);
+
+// ───────────────────────────── 6. Noms : aucune enseigne ─────────────────────────────
+
+/** Nom normalisé pour les comparaisons (sans accents, minuscules, ponctuation retirée). */
+export const normName = (s) => String(s).normalize('NFD').replace(/\p{M}+/gu, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+const COMMERCIAL_AMENITY = new Set(['restaurant', 'cafe', 'bar', 'fast_food', 'bank', 'cinema', 'nightclub', 'pub', 'pharmacy', 'casino', 'fuel', 'ice_cream', 'biergarten', 'food_court', 'bureau_de_change', 'car_rental', 'car_wash', 'atm', 'coworking_space', 'money_transfer', 'driving_school']);
+const COMMERCIAL_TOURISM = new Set(['hotel', 'hostel', 'guest_house', 'apartment', 'motel']);
+const NON_COMMERCIAL_OFFICE = new Set(['government', 'diplomatic', 'ngo', 'association', 'political_party', 'religion', 'research', 'educational_institution', 'administrative', 'foundation', 'union', 'quango']);
+/** Vrai si l'objet OSM est un commerce, une enseigne ou une entreprise (son nom ne doit pas sortir dans les données du jeu). */
+export function isCommercialTags(t) {
+  return !!(t.brand || t['brand:wikidata'] || t.shop || t.craft || COMMERCIAL_AMENITY.has(t.amenity) || COMMERCIAL_TOURISM.has(t.tourism)
+    || (t.office && !NON_COMMERCIAL_OFFICE.has(t.office)) || t.leisure === 'fitness_centre');
+}
+/** Ensemble des noms (normalisés) portés par au moins un commerce / une enseigne dans l'extrait OSM. */
+export function commercialNameSet(osm) {
+  const set = new Set();
+  for (const list of [osm.nodes, osm.ways, osm.relations]) {
+    for (const o of list) {
+      const t = o.tags;
+      if (t.name && isCommercialTags(t)) set.add(normName(t.name));
+      if (t.brand) set.add(normName(t.brand));
+      if (t.operator && isCommercialTags(t)) set.add(normName(t.operator));
+    }
+  }
+  set.delete('');
+  return set;
+}
