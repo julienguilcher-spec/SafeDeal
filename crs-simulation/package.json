@@ -1,0 +1,25 @@
+{
+  "name": "crs-simulation",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "CRS Simulation France — simulation de maintien de l'ordre en monde ouvert (Paris), jeu web 3D",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "tsc --noEmit && vite build",
+    "build:fast": "vite build",
+    "preview": "vite preview --host",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:e2e": "node tests/e2e/run-all.mjs"
+  },
+  "dependencies": {
+    "three": "^0.187.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.187.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.0"
+  }
+}

@@ -1,0 +1,74 @@
+// Outillage commun des tests de bout en bout (Chromium headless, WebGL logiciel).
+// Usage : import { startServer, openPage, shot, waitFor, finish } from './lib.mjs'
+import { createServer } from 'vite';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import { mkdirSync } from 'node:fs';
+import path from 'node:path';
+
+const require = createRequire(import.meta.url);
+const { chromium } = require('playwright');
+
+export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+export const OUT = path.join(ROOT, 'tests/e2e/out');
+mkdirSync(OUT, { recursive: true });
+
+/** Démarre un serveur Vite de développement sur un port libre (plusieurs tests peuvent tourner en parallèle). */
+export async function startServer() {
+  const server = await createServer({
+    root: ROOT,
+    logLevel: 'error',
+    clearScreen: false,
+    server: { host: '127.0.0.1', strictPort: false, hmr: false, watch: null },
+  });
+  await server.listen();
+  const addr = server.httpServer.address();
+  const url = `http://127.0.0.1:${addr.port}/`;
+  return { url, close: () => server.close() };
+}
+
+/**
+ * Ouvre une page. Retourne { browser, page, errors } ; `errors` accumule erreurs de page et console.error.
+ * Options : width, height, deviceScaleFactor (1 par défaut ; 2 pour une capture destinée à être montrée), mobile (émulation tactile).
+ */
+export async function openPage(url, opts = {}) {
+  const { width = 1280, height = 720, deviceScaleFactor = 1, mobile = false } = opts;
+  const browser = await chromium.launch();
+  const context = await browser.newContext({
+    viewport: { width, height },
+    deviceScaleFactor,
+    hasTouch: mobile,
+    isMobile: mobile,
+  });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push('pageerror: ' + (e && e.stack ? e.stack : String(e))));
+  page.on('console', (m) => { if (m.type() === 'error') errors.push('console.error: ' + m.text()); });
+  await page.goto(url, { waitUntil: 'load', timeout: 120000 });
+  return { browser, page, errors };
+}
+
+/** Attend qu'une expression (chaîne évaluée dans la page) devienne vraie. Le WebGL logiciel est lent : délai large. */
+export async function waitFor(page, expression, timeout = 180000) {
+  await page.waitForFunction(expression, null, { timeout, polling: 250 });
+}
+
+/** Capture d'écran dans tests/e2e/out/<name>.png ; retourne le chemin absolu. */
+export async function shot(page, name) {
+  const file = path.join(OUT, name.endsWith('.png') ? name : name + '.png');
+  await page.screenshot({ path: file });
+  return file;
+}
+
+/** Ferme tout et termine le processus avec le bon code. */
+export async function finish({ browser, server, errors = [], ok = true, label = 'test' }) {
+  if (browser) await browser.close().catch(() => {});
+  if (server) await server.close().catch(() => {});
+  if (errors.length) {
+    console.error(`[${label}] ${errors.length} erreur(s) dans la page :`);
+    for (const e of errors.slice(0, 20)) console.error('  - ' + e);
+  }
+  const success = ok && errors.length === 0;
+  console.log(`[${label}] ${success ? 'OK' : 'ÉCHEC'}`);
+  process.exit(success ? 0 : 1);
+}
