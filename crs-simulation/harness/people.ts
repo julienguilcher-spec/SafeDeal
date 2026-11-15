@@ -316,12 +316,13 @@ function viewPoses(): void {
 /** Vue de détail : chaque animation demandée (&anims=a,b,c ; « p:kneel » pour une posture) sous quatre angles. */
 function viewDetail(): void {
   const names = (params.get('anims') ?? 'none').split(',');
-  const angles = [0, -0.9, -Math.PI / 2, Math.PI];
+  const angles = [0.4, -Math.PI / 2, Math.PI - 0.6];
   const anim: Person[] = [];
-  const sx = 1.45, sz = 2.3;
+  const sx = 1.25;
+  const total = names.length * angles.length;
   names.forEach((name, r) => {
     angles.forEach((a, c) => {
-      const x = (c - (angles.length - 1) / 2) * sx + (r % 2) * 0.0, z = (r - (names.length - 1) / 2) * sz;
+      const x = (r * angles.length + c - (total - 1) / 2) * sx + (r - (names.length - 1) / 2) * 0.5, z = 0;
       const isPosture = name.startsWith('p:');
       const u = isPosture ? 'none' : name;
       const police = POLICE_ANIMS.has(u);
@@ -349,16 +350,15 @@ function viewDetail(): void {
         if (u === 'drag') p.heading = a + Math.PI;
       }
     });
-    label(name, -((angles.length - 1) / 2) * sx - 0.9, (r - (names.length - 1) / 2) * sz + 0.2, 1.0);
+    label(name, (r * angles.length + 1 - (total - 1) / 2) * sx + (r - (names.length - 1) / 2) * 0.5, 0.9);
   });
-  const rows = names.length;
-  camera.fov = 28;
+  camera.fov = 26;
   camera.updateProjectionMatrix();
   const th = Math.tan((camera.fov * Math.PI) / 360);
-  const dist = Math.max((angles.length * sx / 2 + 0.6) / (th * camera.aspect), (rows * sz * 0.38 + 1.3) / th);
-  const el = parseFloat(params.get('el') ?? '0.42');
+  const dist = Math.max((total * sx / 2 + names.length * 0.25 + 0.5) / (th * camera.aspect), 1.5 / th);
+  const el = parseFloat(params.get('el') ?? '0.22');
   camera.position.set(0, 1.0 + dist * Math.sin(el), dist * Math.cos(el));
-  camera.lookAt(0, 0.95, 0);
+  camera.lookAt(0, 1.0, 0);
   setShadowArea(0, 0, 7);
   tick = (t) => {
     for (const p of anim) p.upperT = fixedT >= 0 ? fixedT : t % 1.3;

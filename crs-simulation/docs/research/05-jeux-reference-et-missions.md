@@ -806,3 +806,188 @@ Ces missions décrivent ce que l'on voit, jamais comment fabriquer ou préparer 
 > - Une mission ne se termine pas au chronomètre : elle se termine quand ses phases sont jouées **et** que la foule présente passe sous 5 % (section 5.5).
 
 ---
+
+## 5. Campagne « Carrière » et « Mode libre » [JEU]
+
+### 5.1 Chapitres de la carrière
+
+| Chap. | Titre | Grade (`PoliceRank`) | Missions | Condition de passage |
+|---|---|---|---|---|
+| 0 | « L'école » | élève (hors grade) | 4 ateliers de 3 min : tenir la ligne, porter le bouclier, écouter les sommations, premiers secours | Les 4 ateliers réussis |
+| 1 | « Première ligne » | `gardien_stagiaire` | M01, M02, M04, M09, M10 | 4 missions notées C ou mieux, aucune sanction : titularisation |
+| 2 | « Le métier » | `gardien` | M03, M05, M06, M07, M08 ; habilitations (lanceur, LBD, extincteur, interpellation) | 5 missions, moyenne B ; 2 habilitations sur 4 |
+| 3 | « Sept sous mes ordres » | `brigadier_chef` (`brigadier` seulement avec l'option « avant 2023 », 01 §4.6) | M11 à M18 | 6 missions, moyenne B ; aucun agent laissé isolé |
+| 4 | « La section » | `major` | Variantes à 18 agents de M12, M13, M16, M18 ; M24 comme chef de la section qui tient la sortie | 4 missions, moyenne B |
+| 5 | « L'adjoint » | `capitaine` | M19, M22, M26 : vous commandez une demi-compagnie, le commandant PNJ fixe l'intention | 3 missions, moyenne A ; examen de 10 questions tirées du dossier 01 |
+| 6 | « La compagnie » | `commandant` | M19 à M28 | 8 missions, moyenne B ; image publique à 50 ou plus |
+| 7 | « L'écharpe » | `commissaire` (concours : rôle distinct) | M29 à M35 | 6 missions, moyenne A |
+| 8 | « La grande journée » | au choix | Parcours de 4,4 km Bastille → République → Grands Boulevards → Opéra (03 §1.5), tous les systèmes, durée `longue` ou `temps_reel` | Fin de la carrière |
+
+| Détachement (branche facultative) | Ouverture | Missions |
+|---|---|---|
+| BRAV-M | Chapitre 2, après 3 interpellations sans faute | M36 à M42 |
+| Engin lanceur d'eau | Chapitre 2 | M49 à M54 |
+| Télépilote | Chapitre 3 | M55 à M60 |
+| Centaure | Chapitre 3 ; « détachement auprès de la gendarmerie », licence de jeu : dans la réalité, c'est un autre corps (01 §4.2) | M43 à M48 |
+| Regards croisés (rôles civils) | Chaque mission civile s'ouvre quand sa mission miroir est terminée : M05 → M61, M02 → M69, M15 → M78, M35 → M71, M37 → M82, M56 → M80, M20 → M76, M07 ou M12 ou M38 → M83 ; les autres à la fin de chaque chapitre | M61 à M84 |
+
+### 5.2 Note, avancement, discipline
+
+| Composante de la note sur 100 | Points | Mesure |
+|---|---|---|
+| Procédure | 30 | Cadre légal respecté, sommations, ordres exécutés ou donnés, autorisations tracées |
+| Objectifs | 30 | Principaux 20, secondaires 10 |
+| Protection des personnes | 20 | Tiers, manifestants pacifiques, collègues, secours |
+| Image publique | 10 | Ce que les caméras ont vu (03 §7) |
+| Compte rendu | 10 | Exactitude et sincérité du compte rendu final |
+
+Lettres : **S** à partir de 90, **A** de 80, **B** de 65, **C** de 50, **D** en dessous (mission à refaire en carrière).
+
+| Faute (01 §7.2) | Sanction | Effet dans la carrière |
+|---|---|---|
+| Légère : geste hors cadre sans blessé, compte rendu incomplet | Avertissement ou blâme | Mention au dossier ; la note S est inaccessible pendant 2 missions |
+| Sérieuse : blessé par un geste disproportionné, ordre non exécuté sans objection | Exclusion de 4 à 15 jours | 1 ou 2 missions sautées (résumées par un texte) ; avancement retardé d'un chapitre |
+| Grave : blessé grave par usage illégal d'une arme, mensonge établi par les images | Rétrogradation au grade immédiatement inférieur | Retour au chapitre précédent |
+| Très grave | Révocation | Fin de la carrière ; le Mode libre reste accessible |
+
+État conservé d'une mission à l'autre : dossier disciplinaire ; **image publique globale** (0 à 100, départ à 60) qui déplace la tension initiale de la mission suivante de −0,1 à +0,1 ; fatigue et blessures de l'unité (agent blessé indisponible pendant 1 à 3 missions) ; convocation devant l'inspection entre deux missions, avec les pièces (journal radio horodaté, caméra-piéton, images de presse).
+
+### 5.3 Déblocages
+
+| Élément débloqué | Quand |
+|---|---|
+| Galons et écusson de chaque grade | À la promotion |
+| Matériel : gazeuse, lanceur de 56 mm, LBD, extincteur, grenade de désencerclement | Atelier d'habilitation réussi (chapitre 2) |
+| Véhicules : fourgon, car, véhicule de commandement | Chapitres 1, 3 et 6 |
+| Carte tactique complète et drone d'appui | Chapitre 6 |
+| Paramètres avancés de l'éditeur de scénario | Fin du chapitre 3 |
+| Médailles (sans effet de jeu) : « Sans un coup » (M30 notée S), « Douze grenades » (M45), « Neutre » (M65), « Sincère » (M35) | À l'obtention |
+
+Rien n'est verrouillé dans le Mode libre : la carrière débloque une histoire et des distinctions, pas l'accès au contenu.
+
+### 5.4 Mode libre
+
+| Paramètre | Valeurs | Défaut | Champ de `SessionConfig` |
+|---|---|---|---|
+| Rôle | Les 12 rôles jouables | `crs` | `role` |
+| Grade | Les 8 grades, **commandant et commissaire dès la première partie** | `gardien` | `rank` |
+| Mission | M01 à M84, ou « Session libre » sur un lieu | — | `missionId` (vide pour une session libre) |
+| Lieu | 30 lieux nommés | Place de la République | `place` |
+| Heure | De 0 h à 24 h par pas de 30 min | 14 h | `timeOfDay` |
+| Météo | 7 valeurs de `WeatherKind` | `nuageux` | `weather` |
+| Foule | De 100 à 2 000 par pas de 100 | 600 | `crowdSize` |
+| Tension initiale | De 0 à 1 | 0,2 | `tension` |
+| Propension à dégénérer | De 0 à 1 | 0,5 | `volatility` |
+| Qui dérape | « personne », « la foule », « les forces », « les deux », « au hasard » | « au hasard » | `extra.derapage` |
+| Durée | 10, 25, 45 min, temps réel | 25 min | `duration` |
+| Fin de mission | « à l'annonce de dispersion » ou « jusqu'au dernier groupe » | « jusqu'au dernier groupe » | `extra.fin` |
+| Forces | Automatique (3 à 10 agents pour 100 manifestants, 03 §1.3) ou manuel | automatique | `extra.forces` |
+| Appuis | Engin lanceur d'eau, Centaure, BRAV-M, drone, pompiers : oui ou non | selon la mission | `extra.appuis` |
+| Aide au commandement | « aucune », « suggestions de l'adjoint », « adjoint autonome » | « suggestions de l'adjoint » | `extra.aideCommandement` |
+| Graine | Entier | aléatoire | `seed` |
+
+« Qui dérape » règle les deux sources d'escalade : « la foule » multiplie par 1,5 la part de radicaux et d'opportunistes ; « les forces » donne aux policiers PNJ sous tension une probabilité de 0,15 par minute de commettre un geste hors cadre, que le joueur doit prévenir, arrêter ou signaler ; « au hasard » tire parmi les quatre autres (40 % personne, 20 % chacun des trois autres). Le joueur commandant qui débute reçoit des propositions d'ordre de son adjoint (« Je propose : 2e section, TENIR l'angle. ») qu'il valide d'une touche.
+
+### 5.5 Durée d'une mission : recommandation
+
+| Réglage | Usage conseillé | Règle de fin |
+|---|---|---|
+| `courte`, 10 min | Découverte, formation, téléphone | Fin à la dernière phase |
+| `standard`, 25 min | Réglage par défaut de toutes les missions | Fin quand les phases sont jouées **et** qu'il reste moins de 5 % de la foule dans le périmètre ; sinon prolongations automatiques de 5 min, 3 au plus |
+| `longue`, 45 min | Commandant, autorité civile, émeutes nocturnes | Même règle ; l'après-manifestation occupe 24 % du temps (03 §1.6) |
+| `temps_reel` | Passionnés | Bouton d'accélération ×4 tant que la tension reste sous 0,15 ; pause et reprise par la sauvegarde |
+
+L'horloge affichée est **l'heure de la journée**, pas un compte à rebours : la mission dure « tant que la manifestation n'est pas terminée ». Le joueur peut demander la fin anticipée quand tous les objectifs principaux sont atteints et que la tension est sous 0,15.
+
+> **Ce que le jeu doit reproduire — Carrière et Mode libre**
+> - Carrière : 9 chapitres, 8 grades, 4 détachements, 24 missions civiles ouvertes par leurs miroirs ; sanctions calquées sur l'échelle réelle.
+> - Mode libre : **tout est ouvert**, y compris commandant et commissaire ; 16 paramètres, dont « qui dérape » pour faire dégénérer d'un côté ou de l'autre.
+> - Les parties du Mode libre n'entrent pas dans le dossier de carrière ; elles gardent leur propre tableau de notes par mission.
+> - Durée par défaut de 25 min, fin sur l'état de la foule et non sur le chronomètre, prolongations de 5 min.
+> - Le compte rendu affiche la graine et les 16 paramètres : une partie se rejoue ou se partage à l'identique.
+
+---
+
+## Sources
+
+Consultées le 15 novembre 2026. « lu » = page lue pendant cette recherche ; « résumé » = connue par un extrait ou un résumé de moteur de recherche ; « non lu » = accès refusé.
+
+### Pages officielles et primaires
+- [1] Boutique Steam, « Riot Control Simulator: Rookie Day » — https://store.steampowered.com/app/2535680/Riot_Control_Simulator_Rookie_Day/ (lu)
+- [2] Boutique Steam, « Riot Control Simulator » — https://store.steampowered.com/app/1579210/Riot_Control_Simulator (lu)
+- [3] Boutique Steam, « Flashing Lights » — https://store.steampowered.com/app/605740/Flashing_Lights__Police_Firefighting_Emergency_Services_Simulator/ (lu)
+- [4] itch.io, « CRS RUSH (Loi Travail Simulator) » — https://lacrearthur.itch.io/crs-rush (lu)
+- [5] GDC Vault, « Massive Crowd on Assassin's Creed Unity: AI Recycling » (2015) — https://www.gdcvault.com/play/1022141/Massive-Crowd-on-Assassin-s (lu : résumé de la session)
+- [6] Gendarmerie nationale, « Du virtuel à la réalité », salon du jeu vidéo de Paris 2025 — https://www.gendarmerie.interieur.gouv.fr/gendinfo/actualites/2025/du-virtuel-a-la-realite-l-experience-immersive-de-la-gendarmerie-a-la-paris-games-week (non lu)
+- [7] Gendarmerie nationale, formation des futurs commandants d'unité, simulateur « Romulus » (2026) — https://www.gendarmerie.interieur.gouv.fr/gendinfo/terrain/immersion/2026/une-formation-inedite-au-profit-des-futurs-commandants-d-unite-elementaire-en-outre-mer (non lu ; résumé)
+- [8] Ville de Paris, crues de la Seine — https://www.paris.fr/pages/crues-5472 (résumé)
+- [54] Données du dépôt : `tools/map/raw/normalized/places.geojson` (3 278 lieux ; 207 noms de missions vérifiés) et dossiers 01, 02, 03 (lus)
+
+### Tests, encyclopédies, agrégateurs d'avis
+- [9] Pieuvre.ca, test de « RIOT: Civil Unrest » (24 février 2019) — https://pieuvre.ca/2019/02/24/technologie-jeux-video-riot-civil-unrest (lu)
+- [10] Wikipédia (en), « Riot: Civil Unrest » — https://en.wikipedia.org/wiki/Riot:_Civil_Unrest (lu)
+- [11] GOG, fiche et avis de « RIOT: Civil Unrest » — https://www.gog.com/fr/game/riot_civil_unrest (résumé)
+- [12] jeuxvideo.com, fiche du même jeu — https://www.jeuxvideo.com/jeux/jeu-67970/ (résumé ; non cité)
+- [13] TechRaptor, test du même jeu — https://techraptor.net/content/riot-civil-unrest-review (non lu ; non cité)
+- [14] Prima Games, test du même jeu — https://primagames.com/gaming/riot-civil-unrest-review (résumé)
+- [15] OpenCritic, « Police Simulator: Patrol Officers » — https://opencritic.com/game/13965/police-simulator-patrol-officers (résumé)
+- [16] CyberPowerPC, guide du même jeu — https://www.cyberpowerpc.com/blog/police-simulator-patrol-officers-work-week-guide/ (résumé)
+- [17] astragon, annonce de la mise à jour « Keys to the City » — https://www.astragon.com/news/detail/the-new-keys-to-the-city-update-for-police-simulator-patrol-officers-is-now-available-with-more-freedom-and-new-tasks (résumé)
+- [18] VaporLens, synthèse d'avis de « Police Simulator: Patrol Officers » — https://vaporlens.app/app/997010/police_simulator_patrol_officers (lu)
+- [19] Wikipédia (en), « Ready or Not » — https://en.wikipedia.org/wiki/Ready_or_Not_(video_game) (lu)
+- [20] VaporLens, synthèse d'avis de « Ready or Not » — https://vaporlens.app/app/1144200/ready_or_not (lu)
+- [21] Forum Steam de « Ready or Not », pénalités — https://steamcommunity.com/app/1144200/discussions/0/4036978698791870878 (résumé)
+- [22] Sports Illustrated (jeux vidéo), test de « Ready or Not » — https://videogames.si.com/reviews/ready-or-not-review (résumé)
+- [23] GameGrin, aperçu de « Flashing Lights » — https://gamegrin.com/previews/flashing-lights-preview (résumé)
+- [24] Xboxygen, test de « The Precinct » — https://www.xboxygen.com/Tests/52615-Test-The-Precinct-Le-GTA-version-police (résumé)
+- [25] Breakflip, test de « The Precinct » — https://www.breakflip.com/tests/8402.html (résumé)
+- [26] ActuGaming, fiche et test de « The Precinct » — https://www.actugaming.net/jeux/the-precinct/ (résumé)
+- [27] Wikipédia (en), « This Is the Police » — https://en.wikipedia.org/wiki/This_Is_the_Police (lu)
+- [28] GameSpot, test de « Urban Chaos: Riot Response » — https://www.gamespot.com/reviews/urban-chaos-riot-response-review/1900-6152766/ (résumé)
+- [29] « Radio Commander » : GameGrin — https://www.gamegrin.com/reviews/radio-commander-review ; Vice — https://www.vice.com/en/article/radio-commander-review/ (résumés)
+- [30] ActuGaming, test d'« Okhlos » — https://actugaming.net/test-okhlos-foule-se-rebelle-contre-dieux-de-lolympe-45713 (résumé)
+- [31] Kritiqal, « Anarcute, Tonight We Riot, and the Optics of Revolution » — https://www.kritiqal.com/articles/anarcute-tonight-we-riot-optics (résumé)
+- [32] Kill Screen, les foules d'« Assassin's Creed Unity » — https://www.killscreen.com/assassins-creed-unity-making-crowd-main-character (lu)
+- [33] Game Developer, « The eye of the beholder: measuring player success in photography games » — https://gamedeveloper.com/design/the-eye-of-the-beholder-measuring-player-success-in-photography-games (lu)
+- [34] Guides de « New Pokémon Snap » — https://www.imore.com/new-pokemon-snap-photo-guide ; https://pokejungle.net/new-pokemon-snap/rating-star-guide/ (résumés)
+- [35] Wiki « Dead Rising », photographie — https://dead-rising.fandom.com/wiki/Photography (résumé)
+- [36] TheGamer, « Umurangi Generation » — https://www.thegamer.com/photographer-simulator-umurangi-generation/ (résumé)
+- [37] Wikipédia (en), « 1979 Revolution: Black Friday » — https://en.wikipedia.org/wiki/1979_Revolution:_Black_Friday (lu)
+- [38] Wikipédia (en), « Not for Broadcast » — https://en.wikipedia.org/wiki/Not_for_Broadcast (lu)
+- [39] Triage START : Wikipédia (en) — https://en.wikipedia.org/wiki/Simple_triage_and_rapid_treatment ; WikEM (fr) — https://www.wikem.org/wiki/Start_triage/fr (résumés)
+- [40] Boutique Steam, « Ambulance Life: A Paramedic Simulator » — https://store.steampowered.com/app/1926520/Ambulance_Life_A_Paramedic_Simulator (résumé)
+- [41] « 911 Operator » : wiki de joueurs — https://shapes.inc/fandom/911-operator/incidents ; fiche de l'extension « Every Life Matters » — https://store.epicgames.com/p/911-operator-911-operator-every-life-matters-e5bd27 (résumés)
+- [42] MissionChief, missions de manifestation violente — https://police.missionchief.com/einsaetze/136 ; https://missionchief-australia.com/einsaetze/225 (résumés)
+- [43] Roblox, « Emergency Response: Liberty County » — https://web.roblox.com/games/2534724415/Emergency-Response-Liberty-County (résumé)
+- [44] Jeux de rôle francophones sur Roblox et kit d'uniformes — https://www.roblox.com/games/10807495178 ; https://builtbybit.com/resources/french-gendarmerie-kit.87836/ (résumés)
+- [45] Boutique de scripts pour serveurs de jeu de rôle — https://fivemx.com/fr/boutique/emploi-de-police-a-esx/ (résumé)
+- [46] Mods « gendarmerie » — https://steamcommunity.com/sharedfiles/filedetails/comments/767912608 ; https://reforger.armaplatform.com/workshop/6A7D3B56BDC961B8 (résumés)
+- [47] Petits jeux français — https://rp-bordeaux.itch.io/gilet-jaunes ; https://gomeisa.itch.io/syndikaruga (résumés)
+- [48] Jeu mobile « Riot Escape » — https://apps.apple.com/app/id1552231557 (résumé)
+- [49] Guides de « Hell Let Loose » — https://guildorder.com/games/hell_let_loose/wiki/commander-role-and-strategic-abilities ; https://guildorder.com/games/hell_let_loose/wiki/squad-leader-responsibilities (résumés)
+- [50] Police1, emploi des drones par les unités d'intervention — https://www.police1.com/police-products/police-drones/articles/ntoa-how-to-maximize-the-capabilities-of-swat-drones-4OOidOJwHDffrOEp (résumé)
+- [51] Wikipédia (fr) : Avenue des Champs-Élysées, Place de la Concorde, Place de la Bastille, Esplanade des Invalides, Champ-de-Mars (lus) — https://fr.wikipedia.org/wiki/Avenue_des_Champs-%C3%89lys%C3%A9es ; Structurae, Place de la République — https://structurae.net/fr/ouvrages/place-de-la-republique (résumé)
+- [52] Crues : RTBF — https://www.rtbf.be/article/la-crue-de-la-seine-a-atteint-son-pic-a-paris-9824572 ; Ville de Paris, le Zouave — https://www.paris.fr/pages/une-vie-en-seine-le-zouave-barometre-de-la-montee-des-eaux-34985 (résumés)
+- [53] Nouvel An sur les Champs-Élysées : gendarmerie — https://www.gendarmerie.interieur.gouv.fr/gendinfo/terrain/immersion/2024/en-immersion-avec-les-gendarmes-engages-dans-la-securisation-de-la-nuit-de-la-saint-sylvestre-a-paris ; presse (résumés)
+- [55] SteamDB, fréquentation de « Rookie Day » — https://steamdb.info/app/2535680/charts (résumé)
+- [56] Copie d'encyclopédie, « Emergency 5 » — https://cavac.at/cavacopedia/Emergency%205 (résumé)
+
+## Points incertains
+
+### Non trouvé
+- **Le jeu vu sur TikTok** : aucun titre identifié ; l'hypothèse du prologue polonais ou d'un serveur de jeu de rôle n'est pas confirmée. Il faudrait le nom du compte ou une capture de la vidéo.
+- **Texte des avis de joueurs** du prologue concurrent et du jeu d'émeute de 2019 : l'interface de la boutique n'a pas pu être interrogée ; seuls les totaux sont vérifiés.
+- **Expérience Roblox, serveur de jeu de rôle ou mod consacré aux CRS** : rien trouvé ; cela ne prouve pas qu'il n'en existe pas (ces contenus sont mal indexés).
+- **Mission d'émeute dans la série « Emergency »**, détail des règles d'émeute de « 911 Operator » : non trouvé ou connu par un seul wiki de joueurs.
+- **Articles officiels de la gendarmerie** [6][7] : accès refusé ; le simulateur « Romulus » n'est connu que par un résumé.
+- **Dates de sortie et studios** de plusieurs jeux cités (« Police Simulator: Patrol Officers », « Ready or Not », « Urban Chaos: Riot Response », « Not for Broadcast ») : non relus à la source, volontairement omis ou marqués [S].
+
+### Sources divergentes ou fragiles
+- « RIOT: Civil Unrest » : 4 ou 6 campagnes, 17 scénarios ou « une trentaine » selon les sources ; note de 11 sur 20 des lecteurs d'un site français non vérifiée.
+- Barème de « New Pokémon Snap » : plafonds par critère estimés par les joueurs, contradictoires d'un guide à l'autre.
+- Compteur de visites de l'expérience de services d'urgence : relevé en mars 2025, sans doute dépassé.
+- Avis du prologue concurrent : 61 % sur 921 à la lecture de la page ; d'autres relevés donnent 59 % sur 492 ou 830 avis (dates différentes).
+- Place de la Concorde : 7,56 ha et 360 × 210 m d'après la page lue ; d'autres publications donnent environ 8,6 ha.
+- Dimensions marquées [E] (Place Charles de Gaulle, boulevards, ponts, Rue Royale, Avenue Kléber) : ordres de grandeur de mémoire, à remplacer par la mesure de la carte du jeu.
+- Affluence et effectifs du Nouvel An (un million de personnes, 10 000 agents) : chiffres de presse attribués à la préfecture, communiqué non lu.
+- Tout ce qui est marqué [JEU] (barèmes, seuils, durées des gestes, probabilités d'aléas, structure de carrière, emploi du Centaure par un joueur policier) est une **proposition de conception**, pas un fait.

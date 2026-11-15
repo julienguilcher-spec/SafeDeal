@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Banc d'essai — monde (simulation)</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #15161a; overflow: hidden; font: 13px/1.35 system-ui, sans-serif; color: #e8e6e1; }
+  canvas { display: block; }
+  #panel { position: absolute; left: 10px; top: 10px; background: rgba(18, 19, 23, 0.86); border: 1px solid #3a3c44; border-radius: 6px; padding: 8px 10px; max-width: 330px; }
+  #panel h1 { font-size: 14px; margin: 0 0 4px; font-weight: 600; }
+  #panel .line { white-space: pre-wrap; color: #c9c6bf; }
+  #legend { position: absolute; right: 10px; top: 10px; background: rgba(18, 19, 23, 0.86); border: 1px solid #3a3c44; border-radius: 6px; padding: 8px 10px; }
+  #legend div { display: flex; align-items: center; gap: 6px; }
+  #legend i { display: inline-block; width: 14px; height: 10px; border: 1px solid #0008; }
+  #legend b { display: inline-block; width: 14px; height: 0; border-top: 2px solid; }
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<div id="panel"><h1 id="title">Monde — chargement…</h1><div class="line" id="info"></div></div>
+<div id="legend"></div>
+<script type="module" src="./world-query.ts"></script>
+</body>
+</html>
