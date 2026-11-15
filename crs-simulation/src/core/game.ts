@@ -15,7 +15,8 @@
  *
  * Erreurs : une exception dans update()/frame() est journalisée avec l'identifiant du système ;
  * après 5 erreurs consécutives le système est désactivé jusqu'à la prochaine session. En mode
- * `strict` (tests), l'exception est propagée au lieu d'être isolée.
+ * `strict` (option du contexte, activée par défaut dans les tests), l'exception est propagée au
+ * lieu d'être isolée.
  * ===================================================================================== */
 
 import type { GameContext, GameSystem, ModuleFactory, SessionApi } from './contracts';
@@ -31,14 +32,14 @@ export const MAX_CONSECUTIVE_ERRORS = 5;
 export const MAX_TIME_SCALE = 64;
 /** Identifiant du système interne qui fait vivre les services neutres. */
 export const NEUTRAL_SYSTEM_ID = 'core:neutral';
+/** Clé du service de mesures : ctx.service<PerfApi>('perf') — pour un affichage des performances. */
+export const PERF_SERVICE = 'perf';
 
 export interface GameOptions extends ContextOptions {
   /** Temps réel maximal pris en compte pour une image (s). Défaut : 0,1. */
   maxFrameDt?: number;
   /** Nombre maximal de pas de simulation par image (avance rapide). Défaut : 40. */
   maxStepsPerFrame?: number;
-  /** Propager les exceptions des systèmes au lieu de les isoler (tests). Défaut : false. */
-  strict?: boolean;
 }
 
 /** Mesures d'un système, pour l'affichage des performances. */
@@ -75,11 +76,20 @@ export interface GameStats {
   droppedTime: number;
 }
 
+/** Service de mesures publié sous la clé « perf » (objets stables, mis à jour à chaque image). */
+export interface PerfApi {
+  /** Un élément par système, dans l'ordre d'exécution. */
+  readonly systems: readonly SystemPerf[];
+  readonly stats: Readonly<GameStats>;
+}
+
 type Stage = 'provide' | 'init' | 'update' | 'frame' | 'reset' | 'dispose';
 
 interface Slot {
   sys: GameSystem;
   perf: SystemPerf;
+  /** Ordre d'exécution (champ `order` du système, 0 s'il est invalide). */
+  order: number;
   /** Ordre d'ajout (départage les systèmes de même `order`). */
   seq: number;
   updateErrors: number;
@@ -128,6 +138,8 @@ export class Game {
       beforeStart: () => this.boot(),
       resetSystems: () => this.resetSystems(),
     });
+    const perfApi: PerfApi = { systems: this.perf, stats: this.stats };
+    this.ctx.provide(PERF_SERVICE, perfApi);
     // Système interne : interactions neutres et objets poussés, tant que les modules ne les remplacent pas.
     const core = this.core;
     this.addSystem({
@@ -170,8 +182,16 @@ export class Game {
 
   /** Ajoute un système. À appeler avant boot(). */
   addSystem(system: GameSystem): this {
+    if (!system || typeof system.id !== 'string' || system.id === '') {
+      throw new Error('[core] système sans identifiant : chaque GameSystem doit avoir un `id`');
+    }
     if (this.bootPromise) {
       throw new Error(`[core] système « ${system.id} » ajouté après boot() : ajouter les modules avant de démarrer`);
+    }
+    let order = system.order;
+    if (typeof order !== 'number' || !Number.isFinite(order)) {
+      console.warn(`[core] système « ${system.id} » : champ \`order\` invalide, 0 utilisé`);
+      order = 0;
     }
     for (let i = 0; i < this.slots.length; i++) {
       if (this.slots[i]!.sys.id === system.id) {
@@ -180,10 +200,10 @@ export class Game {
       }
     }
     const perf: SystemPerf = {
-      id: system.id, order: system.order, updateMs: 0, frameMs: 0, avgUpdateMs: 0, avgFrameMs: 0, errors: 0, disabled: false,
+      id: system.id, order, updateMs: 0, frameMs: 0, avgUpdateMs: 0, avgFrameMs: 0, errors: 0, disabled: false,
     };
     this.slots.push({
-      sys: system, perf, seq: this.seq++, updateErrors: 0, frameErrors: 0, accUpdate: 0, accFrame: 0, bootFailed: false,
+      sys: system, perf, order, seq: this.seq++, updateErrors: 0, frameErrors: 0, accUpdate: 0, accFrame: 0, bootFailed: false,
     });
     this.perf.push(perf);
     return this;
@@ -201,7 +221,7 @@ export class Game {
 
   private async doBoot(): Promise<void> {
     const ctx = this.ctx;
-    this.slots.sort((a, b) => a.sys.order - b.sys.order || a.seq - b.seq);
+    this.slots.sort((a, b) => a.order - b.order || a.seq - b.seq);
     this.perf.length = 0;
     for (let i = 0; i < this.slots.length; i++) this.perf.push(this.slots[i]!.perf);
 
@@ -229,14 +249,18 @@ export class Game {
   }
 
   /**
-   * Avance la simulation de `dt` secondes de temps réel (× clock.timeScale), sans appeler frame().
-   * Sans effet hors de la phase « playing ». Retourne le nombre de pas de simulation exécutés.
+   * Avance la simulation de `dt` secondes (× clock.timeScale), sans appeler frame() et sans limite
+   * de durée : step(60) simule une minute entière, par pas ≤ 0,05 s. Sans effet hors de la phase
+   * « playing ». Retourne le nombre de pas de simulation exécutés.
    */
   step(dt: number): number {
     return this.advance(dt, false);
   }
 
-  /** Traite une image complète : simulation puis frame() (hors headless). Utilisé par la boucle. */
+  /**
+   * Traite une image complète : simulation (au plus maxStepsPerFrame pas) puis frame() de chaque
+   * système (hors headless). C'est ce qu'appelle la boucle requestAnimationFrame.
+   */
   frame(dtReal: number): number {
     return this.advance(dtReal, true);
   }
@@ -300,7 +324,7 @@ export class Game {
     }
     const t0 = now();
     let steps = 0;
-    if (dtReal > 0 && this.ctx.session.phase === 'playing') steps = this.simulate(dtReal);
+    if (dtReal > 0 && this.ctx.session.phase === 'playing') steps = this.simulate(dtReal, present);
     const t1 = now();
     if (present && !this.ctx.headless) this.present(dtReal > 0 ? dtReal : 0);
     const t2 = now();
@@ -323,8 +347,8 @@ export class Game {
     return steps;
   }
 
-  /** Découpe le temps simulé en pas égaux ≤ MAX_STEP et les exécute. */
-  private simulate(dtReal: number): number {
+  /** Découpe le temps simulé en pas égaux ≤ MAX_STEP et les exécute (`capped` : borne du nombre de pas). */
+  private simulate(dtReal: number, capped: boolean): number {
     const clock = this.core.clock;
     let scale = clock.timeScale;
     if (!(scale > 0)) return 0;
@@ -332,7 +356,7 @@ export class Game {
     let simDt = dtReal * scale;
     let n = Math.ceil(simDt / MAX_STEP - 1e-9);
     if (n < 1) n = 1;
-    if (n > this.maxSteps) {
+    if (capped && n > this.maxSteps) {
       this.stats.droppedTime += simDt - this.maxSteps * MAX_STEP;
       n = this.maxSteps;
       simDt = n * MAX_STEP;

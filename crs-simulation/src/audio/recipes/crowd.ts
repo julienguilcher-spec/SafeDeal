@@ -23,10 +23,18 @@ export const GENERIC_SLOGANS: readonly string[] = [
   'Écoutez-nous ! Écoutez-nous !',
 ];
 
+/**
+ * Limite la bande passante (passe-bas double) : les textures de voix sont calculées à 16 ou
+ * 22 kHz et leur relecture laisserait sinon des images spectrales dans l'extrême aigu.
+ */
+function voiceBand(k: Kit, to: AudioNode, cutoff: number): AudioNode {
+  return k.bq('lowpass', cutoff, 0.6, k.bq('lowpass', cutoff, 0.8, to));
+}
+
 /** Murmure d'une foule calme : conversations mêlées, sur deux plans (proche et lointain). */
 export function fouleCalme(k: Kit): number {
   const m = k.sustain(3, 0.4, 0.5);
-  const hp = k.bq('highpass', 130, 0.6, m);
+  const hp = k.bq('highpass', 130, 0.6, voiceBand(k, m, 6000));
   k.tex('babble', k.gain(0.75, hp));
   k.tex('babble', k.bq('lowpass', 1300, 0.6, k.gain(0.6, hp)), 0.91);
   return k.duration;
@@ -35,7 +43,7 @@ export function fouleCalme(k: Kit): number {
 /** Huées : « hoooou » graves, tenus, par vagues. */
 export function fouleHuees(k: Kit): number {
   const m = k.sustain(3, 0.3, 0.5);
-  const hp = k.bq('highpass', 110, 0.6, m);
+  const hp = k.bq('highpass', 110, 0.6, voiceBand(k, m, 5000));
   k.tex('boo', k.gain(0.7, hp));
   k.tex('boo', k.gain(0.5, hp), 1.07);
   k.tex('babble', k.bq('lowpass', 1500, 0.6, k.gain(0.2, hp)), 0.8);
@@ -45,7 +53,7 @@ export function fouleHuees(k: Kit): number {
 /** Panique : cris aigus, appels, brouhaha précipité, piétinement. */
 export function foulePanique(k: Kit): number {
   const m = k.sustain(3, 0.25, 0.5);
-  const hp = k.bq('highpass', 160, 0.6, m);
+  const hp = k.bq('highpass', 160, 0.6, voiceBand(k, m, 8000));
   k.tex('scream', k.gain(0.6, hp));
   k.tex('scream', k.gain(0.45, hp), 1.12);
   k.tex('babble', k.gain(0.4, hp), 1.28);
@@ -75,7 +83,7 @@ export function fouleSlogans(k: Kit): number {
   const end = t + total + 0.3;
 
   const post = k.gain(0.62, k.out);
-  const bus = k.bq('highpass', 220, 0.6, post);
+  const bus = k.bq('highpass', 220, 0.6, voiceBand(k, post, 8000));
   // la foule n'attaque pas d'un bloc : deux copies en retard
   k.echoes(bus, [[0.055, 0.5, 6000], [0.12, 0.28, 2600]], post);
 
@@ -99,7 +107,7 @@ export function fouleSlogans(k: Kit): number {
       g.gain.setTargetAtTime(b.stress ? 1 : 0.78, tb, 0.014);
       g.gain.setTargetAtTime(0, tb + b.len, 0.032);
       // attaque de consonne
-      cons.gain.setTargetAtTime(0.28, Math.max(t, tb - 0.03), 0.006);
+      cons.gain.setTargetAtTime(0.16, Math.max(t, tb - 0.03), 0.006);
       cons.gain.setTargetAtTime(0, Math.max(t + 0.001, tb - 0.004), 0.01);
     }
   }

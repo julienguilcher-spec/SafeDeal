@@ -151,7 +151,7 @@ export function tambour(k: Kit): number {
   k.burst({ kind: 'pink', type: 'lowpass', f: 2600, peak: 0.45, a: 0.0008, tau: 0.008 });
   const snare = Math.min(1, Math.max(0, (k.pitch - 1.3) / 0.6));
   if (snare > 0) k.burst({ type: 'bandpass', f: 2300, q: 0.6, peak: 0.6 * snare, tau: 0.05 });
-  return 0.55;
+  return 0.8;
 }
 
 /**

@@ -364,7 +364,12 @@ describe('interactions neutres — registre fonctionnel', () => {
     ctx.interactions.start(cop, heal);
     ctx.interactions.start(cop, opt);
     expect(cuff.log.slice(-2)).toEqual(['soin interrompu', `begin:${target.id}`]);
-    expect(ctx.interactions.current(cop)!.opt).toBe(opt);
+    expect(ctx.interactions.current(cop)!.opt).toEqual(opt);
+    // l'interaction en cours garde sa propre copie de l'option (le gestionnaire peut réutiliser la sienne)
+    const before = ctx.interactions.current(cop)!.opt.targetId;
+    opt.targetId = 987654;
+    expect(ctx.interactions.current(cop)!.opt.targetId).toBe(before);
+    opt.targetId = before;
 
     // acteur mis à terre : interaction annulée au pas suivant
     ctx.health.setDown(cop, true);

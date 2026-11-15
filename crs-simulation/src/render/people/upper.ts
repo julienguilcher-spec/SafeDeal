@@ -105,9 +105,9 @@ function aimPistol(inp: PoseInput, P: Float64Array): void {
 function poleCarry(inp: PoseInput, P: Float64Array, lift: number): void {
   const bob = 0.03 * fsin(TAU * inp.t + inp.seed * 20);
   armIK(P, R, 0.03, 0.03 + bob + lift, 0.27, 0.7, -0.7, -0.1);
-  handThumb(P, R, 0, 1, 0.04);
+  handAbs(P, R, 0, -0.04, 1, 0, 1, 0.04);
   armIK(P, L, 0.03, -0.19 + bob + lift, 0.275, 0.7, -0.7, -0.1);
-  handThumb(P, L, 0, 1, 0.04);
+  handAbs(P, L, 0, -0.04, 1, 0, 1, 0.04);
 }
 
 function bannerCarry(P: Float64Array): void {
@@ -359,7 +359,7 @@ export function upperPose(inp: PoseInput, P: Float64Array): void {
     case U_CARRY_SIGN: poleCarry(inp, P, inp.alt ? 0.2 : 0); break;
     case U_UMBRELLA:
       armIK(P, R, 0.10, 0.0, 0.23, 0.7, -0.7, -0.1);
-      handThumb(P, R, -0.05, 1, -0.05);
+      handAbs(P, R, 0, 0.05, 1, -0.05, 1, -0.05);
       break;
     case U_CARRY_BANNER: bannerCarry(P); break;
     case U_FILM:

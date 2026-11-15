@@ -150,7 +150,7 @@ export class EngineGraph {
   set(rpmIn: number, loadIn: number, when: number, immediate = false): void {
     const p = this.p;
     const rpm = resolveRpm(rpmIn, p);
-    const load = clamp(loadIn, 0, 1);
+    const load = loadIn > 0 ? (loadIn > 1 ? 1 : loadIn) : 0; // NaN → 0
     const n = clamp((rpm - p.idle) / (p.redline - p.idle), 0, 1);
     const tau = immediate ? 0 : 0.07;
     const set = (param: AudioParam, v: number): void => {

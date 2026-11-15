@@ -2,7 +2,7 @@
  * et production de la pose finale d'une personne. Aucun accès à Three.js ni au DOM : testable sous Node. */
 
 import type { Person } from '@/core/contracts';
-import { BONE_COUNT, BONE_STRIDE, LOCAL_SIZE, REF_HEIGHT } from './skeleton';
+import { LOCAL_SIZE, REF_HEIGHT } from './skeleton';
 import { clamp01, ease, hash01, hash32, wrapPi } from './mathx';
 import { strideLength } from './gait';
 import { computePose, createPoseParams } from './pose';
@@ -216,6 +216,11 @@ export class PeopleAnimator {
     return this.variant[slot];
   }
 
+  /** Phase courante du cycle de marche (0..1). */
+  phaseOf(slot: number): number {
+    return this.phase[slot];
+  }
+
   /** Vitesse horizontale lissée (m/s) estimée d'après les déplacements réels. */
   speedOf(slot: number): number {
     return Math.hypot(this.velX[slot], this.velZ[slot]);
@@ -340,4 +345,3 @@ export class PeopleAnimator {
   }
 }
 
-export { BONE_COUNT, BONE_STRIDE };

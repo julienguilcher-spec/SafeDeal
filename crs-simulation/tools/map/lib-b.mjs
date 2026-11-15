@@ -25,7 +25,16 @@ export const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const RAW = path.join(HERE, 'raw');
 /** Cache propre au lot B (réponses brutes des serveurs). */
 export const RAW_B = path.join(RAW, 'b');
-export const NORM = path.join(RAW, 'normalized');
+/**
+ * Couches normalisées. Pour les essais, CRS_MAP_NORM redirige les sorties vers un autre dossier (les couches du lot A
+ * y sont alors absentes : les scripts doivent s'en passer).
+ */
+export const TEST_OUT = process.env.CRS_MAP_NORM || null;
+export const NORM = TEST_OUT || path.join(RAW, 'normalized');
+/** Essais : hôtes déclarés en panne (liste séparée par des virgules) — aucune requête ne leur est envoyée, même en cache. */
+const FAIL_HOSTS = new Set((process.env.CRS_MAP_FAIL_HOSTS || '').split(',').filter(Boolean));
+/** Dossier des comptes rendus (état des scripts, contrôle). */
+export const STATUS_DIR = TEST_OUT ? path.join(TEST_OUT, '_etat-b') : path.join(RAW_B, 'status');
 export const USER_AGENT = 'crs-sim-mapbuilder/0.1';
 
 /** Emprise du jeu (WGS84). */
@@ -84,9 +93,10 @@ export class HostDownError extends Error {}
  * Renvoie { path, cached }.
  */
 export async function download(url, dest, { params = null, jsonBody = null, method = 'GET', validate = null, force = FORCE, timeoutS = 300 } = {}) {
+  const host = new URL(url).host;
+  if (FAIL_HOSTS.has(host)) throw new HostDownError(`hôte ${host} déclaré en panne (CRS_MAP_FAIL_HOSTS)`);
   if (!force && fs.existsSync(dest) && fs.statSync(dest).size > 0) return { path: dest, cached: true };
   fs.mkdirSync(path.dirname(dest), { recursive: true });
-  const host = new URL(url).host;
   const tmp = dest + '.part';
   let lastErr = null;
   for (;;) {
@@ -128,6 +138,24 @@ export async function download(url, dest, { params = null, jsonBody = null, meth
 }
 
 export const readJson = (p) => JSON.parse(fs.readFileSync(p, 'utf8'));
+
+/**
+ * Enregistre l'état d'un script : `degraded` liste les sources qui n'ont pas répondu et le repli employé. Le contrôle
+ * (fetch-b-8-check.mjs) refuse une couche produite en mode dégradé.
+ */
+export function writeStatus(script, degraded = []) {
+  fs.mkdirSync(STATUS_DIR, { recursive: true });
+  fs.writeFileSync(path.join(STATUS_DIR, script + '.json'), JSON.stringify({ script, at: new Date().toISOString(), degraded }, null, 1));
+  if (degraded.length) console.error(`${script} : MODE DÉGRADÉ — ${degraded.join(' ; ')}`);
+}
+/** Exécute `fn` ; si l'hôte est en panne (HostDownError), note le repli dans `degraded` et renvoie `fallback`. */
+export async function orDegraded(degraded, what, fn, fallback = null) {
+  try { return await fn(); } catch (e) {
+    if (!(e instanceof HostDownError)) throw e;
+    degraded.push(`${what} (${String(e.message).slice(0, 90)})`);
+    return fallback;
+  }
+}
 /** Valide qu'un tampon est du JSON ; `check(objet)` peut renvoyer un message d'erreur. */
 export const jsonValidator = (check = null) => (buf) => {
   let j;
@@ -455,6 +483,18 @@ export function writeGeoJSON(file, features, meta = null) {
 }
 export const pointFeature = (lon, lat, properties) => ({ type: 'Feature', properties, geometry: { type: 'Point', coordinates: [round7(lon), round7(lat)] } });
 export const readFeatures = (file) => readJson(file).features;
+
+/**
+ * Enseignes susceptibles d'apparaître dans un nom d'arrêt ou de sortie de métro (liste explicite, au mieux) :
+ * le jeu ne doit contenir aucune marque commerciale.
+ */
+export const BRAND_RE = /galeries? lafayette|\bprintemps\b|\bbhv\b|bazar de l.h[oô]tel de ville|bon march[eé]|samaritaine|louis vuitton|monoprix|\bfnac\b|drugstore|gr[eé]vin/i;
+/** Nom d'arrêt, de station de vélos ou de sortie : parenthèses retirées (elles citent souvent un magasin), null si le reste cite une enseigne. */
+export function publicName(s) {
+  if (!s) return null;
+  const t = String(s).replace(/\s*\([^)]*\)/g, '').replace(/\s+/g, ' ').trim();
+  return !t || BRAND_RE.test(t) ? null : t;
+}
 
 /** Compte les valeurs d'une clé (pour les comptes rendus). */
 export function tally(items, fn) {

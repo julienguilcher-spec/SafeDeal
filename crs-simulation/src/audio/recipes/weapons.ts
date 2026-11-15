@@ -12,21 +12,41 @@ import type { Kit } from '../kit';
 type Taps = readonly (readonly [number, number, number])[];
 
 /**
- * Bus saturé : somme → tanh → niveau. Garantit une sortie bornée et donne le grain « micro saturé ».
- * `echoes` : échos de façade [retard s, gain, coupure Hz] prélevés APRÈS la saturation (donc bornés eux aussi).
- * Retourne le nœud d'entrée où brancher les composantes.
+ * Bus saturé : somme → tanh → niveau. La sortie est bornée par `level`, quoi qu'on y envoie, et
+ * prend le grain d'un micro saturé. `echoes` : échos de façade [retard s, gain, coupure Hz] ; ils
+ * entrent eux aussi dans la saturation — masqués tant que le son direct est fort, ils émergent
+ * quand il retombe, comme à l'oreille. `dur` : durée de la recette (fondu final). Retourne le nœud
+ * où brancher les composantes.
  */
-export function satBus(k: Kit, drive: number, level: number, echoes?: Taps): GainNode {
+export function satBus(k: Kit, drive: number, level: number, echoes?: Taps, dur = 0): GainNode {
   const post = k.gain(level, k.out);
+  if (dur > 0) {
+    // extinction propre des échos et des traînes dans le dernier quart de seconde de la recette
+    post.gain.setValueAtTime(level, k.t + dur - 0.25);
+    post.gain.linearRampToValueAtTime(0, k.t + dur);
+  }
   const ws = k.sat(drive, post);
-  const input = k.gain(1, ws);
-  if (echoes) k.echoes(ws, echoes, post);
+  const sum = k.gain(1, ws);
+  const input = k.gain(1, sum);
+  if (echoes) k.echoes(input, echoes, sum);
   return input;
 }
 
 const STREET_ECHOES: Taps = [
-  [0.085, 0.34, 2600], [0.19, 0.22, 1700], [0.33, 0.14, 1200], [0.54, 0.08, 850],
+  [0.085, 0.14, 2600], [0.19, 0.09, 1700], [0.33, 0.055, 1200], [0.54, 0.03, 850],
 ];
+
+/**
+ * Traîne diffuse : la réverbération d'une rue (innombrables réflexions qu'on ne distingue plus)
+ * imitée par un bruit qui s'éteint en s'assourdissant.
+ */
+function trainee(k: Kit, to: AudioNode, t0: number, peak: number, tau: number, f0: number, f1: number): void {
+  const g = k.gain(0, to);
+  k.perc(g.gain, t0, peak, 0.03, tau);
+  const lp = k.bq('lowpass', f0, 0.6, g);
+  k.sweep(lp.frequency, t0, f0, t0 + tau * 3, f1);
+  k.noise('white', lp, t0, t0 + tau * 7 + 0.05);
+}
 
 /** Lancer de grenade à main : souffle du bras, puis la cuillère qui saute (tintement métallique sec). */
 export function grenadeLancer(k: Kit): number {
@@ -79,7 +99,7 @@ export function gazSifflement(k: Kit): number {
 /** Lanceur de grenades de 56 mm : un « pof » sourd de tube, sans détonation marquée. */
 export function lanceurTir(k: Kit): number {
   const t = k.t;
-  const bus = satBus(k, 1.3, 0.85, [[0.11, 0.2, 900], [0.23, 0.11, 600]]);
+  const bus = satBus(k, 1.3, 0.85, [[0.11, 0.1, 900], [0.23, 0.05, 600]]);
   k.ping(150, t, 0.95, 0.075, bus, 'sine', 52);                       // coup grave
   k.burst({ type: 'bandpass', f: 235, q: 5, peak: 1.6, tau: 0.07, to: bus }); // résonance du tube
   k.burst({ type: 'bandpass', f: 470, q: 6, peak: 0.7, tau: 0.045, to: bus });
@@ -91,7 +111,7 @@ export function lanceurTir(k: Kit): number {
 /** LBD 40 : un « toc » sec et court, plus aigu que le lanceur de 56. */
 export function lbdTir(k: Kit): number {
   const t = k.t;
-  const bus = satBus(k, 1.4, 0.85, [[0.09, 0.2, 1500], [0.2, 0.1, 1000]]);
+  const bus = satBus(k, 1.4, 0.85, [[0.09, 0.1, 1500], [0.2, 0.05, 1000]]);
   k.burst({ type: 'highpass', f: 1300, peak: 0.6, a: 0.0005, tau: 0.009, to: bus });
   k.ping(265, t, 0.9, 0.035, bus, 'sine', 95);
   k.burst({ type: 'bandpass', f: 520, q: 7, peak: 1.3, tau: 0.04, to: bus });
@@ -102,14 +122,15 @@ export function lbdTir(k: Kit): number {
 /** Grenade assourdissante (GM2L, ASSD) : détonation très forte, longue queue d'échos. */
 export function detonation(k: Kit): number {
   const t = k.t;
-  const bus = satBus(k, 2.2, 0.92, STREET_ECHOES);
+  const bus = satBus(k, 2.2, 0.92, STREET_ECHOES, 2.2);
   k.burst({ type: 'highpass', f: 400, peak: 1.6, a: 0.0004, tau: 0.006, to: bus });                 // front d'onde
   k.burst({ type: 'lowpass', f: 10000, f1: 260, sweep: 0.45, q: 0.6, peak: 1.5, tau: 0.15, to: bus }); // souffle
   k.burst({ kind: 'pink', type: 'bandpass', f: 700, q: 0.7, peak: 0.9, tau: 0.1, to: bus });
   k.ping(96, t, 1.5, 0.26, bus, 'sine', 31);                                                         // coup grave
+  trainee(k, bus, t + 0.03, 0.08, 0.35, 2800, 400);
   // roulement grave qui traîne
-  const tail = k.gain(0, k.out);
-  k.perc(tail.gain, t + 0.02, 0.4, 0.06, 0.55);
+  const tail = k.gain(0, bus);
+  k.perc(tail.gain, t + 0.02, 0.5, 0.06, 0.55);
   const tlp = k.bq('lowpass', 190, 0.6, tail);
   k.noise('brown', tlp, t, t + 2.3);
   return 2.2;
@@ -118,14 +139,15 @@ export function detonation(k: Kit): number {
 /** Grenade de désencerclement : détonation plus sèche, puis la pluie de plots de caoutchouc sur le sol. */
 export function desencerclement(k: Kit): number {
   const t = k.t;
-  const bus = satBus(k, 2.0, 0.9, [[0.08, 0.3, 2400], [0.18, 0.18, 1600], [0.31, 0.1, 1100]]);
+  const bus = satBus(k, 2.0, 0.9, [[0.08, 0.13, 2400], [0.18, 0.08, 1600], [0.31, 0.045, 1100]]);
+  trainee(k, bus, t + 0.03, 0.07, 0.25, 3000, 500);
   k.burst({ type: 'highpass', f: 500, peak: 1.5, a: 0.0004, tau: 0.005, to: bus });
   k.burst({ type: 'lowpass', f: 11000, f1: 480, sweep: 0.22, q: 0.6, peak: 1.4, tau: 0.085, to: bus });
   k.ping(118, t, 1.3, 0.13, bus, 'sine', 44);
   // 14 plots qui ricochent : petits « tac » mats, de plus en plus espacés
   for (let i = 0; i < 14; i++) {
     const ti = t + 0.05 + 0.5 * Math.pow(k.rnd(), 1.6);
-    k.burst({ type: 'bandpass', f: k.r(900, 2400), q: 2.2, peak: k.r(0.1, 0.26), tau: k.r(0.006, 0.014), t0: ti });
+    k.burst({ type: 'bandpass', f: k.r(900, 2400), q: 2.2, peak: k.r(0.12, 0.3), tau: k.r(0.006, 0.014), t0: ti, to: bus });
   }
   return 1.5;
 }
@@ -133,7 +155,8 @@ export function desencerclement(k: Kit): number {
 /** Coup de feu d'arme de poing : claquement très bref et très fort, échos de rue. */
 export function tirArme(k: Kit): number {
   const t = k.t;
-  const bus = satBus(k, 2.4, 0.9, [[0.07, 0.3, 3200], [0.16, 0.2, 2100], [0.31, 0.12, 1400], [0.5, 0.07, 1000]]);
+  const bus = satBus(k, 2.4, 0.9, [[0.07, 0.12, 3200], [0.16, 0.08, 2100], [0.31, 0.05, 1400], [0.5, 0.03, 1000]]);
+  trainee(k, bus, t + 0.02, 0.08, 0.22, 3500, 600);
   k.burst({ type: 'highpass', f: 900, peak: 1.8, a: 0.0003, tau: 0.0035, to: bus });
   k.burst({ type: 'lowpass', f: 8000, f1: 900, sweep: 0.07, q: 0.6, peak: 1.2, tau: 0.03, to: bus });
   k.ping(185, t, 0.9, 0.04, bus, 'sine', 68);
@@ -143,7 +166,8 @@ export function tirArme(k: Kit): number {
 /** Pétard : claquement sec et aigu, presque sans grave. */
 export function petard(k: Kit): number {
   const t = k.t;
-  const bus = satBus(k, 1.8, 0.8, [[0.09, 0.24, 2600], [0.2, 0.12, 1500]]);
+  const bus = satBus(k, 1.8, 0.8, [[0.09, 0.1, 2600], [0.2, 0.05, 1500]]);
+  trainee(k, bus, t + 0.02, 0.05, 0.12, 4000, 900);
   k.burst({ type: 'highpass', f: 1500, peak: 1.4, a: 0.0003, tau: 0.003, to: bus });
   k.burst({ type: 'bandpass', f: 2600, q: 0.6, peak: 1.0, tau: 0.018, to: bus });
   k.ping(310, t, 0.4, 0.018, bus, 'sine', 120);
@@ -174,13 +198,14 @@ export function mortierTir(k: Kit): number {
 /** Explosion d'une bombe d'artifice : claquement brillant, puis le crépitement des étoiles. */
 export function mortierExplosion(k: Kit): number {
   const t = k.t;
-  const bus = satBus(k, 2.0, 0.9, [[0.1, 0.28, 2600], [0.22, 0.17, 1700], [0.4, 0.09, 1100]]);
+  const bus = satBus(k, 2.0, 0.9, [[0.1, 0.12, 2600], [0.22, 0.07, 1700], [0.4, 0.04, 1100]]);
+  trainee(k, bus, t + 0.03, 0.06, 0.3, 3500, 600);
   k.burst({ type: 'highpass', f: 700, peak: 1.6, a: 0.0004, tau: 0.004, to: bus });
   k.burst({ type: 'lowpass', f: 13000, f1: 700, sweep: 0.2, q: 0.6, peak: 1.3, tau: 0.065, to: bus });
   k.ping(142, t, 1.0, 0.11, bus, 'sine', 50);
   // crépitement : texture de claquements, aiguë, qui s'éteint
-  const cg = k.gain(0, k.out);
-  k.perc(cg.gain, t + 0.09, 0.55, 0.08, 0.42);
+  const cg = k.gain(0, bus);
+  k.perc(cg.gain, t + 0.09, 0.7, 0.08, 0.42);
   const hp = k.bq('highpass', 3800, 0.7, cg);
   k.tex('crackle', hp, 2.4, t + 0.05, t + 2.0);
   return 2.0;
@@ -228,7 +253,8 @@ function embrasementInto(k: Kit, t0: number, level: number): void {
 /** Explosion d'un véhicule : double coup très grave (réservoir), débris métalliques, souffle de feu. */
 export function explosionVehicule(k: Kit): number {
   const t = k.t;
-  const bus = satBus(k, 2.4, 0.95, [[0.13, 0.36, 1800], [0.29, 0.25, 1200], [0.5, 0.16, 900], [0.85, 0.09, 600]]);
+  const bus = satBus(k, 2.4, 0.95, [[0.13, 0.16, 1800], [0.29, 0.11, 1200], [0.5, 0.07, 900], [0.85, 0.04, 600]], 3.0);
+  trainee(k, bus, t + 0.05, 0.1, 0.5, 2500, 300);
   k.burst({ type: 'highpass', f: 300, peak: 1.5, a: 0.0005, tau: 0.008, to: bus });
   k.burst({ type: 'lowpass', f: 7500, f1: 170, sweep: 0.9, q: 0.6, peak: 1.6, tau: 0.36, to: bus });
   k.ping(72, t, 1.6, 0.42, bus, 'sine', 24);
@@ -238,13 +264,13 @@ export function explosionVehicule(k: Kit): number {
   for (let i = 0; i < 9; i++) {
     const ti = t + 0.18 + 1.5 * k.rnd();
     const f = k.r(280, 2400);
-    k.ping(f, ti, k.r(0.04, 0.12), k.r(0.05, 0.22));
-    k.ping(f * 1.47, ti, 0.03, 0.05);
-    k.burst({ type: 'bandpass', f: k.r(1800, 4200), q: 1.5, peak: 0.1, tau: 0.01, t0: ti });
+    k.ping(f, ti, k.r(0.05, 0.14), k.r(0.05, 0.22), bus);
+    k.ping(f * 1.47, ti, 0.04, 0.05, bus);
+    k.burst({ type: 'bandpass', f: k.r(1800, 4200), q: 1.5, peak: 0.12, tau: 0.01, t0: ti, to: bus });
   }
   // souffle des flammes
-  const fg = k.gain(0, k.out);
-  k.perc(fg.gain, t + 0.1, 0.32, 0.3, 0.8);
+  const fg = k.gain(0, bus);
+  k.perc(fg.gain, t + 0.1, 0.4, 0.3, 0.8);
   const fbp = k.bq('lowpass', 700, 0.6, fg);
   k.noise('pink', fbp, t + 0.05, t + 3.0);
   return 3.0;

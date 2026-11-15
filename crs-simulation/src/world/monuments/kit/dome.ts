@@ -83,7 +83,7 @@ export function dome(b: Builder, o: DomeOpts): number {
   const ribs = o.ribs ?? 0;
   if (ribs > 0) {
     const g = new Geo();
-    const w = (o.radius * Math.PI * 2) / ribs * 0.16, t = o.radius * 0.035;
+    const w = (o.radius * Math.PI * 2) / ribs * 0.14, t = o.radius * 0.03;
     for (let i = 0; i < ribs; i++) {
       const a = (i / ribs) * Math.PI * 2, s = Math.sin(a), c = Math.cos(a);
       for (let k = 0; k < rows; k++) {
@@ -95,7 +95,7 @@ export function dome(b: Builder, o: DomeOpts): number {
         const p = (r: number, y: number, side: number, ww: number, lift: number): [number, number, number] =>
           [(r + nr * lift) * s + side * ww * c, y + ny * lift, (r + nr * lift) * c - side * ww * s];
         const a0 = p(r0, y0, -1, w0, t), b0 = p(r0, y0, 1, w0, t), b1 = p(r1, y1, 1, w1, t), a1 = p(r1, y1, -1, w1, t);
-        const c0 = p(r0, y0, -1, w0, -t), d0 = p(r0, y0, 1, w0, -t), d1 = p(r1, y1, 1, w1, -t), c1 = p(r1, y1, -1, w1, -t);
+        const c0 = p(r0, y0, -1, w0 * 1.25, -t * 0.4), d0 = p(r0, y0, 1, w0 * 1.25, -t * 0.4), d1 = p(r1, y1, 1, w1 * 1.25, -t * 0.4), c1 = p(r1, y1, -1, w1 * 1.25, -t * 0.4);
         g.face(b0[0], b0[1], b0[2], a0[0], a0[1], a0[2], a1[0], a1[1], a1[2], b1[0], b1[1], b1[2]);
         g.face(a0[0], a0[1], a0[2], c0[0], c0[1], c0[2], c1[0], c1[1], c1[2], a1[0], a1[1], a1[2]);
         g.face(d0[0], d0[1], d0[2], b0[0], b0[1], b0[2], b1[0], b1[1], b1[2], d1[0], d1[1], d1[2]);

@@ -17,9 +17,16 @@ export const SLOT_SLEEVE = 8;
 export const SLOT_SHIN = 9;
 export const SLOT_HAND = 10;
 export const SLOT_BAND = 11;
-export const SLOT_FIXED = 12;
-export const SLOT_ITEM = 13;
-export const PALETTE_SIZE = 12;
+/** Silhouette lointaine : dessus de tête, bas du visage, buste (couleur dominante). */
+export const SLOT_HEADTOP = 12;
+export const SLOT_FACELOW = 13;
+export const SLOT_TORSO = 14;
+/** Foulard / masque de visage, sac à dos. */
+export const SLOT_COVER = 15;
+export const SLOT_PACK = 16;
+export const PALETTE_SIZE = 20;
+export const SLOT_FIXED = 20;
+export const SLOT_ITEM = 21;
 
 /** Modes d'échelle : uniforme (taille), membre (épaisseur × carrure), tête, aucun (objets). */
 export const SCALE_UNIFORM = 0;
@@ -79,17 +86,69 @@ export class GeoBuilder {
     return this;
   }
 
-  /** Teinte (0xRRGGBB, espace sRGB) et opacité des sommets suivants. */
+  /**
+   * Teinte (0xRRGGBB, sRGB — décodée dans le shader) des sommets suivants. Le 4e canal vaut la rugosité
+   * pour les matériaux opaques (1 = tissu mat, 0,3 = plastique brillant) et l'opacité pour les transparents.
+   */
   tint(hex: number, alpha = 1): this {
-    const c = new THREE.Color(hex);
-    this.r = c.r; this.g = c.g; this.b = c.b; this.a = alpha;
+    this.r = ((hex >> 16) & 255) / 255; this.g = ((hex >> 8) & 255) / 255; this.b = (hex & 255) / 255; this.a = alpha;
     return this;
   }
 
-  /** Teinte neutre (la couleur vient entièrement de la palette), facteur d'ombrage optionnel. */
-  shade(k = 1): this {
-    this.r = k; this.g = k; this.b = k; this.a = 1;
+  /** Teinte neutre (la couleur vient de la palette), facteur d'ombrage et rugosité optionnels. */
+  shade(k = 1, rough = 1): this {
+    this.r = k; this.g = k; this.b = k; this.a = rough;
     return this;
+  }
+
+  /**
+   * Portion de surface loftée (arc entre deux angles, en radians ; 0 = +X, π/2 = +Z), sans fermeture.
+   * Les uv vont de 0 à 1 le long de l'arc (th0 → th1) et de 0 à 1 du premier au dernier anneau :
+   * sert aux marquages (texte dorsal, brassard) et aux visières.
+   */
+  arc(rings: readonly Ring[], radial: number, th0: number, th1: number, power = 2): void {
+    const n = rings.length;
+    if (n < 2) return;
+    const e = 2 / power;
+    const base = this.vertexCount;
+    const P: number[] = [];
+    const pt = (i: number, th: number): number[] => {
+      const [y, rx, rz, oz = 0, ox = 0] = rings[i];
+      let c = Math.cos(th), s = Math.sin(th);
+      if (power !== 2) { c = Math.sign(c) * Math.pow(Math.abs(c), e); s = Math.sign(s) * Math.pow(Math.abs(s), e); }
+      return [ox + rx * c, y, oz + rz * s];
+    };
+    for (let i = 0; i < n; i++) for (let j = 0; j <= radial; j++) P.push(...pt(i, th0 + ((th1 - th0) * j) / radial));
+    const at = (i: number, j: number): number => (i * (radial + 1) + j) * 3;
+    // orientation : la normale doit pointer vers l'extérieur (à l'opposé de l'axe)
+    for (let i = 0; i < n; i++) {
+      const i0 = i > 0 ? i - 1 : i, i1 = i < n - 1 ? i + 1 : i;
+      const [, , , oz = 0, ox = 0] = rings[i];
+      for (let j = 0; j <= radial; j++) {
+        const j0 = j > 0 ? j - 1 : j, j1 = j < radial ? j + 1 : j;
+        const a = at(i1, j), b = at(i0, j), c = at(i, j1), d = at(i, j0), p = at(i, j);
+        const tx = P[a] - P[b], ty = P[a + 1] - P[b + 1], tz = P[a + 2] - P[b + 2];
+        const ux = P[c] - P[d], uy = P[c + 1] - P[d + 1], uz = P[c + 2] - P[d + 2];
+        let nx = ty * uz - tz * uy, ny = tz * ux - tx * uz, nz = tx * uy - ty * ux;
+        if (nx * (P[p] - ox) + nz * (P[p + 2] - oz) < 0) { nx = -nx; ny = -ny; nz = -nz; }
+        const l = Math.hypot(nx, ny, nz) || 1;
+        this.vert(P[p], P[p + 1], P[p + 2], nx / l, ny / l, nz / l, j / radial, i / (n - 1));
+      }
+    }
+    // sens des triangles : déterminé par un produit vectoriel sur le premier carreau
+    const a0 = at(0, 0), b0 = at(0, 1), c0 = at(1, 0);
+    const e1x = P[b0] - P[a0], e1y = P[b0 + 1] - P[a0 + 1], e1z = P[b0 + 2] - P[a0 + 2];
+    const e2x = P[c0] - P[a0], e2y = P[c0 + 1] - P[a0 + 1], e2z = P[c0 + 2] - P[a0 + 2];
+    const fx = e1y * e2z - e1z * e2y, fz = e1x * e2y - e1y * e2x;
+    const [, , , oz0 = 0, ox0 = 0] = rings[0];
+    const mx = (P[a0] + P[b0]) * 0.5 - ox0, mz = (P[a0 + 2] + P[b0 + 2]) * 0.5 - oz0;
+    const outward = fx * mx + fz * mz > 0;
+    for (let i = 0; i < n - 1; i++) {
+      for (let j = 0; j < radial; j++) {
+        const a = base + i * (radial + 1) + j, b = a + 1, c = a + radial + 1, d = c + 1;
+        if (outward) { this.tri(a, b, c); this.tri(b, d, c); } else { this.tri(a, c, b); this.tri(b, c, d); }
+      }
+    }
   }
 
   push(): this {
@@ -151,6 +210,32 @@ export class GeoBuilder {
   rotZ(a: number): this {
     const c = Math.cos(a), s = Math.sin(a);
     this.mul([c, -s, 0, 0, s, c, 0, 0, 0, 0, 1, 0]);
+    return this;
+  }
+
+  /** Change de repère : les axes locaux x, y, z deviennent les vecteurs donnés (base orthonormée). */
+  frame(xx: number, xy: number, xz: number, yx: number, yy: number, yz: number, zx: number, zy: number, zz: number): this {
+    this.mul([xx, yx, zx, 0, xy, yy, zy, 0, xz, yz, zz, 0]);
+    return this;
+  }
+
+  /** Couleur fixe (0xRRGGBB) ; `a` = rugosité (opaque) ou opacité (transparent). */
+  fixed(hex: number, a = 1): this {
+    this.slot = SLOT_FIXED;
+    this.textKind = TEXT_NONE;
+    return this.tint(hex, a);
+  }
+
+  /** Couleur propre à l'instance (objets tenus : une couleur par porteur), ombrée par `k`. */
+  variant(k = 1, a = 1): this {
+    this.slot = SLOT_ITEM;
+    this.textKind = TEXT_NONE;
+    return this.shade(k, a);
+  }
+
+  /** Les faces suivantes reçoivent un texte de l'atlas (slogan, marquage d'unité) ; 0 pour arrêter. */
+  text(kind: number): this {
+    this.textKind = kind;
     return this;
   }
 

@@ -50,8 +50,11 @@ interface KindDefaults {
   vest: number;
 }
 
-const NAVY = 0x161b2e;
-const BLACK = 0x101114;
+// Teintes de référence : docs/research/02-materiel-tenues-vehicules.md
+const NAVY = 0x1a2238; // tenue de maintien de l'ordre (marine très sombre)
+const GENDARME = 0x0e1220;
+const BLACK = 0x0b0b0d;
+const WHITE = 0xf5f5f5;
 
 function kd(
   faction: Faction, label: string, outfit: OutfitId, headgear: HeadgearId, backText: PersonLook['backText'],
@@ -65,15 +68,16 @@ const KIND_DEFAULTS: Record<PersonKind, KindDefaults> = {
   crs: kd('police', 'CRS', 'crs_mo', 'casque_crs', 'CRS', NAVY, NAVY, BLACK, 0.85, 0.7, 'gardien'),
   commissaire: kd('police', 'Commissaire', 'commissaire', 'casquette_police', 'POLICE', NAVY, NAVY, BLACK, 0.2, 0.3, 'commissaire', 'autorite_civile', true),
   bravm: kd('police', 'BRAV-M', 'bravm', 'casque_moto', 'POLICE', BLACK, NAVY, BLACK, 0.8, 0.5, 'gardien'),
-  gendarme: kd('police', 'Gendarme', 'gendarme_mo', 'casque_gendarme', 'GENDARMERIE', 0x1b2233, 0x1b2233, BLACK, 0.85, 0.7, 'gardien'),
-  policier_civil: kd('police', 'Policier', 'police_civil', 'none', 'POLICE', -1, -1, -1, 0, 0.2, 'gardien', null, false, 0xe8451e),
+  gendarme: kd('police', 'Gendarme', 'gendarme_mo', 'casque_gendarme', 'GENDARMERIE', GENDARME, GENDARME, BLACK, 0.85, 0.7, 'gardien'),
+  // policier en civil : brassard « POLICE » orange obligatoire
+  policier_civil: kd('police', 'Policier', 'police_civil', 'none', 'POLICE', -1, -1, -1, 0, 0.2, 'gardien', null, false, 0xff6a00),
   telepilote: kd('police', 'Télépilote', 'crs_service', 'calot', 'POLICE', NAVY, NAVY, BLACK, 0, 0.2, 'brigadier', 'telepilote'),
   pompier: kd('rescue', 'Pompier', 'pompier', 'casque_pompier', 'SECOURS', 0x1c2238, 0x1c2238, BLACK, 0.8, 0.5),
-  samu: kd('rescue', 'SAMU', 'samu', 'none', 'SAMU', 0xf2f2ee, 0xf2f2ee, 0xe6e6e6, 0, 0),
+  samu: kd('rescue', 'SAMU', 'samu', 'none', 'SAMU', WHITE, WHITE, 0xe6e6e6, 0, 0),
   manifestant: kd('protest', 'Manifestant', 'civil', 'none', '', -1, -1, -1, 0, 0),
-  street_medic: kd('medic', 'Street medic', 'street_medic', 'casque_medic', '', -1, -1, -1, 0.5, 0),
+  street_medic: kd('medic', 'Street medic', 'street_medic', 'casque_medic', '', WHITE, -1, -1, 0.5, 0),
   journaliste: kd('press', 'Journaliste', 'presse', 'casque_presse', 'PRESSE', -1, -1, -1, 0.5, 0),
-  observateur: kd('civil', 'Observateur', 'observateur', 'none', 'OBSERVATEUR', -1, -1, -1, 0, 0, null, null, false, 0, 0x2f6fd0),
+  observateur: kd('civil', 'Observateur', 'observateur', 'none', 'OBSERVATEUR', -1, -1, -1, 0, 0, null, null, false, 0, WHITE),
   passant: kd('civil', 'Passant', 'civil', 'none', '', -1, -1, -1, 0, 0),
   touriste: kd('civil', 'Touriste', 'civil', 'none', '', -1, -1, -1, 0, 0),
   commercant: kd('civil', 'Commerçant', 'civil', 'none', '', -1, -1, -1, 0, 0),
@@ -81,10 +85,14 @@ const KIND_DEFAULTS: Record<PersonKind, KindDefaults> = {
   vip: kd('civil', 'Personnalité', 'costume', 'none', '', 0x1d2230, 0x1d2230, BLACK, 0, 0),
 };
 
-/** Nombre de galons affichés par défaut selon le grade (approximation ; affinée par les archétypes). */
+/**
+ * Nombre de galons (chevrons ou barrettes) de l'insigne de grade — docs/research/01-doctrine-cadre-legal.md §4.6 :
+ * stagiaire 1 chevron, gardien 2 chevrons, brigadier et brigadier-chef 1 barrette, major 1 barrette + 1 liseré,
+ * capitaine 3 barrettes, commandant 4 barrettes ; le commissaire porte une branche de chêne, sans barrette.
+ */
 const RANK_BARS: Record<PoliceRank, number> = {
-  gardien_stagiaire: 0, gardien: 1, brigadier: 2, brigadier_chef: 3, major: 4,
-  capitaine: 3, commandant: 4, commissaire: 5,
+  gardien_stagiaire: 1, gardien: 2, brigadier: 1, brigadier_chef: 1, major: 2,
+  capitaine: 3, commandant: 4, commissaire: 0,
 };
 
 const SKIN_TONES = [0xf3d4bd, 0xe8c1a3, 0xd9a981, 0xc08a62, 0x9a6845, 0x70482f, 0x4f3323];
@@ -239,8 +247,11 @@ class PeopleStoreImpl implements PeopleStore {
     this.indexOf.delete(id);
     this.grid.removeItem(p);
     this.unlink(p);
-    this.ctx.events.emit('person:removed', { id });
-    this.byId.delete(id);
+    try {
+      this.ctx.events.emit('person:removed', { id });
+    } finally {
+      this.byId.delete(id);
+    }
   }
 
   clear(): void {
@@ -248,8 +259,11 @@ class PeopleStoreImpl implements PeopleStore {
     this.list.length = 0;
     this.indexOf.clear();
     this.grid.clear();
-    for (let i = 0; i < all.length; i++) this.ctx.events.emit('person:removed', { id: all[i]!.id });
-    this.byId.clear();
+    try {
+      for (let i = 0; i < all.length; i++) this.ctx.events.emit('person:removed', { id: all[i]!.id });
+    } finally {
+      this.byId.clear();
+    }
   }
 
   queryRadius(x: number, z: number, r: number, out: Person[], filter?: (p: Person) => boolean): number {

@@ -2,7 +2,7 @@
  * extrusion d'un profil le long d'une polyligne, poutre et tube entre deux points, sphère, disque.
  * Toutes les primitives sont posées sur y = 0 (sauf mention) et produisent des UV en mètres. */
 import * as THREE from 'three';
-import { Geo, triangulate as triangulateRaw } from './geo';
+import { Geo, triangulateRaw } from './geo';
 import { signedArea } from '../shape2d';
 
 const TAU = Math.PI * 2;

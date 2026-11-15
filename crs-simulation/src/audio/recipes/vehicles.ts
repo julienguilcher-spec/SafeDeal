@@ -43,10 +43,10 @@ function deuxTons(k: Kit, spec: TwoToneSpec, squareMix: number, bright: number):
   const mid = (spec.low + spec.high) / 2;
   const half = (spec.high - spec.low) / 2;
   // commande d'alternance : carré lissé sur quelques millisecondes (pas de clic, pas de glissando audible)
-  const sq = k.ctrl('square', rate);
+  const sq = k.square(rate);
   if (spec.timbre === 'electronique') {
     // un générateur unique dont la fréquence bascule d'une note à l'autre
-    const horn = pavillon(k, k.gain(0.5, m), bright);
+    const horn = pavillon(k, k.gain(0.26, m), bright);
     const o1 = k.osc('sawtooth', mid, k.gain(1 - squareMix, horn));
     const o2 = k.osc('square', mid, k.gain(squareMix, horn));
     const smooth = k.bq('lowpass', 70, 0.5);
@@ -62,7 +62,7 @@ function deuxTons(k: Kit, spec: TwoToneSpec, squareMix: number, bright: number):
     const notes: [number, number][] = [[spec.high, 0.5], [spec.low, -0.5]];
     for (let i = 0; i < 2; i++) {
       const [freq, sign] = notes[i]!;
-      const valve = k.gain(0.5, k.gain(0.55, m));
+      const valve = k.gain(0.5, k.gain(0.23, m));
       const drive = k.gain(sign);
       smooth.connect(drive);
       drive.connect(valve.gain);
@@ -99,7 +99,7 @@ export function sireneSamu(k: Kit): number {
 /** Variante « hurleur » : balayage rapide 650 ↔ 1 450 Hz (signal secondaire des véhicules récents). */
 export function sireneHurleur(k: Kit): number {
   const m = k.sustain(3, 0.02, 0.06);
-  const horn = pavillon(k, k.gain(0.5, m), 1);
+  const horn = pavillon(k, k.gain(0.28, m), 1);
   const o = k.osc('sawtooth', 1050, horn);
   k.lfo('triangle', 3.4, 400, o.frequency);
   return k.duration;
@@ -108,7 +108,7 @@ export function sireneHurleur(k: Kit): number {
 /** Klaxon de voiture : deux notes simultanées à la tierce, timbre nasillard (entretenu). */
 export function klaxon(k: Kit): number {
   const m = k.sustain(0.5, 0.012, 0.05);
-  const lp = k.bq('lowpass', 4200, 0.7, k.gain(0.42, m));
+  const lp = k.bq('lowpass', 4200, 0.7, k.gain(0.15, m));
   const pk = k.bq('peaking', 2100, 2, lp, 9);
   const hp = k.bq('highpass', 320, 0.7, pk);
   k.osc('square', 415, hp);

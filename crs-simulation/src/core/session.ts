@@ -15,12 +15,29 @@
  * Chaque changement de phase émet aussi l'événement libre « session:phase » { phase, previous }.
  * ===================================================================================== */
 
-import type { GameContext, SessionApi, SessionConfig, SessionPhase } from './contracts';
+import type { DurationPreset, GameContext, SessionApi, SessionConfig, SessionPhase } from './contracts';
 import type { GameClock } from './clock';
 import type { SeededRng } from './rng';
 
 /** Rayon (m) dont le chargement est attendu autour du point de départ. */
 export const START_LOAD_RADIUS = 250;
+
+/**
+ * Durée cible d'une manifestation selon le préréglage (docs/BRIEF.md §1) : 10, 25 ou 45 minutes.
+ * « temps_reel » n'a pas de durée cible : la manifestation suit son rythme réel (Infinity).
+ */
+export function sessionDurationSeconds(preset: DurationPreset): number {
+  switch (preset) {
+    case 'courte':
+      return 600;
+    case 'standard':
+      return 1500;
+    case 'longue':
+      return 2700;
+    default:
+      return Infinity;
+  }
+}
 
 /** Charge utile de l'événement libre « session:phase ». */
 export interface SessionPhaseEvent {
@@ -119,53 +136,55 @@ export class SessionController implements SessionApi {
     this.config_ = cfg;
     this.setPhase('loading');
 
-    core.clock.reset();
-    core.resetIds();
-    core.rng.reseed(cfg.seed);
-    core.resetNeutral();
-    this.clearStores(ctx);
-    this.hooks.resetSystems?.();
+    try {
+      core.clock.reset();
+      core.resetIds();
+      core.rng.reseed(cfg.seed);
+      core.resetNeutral();
+      this.clearStores(ctx);
+      this.hooks.resetSystems?.();
 
-    // point de départ
-    let x = 0;
-    let z = 0;
-    if (typeof cfg.x === 'number' && typeof cfg.z === 'number' && Number.isFinite(cfg.x) && Number.isFinite(cfg.z)) {
-      x = cfg.x;
-      z = cfg.z;
-    } else {
-      const place = cfg.place ? ctx.world.placeByName(cfg.place) : null;
-      if (place) {
-        x = place.x;
-        z = place.z;
+      // point de départ
+      let x = 0;
+      let z = 0;
+      if (typeof cfg.x === 'number' && typeof cfg.z === 'number' && Number.isFinite(cfg.x) && Number.isFinite(cfg.z)) {
+        x = cfg.x;
+        z = cfg.z;
       } else {
-        if (cfg.place) console.warn(`[session] lieu inconnu « ${cfg.place} » : départ au centre du monde`);
-        const b = ctx.world.bounds;
-        if (b.minX > 0 || b.maxX < 0 || b.minZ > 0 || b.maxZ < 0) {
-          x = (b.minX + b.maxX) * 0.5;
-          z = (b.minZ + b.maxZ) * 0.5;
+        const place = cfg.place ? ctx.world.placeByName(cfg.place) : null;
+        if (place) {
+          x = place.x;
+          z = place.z;
+        } else {
+          if (cfg.place) console.warn(`[session] lieu inconnu « ${cfg.place} » : départ au centre du monde`);
+          const b = ctx.world.bounds;
+          if (b.minX > 0 || b.maxX < 0 || b.minZ > 0 || b.maxZ < 0) {
+            x = (b.minX + b.maxX) * 0.5;
+            z = (b.minZ + b.maxZ) * 0.5;
+          }
         }
       }
-    }
-    cfg.x = x;
-    cfg.z = z;
+      cfg.x = x;
+      cfg.z = z;
 
-    try {
       ctx.world.setFocus(x, z);
       await ctx.world.whenLoaded(x, z, START_LOAD_RADIUS);
+      if (token !== this.token) return; // remplacée ou annulée pendant le chargement
+
+      ctx.env.setTime(cfg.timeOfDay);
+      ctx.env.setWeather(cfg.weather, true);
+      ctx.events.emit('session:started', { config: cfg });
+      if (token !== this.token) return; // un abonné a mis fin à la session
+      this.setPhase('playing');
     } catch (err) {
+      // chargement impossible (ou, en mode strict, erreur d'un système ou d'un abonné) : retour au menu
       if (token === this.token) {
+        this.token++;
         this.config_ = null;
         this.setPhase('menu');
       }
       throw err;
     }
-    if (token !== this.token) return; // remplacée ou annulée pendant le chargement
-
-    ctx.env.setTime(cfg.timeOfDay);
-    ctx.env.setWeather(cfg.weather, true);
-    ctx.events.emit('session:started', { config: cfg });
-    if (token !== this.token) return; // un abonné a mis fin à la session
-    this.setPhase('playing');
   }
 
   end(toDebrief = false): void {

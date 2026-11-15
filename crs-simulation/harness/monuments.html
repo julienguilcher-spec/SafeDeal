@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><title>Banc d'essai — monuments</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+html,body{margin:0;height:100%;background:#111;overflow:hidden;font:13px/1.35 system-ui,sans-serif;color:#eee}
+canvas{display:block}
+#hud{position:fixed;left:10px;top:10px;background:rgba(0,0,0,.55);padding:8px 10px;border-radius:6px;max-width:46vw;pointer-events:none;white-space:pre-line}
+#bar{position:fixed;left:10px;bottom:10px;display:flex;gap:6px;flex-wrap:wrap;max-width:96vw}
+#bar button,#bar select{font:inherit;padding:5px 8px;border-radius:5px;border:1px solid #555;background:#222;color:#eee;cursor:pointer}
+body.shot #hud,body.shot #bar{display:none}
+</style></head>
+<body><div id="hud"></div><div id="bar"></div><script type="module" src="./monuments.ts"></script></body></html>

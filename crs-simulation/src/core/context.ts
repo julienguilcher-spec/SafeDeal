@@ -35,6 +35,11 @@ export interface ContextOptions {
   seed?: number;
   /** Mode bavard : l'interface neutre journalise en console, avertissements supplémentaires. */
   debug?: boolean;
+  /**
+   * Mode strict (tests) : les exceptions des systèmes et des gestionnaires d'événements sont
+   * propagées à l'appelant au lieu d'être seulement journalisées. Défaut : false.
+   */
+  strict?: boolean;
   /** Stockage de la sauvegarde : `null` = mémoire ; absent = localStorage s'il est utilisable. */
   storage?: StorageLike | null;
   /** Indices matériels pour la qualité initiale (par défaut : lus sur le navigateur). */
@@ -147,7 +152,7 @@ export function detectHeadless(): boolean {
 export function createContext(options: ContextOptions = {}): GameContext {
   const headless = options.headless ?? detectHeadless();
   const debug = options.debug ?? false;
-  const bus = createEventBus();
+  const bus = createEventBus({ rethrow: options.strict === true });
   const clock = new GameClock();
   const rng = createRng(options.seed ?? 1);
   const save = createSave({ storage: options.storage });

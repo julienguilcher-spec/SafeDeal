@@ -84,7 +84,6 @@ export function createNullLaw(ctx: GameContext): LawApi {
           break;
         }
       }
-      witnesses.length = 0;
       const offense: Offense = {
         type,
         t: ctx.clock.now,

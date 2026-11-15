@@ -132,6 +132,9 @@ describe('magasin des véhicules — sièges', () => {
     expect(v.seats).toEqual([0, 0, a.id, 0]);
     expect(a.seat).toBe(2);
     expect(ctx.vehicles.enter(a, v, 2)).toBe(true); // déjà à cette place
+    expect(ctx.vehicles.enter(a, v, 'gunner')).toBe(true); // déjà à ce poste
+    expect(ctx.vehicles.enter(a, v)).toBe(true); // déjà à bord
+    expect([a.seat, v.seats.filter((s) => s === a.id).length]).toEqual([2, 1]);
     const other = ctx.vehicles.spawn('fourgon_crs', 0, 0, 0);
     expect(ctx.vehicles.enter(a, other)).toBe(false);
     expect(a.vehicleId).toBe(v.id);
@@ -415,9 +418,26 @@ describe('magasin du décor — objets', () => {
     const out: Prop[] = [];
     expect(ctx.props.queryRadius(bin.x, 0, 0.1, out)).toBe(1);
 
+    // un objet qui glisse s'arrête contre le décor statique
+    const wallX = 2;
+    ctx.world = {
+      ...ctx.world,
+      resolveCircle: (pos, radius) => {
+        if (pos.x + radius <= wallX) return false;
+        pos.x = wallX - radius;
+        return true;
+      },
+    };
+    const cart = ctx.props.spawn('conteneur', 0, 5, 0);
+    ctx.props.push(cart, 1, 0, 8, 1); // de quoi glisser sur plus de 5 m sans obstacle
+    for (let i = 0; i < 90; i++) core.stores.props.update(1 / 30);
+    expect(cart.x).toBeLessThanOrEqual(wallX);
+    expect(cart.x).toBeGreaterThan(1);
+    expect([cart.vx, cart.vz]).toEqual([0, 0]);
+
     const lamp = ctx.props.spawn('candelabre', 9, 9, 0);
     ctx.props.push(lamp, 1, 0, 5, 1); // fixe : sans effet
-    expect([lamp.vx, moved]).toEqual([0, 1]);
+    expect([lamp.vx, moved]).toEqual([0, 2]);
 
     ctx.props.tag(bin, 1);
     ctx.props.tag(bin, 1);

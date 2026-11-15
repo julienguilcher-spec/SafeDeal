@@ -30,6 +30,14 @@ meilleur que les jeux « CRS simulation » existants. En priorité : **les manif
   enquête IGPN, blâme, rétrogradation, révocation. Journalistes et téléphones filment : image publique.
 - Blessures réalistes (réglage « sobre » disponible dans les options).
 - Interface **entièrement en français**.
+- **Carte tactique de commandement** (demande explicite du commanditaire) : une carte que l'on ouvre à tout moment, où
+  l'on voit ses unités (sections, groupes, binômes, véhicules, Centaure, canon à eau, BRAV-M) et la foule, et d'où l'on
+  **déploie** et **commande** : sélectionner une ou plusieurs unités, les placer à un endroit précis, tracer une ligne de
+  barrage, ordonner une **nasse** (encerclement), un **repli**, un bond offensif, une charge, un refoulement, tenir la
+  position, disperser au gaz, interpeller une cible, protéger les secours, embarquer/débarquer ; fixer le niveau de force
+  autorisé. Les ordres sont réellement exécutés par l'IA des unités, avec compte rendu radio. L'étendue du commandement
+  dépend du grade (chef de groupe : son groupe ; commandant : toute la compagnie ; simple CRS : il reçoit les ordres et
+  voit la carte en lecture seule). Utilisable à la souris, à la manette et au doigt.
 
 ## 2. Décisions techniques (non négociables)
 

@@ -121,6 +121,12 @@ export class Geo {
   rotateZ(a: number): this { return this.transform(new THREE.Matrix4().makeRotationZ(a)); }
   scale(x: number, y: number, z: number): this { return this.transform(new THREE.Matrix4().makeScale(x, y, z)); }
 
+  /** Borne les coordonnées d'un axe (0 = x, 1 = y, 2 = z) : écrase ce qui dépasse (haut-relief, figure à demi immergée). */
+  clampAxis(axis: 0 | 1 | 2, min: number, max: number): this {
+    for (let i = axis; i < this.pos.length; i += 3) { if (this.pos[i] < min) this.pos[i] = min; else if (this.pos[i] > max) this.pos[i] = max; }
+    return this;
+  }
+
   /** Multiplie les UV (utile pour caler un motif : nombre de travées, de tours…). */
   scaleUv(su: number, sv: number, ou = 0, ov = 0): this {
     for (let i = 0; i < this.uv.length; i += 2) { this.uv[i] = this.uv[i] * su + ou; this.uv[i + 1] = this.uv[i + 1] * sv + ov; }
@@ -210,7 +216,7 @@ export function poseEuler(x: number, y: number, z: number, rx: number, ry: numbe
 }
 
 /** Triangule un polygone plan [x0, z0, …] (avec trous éventuels) ; retourne des index dans contour puis trous. */
-export function triangulate(ring: ArrayLike<number>, holes: ArrayLike<number>[] = []): number[] {
+export function triangulateRaw(ring: ArrayLike<number>, holes: ArrayLike<number>[] = []): number[] {
   const toPts = (r: ArrayLike<number>): THREE.Vector2[] => {
     const pts: THREE.Vector2[] = [];
     for (let i = 0; i + 1 < r.length; i += 2) pts.push(new THREE.Vector2(r[i], r[i + 1]));

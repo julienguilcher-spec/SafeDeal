@@ -201,7 +201,7 @@ export function renderBabble(seconds: number, sr: number, seed: number, voices =
         const dur = ((last ? 0.2 : 0.12) + 0.1 * rnd()) / tempo;
         const f0 = base * (1 + decl) * (0.95 + 0.1 * rnd());
         const vowel = VOWEL_LIST[Math.floor(rnd() * VOWEL_LIST.length)]!;
-        if (rnd() < 0.3) renderConsonant(out, sr, t, 0.035, 0.12 * level, rnd);
+        if (rnd() < 0.3) renderConsonant(out, sr, t, 0.04, 0.05 * level, rnd);
         e.t0 = t + 0.02;
         e.dur = dur * 0.95;
         e.f0a = f0 * 1.03;

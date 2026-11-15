@@ -28,7 +28,7 @@ export function stoneTex(o: StoneOpts): TexPair | null {
   if (!cv || !bp) return null;
   const tile = o.tile ?? 4, courses = o.courses ?? 6, perRow = o.perRow ?? 3, seed = o.seed ?? 1;
   const joint = o.joint ?? 'taille';
-  paintMatter(cv, o.tint, 0.07, 6, seed, 0.035, mixHex(o.tint, 0x6b6558, 0.5), 0.35);
+  paintMatter(cv, o.tint, 0.06, 6, seed, 0.03, mixHex(o.tint, 0x8a765c, 0.45), 0.3);
   paintBumpBase(bp, 205, 14, 24, seed + 5);
   const g = cv.g, b = bp.g;
   if (joint !== 'lisse') {
@@ -82,7 +82,7 @@ export function marbleTex(tint: number, vein: number, seed = 3, tile = 3): TexPa
     for (let x = 0; x < size; x++) {
       const n = fbm((x / size) * 4, (y / size) * 4, 4, 4, seed);
       const s = Math.abs(Math.sin(((x + y) / size) * Math.PI * 2 * 2 + n * 9));
-      const v = Math.pow(1 - s, 6) * 0.75 + (fbm((x / size) * 16, (y / size) * 16, 16, 2, seed + 4) - 0.5) * 0.08;
+      const v = Math.pow(1 - s, 14) * 0.6 + (fbm((x / size) * 16, (y / size) * 16, 16, 2, seed + 4) - 0.5) * 0.08;
       const k = Math.max(0, Math.min(1, v));
       const i = (y * size + x) * 4;
       img.data[i] = r0 + (r1 - r0) * k; img.data[i + 1] = g0 + (g1 - g0) * k; img.data[i + 2] = b0 + (b1 - b0) * k; img.data[i + 3] = 255;
@@ -156,10 +156,10 @@ export function waterTex(seed = 9): TexPair | null {
   const img = cv.g.createImageData(size, size), bi = bp.g.createImageData(size, size);
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      const n = fbm((x / size) * 6, (y / size) * 12, 12, 3, seed);
-      const r = Math.pow(Math.abs(Math.sin(n * 14)), 8);
+      const n = fbm((x / size) * 12, (y / size) * 24, 24, 3, seed);
+      const r = Math.pow(Math.abs(Math.sin(n * 16)), 10);
       const i = (y * size + x) * 4;
-      img.data[i] = 52 + r * 150; img.data[i + 1] = 92 + r * 130; img.data[i + 2] = 100 + r * 120; img.data[i + 3] = 255;
+      img.data[i] = 66 + r * 70; img.data[i + 1] = 108 + r * 62; img.data[i + 2] = 112 + r * 58; img.data[i + 3] = 255;
       bi.data[i] = bi.data[i + 1] = bi.data[i + 2] = 110 + n * 120; bi.data[i + 3] = 255;
     }
   }
@@ -174,9 +174,9 @@ export function jetTex(seed = 13): THREE.Texture | null {
   if (!cv) return null;
   const g = cv.g, rnd = rngOf(seed);
   g.clearRect(0, 0, w, h);
-  for (let i = 0; i < 150; i++) {
-    const x = w * (0.5 + (rnd() + rnd() + rnd() - 1.5) * 0.52), y = rnd() * h, len = 20 + rnd() * 90;
-    const a = 0.10 + rnd() * 0.32;
+  for (let i = 0; i < 220; i++) {
+    const x = w * (0.5 + (rnd() + rnd() + rnd() - 1.5) * 0.52), y = rnd() * h, len = 30 + rnd() * 120;
+    const a = 0.06 + rnd() * 0.2;
     const gr = g.createLinearGradient(0, y, 0, y + len);
     gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(0.5, `rgba(255,255,255,${a})`); gr.addColorStop(1, 'rgba(255,255,255,0)');
     g.fillStyle = gr;
@@ -189,7 +189,7 @@ export function jetTex(seed = 13): THREE.Texture | null {
     const e = 1 - Math.pow(Math.abs((x + 0.5) / w - 0.5) * 2, 2.5);
     const i = (y * w + x) * 4;
     img.data[i] = img.data[i + 1] = img.data[i + 2] = 255;
-    img.data[i + 3] = Math.min(255, img.data[i + 3] * 1.8 * e + 46 * e);
+    img.data[i + 3] = Math.min(255, img.data[i + 3] * 1.5 * e + 58 * e);
   }
   g.putImageData(img, 0, 0);
   return texFrom(cv);
@@ -282,9 +282,9 @@ export function reliefTex(tint: number, seed = 21, tile: [number, number] = [8, 
   const w = 512, h = 128;
   const cv = canvas2d(w, h), bp = canvas2d(w, h);
   if (!cv || !bp) return null;
-  paintMatter(cv, mixHex(tint, 0x000000, 0.12), 0.05, 4, seed, 0.03);
+  paintMatter(cv, mixHex(tint, 0x000000, 0.10), 0.05, 4, seed, 0.03);
   paintBumpBase(bp, 70, 8, 8, seed);
-  paintFigures(cv, bp, 0, 0, w, h, 18, seed + 1, css(mixHex(tint, 0xffffff, 0.22), 0.95), css(mixHex(tint, 0x000000, 0.55), 0.8));
+  paintFigures(cv, bp, 0, 0, w, h, 18, seed + 1, css(mixHex(tint, 0xffffff, 0.10), 0.92), css(mixHex(tint, 0x000000, 0.5), 0.55));
   // listels haut et bas
   for (const ctx of [cv.g, bp.g]) {
     ctx.fillStyle = ctx === cv.g ? css(mixHex(tint, 0xffffff, 0.12)) : '#ffffff';
@@ -429,4 +429,24 @@ export function fenceTex(color: number, gold: boolean): THREE.Texture | null {
     if (gold) { g.beginPath(); g.arc(cx, h * 0.24, bw * 0.2, 0, Math.PI * 2); g.fill(); }
   }
   return texFrom(cv, { tile: [1.2, 1] });
+}
+
+/** Inscriptions gravées ou dorées : lignes de petits signes (noms, dédicaces) sur fond de pierre. Répétable. */
+export function inscriptionTex(tint: number, ink: number, rows = 10, seed = 71, tile: [number, number] = [3, 3], inkAlpha = 0.7): TexPair | null {
+  const size = 256;
+  const cv = canvas2d(size, size);
+  if (!cv) return null;
+  paintMatter(cv, tint, 0.05, 5, seed, 0.03);
+  const g = cv.g, rnd = rngOf(seed), rh = size / rows;
+  g.fillStyle = css(ink, inkAlpha);
+  for (let r = 0; r < rows; r++) {
+    let x = size * (0.06 + rnd() * 0.1);
+    const end = size * (0.94 - rnd() * 0.1);
+    while (x < end) {
+      const w = rh * (0.18 + rnd() * 0.3);
+      if (rnd() < 0.86) g.fillRect(x, r * rh + rh * 0.28, w, rh * 0.44);
+      x += w + rh * (0.12 + (rnd() < 0.15 ? 0.5 : 0));
+    }
+  }
+  return { map: texFrom(cv, { tile }), bump: null };
 }

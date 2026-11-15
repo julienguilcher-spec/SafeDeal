@@ -127,6 +127,19 @@ export class Kit {
     return o;
   }
 
+  /**
+   * Signal carré EXACT ±1 à `rate` Hz (commence à +1). Le carré d'un OscillatorNode est normalisé
+   * sur sa crête de Gibbs (plateaux à ≈ ±0,85) : on l'écrête pour obtenir de vrais plateaux, sans
+   * quoi une alternance de notes pilotée par lui tomberait à côté des fréquences voulues.
+   */
+  square(rate: number, start = this.t): AudioNode {
+    const o = this.ctrl('square', rate, start);
+    const ws = this.ac.createWaveShaper();
+    ws.curve = this.curve('clip', (x) => Math.max(-1, Math.min(1, x * 6))) as Float32Array<ArrayBuffer>;
+    o.connect(ws);
+    return ws;
+  }
+
   /** Lecture en boucle d'une texture procédurale, départ à une position aléatoire. */
   tex(id: TextureId, to?: AudioNode, rate = 1, start = this.t, stop = -1): AudioBufferSourceNode {
     const buf = textureBuffer(this.ac, id);

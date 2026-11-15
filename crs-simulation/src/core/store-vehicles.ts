@@ -16,6 +16,7 @@ import type {
   DamageInfo, EntityId, Faction, GameContext, Person, RayHit, SeatRole, Vec2, Vehicle, VehicleApi,
   VehicleDef, VehicleKind, VehicleState,
 } from './contracts';
+import { truncate } from './arrays';
 import { circleVsObb, distSqPointObb, segmentVsObb, vehicleToWorldX, vehicleToWorldZ } from './math';
 import type { SegmentCast } from './math';
 import { hash2 } from './rng';
@@ -195,7 +196,7 @@ class VehicleStoreImpl implements VehicleStore {
       else out.push(v);
       n++;
     }
-    if (out.length > n) out.length = n;
+    truncate(out, n);
     return n;
   }
 
@@ -204,6 +205,11 @@ class VehicleStoreImpl implements VehicleStore {
     if (p.vehicleId !== 0 && p.vehicleId !== v.id) return false; // il faut d'abord descendre de l'autre véhicule
     const seats = v.seats;
     const defs = v.def.seats;
+    if (p.vehicleId === v.id && typeof seat !== 'number') {
+      // déjà à bord : rien à faire si aucune place précise n'est demandée ou si le rôle est déjà le bon
+      const current = defs[p.seat];
+      if (seat === undefined || (current && current.role === seat)) return true;
+    }
     let target = -1;
     if (typeof seat === 'number') {
       if (seat >= 0 && seat < seats.length && (seats[seat] === 0 || seats[seat] === p.id)) target = seat;

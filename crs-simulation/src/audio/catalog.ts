@@ -79,7 +79,7 @@ function def(id: string, group: string, label: string, recipe: Recipe, o: DefOpt
 }
 
 // ── armes, grenades, explosions ──
-def('grenade_lancer', 'Armes et grenades', 'Lancer de grenade', W.grenadeLancer, { level: 0.6, dist: [2, 30], max: 4 });
+def('grenade_lancer', 'Armes et grenades', 'Lancer de grenade', W.grenadeLancer, { level: 0.85, dist: [2, 30], max: 4 });
 def('grenade_pop', 'Armes et grenades', '« Pop » de grenade lacrymogène', W.grenadePop, { level: 0.75, dist: [4, 130], delayed: true });
 def('gaz_sifflement', 'Armes et grenades', 'Sifflement du gaz', W.gazSifflement, { level: 0.5, dist: [2, 45], sustained: true, priority: PRIORITY_AMBIENT });
 def('lanceur_tir', 'Armes et grenades', 'Lanceur de 56 mm', W.lanceurTir, { level: 0.85, dist: [6, 230], delayed: true, priority: PRIORITY_HIGH });
@@ -95,32 +95,32 @@ def('embrasement', 'Armes et grenades', 'Embrasement (départ de feu)', W.embras
 def('explosion_vehicule', 'Armes et grenades', 'Explosion de véhicule', W.explosionVehicule, { level: 1, dist: [20, 900], delayed: true, priority: PRIORITY_HIGH, max: 3 });
 
 // ── chocs et bris ──
-def('verre_brise', 'Chocs et bris', 'Verre brisé', I.verreBrise, { level: 0.85, dist: [4, 120] });
+def('verre_brise', 'Chocs et bris', 'Verre brisé', I.verreBrise, { level: 0.6, dist: [4, 120] });
 def('impact_bouclier', 'Chocs et bris', 'Impact sur bouclier', I.impactBouclier, { level: 0.6, dist: [2.5, 50] });
 def('impact_sol', 'Chocs et bris', 'Impact au sol', I.impactSol, { level: 0.6, dist: [2.5, 50] });
 def('coup_baton', 'Chocs et bris', 'Coup de bâton', I.coupBaton, { level: 0.6, dist: [2, 35] });
-def('tole', 'Chocs et bris', 'Tôle', I.tole, { level: 0.75, dist: [4, 110] });
-def('rideau_fer', 'Chocs et bris', 'Rideau de fer', I.rideauFer, { level: 0.75, dist: [4, 90], max: 3 });
+def('tole', 'Chocs et bris', 'Tôle', I.tole, { level: 0.45, dist: [4, 110] });
+def('rideau_fer', 'Chocs et bris', 'Rideau de fer', I.rideauFer, { level: 0.5, dist: [4, 90], max: 3 });
 def('collision', 'Chocs et bris', 'Collision de véhicule', I.collision, { level: 0.9, dist: [6, 160], priority: PRIORITY_HIGH });
 
 // ── corps ──
 def('pas', 'Corps', 'Pas (sol dur)', H.pas, { level: 0.4, dist: [1.5, 28], priority: PRIORITY_AMBIENT, max: 10 });
 def('pas_pave', 'Corps', 'Pas (pavés)', H.pasPave, { level: 0.4, dist: [1.5, 28], priority: PRIORITY_AMBIENT, max: 10 });
-def('pas_gravier', 'Corps', 'Pas (gravier)', H.pasGravier, { level: 0.4, dist: [1.5, 28], priority: PRIORITY_AMBIENT, max: 10 });
-def('pas_herbe', 'Corps', 'Pas (herbe)', H.pasHerbe, { level: 0.4, dist: [1.5, 22], priority: PRIORITY_AMBIENT, max: 10 });
-def('pas_eau', 'Corps', 'Pas (sol détrempé)', H.pasEau, { level: 0.42, dist: [1.5, 28], priority: PRIORITY_AMBIENT, max: 10 });
-def('toux', 'Corps', 'Toux', H.toux, { level: 0.5, dist: [2, 30], priority: PRIORITY_AMBIENT, max: 4 });
+def('pas_gravier', 'Corps', 'Pas (gravier)', H.pasGravier, { level: 0.75, dist: [1.5, 28], priority: PRIORITY_AMBIENT, max: 10 });
+def('pas_herbe', 'Corps', 'Pas (herbe)', H.pasHerbe, { level: 0.65, dist: [1.5, 22], priority: PRIORITY_AMBIENT, max: 10 });
+def('pas_eau', 'Corps', 'Pas (sol détrempé)', H.pasEau, { level: 0.5, dist: [1.5, 28], priority: PRIORITY_AMBIENT, max: 10 });
+def('toux', 'Corps', 'Toux', H.toux, { level: 1, dist: [2, 30], priority: PRIORITY_AMBIENT, max: 4 });
 def('cri', 'Corps', 'Cri', H.cri, { level: 0.6, dist: [4, 90], max: 5 });
-def('sifflet', 'Corps', 'Sifflet', H.sifflet, { level: 0.5, dist: [6, 200], max: 4 });
+def('sifflet', 'Corps', 'Sifflet', H.sifflet, { level: 0.7, dist: [6, 200], max: 4 });
 def('tambour', 'Corps', 'Tambour', H.tambour, { level: 0.8, dist: [6, 200] });
-def('batucada', 'Corps', 'Batterie de cortège (2 mesures)', H.batucada, { level: 0.75, dist: [8, 220], max: 2 });
+def('batucada', 'Corps', 'Batterie de cortège (2 mesures)', H.batucada, { level: 0.75, bus: 'ambience', dist: [8, 220], max: 2 });
 def('acouphene', 'Corps', 'Acouphène', H.acouphene, { level: 1, bus: 'ui', priority: PRIORITY_VITAL, max: 1 });
 
 // ── matériel ──
-def('menottes', 'Matériel', 'Menottes', O.menottes, { level: 0.5, dist: [1.5, 15] });
+def('menottes', 'Matériel', 'Menottes', O.menottes, { level: 1, dist: [1.5, 15] });
 def('spray', 'Matériel', 'Gazeuse', O.spray, { level: 0.5, dist: [1.5, 25], sustained: true });
 def('extincteur', 'Matériel', 'Extincteur', O.extincteur, { level: 0.6, dist: [2.5, 45], sustained: true });
-def('declencheur_photo', 'Matériel', 'Déclencheur photo', O.declencheurPhoto, { level: 0.45, dist: [1, 12], priority: PRIORITY_AMBIENT });
+def('declencheur_photo', 'Matériel', 'Déclencheur photo', O.declencheurPhoto, { level: 0.75, dist: [1, 12], priority: PRIORITY_AMBIENT });
 def('canon_eau', 'Matériel', 'Canon à eau', O.canonEau, { level: 0.8, dist: [6, 170], sustained: true, priority: PRIORITY_HIGH, max: 3 });
 
 // ── véhicules ──

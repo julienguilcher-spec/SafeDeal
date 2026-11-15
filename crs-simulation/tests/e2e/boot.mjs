@@ -50,6 +50,30 @@ try {
   const file1 = await shot(page, 'boot');
   console.log('capture :', file1, '|', boot.heading, '| systèmes :', boot.summary.systems.map((s) => s.id).join(', '));
 
+  // ── 1 bis. les boutons du panneau de diagnostic pilotent réellement la session ──
+  if (!boot.summary.view) {
+    const phase = () => page.evaluate(() => window.__CRS.ctx.session.phase);
+    const button = (label) => page.getByRole('button', { name: label, exact: true });
+    await button('Démarrer une session d’essai').click();
+    await waitFor(page, "window.__CRS.ctx.session.phase === 'playing'", 30000);
+    await button('Mettre en pause').click();
+    check((await phase()) === 'paused', 'le bouton « Mettre en pause » devrait mettre la session en pause');
+    await button('Reprendre').click();
+    check((await phase()) === 'playing', 'le bouton « Reprendre » devrait relancer la session');
+    await button('Avance rapide ×8').click();
+    check((await page.evaluate(() => window.__CRS.ctx.clock.timeScale)) === 8, 'le bouton « Avance rapide ×8 » devrait régler clock.timeScale à 8');
+    const t1 = await page.evaluate(() => window.__CRS.ctx.clock.now);
+    await page.waitForTimeout(500);
+    const t2 = await page.evaluate(() => window.__CRS.ctx.clock.now);
+    check(t2 - t1 > 2, `en avance rapide ×8, 0,5 s réelle devrait simuler environ 4 s (simulé : ${(t2 - t1).toFixed(2)} s)`);
+    await button('Avance rapide ×8').click();
+    check((await page.evaluate(() => window.__CRS.ctx.clock.timeScale)) === 1, 'second clic : retour à la vitesse normale');
+    await button('Terminer la session').click();
+    check((await phase()) === 'menu', 'le bouton « Terminer la session » devrait ramener au menu');
+    check(await button('Mettre en pause').isDisabled(), 'au menu, le bouton de pause devrait être inactif');
+    console.log(`panneau : boutons vérifiés (avance rapide ×8 : ${(t2 - t1).toFixed(2)} s simulées en 0,5 s réelle)`);
+  }
+
   // ── 2. session d'essai : démarrage par l'API de débogage, avance manuelle, pause, fin ──
   const run = await page.evaluate(async () => {
     const crs = window.__CRS;
@@ -70,14 +94,41 @@ try {
     crs.ctx.session.pause(false);
     return { cfg, before, after, steps, tp, pausedSteps, pausedPhase, px: p.x, pz: p.z, events };
   });
-  check(run.cfg && run.cfg.seed === 42 && run.cfg.x === 0 && run.cfg.z === 0, 'configuration de session inattendue');
+  check(run.cfg && run.cfg.seed === 42 && Number.isFinite(run.cfg.x) && Number.isFinite(run.cfg.z), 'configuration de session inattendue');
   check(run.before.phase === 'playing', `phase attendue « playing », obtenue « ${run.before.phase} »`);
-  check(run.before.entities.people === 1 && run.before.player && run.before.player.personId > 0, 'personne incarnée attendue');
+  check(run.before.entities.people >= 1 && run.before.player && run.before.player.personId > 0, 'personne incarnée attendue');
   check(run.steps === 60, `60 pas attendus pour 2 s, obtenus ${run.steps}`);
   check(run.after.time - run.before.time > 1.99, `le temps simulé devrait avancer de 2 s (avancé de ${run.after.time - run.before.time})`);
   check(run.px === 120 && run.pz === -60 && run.tp.x === 120, 'teleport() devrait déplacer le joueur');
   check(run.pausedSteps === 0 && run.pausedPhase === 'paused', 'aucun pas ne doit être simulé en pause');
   check(run.events.join(',') === 'started,paused,resumed', 'événements de session inattendus : ' + run.events.join(','));
+  // mesures dans le navigateur : coût du moteur avec 500 personnes (création, pas de simulation, requêtes)
+  const perf = await page.evaluate(() => {
+    const crs = window.__CRS;
+    const ctx = crs.ctx;
+    const t0 = performance.now();
+    for (let i = 0; i < 500; i++) ctx.people.spawn({ kind: i % 6 === 0 ? 'crs' : 'manifestant', x: 200 + (i % 25) * 1.5, z: Math.floor(i / 25) * 1.5 });
+    const spawnMs = performance.now() - t0;
+    const t1 = performance.now();
+    const steps = crs.step(20);
+    const stepMs = (performance.now() - t1) / steps;
+    const out = [];
+    let found = 0;
+    const t2 = performance.now();
+    for (let n = 0; n < 20; n++) {
+      for (const p of ctx.people.list) found += ctx.people.queryRadius(p.x, p.z, 2, out);
+    }
+    const queryMs = (performance.now() - t2) / 20;
+    for (const p of ctx.people.list.slice()) if (!p.isPlayer) ctx.people.remove(p.id);
+    return { spawnMs, steps, stepMs, queryMs, found, left: ctx.people.list.length };
+  });
+  check(perf.steps === 600 && perf.found > 0 && perf.left === 1, 'mesures de performance incohérentes');
+  check(perf.stepMs < 2, `un pas de simulation à vide devrait coûter bien moins de 2 ms (mesuré : ${perf.stepMs.toFixed(3)} ms)`);
+  console.log(
+    `mesures (Chromium) : création de 500 personnes ${perf.spawnMs.toFixed(1)} ms | pas de simulation (500 personnes, index compris) ` +
+      `${(perf.stepMs * 1000).toFixed(1)} µs | 500 requêtes de voisinage ${perf.queryMs.toFixed(3)} ms`,
+  );
+
   // la boucle requestAnimationFrame fait avancer le temps toute seule
   const tA = await page.evaluate(() => window.__CRS.ctx.clock.now);
   await waitFor(page, `window.__CRS.ctx.clock.now > ${tA + 0.5}`, 60000);

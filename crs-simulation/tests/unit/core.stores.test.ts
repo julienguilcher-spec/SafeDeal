@@ -125,7 +125,9 @@ describe('magasin des personnes — spawn', () => {
     expect(p.inventory).toEqual([stack]);
     expect(p.inventory[0]).not.toBe(stack); // copie : l'inventaire n'est pas partagé
     const cop = ctx.people.spawn({ kind: 'crs', x: 0, z: 0, rank: 'brigadier_chef', poste: 'lanceur' });
-    expect([cop.rank, cop.poste, cop.look.rankBars]).toEqual(['brigadier_chef', 'lanceur', 3]);
+    expect([cop.rank, cop.poste, cop.look.rankBars]).toEqual(['brigadier_chef', 'lanceur', 1]); // 1 barrette
+    expect(ctx.people.spawn({ kind: 'crs', x: 0, z: 0, rank: 'commandant' }).look.rankBars).toBe(4); // 4 barrettes
+    expect(ctx.people.spawn({ kind: 'crs', x: 0, z: 0 }).look.rankBars).toBe(2); // gardien : 2 chevrons
     const noRank = ctx.people.spawn({ kind: 'crs', x: 0, z: 0, rank: null });
     expect(noRank.rank).toBeNull();
   });

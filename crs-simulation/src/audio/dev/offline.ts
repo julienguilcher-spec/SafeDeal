@@ -5,8 +5,7 @@
 
 import type { SoundId } from '@/core/contracts';
 import { soundDef } from '../catalog';
-import { Kit } from '../kit';
-import { mulberry32 } from '../prng';
+import { instantiate } from '../instantiate';
 
 export interface OfflineOpts {
   /** Durée de la fenêtre de rendu (s). Défaut : durée de la recette + 0,3 s, entre 1 et `maxSeconds`. */
@@ -37,13 +36,10 @@ const LEAD = 0.02;
 function build(ac: BaseAudioContext, id: SoundId, o: OfflineOpts): number {
   const def = soundDef(id);
   if (!def) throw new Error(`[audio] son inconnu : ${id}`);
-  const out = ac.createGain();
-  out.gain.value = o.applyLevel === false ? 1 : def.level;
-  out.connect(ac.destination);
-  const k = new Kit(ac, out, LEAD, mulberry32(o.seed ?? 12345), o.pitch ?? 1, o.loop ?? false, o.text ?? '');
-  const d = def.recipe(k);
-  if (Number.isFinite(d)) k.stopAll(LEAD + d + 0.05);
-  return d;
+  const inst = instantiate(ac, o.applyLevel === false ? { ...def, level: 1 } : def, ac.destination, LEAD, {
+    seed: o.seed ?? 12345, pitch: o.pitch ?? 1, loop: o.loop ?? false, text: o.text ?? '',
+  });
+  return inst.duration;
 }
 
 /** Rend le son `id` dans un OfflineAudioContext et retourne les échantillons (mono). */

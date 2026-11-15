@@ -124,6 +124,26 @@ describe('bus d\'événements', () => {
     expect(bus.errorCount).toBe(2);
   });
 
+  it('option rethrow : tous les gestionnaires sont appelés, puis la première exception est relancée', () => {
+    const bus = createEventBus({ rethrow: true });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const calls: string[] = [];
+    bus.on('fx', () => {
+      throw new Error('première');
+    });
+    bus.on('fx', () => calls.push('suivant'));
+    bus.on('fx', () => {
+      throw new Error('seconde');
+    });
+    expect(() => bus.emit('fx', { id: 'feu', x: 0, y: 0, z: 0 })).toThrow('première');
+    expect(calls).toEqual(['suivant']);
+    expect(bus.errorCount).toBe(2);
+    // le bus reste cohérent après l'exception
+    expect(() => bus.emit('fx', { id: 'feu', x: 0, y: 0, z: 0 })).toThrow('première');
+    expect(calls).toEqual(['suivant', 'suivant']);
+    expect(bus.listenerCount('fx')).toBe(3);
+  });
+
   it('onAny / emitAny : événements libres, sur les mêmes canaux que les événements du contrat', () => {
     const bus = createEventBus();
     const got: unknown[] = [];

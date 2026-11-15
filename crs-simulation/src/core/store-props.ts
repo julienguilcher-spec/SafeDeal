@@ -20,6 +20,7 @@ import type {
   DamageKind, EntityId, GameContext, Prop, PropApi, PropKind, PropState, RayHit, Shop, ShopCategory, Vec2,
   WindowState,
 } from './contracts';
+import { truncate } from './arrays';
 import { circleVsObb, distSqPointObb, distSqPointSegment, segmentVsObb } from './math';
 import type { SegmentCast } from './math';
 import { SpatialHash } from './spatial';
@@ -281,7 +282,7 @@ class PropStoreImpl implements PropStore {
       if (filter && !filter(p)) continue;
       out[n++] = p;
     }
-    if (out.length > n) out.length = n;
+    truncate(out, n);
     return n;
   }
 
@@ -298,7 +299,7 @@ class PropStoreImpl implements PropStore {
       if (distSqPointSegment(x, z, s.x - tx, s.z - tz, s.x + tx, s.z + tz) > r2) continue;
       out[n++] = s;
     }
-    if (out.length > n) out.length = n;
+    truncate(out, n);
     return n;
   }
 
@@ -444,6 +445,16 @@ class PropStoreImpl implements PropStore {
         p.z += p.vz * dt * (1 + k) * 0.5;
         p.vx *= k;
         p.vz *= k;
+      }
+      // un objet qui glisse s'arrête contre le décor statique
+      const tmp = this.tmp;
+      tmp.x = p.x;
+      tmp.z = p.z;
+      if (this.ctx.world.resolveCircle(tmp, (p.halfX < p.halfZ ? p.halfX : p.halfZ) + 0.05)) {
+        p.x = tmp.x;
+        p.z = tmp.z;
+        p.vx = 0;
+        p.vz = 0;
       }
       p.y = this.ctx.world.heightAt(p.x, p.z);
       const slot = this.slotOf.get(p.id);

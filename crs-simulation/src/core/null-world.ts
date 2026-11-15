@@ -14,10 +14,11 @@ import type {
   LandmarkInfo, MapFurnitureInfo, MapShopInfo, PlaceInfo, RayHit, RoadEdgeInfo, RoadNodeInfo, RoadSample,
   SurfaceKind, Vec2, WorldBounds, WorldQuery,
 } from './contracts';
+import { put, truncate } from './arrays';
 
 /** Emprise nominale du cœur de Paris dans le repère du jeu (m), d'après la projection du BRIEF. */
 export const NOMINAL_BOUNDS: Readonly<WorldBounds> = Object.freeze({
-  minX: -2656, minZ: -1376, maxX: 3758, maxZ: 1739,
+  minX: -2656, minZ: -1375, maxX: 3758, maxZ: 1739,
 });
 
 const NO_NODE: RoadNodeInfo = Object.freeze({
@@ -106,11 +107,11 @@ export function createNullWorld(): NullWorld {
       return false;
     },
     findPath(ax: number, az: number, bx: number, bz: number, _mode: 'foot' | 'vehicle', out: number[]): boolean {
-      out.length = 4;
-      out[0] = ax;
-      out[1] = az;
-      out[2] = bx;
-      out[3] = bz;
+      put(out, 0, ax);
+      put(out, 1, az);
+      put(out, 2, bx);
+      put(out, 3, bz);
+      truncate(out, 4);
       return true;
     },
     randomFreePoint(

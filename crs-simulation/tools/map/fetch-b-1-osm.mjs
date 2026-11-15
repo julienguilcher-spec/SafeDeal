@@ -9,6 +9,10 @@ import path from 'node:path';
 import { RAW, RAW_B, BBOX_M, bboxWithMargin, inBox, round7, download, HostDownError, readPbf, FORCE, tally } from './lib-b.mjs';
 
 const OUT = path.join(RAW_B, 'osm-extract-b.json');
+// --force ne refait l'extrait OSM que si CE script est lancé directement : les autres scripts fetch-b-* l'importent
+// et ne doivent pas retélécharger 48 Mo chacun.
+const IS_MAIN = import.meta.url === `file://${process.argv[1]}`;
+const FORCE_OSM = FORCE && IS_MAIN;
 const PBF_SHARED = path.join(RAW, 'osm', 'paris.osm.pbf'); // cache du lot A (lecture seule)
 const PBF_OWN = path.join(RAW_B, 'osm', 'paris.osm.pbf');
 const MIRRORS = [
@@ -24,11 +28,11 @@ const AREA_KEYS = ['building', 'building:part', 'shop', 'amenity', 'tourism', 'm
   'railway', 'public_transport', 'natural', 'bridge', 'wikidata', 'landuse', 'place', 'memorial'];
 
 async function ensurePbf() {
-  if (!FORCE && fs.existsSync(PBF_SHARED) && fs.statSync(PBF_SHARED).size > 1e6) return { file: PBF_SHARED, origin: 'cache du lot A (raw/osm/paris.osm.pbf)', url: MIRRORS[0] };
+  if (!FORCE_OSM && fs.existsSync(PBF_SHARED) && fs.statSync(PBF_SHARED).size > 1e6) return { file: PBF_SHARED, origin: 'cache du lot A (raw/osm/paris.osm.pbf)', url: MIRRORS[0] };
   const pbfOk = (buf) => (buf.length > 1e6 && buf.subarray(0, 64).includes('OSMHeader') ? null : 'ce fichier n\'est pas un extrait PBF');
   for (const url of MIRRORS) {
     try {
-      const r = await download(url, PBF_OWN, { validate: pbfOk, timeoutS: 900 });
+      const r = await download(url, PBF_OWN, { validate: pbfOk, timeoutS: 900, force: FORCE_OSM });
       return { file: PBF_OWN, origin: r.cached ? 'cache du lot B' : 'téléchargé', url };
     } catch (e) {
       if (!(e instanceof HostDownError)) throw e;
@@ -39,7 +43,7 @@ async function ensurePbf() {
 }
 
 export async function loadOsmExtract() {
-  if (!FORCE && fs.existsSync(OUT)) return JSON.parse(fs.readFileSync(OUT, 'utf8'));
+  if (!FORCE_OSM && fs.existsSync(OUT)) return JSON.parse(fs.readFileSync(OUT, 'utf8'));
   const pbf = await ensurePbf();
   console.log(`OSM : lecture de ${path.relative(RAW, pbf.file)} (${(fs.statSync(pbf.file).size / 1e6).toFixed(1)} Mo, ${pbf.origin})`);
   const t0 = Date.now();
@@ -124,7 +128,7 @@ export async function loadOsmExtract() {
   return extract;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (IS_MAIN) {
   const ex = await loadOsmExtract();
   console.log('OSM extrait :', JSON.stringify(ex.meta.counts));
   if (process.argv.includes('--stats')) {

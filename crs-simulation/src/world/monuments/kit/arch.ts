@@ -167,3 +167,30 @@ export function arcade(b: Builder, o: ArcadeOpts): void {
   for (let i = 0; i < o.count; i++) openings.push({ x: -o.length / 2 + (i + 0.5) * pitch, width: w, height: h, kind: o.kind });
   archBlock(b, { width: o.length, height: o.height, depth: o.depth, openings, mat: o.mat, matVault: o.matVault, seg: o.seg ?? 10 });
 }
+
+/**
+ * Archivolte : bandeau de largeur `width` suivant l'arc d'une baie, en saillie de `depth` vers +z depuis le
+ * plan z = 0 (même repère (x, y) que la baie). `jambs` prolonge le bandeau le long des piédroits (chambranle).
+ */
+export function archivolt(op: ArchOpening, width: number, depth: number, seg = 14, jambs = false): Geo {
+  const g = new Geo();
+  const { pts, arcFrom, arcTo } = openingOutline(op, seg);
+  const n = pts.length >> 1;
+  const from = jambs ? 0 : arcFrom, to = jambs ? n - 1 : arcTo;
+  const out: number[] = [];
+  for (let k = from; k <= to; k++) {
+    const k0 = Math.max(from, k - 1), k1 = Math.min(to, k + 1);
+    const dx = pts[2 * k1] - pts[2 * k0], dy = pts[2 * k1 + 1] - pts[2 * k0 + 1];
+    const dl = Math.hypot(dx, dy) || 1;
+    out.push(pts[2 * k] - (dy / dl) * width, pts[2 * k + 1] + (dx / dl) * width);
+  }
+  for (let k = from; k < to; k++) {
+    const i = k - from;
+    const px = pts[2 * k], py = pts[2 * k + 1], qx = pts[2 * k + 2], qy = pts[2 * k + 3];
+    const ox = out[2 * i], oy = out[2 * i + 1], rx = out[2 * i + 2], ry = out[2 * i + 3];
+    g.face(px, py, depth, qx, qy, depth, rx, ry, depth, ox, oy, depth);          // parement
+    g.face(ox, oy, depth, rx, ry, depth, rx, ry, 0, ox, oy, 0);                  // chant extérieur
+    g.face(px, py, 0, qx, qy, 0, qx, qy, depth, px, py, depth);                  // retour d'intrados
+  }
+  return g;
+}

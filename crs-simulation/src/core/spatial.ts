@@ -9,6 +9,8 @@
  *   - une requête couvrant plus de cellules qu'il n'y a d'éléments bascule sur un balayage linéaire.
  * ===================================================================================== */
 
+import { truncate } from './arrays';
+
 export interface SpatialItem {
   x: number;
   z: number;
@@ -217,7 +219,7 @@ export class SpatialHash<T extends SpatialItem> {
    */
   query(x: number, z: number, r: number, out: T[], filter?: (item: T) => boolean): number {
     const n = this.scan(x, z, r, COLLECT, out, filter);
-    if (out.length > n) out.length = n;
+    truncate(out, n);
     return n;
   }
 
@@ -271,7 +273,7 @@ export class SpatialHash<T extends SpatialItem> {
         }
       }
     }
-    if (out.length > n) out.length = n;
+    truncate(out, n);
     return n;
   }
 

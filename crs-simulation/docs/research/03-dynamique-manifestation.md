@@ -15,7 +15,7 @@
 | Marque | Signification |
 |---|---|
 | **[V]** | **Vérifié** : lu pendant cette recherche dans un document officiel ou primaire (rapport parlementaire, réponse ministérielle, étude du Défenseur des droits). |
-| **[A]** | **Publication scientifique ou médicale** lue pendant cette recherche (article, résumé d'auteur, manuel médical). |
+| **[A]** | **Publication scientifique ou médicale** (article, résumé d'auteur, manuel médical), lue pendant cette recherche ou connue par son résumé : la liste des sources précise « lu » ou « résumé ». |
 | **[S]** | **Source secondaire** : presse, Wikipédia, organisation non gouvernementale, texte militant ; ou source primaire connue seulement par un résumé de recherche. Plausible, à recouper. |
 | **[E]** | **Estimation calculée** à partir de valeurs vérifiées (le calcul est donné). |
 | **[JEU]** | **Valeur de conception proposée** pour le jeu : non réelle, cohérente avec ce qui est vérifié. |
@@ -30,7 +30,7 @@ Les renvois `[n]` pointent vers la section **Sources** en fin de dossier.
 | Phases de la manifestation (§1.1) | `CrowdPhase` : `rassemblement`, `depart`, `cortege`, `tension`, `affrontement`, `dispersion`, `apres_manif`, `terminee` |
 | Profils de manifestants (§2) | `ProtestProfile` : `pacifique`, `famille`, `militant`, `service_ordre`, `meneur`, `opportuniste`, `radical`, `pilleur` |
 | Tiers (§2, §6, §7) | `PersonKind` : `street_medic`, `journaliste`, `observateur`, `passant`, `touriste`, `commercant`, `pompier`, `samu` |
-| Tension (§3.10, §10) | `DirectorApi.tension` (0..1), `tensionAt(x, z)`, `addTension(amount, x, z, reason)` ; `SessionConfig.tension` et `volatility` |
+| Tension (§3.6, §10) | `DirectorApi.tension` (0..1), `tensionAt(x, z)`, `addTension(amount, x, z, reason)` ; `SessionConfig.tension` et `volatility` |
 | Radicalisation (§5) | événement `person:radicalized { from, to }` |
 | Vent (§4.3) | `EnvApi` : `windX`, `windZ` |
 
@@ -124,8 +124,7 @@ Source : tableau du ministère de l'intérieur reproduit dans le rapport parleme
 | Province (Bordeaux, 26 rassemblements) | de 35 à 18 500 participants ; groupes violents de 15 à 200 personnes | [V][1] |
 | Manifestation de taille moyenne (Nantes) | 6 000 personnes, dont 150 « à risques » et 500 qui les soutiennent | [V][1] |
 | Trois chiffres pour un même cortège | 23 mars 2023 à Paris : 119 000 (préfecture), « au moins 83 000 » (comptage indépendant pour un collectif de médias), 800 000 (organisateurs). 31 janvier 2023 : 87 000, 55 000, 500 000. | [S][25][35] |
-| Méthode de la préfecture | Fonctionnaires postés en hauteur à deux endroits du parcours, compteur à main actionné à chaque ligne de manifestants ; enregistrement vidéo pour recomptage. | [S][7] |
-| Méthode du comptage indépendant | Deux capteurs placés à une fenêtre tracent une ligne virtuelle en travers de la rue et comptent les franchissements ; recomptage manuel sur vidéo. | [S][35] |
+| Méthodes de comptage | Préfecture : fonctionnaires postés en hauteur à deux endroits du parcours, compteur à main actionné à chaque ligne de manifestants, vidéo pour recomptage. Comptage indépendant : deux capteurs à une fenêtre tracent une ligne virtuelle en travers de la rue et comptent les franchissements, recomptage manuel sur vidéo. | [S][7][35] |
 
 ### 1.4 Allure, densité, débit
 
@@ -133,13 +132,11 @@ Source : tableau du ministère de l'intérieur reproduit dans le rapport parleme
 |---|---|---|
 | Vitesse libre d'un piéton | **1,34 m/s** (4,8 km/h), écart-type 0,26 à 0,37 m/s ; 1,04 m/s pour des promeneurs, 1,45 m/s pour des navetteurs | [A][13] |
 | Densité à l'arrêt complet | 5,4 personnes/m² dans le diagramme de référence ; 3,8 à 10 selon les études | [A][13] |
-| Parcours réel de référence | 23 mars 2023 : Bastille → Opéra par les Grands Boulevards, départ 14 h, arrivée prévue 19 h, tête de cortège arrivée vers 18 h | [S][25] |
-| Longueur de ce parcours | ≈ 4,4 km (mesure approximative, à recalculer sur le graphe de la carte) | [E] |
+| Parcours réel de référence | 23 mars 2023 : Bastille → Opéra par les Grands Boulevards, départ 14 h, arrivée prévue 19 h, tête de cortège arrivée vers 18 h ; longueur ≈ 4,4 km (mesure approximative, à recalculer sur le graphe de la carte) | [S][25] ; longueur [E] |
 | **Allure moyenne de la tête** | 4,4 km en ≈ 4 h → **≈ 1,1 km/h (0,3 m/s)**, arrêts compris | [E] |
 | Allure en marche (entre deux arrêts) | 0,6 à 0,9 m/s (2 à 3 km/h) ; aucune mesure publiée trouvée | [JEU] |
 | Rythme selon le type de cortège | Un cortège spontané de type « gilets jaunes » marche nettement plus vite qu'un cortège intersyndical (constat du comptage indépendant, sans chiffre) | [S][35] |
-| Débit moyen | 119 000 personnes passant en ≈ 4,5 h → ≈ 26 000 par heure, soit ≈ 7 personnes/s | [E] |
-| Densité moyenne déduite | 7 personnes/s ÷ (25 m de large × 0,5 m/s) → **≈ 0,6 personne/m²** en moyenne sur toute la longueur | [E] |
+| Débit et densité moyens | 119 000 personnes passant en ≈ 4,5 h → ≈ 26 000 par heure, soit ≈ 7 personnes/s ; divisé par 25 m de chaussée utile × 0,5 m/s au point de passage (deux hypothèses) → **≈ 0,6 personne/m²** en moyenne sur toute la longueur | [E] |
 | Longueur totale déduite | 119 000 ÷ (0,6 × 25) ≈ 8 km : plus long que le parcours. **La tête arrive avant que la queue soit partie.** | [E] |
 | Densité par type de zone | cortège aéré (familles, fin de cortège) 0,3 à 0,8 ; blocs avec camion 1 à 2 ; carré de tête et bloc compact 2 à 3 ; rassemblement serré devant une tribune 3 à 4 | [JEU] calé sur [A][13][14] |
 | Seuils de risque (science des foules) | foule **en mouvement** : l'écoulement se dégrade vers 2 à 3 personnes/m² ; foule **immobile** : risque au-delà de 4 à 5 ; ondes de choc et effondrements en chaîne au-delà de 5 ; pression d'écrasement vers 7 à 10 | [S][14] |
@@ -155,8 +152,7 @@ Le schéma national montre des zones parisiennes interdites aux manifestants (Ch
 | « Classique » | République → boulevard du Temple → boulevard Beaumarchais → Bastille | ≈ 1,7 km | ≈ 1 h 30 |
 | « Grands Boulevards » | République → Grands Boulevards → Opéra | ≈ 2,7 km | ≈ 2 h 30 |
 | « Grande journée » | Bastille → République → Grands Boulevards → Opéra | ≈ 4,4 km | ≈ 4 h |
-| Rassemblement statique | République, Bastille, parvis de l'Hôtel de Ville, esplanade des Invalides | — | 2 à 4 h |
-| Rassemblement non déclaré (soir) | Concorde, abords des Champs-Élysées, Hôtel de Ville | — | 2 à 5 h |
+| Rassemblements | déclaré et statique : République, Bastille, parvis de l'Hôtel de Ville, esplanade des Invalides ; non déclaré, le soir : Concorde, abords des Champs-Élysées, Hôtel de Ville | — | 2 à 5 h |
 
 ### 1.6 Compression du temps pour les durées de mission [JEU]
 
@@ -216,7 +212,6 @@ Textes d'ambiance proposés [JEU] (génériques, sans nom de personne, de parti 
 | **Street medic** (`street_medic`) | Secouristes bénévoles, « formés sur le tas » pour beaucoup ; en équipes. | Marchent dans ou près du précortège, sac au dos. | Vont vers les blessés et les personnes gazées, rincent les yeux, pansent, mettent à l'abri, remettent les cas graves aux pompiers et au SAMU (§6.4). | [S][33] |
 | **Observateur** (`observateur`) | Équipes associatives de 2 ou 3, chasuble et casque siglés. | Se présentent au dispositif, notent, filment, chronomètrent. | Restent pendant la dispersion à l'écart des manifestants ; documentent sommations, tirs, interpellations (§7). | [S][27] ; droit de rester [V][8] |
 | **Journaliste, vidéaste** (`journaliste`) | Presse, télévisions avec agents de protection, vidéastes indépendants qui diffusent en direct. | Circulent partout, devant la banderole de tête, entre les lignes. | Se portent **vers** l'incident ; pris à partie par des manifestants violents, parfois bousculés par des policiers (§7). | [V][1][8] |
-| **Équipe de liaison de la police** | Au moins deux policiers dédiés au dialogue. | Près des organisateurs, annoncent changements d'itinéraire et imminence de la dispersion. | Restent le canal de communication ; leur retrait coupe l'information. | [V][8] |
 
 ### 2.2 Qui se fait interpeller (profils réels)
 
@@ -224,23 +219,22 @@ Textes d'ambiance proposés [JEU] (génériques, sans nom de personne, de parti 
 |---|---|---|
 | Profil dominant | « Ceux que nous arrêtons sont généralement inconnus des services de renseignement. […] Ils ont, pour leur grande majorité, de 20 à 28 ans, avec un profil étudiant […]. Ils sont quasi exclusivement de nationalité française, dont un bon tiers de jeunes femmes. » | [V][1] |
 | Échantillon (Bordeaux, 85 gardes à vue) | 13 femmes, 10 mineurs, 35 personnes de 19 à 23 ans ; le plus jeune 16 ans, le plus âgé 53 ans ; presque aucun antécédent | [V][1] |
-| Majeurs | 91 % des 3 189 personnes placées en garde à vue (manifestations du printemps 2023) | [V][1] |
-| Pour comparaison, émeutes de l'été 2023 | un tiers de mineurs parmi 3 500 interpellés, moyenne d'âge 17-18 ans ; ≈ 60 % sans antécédent | [V][3] |
+| Âge | 91 % de majeurs parmi les 3 189 personnes placées en garde à vue au printemps 2023 ; pour comparaison, aux émeutes de l'été 2023 : un tiers de mineurs parmi 3 500 interpellés, moyenne d'âge 17-18 ans, ≈ 60 % sans antécédent | [V][1][3] |
 | Conséquence | Les militants aguerris sont rarement pris ; ce sont les suiveurs, moins mobiles et moins prudents, qui sont interpellés. | [V][1] |
 
 ### 2.3 Composition proposée par type de scénario [JEU]
 
-Parts en pourcentage de l'effectif de manifestants ; calées sur les ordres de grandeur vérifiés du §1.3. `volatility` déplace les suiveurs vers les radicaux.
+Parts en pourcentage de l'effectif de manifestants. Repères vérifiés : 0,5 à 1 % de manifestants « à risque » en moyenne nationale (§1.3), 3,5 % en bloc noir le 1er mai 2018, ≈ 15 % le 16 mars 2019 ; les scénarios tendus forcent volontairement le trait. `volatility` déplace les suiveurs vers les radicaux.
 
 | Profil | Marche calme | Journée nationale tendue | Samedi sans organisateur | Rassemblement spontané du soir | Soir de match |
 |---|---|---|---|---|---|
-| `pacifique` | 62 | 55 | 60 | 55 | 78 (supporters) |
+| `pacifique` | 62 | 59 | 60 | 55 | 78 (supporters) |
 | `famille` | 10 | 5 | 3 | 0 | 6 |
 | `militant` | 20 | 20 | 5 | 8 | 0 |
 | `service_ordre` | 5 | 4 | 0 | 0 | 0 |
 | `meneur` | 0,5 | 0,5 | 0,5 | 0,5 | 0 |
-| `opportuniste` (suiveur) | 2 | 10 | 20 | 25 | 10 |
-| `radical` | 0,3 | 4 | 10 | 8 | 2 |
+| `opportuniste` (suiveur) | 2 | 8 | 20 | 25 | 10 |
+| `radical` | 0,3 | 2 | 10 | 8 | 2 |
 | `pilleur` (arrive en fin) | 0,2 | 1,5 | 1,5 | 3,5 | 4 |
 | Tiers pour 1 000 manifestants | 4 journalistes, 2 observateurs, 3 street medics | 8 / 3 / 6 | 10 / 3 / 8 | 8 / 2 / 5 | 3 / 0 / 0 |
 
@@ -269,8 +263,7 @@ Parts en pourcentage de l'effectif de manifestants ; calées sur les ordres de g
 | Fin officielle de la manifestation | Après l'ordre de dispersion des organisateurs, ceux qui restent forment un attroupement (01 §2.7). | Bascule juridique : les sommations deviennent possibles. | [V][8] |
 | Arrivée des opportunistes | « à partir de dix-sept heures » ; « au début de la dispersion, un groupe a remonté l'avenue […] pour piller tous les magasins ». | Vague de `pilleur` à l'entrée en `dispersion`. | [V][1] |
 | Cible symbolique sur le parcours | Banque, publicité, bâtiment public (§3.4). | Probabilité d'action du bloc augmentée à moins de 60 m d'une cible. | [S][19] ; distance [JEU] |
-| Tombée de la nuit | Les rassemblements du soir concentrent la moitié des interpellations de la période. | Multiplicateur de volatilité après le coucher du soleil. | [V][1] ; multiplicateur [JEU] |
-| Météo | Aucune source chiffrée trouvée. | Pluie : participation et durée réduites ; chaleur : inverse. | [I] ; [JEU] |
+| Nuit et météo | Les rassemblements du soir concentrent près de la moitié des interpellations de la période. Météo : aucune source chiffrée trouvée. | Multiplicateur de volatilité après le coucher du soleil ; pluie : participation et durée réduites. | [V][1] ; météo [I] ; valeurs [JEU] |
 
 ### 3.2 Signes avant-coureurs (ce qu'un policier, un drone ou un journaliste peut voir avant les premiers jets)
 
@@ -287,16 +280,14 @@ Parts en pourcentage de l'effectif de manifestants ; calées sur les ordres de g
 | Dépavage et ramassage | Pavés descellés au pied-de-biche, chaussée « dépavée » par endroits ; fragments de mobilier, bouteilles des terrasses et des conteneurs. | 0 à 3 min | [S][38] |
 | Mobilier déplacé | Barrières de chantier et bacs roulants tirés en travers de la chaussée. | 0 à 2 min | [S][38] |
 | Journalistes repoussés | Parapluies ouverts devant les caméras, demandes d'effacer les images. | 0 à 5 min | [V][1] |
-| Le service d'ordre serre les rangs, la zone tampon s'allonge | Le cortège organisé ralentit pour se détacher du précortège. | 2 à 10 min | [E] |
-| Rideaux qui tombent | Les commerçants ferment en urgence. | 0 à 5 min | [E] |
+| Le service d'ordre serre les rangs, les rideaux tombent | Le cortège organisé ralentit pour se détacher du précortège ; les commerçants ferment en urgence. | 2 à 10 min | [E] |
 
 ### 3.3 Actions observables (niveau gameplay)
 
 | Action | Qui | Avec quoi (ramassé sur place) | Effet observable | Paramètres proposés [JEU] | Fiab. |
 |---|---|---|---|---|---|
 | Jets de projectiles | `radical`, `opportuniste` | pavés et fragments, pierres, bouteilles, morceaux de mobilier ; plus rarement boules de pétanque | Blessures à la tête (« certaine vulnérabilité des visières »), aux genoux ; vitres brisées ; les projectiles courts retombent sur d'autres manifestants. | portée 15 à 30 m, cadence 1 jet toutes les 6 à 10 s par lanceur, dispersion ± 3 m à 20 m | [V][1] ; cotes [JEU] |
-| Tirs de mortiers d'artifice | `radical`, émeutiers | tube tenu à la main ; « tirs en rafale », « individus abrités derrière des poubelles » | Projectile lumineux et sifflant en tir tendu, détonation, gerbe d'étincelles ; fait reculer une ligne, peut brûler et assourdir ; employés seulement quand le bloc est assez dense pour les faire circuler. | portée utile 30 à 60 m, 4 à 8 coups par tube, intervalle 1 à 2 s | [V][1][3] ; cotes [I] → [JEU] |
-| Engins détonants | `radical` | « matériel détonant des black blocs » | Déflagration sans effet visible ; cause de blessures auditives chez les policiers. | rayon de sursaut 15 m | [V][1] ; cote [JEU] |
+| Tirs de mortiers d'artifice, engins détonants | `radical`, émeutiers | tube tenu à la main ; « tirs en rafale », « individus abrités derrière des poubelles » | Projectile lumineux et sifflant en tir tendu, détonation, gerbe d'étincelles ; fait reculer une ligne, peut brûler et assourdir ; employés seulement quand le bloc est assez dense pour les faire circuler. Le « matériel détonant des black blocs » cause aussi des blessures auditives chez les policiers. | portée utile 30 à 60 m, 4 à 8 coups par tube, intervalle 1 à 2 s ; sursaut dans un rayon de 15 m | [V][1][3] ; cotes [I] → [JEU] |
 | Engin incendiaire lancé | `radical` (rare) | bouteille enflammée | Flaque de feu à l'impact, panique locale, brûlures, embrasement d'un véhicule ou d'une barricade. Exceptionnel en cortège urbain selon un chercheur, attesté lors d'affrontements ruraux de 2023 et dans les scénarios d'entraînement des forces. | flaque Ø 2 à 3 m pendant 20 à 40 s ; fréquence très faible hors tension maximale | [S][19] ; [V][1][4] ; cotes [JEU] |
 | Feu de poubelles | tous profils violents | bacs roulants, sacs, cartons ; fréquent pendant une grève du ramassage | Flammes de 1 à 3 m, fumée noire, chaleur ; risque de propagation aux façades et aux véhicules. 903 feux recensés à Paris en une seule journée selon le ministre. | allumage 5 à 10 s, durée 4 à 10 min, propagation à un objet voisin à moins de 1,5 m après 60 s | [V][1] ; chiffre [S][25] ; cotes [JEU] |
 | Feu de véhicule | `radical`, émeutiers | voiture, deux-roues, trottinettes, vélos en libre-service entassés (les batteries éclatent) | Brasier de 3 à 5 m, fumée noire épaisse, détonations de pneus ; 112 véhicules concernés lors d'une journée de 2018. | embrasement complet en 2 à 4 min, durée 15 à 25 min | [S][20][23][38] ; cotes [JEU] |
@@ -306,7 +297,6 @@ Parts en pourcentage de l'effectif de manifestants ; calées sur les ordres de g
 | Destruction de mobilier | tous profils violents | abribus, panneaux publicitaires, caméras, horodateurs, feux tricolores, kiosque | Verre brisé au sol (nouveaux projectiles), mâts abattus ; lors des émeutes, mâts de caméras mis à terre « de façon méthodique ». | abribus : 15 à 30 s | [S][19][38] ; [V][3] |
 | Pillage | `pilleur`, suiveurs | — | Après le bris de vitrine : entrées et sorties rapides, objets emportés à bout de bras (biens faciles à revendre) ; fuite par les rues latérales et le métro. | 20 à 60 s par personne dans la boutique | [V][1][3] ; cotes [JEU] |
 | Renvoi ou neutralisation des grenades | `radical`, suiveurs gantés | — | Palet fumant ramassé ou frappé du pied vers la ligne ; le nuage se déplace avec lui. Une réponse ministérielle évoque des grenades relancées sur les forces de l'ordre. Neutralisation (palet recouvert ou noyé) : aucune source lue, comportement demandé par le BRIEF. | fenêtre de 30 s (durée de fumée d'un palet, voir 02 §3.6) ; succès 60 % | [S][44] ; cotes [JEU] |
-| Attaque de journalistes | `radical` | — | Caméra frappée ou arrachée, équipe bousculée, images exigées. | — | [V][1] |
 | Prise à partie des secours | minorité | — | Pompiers visés pendant l'extinction (cas signalés en 2018 et 2023), à l'inverse applaudis par la foule dans d'autres cas. | — | [S][20][33] ; [V][3] |
 
 Couleurs utiles au rendu [E] : fumigène noir de ralliement `#1A1A1A` ; fumigène de cortège rouge `#D62828` ; flamme de poubelle cœur `#FFD27A`, bord `#FF7A00` ; fumée de plastique `#141414` s'éclaircissant en `#5A5A5A` ; étoiles de mortier rouge `#FF3B30`, vert `#34C759`, blanc `#FFFFFF`, or `#FFD60A`, traînée `#FFE08A` ; peinture de tag noir `#101010` ou rouge `#B3121B` ; verre brisé `#CFE3EA`.
@@ -322,8 +312,7 @@ Couleurs utiles au rendu [E] : fumigène noir de ralliement `#1A1A1A` ; fumigèn
 | Restauration rapide, agences d'intérim, grandes enseignes | « symboles du capitalisme ». | 7 | [S][19] |
 | Enseignes de luxe, grands magasins | Touchés surtout quand la foule est près des beaux quartiers (2018-2019) : boutiques et brasserie de prestige saccagées, grands magasins évacués. | 6 (10 dans les quartiers de luxe) | [S][20][23] |
 | Bâtiments publics, permanences d'élus | 179 permanences parlementaires et 259 bâtiments publics dégradés au printemps 2023. | 6 | [V][2] |
-| Chantiers | Fournissent barrières, palissades, matériaux, engins. | 5 (comme réserve de matériel) | [S][26][38] |
-| Kiosques, mobilier, deux-roues en libre-service | Combustible et matériau de barricade. | 5 | [S][23][38] |
+| Chantiers, kiosques, deux-roues en libre-service | Réserve de matériel : barrières, palissades, engins ; combustible et matériau de barricade. | 5 | [S][23][26][38] |
 | Bureaux de tabac, téléphonie, optique, alimentation, habillement | Cibles des **pilleurs** : 436 débits de tabac, ≈ 200 commerces alimentaires, ≈ 200 d'habillement, 118 opticiens en 2023. | 9 pour `pilleur`, 1 pour `radical` | [V][3] |
 | Petits commerces indépendants, habitations | Selon une politologue, les blocs ne les visent pas ; touchés par accident ou par les pilleurs. | 1 | [S][19] |
 | Monuments | Rare et retentissant : arc monumental tagué et saccagé (2018), monument commémoratif dégradé (2019). | 2 | [S][20][27] |
@@ -336,8 +325,7 @@ Couleurs utiles au rendu [E] : fumigène noir de ralliement `#1A1A1A` ; fumigèn
 | Naissance | À la dispersion, ou le soir sur appel en ligne ; des « citoyens en colère » venus du cortège sont « parfois entraînés par des individus masqués et vêtus de noir ». | [V][1] |
 | Forme | Cortège non déclaré qui « a défilé de façon erratique, renversant et incendiant des poubelles sur son passage » (jusqu'à 1 900 personnes dans un cas). | [V][1] |
 | Fragmentation | Les participants se déplacent « en plusieurs groupes très mobiles, mettant le feu ou renversant des poubelles, courant en tous sens » ; ces groupes « n'apparaissaient pas coordonnés ni structurés ». | [V][1] |
-| Taille des groupes | De quelques dizaines à 150-300 personnes ; à Paris, des petits groupes ont cheminé pendant plusieurs heures en incendiant des dizaines de poubelles. | [V][1] ; [S][25] |
-| Itinéraires | Un groupe remonte les Grands Boulevards vers République en brûlant poubelles et trottinettes, un autre gagne les Halles (2019). | [S][23] |
+| Taille des groupes | De quelques dizaines à 150-300 personnes ; à Paris, des petits groupes ont cheminé pendant plusieurs heures en incendiant des dizaines de poubelles ; en 2019, un groupe remonte les Grands Boulevards vers République en brûlant poubelles et trottinettes, un autre gagne les Halles. | [V][1] ; [S][23][25] |
 | Regroupement final | Les plus décidés se rejoignent sur un carrefour et dressent « une barricade enflammée » (≈ 150 personnes). | [V][1] |
 | Difficulté policière | Pas d'organisateur à qui parler ; « Ces cortèges sauvages se sont dispersés dans les rues de la capitale en plusieurs endroits. Ils ont commis de nombreuses exactions. » ; nécessité d'unités très mobiles. | [V][1] |
 | Fin de manifestation : trois invariants | pillages par des jeunes « eux aussi habillés en noir » ; « retrait rapide » des militants aguerris ; « maintien sur les lieux » des plus déterminés. | [V][1] |
@@ -418,8 +406,7 @@ Journée extrême de référence (1er décembre 2018, Paris) : 7 940 grenades la
 | Effet indifférencié | « si l'effet d'une grenade lacrymogène peut toucher de manière indifférenciée un groupe de manifestants, ceux-ci ont pour point commun d'avoir voulu s'inscrire et se maintenir dans l'illégalité » (position du ministère). | [V][5] |
 | Ceux qui partent sont encore touchés | « une exposition résiduelle au produit lacrymogène peut être subie par des manifestants qui quittent la zone ». | [V][5] |
 | Le carré de tête peut être gazé | Deux cas recensés par les organisateurs au printemps 2023. | [V][1] |
-| Sans vent | Les fumées restent sur place et se concentrent (témoignage). | [S][44] |
-| Lieux clos | L'usage dans ou près d'une station de métro est dénoncé pour ses effets sur les passants ; le ministère dit l'emploi « très encadré en milieu fermé ». | [S][44] ; [V][5] |
+| Sans vent, lieux clos | Sans vent, les fumées restent sur place et se concentrent (témoignage). L'usage dans ou près d'une station de métro est dénoncé pour ses effets sur les passants ; le ministère dit l'emploi « très encadré en milieu fermé ». | [S][44] ; [V][5] |
 | Moindre effet sur le bloc | Lunettes et masques ; d'où l'usage accru de grenades assourdissantes contre les cortèges radicaux (02 §3.1). | [V][8] |
 | Retour de gaz sur la troupe | Aucune source chiffrée ; les agents portent le masque (02). | [I] |
 
@@ -448,8 +435,7 @@ Journée extrême de référence (1er décembre 2018, Paris) : 7 940 grenades la
 |---|---|---|
 | Rendement réel | ≈ 1 interpellation pour 1 000 manifestants ; à Paris, 1 680 interpellations et 1 575 gardes à vue en sept semaines ; 951 places de garde à vue dans les commissariats parisiens. | [V][1] |
 | Difficulté | Auteur masqué, changé, noyé dans la foule ; fiches d'interpellation incomplètes rédigées « sur le trottoir, au milieu du brouhaha ». | [V][1] |
-| Solution recommandée | Caméras-piétons, équipes de captation vidéo dédiées, interpellation différée grâce aux images (« découpler constatation de l'infraction et interpellation »). | [V][1][4] |
-| Pratique étrangère | En Allemagne, chaque interpellation est suivie de l'intervention d'une équipe de dialogue qui l'explique à la foule. | [S][15] |
+| Solution recommandée | Caméras-piétons, équipes de captation vidéo dédiées, interpellation différée grâce aux images (« découpler constatation de l'infraction et interpellation »). En Allemagne, chaque interpellation est suivie de l'intervention d'une équipe de dialogue qui l'explique à la foule. | [V][1][4] ; [S][15] |
 | Unités motorisées parisiennes | Créées en 2019 : binômes à moto « intervenant à Paris lors de manifestations violentes » ; ont par exemple interpellé dans le métro des pilleurs après une dispersion. | [V][1] |
 | Controverse | Une pétition demandant leur dissolution a dépassé 100 000 signatures en 2023 ; le préfet de police a jugé des comportements filmés « inacceptables » tout en écartant la dissolution ; des avocats reprochent aux unités non spécialisées de créer « un désordre au lieu d'une désescalade » ; la commission d'enquête juge ne pas pouvoir dire que ces comportements sont représentatifs. | [S][42] ; [V][1] |
 
@@ -520,8 +506,7 @@ Source : synthèse d'une organisation non gouvernementale à partir du projet eu
 
 | Grandeur | Valeur | Fiab. |
 |---|---|---|
-| Vitesse désirée pour sortir d'un lieu | ≈ 0,6 m/s détendu ; ≈ 1 m/s normal ; jusqu'à 1,5 m/s nerveux | [A][12] |
-| Vitesse désirée en panique | peut dépasser 5 m/s (jusqu'à 10 m/s) | [A][12] |
+| Vitesse désirée pour sortir d'un lieu | ≈ 0,6 m/s détendu ; ≈ 1 m/s normal ; jusqu'à 1,5 m/s nerveux ; en panique, peut dépasser 5 m/s (jusqu'à 10 m/s) | [A][12] |
 | Effet « plus vite, c'est plus lent » | Au-dessus de 1,5 m/s de vitesse désirée, bouchon en arche devant une issue étroite : l'évacuation ralentit. | [A][12] |
 | Seuil de blessure dans la simulation de référence | pression de 1 600 N par mètre, atteinte pour une vitesse désirée d'environ 5 m/s ; des pressions de foule réelles jusqu'à 4 450 N/m sont citées | [A][12] |
 | Paramètres du piéton simulé | masse 80 kg ; largeur d'épaules 0,5 à 0,7 m ; temps d'accélération 0,5 s | [A][12] |
@@ -640,8 +625,7 @@ Contagion : toutes les 2 s, chaque personne rapproche sa `peur` et sa `colere` d
 | 1er mai 2018 (Paris) | 3 blessés très légers | 1 blessé très léger | [V][6] |
 | 1er décembre 2018 (Paris) | 110 | 23, plus 211 CRS « contusionnés » | [S][20] |
 | 16 mars 2019 (Paris) | 42, plus 11 blessés légers dans l'incendie d'un immeuble | 17 policiers, 1 pompier | [S][23] |
-| Mouvement de 2018-2019 (France, un an) | ≈ 2 500 selon le ministère | ≈ 1 800 selon le ministère | [S][37] |
-| Blessés graves du même mouvement | 17 à 22 personnes ayant perdu un œil et 4 à 5 une main, selon des décomptes de journalistes et de collectifs | — | [S][37] |
+| Mouvement de 2018-2019 (France, un an) | ≈ 2 500 selon le ministère ; parmi eux, 17 à 22 personnes ayant perdu un œil et 4 à 5 une main selon des décomptes de journalistes et de collectifs | ≈ 1 800 selon le ministère | [S][37] |
 | Émeutes de l'été 2023 (France, 9 nuits) | au moins une quarantaine de blessés graves ; 2 morts liés aux émeutes | 782 (674 policiers, 108 gendarmes) et 3 pompiers | [V][3] |
 | Manifestations de 2016 (Paris) | ≈ 1 000 blessés selon les secouristes bénévoles | — | [S][15] |
 | Journalistes (six premiers mois du mouvement de 2018-2019) | au moins 54 blessés, dont 12 sérieusement, en 120 incidents | — | [S][32] |
@@ -656,8 +640,7 @@ Contagion : toutes les 2 s, chaque personne rapproche sa `peur` et sa `colere` d
 | Forces de l'ordre | Brûlures, contusions, fractures (jusqu'à 30 jours d'incapacité pour un pavé reçu) | Engins incendiaires, mortiers, pavés | [V][1] ; brûlures [E] |
 | Manifestants | Tête : plaies du cuir chevelu, traumatismes crâniens, commotions | Coups, projectiles de tous bords, chutes (causes non détaillées par le rapport) | [V][1] ; [S][33] |
 | Manifestants, journalistes | Œil | Tir de lanceur de balles de défense, éclat de grenade | [S][20][32][37] |
-| Manifestants | Main, pied | Grenade ramassée ou explosant au sol | [S][37] |
-| Manifestants | Plaies multiples (dos) | Impacts attribués à une grenade de désencerclement | [S][33] |
+| Manifestants | Main, pied ; plaies multiples (dos) | Grenade ramassée ou explosant au sol ; impacts attribués à une grenade de désencerclement | [S][33][37] |
 | Manifestants | Yeux et voies respiratoires irrités, malaises | Gaz lacrymogène ; cohue | [V][5] ; [S][33] |
 | Manifestants et passants | Contusions par projectiles « amis » | « blessures légères causées, en général […], par d'autres manifestants à l'occasion notamment de jets de projectiles » | [V][1] |
 | Riverains | Blessures légères, évacuation en urgence | Feu de poubelles ou de commerce gagnant l'immeuble | [V][2] ; [S][23] |
@@ -685,10 +668,8 @@ Contagion : toutes les 2 s, chaque personne rapproche sa `peur` et sa `colere` d
 | Aspect | Constat | Fiab. |
 |---|---|---|
 | Qui | Bénévoles, parmi lesquels des étudiants et des soignants, « formés sur le tas » ou par ateliers ; regroupés en collectifs, répartis en équipes par quartier le jour même. | [S][33] |
-| Tenue | Brassard ou badge blanc à croix rouge, casque, masque, parfois blouse marquée (voir 02 §6.2). | [S][33] |
-| Matériel | Acheté en pharmacie ou donné : sérum physiologique, compresses, pansements, masques. | [S][33] |
-| Gestes observables | Distribuer et verser du sérum dans les yeux ; comprimer une plaie, panser ; asseoir et rassurer ; mettre à l'abri dans un hall, un café ou un hôtel servant de poste de soins improvisé ; appeler et guider les secours. | [S][33] |
-| Répartition des tâches | Certains prennent les blessures sérieuses, d'autres les personnes aveuglées par le gaz. | [S][33] |
+| Tenue et matériel | Brassard ou badge blanc à croix rouge, casque, masque, parfois blouse marquée (voir 02 §6.2) ; matériel acheté en pharmacie ou donné : sérum physiologique, compresses, pansements, masques. | [S][33] |
+| Gestes observables | Distribuer et verser du sérum dans les yeux ; comprimer une plaie, panser ; asseoir et rassurer ; mettre à l'abri dans un hall, un café ou un hôtel servant de poste de soins improvisé ; appeler et guider les secours. Certains prennent les blessures sérieuses, d'autres les personnes aveuglées par le gaz. | [S][33] |
 | Limites | Les blessés graves sont remis au SAMU et aux pompiers ; critiques internes sur le consentement des personnes soignées. | [S][33] |
 | Rapports avec la police | Tendus : des secouristes disent être gênés ou bousculés. Aucun statut trouvé dans les textes lus. | [S][33] ; statut [I] |
 
@@ -719,8 +700,7 @@ Séquence d'extraction proposée [JEU] : (1) signalement radio « blessé au sol
 |---|---|---|
 | Droits des journalistes | Circuler dans le dispositif, rester pendant la dispersion s'ils ne peuvent être confondus avec les manifestants, porter des protections ; on ne peut ni les empêcher de filmer ni saisir leur matériel (01 §2.5). | [V][8] |
 | Où ils se placent | Devant la banderole de tête au départ ; puis au contact du précortège et entre les deux lignes dès les premiers incidents ; « un journaliste doit être à bonne distance pour le comprendre et le restituer ». | [V][1] ; placement [E] |
-| Menace venant des violents | Une chaîne recense 25 incidents en sept semaines : insultes, menaces, vols, coups ; un caméraman jeté à terre et frappé, caméra perdue ; parapluies ouverts devant l'objectif ; exigence d'effacer les images. | [V][1] |
-| Mesures des rédactions | Équipes réduites, agents de protection, matériel sans logo, repli quand la menace monte. | [V][1] |
+| Menace venant des violents | Une chaîne recense 25 incidents en sept semaines : insultes, menaces, vols, coups ; un caméraman jeté à terre et frappé, caméra perdue ; parapluies ouverts devant l'objectif ; exigence d'effacer les images. Réponse des rédactions : équipes réduites, agents de protection, matériel sans logo, repli quand la menace monte. | [V][1] |
 | Menace venant des forces | Journalistes identifiés touchés par des canons à eau, des tirs ou repoussés, selon une organisation de défense de la presse ; un incident imputé aux forces sur 25 pour la chaîne citée. | [S][32] ; [V][1] |
 | Vidéastes indépendants | Les « street journalistes », « reporters de rue qui ne sont affiliés à aucun média et ne disposent pas toujours d'une carte de presse », posent la question de l'identification. | [V][1] |
 | Regard des policiers | Les publics incertains qui se rassemblent autour d'eux pour filmer « semblent les agacer plus que des manifestants hostiles » ; leur réflexe de les éloigner est jugé erroné par les chercheurs. | [V][4] |
@@ -773,13 +753,10 @@ Une vidéo n'existe que si un personnage filmait (animation `film` ou `photo`) a
 
 | Événement | Chiffres | Fiab. |
 |---|---|---|
-| Émeutes du 27 juin au 7 juillet 2023 | 672 communes ; 12 031 véhicules et 2 508 bâtiments incendiés ou dégradés (273 des forces de l'ordre, 105 mairies, 243 écoles) ; ≈ 1 500 commerces vandalisés ou pillés ; ≈ 1 milliard d'euros ; 45 000 policiers et gendarmes mobilisés ; ≈ 50 000 émeutiers estimés | [V][3] |
-| Deux phases | « émotionnelle » (colère dirigée contre les forces et les bâtiments publics), puis à partir du 30 juin « insurrectionnelle » : destructions et pillages généralisés ; décrue aussi soudaine que l'embrasement | [V][3] |
-| Mortiers | Stocks constitués à l'avance ; une saisie de 10 000 pièces en une fois ; tirs « à bout portant » sur une élue prise dans un guet-apens | [V][3] |
-| Droit | Vente aux non-professionnels interdite depuis 2021 (jusqu'à 6 mois d'emprisonnement et 7 500 € d'amende) ; l'usage contre des agents est assimilé à l'usage d'une arme | [S][36] |
+| Émeutes du 27 juin au 7 juillet 2023 | 672 communes ; 12 031 véhicules et 2 508 bâtiments incendiés ou dégradés (273 des forces de l'ordre, 105 mairies, 243 écoles) ; ≈ 1 500 commerces vandalisés ou pillés ; ≈ 1 milliard d'euros ; 45 000 policiers et gendarmes mobilisés ; ≈ 50 000 émeutiers estimés. Deux phases : « émotionnelle » (colère contre les forces et les bâtiments publics), puis à partir du 30 juin « insurrectionnelle » (destructions et pillages généralisés) ; décrue aussi soudaine que l'embrasement | [V][3] |
+| Mortiers | Stocks constitués à l'avance ; une saisie de 10 000 pièces en une fois ; tirs « à bout portant » sur une élue prise dans un guet-apens. Vente aux non-professionnels interdite depuis 2021 (jusqu'à 6 mois d'emprisonnement et 7 500 € d'amende) ; l'usage contre des agents est assimilé à l'usage d'une arme | [V][3] ; droit [S][36] |
 | Demi-finale puis finale d'une coupe du monde (décembre 2022) | ≈ 25 000 puis ≈ 35 000 personnes sur les Champs-Élysées ; 14 000 policiers et gendarmes en France dont 2 750 à Paris pour la finale ; 227 interpellations en France dont 47 dans l'agglomération parisienne ; bouteilles et artifices contre les forces, mortiers sur un véhicule de CRS | [S][30] |
-| Victoire d'un club parisien en finale européenne (31 mai 2025) | 559 à 570 interpellations en France en 48 h, dont 491 à Paris ; 1 à 2 morts et ≈ 200 blessés selon les sources ; véhicules incendiés près du stade ; périphérique envahi ; le préfet de police reconnaît un « échec » | [S][29] |
-| Seconde victoire (30 mai 2026) | 780 interpellations et 219 blessés annoncés par le ministre ; non recoupé | [S][29] |
+| Victoire d'un club parisien en finale européenne (31 mai 2025) | 559 à 570 interpellations en France en 48 h, dont 491 à Paris ; 1 à 2 morts et ≈ 200 blessés selon les sources ; véhicules incendiés près du stade ; périphérique envahi ; le préfet de police reconnaît un « échec ». Seconde victoire, 30 mai 2026 : 780 interpellations et 219 blessés annoncés par le ministre (non recoupé) | [S][29] |
 | Nuit du 31 décembre (Champs-Élysées) | 10 000 policiers et gendarmes annoncés à Paris pour le 31 décembre 2025 ; concert de l'avenue annulé pour limiter le risque de bousculade ; plus de 1 000 véhicules incendiés et plus de 500 interpellations en France ; affluence sur l'avenue : non trouvée | [S][31] |
 
 > **Ce que le jeu doit reproduire — Nuit et fêtes**
@@ -837,4 +814,90 @@ Tension globale proposée : `tension = 0,6 × moyenne des tensions locales pond�
 
 `volatility` multiplie tous les Δ positifs par `0,5 + volatility` et règle la date d'apparition du signal du bloc (entre 20 % et 70 % de la phase `cortege`).
 
+> **Ce que le jeu doit reproduire — Directeur de tension**
+> - La tension se **gagne par événements localisés** et se **perd lentement** ; chaque variation porte un motif lisible dans le compte rendu de fin de mission.
+> - Un même acte policier a deux tarifs (justifié et annoncé, ou non) : c'est la traduction chiffrée des §4 et §5.
+
 ---
+
+## Sources
+
+« Lu » = texte lu pendant cette recherche (au moins les passages cités). « Résumé » = contenu connu par le résumé d'un moteur de recherche ou par une page partiellement lisible : à recouper avant tout usage public. Les noms de personnes n'apparaissent que dans des titres d'ouvrages ou d'articles.
+
+### Sources primaires et institutionnelles
+
+1. Assemblée nationale, rapport n° 1824 (16e législature), tome 1, commission d'enquête sur les groupuscules auteurs de violences à l'occasion des manifestations et rassemblements intervenus entre le 16 mars et le 3 mai 2023, novembre 2023 — https://www.assemblee-nationale.fr/dyn/16/rapports/cegrvimani/l16b1824-t1_rapport-enquete (PDF : même adresse suivie de `.pdf`). **Lu** (pages 21 à 52, 76 à 82, 113 à 140).
+2. Assemblée nationale, dossier de presse du même rapport, « Manifester en liberté : lutter efficacement contre les violences », 14 novembre 2023 — https://www.assemblee-nationale.fr/dyn/contenu/telechargement/712057/file/DP%20final%20groupuscules.pdf. **Lu**.
+3. Sénat, rapport d'information n° 521 (2023-2024), « Émeutes de juin 2023 : comprendre, évaluer, réagir », 9 avril 2024 — synthèse : https://www.senat.fr/rap/r23-521/r23-521-syn.pdf ; rapport : https://www.senat.fr/rap/r23-521/r23-5211.pdf. **Lu** (synthèse ; pages 64 à 70 du rapport).
+4. Défenseur des droits, « Désescalade de la violence et gestion des foules protestataires », synthèse d'étude, 2021 — https://www.defenseurdesdroits.fr/sites/default/files/2023-07/ddd-etude-desescalade-violence-20211129.pdf. **Lu**.
+5. Assemblée nationale, question écrite n° 31283 (15e législature) sur les gaz lacrymogènes et réponse du ministère de l'intérieur — https://www.assemblee-nationale.fr/dyn/15/questions/QANR5L15QE31283. **Lu** (la réponse est [V] ; le récit contenu dans la question est [S]).
+6. Sénat, question écrite n° 04986 (2018) sur le 1er mai 2018 et réponse du ministère de l'intérieur — https://www.senat.fr/questions/base/2018/qSEQ180504986.html. **Lu**.
+7. Assemblée nationale, questions écrites de 2013 sur la méthode de comptage de la préfecture de police — https://questions.assemblee-nationale.fr/dyn/14/questions/QANR5L14QE16696.pdf. **Résumé**.
+8. Dossiers voisins de ce dépôt et leurs propres sources (code de la sécurité intérieure, schéma national du maintien de l'ordre de décembre 2021, instructions, Cour des comptes) : `docs/research/01-doctrine-cadre-legal.md`, `docs/research/02-materiel-tenues-vehicules.md`. **Lu**.
+
+### Publications scientifiques, médicales et études
+
+9. Université du Sussex, « Improving crowd management practices » (résumé des travaux de J. Drury, S. Reicher et C. Stott sur le modèle ESIM), mai 2014 — https://www.sussex.ac.uk/research/documents/rcs-drury-press-ready.pdf. **Lu**.
+10. The Open University, « Social identities and the dynamics of crowds » — https://www.open.edu/openlearn/health-sports-psychology/social-psychology-and-politics/content-section-3.2. **Lu**.
+11. C. Stott et S. Reicher, « Crowd action as intergroup process: introducing the police perspective » (1998) — https://research-portal.st-andrews.ac.uk/en/publications/crowd-action-as-intergroup-process-introducing-the-police-perspec/. **Résumé**.
+12. D. Helbing, I. Farkas, T. Vicsek, « Simulating dynamical features of escape panic », *Nature* 407 (2000) — https://ar5iv.labs.arxiv.org/html/cond-mat/0009448. **Lu** (valeurs numériques).
+13. Diagramme fondamental des piétons de U. Weidmann, cité dans « Pedestrian Traffic: on the Quickest Path » — https://arxiv.org/pdf/0901.0170 ; revue des vitesses et densités — https://transp-or.epfl.ch/documents/technicalReports/NikBieFar_PedMixFD_2015.pdf. **Résumé**.
+14. G. K. Still, densités de foule — https://gkstill.com/Support/crowd-density/index.html (page illisible par l'outil) ; résumés : https://eiai.ie/crowd-risk-analysis-and-crowd-safety/ et https://riskex.com/when-is-a-crowd-likely-to-become-dangerous. **Résumé**.
+15. ACAT-France, note sur les pratiques et conséquences du maintien de l'ordre (2017), dont la synthèse du modèle européen « KFCD » — https://www.acatfrance.fr/app/uploads/2024/10/pratiques-consequences-maintien-ordre-acat-france-2017.pdf. **Lu** (organisation non gouvernementale).
+16. O. Fillieule, « Un maintien de l'ordre à la dérive » (2023) — https://france.attac.org/IMG/pdf/fillieule-possibles.pdf. **Lu** (texte d'un chercheur, point de vue critique assumé).
+17. Manuel MSD, « Agents chimiques de lutte anti-émeute » — https://www.msdmanuals.com/fr/accueil/l%C3%A9sions-et-intoxications/armes-de-destruction-massive/agents-chimiques-de-lutte-anti-%C3%A9meute. **Lu**.
+18. Office québécois de la langue française, fiche « proxémique » (distances de E. T. Hall) — https://vitrinelinguistique.oqlf.gouv.qc.ca/fiche-gdt/fiche/8462671/proxemique. **Résumé**.
+
+### Presse, encyclopédies, organisations
+
+19. Wikipédia, « Black bloc » — https://fr.wikipedia.org/wiki/Black_bloc. **Lu** (premiers 100 000 caractères).
+20. Wikipédia, « Acte III du mouvement des Gilets jaunes » — https://fr.wikipedia.org/wiki/Acte_III_du_mouvement_des_Gilets_jaunes. **Lu** (première partie). Pompiers pris à partie : Europe 1 — https://www.europe1.fr/node/280729. **Résumé**.
+21. Wikipédia, « Nasse (maintien de l'ordre) » — https://fr.wikipedia.org/wiki/Nasse_(maintien_de_l%27ordre). **Lu**.
+22. Public Sénat, « “Black blocs” au défilé du 1er Mai : “On ne pouvait pas intervenir” » — https://www.publicsenat.fr/actualites/politique/black-blocs-au-defile-du-1er-mai-on-ne-pouvait-pas-intervenir-85526. **Lu**.
+23. Public Sénat, « “Gilets jaunes” : un acte 18 marqué par un fort regain de violences à Paris » — https://www.publicsenat.fr/article/politique/gilets-jaunes-un-acte-18-marque-par-un-fort-regain-de-violences-a-paris-139269. **Lu**.
+24. 1er mai 2019 : Public Sénat — https://www.publicsenat.fr/actualites/politique/1er-mai-forte-mobilisation-en-france-et-violences-contenues-a-paris-140751 ; Tendance Ouest (AFP) — https://www.tendanceouest.com/actualite-320573-indignation-et-confusion-apres-l-intrusion-a-la-pitie-salpetriere. **Résumé**.
+25. 23 mars 2023 : Le Temps — https://www.letemps.ch/articles/heurts-incendies-france-apres-forte-mobilisation-contre-reforme-retraites ; Public Sénat — https://www.publicsenat.fr/actualites/societe/nouvelle-journee-de-mobilisation-contre-la-reforme-des-retraites-le-point-sur-la ; dépêche AFP reprise par Arab News — https://www.arabnews.com/node/2274566/amp. **Résumé**.
+26. 16 mars 2023 : Politis — https://www.politis.fr/articles/2023/03/retraites-du-49-3-a-la-colere-de-la-concorde-retour-sur-24-heures-de-feu/ ; arrêté de la préfecture de police reproduit par une association — https://www.ldh-france.org/wp-content/uploads/2023/04/3-arrete-du-20-mars-2023.pdf ; Blick — https://www.blick.ch/fr/monde/france/le-gouvernement-peut-tomber-colere-apres-le-49-3-depot-de-deux-motions-de-censure-id18410443.html. **Résumé**.
+27. 16 novembre 2019 et observateurs : rapport de l'Observatoire parisien des libertés publiques — https://www.ldh-france.org/wp-content/uploads/2019/04/Rapport-16-novembre-2019-La-stratégie-de-la-nasse-contre-le-droit-de-manifester.pdf ; Reporterre — https://reporterre.net/Un-rapport-fustige-la-strategie-du-maintien-de-l-ordre-lors-du-premier-anniversaire-des ; Connexion France — https://www.connexionfrance.com/news/gilets-jaunes-anniversary-sparks-unrest-in-france/427591 ; entraves aux observateurs — https://www.ldh-france.org/wp-content/uploads/2025/07/CP-LDH-entraves-observations.pdf. **Résumé** (pages non lisibles par l'outil).
+28. 14 juin 2016 : communiqué du Sénat — https://www.senat.fr/presse/cp20160615.html ; Universalis — https://www.universalis.fr/evenement/14-29-juin-2016-poursuite-de-la-contestation-de-la-loi-travail/ ; question au gouvernement — https://questions.assemblee-nationale.fr/dyn/14/questions/QANR5L14QG4087.pdf. **Résumé**.
+29. Fêtes de victoire sportive de 2025 et 2026 : franceinfo — https://www.franceinfo.fr/sports/foot/ligue-des-champions/finale/victoire-du-psg-en-ligue-des-champions-le-prefet-de-police-de-paris-reconnait-un-echec-apres-les-debordements_7287393.html (**lu**) ; La Nouvelle Tribune — https://lanouvelletribune.info/2026/05/france-des-affrontements-a-paris-apres-la-finale-de-la-ldc-plus-de-70-interpellations/ ; IBTimes — https://www.ibtimes.co.uk/violence-erupts-france-psg-champions-league-victory-1799964. **Résumé**.
+30. Coupe du monde 2022 : question écrite n° 4735 — https://www.assemblee-nationale.fr/dyn/16/questions/QANR5L16QE4735.pdf ; DH — https://www.dhnet.be/actu/monde/2022/12/19/227-interpellations-en-france-en-marge-de-la-finale-BQNHLGZWUJDNJFDWT46YPYIEPQ/. **Résumé**.
+31. Nuit du 31 décembre : gendarmerie nationale — https://www.gendarmerie.interieur.gouv.fr/gendinfo/actualites/2025/nuit-de-la-saint-sylvestre-45-000-gendarmes-mobilises-pour-une-fete-en-securite ; Brussels Signal — https://brusselssignal.eu/2025/12/france-to-deploy-10000-security-forces-in-paris-to-deter-new-years-eve-riots ; La Gazette France — https://www.lagazettefrance.fr/article/nouvel-an-plus-de-1-000-vehicules-brules-mais-des-violences-urbaines-limitees. **Résumé**.
+32. Reporters sans frontières — https://rsf.org/fr/les-journalistes-pris-pour-cible-lors-des-mobilisations-sociales-en-france ; https://rsf.org/actualites/violences-policieres-rsf-depose-plainte-contre-x-paris-avec-13-journalistes. **Résumé**.
+33. Street medics : CIDJ, 5 novembre 2026 — https://www.cidj.com/s-engager/s-engager-pour-une-cause/sur-le-terrain-les-jeunes-street-medics-portent-secours-aux-manifestants-blesses (**lu**) ; Politis, 17 octobre 2026 — https://www.politis.fr/articles/2026/10/manifestations-du-17-octobre-cest-la-convergence-des-coleres-aujourdhui/ (**lu**) ; Slate — https://www.slate.fr/story/119445/street-medics-indispensables-manifestation et https://www.slate.fr/story/173433/street-medics-secouristes-violences-policieres-utilite-publique-militantisme-manifestation-gilets-jaunes (**résumé**).
+34. Octobre 2026 : Brut — https://www.brut.media/fr/articles/mobilisations-du-17-octobre-855-personnes-interpellees-a-paris (**lu**) ; Euronews — https://fr.euronews.com/2026/10/25/manifestations-en-france-1-314-interpellations-53-membres-des-forces-de-lordre-blesses-sam (**lu**) ; communiqué du ministère de l'intérieur du 24 octobre 2026 — https://www.interieur.gouv.fr/actualites/communiques-de-presse/bilan-de-journee-de-mobilisation-nationale-du-24-octobre-2026 (**non lisible**, erreur 403).
+35. Comptage indépendant : Ozap — https://www.ozap.com/actu/reforme-des-retraites-qu-est-ce-que-le-cabinet-occurrence-qui-compte-le-nombre-de-manifestants-pour-les-medias/627323 ; entretien repris par L'Avenir — https://www.lavenir.net/cnt/dmf20220130_01658638/il-y-avait-1-551-manifestants-et-on-les-a-comptes. **Résumé**.
+36. Mortiers d'artifice : Banque des territoires — https://www.banquedesterritoires.fr/decret-anti-mortiers-symbole-de-lincapacite-faire-respecter-la-loi. **Résumé**.
+37. Bilans du mouvement de 2018-2019 : Reporterre — https://reporterre.net/Le-terrible-bilan-de-deux-mois-de-violences-policieres ; Universalis — https://www.universalis.fr/encyclopedie/gilets-jaunes/4-la-repression-du-mouvement/. **Résumé**.
+38. Dégradations de voirie et barricades : L'Info durable (AFP) — https://www.linfodurable.fr/paris-stupeur-et-grand-nettoyage-au-lendemain-de-la-flambee-de-violences-8028 et https://www.linfodurable.fr/gilets-jaunes-paris-chaos-sur-les-champs-elysees-7654 ; Sud Radio (2026) — https://www.sudradio.fr/societe/a-paris-malgre-le-chaos-des-manifestants-determines-a-se-faire-entendre. **Résumé**.
+39. Canons à eau : Amnesty International — https://www.amnesty.nl/content/uploads/2024/03/Les-canons-a-eau.pdf. **Résumé**.
+40. Cortège de tête en 2016 : Politis — https://www.politis.fr/articles/2016/05/loi-travail-la-pire-des-choses-est-daccepter-sans-se-battre-34718 ; Tendance Ouest (AFP) — https://www.tendanceouest.com/actualite-136841-paris-afp-organises-equipes-enhardis-qui-sont-les-casseurs. **Résumé**.
+41. Services d'ordre et parcours : décision du tribunal administratif de Paris (décembre 2025) — https://www.doctrine.fr/d/TA/Paris/2025/TAD95C5DE11336BBBBAB0A ; Public Sénat — https://www.publicsenat.fr/actualites/politique/fete-a-macron-samedi-2000-membres-des-forces-de-l-ordre-mobilises-85655. **Résumé**.
+42. Unités motorisées : LCP — https://lcp.fr/actualites/brav-m-une-petition-qui-demande-leur-dissolution-franchit-le-cap-des-100000-signatures ; Europe 1 — https://www.europe1.fr/node/758906. **Résumé**.
+43. 8 décembre 2018 : L'Avenir — https://www.lavenir.net/fil-info/belgiqueetmonde/2018/12/09/gilets-jaunes-un-total-de-1082-interpellations-samedi-a-paris-5WAXNQELSJB2JIZUGTMJTCCAB4/ ; bilan du ministère (**non lisible**, erreur 403) — https://www.interieur.gouv.fr/fr/Archives/Archives-des-actualites/2018-Actualites/Rassemblements-du-8-decembre-le-bilan.
+44. Gaz lacrymogène, témoignages et questions : Reporterre — https://reporterre.net/Les-gaz-lacrymogenes-dangereux-a-long-terme-Des-manifestants-temoignent ; question écrite n° 17735 — https://www.assemblee-nationale.fr/dyn/15/questions/QANR5L15QE17735.pdf ; Futura — https://www.futura-sciences.com/sante/actualites/corps-humain-effets-secondaires-gaz-lacrymogenes-62943/. **Résumé**.
+
+## Points incertains
+
+### Non trouvé (aucune source exploitable) — valeurs [JEU] à valider
+
+1. **Vitesse de marche d'un cortège** : aucune mesure publiée ; 1,1 km/h est déduit d'un seul parcours (longueur estimée à ± 15 %).
+2. **Densité réelle dans un cortège** : déduite par calcul ; les seuils de danger viennent de résumés de la littérature, pas d'un texte relu.
+3. **Distances que les gens gardent face à une ligne de policiers**, **portée d'un jet à la main**, **portée et cadence d'un mortier d'artifice**, **vitesses de fuite par profil**, **vitesse d'un policier équipé** : rien de chiffré ; toutes les valeurs du §3.3 et du §5.5 sont des propositions (seule la vitesse désirée de plus de 5 m/s en panique vient d'un article scientifique).
+4. **Géométrie des manœuvres** (bond offensif, charge, vague de refoulement) : non décrite en source ouverte (déjà signalé dans le dossier 01).
+5. **Retour de gaz sur la troupe**, effet du vent : aucun document chiffré ; règles du §4.3 proposées.
+6. **Neutralisation des palets lacrymogènes** par les manifestants : aucune source lue ; seul le renvoi est attesté par un résumé de réponse ministérielle.
+7. **Comportement des touristes** et **effet de la météo** sur la participation : aucune source.
+8. **Dispositif de secours de la brigade de sapeurs-pompiers en manifestation** (effectifs, point de regroupement des victimes) : non trouvé ; la séquence d'extraction du §6.5 est une proposition.
+9. **Affluence sur les Champs-Élysées la nuit du 31 décembre** et bilan parisien de cette nuit : non trouvés. **Organisation interne des street medics** (binômes, radio, tri) : seulement des reportages ; les brochures militantes n'ont pas pu être lues.
+10. **Tous les coefficients** du §5.5, du §7 (image publique) et du §10 : conception pure, à régler par essais de jeu.
+
+### Sources divergentes ou fragiles
+
+11. **Comptages** : les chiffres de la préfecture, des organisateurs et du comptage indépendant diffèrent d'un facteur 3 à 10 ; le tableau du §1.3 retient ceux du ministère.
+12. **Bilans d'une même journée** : feux du 23 mars 2023 à Paris, 903 selon le ministre, 140 recensés vers 22 h selon un média, 200 selon un autre ; interpellations du 16 mars 2023, 292 dans un arrêté préfectoral, 256 gardes à vue selon le parquet, 61 dans un premier bilan du soir ; interpellations du 1er mai 2018, 283 selon la réponse ministérielle, ≈ 200 dans les premiers bilans de presse.
+13. **Totaux qui ne tombent pas juste** : le rapport parlementaire annonce 1 518 blessés parmi les forces mais détaille 1 471 + 48 ; l'encerclement de Hambourg (1986) dure 9 heures selon une source, 13 heures selon une autre.
+14. **Fêtes sportives de 2025 et 2026** et **manifestations d'octobre 2026** : presse et bilans provisoires seulement ; le communiqué officiel n'a pas pu être lu. À utiliser comme inspiration, pas comme référence chiffrée.
+15. **Nombre de personnes ayant perdu un œil ou une main en 2018-2019** : décomptes militants et journalistiques (17 à 22 ; 4 à 5), non officiels.
+16. **Lecture des événements** : le rapport parlementaire, l'étude du Défenseur des droits, les organisations non gouvernementales et les chercheurs ne s'accordent pas sur la part de responsabilité de la doctrine policière dans l'escalade ; le jeu doit rester neutre et laisser les deux mécanismes jouer (provocation par les violents, radicalisation par la force indistincte).
+17. **Wikipédia** (sources 19 à 21) : lu en partie seulement ; chiffres à recouper avec leurs sources d'origine avant tout affichage dans une encyclopédie en jeu.

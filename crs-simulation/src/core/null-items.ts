@@ -7,6 +7,7 @@ import type {
   InteractionOption, InteractVerb, ItemDef, ItemId, ItemStack, Person, PersonInit, PersonKind, PolicePoste,
   ProtestProfile, UseResult,
 } from './contracts';
+import { truncate } from './arrays';
 
 // ───────────────────────────── actions ─────────────────────────────
 
@@ -160,7 +161,8 @@ export function createNullInteractions(ctx: GameContext): NullInteractions {
       handler.complete(actor, opt);
       return true;
     }
-    const a: ActiveInteraction = { opt, elapsed: 0, handler, actor };
+    // copie : un gestionnaire peut réutiliser son objet d'option d'un appel de find() à l'autre
+    const a: ActiveInteraction = { opt: { ...opt }, elapsed: 0, handler, actor };
     active.push(a);
     byActor.set(actor.id, a);
     return true;
@@ -193,7 +195,7 @@ export function createNullInteractions(ctx: GameContext): NullInteractions {
         else out.push(o);
         n++;
       }
-      if (out.length > n) out.length = n;
+      truncate(out, n);
       if (n > 1) out.sort(byPriorityDesc);
       return n;
     },

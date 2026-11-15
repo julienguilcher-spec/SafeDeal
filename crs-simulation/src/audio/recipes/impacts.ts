@@ -81,18 +81,18 @@ const TOLE_MODES: readonly number[] = [142, 233, 317, 468, 611, 853, 1190, 1570,
 /** Coup sur une tôle (carrosserie, panneau, palissade) : nombreux partiels inharmoniques, longue résonance qui « flotte ». */
 export function tole(k: Kit): number {
   toleInto(k, k.t, 1, TOLE_MODES.length);
-  return 1.4;
+  return 1.6;
 }
 
-function toleInto(k: Kit, t0: number, level: number, modes: number): void {
+function toleInto(k: Kit, t0: number, level: number, modes: number, to: AudioNode = k.out): void {
   // la tôle qui fléchit module légèrement toute la résonance
-  const bus = k.gain(level, k.out);
+  const bus = k.gain(level, to);
   k.lfo('sine', k.r(9, 14), 0.25 * level, bus.gain, t0);
   k.burst({ type: 'bandpass', f: 2500, q: 0.8, peak: 0.7, a: 0.0008, tau: 0.01, t0, to: bus });
   k.ping(96, t0, 0.5, 0.05, bus, 'sine', 60);
   for (let i = 0; i < modes; i++) {
     const f = TOLE_MODES[i]! * k.r(0.96, 1.04);
-    k.ping(f, t0, 0.3 / (1 + i * 0.25), 0.42 / (1 + i * 0.38), bus);
+    k.ping(f, t0, 0.3 / (1 + i * 0.25), 0.3 / (1 + i * 0.3), bus);
   }
 }
 
@@ -135,9 +135,9 @@ export function collision(k: Kit): number {
   const cg = k.gain(0, bus);
   k.perc(cg.gain, t, 0.9, 0.01, 0.14);
   k.tex('crackle', k.bq('bandpass', 1500, 0.7, cg), 0.7, t, t + 1.0);
-  toleInto(k, t + 0.01, 0.55, 7);
+  toleInto(k, t + 0.01, 0.7, 7, bus);
   for (let i = 0; i < 6; i++) {
-    k.ping(k.r(2800, 8000), t + 0.05 + 0.4 * k.rnd(), k.r(0.03, 0.09), k.r(0.015, 0.05));
+    k.ping(k.r(2800, 8000), t + 0.05 + 0.4 * k.rnd(), k.r(0.04, 0.11), k.r(0.015, 0.05), bus);
   }
   return 1.3;
 }

@@ -39,10 +39,11 @@ export function radioFin(k: Kit): number {
 /** Souffle radio sous la voix : bruit de bande téléphonique et parasites (entretenu). */
 export function radioSouffle(k: Kit): number {
   const m = k.sustain(2, 0.03, 0.08);
-  const lp = k.bq('lowpass', 3200, 0.7, m);
+  // bande téléphonique 380–3 200 Hz, pentes raides
+  const lp = k.bq('lowpass', 3200, 0.8, k.bq('lowpass', 3200, 0.6, m));
   const hp = k.bq('highpass', 380, 0.7, lp);
-  k.noise('white', k.gain(0.3, hp));
-  k.tex('crackle', k.bq('bandpass', 2200, 0.8, k.gain(0.3, m)), 1.5);
+  k.noise('white', k.gain(0.36, hp));
+  k.tex('crackle', k.bq('bandpass', 2200, 0.8, k.gain(0.4, hp)), 1.5);
   return k.duration;
 }
 
@@ -85,7 +86,7 @@ export function megaphone(k: Kit): number {
   const t0 = k.t + 0.24;
   const end = t0 + total + 0.1;
 
-  const post = k.gain(0.75, k.out);
+  const post = k.gain(0.5, k.out);
   k.echoes(post, [[0.16, 0.3, 1900], [0.34, 0.16, 1300]], k.out);
   const lp = k.bq('lowpass', 3400, 0.8, post);
   const sat = k.sat(3.5, lp);

@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><title>Banc d'essai — personnages</title>
+<style>
+html,body{margin:0;height:100%;background:#111;overflow:hidden;font-family:system-ui,Arial,sans-serif}
+canvas{display:block}
+#hud{position:fixed;left:10px;top:10px;color:#fff;background:rgba(10,14,22,.72);padding:8px 12px;border-radius:6px;font-size:13px;line-height:1.5;white-space:pre;pointer-events:none}
+#labels{position:fixed;left:0;top:0;width:100%;height:100%;pointer-events:none}
+.lbl{position:absolute;transform:translate(-50%,0);color:#fff;font-size:11px;text-shadow:0 1px 2px #000,0 0 3px #000;white-space:nowrap}
+#nav{position:fixed;right:10px;top:10px;display:flex;gap:6px}
+#nav a{color:#fff;background:rgba(10,14,22,.72);padding:5px 9px;border-radius:5px;font-size:12px;text-decoration:none}
+</style></head>
+<body>
+<div id="hud"></div><div id="labels"></div>
+<div id="nav">
+<a href="?view=tenues">Tenues</a><a href="?view=poses">Poses</a><a href="?view=marche">Marche</a>
+<a href="?view=foule">Foule 1 500</a><a href="?view=fps">Première personne</a>
+</div>
+<script type="module" src="./people.ts"></script></body></html>

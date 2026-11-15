@@ -6,6 +6,8 @@
  *   - se désabonner (ou s'abonner) pendant une émission est sûr : un gestionnaire retiré n'est
  *     plus appelé, un gestionnaire ajouté ne le sera qu'à l'émission suivante ;
  *   - une exception dans un gestionnaire est journalisée et n'empêche pas les suivants ;
+ *     avec l'option `rethrow` (contextes de test stricts), la première exception est en plus relancée
+ *     à l'émetteur une fois tous les gestionnaires appelés, pour qu'un bogue fasse échouer le test ;
  *   - emit() n'alloue rien.
  * ===================================================================================== */
 
@@ -31,8 +33,14 @@ export interface EventBusEx extends EventBus {
   readonly errorCount: number;
 }
 
-export function createEventBus(): EventBusEx {
+export interface EventBusOptions {
+  /** Relancer à l'émetteur la première exception d'un gestionnaire, après avoir appelé tous les autres. */
+  rethrow?: boolean;
+}
+
+export function createEventBus(options: EventBusOptions = {}): EventBusEx {
   const channels = new Map<string, Channel>();
+  const rethrow = options.rethrow === true;
   let errorCount = 0;
 
   function compact(ch: Channel): void {
@@ -83,6 +91,8 @@ export function createEventBus(): EventBusEx {
     const hs = ch.handlers;
     const n = hs.length; // les gestionnaires ajoutés pendant l'émission attendront la suivante
     if (n === 0) return;
+    let failed = false;
+    let firstError: unknown;
     ch.depth++;
     for (let i = 0; i < n; i++) {
       const h = hs[i];
@@ -92,10 +102,15 @@ export function createEventBus(): EventBusEx {
       } catch (err) {
         errorCount++;
         console.error(`[events] erreur dans un gestionnaire de « ${name} »`, err);
+        if (rethrow && !failed) {
+          failed = true;
+          firstError = err;
+        }
       }
     }
     ch.depth--;
     if (ch.depth === 0 && ch.holes) compact(ch);
+    if (failed) throw firstError;
   }
 
   return {
