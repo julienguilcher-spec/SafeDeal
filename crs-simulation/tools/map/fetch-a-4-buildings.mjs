@@ -177,7 +177,7 @@ function nameFromOsm(t, kind) {
 // ───────────── Bâtiments IGN ─────────────
 const feats = [];
 const ignIdx = new GridIndex(80);
-const stats = { ignLus: ign.length, ignTropPetits: 0, ignHorsEmprise: 0, appariesOsm: 0, appariesSerres: 0, hauteurIgn: 0, hauteurOsm: 0, hauteurNiveaux: 0, hauteurNulle: 0, osmAjoutes: 0, natureParContexte: 0 };
+const stats = { ignLus: ign.length, ignTropPetits: 0, ignHorsEmprise: 0, appariesOsm: 0, appariesSerres: 0, hauteurIgn: 0, hauteurOsm: 0, hauteurNiveaux: 0, hauteurNulle: 0, osmAjoutes: 0, osmDoublons: 0, osmMobilier: 0, natureParContexte: 0 };
 const cross = new Map();
 const ignItems = [];
 for (const f of ign) {
@@ -246,16 +246,31 @@ for (const it of ignItems) {
 }
 
 // ───────────── Bâtiments OSM absents de la BD TOPO ─────────────
+const STREET_FURNITURE_B = new Set(['kiosk', 'toilets', 'container', 'cabin', 'bandstand', 'steps', 'bridge', 'tent']);
+const STREET_FURNITURE_A = new Set(['shelter', 'toilets', 'fountain', 'bicycle_parking', 'telephone']);
 for (const b of osmB) {
   if (b.matched || b.area < MIN_AREA || !bboxIntersects(b.bbox, RECT_M)) continue;
   const t = b.tags;
   if (t.building === 'roof' || t.location === 'underground' || num(t.layer) < 0 || t.building === 'boat' || t.building === 'houseboat') continue;
+  // mobilier urbain cartographié comme « bâtiment » (abribus, kiosques, sanisettes…) : relève de la couche furniture
+  if (STREET_FURNITURE_B.has(t.building) || STREET_FURNITURE_A.has(t.amenity)) { stats.osmMobilier++; continue; }
   const ip = interiorPoint(b.polys.reduce((x, y) => (polygonAreaM(x) >= polygonAreaM(y) ? x : y)));
-  let covered = false;
-  for (const it of ignIdx.queryPoint(ip)) {
-    if (it.polys.some((q) => pointInPolygon(ip, q))) { covered = true; break; }
+  // Doublon ? On sonde le bâtiment OSM (point intérieur + points à mi-chemin de ses sommets) : s'il est recouvert
+  // pour moitié ou plus par des bâtiments IGN, il n'apporte rien.
+  const big = b.polys.reduce((x, y) => (polygonAreaM(x) >= polygonAreaM(y) ? x : y));
+  const probes = [ip];
+  const stepV = Math.max(1, Math.floor(big[0].length / 12));
+  for (let i = 0; i < big[0].length - 1; i += stepV) {
+    const q = [(ip[0] + big[0][i][0]) / 2, (ip[1] + big[0][i][1]) / 2];
+    if (pointInPolygon(q, big)) probes.push(q);
   }
-  if (covered) continue;
+  let hit = 0;
+  for (const q of probes) {
+    for (const it of ignIdx.queryPoint(q)) {
+      if (it.polys.some((poly) => pointInPolygon(q, poly))) { hit++; break; }
+    }
+  }
+  if (hit / probes.length >= 0.5) { stats.osmDoublons++; continue; }
   const k0 = kindFromOsm(t);
   const kind = (k0 && k0 !== 'residential' && k0 !== 'other' ? k0 : null) || kindFromContext({ ip, bbox: b.bbox, polys: b.polys }) || k0 || 'other';
   const lv = num(t['building:levels']);
@@ -280,6 +295,10 @@ const size = writeGeojson(out, feats, meta);
 console.log(`buildings.geojson : ${feats.length} bâtiments, ${(size / 1e6).toFixed(1)} Mo`);
 console.log('  natures :', JSON.stringify(kinds));
 console.log('  stats   :', JSON.stringify(stats));
+{
+  const top = feats.filter((f) => f.properties.height != null).sort((a, b) => b.properties.height - a.properties.height).slice(0, 8);
+  console.log('  plus hauts :', top.map((f) => `${f.properties.height} m ${f.properties.kind}${f.properties.name ? ' « ' + f.properties.name + ' »' : ''}`).join(' ; '));
+}
 console.log('  nommés  :', feats.filter((f) => f.properties.name).length, '| toits renseignés :', feats.filter((f) => f.properties.roofShape).length, '| niveaux renseignés :', feats.filter((f) => f.properties.levels != null).length);
 if (showStats) {
   console.log('\nCroisement BD TOPO → building OSM (40 premiers) :');

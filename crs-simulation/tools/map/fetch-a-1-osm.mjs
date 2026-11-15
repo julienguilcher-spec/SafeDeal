@@ -1,38 +1,63 @@
-// fetch-a-1-osm.mjs — OpenStreetMap : télécharge l'extrait « Paris » (département 75) et en tire
-// tout ce qui touche l'emprise du jeu (nœuds étiquetés, chemins avec géométrie, relations).
+// fetch-a-1-osm.mjs — OpenStreetMap : télécharge un extrait couvrant Paris et en tire tout ce qui touche
+// l'emprise du jeu (nœuds étiquetés, chemins avec géométrie, relations).
 //
-//   node tools/map/fetch-a-1-osm.mjs [--force]
+//   node tools/map/fetch-a-1-osm.mjs [--force] [--mirror=osmfr|bbbike] [--out=fichier.json]
 //
-// Source : https://download.openstreetmap.fr/extracts/europe/france/ile_de_france/paris.osm.pbf
-//          (extraits quotidiens d'OpenStreetMap France ; données © les contributeurs d'OpenStreetMap, ODbL 1.0)
+// Sources (données © les contributeurs d'OpenStreetMap, ODbL 1.0), essayées dans l'ordre :
+//   osmfr  : https://download.openstreetmap.fr/extracts/europe/france/ile_de_france/paris.osm.pbf  (département 75, quotidien)
+//   bbbike : https://download.bbbike.org/osm/bbbike/Paris/Paris.osm.pbf                            (agglomération, hebdomadaire)
+// (overpass-api.de, overpass.openstreetmap.fr et download.geofabrik.de ne répondent pas depuis cette machine.)
 // Sorties (cache, ignoré par git) :
-//   raw/osm/paris.osm.pbf        fichier brut
-//   raw/osm/paris.state.txt      date de l'extrait
+//   raw/osm/<miroir>.osm.pbf     fichier brut
 //   raw/osm/extract-a.json       { meta, nodes[], ways[], relations[] } limité à l'emprise + marge
 
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { RAW, BBOX, BBOX_M, download, pbfBlobs, decodePrimitiveBlock } from './lib-a.mjs';
+import { RAW, BBOX, BBOX_M, download, HostDownError, pbfBlobs, pbfHeader, decodePrimitiveBlock } from './lib-a.mjs';
 
 const force = process.argv.includes('--force');
-const BASE = 'https://download.openstreetmap.fr/extracts/europe/france/ile_de_france';
+const arg = (name) => process.argv.find((a) => a.startsWith(`--${name}=`))?.split('=')[1] || null;
+const MIRRORS = [
+  { key: 'osmfr', url: 'https://download.openstreetmap.fr/extracts/europe/france/ile_de_france/paris.osm.pbf', file: 'paris.osm.pbf' },
+  { key: 'bbbike', url: 'https://download.bbbike.org/osm/bbbike/Paris/Paris.osm.pbf', file: 'paris-bbbike.osm.pbf' },
+];
 const dir = path.join(RAW, 'osm');
-const pbf = path.join(dir, 'paris.osm.pbf');
-const out = path.join(dir, 'extract-a.json');
+const out = arg('out') ? path.resolve(arg('out')) : path.join(dir, 'extract-a.json');
+const wanted = arg('mirror');
+const candidates = wanted ? MIRRORS.filter((m) => m.key === wanted) : MIRRORS;
+if (!candidates.length) throw new Error(`miroir inconnu : ${wanted}`);
 
-const isPbf = (buf) => (buf.length > 1e6 && buf.includes('OSMHeader', 0, 'latin1') ? null : 'pas un fichier PBF');
-const d1 = await download(`${BASE}/paris.osm.pbf`, pbf, { force, validate: isPbf, timeoutS: 900 });
-await download(`${BASE}/paris.state.txt`, path.join(dir, 'paris.state.txt'), { force: force || !d1.cached });
+const isPbf = (buf) => (buf.length > 1e6 && buf.subarray(0, 64).includes('OSMHeader') ? null : 'pas un fichier PBF');
+let mirror = null, pbf = null, cached = false;
+for (const m of candidates) {
+  const dest = path.join(dir, m.file);
+  try {
+    const d = await download(m.url, dest, { force, validate: isPbf, timeoutS: 1800 });
+    mirror = m; pbf = dest; cached = d.cached;
+    break;
+  } catch (e) {
+    if (!(e instanceof HostDownError)) throw e;
+    console.error(`  ${m.key} indisponible, source suivante…`);
+  }
+}
+if (!mirror) throw new Error('aucun miroir OpenStreetMap disponible');
 const md5 = crypto.createHash('md5').update(fs.readFileSync(pbf)).digest('hex');
-const state = fs.readFileSync(path.join(dir, 'paris.state.txt'), 'utf8');
-const timestamp = (state.match(/timestamp=(.*)/)?.[1] || '').replace(/\\/g, '');
-console.log(`OSM : ${pbf} (${(fs.statSync(pbf).size / 1e6).toFixed(1)} Mo, md5 ${md5}, extrait du ${timestamp})${d1.cached ? ' [cache]' : ''}`);
+const header = pbfHeader(pbf);
+const timestamp = header.timestamp || 'date inconnue';
+console.log(`OSM (${mirror.key}) : ${pbf} (${(fs.statSync(pbf).size / 1e6).toFixed(1)} Mo, md5 ${md5}, données du ${timestamp})${cached ? ' [cache]' : ''}`);
 
 if (!force && fs.existsSync(out)) {
-  const meta = JSON.parse(fs.readFileSync(out, 'utf8')).meta;
-  if (meta.md5 === md5 && meta.version === 2) {
-    console.log(`extract-a.json déjà à jour : ${meta.counts.nodes} nœuds étiquetés, ${meta.counts.ways} chemins, ${meta.counts.relations} relations`);
+  // lecture de la seule première ligne (métadonnées) : le fichier complet pèse des dizaines de Mo
+  const fd0 = fs.openSync(out, 'r');
+  const head = Buffer.alloc(4096);
+  const n0 = fs.readSync(fd0, head, 0, 4096, 0);
+  fs.closeSync(fd0);
+  const first = head.subarray(0, n0).toString('utf8').split('\n')[0];
+  let meta = null;
+  try { meta = JSON.parse(first.replace(/^\{"meta":/, '').replace(/,$/, '')); } catch { meta = null; }
+  if (meta && meta.md5 === md5 && meta.version === 3) {
+    console.log(`${path.basename(out)} déjà à jour : ${meta.counts.nodes} nœuds étiquetés, ${meta.counts.ways} chemins, ${meta.counts.relations} relations`);
     process.exit(0);
   }
 }
@@ -139,8 +164,8 @@ for (const w of ways.values()) {
 }
 
 const meta = {
-  version: 2,
-  source: `${BASE}/paris.osm.pbf`,
+  version: 3,
+  source: mirror.url, mirror: mirror.key,
   license: 'ODbL 1.0 — © les contributeurs d\'OpenStreetMap',
   md5, timestamp, bbox: BBOX, bboxWithMargin: BBOX_M,
   counts: { nodes: taggedNodes.length, ways: waysOut.length, relations: relations.length, unresolvedRefs: unresolved },

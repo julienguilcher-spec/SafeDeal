@@ -69,16 +69,22 @@ async function throttle(host) {
  * - params : paramètres de requête (encodés par curl, méthode GET)
  * - validate(tampon) : renvoie null si la réponse est correcte, sinon un message (la réponse est alors rejetée)
  * - force : ignore le cache
+ * Politesse : 1 requête par seconde et par hôte, reprises avec attente croissante (2 s puis 8 s). Après 3 échecs
+ * consécutifs sur un même hôte, celui-ci est abandonné pour tout le reste du processus (HostDownError) : à
+ * l'appelant de changer de source.
  * Renvoie { path, cached }.
  */
-export async function download(url, dest, { params = null, validate = null, force = false, timeoutS = 300, tries = 3 } = {}) {
+export class HostDownError extends Error {}
+export async function download(url, dest, { params = null, validate = null, force = false, timeoutS = 300 } = {}) {
   if (!force && fs.existsSync(dest) && fs.statSync(dest).size > 0) return { path: dest, cached: true };
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   const host = new URL(url).host;
-  if ((hostFailures.get(host) || 0) >= 3) throw new Error(`hôte ${host} abandonné après 3 échecs : changer de source`);
   const tmp = dest + '.part';
   let lastErr = null;
-  for (let attempt = 1; attempt <= tries; attempt++) {
+  for (;;) {
+    const failures = hostFailures.get(host) || 0;
+    if (failures >= 3) throw new HostDownError(`hôte ${host} abandonné après 3 échecs consécutifs (${lastErr?.message || 'échecs précédents'}) : changer de source`);
+    if (failures > 0 && lastErr) await sleep(2000 * failures * failures); // 2 s, puis 8 s
     await throttle(host);
     const args = ['-sS', '--compressed', '-L', '-A', USER_AGENT, '-m', String(timeoutS), '-o', tmp, '-w', '%{http_code}'];
     if (params) {
@@ -100,12 +106,10 @@ export async function download(url, dest, { params = null, validate = null, forc
     } catch (e) {
       lastErr = e;
       fs.rmSync(tmp, { force: true });
-      console.error(`  ! ${host} tentative ${attempt}/${tries} : ${String(e.message || e).slice(0, 200)}`);
-      if (attempt < tries) await sleep(2000 * attempt * attempt); // 2 s, 8 s
+      hostFailures.set(host, failures + 1);
+      console.error(`  ! ${host} échec ${failures + 1}/3 : ${String(e.message || e).replace(/\s+/g, ' ').slice(0, 200)}`);
     }
   }
-  hostFailures.set(host, (hostFailures.get(host) || 0) + 1);
-  throw new Error(`échec du téléchargement ${url} : ${lastErr?.message || lastErr}`);
 }
 
 export const readJson = (p) => JSON.parse(fs.readFileSync(p, 'utf8'));
@@ -214,12 +218,30 @@ export function* pbfBlobs(file) {
   }
 }
 
+/** Lit l'en-tête d'un .osm.pbf : { timestamp (ISO, date de réplication) | null, program, source }. */
+export function pbfHeader(file) {
+  for (const blob of pbfBlobs(file)) {
+    if (blob.type !== 'OSMHeader') break;
+    const r = new PbReader(blob.data);
+    const h = { timestamp: null, program: null, source: null };
+    while (!r.done) {
+      const [f, w] = r.tag();
+      if (f === 16) h.program = r.bytes().toString('utf8');
+      else if (f === 17) h.source = r.bytes().toString('utf8');
+      else if (f === 32) h.timestamp = new Date(r.varint() * 1000).toISOString().replace('.000Z', 'Z');
+      else r.skip(w);
+    }
+    return h;
+  }
+  return { timestamp: null, program: null, source: null };
+}
+
 /**
  * Décode un PrimitiveBlock et appelle les rappels fournis.
  *   onNode(id, lon1e7, lat1e7, tagsOuNull)   — tags : objet {clé: valeur} seulement si le nœud en porte
  *   onWay(id, tags, refs)
  *   onRelation(id, tags, members[{type:'n'|'w'|'r', ref, role}])
- * `want` = { nodes, ways, relations } permet de sauter le décodage des groupes inutiles.
+ * Un rappel absent fait sauter le décodage des groupes correspondants (seconde passe sur les seuls chemins, par exemple).
  */
 export function decodePrimitiveBlock(data, { onNode, onWay, onRelation }) {
   const r = new PbReader(data);
@@ -542,6 +564,28 @@ export function clipPolygonToRect(poly, rect) {
     if (h && Math.abs(ringAreaM(h)) >= 0.5) res.push(h);
   }
   return res;
+}
+
+/**
+ * Découpe un polygone par un rectangle sans jamais couper un trou : si un trou chevauche le bord du rectangle
+ * (île de la Seine à cheval sur la limite, par exemple), le rectangle est élargi pour ce polygone jusqu'à contenir
+ * le trou entier. Le résultat reste ainsi un polygone valide (trous strictement intérieurs).
+ */
+export function clipPolygonKeepingHoles(poly, rect) {
+  let r = rect;
+  for (let iter = 0; iter < 6 && poly.length > 1; iter++) {
+    let grown = null;
+    for (let i = 1; i < poly.length; i++) {
+      const bb = bboxOf(poly[i]);
+      if (!bboxIntersects(bb, r)) continue; // trou entièrement dehors : il disparaît au découpage
+      if (bb[0] >= r[0] && bb[1] >= r[1] && bb[2] <= r[2] && bb[3] <= r[3]) continue; // entièrement dedans
+      const pad = 5; // mètres
+      grown = [Math.min((grown || r)[0], bb[0] - pad / MX), Math.min((grown || r)[1], bb[1] - pad / MZ), Math.max((grown || r)[2], bb[2] + pad / MX), Math.max((grown || r)[3], bb[3] + pad / MZ)];
+    }
+    if (!grown) break;
+    r = grown;
+  }
+  return clipPolygonToRect(poly, r);
 }
 
 /**

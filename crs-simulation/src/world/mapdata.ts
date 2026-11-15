@@ -938,13 +938,18 @@ export function clipRingToRect(ring: ArrayLike<number>, rect: Bounds): number[] 
   return clean.length >= 6 ? clean : [];
 }
 
-/** Découpe une polyligne par un rectangle. Retourne les morceaux qui restent (chacun ≥ 2 points). */
+/**
+ * Découpe une polyligne par un rectangle. Retourne les morceaux qui restent (chacun ≥ 2 points).
+ * Un segment posé exactement sur le bord haut (maxX ou maxZ) est laissé au rectangle voisin, dont
+ * c'est le bord bas : découpée tuile par tuile, une polyligne n'est jamais dupliquée.
+ */
 export function clipPolylineToRect(points: ArrayLike<number>, rect: Bounds): number[][] {
   const pieces: number[][] = [];
   let cur: number[] | null = null;
   for (let i = 2; i + 1 < points.length; i += 2) {
     const ax = points[i - 2], az = points[i - 1], bx = points[i], bz = points[i + 1];
-    if (!clipSegment(ax, az, bx, bz, rect.minX, rect.minZ, rect.maxX, rect.maxZ) || clipT0 === clipT1) {
+    const onHighEdge = (ax === rect.maxX && bx === rect.maxX) || (az === rect.maxZ && bz === rect.maxZ);
+    if (onHighEdge || !clipSegment(ax, az, bx, bz, rect.minX, rect.minZ, rect.maxX, rect.maxZ) || clipT0 === clipT1) {
       cur = null;
       continue;
     }
@@ -2131,13 +2136,23 @@ export function attributionText(manifest: Manifest): string {
   return manifest.attribution.map((a) => a.text).join('\n');
 }
 
+/** Carte entière sous sa forme « entrée d'encodeur » (un MapData décodé convient aussi). */
+export interface MapDataInput {
+  manifest: Manifest;
+  tiles: readonly TileInput[];
+  roadGraph: RoadGraphInput;
+  places: readonly Place[];
+  landmarks: readonly LandmarkInput[];
+  terrain: TerrainInput;
+}
+
 /** Encode une carte entière. Les éléments écartés par encodeTile sont signalés dans `dropped`. */
-export function encodeMapData(data: Loose<Omit<MapData, 'roadGraph'>> & { roadGraph: RoadGraphInput }, dropped?: string[]): RawMapData {
+export function encodeMapData(data: MapDataInput, dropped?: string[]): RawMapData {
   return {
-    manifest: data.manifest as Manifest,
+    manifest: data.manifest,
     tiles: data.tiles.map((t) => encodeTile(t, dropped)),
     roadGraph: encodeRoadGraph(data.roadGraph),
-    places: encodePlaces(data.places as readonly Place[]),
+    places: encodePlaces(data.places),
     landmarks: encodeLandmarks(data.landmarks),
     terrain: encodeTerrain(data.terrain),
   };
@@ -2164,7 +2179,12 @@ export function mapDataFiles(raw: RawMapData): MapFile[] {
     { path: raw.manifest.files.landmarks, data: raw.landmarks },
     { path: raw.manifest.files.terrain, data: raw.terrain },
   ];
-  for (const t of raw.tiles) files.push({ path: tilePath(t.tx, t.tz), data: t });
+  for (let i = 0; i < raw.tiles.length; i++) {
+    const t = raw.tiles[i];
+    const listed = raw.manifest.tiles[i];
+    const path = listed !== undefined && listed.tx === t.tx && listed.tz === t.tz ? listed.file : tilePath(t.tx, t.tz);
+    files.push({ path, data: t });
+  }
   return files;
 }
 
@@ -2224,9 +2244,11 @@ function createCollector(): Collector {
       for (const m of r.warnings) this.warn(prefix + m);
     },
     done(): ValidationResult {
-      if (errorCount > errors.length) errors.push(`… et ${errorCount - errors.length} autre(s) erreur(s)`);
-      if (warningCount > warnings.length) warnings.push(`… et ${warningCount - warnings.length} autre(s) avertissement(s)`);
-      return { ok: errorCount === 0, errors, warnings };
+      // Copies : done() peut être appelé plusieurs fois sans répéter la ligne de résumé.
+      const e = errors.slice(), w = warnings.slice();
+      if (errorCount > e.length) e.push(`… et ${errorCount - e.length} autre(s) erreur(s)`);
+      if (warningCount > w.length) w.push(`… et ${warningCount - w.length} autre(s) avertissement(s)`);
+      return { ok: errorCount === 0, errors: e, warnings: w };
     },
   };
 }
@@ -2659,11 +2681,9 @@ export function validateTile(tile: TileInput, ctx: TileValidationContext = {}): 
     if (!inTile((bb.minX + bb.maxX) / 2, (bb.minZ + bb.maxZ) / 2, rect)) c.error(`${w} : le centre de la boîte englobante est hors de la tuile`);
     if (overhang(b.outer, rect) > MAX_OVERHANG) c.error(`${w} : déborde de plus de ${MAX_OVERHANG} m`);
     for (let k = 0; k < b.holes.length; k++) {
-      const hole = b.holes[k];
-      if (checkRing(c, `${w}, trou ${k}`, hole, false) && !pointInRing(b.outer, hole[0], hole[1])) {
-        const hb = ringBounds(hole);
-        if (hb.minX < bb.minX - 0.1 || hb.maxX > bb.maxX + 0.1 || hb.minZ < bb.minZ - 0.1 || hb.maxZ > bb.maxZ + 0.1) c.warn(`${w}, trou ${k} : sort de l'anneau extérieur`);
-      }
+      if (!checkRing(c, `${w}, trou ${k}`, b.holes[k], false)) continue;
+      const hb = ringBounds(b.holes[k]);
+      if (hb.minX < bb.minX - 0.1 || hb.maxX > bb.maxX + 0.1 || hb.minZ < bb.minZ - 0.1 || hb.maxZ > bb.maxZ + 0.1) c.warn(`${w}, trou ${k} : sort de l'anneau extérieur`);
     }
   }
 

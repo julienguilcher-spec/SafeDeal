@@ -35,7 +35,7 @@ const add = (geometry, kind, name, rank, source = 'osm') => feats.push(feature(g
 
 // ───────────── 1. Rues, ponts, quais, places : d'après les arêtes nommées de roads.geojson ─────────────
 const SQUARE_RE = /^(Place|Rond-Point|Carrefour|Parvis|Esplanade)\b/i;
-const BRIDGE_RE = /^(Pont|Passerelle|Viaduc|Petit Pont)\b/i;
+const BRIDGE_RE = /^(Pont|Passerelle|Viaduc|Petit[- ]Pont)\b/i;
 const QUAY_RE = /^(Quai|Port)\b/i;
 const CLASS_RANK = { motorway: 1, trunk: 1, primary: 1, secondary: 2, tertiary: 2, residential: 3, living: 3, pedestrian: 3, service: 3, footway: 3, steps: 3, cycleway: 3 };
 const byName = new Map();
@@ -208,6 +208,12 @@ function dedupe(cands, radius, keyOf = norm) {
     cands.push({ name: p.name, c: interiorPoint(big), score: 2, rank: areaRank(polys.reduce((s, q) => s + polygonAreaM(q), 0)) });
   }
   for (const s of squaresFromRoads) if (inRect(s.c)) cands.push({ name: s.name, c: s.c, score: 1, rank: s.rank });
+  // esplanades et places connues d'OSM seulement comme surface nommée (ex. Esplanade des Invalides)
+  for (const o of objects) {
+    const t = o.tags;
+    if (o.type === 'n' || !inRect(o.c) || !SQUARE_RE.test(t.name) || !notable(t) || isCommercial(t) || t.building || t.place === 'square' || t.public_transport) continue;
+    cands.push({ name: t.name, c: o.c, score: 0.5, rank: areaRank(o.area) });
+  }
   for (const c of dedupe(cands, 400)) add(pt(c.c), 'square', c.name, c.rank);
 }
 
@@ -288,6 +294,12 @@ function dedupe(cands, radius, keyOf = norm) {
     if (!inRect(o.c) || isCommercial(t)) continue;
     const ok = AM.has(t.amenity) || t.office === 'government' || t.office === 'diplomatic' || t.diplomatic === 'embassy' || t.building === 'government' || (t.government && t.government !== 'no');
     if (!ok || commercialNames.has(norm(t.name))) continue;
+    // Enseignement supérieur : seulement les établissements publics ou notoires ; les écoles privées à nom commercial
+    // (« … Business School », « Digital Campus »…) ne sont pas des institutions publiques.
+    if (t.amenity === 'university' || t.amenity === 'college') {
+      const opType = t['operator:type'] || '';
+      if (opType === 'private' || !(notable(t) || opType === 'public' || opType === 'government') || /\b(school|business|campus|digital|tech|academy)\b/i.test(t.name)) continue;
+    }
     const major = t.amenity === 'townhall' || t.office === 'government' || t.building === 'government' || t.amenity === 'courthouse' || t.amenity === 'hospital';
     cands.push({ name: t.name, c: o.c, score: (notable(t) ? 5 : 0) + (o.type === 'n' ? 0 : 2) + Math.min(5, o.area / 5000), rank: notable(t) && major ? 1 : major || notable(t) ? 2 : 3 });
   }

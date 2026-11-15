@@ -18,7 +18,7 @@ const f6 = (v) => v.toFixed(6);
 const poly = `POLYGON((${f6(BBOX_M.west)} ${f6(BBOX_M.south)},${f6(BBOX_M.east)} ${f6(BBOX_M.south)},${f6(BBOX_M.east)} ${f6(BBOX_M.north)},${f6(BBOX_M.west)} ${f6(BBOX_M.north)},${f6(BBOX_M.west)} ${f6(BBOX_M.south)}))`;
 
 /** Jeux retenus : identifiant, champ géométrique, champs conservés. */
-export const DATASETS = [
+const DATASETS = [
   { id: 'plan-de-voirie-chaussees', geo: 'geo_shape', select: 'objectid,lib_classe' },
   { id: 'plan-de-voirie-trottoirs-emprises', geo: 'geo_shape', select: 'igds_element_association_id,num_pave,lib_classe' },
   { id: 'plan-de-voirie-terre-pleins', geo: 'geo_shape', select: 'objectid,lib_classe' },
@@ -40,23 +40,21 @@ const validGeojson = (buf) => {
   }
 };
 
-if (import.meta.url === `file://${process.argv[1]}`) {
-  const index = [];
-  for (const ds of DATASETS) {
-    const dest = path.join(RAW, 'paris', `${ds.id}.geojson`);
-    const metaDest = path.join(RAW, 'paris', `${ds.id}.meta.json`);
-    // métadonnées du jeu (titre, licence, producteur, date de mise à jour) — utiles pour l'attribution
-    await download(`${API}/${ds.id}`, metaDest, { force, validate: (b) => (b.includes('"dataset_id"') ? null : 'métadonnées inattendues') });
-    const r = await download(`${API}/${ds.id}/exports/geojson`, dest, {
-      force,
-      validate: validGeojson,
-      timeoutS: 600,
-      params: { where: `intersects(${ds.geo}, geom'${poly}')`, select: `${ds.select},${ds.geo}` },
-    });
-    const n = JSON.parse(fs.readFileSync(dest, 'utf8')).features.length;
-    const m = JSON.parse(fs.readFileSync(metaDest, 'utf8')).metas?.default || {};
-    index.push({ id: ds.id, title: m.title, license: m.license, publisher: m.publisher, modified: m.modified, features: n, bytes: fs.statSync(dest).size });
-    console.log(`${ds.id} : ${n} objets, ${(fs.statSync(dest).size / 1e6).toFixed(1)} Mo${r.cached ? ' [cache]' : ''} — ${m.license} — ${m.publisher}`);
-  }
-  fs.writeFileSync(path.join(RAW, 'paris', 'index.json'), JSON.stringify(index, null, 1));
+const index = [];
+for (const ds of DATASETS) {
+  const dest = path.join(RAW, 'paris', `${ds.id}.geojson`);
+  const metaDest = path.join(RAW, 'paris', `${ds.id}.meta.json`);
+  // métadonnées du jeu (titre, licence, producteur, date de mise à jour) — utiles pour l'attribution
+  await download(`${API}/${ds.id}`, metaDest, { force, validate: (b) => (b.includes('"dataset_id"') ? null : 'métadonnées inattendues') });
+  const r = await download(`${API}/${ds.id}/exports/geojson`, dest, {
+    force,
+    validate: validGeojson,
+    timeoutS: 600,
+    params: { where: `intersects(${ds.geo}, geom'${poly}')`, select: `${ds.select},${ds.geo}` },
+  });
+  const n = JSON.parse(fs.readFileSync(dest, 'utf8')).features.length;
+  const m = JSON.parse(fs.readFileSync(metaDest, 'utf8')).metas?.default || {};
+  index.push({ id: ds.id, title: m.title, license: m.license, publisher: m.publisher, modified: m.modified, features: n, bytes: fs.statSync(dest).size });
+  console.log(`${ds.id} : ${n} objets, ${(fs.statSync(dest).size / 1e6).toFixed(1)} Mo${r.cached ? ' [cache]' : ''} — ${m.license} — ${m.publisher}`);
 }
+fs.writeFileSync(path.join(RAW, 'paris', 'index.json'), JSON.stringify(index, null, 1));

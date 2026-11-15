@@ -55,7 +55,7 @@ function classify(t) {
     if (indoor || (level != null && level !== 0) || t.conveying) { bump('cheminement intérieur ou souterrain (stations, galeries)'); return null; }
   }
   if (c === 'service' && (indoor || (level != null && level < 0) || (t.service === 'parking_aisle' && (t.tunnel === 'yes' || num(t.layer) < 0)))) { bump('voie de service souterraine (parkings)'); return null; }
-  if (t.access === 'no' && t.highway !== 'pedestrian' && !t.bus && !t.psv && !t.foot && !t.bicycle && c !== 'service') { /* voie fermée à tous : conservée (les manifestations s'y déroulent quand même) */ }
+  // Les voies à accès restreint (access=no/private) sont conservées : elles existent physiquement.
   return c;
 }
 
@@ -84,16 +84,9 @@ for (const w of osm.ways) {
 }
 
 // ───────────── Nœuds de jonction (partagés par plusieurs voies retenues) ─────────────
+// Compte les passages de voies par nœud ; un nœud traversé deux fois par le même chemin (boucle) compte double.
 const use = new Map();
-for (const { w } of kept) {
-  const seen = new Set();
-  for (let i = 0; i < w.refs.length; i++) {
-    const r = w.refs[i];
-    // un nœud répété dans le même chemin (boucle) compte aussi comme jonction
-    use.set(r, (use.get(r) || 0) + (seen.has(r) ? 1 : 1));
-    seen.add(r);
-  }
-}
+for (const { w } of kept) for (const r of w.refs) use.set(r, (use.get(r) || 0) + 1);
 
 // ───────────── Index des tronçons IGN (pour la largeur) ─────────────
 const toMx = (lon) => (lon - LON0) * MX, toMy = (lat) => (lat - LAT0) * MZ;
@@ -169,10 +162,13 @@ for (const { w, cls } of kept) {
   if (cls === 'footway' || cls === 'steps') oneway = false;
   if (onewayTag === '-1') { refs = refs.slice().reverse(); coords = coords.slice().reverse(); } // sens unique inversé : on retourne la géométrie
   const bridge = !!t.bridge && t.bridge !== 'no';
-  const tunnel = !!t.tunnel && t.tunnel !== 'no' && t.tunnel !== 'building_passage';
-  const covered = t.tunnel === 'building_passage' || (!!t.covered && t.covered !== 'no');
   const layerTag = num(t.layer);
-  const layer = layerTag != null ? Math.round(layerTag) : bridge ? 1 : tunnel ? -1 : 0;
+  // Vrai tunnel = tunnel=* ET couche négative. Dans Paris, « tunnel=yes » sans couche désigne un passage au niveau
+  // du sol sous un immeuble ou une dalle (porche, cité, passage) : il reste praticable en surface → covered.
+  const tunnelTag = !!t.tunnel && t.tunnel !== 'no';
+  const tunnel = tunnelTag && t.tunnel !== 'building_passage' && layerTag != null && layerTag < 0;
+  const covered = (tunnelTag && !tunnel) || (!!t.covered && t.covered !== 'no');
+  const layer = layerTag != null ? Math.round(layerTag) : bridge ? 1 : 0;
   const lanesOsm = num(t.lanes);
   const widthOsm = /^\d+([.,]\d+)?( ?m)?$/.test(t.width || '') ? num(t.width) : null;
   const base = {
@@ -207,9 +203,9 @@ for (const { w, cls } of kept) {
         }
       }
       if (width == null) stats.largeurNulle++;
-      const props = { id: pieces.length === 1 && k === 0 ? `w${w.id}` : `w${w.id}_${k}`, ...base, width, lanes, source };
-      // le premier morceau d'un chemin non coupé garde l'identifiant nu ; on réordonne les clés selon le contrat
-      const ordered = { id: props.id, name: props.name, class: props.class, width: props.width, lanes: props.lanes, oneway: props.oneway, bridge: props.bridge, tunnel: props.tunnel, surface: props.surface, maxspeed: props.maxspeed, layer: props.layer, source: props.source };
+      // identifiant : « w<id OSM> » pour un chemin resté entier, « w<id OSM>_<n> » pour ses morceaux ; clés dans l'ordre du contrat
+      const id = pieces.length === 1 && k === 0 ? `w${w.id}` : `w${w.id}_${k}`;
+      const ordered = { id, name: base.name, class: base.class, width, lanes, oneway: base.oneway, bridge: base.bridge, tunnel: base.tunnel, surface: base.surface, maxspeed: base.maxspeed, layer: base.layer, source };
       if (covered) ordered.covered = true; // passage sous immeuble / arcade (information hors contrat, facultative)
       feats.push(feature({ type: 'LineString', coordinates: line }, ordered));
       k++;
@@ -242,4 +238,5 @@ console.log('  longueur (m):', JSON.stringify(lengthByClass));
 console.log('  stats       :', JSON.stringify(stats), `| tronçons IGN exploitables : ${ignUsable}/${ign.length}`);
 console.log('  écartés     :', JSON.stringify(excluded));
 const car = feats.filter((f) => CARRIAGE.has(f.properties.class) && f.properties.class !== 'service' && f.properties.class !== 'pedestrian');
+console.log(`  passages couverts (covered) : ${feats.filter((f) => f.properties.covered).length} arêtes`);
 console.log(`  voies carrossables : ${car.length} arêtes, largeur connue ${car.filter((f) => f.properties.width != null).length}, voies connues ${car.filter((f) => f.properties.lanes != null).length}, nommées ${car.filter((f) => f.properties.name).length}, sens unique ${car.filter((f) => f.properties.oneway).length}, ponts ${feats.filter((f) => f.properties.bridge).length}, tunnels ${feats.filter((f) => f.properties.tunnel).length}`);

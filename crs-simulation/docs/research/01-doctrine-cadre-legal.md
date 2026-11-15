@@ -1,8 +1,8 @@
 # 01 — Doctrine, cadre légal et organisation du maintien de l'ordre en France
 
 > Dossier de recherche pour **CRS Simulation France**. Rédigé le 15 novembre 2026 à partir de sources consultées ce jour.
-> Public visé : développeurs gameplay / IA / interface / audio. Tout ce qui est entre guillemets « … » est un **texte exact**
-> à reprendre tel quel. Les marques et fabricants cités ici ne servent qu'à la traçabilité : **dans le jeu, noms génériques**
+> Public visé : développeurs gameplay / IA / interface / audio. Les passages entre guillemets « … » suivis de **[V]** sont des **textes officiels exacts**,
+> à reprendre tels quels ; ceux marqués **[JEU]** sont des propositions de rédaction. Les marques et fabricants cités ici ne servent qu'à la traçabilité : **dans le jeu, noms génériques**
 > (« lanceur de grenades 56 mm », « lanceur de balles de défense 40 mm »), conformément au BRIEF §4.
 
 ## Légende de fiabilité
@@ -37,7 +37,7 @@ Les renvois `[n]` pointent vers la section **Sources** en fin de dossier (URL co
 17. Uniforme, **marquage d'unité dans le dos**, **numéro RIO** (7 chiffres) visible, **cagoule interdite**. [V][6][27]
 18. Tout tir (LBD, grenade) fait l'objet d'un **compte rendu écrit** ; le bilan de fin de mission compte les munitions par type, les blessés et les interpellations. [V][7][8]
 19. Interpellation : flagrant délit → maîtrise → remise à un **officier de police judiciaire** → garde à vue de **24 h**, prolongeable **24 h**. Menottes seulement si la personne est dangereuse ou risque de fuir. [V][4][1]
-20. Une faute expose à l'échelle disciplinaire en **quatre groupes** (avertissement → révocation), après enquête administrative (IGPN pour les cas les plus graves). [V][5][29]
+20. Une faute expose à l'échelle disciplinaire en **quatre groupes** (avertissement → révocation), après enquête administrative (IGPN pour les cas les plus graves). [V][5] ; [S][29]
 
 ## 1. Attroupement et dispersion
 
@@ -55,7 +55,7 @@ Les renvois `[n]` pointent vers la section **Sources** en fin de dossier (URL co
 | CSI, art. R. 211-14 | Hors les deux cas de l'alinéa 6, usage des armes à feu « que sur ordre exprès des autorités habilitées à décider de l'emploi de la force ». « Cet ordre est transmis par tout moyen permettant d'en assurer la matérialité et la traçabilité. » | [V][1] |
 | CSI, art. R. 211-16 et D. 211-17 | Armes utilisables après sommations réitérées : grenades à effet sonore, grenades à effet sonore et lacrymogène, grenades lacrymogènes instantanées, lanceurs de grenades de 56 mm et de 40 mm et leurs munitions, grenades à main de désencerclement. | [V][1] |
 | CSI, art. R. 211-18 et D. 211-19 | Dans les deux cas de l'alinéa 6 seulement, s'ajoutent : projectiles non métalliques tirés par les lanceurs de 56 mm, lanceurs de grenades et de balles de défense de 40 × 46 mm, lanceurs de balles de défense de 44 mm. | [V][1] |
-| CSI, art. R. 211-21 | Les autorités habilitées « doivent être présents sur les lieux en vue, le cas échéant, de décider de l'emploi de la force après sommation. » — « Si elle n'effectue pas elle-même les sommations, l'autorité civile responsable de l'emploi de la force désigne un officier de police judiciaire pour y procéder. » | [V][1] |
+| CSI, art. R. 211-21 | Le préfet, le commissaire mandaté et les autres autorités énumérées (voir 1.3) « doivent être présents sur les lieux en vue, le cas échéant, de décider de l'emploi de la force après sommation. » — « Si elle n'effectue pas elle-même les sommations, l'autorité civile responsable de l'emploi de la force désigne un officier de police judiciaire pour y procéder. » | [V][1] |
 
 ### 1.2 Texte exact des sommations
 Article R. 211-11 du code de la sécurité intérieure, en vigueur [V][1][2] : « l'autorité habilitée à procéder aux sommations avant de disperser un attroupement par la force » :
@@ -127,7 +127,7 @@ Avant le décret de 2021 : écharpe pour la police et le corps préfectoral, bra
 
 ### 1.6 Délais entre les sommations
 - **Aucun délai chiffré** n'existe dans le code : seulement l'« obligation de se disperser sans délai ». [V][1]
-- La jurisprudence exige que les personnes aient eu **le temps et la possibilité matérielle de partir** : relaxe confirmée par la Cour de cassation (chambre criminelle, 23 janvier 2019, n° 18-81.219) pour une personne retenue dans un quadrillage policier qui ne lui « permettai[t] pas […] de partir ». [S][16]
+- La jurisprudence exige que les personnes aient eu **le temps et la possibilité matérielle de partir** : relaxe confirmée par la Cour de cassation (chambre criminelle, 23 janvier 2019, n° 18-81.219) pour une personne prise dans un quadrillage policier : la disposition des forces « ne permettaient pas à l'intéressée de partir ». [S][16]
 - Les sommations « doivent être diffusées ou réitérées à chaque séquence opérationnelle » ; une séquence = « la réalisation d'une mission dans un temps et sur un compartiment de terrain donnés ». Si l'usage des armes est ordonné après un emploi de la force resté inefficace, « les sommations relatives à l'usage des armes doivent être réitérées dans leur intégralité ». [V][7]
 
 | Intervalle (valeurs de jeu) | Durée standard (mission de 25 min) | Durée « temps réel » | Fiab. |
@@ -150,7 +150,7 @@ Avant le décret de 2021 : écharpe pour la police et le corps préfectoral, bra
 - Même sans sommation, la doctrine demande des **avertissements à la foule** : « avertissements non formalisés mais indiquant clairement la nature de ces manœuvres et de ces moyens », « chaque fois que cela est possible au regard de la situation et de l'urgence ». [V][7]
 - Pratique décrite en 2016 : l'officier de police judiciaire annonce « le mode d'action et/ou la munition éventuellement utilisée », doublé d'une fusée rouge. [V][12]
 - Exemples d'avertissements pour le jeu [JEU] : « Attention, nous allons employer des grenades lacrymogènes. Écartez-vous. » ; « Attention, charge. Dégagez la chaussée. » ; « Attention, usage du canon à eau. Reculez. »
-- « En l'absence d'attroupement ou d'[autorité habilitée], le cadre légal qui s'applique est celui du droit commun » (légitime défense, flagrant délit). [V][7]
+- « En l'absence d'attroupement ou d'AHEF, le cadre légal qui s'applique est celui du droit commun » (légitime défense, flagrant délit). [V][7]
 
 ### 1.8 Machine à états de la dispersion (synthèse à coder)
 ```
@@ -191,13 +191,13 @@ A tout moment : VIOLENCES OU VOIES DE FAIT contre l'unité / TERRAIN INDEFENDABL
 ### 2.1 Les deux versions
 | Version | Date | Faits | Fiab. |
 |---|---|---|---|
-| Première version | Présentée le **16 septembre 2020** par le ministre de l'Intérieur | « Premier document de doctrine […] commun à l'ensemble des forces » | [V][6][10] |
+| Première version | Présentée le **16 septembre 2020** par le ministre de l'Intérieur | « premier document de doctrine […] commun à l'ensemble des forces » | [V][6][10] |
 | Annulation partielle | **Conseil d'État, 10 juin 2021, n° 444849** | Quatre points annulés : 2.2.1 en partie (conditions mises au port d'équipements de protection par les journalistes), 2.2.2 en partie (canal d'information réservé aux journalistes « accrédités auprès des autorités »), **2.2.4 en entier** (obligation pour les journalistes de quitter les lieux lors de la dispersion), **3.1.4 en entier** (encerclement jugé « utile » sans conditions) | [V][9] |
 | Version en vigueur | **Décembre 2021** (document daté du 15 décembre 2021, 40 pages) | Réécrit les points annulés, intègre les sommations du décret du 5 mai 2021 | [V][6][7] |
 | Déclinaison gendarmerie | Instruction n° 200000 du **26 juillet 2022** | Référentiel unique de la gendarmerie pour l'ordre public | [V][7] |
 
-Phrase d'ouverture du schéma, utilisable en écran de chargement : « Le maintien de l'ordre a donc pour objectif […] d'anticiper les troubles afin de ne pas avoir à les réprimer. » [V][6]
-Conclusion de la synthèse : « une doctrine plus protectrice pour les manifestants et plus ferme avec les auteurs de violences ». [V][6]
+- Phrase d'ouverture du schéma, utilisable en écran de chargement : « Le maintien de l'ordre a donc pour objectif […] d'anticiper les troubles afin de ne pas avoir à les réprimer. » [V][6]
+- Conclusion de la synthèse : « une doctrine plus protectrice pour les manifestants et plus ferme avec les auteurs de violences ». [V][6]
 
 ### 2.2 Principes et gradation
 | Principe | Formulation de la source | Fiab. |
@@ -232,7 +232,7 @@ Trois natures d'engagement (instruction gendarmerie) [V][7] — à utiliser comm
 - Le directeur du service d'ordre ou le chef de secteur « peut à tout moment modifier, suspendre ou annuler ses instructions ». [V][6] §2.4.4
 - Il « décide, hors les cas de légitime défense, de l'emploi de la force et de l'usage des armes ». [V][6] §2.4.4
 - Le commandant de la force publique reçoit « impérativement » : « un ou des objectifs à atteindre clairement formulés » et « le cadre juridique dans lequel doivent se dérouler les opérations ». [V][7]
-- Les sapeurs-pompiers peuvent être « intégré[s] dans le dispositif du service d'ordre, afin de disposer d'une capacité d'extinction des feux particulièrement réactive et mobile ». [V][6] §2.4.7
+- Des équipes de sapeurs-pompiers « peuvent également être intégrées dans le dispositif du service d'ordre, afin de disposer d'une capacité d'extinction des feux particulièrement réactive et mobile ». [V][6] §2.4.7
 
 ### 2.4 Information des manifestants
 | Outil | Contenu | Fiab. |
@@ -348,7 +348,7 @@ Compléments :
 | Port | Approvisionné d'**une** cartouche ; un seul type de munition (« le panachage est prohibé ») ; « position de contact » : pointé vers la menace, canon sous l'horizontale, index le long du pontet | [V][8] |
 | Qui | Fonctionnaires actifs titulaires **habilités** ; exclus : stagiaires, policiers adjoints, réservistes ; affectation temporaire, autorisée par la hiérarchie, inscrite au registre | [V][8] |
 | Habilitation | Individuelle, recyclage tous les **3 ans** ; à l'examen, « un taux de 100 % d'impact en cible ainsi que l'atteinte de zones corporelles précises sont exigés » | [V][15] |
-| **Superviseur** | « Pour tout tireur équipé de LBD 40 au sein d'une unité constituée engagée au maintien de l'ordre, hors le cas de la légitime défense, un superviseur sera désigné, chargé d'évaluer la situation d'ensemble et les mouvements des manifestants, de s'assurer de la compréhension des ordres par le tireur et de désigner l'objectif. » Vaut pour CRS, gendarmes mobiles, compagnies d'intervention, brigades anticriminalité, unités de circonstance | [V][6] §3.3.2 |
+| **Superviseur** | « Pour tout tireur équipé de LBD 40 au sein d'une unité constituée engagée au maintien de l'ordre, hors le cas de la légitime défense, un superviseur sera désigné, chargé d'évaluer la situation d'ensemble et les mouvements des manifestants, de s'assurer de la compréhension des ordres par le tireur et de désigner l'objectif. » Vaut pour CRS, gendarmes mobiles, compagnies d'intervention, brigades anticriminalité, unités de circonstance. Fonction déjà imposée en gendarmerie avant 2020 [S][36] | [V][6] §3.3.2 |
 | Caméra | Porteur doté « dans toute la mesure du possible » d'une caméra-piéton « à fixation ventrale de préférence », ou binôme tireur / porteur de caméra (le superviseur) ; enregistrer les conditions du tir | [V][6] §3.3.2 |
 | Cadre en manifestation | Attroupement **et** violences ou voies de fait contre les forces, ou défense du terrain, « sans qu'il soit fait usage des sommations » | [V][8][14] |
 | Après le tir | S'assurer de l'état de santé de la personne, surveillance permanente, examen médical « quelle que soit la zone corporelle atteinte » ; compte rendu écrit systématique (nombre de tirs, distance estimée) dans le traitement de suivi de l'usage des armes | [V][8] |
@@ -363,7 +363,7 @@ Compléments :
 | Trajectoire | « le tir tendu est strictement interdit ». Le tir courbe (explosion et dispersion en l'air) évite que les personnes « ne soient directement impactées et ne puissent les ramasser au sol afin de les renvoyer » | [V][8] |
 | Binôme | « un superviseur et un ou plusieurs lanceurs » ; le superviseur évalue la situation, s'assure de la compréhension des ordres, alerte sur « les conditions environnementales susceptibles de rendre le tir inopérant ou dangereux » (vent, par exemple) | [V][8] |
 | Interdits | Locaux de faible capacité (sauf exception) ; conducteur d'un véhicule en mouvement ; désencerclement tirée au lanceur | [V][8] |
-| Lanceurs | Mono-tube de 56 mm, ou multi-coups à « magasin rotatif à six chambres » en 40 mm | [V][8] |
+| Lanceurs | « lanceur mono-tube » ou lanceurs « multi-coups, disposant d'un magasin rotatif à six chambres » ; calibres autorisés : 56 mm et 40 mm | [V][8][1] |
 | Qui | Tout fonctionnaire ou militaire **habilité** (stagiaires compris) ; les élèves gardiens sont habilités en école au lanceur de 56 mm et à la grenade de désencerclement | [V][8][15] |
 | Portées au lanceur | Dispositifs de propulsion à retard de **50 m, 100 m et 200 m** | [V][8] |
 | Portée à la main | 5 à 30 m | [S][33] |
@@ -456,7 +456,7 @@ Article L. 435-1 du code de la sécurité intérieure [V][8] : usage des armes �
 | Sections de service général | **4 sections** : 2 sections d'appui et de manœuvre (SAM), dont une formée au risque nucléaire, radiologique, biologique et chimique, et 2 sections de protection et d'intervention (SPI) | [S][17] |
 | Passage de 3 à 4 sections | Des compagnies étaient « passées de quatre à trois sections » ; objectif ministériel : qu'elles « disposent de quatre sections » | [V][11] |
 | Effectif d'une section sur le terrain | Une quinzaine d'agents ; « 20 policiers au maximum » dans une note interne de janvier 2023 | [S][17][20] |
-| SPI de 4e génération | « habilit[ées] à procéder à des interpellations » dans l'environnement immédiat de l'unité ; 25 gardiens et gradés, commandées par un officier ou plus souvent un major ; un secouriste par section | [V][11][6] ; [S][17] |
+| SPI de 4e génération | « habilités à procéder à des interpellations dans l'environnement immédiat de leur unité » ; 25 gardiens et gradés, commandées par un officier ou plus souvent un major ; un secouriste par section | [V][11][6] ; [S][17] |
 | Groupes tactiques | Chaque section : 3 groupes **A, B, C** ; **C = groupe de commandement** (« 1C » = commandement de la 1re section) | [S][17] |
 | Marquage dorsal | Numéro de section + lettre de groupe (« 1B », « 4B »), visible sur les photos du schéma national | [V][6] p. 5 et 10 |
 | Demi-compagnie | « Demi-Alpha » et « Demi-Bravo » | [S][17] |
@@ -480,7 +480,7 @@ Articulation de jeu d'une compagnie déployée [JEU], cohérente avec les chiffr
 | Sur le terrain | Groupe de commandement + 3 ou 4 pelotons de **16** gendarmes ; configuration « alpha » (4 pelotons) ou « bravo » (3 pelotons) | [S][18] |
 | Réalité déclarée | « à peine […] trois pelotons, soit cinquante-cinq personnels actifs au sol » ; pelotons de 20 dans une note de janvier 2023 | [V][11] ; [S][20] |
 | Peloton | Commandé par un officier ou un gradé supérieur ; deux groupes égaux | [V][7] ; [S][18] |
-| Peloton d'intervention | « réserve d'intervention » du commandant ; agit sur les flancs et les arrières, interpelle « sous le contrôle d'un [officier de police judiciaire] » ; ne tient pas de mission statique ; peut « déclencher une action sans devoir en solliciter l'autorisation au préalable » | [V][7] |
+| Peloton d'intervention | « réserve d'intervention » du commandant ; agit sur les flancs et les arrières, interpelle « sous le contrôle d'un OPJ » (officier de police judiciaire) ; ne tient pas de mission statique ; peut « déclencher une action sans devoir en solliciter l'autorisation au préalable » | [V][7] |
 | Appuis du commandant | Deux sous-officiers transmissions au minimum, un sous-officier chargé de la rame de véhicules, une cellule images, un **chef appui-feu** « pour coordonner et superviser les tirs » | [V][7] |
 | Demi-escadron | Emploi possible à deux pelotons, à titre exceptionnel | [V][7] |
 | Niveaux supérieurs | Groupement tactique de gendarmerie (2 à 6 escadrons), groupement opérationnel de maintien de l'ordre | [V][7] |
@@ -516,10 +516,10 @@ Articulation de jeu d'une compagnie déployée [JEU], cohérente avec les chiffr
 | Effectif | Environ 5 500 personnels (2020) | [S][11] |
 | Commandement unifié | Depuis 2019, tout fonctionnaire engagé au maintien de l'ordre passe sous la chaîne de commandement de cette direction | [V][11] |
 | Structure | État-major ; sous-direction de l'ordre public de l'agglomération parisienne ; groupement des compagnies d'intervention | [S] (arrêtés d'organisation, non lus intégralement) |
-| **Salle de commandement** | Appelée « CICOP DOPC » dans une fiche interne de 2020, « chargé[e] de la supervision de la manifestation » | [V][21] |
+| **Salle de commandement** | Appelée « CICOP DOPC » dans une fiche interne de 2020, « chargé de la supervision de la manifestation » | [V][21] |
 | Images | Les images des drones arrivent sur un serveur séparé, « uniquement sur un écran spécifique » ; aucun enregistrement ; floutage des silhouettes, véhicules et fenêtres que la salle « n'a pas la possibilité technique de suspendre » | [V][21] |
 | Transmission des ordres | « CRS comme gendarmes mobiles reçoivent l'ordre par la salle de commandement […], relayé par l'officier supérieur de gendarmerie ou par le commissaire des CRS qui s'y trouve » | [V][11] |
-| Radio | La direction « est censée diriger et centraliser les conférences radio mises en place pour les différentes divisions sur le terrain » | [V][11] |
+| Radio | La direction « est censée diriger et centraliser les conférences radio mises en place pour les différentes divisions sur le terrain » (témoignage syndical de 2019, avant l'unification du commandement) | [V][11] |
 | Défaut connu | À Paris, « les chefs de secteur attendent des instructions d'une salle de commandement », ce qui rend les forces « moins agiles » ; le schéma national veut l'inverse | [V][11][6] |
 | Emplacement, nombre d'écrans, effectif de la salle | **non trouvé** | [I] |
 
@@ -542,7 +542,7 @@ Articulation de jeu d'une compagnie déployée [JEU], cohérente avec les chiffr
 Sources : [V][1] R. 211-14 et R. 211-21 ; [V][6] §2.4.4 ; [V][7].
 
 ### 4.6 Grades de la police nationale et insignes
-Trois corps [S][23] : corps d'encadrement et d'application (gardiens et gradés), corps de commandement (officiers), corps de conception et de direction (commissaires). Description des galons d'après une reprise du texte réglementaire (arrêté du 9 décembre 2019) [S][24], recoupée par deux images de référence [V][25]. Fond : bleu nuit ; pour les CRS, fond bleu clair ou bleu-gris avec flambeau [S][23].
+Trois corps [S][23] : corps d'encadrement et d'application (gardiens et gradés), corps de commandement (officiers), corps de conception et de direction (commissaires). Description des galons d'après une reprise du texte réglementaire (arrêté du 9 décembre 2019) [S][24], recoupée par deux images de référence [S][25]. Fond : bleu nuit ; pour les CRS, fond bleu clair ou bleu-gris avec flambeau [S][23].
 
 | Grade | Corps | Insigne de grade | Rôle type en jeu |
 |---|---|---|---|
@@ -631,7 +631,7 @@ Source : support de formation « La procédure radio » (police territoriale) [S
 Règles d'usage [S][26] : alternat (un seul parle à la fois) ; s'assurer que le réseau est libre ; respecter l'ordre des appels ; **appuyer et attendre 1 seconde avant de parler** ; messages « BREF, CLAIR et PRÉCIS ».
 
 ### 5.3 Alphabet et chiffres
-Alphabet réglementaire [S][26] : ALFA, BRAVO, CHARLIE, DELTA, ECHO, FOX-TROT, GOLF, HOTEL, INDIA, JULIETT, KILO, LIMA, MIKE, NOVEMBER, OSCAR, PAPA, QUEBEC, ROMEO, SIERRA, TANGO, UNIFORM, VICTOR, WHISKEY, X-RAY, YANKEE, ZULU.
+Alphabet réglementaire [S][26] : ALFA, BRAVO, CHARLIE, DELTA, ECHO, FOXTROT, GOLF, HOTEL, INDIA, JULIETT, KILO, LIMA, MIKE, NOVEMBER, OSCAR, PAPA, QUEBEC, ROMEO, SIERRA, TANGO, UNIFORM, VICTOR, WHISKEY, X-RAY, YANKEE, ZULU.
 
 Chiffres [S][26] : transmis **chiffre par chiffre**, sauf les multiples exacts de mille (« 45 » → « QUATRE-CINQ » ; « 5000 » → « CINQ MILLE »). Variante anti-confusion : « UN tout seul », « DEUX un et un », « TROIS deux et un », « QUATRE deux fois deux », « CINQ trois et deux », « SIX deux fois trois », « SEPT quatre et trois », « HUIT deux fois quatre », « NEUF cinq et quatre ».
 
@@ -769,7 +769,7 @@ Difficultés décrites par la doctrine : personnes sans papiers d'identité, ref
 | Groupe | Sanctions (texte exact) | Conseil de discipline |
 |---|---|---|
 | **1er** | « a) L'avertissement ; b) Le blâme ; c) L'exclusion temporaire de fonctions pour une durée maximale de trois jours. » | Non requis |
-| **2e** | « a) La radiation du tableau d'avancement ; b) L'abaissement d'échelon à l'échelon immédiatement inférieur […] ; c) L'exclusion temporaire de fonctions pour une durée de quatre à quinze jours ; d) Le déplacement d'office » | Obligatoire |
+| **2e** | « a) La radiation du tableau d'avancement ; b) L'abaissement d'échelon à l'échelon immédiatement inférieur […] ; c) L'exclusion temporaire de fonctions pour une durée de quatre à quinze jours ; d) Le déplacement d'office dans la fonction publique de l'Etat. » | Obligatoire |
 | **3e** | « a) La rétrogradation au grade immédiatement inférieur […] ; b) L'exclusion temporaire de fonctions pour une durée de seize jours à deux ans. » | Obligatoire |
 | **4e** | « a) La mise à la retraite d'office ; b) La révocation. » | Obligatoire |
 
@@ -794,7 +794,7 @@ Difficultés décrites par la doctrine : personnes sans papiers d'identité, ref
 |---|---|---|
 | RIO | Numéro d'identification individuel à **sept chiffres**, sur un bandeau fixé à l'uniforme | [V][27][37] |
 | Schéma national | « Le respect des règles, et notamment le port du RIO y compris sur la tenue de maintien de l'ordre » ; marquage dorsal de l'unité généralisé ; « le port de la cagoule […] est proscrit » ; uniforme obligatoire pour toute unité constituée (sauf unités judiciaires et d'interpellation en civil) | [V][6] §2.7 |
-| Conseil d'État, 11 octobre 2023 (n° 467771) | Obligation « insuffisamment respectée » ; injonction d'en garantir le port effectif et d'agrandir le numéro | [V][27][37] |
+| Conseil d'État, 11 octobre 2023 (n° 467771) | Obligation jugée insuffisamment respectée ; injonction d'en garantir le port effectif et d'agrandir le numéro | [V][27][37] |
 | Conseil d'État, 29 avril 2026 | Commande et distribution des nouveaux identifiants « avant le 31 décembre 2026 » ; caractères plus épais, **blancs sur fond noir** ; port du matricule **à l'avant des gilets** en maintien de l'ordre | [V][27] |
 | Dimensions exactes du nouveau bandeau | **non trouvé** | [I] |
 | Valeurs de jeu | Bandeau noir `#111111`, chiffres blancs, 0,10 × 0,03 m sur la poitrine, répété sur le gilet de maintien de l'ordre ; lisible par un PNJ ou une caméra à moins de 5 m | [JEU] |

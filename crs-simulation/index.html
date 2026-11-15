@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0b1220">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="format-detection" content="telephone=no">
+<meta name="description" content="CRS Simulation France — simulation de maintien de l'ordre en monde ouvert dans Paris.">
+<title>CRS Simulation France</title>
+<!-- Icône intégrée : aucun appel réseau hors des fichiers du jeu. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2l11 4v9c0 7-4.6 12.4-11 15C9.600 27.400 5 22 5 15V6z' fill='%230b1220'/%3E%3Cpath d='M8 8.100l4-1.450V25.500C9.500 22.900 8 19.300 8 15z' fill='%230055a4'/%3E%3Cpath d='M12 6.650l4-1.450 4 1.450V25.500c-1.200 1.100-2.500 2-4 2.700-1.500-.7-2.800-1.600-4-2.700z' fill='%23fff'/%3E%3Cpath d='M20 6.650l4 1.450V15c0 4.300-1.500 7.900-4 10.500z' fill='%23ef4135'/%3E%3C/svg%3E">
+<style>
+  :root {
+    /* Marges de sécurité des écrans à encoche, à disposition de l'interface. */
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
+    color-scheme: dark;
+  }
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #0b1220;
+    color: #e8ecf3;
+  }
+  body {
+    position: fixed;
+    inset: 0;
+    overscroll-behavior: none;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.4;
+  }
+  /* #game : canevas 3D ; #ui : interface par-dessus (transparente aux clics là où elle est vide). */
+  #game, #ui {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+  }
+  #game { z-index: 0; }
+  #game canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    touch-action: none;
+    outline: none;
+  }
+  #ui { z-index: 10; pointer-events: none; }
+  #ui > * { pointer-events: auto; }
+  input, textarea { -webkit-user-select: text; user-select: text; }
+  #boot-splash {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    padding: 24px;
+    text-align: center;
+    pointer-events: none;
+  }
+  #boot-splash .flag { display: flex; width: 54px; height: 6px; border-radius: 3px; overflow: hidden; }
+  #boot-splash .flag i { flex: 1; }
+  #boot-splash .flag i:nth-child(1) { background: #0055a4; }
+  #boot-splash .flag i:nth-child(2) { background: #ffffff; }
+  #boot-splash .flag i:nth-child(3) { background: #ef4135; }
+  #boot-splash .name { font-size: 15px; font-weight: 700; letter-spacing: 0.32em; text-indent: 0.32em; }
+  #boot-splash .state { font-size: 14px; color: #93a0b8; max-width: 46ch; }
+  #boot-splash.failed .state { color: #ff8f85; }
+</style>
+</head>
+<body>
+<div id="game"></div>
+<div id="ui">
+  <div id="boot-splash">
+    <span class="flag"><i></i><i></i><i></i></span>
+    <span class="name">CRS SIMULATION FRANCE</span>
+    <span class="state">Chargement…</span>
+  </div>
+</div>
+<noscript>
+  <p style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;margin:0;padding:24px;text-align:center;background:#0b1220;color:#e8ecf3;z-index:100">
+    CRS Simulation France a besoin de JavaScript pour fonctionner. Activez-le puis rechargez la page.
+  </p>
+</noscript>
+<script type="module" src="./src/main.ts"></script>
+</body>
+</html>

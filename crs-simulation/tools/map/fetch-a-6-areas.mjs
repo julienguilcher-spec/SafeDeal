@@ -19,8 +19,8 @@
 
 import path from 'node:path';
 import {
-  RAW, NORM, RECT_M, MX, MZ, LON0, LAT0, readJson, cleanRing, orientPolygon, polygonAreaM, ringAreaM, bboxOf, bboxIntersects,
-  interiorPoint, pointInPolygon, assembleRings, groupRings, clipPolygonToRect, clipLineToRect, simplifyRing, simplifyLine,
+  RAW, NORM, RECT_M, MX, MZ, LON0, LAT0, readJson, cleanRing, orientPolygon, polygonAreaM, bboxOf, bboxIntersects,
+  interiorPoint, pointInPolygon, assembleRings, groupRings, clipPolygonKeepingHoles, clipLineToRect, simplifyRing, simplifyLine,
   lineLengthM, GridIndex, writeGeojson, feature, polygonGeom, polysOf, round1, round7,
 } from './lib-a.mjs';
 
@@ -67,7 +67,9 @@ function classifyOsm(t) {
   if (t.natural === 'water' || t.waterway === 'riverbank' || t.waterway === 'dock' || t.landuse === 'basin' || t.landuse === 'reservoir' || (t.amenity === 'fountain' && !t.highway)) {
     if (underground(t)) return null; // voûtes du canal Saint-Martin, réservoirs enterrés
     const w = t.water || (t.amenity === 'fountain' ? 'fountain' : t.waterway || t.landuse || 'water');
-    if (w === 'river') return { kind: 'water', sub: 'river', z: 1 };
+    // le bassin de l'Arsenal est étiqueté water=river dans OSM : c'est un bassin du canal
+    if (w === 'river' && !/bassin|canal|écluse/i.test(t.name || '')) return { kind: 'water', sub: 'river', z: 1 };
+    if (w === 'river') return { kind: 'water', sub: 'canal', z: 1 };
     if (w === 'canal' || w === 'lock' || w === 'dock') return { kind: 'water', sub: 'canal', z: 1 };
     return { kind: 'water', sub: w === 'fountain' || t.amenity === 'fountain' ? 'fountain' : 'basin', z: 9 };
   }
@@ -104,7 +106,7 @@ function pushArea(polys, kind, name, sub, z, source, { simplifyM = 0, minArea = 
       poly = poly.map((r) => simplifyRing(r, simplifyM)).filter(Boolean);
       if (!poly.length) continue;
     }
-    const c = clipPolygonToRect(poly, RECT_M);
+    const c = clipPolygonKeepingHoles(poly, RECT_M); // un trou (île) n'est jamais coupé : le polygone déborde alors de la marge
     if (!c) continue;
     const o = orientPolygon(c);
     if (polygonAreaM(o) < minArea) continue;
@@ -183,8 +185,8 @@ for (const [id, kind, sub, z] of VOIRIE) {
   }
 }
 
-// ───────────── Cours : trous des bâtiments (cours fermées à l'intérieur d'un même bâtiment) ─────────────
-// Rien à faire ici : ces cours sont déjà couvertes par le polygone d'îlot (courtyard:block) placé sous les bâtiments.
+// (Les cours intérieures n'ont pas de polygone propre : elles sont la partie visible du polygone d'îlot
+// « courtyard:block », peint sous les bâtiments.)
 
 // ───────────── Tri (ordre de peinture) et écriture ─────────────
 feats.sort((a, b) => a.properties.z - b.properties.z || b._area - a._area);
@@ -316,10 +318,10 @@ for (const w of osm.ways) {
     if (gateNodes.has(w.refs[i])) { pieces.push([start, i]); start = i; bstats.portails++; }
   }
   pieces.push([start, w.refs.length - 1]);
-  const closed = w.refs[0] === w.refs[w.refs.length - 1];
   pieces.forEach(([a, b], idx) => {
     let line = w.coords.slice(a, b + 1).map((c) => [round7(c[0]), round7(c[1])]);
-    const gateAtStart = idx > 0 || gateNodes.has(w.refs[a]) || (closed && pieces.length > 1 && false);
+    // un portail peut aussi se trouver au tout début ou à la toute fin du chemin
+    const gateAtStart = idx > 0 || gateNodes.has(w.refs[a]);
     const gateAtEnd = idx < pieces.length - 1 || gateNodes.has(w.refs[b]);
     if (gateAtStart && line) line = trim(line, GATE_HALF, true);
     if (gateAtEnd && line) line = trim(line, GATE_HALF, false);
