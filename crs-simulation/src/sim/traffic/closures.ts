@@ -13,7 +13,6 @@
  * ===================================================================================== */
 
 import type { EntityId, GameContext, Prop, Vehicle } from '@/core/contracts';
-import { EXT } from '@/core/extensions';
 import type { RoadClosure, TrafficControlApi } from '@/core/extensions';
 import type { RadioPhrases } from '@/gameplay/radio/api';
 import { BARRED_EVENT, CLOSED_EVENT, GATE_EVENT, OPENED_EVENT } from './api';
@@ -545,6 +544,7 @@ export class Closures implements TrafficControlApi {
   }
 
   private report(rec: ClosureRec): void {
+    if (rec.areaId !== 0) return; // le compte rendu du périmètre vaut pour toutes ses rues
     const cl = rec.closure;
     const name = this.streetName(rec);
     const held = cl.squadId !== 0 && this.ctx.squads.get(cl.squadId) !== undefined;
@@ -562,7 +562,9 @@ export class Closures implements TrafficControlApi {
     const squad = squadId !== 0 ? ctx.squads.get(squadId) : undefined;
     const phrases = ctx.service<RadioPhrases>(RADIO_PHRASES);
     if (phrases && phrases.has(key)) {
-      if (phrases.say(key, { voie: name }, squad ? { squad, at: { x, z } } : { at: { x, z } })) return;
+      // la bibliothèque de phrases choisit la variante, l'indicatif et applique son anti-répétition
+      phrases.say(key, { voie: name }, squad ? { squad, at: { x, z } } : { at: { x, z } });
+      return;
     }
     ctx.radio.say({ channel: 'commandement', from: squad ? squad.name : 'CENTRAL', text, priority: 1 });
   }
@@ -572,7 +574,8 @@ export class Closures implements TrafficControlApi {
     const ctx = this.ctx;
     const phrases = ctx.service<RadioPhrases>(RADIO_PHRASES);
     if (phrases && phrases.has('perimetre_ferme')) {
-      if (phrases.say('perimetre_ferme', { lieu: place, nombre: count }, { at: { x, z } })) return;
+      phrases.say('perimetre_ferme', { lieu: place, nombre: count }, { at: { x, z } });
+      return;
     }
     ctx.radio.say({
       channel: 'commandement', from: 'CENTRAL', priority: 1,
@@ -580,6 +583,3 @@ export class Closures implements TrafficControlApi {
     });
   }
 }
-
-/** Clé du service (rappel de src/core/extensions.ts). */
-export const TRAFFIC_CONTROL_KEY = EXT.traffic;
