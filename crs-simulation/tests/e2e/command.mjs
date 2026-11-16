@@ -676,9 +676,9 @@ async function plan() {
   check(wp !== null && /Bastille/i.test(wp.label), `repère GPS posé (${wp && wp.label})`);
   check(await key(page, 'KeyM', 'carte', false) && await page.evaluate(() => window.__cmd.ctx.session.phase === 'playing'), 'M referme le plan, la simulation reprend');
   await page.waitForFunction(() => window.__cmd.maps.route.length >= 4 && /m/.test(document.querySelector('.cm-mini-dist').textContent), null, { timeout: 15000 }).catch(() => {});
-  const gps = await page.evaluate(() => ({ n: window.__cmd.maps.route.length, d: window.__cmd.maps.distance, src: window.__cmd.maps.target && window.__cmd.maps.target.source, text: document.querySelector('.cm-mini-dist').textContent }));
+  const gps = await page.evaluate(() => ({ n: window.__cmd.maps.route.length, d: window.__cmd.maps.distance, src: window.__cmd.maps.target && window.__cmd.maps.target.source, text: document.querySelector('.cm-mini-info').textContent, shown: !document.querySelector('.cm-mini-info').classList.contains('is-off') }));
   check(gps.src === 'repere' && gps.n >= 4 && gps.d > 800, `itinéraire GPS calculé (${gps.n / 2} points, ${Math.round(gps.d)} m)`);
-  check(/km|m/.test(gps.text) && /Bastille/i.test(gps.text), `distance et cible sous la mini-carte (${gps.text})`);
+  check(gps.shown && /km|m/.test(gps.text) && /Bastille/i.test(gps.text), `distance et repère affichés près de la mini-carte (${gps.text})`);
   await shot(page, 'command-hud-gps-1280x720');
   // repère par clic droit sur le plan
   await key(page, 'KeyM', 'carte', true);
