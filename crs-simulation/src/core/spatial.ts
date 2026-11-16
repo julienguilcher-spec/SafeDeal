@@ -66,6 +66,8 @@ export class SpatialHash<T extends SpatialItem> {
   private reindexPending = false;
   /** Un agrandissement de la table des seaux a été demandé pendant une requête. */
   private growPending = false;
+  /** Quelque chose a été différé pendant une requête (cas rare) : à appliquer quand elle se termine. */
+  private deferred = false;
   /** Change à chaque clear() / rebuild() : une requête en cours doit alors s'arrêter. */
   private epoch = 0;
 
@@ -108,9 +110,9 @@ export class SpatialHash<T extends SpatialItem> {
     this.epoch++;
   }
 
-  /** Fin de la dernière requête en cours : applique ce qui avait été différé. */
-  private endScan(): void {
-    if (--this.scanDepth > 0) return;
+  /** Fin de la dernière requête en cours : applique ce qui avait été différé (insertions, retraits, déplacements). */
+  private flushDeferred(): void {
+    this.deferred = false;
     const items = this.items;
     const links = this.pendingLink;
     if (links.length > 0) {
@@ -199,6 +201,7 @@ export class SpatialHash<T extends SpatialItem> {
       // une requête est en cours (insertion depuis un filtre) : chaînage et agrandissement différés
       this.next[s] = -1;
       this.pendingLink.push(s);
+      this.deferred = true;
       if (this.count_ > (this.mask + 1) * 2) this.growPending = true;
       return s;
     }
@@ -235,6 +238,7 @@ export class SpatialHash<T extends SpatialItem> {
     if (this.scanDepth > 0) {
       // une requête parcourt peut-être cet emplacement : son chaînage reste intact jusqu'à la fin
       this.pendingFree.push(slot);
+      this.deferred = true;
     } else {
       this.next[slot] = this.free;
       this.free = slot;
@@ -279,6 +283,7 @@ export class SpatialHash<T extends SpatialItem> {
     if (this.scanDepth > 0) {
       // déplacer un chaînon sous une requête en cours la ferait dérailler : tout sera ré-indexé à la fin
       this.reindexPending = true;
+      this.deferred = true;
       return;
     }
     const cx = Math.floor(it.x * this.inv);
@@ -397,7 +402,7 @@ export class SpatialHash<T extends SpatialItem> {
         }
       }
     } finally {
-      this.endScan();
+      if (--this.scanDepth === 0 && this.deferred) this.flushDeferred();
     }
     truncate(out, n);
     return n;
@@ -426,7 +431,7 @@ export class SpatialHash<T extends SpatialItem> {
       if (mode === NEAREST) return this.scanNearest(x, z, r2, minCx, maxCx, minCz, maxCz, filter);
       return this.scanCells(x, z, r2, mode, out, minCx, maxCx, minCz, maxCz, filter);
     } finally {
-      this.endScan();
+      if (--this.scanDepth === 0 && this.deferred) this.flushDeferred();
     }
   }
 
