@@ -21,8 +21,16 @@
 
 import type { WorldQuery } from '@/core/contracts';
 import { smoothstep } from '@/core/math';
-import { BLOCK_AREA, BLOCK_CELLS, BLOCK_RANGE, BLOCK_SIZE, CELL, STATIC_CACHE_MAX } from './config';
+import * as cfg from './config';
 import type { HazardTuning } from './config';
+
+// Copies locales (voir sampling.ts).
+const BLOCK_AREA = cfg.BLOCK_AREA;
+const BLOCK_CELLS = cfg.BLOCK_CELLS;
+const BLOCK_RANGE = cfg.BLOCK_RANGE;
+const BLOCK_SIZE = cfg.BLOCK_SIZE;
+const CELL = cfg.CELL;
+const STATIC_CACHE_MAX = cfg.STATIC_CACHE_MAX;
 
 /** Nombre d'axes d'analyse (un tous les 22,5°) et de directions (deux sens par axe). */
 export const AXES = 8;
@@ -231,7 +239,8 @@ export class StaticCache {
           any = true;
           for (let j = 0; j < BLOCK_CELLS; j++) {
             const row = j * BLOCK_CELLS;
-            mask.set(solid.subarray(row, row + BLOCK_CELLS), base + j * PAD);
+            const to = base + j * PAD;
+            for (let i = 0; i < BLOCK_CELLS; i++) mask[to + i] = solid[row + i]!;
           }
         }
       }

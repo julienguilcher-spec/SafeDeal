@@ -25,6 +25,7 @@ class PeopleRenderSystem implements GameSystem, PeopleRenderApi {
   private ctx: GameContext | null = null;
   private renderer: PeopleRenderer | null = null;
   private failed = false;
+  private readonly pendingTexts = new Map<EntityId, string>();
   private errors = 0;
 
   get stats(): PeopleRenderStats {
@@ -52,6 +53,9 @@ class PeopleRenderSystem implements GameSystem, PeopleRenderApi {
     if (this.renderer || this.failed || !ctx || ctx.headless || !ctx.view) return;
     try {
       this.renderer = new PeopleRenderer(ctx, ctx.view);
+      // textes demandés avant la création du rendu
+      for (const [id, text] of this.pendingTexts) this.renderer.setHeldText(id, text);
+      this.pendingTexts.clear();
     } catch (err) {
       this.failed = true;
       console.error('[people] initialisation du rendu des personnages impossible :', err);
@@ -70,6 +74,7 @@ class PeopleRenderSystem implements GameSystem, PeopleRenderApi {
 
   reset(): void {
     this.renderer?.reset();
+    this.pendingTexts.clear();
   }
 
   dispose(): void {
@@ -88,6 +93,12 @@ class PeopleRenderSystem implements GameSystem, PeopleRenderApi {
   heldModelKeys(): string[] {
     ensureModels();
     return heldModelKeys();
+  }
+
+  setHeldText(personId: EntityId, text: string | null): void {
+    if (this.renderer) this.renderer.setHeldText(personId, text);
+    else if (text === null) this.pendingTexts.delete(personId);
+    else this.pendingTexts.set(personId, text);
   }
 
   invalidate(personId?: EntityId): void {

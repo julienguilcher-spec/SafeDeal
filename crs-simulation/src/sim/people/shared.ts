@@ -38,6 +38,8 @@ export interface PersonExtra {
   crowd: number;
   /** Compression subie, lissée (m/s d'écrasement). */
   pressure: number;
+  /** 0..1 : quelqu'un barre le passage au contact (on cesse de forcer). */
+  block: number;
   winded: boolean;
   /** Dernière direction de déplacement convertie en cap (évite un atan2 par pas). */
   hmx: number;
@@ -50,6 +52,8 @@ export interface PersonExtra {
   treated: boolean;
   lastKind: DamageKind | '';
   lastSource: EntityId;
+  /** La blessure non soignée vient d'une cause pouvant être mortelle. */
+  lastGrave: boolean;
   /** Instant du dernier coup reçu (temps de session). */
   hurtAt: number;
   cryAt: number;
@@ -72,20 +76,21 @@ export interface PersonExtra {
   // ── équipement de tête ──
   maskApplied: boolean;
   maskBase: number;
-  visorApplied: boolean;
+  /** Supplément de protection de tête apporté par la visière baissée (0 = visière non baissée par ce module). */
+  visorDelta: number;
 }
 
 function createExtra(): PersonExtra {
   return {
     fresh: true,
     jumpT: 0, jumpDur: 0, jumpH: 0, jumpCd: 0, vault: 0, getUp: 0, lodAcc: 0, calm: 0,
-    load: 0, grip: 1, surface: 1, crowd: 0, pressure: 0, winded: false,
+    load: 0, grip: 1, surface: 1, crowd: 0, pressure: 0, block: 0, winded: false,
     hmx: 0, hmz: 0, hTarget: 0,
-    downTimer: 0, treated: false, lastKind: '', lastSource: 0, hurtAt: -1e9, cryAt: -1e9,
+    downTimer: 0, treated: false, lastKind: '', lastSource: 0, lastGrave: false, hurtAt: -1e9, cryAt: -1e9,
     gasTime: 0, coughT: 0, rinseT: 0, malaise: false, wasBurning: false, burnAcc: 0,
     holdMode: HOLD_OTHER,
     pushReadyAt: 0, upperUntil: 0,
-    maskApplied: false, maskBase: 0, visorApplied: false,
+    maskApplied: false, maskBase: 0, visorDelta: 0,
   };
 }
 
@@ -102,8 +107,10 @@ export class PeopleShared {
   resist = new Float32Array(4096).fill(1);
   /** Centre d'intérêt (joueur, ou engin télépiloté) : les personnes lointaines sont mises à jour moins souvent. */
   focusOn = false;
-  focusX = 0;
-  focusZ = 0;
+  focusX = 0.5;
+  focusZ = 0.5;
+  /** Sol mouillé 0..1 (ctx.env.state.wetness), recopié par la locomotion au début de chaque pas. */
+  wetness = 0.5;
   private bound = false;
   private readonly tmp: Vec2 = { x: 0, z: 0 };
 
@@ -112,6 +119,9 @@ export class PeopleShared {
     if (this.bound) return;
     this.bound = true;
     this.ctx = ctx;
+    this.focusX = 0;
+    this.focusZ = 0;
+    this.wetness = 0;
     ctx.events.on('person:removed', (ev) => this.forget(ev.id));
   }
 
@@ -162,6 +172,11 @@ export class PeopleShared {
         holder.upper = 'none';
         holder.upperT = 0;
       }
+    }
+    // la personne qu'elle portait n'est plus tenue par ce module
+    if (p && p.carrying !== 0) {
+      const carried = this.extras.get(p.carrying);
+      if (carried) carried.holdMode = HOLD_OTHER;
     }
     this.extras.delete(id);
     if (id < this.resist.length) this.resist[id] = 1;

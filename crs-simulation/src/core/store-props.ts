@@ -4,20 +4,26 @@
  * du module du mobilier ; ce magasin se limite à des règles de données simples et réelles.
  *
  *   - spawn() : gabarit réaliste par type (PROP_DEFAULTS), altitude prise sur le monde ;
- *   - vitrines : le contrat ne prévoit pas leur création → addShop() / removeShop() ;
+ *   - vitrines : addShop() / removeShop() (contrat PropApi) ;
+ *   - événements : prop:spawned à la création, prop:removed au retrait (remove et clear) — l'objet
+ *     est alors sorti de `list`, mais get(id) le renvoie encore le temps de l'événement ;
  *   - requêtes : un objet est retenu si son emprise (boîte orientée) touche le disque demandé ;
  *     une vitrine si le segment de sa façade passe à moins de r du point ;
  *   - resolveCircle() : objets `blocksMove`, non endormis, non portés ;
- *   - raycast() : objets `blocksMove` ou `blocksSight` ; RayHit.height permet au tireur de
- *     décider si le projectile passe au-dessus ;
+ *   - raycast(mode) : 'move' = objets `blocksMove`, 'sight' = objets `blocksSight`, sans mode =
+ *     l'un ou l'autre ; RayHit.height permet au tireur de décider si le projectile passe au-dessus ;
  *   - index spatial : mis à jour à l'insertion, au retrait, par rebuildIndex(), et au plus une
- *     fois par pas de simulation lors de la première requête (objets déplacés entre-temps) ;
- *   - push() donne une vitesse à l'objet ; update(dt) l'intègre avec frottement (appelé par le
- *     moteur tant que ce magasin est celui du contexte).
+ *     fois par pas de simulation lors de la première requête (objets déplacés ou redimensionnés
+ *     entre-temps : une barricade qui grossit est prise en compte au pas suivant, ou tout de suite
+ *     après rebuildIndex()) ;
+ *   - push() donne une vitesse à l'objet (bornée à PROP_MAX_SPEED) ; update(dt) l'intègre avec
+ *     frottement (appelé par le moteur tant que ce magasin est celui du contexte) ;
+ *   - un objet corrompu (position, cap ou dimension NaN) ne touche rien et n'est renvoyé par
+ *     aucune requête.
  * ===================================================================================== */
 
 import type {
-  DamageKind, EntityId, GameContext, Prop, PropApi, PropKind, PropState, RayHit, Shop, ShopCategory, Vec2,
+  DamageKind, EntityId, GameContext, Prop, PropApi, PropKind, PropState, RayHit, Shop, ShopInit, Vec2,
   WindowState,
 } from './contracts';
 import { truncate } from './arrays';
@@ -96,26 +102,12 @@ const SHOP_APPEAL: Record<string, number> = {
   telephonie: 0.85, agence: 0.3, hotel: 0.2, autre: 0.3,
 };
 
-export interface ShopInit {
-  category: ShopCategory;
-  /** Milieu de la vitrine. */
-  x: number;
-  z: number;
-  /** Cap de la normale sortante de la façade. */
-  heading: number;
-  width: number;
-  /** Nom d'enseigne fictif (par défaut : libellé générique de la catégorie). */
-  name?: string;
-  stock?: number;
-  appeal?: number;
-  shutter?: number;
-}
+/** Paramètres de création d'une vitrine : type du contrat, ré-exporté pour les modules qui l'importaient d'ici. */
+export type { ShopInit } from './contracts';
 
-/** Magasin de base : contrat PropApi + création des vitrines, index et intégration des poussées. */
+/** Magasin de base : contrat PropApi + index et intégration des poussées. */
 export interface PropStore extends PropApi {
-  addShop(init: ShopInit): Shop;
-  removeShop(id: EntityId): void;
-  /** Ré-indexe tous les objets (après des déplacements directs de x/z). */
+  /** Ré-indexe tous les objets (après des déplacements directs de x/z ou un changement d'emprise). */
   rebuildIndex(): void;
   /** Intègre la vitesse des objets poussés (frottement au sol). */
   update(dt: number): void;
@@ -123,11 +115,15 @@ export interface PropStore extends PropApi {
 
 /** Décélération d'un objet qui glisse au sol (m/s²). */
 const PROP_FRICTION = 6;
+/** Vitesse maximale d'un objet poussé ou projeté (m/s) : au-delà, les poussées ne s'additionnent plus. */
+export const PROP_MAX_SPEED = 12;
 
 class PropStoreImpl implements PropStore {
   readonly list: Prop[] = [];
   readonly shops: Shop[] = [];
   private readonly byId = new Map<EntityId, Prop>();
+  /** Identifiant → index dans `list` (retrait en temps constant). */
+  private readonly indexOf = new Map<EntityId, number>();
   private readonly shopById = new Map<EntityId, Shop>();
   private readonly slotOf = new Map<EntityId, number>();
   private readonly shopSlotOf = new Map<EntityId, number>();
@@ -177,44 +173,59 @@ class PropStoreImpl implements PropStore {
       vz: 0,
       dormant: false,
     };
+    this.indexOf.set(prop.id, this.list.length);
     this.list.push(prop);
     this.byId.set(prop.id, prop);
     this.slotOf.set(prop.id, this.grid.insert(prop));
     const reach = Math.sqrt(d.halfX * d.halfX + d.halfZ * d.halfZ);
     if (reach > this.maxReach) this.maxReach = reach;
+    this.ctx.events.emit('prop:spawned', { id: prop.id });
     return prop;
   }
 
   remove(id: EntityId): void {
     const prop = this.byId.get(id);
     if (!prop) return;
-    this.byId.delete(id);
+    const idx = this.indexOf.get(id);
+    if (idx === undefined) return; // retrait déjà en cours (appel ré-entrant depuis prop:removed)
+    const last = this.list[this.list.length - 1]!;
+    this.list[idx] = last;
+    this.indexOf.set(last.id, idx);
+    this.list.pop();
+    this.indexOf.delete(id);
     const slot = this.slotOf.get(id);
     if (slot !== undefined) this.grid.remove(slot);
     this.slotOf.delete(id);
-    const idx = this.list.indexOf(prop);
-    if (idx >= 0) {
-      this.list[idx] = this.list[this.list.length - 1]!;
-      this.list.pop();
-    }
     if (prop.carriedBy !== 0) {
       const carrier = this.ctx.people.get(prop.carriedBy);
       if (carrier && carrier.carrying === id) carrier.carrying = 0;
     }
+    try {
+      this.ctx.events.emit('prop:removed', { id });
+    } finally {
+      this.byId.delete(id);
+    }
   }
 
   clear(): void {
+    const all = this.list.slice();
     this.list.length = 0;
     this.shops.length = 0;
-    this.byId.clear();
+    this.indexOf.clear();
     this.shopById.clear();
     this.slotOf.clear();
     this.shopSlotOf.clear();
     this.grid.clear();
     this.shopGrid.clear();
+    this.scratch.length = 0; // ne retient aucun objet de la session précédente
     this.maxReach = 0;
     this.maxShopHalf = 0;
     this.indexedTick = -1;
+    try {
+      for (let i = 0; i < all.length; i++) this.ctx.events.emit('prop:removed', { id: all[i]!.id });
+    } finally {
+      for (let i = 0; i < all.length; i++) this.byId.delete(all[i]!.id);
+    }
   }
 
   addShop(init: ShopInit): Shop {
@@ -257,17 +268,30 @@ class PropStoreImpl implements PropStore {
   }
 
   rebuildIndex(): void {
-    this.grid.updateAll();
+    this.reindex();
     this.indexedTick = this.ctx.clock.tick;
   }
 
-  /** Ré-indexe au plus une fois par pas de simulation (objets déplacés depuis la dernière requête). */
+  /** Ré-indexe au plus une fois par pas de simulation (objets déplacés ou redimensionnés depuis la dernière requête). */
   private refresh(): void {
     const tick = this.ctx.clock.tick;
     if (tick !== this.indexedTick) {
-      this.grid.updateAll();
+      this.reindex();
       this.indexedTick = tick;
     }
+  }
+
+  /** Remet l'index à jour : positions, et plus grand rayon englobant (les emprises peuvent changer après la création). */
+  private reindex(): void {
+    this.grid.updateAll();
+    const list = this.list;
+    let max = 0;
+    for (let i = 0; i < list.length; i++) {
+      const p = list[i]!;
+      const reach2 = p.halfX * p.halfX + p.halfZ * p.halfZ;
+      if (reach2 > max && reach2 < 1e12) max = reach2; // ignore les dimensions NaN ou absurdes
+    }
+    this.maxReach = Math.sqrt(max);
   }
 
   queryRadius(x: number, z: number, r: number, out: Prop[], filter?: (p: Prop) => boolean): number {
@@ -278,7 +302,8 @@ class PropStoreImpl implements PropStore {
     for (let i = 0; i < found; i++) {
       const p = out[i]!;
       if (p.dormant) continue;
-      if (distSqPointObb(x, z, p.x, p.z, p.halfX, p.halfZ, p.heading) > r2) continue;
+      // « !(d ≤ r²) » écarte aussi les objets corrompus (distance infinie)
+      if (!(distSqPointObb(x, z, p.x, p.z, p.halfX, p.halfZ, p.heading) <= r2)) continue;
       if (filter && !filter(p)) continue;
       out[n++] = p;
     }
@@ -296,7 +321,8 @@ class PropStoreImpl implements PropStore {
       // la façade est perpendiculaire à la normale sortante : tangente = (cos h, −sin h)
       const tx = Math.cos(s.heading) * s.width * 0.5;
       const tz = -Math.sin(s.heading) * s.width * 0.5;
-      if (distSqPointSegment(x, z, s.x - tx, s.z - tz, s.x + tx, s.z + tz) > r2) continue;
+      // « !(d ≤ r²) » écarte aussi une vitrine au cap ou à la largeur invalide
+      if (!(distSqPointSegment(x, z, s.x - tx, s.z - tz, s.x + tx, s.z + tz) <= r2)) continue;
       out[n++] = s;
     }
     truncate(out, n);
@@ -342,9 +368,21 @@ class PropStoreImpl implements PropStore {
   push(prop: Prop, dirX: number, dirZ: number, force: number, byId: EntityId): void {
     if (!prop.movable || !(force > 0)) return;
     const l = Math.sqrt(dirX * dirX + dirZ * dirZ);
-    if (l < 1e-9) return;
-    prop.vx += (dirX / l) * force;
-    prop.vz += (dirZ / l) * force;
+    if (!(l > 1e-9) || l === Infinity) return; // direction nulle ou invalide
+    const f = force < PROP_MAX_SPEED ? force : PROP_MAX_SPEED;
+    let vx = prop.vx + (dirX / l) * f;
+    let vz = prop.vz + (dirZ / l) * f;
+    // des poussées répétées ne s'additionnent pas sans limite
+    const speed = Math.sqrt(vx * vx + vz * vz);
+    if (!(speed >= 0) || speed === Infinity) {
+      vx = (dirX / l) * f; // vitesse précédente corrompue : on repart de la poussée seule
+      vz = (dirZ / l) * f;
+    } else if (speed > PROP_MAX_SPEED) {
+      vx *= PROP_MAX_SPEED / speed;
+      vz *= PROP_MAX_SPEED / speed;
+    }
+    prop.vx = vx;
+    prop.vz = vz;
     this.ctx.events.emit('prop:moved', { id: prop.id, byId });
   }
 
@@ -377,7 +415,7 @@ class PropStoreImpl implements PropStore {
     return hit;
   }
 
-  raycast(ax: number, az: number, bx: number, bz: number, out: RayHit): boolean {
+  raycast(ax: number, az: number, bx: number, bz: number, out: RayHit, mode?: 'move' | 'sight'): boolean {
     this.refresh();
     const cand = this.scratch;
     const mx = (ax + bx) * 0.5;
@@ -391,7 +429,9 @@ class PropStoreImpl implements PropStore {
     let nz = 0;
     for (let i = 0; i < found; i++) {
       const p = cand[i]!;
-      if (p.dormant || p.carriedBy !== 0 || !(p.blocksMove || p.blocksSight)) continue;
+      if (p.dormant || p.carriedBy !== 0) continue;
+      // 'move' : ce qui bloque le passage ; 'sight' : ce qui bloque la vue ; sans mode : l'un ou l'autre
+      if (mode === 'move' ? !p.blocksMove : mode === 'sight' ? !p.blocksSight : !(p.blocksMove || p.blocksSight)) continue;
       if (segmentVsObb(ax, az, bx, bz, p.x, p.z, p.halfX, p.halfZ, p.heading, cast) && cast.t < bestT) {
         bestT = cast.t;
         best = p;
@@ -429,6 +469,12 @@ class PropStoreImpl implements PropStore {
       const p = list[i]!;
       if (p.vx === 0 && p.vz === 0) continue;
       const speed = Math.sqrt(p.vx * p.vx + p.vz * p.vz);
+      if (!(speed > 0) || speed === Infinity) {
+        // vitesse corrompue (NaN, infinie) : l'objet est immobilisé là où il est
+        p.vx = 0;
+        p.vz = 0;
+        continue;
+      }
       const drop = PROP_FRICTION * dt;
       if (speed <= drop || p.carriedBy !== 0) {
         // dernier pas : distance restante avant l'arrêt

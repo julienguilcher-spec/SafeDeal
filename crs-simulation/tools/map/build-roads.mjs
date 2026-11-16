@@ -11,12 +11,16 @@
  *     de part et d'autre d'un nœud de passage sans rôle ;
  *   - largeur de chaussée, voies, vitesse, revêtement ; trottoirs estimés d'après la distance
  *     aux façades ;
+ *   - une boucle (arête qui part d'un nœud et y revient) est coupée en deux par un nœud ;
+ *   - une chaussée qui s'arrêtait à l'entrée d'une voie souterraine retirée se termine par un
+ *     nœud de limite (`boundary`), comme une rue qui sort de la carte ;
  *   - contrôle de connexité des voies carrossables.
  * ===================================================================================== */
 import {
-  M, readLayer, px, pz, SegGrid, simplifyLine, polylineLength, pointAlong, distToSegment, median, clamp, round1,
-  BOUNDS, SOURCE_MARGIN, publicWayName,
+  M, readLayer, px, pz, SegGrid, simplifyLine, polylineLength, pointAlong, median, clamp, round1,
+  BOUNDS, SOURCE_MARGIN,
 } from './build-lib.mjs';
+import { publicWayName } from './build-names.mjs';
 import { buildingAt } from './build-buildings.mjs';
 
 /** Longueur (m) en dessous de laquelle une arête est contractée : ses deux nœuds n'en font qu'un. */
@@ -43,12 +47,21 @@ const DEFAULT_WIDTH = { primary: 12, secondary: 9, tertiary: 7, residential: 5, 
 /** Trottoir par défaut (m) quand aucune façade ne permet de l'estimer. */
 const DEFAULT_SIDEWALK = { primary: 4, secondary: 3.5, tertiary: 3, residential: 2, living: 0, service: 0 };
 const LANE_WIDTH = 3.2;
+/**
+ * Largeur (m) des passerelles que le plan de voirie ne dessine pas (aucune surface au-dessus de l'eau) :
+ * sans elle, le tablier serait un ruban de 2,5 m. Valeur de notoriété publique.
+ */
+const FOOTBRIDGE_WIDTH = { 'Passerelle Debilly': 8 };
+/** Demi-largeur (m) au-delà de laquelle un sol dur n'est plus le tablier d'une passerelle. */
+const FOOTBRIDGE_HALF_MAX = 15;
 
 export function buildRoads(ctx) {
   const fc = readLayer('roads');
   const signalsFc = readLayer('signals');
   const report = { source: fc.features.length, excluded: { cycleway: 0, underground: 0 }, underground: [] };
   const key = (c) => `${c[0]},${c[1]}`;
+  /** Extrémités des voies souterraines retirées : là où une chaussée de surface s'y raccordait, elle « sort » du réseau. */
+  const undergroundEnds = new Set();
 
   // ── A. Filtrage ──
   const raw = [];
@@ -66,6 +79,7 @@ export function buildRoads(ctx) {
       for (let i = 1; i < coords.length; i++) len += Math.hypot(px(coords[i][0]) - px(coords[i - 1][0]), pz(coords[i][1]) - pz(coords[i - 1][1]));
       report.excluded.underground++;
       report.underground.push({ id: p.id, name: p.name ?? '', class: p.class, layer, lengthM: Math.round(len), reason: p.tunnel === true ? 'tunnel' : layer <= -2 ? 'niveau ≤ -2' : 'couvert en sous-sol' });
+      if (!PEDESTRIAN.has(p.class)) { undergroundEnds.add(key(coords[0])); undergroundEnds.add(key(coords[coords.length - 1])); }
       continue;
     }
     raw.push({ p, coords: coords.slice() });
@@ -302,7 +316,7 @@ export function buildRoads(ctx) {
   // ── F. Attributs ──
   const b = BOUNDS, edge = SOURCE_MARGIN - 4;
   const live = edges.filter((ed) => ed.alive);
-  const widthStats = { source: 0, lanes: 0, classDefault: 0, clampedToLanes: 0, narrowedToFacades: 0 };
+  const widthStats = { source: 0, lanes: 0, classDefault: 0, clampedToLanes: 0, narrowedToFacades: 0, footbridgeFromSurfaces: 0, footbridgeFromTable: 0 };
   const swStats = { facades: 0, polygons: 0, polygonsInsteadOfFarFacades: 0, classDefault: 0, bridge: 0, none: 0 };
   const out = [];
   const namesRemoved = new Set();
@@ -330,6 +344,13 @@ export function buildRoads(ctx) {
       width = clamp(width, 2.5, 40);
     } else {
       if (!Number.isFinite(width)) width = DEFAULT_WIDTH[p.class];
+      if (p.bridge) {
+        // Passerelle : la largeur par défaut d'un cheminement (2,5 m) est loin du compte (pont des Arts : 11 m).
+        // On mesure le tablier dans les surfaces dures qui franchissent l'eau ; à défaut, la table ci-dessus.
+        const measured = measureFootbridge(pts, length, ctx.onPaved, rawGrid);
+        if (measured > width) { width = measured; widthStats.footbridgeFromSurfaces++; }
+        else if (FOOTBRIDGE_WIDTH[p.name] > width) { width = FOOTBRIDGE_WIDTH[p.name]; widthStats.footbridgeFromTable++; }
+      }
       width = clamp(width, 1, 30);
     }
 
@@ -439,23 +460,67 @@ export function buildRoads(ctx) {
     report.isolatedFootpathsRemoved = { edges: removed, lengthM: Math.round(removedLen) };
   }
 
+  // Boucles : une arête qui part d'un nœud et y revient (allée qui fait le tour d'un massif, placette en
+  // raquette) n'a ni direction ni « autre bout ». Elle est coupée en deux par un nœud posé à mi-longueur.
+  {
+    let split = 0;
+    const count = out.length;
+    for (let e = 0; e < count; e++) {
+      const ed = out[e];
+      if (ed.a !== ed.b) continue;
+      const pts = ed.points, n = pts.length >> 1;
+      let m = -1, acc = 0, bestGap = Infinity;
+      for (let i = 1; i < n - 1; i++) {
+        acc += Math.hypot(pts[2 * i] - pts[2 * i - 2], pts[2 * i + 1] - pts[2 * i - 1]);
+        const gap = Math.abs(acc - ed.length / 2);
+        if (gap < bestGap) { bestGap = gap; m = i; }
+      }
+      if (m < 0) throw new Error('voies : boucle sans sommet intermédiaire');
+      const mid = nodes.length;
+      nodes.push({ x: pts[2 * m], z: pts[2 * m + 1], flags: 0 });
+      const first = pts.slice(0, 2 * m + 2), second = pts.slice(2 * m);
+      out.push({ ...ed, a: mid, b: ed.b, points: second, length: polylineLength(second) });
+      ed.b = mid;
+      ed.points = first;
+      ed.length = polylineLength(first);
+      split++;
+    }
+    report.loopsSplit = split;
+  }
+
   // ── G. Nœuds utilisés, limites de carte ──
   const used = new Int32Array(nodes.length).fill(-1);
   const deg = new Int32Array(nodes.length);
-  for (const ed of out) { deg[ed.a]++; deg[ed.b]++; }
+  const degDrivable = new Int32Array(nodes.length);
+  for (const ed of out) {
+    deg[ed.a]++; deg[ed.b]++;
+    if (!ed.pedestrianOnly) { degDrivable[ed.a]++; degDrivable[ed.b]++; }
+  }
+  // Bouches de tunnel : nœuds où se raccordait une voie souterraine retirée (rangés sous leur représentant après fusion).
+  const tunnelMouth = new Uint8Array(nodes.length);
+  for (const k of undergroundEnds) {
+    const id = nodeOfKey.get(k);
+    if (id !== undefined) tunnelMouth[find(id)] = 1;
+  }
   const outNodes = [];
+  let mouths = 0;
   for (let i = 0; i < nodes.length; i++) {
     if (deg[i] === 0) continue;
     const nd = nodes[i];
     const outside = nd.x < b.minX - edge || nd.x > b.maxX + edge || nd.z < b.minZ - edge || nd.z > b.maxZ + edge;
+    // La chaussée s'arrête là où commençait le souterrain : c'est une sortie du réseau modélisé, au même
+    // titre que le bord de la carte (un véhicule y disparaît ou y apparaît).
+    const mouth = tunnelMouth[i] === 1 && degDrivable[i] === 1 && !(outside && deg[i] === 1);
+    if (mouth) mouths++;
     used[i] = outNodes.length;
     outNodes.push({
       x: nd.x, z: nd.z,
       signal: (nd.flags & M.NODE_SIGNAL) !== 0,
       crossing: (nd.flags & M.NODE_CROSSING) !== 0,
-      boundary: outside && deg[i] === 1,
+      boundary: (outside && deg[i] === 1) || mouth,
     });
   }
+  report.tunnelMouthNodes = mouths;
   for (const ed of out) { ed.a = used[ed.a]; ed.b = used[ed.b]; }
 
   // ── H. Ponts modélisés à la main ──
@@ -533,6 +598,34 @@ export function buildRoads(ctx) {
 }
 
 /**
+ * Largeur (m) du tablier d'une passerelle, mesurée dans les surfaces dures de part et d'autre de son
+ * axe. Retourne 0 si l'axe n'est pas sur une surface dure, ou si une chaussée passe sur le même
+ * tablier (le cheminement est alors le trottoir d'un pont routier, pas une passerelle).
+ */
+function measureFootbridge(pts, length, onPaved, roadGrid) {
+  const count = clamp(Math.floor(length / 10), 1, 7);
+  const found = [];
+  for (let k = 0; k < count; k++) {
+    const [x, z, dx, dz] = pointAlong(pts, length * (0.2 + (0.6 * (k + 0.5)) / count));
+    if (!onPaved(x, z)) continue;
+    let total = 0, widest = 0;
+    for (const side of [1, -1]) {
+      const nx = -dz * side, nz = dx * side;
+      let d = 0;
+      while (d < FOOTBRIDGE_HALF_MAX && onPaved(x + nx * (d + 0.25), z + nz * (d + 0.25))) d += 0.25;
+      total += d;
+      widest = Math.max(widest, d);
+    }
+    // Sol dur à perte de vue d'un côté : ce n'est pas le tablier d'une passerelle (trottoir d'un pont routier, dalle, place).
+    if (widest >= FOOTBRIDGE_HALF_MAX) return 0;
+    // Une chaussée sur le même tablier, jusqu'à son bord le plus éloigné : c'est le trottoir d'un pont routier.
+    if (roadGrid.nearest(x, z, widest + 4) !== null) return 0;
+    found.push(total);
+  }
+  return found.length * 2 >= count ? round1(clamp(median(found), 0, 25)) : 0;
+}
+
+/**
  * Largeur (m) du trottoir le long d'un axe, mesurée dans les polygones de trottoir : de chaque
  * côté, on s'éloigne de l'axe jusqu'à la bordure, puis jusqu'au fond du trottoir. Médiane des
  * mesures ; 0 si moins d'un tiers des sondages trouvent un trottoir.
@@ -561,12 +654,3 @@ function measureSidewalk(pts, length, width, onSidewalk) {
   }
   return found.length * 3 >= tries ? round1(median(found)) : 0;
 }
-
-/** Direction unitaire [dx, dz] de l'arête au plus près du point (segment `i` de la grille). */
-export function tangentOfSeg(grid, i) {
-  const dx = grid.bx[i] - grid.ax[i], dz = grid.bz[i] - grid.az[i];
-  const l = Math.hypot(dx, dz) || 1;
-  return [dx / l, dz / l];
-}
-
-export { distToSegment };

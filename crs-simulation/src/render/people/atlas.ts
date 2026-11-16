@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 
 export const ATLAS_COLS = 4;
-export const ATLAS_ROWS = 16;
+export const ATLAS_ROWS = 32;
 const CELL_W = 256;
 const CELL_H = 64;
 

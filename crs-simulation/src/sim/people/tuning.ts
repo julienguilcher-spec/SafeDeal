@@ -77,12 +77,24 @@ export const SEP_REACH = 0.47;
 /** Marge de confort au-delà du contact (m) et raideur de la répulsion douce. */
 export const SEP_COMFORT = 0.1;
 export const SEP_COMFORT_K = 0.06;
+/** Sur-relaxation du chevauchement : chacun s'écarte d'un peu plus que sa part, la convergence est plus rapide. */
+export const SEP_STIFFNESS = 1.3;
 /** Vitesse maximale d'écartement (m/s) — garde-fou contre toute explosion numérique. */
 export const SEP_MAX_SPEED = 3.5;
 /** Déplacement de séparation ignoré en dessous de ce seuil (m) : pas de tremblement. */
 export const SEP_DEAD = 0.0012;
 /** Part de la vitesse dirigée contre la poussée qui est absorbée. */
 export const SEP_ABSORB = 0.85;
+/** Contournement : glissement latéral face à quelqu'un dont on se rapproche (seuil et pleine mesure en m/s). */
+export const SLIDE_K = 0.45;
+export const SLIDE_MIN_CLOSING = 0.3;
+export const SLIDE_FULL_CLOSING = 1.5;
+/** Passage barré : chevauchement (m) à partir duquel on cesse de forcer, part de l'élan retirée, oubli (1/s). */
+export const BLOCK_REF = 0.004;
+export const BLOCK_K = 1;
+export const BLOCK_DECAY = 3;
+/** Décalage aléatoire (fraction du chevauchement) d'une personne comprimée entre des poussées opposées. */
+export const SQUEEZE_JITTER = 0.15;
 /** Taille des cellules de la grille fine de séparation (m). */
 export const SEP_CELL = 1.5;
 /** Compression (m/s d'écrasement) donnant une pression de 1. */

@@ -34,6 +34,8 @@ describe('rendu des personnages — système', () => {
     expect(api!.heldModelKeys()).toContain('objet_de_mission_bis');
     registerHeldModel('objet_global', (g) => { g.fixed(0x0000ff).box(0.012, -0.085, 0, 0.05, 0.05, 0.05); });
     expect(api!.heldModelKeys()).toContain('objet_global');
+    api!.setHeldText(12, 'On veut vivre, pas survivre');
+    api!.setHeldText(12, null);
     api!.invalidate();
     sys.dispose?.();
   });

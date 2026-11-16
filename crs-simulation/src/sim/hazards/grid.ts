@@ -7,9 +7,23 @@
  * recherche pendant le transport.
  * ===================================================================================== */
 
-import { BLOCK_AREA, MAX_BLOCKS } from './config';
-import { blockKey } from './statics';
+import * as cfg from './config';
+import { blockKey as staticBlockKey } from './statics';
 import type { StaticBlock, StaticCache } from './statics';
+
+// Copies locales (voir sampling.ts).
+const BLOCK_AREA = cfg.BLOCK_AREA;
+const BLOCK_MASK = cfg.BLOCK_MASK;
+const BLOCK_SHIFT = cfg.BLOCK_SHIFT;
+const MAX_BLOCKS = cfg.MAX_BLOCKS;
+const blockKey = staticBlockKey;
+/** Taille de la table de hachage : puissance de deux, au moins le double du plafond de blocs. */
+const TABLE_BITS = 11;
+const TABLE_SIZE = 1 << TABLE_BITS;
+const TABLE_MASK = TABLE_SIZE - 1;
+const TABLE_SHIFT = 32 - TABLE_BITS;
+const EMPTY = -1;
+if (TABLE_SIZE < MAX_BLOCKS * 2) throw new Error('[hazards] table de blocs trop petite pour MAX_BLOCKS');
 
 export class Block {
   bx = 0;
@@ -73,7 +87,12 @@ export class FieldGrid {
   /** Nombre de blocs refusés parce que le plafond était atteint. */
   refused = 0;
 
-  private readonly map = new Map<number, Block>();
+  /**
+   * Table de hachage à adressage ouvert (sondage linéaire) : clé de bloc → bloc. Deux fois plus rapide
+   * qu'une Map pour les lectures dispersées (gasAt de centaines de personnes par pas), sans allocation.
+   */
+  private readonly keys = new Int32Array(TABLE_SIZE).fill(EMPTY);
+  private readonly slots: (Block | null)[] = new Array<Block | null>(TABLE_SIZE).fill(null);
   private readonly pool: Block[] = [];
   private serial = 0;
   /** Dernière recherche (résultat négatif compris) : les requêtes voisines évitent la table. */
@@ -90,10 +109,23 @@ export class FieldGrid {
   find(bx: number, bz: number): Block | null {
     const key = blockKey(bx, bz);
     if (key === this.lastKey) return this.lastBlock;
-    const b = key < 0 ? undefined : this.map.get(key);
+    const b = key < 0 ? null : this.lookup(key);
     this.lastKey = key;
-    this.lastBlock = b === undefined ? null : b;
-    return this.lastBlock;
+    this.lastBlock = b;
+    return b;
+  }
+
+  /**
+   * La cellule d'indices globaux (ci, cj) est-elle libre (non bâtie) ? Répond aussi là où aucun bloc
+   * n'est alloué (lecture du cache de bâti), ce qui évite d'allouer un bloc au cœur d'un immeuble.
+   */
+  isFree(ci: number, cj: number): boolean {
+    const bx = ci >> BLOCK_SHIFT;
+    const bz = cj >> BLOCK_SHIFT;
+    const b = this.find(bx, bz);
+    const st = b !== null ? b.st : this.statics.peek(bx, bz);
+    if (st === null) return false;
+    return st.solid === null || st.solid[((cj & BLOCK_MASK) << BLOCK_SHIFT) | (ci & BLOCK_MASK)] === 0;
   }
 
   /** Bloc d'indices (bx, bz), alloué au besoin. null hors limites ou si le plafond est atteint. */
@@ -124,7 +156,7 @@ export class FieldGrid {
     b.smokeTouched = this.step;
     b.index = this.blocks.length;
     this.blocks.push(b);
-    this.map.set(key, b);
+    this.insert(key, b);
     this.lastKey = key;
     this.lastBlock = b;
     // voisinage : liens dans les deux sens ; les voisins recalculeront leurs faces communes
@@ -144,7 +176,7 @@ export class FieldGrid {
       last.index = b.index;
     }
     b.index = -1;
-    this.map.delete(b.key);
+    this.remove(b.key);
     this.lastKey = -2;
     this.lastBlock = null;
     if (b.w !== null) { b.w.e = null; b.w.dirty = true; b.w = null; }
@@ -166,14 +198,65 @@ export class FieldGrid {
 
   private link(b: Block, nbx: number, nbz: number, side: 0 | 1 | 2 | 3): void {
     const key = blockKey(nbx, nbz);
-    const nb = key < 0 ? undefined : this.map.get(key);
-    if (nb === undefined) return;
+    const nb = key < 0 ? null : this.lookup(key);
+    if (nb === null) return;
     nb.dirty = true;
     if (side === 0) { b.w = nb; nb.e = b; }
     else if (side === 1) { b.e = nb; nb.w = b; }
     else if (side === 2) { b.n = nb; nb.s = b; }
     else { b.s = nb; nb.n = b; }
   }
+
+  // ───────────────────────────── table de hachage ─────────────────────────────
+
+  private lookup(key: number): Block | null {
+    const keys = this.keys;
+    let i = hashOf(key);
+    for (;;) {
+      const k = keys[i]!;
+      if (k === key) return this.slots[i]!;
+      if (k === EMPTY) return null;
+      i = (i + 1) & TABLE_MASK;
+    }
+  }
+
+  private insert(key: number, b: Block): void {
+    const keys = this.keys;
+    let i = hashOf(key);
+    while (keys[i] !== EMPTY) i = (i + 1) & TABLE_MASK;
+    keys[i] = key;
+    this.slots[i] = b;
+  }
+
+  /** Retrait avec recul des suivants (pas de pierre tombale : les chaînes de sondage restent courtes). */
+  private remove(key: number): void {
+    const keys = this.keys;
+    const slots = this.slots;
+    let i = hashOf(key);
+    while (keys[i] !== key) {
+      if (keys[i] === EMPTY) return;
+      i = (i + 1) & TABLE_MASK;
+    }
+    let j = i;
+    for (;;) {
+      j = (j + 1) & TABLE_MASK;
+      const kj = keys[j]!;
+      if (kj === EMPTY) break;
+      const home = hashOf(kj);
+      // l'élément j peut-il reculer en i ? Oui si sa case d'origine n'est pas dans l'intervalle cyclique ]i, j].
+      if (i <= j ? home > i && home <= j : home > i || home <= j) continue;
+      keys[i] = kj;
+      slots[i] = slots[j]!;
+      i = j;
+    }
+    keys[i] = EMPTY;
+    slots[i] = null;
+  }
+}
+
+/** Case d'origine d'une clé (hachage multiplicatif de Fibonacci, bits de poids fort). */
+function hashOf(key: number): number {
+  return Math.imul(key, 0x9e3779b1) >>> TABLE_SHIFT;
 }
 
 /** Remet à zéro tout le contenu transporté d'un bloc. */

@@ -93,11 +93,12 @@ class SquadStoreImpl implements SquadApi {
     const p = this.ctx.people.get(personId);
     if (p && p.squadId === 0) return;
     let squad = p ? this.byId.get(p.squadId) : undefined;
-    let idx = squad ? squad.members.indexOf(personId) : -1;
+    // recherche par la fin : un retrait en masse (people.clear) part du dernier membre
+    let idx = squad ? squad.members.lastIndexOf(personId) : -1;
     if (idx < 0) {
       squad = undefined;
       for (let i = 0; i < this.list.length; i++) {
-        const j = this.list[i]!.members.indexOf(personId);
+        const j = this.list[i]!.members.lastIndexOf(personId);
         if (j >= 0) {
           squad = this.list[i]!;
           idx = j;

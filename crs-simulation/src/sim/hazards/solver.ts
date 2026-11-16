@@ -1,36 +1,54 @@
 /* =====================================================================================
- * DANGERS DIFFUS — transport du gaz et de la fumée sur la grille creuse.
+ * DANGERS DIFFUS — transport du gaz et de la fumée sur la grille creuse : entretien des blocs,
+ * coefficients de transport, enchaînement des passes (les boucles chaudes sont dans transport.ts).
  *
  * Schéma (volumes finis, explicite, conservatif) : à chaque sous-pas, pour chaque face entre deux
  * cellules voisines,
- *     flux = p × c[amont côté ouest/nord] − q × c[côté est/sud]
+ *     flux = p × c[côté ouest ou nord] − q × c[côté est ou sud]
  * avec p = max(a, 0) + k et q = max(−a, 0) + k, où a est le nombre de Courant de la dérive sur la
  * face (advection amont) et k le nombre de diffusion. Les faces bâties ou sans bloc voisin sont
  * fermées (p = q = 0) : le gaz ne traverse pas les immeubles. Puis chaque cellule est multipliée par
  * un facteur de conservation qui réunit :
- *   - la dilution verticale (taux de base, × vent local, × pluie, réduite dans une rue étroite) ;
+ *   - la dilution verticale (taux de base, accéléré par le vent local et par la pluie) ;
  *   - l'« envol » : là où la dérive converge (nuage poussé contre une façade, fond d'impasse), l'air
- *     monte et emporte le gaz par-dessus les toits au lieu de l'entasser au pied du mur.
+ *     monte et emporte l'essentiel du gaz par-dessus les toits ; le reste s'accumule au pied du mur.
  *
  * La dérive locale n'est pas le vent brut : dans une rue, seule la composante d'enfilade passe, la
  * composante de travers est arrêtée par les façades (voir statics.ts). Les coefficients sont
  * recalculés par bloc toutes les 0,8 s environ, de façon étalée ; un bloc en plein vent entouré de
  * blocs en plein vent a des coefficients uniformes (remplissage direct).
  *
- * Coût : passe de flux ≈ 2 × 240 faces, passe d'application 256 cellules, par bloc et par canal
- * (1 canal pour le gaz, 4 pour la fumée : densité + couleur prémultipliée).
+ * Stabilité : le nombre de Courant est borné à 0,2 par axe et le nombre de diffusion à 0,05 ; une
+ * cellule ne peut donc jamais céder plus que son contenu (4 × 0,2 + 4 × 0,05 = 1). Par grand vent, le
+ * pas de champ est découpé en sous-pas (wind.ts) au lieu de dépasser cette borne ; le système les
+ * exécute à leur propre cadence, répartis sur les pas du moteur.
  * ===================================================================================== */
 
-import {
-  BLOCK_AREA, BLOCK_CELLS, CELL, CELL_EPS, COURANT_MAX, FIELD_DT, FREE_EPS, IDLE_STEPS, REFRESH_PERIOD,
-  SPREAD_EPS, STATIC_JOBS_PER_STEP,
-} from './config';
+import * as cfg from './config';
 import type { HazardTuning } from './config';
 import { wipeSmoke } from './grid';
 import type { Block, FieldGrid } from './grid';
-import { AXES } from './statics';
+import * as transport from './transport';
+import { AXES as STATIC_AXES } from './statics';
 import type { StaticBlock, StaticCache } from './statics';
 import type { WindModel } from './wind';
+
+// Copies locales des constantes (voir sampling.ts) : indispensables dans les boucles de transport.
+const BLOCK_AREA = cfg.BLOCK_AREA;
+const BLOCK_CELLS = cfg.BLOCK_CELLS;
+const CELL = cfg.CELL;
+const COURANT_MAX = cfg.COURANT_MAX;
+const FIELD_DT = cfg.FIELD_DT;
+const FREE_EPS = cfg.FREE_EPS;
+const IDLE_STEPS = cfg.IDLE_STEPS;
+const REFRESH_PERIOD = cfg.REFRESH_PERIOD;
+const SPREAD_EPS = cfg.SPREAD_EPS;
+const STATIC_JOBS_PER_STEP = cfg.STATIC_JOBS_PER_STEP;
+const AXES = STATIC_AXES;
+const fluxGas = transport.fluxGas;
+const applyGas = transport.applyGas;
+const fluxSmoke = transport.fluxSmoke;
+const applySmoke = transport.applySmoke;
 
 /** Côté du tampon de travail : le bloc et une rangée de cellules de chaque voisin. */
 const PADW = BLOCK_CELLS + 2;
@@ -41,10 +59,10 @@ const HALF_AXES = AXES / 2;
 const K_MAX = 0.05;
 
 export class FieldSolver {
-  /** Masse de gaz et de fumée après le dernier pas (concentration × m²). */
+  /** Masse de gaz et de fumée à l'issue du dernier pas de champ (concentration × m²). */
   totalGas = 0;
   totalSmoke = 0;
-  /** Pas de champ exécutés (gaz et fumée confondus). */
+  /** Sous-pas de transport exécutés (gaz et fumée confondus). */
   fieldSteps = 0;
 
   // tampons de travail du recalcul des coefficients (18 × 18)
@@ -86,7 +104,7 @@ export class FieldSolver {
   }
 
   /**
-   * Entretien, une fois par pas de champ du gaz : extension aux blocs voisins des bords chargés,
+   * Entretien, une fois par période du champ : extension aux blocs voisins des bords chargés,
    * libération des blocs vides, analyse différée du bâti, rafraîchissement étalé des coefficients.
    */
   maintain(): void {
@@ -124,7 +142,7 @@ export class FieldSolver {
     }
   }
 
-  /** Avance le gaz de FIELD_DT. */
+  /** Avance le gaz d'un sous-pas (FIELD_DT ÷ nombre de sous-pas : FIELD_DT entier par vent modéré). */
   stepGas(): void {
     const blocks = this.grid.blocks;
     const n = blocks.length;
@@ -135,16 +153,14 @@ export class FieldSolver {
     }
     this.prepare();
     for (let i = 0; i < n; i++) if (blocks[i]!.dirty) this.refresh(blocks[i]!);
+    for (let i = 0; i < n; i++) fluxGas(blocks[i]!);
+    for (let i = 0; i < n; i++) applyGas(blocks[i]!);
     let sum = 0;
-    for (let s = this.wind.substeps; s > 0; s--) {
-      for (let i = 0; i < n; i++) fluxGas(blocks[i]!);
-      sum = 0;
-      for (let i = 0; i < n; i++) sum += applyGas(blocks[i]!);
-    }
+    for (let i = 0; i < n; i++) sum += blocks[i]!.gasSum;
     this.totalGas = sum * CELL * CELL;
   }
 
-  /** Avance la fumée de FIELD_DT (seuls les blocs qui en transportent sont parcourus). */
+  /** Avance la fumée d'un sous-pas (seuls les blocs qui en transportent sont parcourus). */
   stepSmoke(): void {
     const blocks = this.grid.blocks;
     const n = blocks.length;
@@ -155,16 +171,14 @@ export class FieldSolver {
     }
     this.prepare();
     for (let i = 0; i < n; i++) if (blocks[i]!.dirty) this.refresh(blocks[i]!);
+    for (let i = 0; i < n; i++) if (blocks[i]!.smokeOn) fluxSmoke(blocks[i]!);
+    for (let i = 0; i < n; i++) if (blocks[i]!.smokeOn) applySmoke(blocks[i]!);
     let sum = 0;
-    for (let s = this.wind.substeps; s > 0; s--) {
-      for (let i = 0; i < n; i++) if (blocks[i]!.smokeOn) fluxSmoke(blocks[i]!);
-      sum = 0;
-      for (let i = 0; i < n; i++) if (blocks[i]!.smokeOn) sum += applySmoke(blocks[i]!);
-    }
+    for (let i = 0; i < n; i++) sum += blocks[i]!.smokeSum;
     this.totalSmoke = sum * CELL * CELL;
   }
 
-  /** Dérive locale (m/s) dans la cellule k d'un bloc de bâti donné ; écrit dans ux[P], uz[P], enc[P]. */
+  /** Dérive locale (m/s) dans la cellule k d'un bloc de bâti donné, écrite dans `out` (nulle dans le bâti). */
   velocityOf(st: StaticBlock, k: number, out: { x: number; z: number }): void {
     const w = this.wind;
     const solid = st.solid;
@@ -248,21 +262,21 @@ export class FieldSolver {
       if (smoke[k]! > ms) ms = smoke[k]!;
     }
     if (mg <= SPREAD_EPS && ms <= SPREAD_EPS) return;
-    if (nb === null) {
-      const nst = this.statics.peek(nbx, nbz);
-      if (nst === null) return;
-      const solid = nst.solid;
-      if (solid !== null) {
-        // ne compter que les cellules dont la voisine d'en face est libre
-        mg = 0;
-        ms = 0;
-        for (let t = 0, k = start, f = facing; t < BLOCK_CELLS; t++, k += stride, f += stride) {
-          if (solid[f] !== 0) continue;
-          if (gas[k]! > mg) mg = gas[k]!;
-          if (smoke[k]! > ms) ms = smoke[k]!;
-        }
-        if (mg <= SPREAD_EPS && ms <= SPREAD_EPS) return;
+    // ne compter que les cellules dont la voisine d'en face est libre : inutile d'étendre le champ dans un immeuble
+    const nst = nb !== null ? nb.st : this.statics.peek(nbx, nbz);
+    if (nst === null) return;
+    const solid = nst.solid;
+    if (solid !== null) {
+      mg = 0;
+      ms = 0;
+      for (let t = 0, k = start, f = facing; t < BLOCK_CELLS; t++, k += stride, f += stride) {
+        if (solid[f] !== 0) continue;
+        if (gas[k]! > mg) mg = gas[k]!;
+        if (smoke[k]! > ms) ms = smoke[k]!;
       }
+      if (mg <= SPREAD_EPS && ms <= SPREAD_EPS) return;
+    }
+    if (nb === null) {
       nb = this.grid.ensure(nbx, nbz);
       if (nb === null) return;
     }
@@ -299,20 +313,27 @@ export class FieldSolver {
     const lamG = this.lamG;
     const lamS = this.lamS;
 
+    // Les bornes sont écrites en ligne (pas de petite fonction recevant un réel : voir sampling.ts).
+    const cmax = COURANT_MAX;
+
     // Cas courant en terrain dégagé : plein vent ici et chez les quatre voisins → coefficients uniformes.
     if (
       b.st.uniform && b.w !== null && b.e !== null && b.n !== null && b.s !== null
       && b.w.st.uniform && b.e.st.uniform && b.n.st.uniform && b.s.st.uniform
     ) {
-      const aE = courant(w.driftX * alpha);
-      const aS = courant(w.driftZ * alpha);
+      let aE = w.driftX * alpha;
+      let aS = w.driftZ * alpha;
+      if (aE > cmax) aE = cmax; else if (aE < -cmax) aE = -cmax;
+      if (aS > cmax) aS = cmax; else if (aS < -cmax) aS = -cmax;
       const f = 1 + t.windDecay * w.speed;
+      const keepG = 1 - lamG * f;
+      const keepS = 1 - lamS * f;
       b.pE.fill((aE > 0 ? aE : 0) + kd);
       b.qE.fill((aE < 0 ? -aE : 0) + kd);
       b.pS.fill((aS > 0 ? aS : 0) + kd);
       b.qS.fill((aS < 0 ? -aS : 0) + kd);
-      b.mG.fill(positive(1 - lamG * f));
-      b.mS.fill(positive(1 - lamS * f));
+      b.mG.fill(keepG > 0 ? keepG : 0);
+      b.mS.fill(keepS > 0 ? keepS : 0);
       return;
     }
 
@@ -343,6 +364,7 @@ export class FieldSolver {
     const mS = b.mS;
     const windDecay = t.windDecay;
     const retention = t.canyonRetention;
+    const liftOff = t.liftOff;
     for (let j = 0; j < BLOCK_CELLS; j++) {
       for (let i = 0; i < BLOCK_CELLS; i++) {
         const k = j * BLOCK_CELLS + i;
@@ -358,7 +380,8 @@ export class FieldSolver {
         let aW = 0;
         let aN = 0;
         if (closed[P + 1] === 0) {
-          aE = courant(0.5 * (vx + ux[P + 1]!) * alpha);
+          aE = 0.5 * (vx + ux[P + 1]!) * alpha;
+          if (aE > cmax) aE = cmax; else if (aE < -cmax) aE = -cmax;
           pE[k] = (aE > 0 ? aE : 0) + kd;
           qE[k] = (aE < 0 ? -aE : 0) + kd;
         } else {
@@ -366,21 +389,34 @@ export class FieldSolver {
           qE[k] = 0;
         }
         if (closed[P + PADW] === 0) {
-          aS = courant(0.5 * (vz + uz[P + PADW]!) * alpha);
+          aS = 0.5 * (vz + uz[P + PADW]!) * alpha;
+          if (aS > cmax) aS = cmax; else if (aS < -cmax) aS = -cmax;
           pS[k] = (aS > 0 ? aS : 0) + kd;
           qS[k] = (aS < 0 ? -aS : 0) + kd;
         } else {
           pS[k] = 0;
           qS[k] = 0;
         }
-        if (closed[P - 1] === 0) aW = courant(0.5 * (ux[P - 1]! + vx) * alpha);
-        if (closed[P - PADW] === 0) aN = courant(0.5 * (uz[P - PADW]! + vz) * alpha);
-        // convergence de la dérive (div < 0) : l'air monte, le gaz s'envole au lieu de s'entasser
+        if (closed[P - 1] === 0) {
+          aW = 0.5 * (ux[P - 1]! + vx) * alpha;
+          if (aW > cmax) aW = cmax; else if (aW < -cmax) aW = -cmax;
+        }
+        if (closed[P - PADW] === 0) {
+          aN = 0.5 * (uz[P - PADW]! + vz) * alpha;
+          if (aN > cmax) aN = cmax; else if (aN < -cmax) aN = -cmax;
+        }
+        // convergence de la dérive (div < 0) : l'air monte, une part du gaz s'envole au lieu de s'entasser
         const div = aE - aW + aS - aN;
-        const lift = div < 0 ? positive(1 + div) : 1;
+        let lift = 1;
+        if (div < 0) {
+          lift = 1 + liftOff * div;
+          if (lift < 0) lift = 0;
+        }
         const f = (1 - retention * enc[P]!) * (1 + windDecay * Math.sqrt(vx * vx + vz * vz));
-        mG[k] = positive(1 - lamG * f) * lift;
-        mS[k] = positive(1 - lamS * f) * lift;
+        const keepG = 1 - lamG * f;
+        const keepS = 1 - lamS * f;
+        mG[k] = keepG > 0 ? keepG * lift : 0;
+        mS[k] = keepS > 0 ? keepS * lift : 0;
       }
     }
   }
@@ -411,14 +447,6 @@ export class FieldSolver {
   }
 }
 
-function courant(a: number): number {
-  return a > COURANT_MAX ? COURANT_MAX : a < -COURANT_MAX ? -COURANT_MAX : a;
-}
-
-function positive(v: number): number {
-  return v > 0 ? v : 0;
-}
-
 /** Le bloc et ses quatre voisins recalculeront leurs coefficients. */
 function markAround(b: Block): void {
   b.dirty = true;
@@ -426,202 +454,4 @@ function markAround(b: Block): void {
   if (b.e !== null) b.e.dirty = true;
   if (b.n !== null) b.n.dirty = true;
   if (b.s !== null) b.s.dirty = true;
-}
-
-// ───────────────────────────── passes de transport (boucles chaudes) ─────────────────────────────
-
-/** Flux du gaz à travers les faces est et sud de chaque cellule du bloc (bords vers les voisins compris). */
-function fluxGas(b: Block): void {
-  const c = b.gas;
-  const d = b.dA;
-  const pE = b.pE;
-  const qE = b.qE;
-  const pS = b.pS;
-  const qS = b.qS;
-  if (b.gasMax > 0) {
-    for (let r = 0; r < BLOCK_AREA; r += BLOCK_CELLS) {
-      for (let k = r, end = r + LAST; k < end; k++) {
-        const f = pE[k]! * c[k]! - qE[k]! * c[k + 1]!;
-        d[k] -= f;
-        d[k + 1] += f;
-      }
-    }
-    for (let k = 0; k < LAST_ROW; k++) {
-      const f = pS[k]! * c[k]! - qS[k]! * c[k + BLOCK_CELLS]!;
-      d[k] -= f;
-      d[k + BLOCK_CELLS] += f;
-    }
-  }
-  const e = b.e;
-  if (e !== null && (b.gasMax > 0 || e.gasMax > 0)) {
-    const ce = e.gas;
-    const de = e.dA;
-    for (let k = LAST, k2 = 0; k < BLOCK_AREA; k += BLOCK_CELLS, k2 += BLOCK_CELLS) {
-      const f = pE[k]! * c[k]! - qE[k]! * ce[k2]!;
-      d[k] -= f;
-      de[k2] += f;
-    }
-  }
-  const s = b.s;
-  if (s !== null && (b.gasMax > 0 || s.gasMax > 0)) {
-    const cs = s.gas;
-    const ds = s.dA;
-    for (let k = LAST_ROW, k2 = 0; k < BLOCK_AREA; k++, k2++) {
-      const f = pS[k]! * c[k]! - qS[k]! * cs[k2]!;
-      d[k] -= f;
-      ds[k2] += f;
-    }
-  }
-}
-
-/** Applique les flux et le facteur de conservation ; retourne la somme des concentrations du bloc. */
-function applyGas(b: Block): number {
-  const c = b.gas;
-  const d = b.dA;
-  const m = b.mG;
-  let max = 0;
-  let sum = 0;
-  for (let k = 0; k < BLOCK_AREA; k++) {
-    let v = (c[k]! + d[k]!) * m[k]!;
-    d[k] = 0;
-    if (v < CELL_EPS) v = 0;
-    else {
-      sum += v;
-      if (v > max) max = v;
-    }
-    c[k] = v;
-  }
-  b.gasMax = max;
-  b.gasSum = sum;
-  return sum;
-}
-
-/** Flux de la fumée et de sa couleur prémultipliée (quatre canaux, mêmes coefficients). */
-function fluxSmoke(b: Block): void {
-  const c = b.smoke;
-  const cr = b.sr;
-  const cg = b.sg;
-  const cb = b.sb;
-  const d = b.dA;
-  const dr = b.dR;
-  const dg = b.dG;
-  const db = b.dB;
-  const pE = b.pE;
-  const qE = b.qE;
-  const pS = b.pS;
-  const qS = b.qS;
-  if (b.smokeMax > 0) {
-    for (let r = 0; r < BLOCK_AREA; r += BLOCK_CELLS) {
-      for (let k = r, end = r + LAST; k < end; k++) {
-        const p = pE[k]!;
-        const q = qE[k]!;
-        let f = p * c[k]! - q * c[k + 1]!;
-        d[k] -= f;
-        d[k + 1] += f;
-        f = p * cr[k]! - q * cr[k + 1]!;
-        dr[k] -= f;
-        dr[k + 1] += f;
-        f = p * cg[k]! - q * cg[k + 1]!;
-        dg[k] -= f;
-        dg[k + 1] += f;
-        f = p * cb[k]! - q * cb[k + 1]!;
-        db[k] -= f;
-        db[k + 1] += f;
-      }
-    }
-    for (let k = 0; k < LAST_ROW; k++) {
-      const p = pS[k]!;
-      const q = qS[k]!;
-      const k2 = k + BLOCK_CELLS;
-      let f = p * c[k]! - q * c[k2]!;
-      d[k] -= f;
-      d[k2] += f;
-      f = p * cr[k]! - q * cr[k2]!;
-      dr[k] -= f;
-      dr[k2] += f;
-      f = p * cg[k]! - q * cg[k2]!;
-      dg[k] -= f;
-      dg[k2] += f;
-      f = p * cb[k]! - q * cb[k2]!;
-      db[k] -= f;
-      db[k2] += f;
-    }
-  }
-  const e = b.e;
-  if (e !== null && e.smokeOn && (b.smokeMax > 0 || e.smokeMax > 0)) {
-    for (let k = LAST, k2 = 0; k < BLOCK_AREA; k += BLOCK_CELLS, k2 += BLOCK_CELLS) {
-      const p = pE[k]!;
-      const q = qE[k]!;
-      let f = p * c[k]! - q * e.smoke[k2]!;
-      d[k] -= f;
-      e.dA[k2] += f;
-      f = p * cr[k]! - q * e.sr[k2]!;
-      dr[k] -= f;
-      e.dR[k2] += f;
-      f = p * cg[k]! - q * e.sg[k2]!;
-      dg[k] -= f;
-      e.dG[k2] += f;
-      f = p * cb[k]! - q * e.sb[k2]!;
-      db[k] -= f;
-      e.dB[k2] += f;
-    }
-  }
-  const s = b.s;
-  if (s !== null && s.smokeOn && (b.smokeMax > 0 || s.smokeMax > 0)) {
-    for (let k = LAST_ROW, k2 = 0; k < BLOCK_AREA; k++, k2++) {
-      const p = pS[k]!;
-      const q = qS[k]!;
-      let f = p * c[k]! - q * s.smoke[k2]!;
-      d[k] -= f;
-      s.dA[k2] += f;
-      f = p * cr[k]! - q * s.sr[k2]!;
-      dr[k] -= f;
-      s.dR[k2] += f;
-      f = p * cg[k]! - q * s.sg[k2]!;
-      dg[k] -= f;
-      s.dG[k2] += f;
-      f = p * cb[k]! - q * s.sb[k2]!;
-      db[k] -= f;
-      s.dB[k2] += f;
-    }
-  }
-}
-
-/** Applique les flux de fumée ; une cellule sous le seuil perd aussi sa couleur. */
-function applySmoke(b: Block): number {
-  const c = b.smoke;
-  const cr = b.sr;
-  const cg = b.sg;
-  const cb = b.sb;
-  const d = b.dA;
-  const dr = b.dR;
-  const dg = b.dG;
-  const db = b.dB;
-  const m = b.mS;
-  let max = 0;
-  let sum = 0;
-  for (let k = 0; k < BLOCK_AREA; k++) {
-    const mk = m[k]!;
-    const v = (c[k]! + d[k]!) * mk;
-    d[k] = 0;
-    if (v < CELL_EPS) {
-      c[k] = 0;
-      cr[k] = 0;
-      cg[k] = 0;
-      cb[k] = 0;
-    } else {
-      c[k] = v;
-      cr[k] = (cr[k]! + dr[k]!) * mk;
-      cg[k] = (cg[k]! + dg[k]!) * mk;
-      cb[k] = (cb[k]! + db[k]!) * mk;
-      sum += v;
-      if (v > max) max = v;
-    }
-    dr[k] = 0;
-    dg[k] = 0;
-    db[k] = 0;
-  }
-  b.smokeMax = max;
-  b.smokeSum = sum;
-  return sum;
 }

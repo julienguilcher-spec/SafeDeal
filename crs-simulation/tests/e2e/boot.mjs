@@ -1,6 +1,8 @@
 // Test de bout en bout du cœur du moteur : la page se charge sans erreur, window.__CRS.ready
-// devient vrai, une session d'essai démarre et avance, la page tient sur un écran de téléphone.
-// Captures : tests/e2e/out/boot.png, boot-session.png, boot-mobile.png
+// devient vrai, une session d'essai démarre et avance, la page tient sur un écran de téléphone,
+// le mode libre se lance par l'URL (commandant d'emblée), et une sauvegarde corrompue dans le
+// localStorage n'empêche ni de démarrer ni de sauvegarder ensuite.
+// Captures : tests/e2e/out/boot.png, boot-session.png, boot-mobile.png, boot-mobile-bas.png
 import { startServer, openPage, waitFor, shot, finish } from './lib.mjs';
 
 const server = await startServer();
@@ -102,6 +104,25 @@ try {
   check(run.px === 120 && run.pz === -60 && run.tp.x === 120, 'teleport() devrait déplacer le joueur');
   check(run.pausedSteps === 0 && run.pausedPhase === 'paused', 'aucun pas ne doit être simulé en pause');
   check(run.events.join(',') === 'started,paused,resumed', 'événements de session inattendus : ' + run.events.join(','));
+  // garde-fous de la boucle, dans le navigateur : durée infinie refusée, magasins cohérents après retraits en rafale
+  const guards = await page.evaluate(() => {
+    const crs = window.__CRS;
+    const ctx = crs.ctx;
+    const before = ctx.clock.tick;
+    const infinite = crs.game.step(Infinity) + crs.game.step(NaN) + crs.game.step(-1);
+    const events = { props: 0, projectiles: 0 };
+    const offA = ctx.events.on('prop:removed', () => events.props++);
+    const offB = ctx.events.on('projectile:removed', () => events.projectiles++);
+    const prop = ctx.props.spawn('poubelle', 50, 50, 0);
+    const shot = ctx.projectiles.spawn('pave', 0, 50, 1, 50, 0, 0, 0);
+    ctx.props.remove(prop.id);
+    ctx.projectiles.remove(shot.id);
+    offA();
+    offB();
+    return { infinite, ticks: ctx.clock.tick - before, events };
+  });
+  check(guards.infinite === 0 && guards.ticks === 0, 'step(Infinity / NaN / négatif) ne doit rien simuler');
+  check(guards.events.props === 1 && guards.events.projectiles === 1, 'prop:removed et projectile:removed attendus');
   // mesures dans le navigateur : coût du moteur avec 500 personnes (création, pas de simulation, requêtes)
   const perf = await page.evaluate(() => {
     const crs = window.__CRS;
@@ -147,7 +168,9 @@ try {
   browser = null;
 
   // ── 3. démarrage automatique par l'URL, sur un écran de téléphone ──
-  ({ browser, page, errors } = await openPage(server.url + '?autostart=test&nomenu=1&quality=bas&seed=7', {
+  // mode libre : rôle « commandant » sans grade précisé (le grade du rôle s'applique), mission au choix
+  const launchUrl = '?autostart=test&nomenu=1&quality=bas&seed=7&mode=libre&role=commandant&mission=essai_libre&crowd=300&tension=0.4';
+  ({ browser, page, errors } = await openPage(server.url + launchUrl, {
     width: 390, height: 844, deviceScaleFactor: 2, mobile: true,
   }));
   await waitFor(page, 'window.__CRS && window.__CRS.ready === true');
@@ -158,12 +181,18 @@ try {
     quality: window.__CRS.ctx.settings.values.quality,
     mode: window.__CRS.ctx.session.config?.mode,
     seed: window.__CRS.ctx.session.config?.seed,
+    config: window.__CRS.ctx.session.config,
     scroll: document.documentElement.scrollWidth > window.innerWidth,
     cardWidth: document.querySelector('.diag-card')?.getBoundingClientRect().width ?? 0,
   }));
   check(auto.error === null, 'erreur de démarrage automatique : ' + auto.error);
   check(auto.summary.phase === 'playing', `autostart : phase attendue « playing », obtenue « ${auto.summary.phase} »`);
-  check(auto.mode === 'test' && auto.seed === 7, 'autostart : configuration inattendue');
+  check(auto.mode === 'libre' && auto.seed === 7, 'autostart : configuration inattendue');
+  check(
+    auto.config && auto.config.role === 'commandant' && auto.config.rank === 'commandant' && auto.config.missionId === 'essai_libre' &&
+      auto.config.crowdSize === 300 && auto.config.tension === 0.4,
+    'mode libre par l’URL : rôle, grade, mission, affluence et tension attendus dans la configuration — ' + JSON.stringify(auto.config),
+  );
   check(auto.launch && auto.launch.nomenu === true && auto.launch.autostart === 'test', 'paramètres de lancement mal lus');
   check(auto.quality === 'bas', `qualité attendue « bas », obtenue « ${auto.quality} »`);
   check(!auto.scroll, 'la page ne devrait pas déborder en largeur sur téléphone');
@@ -184,7 +213,48 @@ try {
     check(scrolled.touchAction === 'pan-y', 'le panneau doit autoriser le défilement vertical au doigt');
     await shot(page, 'boot-mobile-bas');
   }
-  console.log('capture :', file3, '| phase :', auto.summary.phase, '| qualité :', auto.quality);
+  console.log('capture :', file3, '| phase :', auto.summary.phase, '| qualité :', auto.quality, '| mode :', auto.mode, '| rôle :', auto.config?.role, auto.config?.rank);
+  allErrors.push(...errors);
+  await browser.close();
+  browser = null;
+
+  // ── 4. sauvegarde corrompue dans le vrai localStorage : le jeu démarre, sauvegarde, et relit au lancement suivant ──
+  ({ browser, page, errors } = await openPage(server.url));
+  await waitFor(page, 'window.__CRS && window.__CRS.ready === true');
+  const KEY = 'crs-simulation-france.save.v1';
+  const BROKEN = '{"format":"crs-simulation-france","version":1,"sections":{"settings":{"fov":';
+  await page.evaluate(([key, broken]) => localStorage.setItem(key, broken), [KEY, BROKEN]);
+  await page.reload({ waitUntil: 'load' });
+  await waitFor(page, 'window.__CRS && window.__CRS.ready === true');
+  const corrupt = await page.evaluate(([key]) => {
+    const ctx = window.__CRS.ctx;
+    const persistentBefore = ctx.save.persistent;
+    ctx.settings.set('fov', 85);
+    let stored = null;
+    try {
+      stored = JSON.parse(localStorage.getItem(key));
+    } catch {
+      stored = null;
+    }
+    return {
+      phase: ctx.session.phase,
+      persistentBefore,
+      persistentAfter: ctx.save.persistent,
+      storedFov: stored && stored.sections && stored.sections.settings ? stored.sections.settings.fov : null,
+      backup: localStorage.getItem(key + '.illisible'),
+      foot: document.querySelector('.diag-foot')?.textContent ?? '',
+    };
+  }, [KEY]);
+  check(corrupt.phase === 'menu', 'avec une sauvegarde corrompue, le jeu doit quand même arriver au menu');
+  check(corrupt.persistentBefore === true && corrupt.persistentAfter === true, 'la sauvegarde doit rester active malgré le contenu illisible');
+  check(corrupt.storedFov === 85, `le réglage modifié doit être écrit dans le localStorage (lu : ${corrupt.storedFov})`);
+  check(corrupt.backup === BROKEN, 'la sauvegarde illisible doit être conservée sous la clé « .illisible »');
+  check(!corrupt.foot || corrupt.foot.includes('sur cet appareil'), 'le panneau doit annoncer une sauvegarde sur cet appareil');
+  await page.reload({ waitUntil: 'load' });
+  await waitFor(page, 'window.__CRS && window.__CRS.ready === true');
+  const reread = await page.evaluate(() => window.__CRS.ctx.settings.values.fov);
+  check(reread === 85, `au lancement suivant, le réglage enregistré doit être relu (lu : ${reread})`);
+  console.log('sauvegarde corrompue : démarrage OK, réglage écrit puis relu (fov = ' + reread + '), copie illisible conservée');
   allErrors.push(...errors);
 } catch (err) {
   problems.push('exception : ' + (err && err.stack ? err.stack : String(err)));

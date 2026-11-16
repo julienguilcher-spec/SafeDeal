@@ -10,7 +10,14 @@
  *   - événements : person:spawned après la création ; person:removed pendant le retrait — la
  *     personne n'est alors plus dans `list` ni dans l'index, mais get(id) la renvoie encore le
  *     temps de l'événement (pour que les abonnés puissent lire son état une dernière fois).
- *     clear() émet person:removed pour chaque personne.
+ *     clear() émet person:removed pour chaque personne (de la dernière à la première) ;
+ *   - retrait : la personne quitte l'index spatial AUSSITÔT (aucune requête ne la renvoie plus) ;
+ *     retirer pendant une itération est sûr en parcourant `list` à rebours, depuis un abonné de
+ *     person:removed, ou depuis le filtre d'une requête spatiale ;
+ *   - valeurs invalides : une position ou un cap qui n'est pas un nombre fini est signalé et
+ *     remplacé par 0 (une personne en NaN contaminerait ses voisines par les calculs d'évitement) ;
+ *   - commandant unique (docs/BRIEF.md §1) : les postes « commandant_unite » et « autorite_civile »
+ *     portent l'écharpe tricolore par défaut (look.sash).
  * ===================================================================================== */
 
 import type {
@@ -131,7 +138,17 @@ class PeopleStoreImpl implements PeopleStore {
     // Graine d'apparence : celle fournie, sinon dérivée de la graine de session et de l'identifiant.
     const seed = init.seed !== undefined ? init.seed : hash2(sessionSeed(ctx), id);
     const rng = createRng(seed);
-    const heading = init.heading ?? 0;
+    let x = init.x;
+    let z = init.z;
+    let heading = init.heading ?? 0;
+    if (!Number.isFinite(x) || !Number.isFinite(z) || !Number.isFinite(heading)) {
+      console.error(
+        `[core] people.spawn : position ou cap invalide (x = ${x}, z = ${z}, cap = ${heading}) pour « ${kind} » — valeurs remplacées par 0`,
+      );
+      if (!Number.isFinite(x)) x = 0;
+      if (!Number.isFinite(z)) z = 0;
+      if (!Number.isFinite(heading)) heading = 0;
+    }
     const rank = init.rank !== undefined ? init.rank : d.rank;
     const poste = init.poste !== undefined ? init.poste : d.poste;
 
@@ -164,22 +181,30 @@ class PeopleStoreImpl implements PeopleStore {
       gasMask: false,
       faceCover: false,
       backText: d.backText,
-      sash: d.sash,
+      // l'autorité habilitée (commandant unique du BRIEF, ou autorité civile) porte l'écharpe tricolore
+      sash: d.sash || (faction === 'police' && (poste === 'commandant_unite' || poste === 'autorite_civile')),
       armband: d.armband,
       vest: d.vest,
       rankBars: rank ? RANK_BARS[rank] ?? 0 : 0,
       backpack: faction !== 'police' && faction !== 'rescue' && backpackRoll < 0.3,
     };
-    if (init.look) Object.assign(look, init.look);
+    if (init.look) {
+      // fusion champ par champ : une valeur « undefined » ne doit pas effacer l'apparence par défaut
+      const custom = init.look as Record<string, unknown>;
+      const target = look as unknown as Record<string, unknown>;
+      for (const key of Object.keys(custom)) {
+        if (custom[key] !== undefined) target[key] = custom[key];
+      }
+    }
 
     const p: Person = {
       id,
       kind,
       faction,
       name: init.name ?? `${d.label} ${id}`,
-      x: init.x,
-      z: init.z,
-      y: ctx.world.heightAt(init.x, init.z),
+      x,
+      z,
+      y: ctx.world.heightAt(x, z),
       vx: 0,
       vz: 0,
       heading,
@@ -260,9 +285,13 @@ class PeopleStoreImpl implements PeopleStore {
     this.indexOf.clear();
     this.grid.clear();
     try {
-      for (let i = 0; i < all.length; i++) this.ctx.events.emit('person:removed', { id: all[i]!.id });
+      // de la dernière à la première : les abonnés qui tiennent des listes ordonnées (unités,
+      // files d'attente) retirent ainsi en fin de tableau, sans coût quadratique
+      for (let i = all.length - 1; i >= 0; i--) this.ctx.events.emit('person:removed', { id: all[i]!.id });
     } finally {
-      this.byId.clear();
+      // seules les personnes présentes au début du vidage disparaissent : une personne créée par un
+      // abonné pendant le vidage reste valide
+      for (let i = 0; i < all.length; i++) this.byId.delete(all[i]!.id);
     }
   }
 

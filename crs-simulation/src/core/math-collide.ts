@@ -3,6 +3,10 @@
  * Aucune allocation : les résultats composés sont écrits dans un objet `out` fourni par l'appelant.
  * Boîte orientée : centre (cx, cz), demi-dimension halfX le long de son axe local x, halfZ le long
  * de son axe avant, cap `heading` (même convention que object.rotation.y).
+ *
+ * Valeurs invalides : une forme ou un segment dont une coordonnée n'est pas un nombre fini (NaN,
+ * infini) ne touche rien — les fonctions répondent « pas de contact » et n'écrivent jamais de NaN
+ * dans `out`. Une entité corrompue par un bogue ne contamine donc pas celles qui la croisent.
  * ===================================================================================== */
 
 import type { Vec2 } from './contracts';
@@ -20,7 +24,8 @@ export function circleVsCircle(
   const dz = pz - cz;
   const sum = radius + cr;
   const d2 = dx * dx + dz * dz;
-  if (d2 >= sum * sum) {
+  // écrit ainsi, le test écarte aussi les valeurs NaN
+  if (!(d2 < sum * sum) || !(sum > 0) || sum === Infinity) {
     out.x = 0;
     out.z = 0;
     return false;
@@ -48,6 +53,7 @@ export function distSqPointObb(
   const dz = pz - cz;
   const lx = Math.abs(dx * c - dz * s) - halfX;
   const lz = Math.abs(dx * s + dz * c) - halfZ;
+  if (lx !== lx || lz !== lz) return Infinity; // boîte ou point invalide (NaN) : infiniment loin
   const ox = lx > 0 ? lx : 0;
   const oz = lz > 0 ? lz : 0;
   return ox * ox + oz * oz;
@@ -74,6 +80,12 @@ export function circleVsObb(
   const ox = lx - qx;
   const oz = lz - qz;
   const d2 = ox * ox + oz * oz;
+  // forme, cap ou disque invalide (NaN, dimension négative) : aucun contact, aucune poussée
+  if (!(d2 >= 0) || !(halfX >= 0) || !(halfZ >= 0) || !(radius >= 0) || radius === Infinity) {
+    out.x = 0;
+    out.z = 0;
+    return false;
+  }
   let pushX: number;
   let pushZ: number;
   if (d2 > 1e-12) {
@@ -162,6 +174,8 @@ export function segmentVsCircle(
   const dz = bz - az;
   const fx = ax - cx;
   const fz = az - cz;
+  // « v − v === 0 » n'est vrai que pour un nombre fini : segment, centre ou rayon invalide → pas de contact
+  if (!(dx - dx === 0 && dz - dz === 0 && fx - fx === 0 && fz - fz === 0 && r >= 0)) return false;
   const c = fx * fx + fz * fz - r * r;
   if (c <= 0) {
     const l = Math.sqrt(fx * fx + fz * fz);
@@ -183,10 +197,20 @@ export function segmentVsCircle(
   const disc = b * b - a * c;
   if (disc < 0) return false;
   const t = (-b - Math.sqrt(disc)) / a;
-  if (t < 0 || t > 1) return false;
+  if (!(t >= 0 && t <= 1)) return false;
   out.t = t;
-  out.nx = (fx + dx * t) / r;
-  out.nz = (fz + dz * t) / r;
+  // normale = du centre vers le point d'entrée ; rayon nul ou infime : à défaut, l'opposé du segment
+  const nx = fx + dx * t;
+  const nz = fz + dz * t;
+  const nl = Math.sqrt(nx * nx + nz * nz);
+  if (nl > 1e-9) {
+    out.nx = nx / nl;
+    out.nz = nz / nl;
+  } else {
+    const dl = Math.sqrt(a);
+    out.nx = -dx / dl;
+    out.nz = -dz / dl;
+  }
   return true;
 }
 
@@ -209,6 +233,8 @@ export function segmentVsObb(
   const wdz = bz - az;
   const ldx = wdx * c - wdz * s;
   const ldz = wdx * s + wdz * c;
+  // « v − v === 0 » n'est vrai que pour un nombre fini : boîte, cap ou segment invalide → pas de contact
+  if (!(lax - lax === 0 && laz - laz === 0 && ldx - ldx === 0 && ldz - ldz === 0 && halfX >= 0 && halfZ >= 0)) return false;
 
   let tmin = 0;
   let tmax = 1;

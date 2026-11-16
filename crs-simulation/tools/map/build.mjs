@@ -13,7 +13,8 @@
  * ===================================================================================== */
 import fs from 'node:fs';
 import path from 'node:path';
-import { M, NORM, OUT, REPORT_DIR, TILES, createTiles, normName, loadBrandNames, isCommercialName, TRADEMARK_RE, log } from './build-lib.mjs';
+import { M, NORM, OUT, REPORT_DIR, TILES, createTiles, normName, log } from './build-lib.mjs';
+import { loadBrandNames, isCommercialName, hasTrademark } from './build-names.mjs';
 import { buildTerrain } from './build-terrain.mjs';
 import { loadLandmarkParts, buildLandmarks } from './build-landmarks.mjs';
 import { buildBuildings, emitBuildings } from './build-buildings.mjs';
@@ -69,7 +70,7 @@ function main() {
   const parts = step('monuments', () => loadLandmarkParts());
   const brands = loadBrandNames();
   const buildings = step('bâtiments', () => buildBuildings({ heightAt: terrain.heightAt, landmarkParts: parts, brands }));
-  const roads = step('graphe routier', () => buildRoads({ buildings, landmarkParts: parts, onSidewalk: areas.onSidewalk }));
+  const roads = step('graphe routier', () => buildRoads({ buildings, landmarkParts: parts, onSidewalk: areas.onSidewalk, onPaved: areas.onPaved }));
   report.roads = roads.report;
   if (roads.report.connectivity.mainComponentShare < MIN_MAIN_COMPONENT) {
     throw new Error(`graphe routier : la plus grande composante ne porte que ${(roads.report.connectivity.mainComponentShare * 100).toFixed(2)} % des arêtes carrossables (minimum ${MIN_MAIN_COMPONENT * 100} %)`);
@@ -78,11 +79,11 @@ function main() {
   const tiles = createTiles();
   const ctx = {
     heightAt: terrain.heightAt, rawNgfAt: terrain.rawNgfAt, offset: terrain.offset, waterLevel: terrain.waterLevel,
-    buildings, roads, areas, onSidewalk: areas.onSidewalk, landmarkParts: parts,
+    buildings, roads, areas, onSidewalk: areas.onSidewalk, inOpenWater: areas.inOpenWater, landmarkParts: parts,
   };
   report.surfaces = step('surfaces (découpage par tuile)', () => emitSurfaces(areas, tiles, ctx));
   report.barriers = step('barrières', () => buildBarriers(tiles, ctx));
-  report.trees = step('arbres', () => buildTrees(tiles));
+  report.trees = step('arbres', () => buildTrees(tiles, ctx));
   report.furniture = step('mobilier', () => buildFurniture(tiles, ctx));
   report.signals = step('feux', () => buildSignals(tiles, ctx));
   const metro = step('métro', () => buildMetro(tiles, ctx));
@@ -226,7 +227,7 @@ function main() {
 
 /**
  * Second contrôle, indépendant des filtres de construction, sur les fichiers ENCODÉS :
- *   - aucune chaîne publiée ne contient une marque déposée connue ;
+ *   - aucune chaîne publiée ne contient une marque déposée connue ni n'est un nom écarté à la relecture ;
  *   - aucun nom de bâtiment, de monument ou d'institution n'est le nom d'un commerce de la source ;
  *   - aucun commerce ne porte de nom (le format n'a pas de colonne pour cela : on le vérifie).
  * Les toponymes publics homonymes d'un commerce (une station « Bastille », un café « Bastille »)
@@ -248,7 +249,7 @@ function brandAudit(raw, brands) {
   for (const s of raw.places.ref ?? []) all.add(s);
   for (const s of raw.landmarks.name) all.add(s);
   for (const s of raw.landmarks.key) all.add(s);
-  for (const s of all) if (TRADEMARK_RE.test(normName(s))) matches.push(`marque déposée dans « ${s} »`);
+  for (const s of all) if (hasTrademark(s)) matches.push(`marque déposée ou nom écarté dans « ${s} »`);
   for (const s of buildingNames) if (isCommercialName(s, brands)) matches.push(`bâtiment « ${s} » : nom de commerce`);
   const kinds = raw.places.kind ?? [];
   for (let i = 0; i < raw.places.n; i++) {

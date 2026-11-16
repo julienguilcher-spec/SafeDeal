@@ -77,6 +77,8 @@ await capture('tenues-lod1-face', 'view=tenues&jeu=1&lod=1&pas=0.033');
 await capture('tenues-lod1-dos', 'view=tenues&jeu=2&lod=1&dos=1&pas=0.033');
 await capture('tenues-lod2-face', 'view=tenues&jeu=1&lod=2&pas=0.033');
 await capture('tenues-lod2-dos', 'view=tenues&jeu=2&lod=2&dos=1&pas=0.033');
+// nuit : lampe ponctuelle avec ombres (vérifie le matériau de distance greffé)
+await capture('tenues-nuit', 'view=tenues&pres=1&de=0&lampe=1&pas=0.033');
 // occupants de véhicules (sièges) et repères d'os fournis par l'API
 await capture('vehicule', 'view=vehicule&pas=0.033&os=1', { frames: 16 });
 // (b) poses et animations (temps figé à plusieurs instants)

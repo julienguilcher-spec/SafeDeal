@@ -7,7 +7,8 @@
  * pris SUR ces arêtes et son rayon couvre leur étendue. Un nom sans arête dans le graphe
  * (voie souterraine, piste cyclable) n'est pas publié.
  * ===================================================================================== */
-import { M, readLayer, px, pz, normName, clamp, isCommercialName, hasTrademark } from './build-lib.mjs';
+import { M, readLayer, px, pz, normName, clamp } from './build-lib.mjs';
+import { isCommercialName, hasTrademark } from './build-names.mjs';
 
 /** Lieux d'importance 3 (majeurs), par nom normalisé. */
 const MAJOR = new Set([

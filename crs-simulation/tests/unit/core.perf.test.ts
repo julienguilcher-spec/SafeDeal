@@ -8,11 +8,20 @@ import { createRng } from '@/core/rng';
 import { SpatialHash } from '@/core/spatial';
 import { createTestContext } from '@/core/testing';
 
+/**
+ * Temps moyen d'un appel de fn, en ms. La mesure est faite en 5 lots et le meilleur lot est retenu :
+ * sur une machine partagée, un lot interrompu par un autre processus ne fausse pas le résultat.
+ */
 function bench(label: string, iterations: number, fn: () => void): number {
   for (let i = 0; i < Math.min(iterations, 200); i++) fn(); // échauffement
-  const t0 = performance.now();
-  for (let i = 0; i < iterations; i++) fn();
-  const ms = (performance.now() - t0) / iterations;
+  const batch = Math.max(1, Math.ceil(iterations / 5));
+  let ms = Infinity;
+  for (let b = 0; b < 5; b++) {
+    const t0 = performance.now();
+    for (let i = 0; i < batch; i++) fn();
+    const mean = (performance.now() - t0) / batch;
+    if (mean < ms) ms = mean;
+  }
   console.log(`[perf] ${label} : ${ms < 0.01 ? (ms * 1000).toFixed(2) + ' µs' : ms.toFixed(3) + ' ms'}`);
   return ms;
 }

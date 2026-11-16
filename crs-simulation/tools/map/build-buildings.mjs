@@ -9,9 +9,10 @@
  * ===================================================================================== */
 import {
   M, readLayer, projectRing, orient, signedArea, simplifyRing, dedupeRing, bboxOf, orientedBox, BoxGrid, SegGrid,
-  median, clamp, round1, hasTile, T, isCommercialName, selfIntersectsAtFormatPrecision,
-  removeSpikes, convexHull, simpleRings,
+  median, clamp, round1, hasTile, T,
 } from './build-lib.mjs';
+import { selfIntersectsAtFormatPrecision, removeSpikes, convexHull, simpleRings } from './build-clip.mjs';
+import { isCommercialName } from './build-names.mjs';
 
 /** Tolérance de simplification des emprises (m). */
 export const BUILDING_TOLERANCE = 0.3;
@@ -309,12 +310,19 @@ export function buildingAt(buildings, x, z, skip = -1) {
 
 /** Range les bâtiments dans leurs tuiles (après que les commerces ont fixé « generic » ou « residential »). */
 export function emitBuildings(buildings, tiles) {
+  const kinds = {};
+  let withShops = 0;
   for (const b of buildings.list) {
     // « generic » = immeuble courant à commerces en rez-de-chaussée ; « residential » = sans vitrine.
     const kind = b.kind === 'residential' && b.hasShop ? 'generic' : b.kind;
+    if (kind !== b.kind) withShops++;
+    kinds[kind] = (kinds[kind] ?? 0) + 1;
     tiles.get(b.tx, b.tz).buildings.push({
       id: b.id, kind, roof: b.roof, style: b.style, baseY: b.baseY, height: b.height, levels: b.levels,
       outer: b.outer, holes: b.holes, landmarkKey: b.landmarkKey, name: b.name ?? '',
     });
   }
+  // Décompte des types tels qu'ils sont publiés (le rapport de buildBuildings les donne avant les commerces).
+  buildings.report.kindsPublished = kinds;
+  buildings.report.residentialTurnedGeneric = withShops;
 }

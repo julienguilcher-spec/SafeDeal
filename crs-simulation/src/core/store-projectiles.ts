@@ -1,6 +1,8 @@
 /* =====================================================================================
  * Magasin des projectiles (ProjectileApi) — données seulement : la balistique, les mèches
- * et les impacts sont l'affaire du module des objets. Émet projectile:spawned.
+ * et les impacts sont l'affaire du module des objets.
+ * Événements : projectile:spawned à la création ; projectile:removed au retrait (remove et clear) —
+ * le projectile est alors sorti de `list`, mais get(id) le renvoie encore le temps de l'événement.
  * ===================================================================================== */
 
 import type { EntityId, GameContext, Projectile, ProjectileApi, ProjectileKind } from './contracts';
@@ -43,12 +45,15 @@ class ProjectileStoreImpl implements ProjectileApi {
   remove(id: EntityId): void {
     const p = this.byId.get(id);
     if (!p) return;
-    this.byId.delete(id);
     const list = this.list;
     const idx = list.indexOf(p);
-    if (idx >= 0) {
-      list[idx] = list[list.length - 1]!;
-      list.pop();
+    if (idx < 0) return; // retrait déjà en cours (appel ré-entrant depuis projectile:removed)
+    list[idx] = list[list.length - 1]!;
+    list.pop();
+    try {
+      this.ctx.events.emit('projectile:removed', { id });
+    } finally {
+      this.byId.delete(id);
     }
   }
 
@@ -63,6 +68,7 @@ class ProjectileStoreImpl implements ProjectileApi {
       const dz = p.z - z;
       const d2 = dx * dx + dz * dz;
       if (d2 <= bestD2) {
+        // comparaison écrite ainsi : un projectile en position invalide (NaN) n'est jamais retenu
         bestD2 = d2;
         best = p;
       }
@@ -71,8 +77,14 @@ class ProjectileStoreImpl implements ProjectileApi {
   }
 
   clear(): void {
+    if (this.list.length === 0) return;
+    const all = this.list.slice();
     this.list.length = 0;
-    this.byId.clear();
+    try {
+      for (let i = 0; i < all.length; i++) this.ctx.events.emit('projectile:removed', { id: all[i]!.id });
+    } finally {
+      for (let i = 0; i < all.length; i++) this.byId.delete(all[i]!.id);
+    }
   }
 }
 

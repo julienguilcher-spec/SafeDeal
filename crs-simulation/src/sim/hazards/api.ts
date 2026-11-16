@@ -9,6 +9,9 @@
 
 import type { EntityId, Vec2 } from '@/core/contracts';
 
+/** Nombre de valeurs écrites par cellule par HazardFieldView.collectActiveCells : x, z, gaz, fumée, couleur. */
+export const CELL_RECORD = 5;
+
 /** Clé du service de lecture publié par le module. */
 export const HAZARD_FIELD_SERVICE = 'hazards.field';
 
@@ -63,16 +66,20 @@ export interface HazardStats {
   pooledBlocks: number;
   /** Blocs de bâti mis en cache (masque des cellules infranchissables). */
   staticBlocks: number;
-  /** Pas de champ exécutés depuis le début de la session (gaz et fumée confondus). */
+  /** Sous-pas de transport exécutés depuis le début de la session (gaz et fumée confondus). */
   fieldSteps: number;
-  /** Sous-pas d'advection par pas de champ (1 par vent modéré ; davantage par grand vent). */
+  /** Sous-pas de transport par dixième de seconde (1 par vent modéré ; jusqu'à 4 par grand vent). */
   substeps: number;
   fires: number;
+  /** Masse de gaz et de fumée à l'issue du dernier pas de champ (concentration × m²) : lecture sans parcours. */
+  gasMass: number;
+  smokeMass: number;
 }
 
 /**
- * Lecture du champ pour le rendu (particules, carte tactique) et le débogage. Aucune de ces méthodes
- * n'alloue : passer une fonction conservée d'une image à l'autre, pas une fermeture créée à chaque image.
+ * Lecture du champ pour le rendu (particules, carte tactique) et le débogage. Le module n'alloue rien
+ * dans ces méthodes. Pour forEachActiveCell, passer une fonction conservée d'une image à l'autre (pas
+ * une fermeture créée à chaque image) ; dans une boucle d'image, préférer collectActiveCells.
  */
 export interface HazardFieldView {
   /** Côté d'une cellule (m). */
@@ -87,6 +94,12 @@ export interface HazardFieldView {
    * Retourne le nombre de cellules visitées.
    */
   forEachActiveCell(cb: HazardCellCallback, minDensity?: number, cx?: number, cz?: number, radius?: number): number;
+  /**
+   * Même parcours sans rappel : écrit (x, z, gaz, fumée, couleur) par paquets de CELL_RECORD = 5 nombres
+   * dans `out` et retourne le nombre de cellules écrites (au plus out.length / 5). À préférer dans une
+   * boucle d'image : passer des nombres réels à un rappel non intégré par le compilateur les alloue un à un.
+   */
+  collectActiveCells(out: Float32Array, minDensity?: number, cx?: number, cz?: number, radius?: number): number;
   /** Nappes de feu actives (tableau stable, modifié en place ; ne pas le conserver trié). */
   readonly fires: readonly FireView[];
   /** Dérive moyenne des nuages à cet instant (m/s) : vent × 0,8, rafales et sautes comprises. */

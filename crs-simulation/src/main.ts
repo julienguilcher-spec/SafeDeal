@@ -9,7 +9,9 @@
  * ===================================================================================== */
 
 import { version } from '../package.json';
-import type { ModuleFactory, QualityLevel, SessionPhase } from '@/core/contracts';
+import type {
+  DurationPreset, GameMode, ModuleFactory, PlayableRole, PoliceRank, QualityLevel, SessionConfig, SessionPhase,
+} from '@/core/contracts';
 import { getCore } from '@/core/context';
 import { installDebugApi } from '@/core/debug';
 import type { DebugApi } from '@/core/debug';
@@ -60,7 +62,8 @@ const MODULES: ModuleFactory[] = [
 // ───────────────────────────── démarrage ─────────────────────────────
 
 async function main(): Promise<void> {
-  // Paramètres d'URL : ?autostart=test|paris &place=… &quality=bas &seed=… &nomenu=1 &debug=1 (voir core/launch.ts)
+  // Paramètres d'URL : ?autostart=test|paris &mode=libre &role=… &rank=… &mission=… &place=… &quality=bas &seed=…
+  // &nomenu=1 &debug=1 (liste complète dans core/launch.ts)
   const launch = parseLaunchParams(window.location.search);
 
   const game = new Game({ seed: launch.seed ?? undefined, debug: launch.debug });
@@ -124,6 +127,39 @@ const PHASE_LABELS: Record<SessionPhase, string> = {
 
 const QUALITY_LABELS: Record<QualityLevel, string> = { bas: 'basse', moyen: 'moyenne', haut: 'haute', ultra: 'ultra' };
 
+const MODE_LABELS: Record<GameMode, string> = {
+  carriere: 'Carrière', libre: 'Mode libre', monde_ouvert: 'Monde ouvert', editeur: 'Éditeur de scénario', test: 'Session d’essai',
+};
+
+// « commissaire » est un alias du commandant unique (docs/BRIEF.md §1) : même libellé.
+const ROLE_LABELS: Record<PlayableRole, string> = {
+  crs: 'CRS', chef_groupe: 'Chef de groupe', commandant: 'Commandant', commissaire: 'Commandant', bravm: 'BRAV-M',
+  gendarme_centaure: 'Équipage du Centaure', operateur_canon_eau: 'Opérateur du canon à eau', telepilote: 'Télépilote de drone',
+  street_medic: 'Médecin (street medic)', secouriste: 'Pompier secouriste', journaliste: 'Journaliste', manifestant: 'Manifestant',
+};
+
+const RANK_LABELS: Record<PoliceRank, string> = {
+  gardien_stagiaire: 'gardien stagiaire', gardien: 'gardien de la paix', brigadier: 'brigadier', brigadier_chef: 'brigadier-chef',
+  major: 'major', capitaine: 'capitaine', commandant: 'commandant', commissaire: 'commissaire',
+};
+
+const DURATION_LABELS: Record<DurationPreset, string> = {
+  courte: '10 min', standard: '25 min', longue: '45 min', temps_reel: 'temps réel',
+};
+
+/** Résumé en une ligne de la session en cours : ce que le joueur (ou l'URL) a choisi. */
+function describeSession(cfg: SessionConfig | null): string {
+  if (!cfg) return 'Aucune session en cours. Mode libre par l’URL : ?autostart=paris&mode=libre&role=commandant&mission=…';
+  const parts = [MODE_LABELS[cfg.mode] ?? cfg.mode, ROLE_LABELS[cfg.role] ?? cfg.role];
+  if (cfg.rank) parts.push(`grade : ${RANK_LABELS[cfg.rank] ?? cfg.rank}`);
+  parts.push(cfg.missionId ? `mission « ${cfg.missionId} »` : 'sans mission');
+  if (cfg.place) parts.push(cfg.place);
+  parts.push(`${numberFr.format(cfg.crowdSize)} manifestant${cfg.crowdSize > 1 ? 's' : ''}`);
+  parts.push(`tension ${numberFr.format(cfg.tension * 100)} %`, `propension à dégénérer ${numberFr.format(cfg.volatility * 100)} %`);
+  parts.push(`durée ${DURATION_LABELS[cfg.duration] ?? cfg.duration}`, `graine ${cfg.seed}`);
+  return parts.join(' · ');
+}
+
 const DIAG_CSS = `
 .diag { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   padding: calc(16px + var(--safe-top)) calc(16px + var(--safe-right)) calc(16px + var(--safe-bottom)) calc(16px + var(--safe-left));
@@ -152,6 +188,8 @@ const DIAG_CSS = `
 .diag-phase[data-phase="playing"]::before { background: #3ecf8e; box-shadow: 0 0 0 4px rgba(62, 207, 142, .16); }
 .diag-phase[data-phase="paused"]::before { background: #f0b429; }
 .diag-phase[data-phase="loading"]::before { background: #4c8dff; }
+.diag-config { margin: 0; padding: 10px 12px; font-size: 13.5px; line-height: 1.55; color: #c3ccdd; background: #0d1525;
+  border: 1px solid #1c2740; border-left: 3px solid #0055a4; border-radius: 8px; overflow-wrap: anywhere; }
 .diag-cols { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 18px; }
 .diag-sec h2 { margin: 0 0 8px; font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #7f8ca6; }
 .diag-table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
@@ -239,6 +277,7 @@ function mountDiagnosticPanel(game: Game, debug: DebugApi): void {
   const timeValue = tile('Temps simulé');
   const tickValue = tile('Pas de simulation');
   const fpsValue = tile('Cadence');
+  const configLine = el('p', 'diag-config');
 
   const cols = el('div', 'diag-cols');
   const entities = el('section', 'diag-sec');
@@ -297,7 +336,7 @@ function mountDiagnosticPanel(game: Game, debug: DebugApi): void {
   });
   endBtn.addEventListener('click', () => ctx.session.end(false));
 
-  body.append(note, tiles, cols, actions);
+  body.append(note, tiles, configLine, cols, actions);
 
   const foot = el('p', 'diag-foot');
   foot.append(
@@ -331,6 +370,8 @@ function mountDiagnosticPanel(game: Game, debug: DebugApi): void {
     timeValue.textContent = `${decimalFr.format(ctx.clock.now)} s`;
     tickValue.textContent = numberFr.format(ctx.clock.tick);
     fpsValue.textContent = game.stats.fps > 0 ? `${numberFr.format(game.stats.fps)} images/s` : '—';
+    const summary = describeSession(ctx.session.config);
+    if (configLine.textContent !== summary) configLine.textContent = summary;
 
     const counts = [
       ctx.people.list.length, ctx.vehicles.list.length, ctx.props.list.length,
@@ -358,6 +399,6 @@ function mountDiagnosticPanel(game: Game, debug: DebugApi): void {
   }
 
   const timer = window.setInterval(refresh, 250);
-  ctx.events.onAny('session:phase', refresh);
+  ctx.events.on('session:phase', refresh);
   refresh();
 }

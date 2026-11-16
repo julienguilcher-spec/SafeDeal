@@ -26,7 +26,7 @@ export const BLOCK_RANGE = 16384;
 /** Plafond du nombre de blocs alloués (au-delà, le nuage ne s'étend plus). */
 export const MAX_BLOCKS = 768;
 
-/** Pas de temps du champ (s) : le gaz et la fumée avancent à 10 Hz, en alternance, quel que soit le pas du moteur. */
+/** Pas de temps du champ (s) : le gaz et la fumée avancent à 10 Hz, sur des pas distincts, quel que soit le pas du moteur. */
 export const FIELD_DT = 0.1;
 /** Nombre de Courant maximal par axe et par sous-pas (garantit la positivité du schéma amont). */
 export const COURANT_MAX = 0.2;
@@ -39,8 +39,12 @@ export const STATIC_JOBS_PER_STEP = 2;
 /** Taille maximale du cache de bâti (blocs). */
 export const STATIC_CACHE_MAX = 4096;
 
-/** En dessous, une cellule est remise à zéro (évite les nombres dénormalisés et libère les blocs). */
-export const CELL_EPS = 1e-4;
+/**
+ * En dessous, une cellule est remise à zéro (évite les nombres dénormalisés). Volontairement très bas :
+ * une cellule vide ne reçoit de sa voisine que ≈ 2 % de sa concentration par pas, et un seuil plus haut
+ * rognerait la frange du nuage à chaque pas (7 % de masse perdue en 30 s avec 1e-4, mesuré).
+ */
+export const CELL_EPS = 1e-6;
 /** Un bord de bloc au-dessus de ce seuil fait allouer le bloc voisin. */
 export const SPREAD_EPS = 0.008;
 /** Un bloc dont le maximum reste sous ce seuil pendant IDLE_STEPS est libéré. */
@@ -81,14 +85,27 @@ export interface HazardTuning {
   windDecay: number;
   /** Accélération de la dilution par unité de pluie (env.rain 0..1) : « pluie » (0,5) divise la durée par 2. */
   rainDecay: number;
-  /** Part de la dilution supprimée dans une rue étroite (0,33 → durée × 1,5). */
+  /**
+   * Part de la dilution supprimée dans une rue étroite. 0 par défaut : le seul confinement entre les
+   * façades donne déjà une durée × 1,7 et une concentration × 1,8 trente secondes après l'émission
+   * (mesuré dans une rue de 10 m), proches des « × 1,5 » et « × 2 » du dossier de réalisme.
+   */
   canyonRetention: number;
-  /** Largeur libre (m) sous laquelle une rue est totalement abritée du vent de travers. */
+  /**
+   * Largeur libre (m) sous laquelle une rue est totalement abritée du vent de travers, et largeur à
+   * partir de laquelle il passe sans abri. Pour des façades de 18 à 25 m, l'écoulement « rase les
+   * toits » tant que la rue est plus étroite que haute (≈ 20 m) ; l'abri disparaît vers trois hauteurs.
+   * La mesure porte à 32 m de part et d'autre : 66 m = aucun bâti à portée.
+   */
   openMin: number;
-  /** Largeur libre (m) à partir de laquelle le vent passe sans abri. */
   openMax: number;
   /** Part du vent d'enfilade conservée dans une rue étroite (frottement des façades). */
   canyonAlong: number;
+  /**
+   * Part du gaz qui s'envole par-dessus les toits là où la dérive converge (nuage poussé contre une
+   * façade). 1 = aucun entassement au pied du mur ; 0 = tout s'y entasse.
+   */
+  liftOff: number;
   /** Amplitude relative des rafales (0,2 = ± 20 % de vitesse). 0 = vent parfaitement régulier. */
   gust: number;
   /** Amplitude des sautes de direction (rad). */
@@ -102,7 +119,7 @@ export interface HazardTuning {
   gasOpacityMin: number;
   /** Part du gaz et de la fumée rabattue par unité d'eau au centre du jet. */
   washout: number;
-  /** Durée d'une nappe de feu d'intensité 0 et d'intensité 1 (s), avant aléa de ± 15 %. */
+  /** Durée d'une nappe de feu d'intensité 0 et d'intensité 1 (s), avant aléa de ± 12 % (soit 16 à 40 s). */
   fireMinSeconds: number;
   fireMaxSeconds: number;
   /** Unités d'eau nécessaires pour éteindre une nappe de 1,25 m de rayon à pleine intensité. */
@@ -115,16 +132,17 @@ export interface HazardTuning {
 
 export const DEFAULT_TUNING: Readonly<HazardTuning> = Object.freeze({
   driftFactor: 0.8,
-  diffusion: 0.8,
+  diffusion: 0.7,
   windDiffusion: 0.15,
-  gasDecay: 1 / 45,
-  smokeDecay: 1 / 30,
-  windDecay: 0.5,
+  gasDecay: 1 / 60,
+  smokeDecay: 1 / 40,
+  windDecay: 0.3,
   rainDecay: 2,
-  canyonRetention: 0.33,
-  openMin: 12,
-  openMax: 56,
+  canyonRetention: 0,
+  openMin: 20,
+  openMax: 66,
   canyonAlong: 0.75,
+  liftOff: 0.7,
   gust: 0.2,
   veer: 0.2,
   meander: 0.12,
@@ -132,9 +150,9 @@ export const DEFAULT_TUNING: Readonly<HazardTuning> = Object.freeze({
   gasOpacity: 0.14,
   gasOpacityMin: 0.12,
   washout: 0.45,
-  fireMinSeconds: 20,
-  fireMaxSeconds: 40,
-  fireHeat: 3,
+  fireMinSeconds: 18,
+  fireMaxSeconds: 36,
+  fireHeat: 2.5,
   fireSmokeRate: 0.35,
   maxFires: 96,
 });

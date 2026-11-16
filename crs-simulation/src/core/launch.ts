@@ -7,13 +7,17 @@
  *   &seed=…                graine (entier, ou texte quelconque)
  *   &nomenu=1              pas de menu principal (tests)
  *   &debug=1               journalisation bavarde
+ *   &mode=carriere|libre|monde_ouvert|editeur|test   mode de jeu (défaut : monde_ouvert pour paris, test sinon)
  *   &role=… &rank=… &time=… &weather=… &crowd=… &tension=… &volatility=… &mission=… &duration=…
+ * Exemple, mode libre en commandant d'emblée :
+ *   ?autostart=paris&mode=libre&role=commandant&mission=…&crowd=800&tension=0.4
+ * Sans &rank=, le grade est celui du rôle (defaultRankForRole).
  * La racine de composition les publie sous la clé de service « launch » :
  *   ctx.service<LaunchParams>('launch')
  * ===================================================================================== */
 
 import type {
-  DurationPreset, PlayableRole, PoliceRank, QualityLevel, SessionConfig, WeatherKind,
+  DurationPreset, GameMode, PlayableRole, PoliceRank, QualityLevel, SessionConfig, WeatherKind,
 } from './contracts';
 import { hashString } from './rng';
 import { defaultSessionConfig } from './session';
@@ -31,6 +35,8 @@ export interface LaunchParams {
   seed: number | null;
   nomenu: boolean;
   debug: boolean;
+  /** Mode de jeu demandé (null : déduit de autostart). */
+  mode: GameMode | null;
   role: PlayableRole | null;
   rank: PoliceRank | null;
   /** Heure de départ 0..24. */
@@ -46,6 +52,7 @@ export interface LaunchParams {
 }
 
 const QUALITIES: readonly string[] = ['bas', 'moyen', 'haut', 'ultra'];
+const MODES: readonly string[] = ['carriere', 'libre', 'monde_ouvert', 'editeur', 'test'];
 const ROLES: readonly string[] = [
   'crs', 'chef_groupe', 'commandant', 'commissaire', 'bravm', 'gendarme_centaure', 'operateur_canon_eau',
   'telepilote', 'street_medic', 'secouriste', 'journaliste', 'manifestant',
@@ -72,18 +79,19 @@ function flag(value: string | undefined): boolean {
 
 /** Analyse la partie « ?a=b&c=d » d'une URL. Ne lève jamais d'exception. */
 export function parseLaunchParams(search: string): LaunchParams {
-  const raw: Record<string, string> = {};
-  try {
-    const q = search.startsWith('?') ? search.slice(1) : search;
-    for (const part of q.split('&')) {
-      if (!part) continue;
+  // objet sans prototype : « ?constructor=… » ou « ?__proto__=… » restent de simples paramètres
+  const raw = Object.create(null) as Record<string, string>;
+  const q = typeof search === 'string' ? (search.startsWith('?') ? search.slice(1) : search) : '';
+  for (const part of q.split('&')) {
+    if (!part) continue;
+    try {
       const eq = part.indexOf('=');
       const k = decodeURIComponent((eq < 0 ? part : part.slice(0, eq)).replace(/\+/g, ' '));
       const v = eq < 0 ? '' : decodeURIComponent(part.slice(eq + 1).replace(/\+/g, ' '));
       if (k) raw[k] = v;
+    } catch {
+      // paramètre mal encodé : ignoré, les suivants sont lus quand même
     }
-  } catch {
-    // URL mal formée : on garde ce qui a pu être lu
   }
 
   const auto = raw.autostart;
@@ -103,6 +111,7 @@ export function parseLaunchParams(search: string): LaunchParams {
     seed,
     nomenu: flag(raw.nomenu),
     debug: flag(raw.debug),
+    mode: oneOf<GameMode>(raw.mode, MODES),
     role: oneOf<PlayableRole>(raw.role, ROLES),
     rank: oneOf<PoliceRank>(raw.rank, RANKS),
     time: time !== null && time >= 0 && time <= 24 ? time : null,
@@ -120,16 +129,17 @@ export function parseLaunchParams(search: string): LaunchParams {
 export function launchSessionConfig(launch: LaunchParams): SessionConfig {
   const paris = launch.autostart === 'paris';
   const cfg = defaultSessionConfig({
-    mode: paris ? 'monde_ouvert' : 'test',
+    mode: launch.mode ?? (paris ? 'monde_ouvert' : 'test'),
     place: launch.place ?? (paris ? 'place de la Concorde' : ''),
     seed: launch.seed ?? 1,
+    // sans grade demandé, defaultSessionConfig retient celui du rôle (commandant → commandant…)
+    role: launch.role ?? undefined,
+    rank: launch.rank ?? undefined,
   });
   if (launch.x !== null && launch.z !== null) {
     cfg.x = launch.x;
     cfg.z = launch.z;
   }
-  if (launch.role) cfg.role = launch.role;
-  if (launch.rank) cfg.rank = launch.rank;
   if (launch.time !== null) cfg.timeOfDay = launch.time;
   if (launch.weather) cfg.weather = launch.weather;
   if (launch.crowd !== null && launch.crowd >= 0) cfg.crowdSize = Math.round(launch.crowd);

@@ -40,6 +40,19 @@ sun.shadow.bias = -0.0004;
 sun.shadow.normalBias = 0.02;
 scene.add(sun, sun.target, new THREE.HemisphereLight(0xcfe0ff, 0x5a5448, 1.1));
 
+// &lampe=1 : nuit éclairée par une lampe ponctuelle qui projette des ombres (matériau de distance des personnages)
+if (params.get('lampe') === '1') {
+  sun.intensity = 0.15;
+  scene.background = new THREE.Color(0x10141c);
+  scene.fog = new THREE.Fog(0x10141c, 30, 200);
+  const lamp = new THREE.PointLight(0xffd9a0, 60, 30, 1.8);
+  lamp.position.set(0.5, 4.5, 2.2);
+  lamp.castShadow = true;
+  lamp.shadow.mapSize.set(1024, 1024);
+  lamp.shadow.bias = -0.002;
+  scene.add(lamp);
+}
+
 function setShadowArea(cx: number, cz: number, half: number): void {
   const c = sun.shadow.camera;
   c.left = -half; c.right = half; c.top = half; c.bottom = -half; c.near = 1; c.far = 80;
@@ -606,6 +619,8 @@ if (params.has('lod')) {
   const engine = (systems[0] as unknown as { engine: { forceLod: number } | null }).engine;
   if (engine) engine.forceLod = parseInt(params.get('lod')!, 10);
 }
+// &texte=… : slogan imposé à toutes les pancartes et banderoles (API setHeldText)
+if (params.has('texte')) for (const p of people) api.setHeldText(p.id, params.get('texte'));
 const boneMarks: THREE.Mesh[] = [];
 const showBones = params.get('os') === '1';
 const boneTmp = { x: 0, y: 0, z: 0 };

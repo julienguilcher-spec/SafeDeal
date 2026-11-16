@@ -5,6 +5,11 @@
  *   - onAny/emitAny : événements libres hors contrat (même mécanique, mêmes canaux) ;
  *   - se désabonner (ou s'abonner) pendant une émission est sûr : un gestionnaire retiré n'est
  *     plus appelé, un gestionnaire ajouté ne le sera qu'à l'émission suivante ;
+ *   - chaque abonnement est un enregistrement distinct : la même fonction abonnée deux fois donne deux
+ *     abonnements, et la fonction de désabonnement ne retire jamais que le sien (même après clear()) ;
+ *   - une réémission du même événement depuis ses propres gestionnaires est permise, mais bornée :
+ *     au-delà de MAX_EMIT_DEPTH niveaux imbriqués, l'émission est abandonnée et signalée (boucle
+ *     d'événements : A émet B qui réémet A…), au lieu de faire déborder la pile ;
  *   - une exception dans un gestionnaire est journalisée et n'empêche pas les suivants ;
  *     avec l'option `rethrow` (contextes de test stricts), la première exception est en plus relancée
  *     à l'émetteur une fois tous les gestionnaires appelés, pour qu'un bogue fasse échouer le test ;
@@ -15,9 +20,18 @@ import type { EventBus, EventName, GameEvents, Unsubscribe } from './contracts';
 
 type Handler = (payload: unknown) => void;
 
+/** Profondeur maximale d'émissions imbriquées d'un même événement (au-delà : boucle d'événements). */
+export const MAX_EMIT_DEPTH = 48;
+
+/** Un abonnement : la fonction et son état. `active` passe à false au désabonnement (compacté ensuite). */
+interface Sub {
+  fn: Handler;
+  active: boolean;
+}
+
 interface Channel {
-  /** Gestionnaires dans l'ordre d'abonnement ; null = retiré pendant une émission (compacté ensuite). */
-  handlers: (Handler | null)[];
+  /** Abonnements dans l'ordre d'arrivée ; les inactifs sont retirés quand plus aucune émission n'est en cours. */
+  subs: Sub[];
   /** Profondeur d'émissions imbriquées en cours sur ce canal. */
   depth: number;
   holes: boolean;
@@ -44,35 +58,33 @@ export function createEventBus(options: EventBusOptions = {}): EventBusEx {
   let errorCount = 0;
 
   function compact(ch: Channel): void {
-    const hs = ch.handlers;
+    const subs = ch.subs;
     let w = 0;
-    for (let r = 0; r < hs.length; r++) {
-      const h = hs[r];
-      if (h) hs[w++] = h;
+    for (let r = 0; r < subs.length; r++) {
+      const sub = subs[r]!;
+      if (sub.active) subs[w++] = sub;
     }
-    hs.length = w;
+    subs.length = w;
     ch.holes = false;
   }
 
   function subscribe(name: string, handler: Handler): Unsubscribe {
     let ch = channels.get(name);
     if (!ch) {
-      ch = { handlers: [], depth: 0, holes: false };
+      ch = { subs: [], depth: 0, holes: false };
       channels.set(name, ch);
     }
     const channel = ch;
-    channel.handlers.push(handler);
-    let active = true;
+    const sub: Sub = { fn: handler, active: true };
+    channel.subs.push(sub);
     return () => {
-      if (!active) return;
-      active = false;
-      const i = channel.handlers.indexOf(handler);
-      if (i < 0) return;
+      if (!sub.active) return;
+      sub.active = false;
       if (channel.depth > 0) {
-        channel.handlers[i] = null;
-        channel.holes = true;
+        channel.holes = true; // retiré du tableau à la fin de l'émission en cours
       } else {
-        channel.handlers.splice(i, 1);
+        const i = channel.subs.indexOf(sub);
+        if (i >= 0) channel.subs.splice(i, 1);
       }
     };
   }
@@ -88,17 +100,27 @@ export function createEventBus(options: EventBusOptions = {}): EventBusEx {
   function dispatch(name: string, payload: unknown): void {
     const ch = channels.get(name);
     if (!ch) return;
-    const hs = ch.handlers;
-    const n = hs.length; // les gestionnaires ajoutés pendant l'émission attendront la suivante
+    const subs = ch.subs;
+    const n = subs.length; // les gestionnaires ajoutés pendant l'émission attendront la suivante
     if (n === 0) return;
+    if (ch.depth >= MAX_EMIT_DEPTH) {
+      // un gestionnaire de cet événement le réémet sans fin (directement ou par ricochet)
+      errorCount++;
+      const message =
+        `[events] boucle d'événements : « ${name} » réémis depuis ses propres gestionnaires sur plus de ` +
+        `${MAX_EMIT_DEPTH} niveaux — émission abandonnée`;
+      console.error(message);
+      if (rethrow) throw new Error(message);
+      return;
+    }
     let failed = false;
     let firstError: unknown;
     ch.depth++;
     for (let i = 0; i < n; i++) {
-      const h = hs[i];
-      if (!h) continue;
+      const sub = subs[i]!;
+      if (!sub.active) continue;
       try {
-        h(payload);
+        sub.fn(payload);
       } catch (err) {
         errorCount++;
         console.error(`[events] erreur dans un gestionnaire de « ${name} »`, err);
@@ -133,17 +155,15 @@ export function createEventBus(options: EventBusOptions = {}): EventBusEx {
       const ch = channels.get(name);
       if (!ch) return 0;
       let n = 0;
-      for (let i = 0; i < ch.handlers.length; i++) if (ch.handlers[i]) n++;
+      for (let i = 0; i < ch.subs.length; i++) if (ch.subs[i]!.active) n++;
       return n;
     },
     clear(): void {
       for (const ch of channels.values()) {
-        if (ch.depth > 0) {
-          for (let i = 0; i < ch.handlers.length; i++) ch.handlers[i] = null;
-          ch.holes = true;
-        } else {
-          ch.handlers.length = 0;
-        }
+        // les abonnements sont marqués inactifs : un désabonnement tardif ne retirera rien d'autre
+        for (let i = 0; i < ch.subs.length; i++) ch.subs[i]!.active = false;
+        if (ch.depth > 0) ch.holes = true;
+        else ch.subs.length = 0;
       }
     },
     get errorCount(): number {

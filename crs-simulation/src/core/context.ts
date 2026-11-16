@@ -69,6 +69,8 @@ export interface CoreInternals {
   /** Services neutres d'origine (même remarque). */
   readonly neutral: NeutralServices;
   readonly debug: boolean;
+  /** Mode strict (tests) : les erreurs sont propagées au lieu d'être seulement journalisées. */
+  readonly strict: boolean;
   /** Repart à l'identifiant 1 (début de session). */
   resetIds(): void;
   /** Fait vivre les services neutres encore en place pendant un pas de simulation. */
@@ -201,6 +203,7 @@ export function createContext(options: ContextOptions = {}): GameContext {
     stores,
     neutral,
     debug,
+    strict: options.strict === true,
     resetIds: () => ctx.resetIds(),
     updateNeutral(dt: number): void {
       if (ctx.interactions === neutral.interactions) neutral.interactions.update(dt);
@@ -210,6 +213,7 @@ export function createContext(options: ContextOptions = {}): GameContext {
       neutral.interactions.reset();
       neutral.player.reset();
       neutral.ui.reset();
+      neutral.env.reset();
     },
   };
   session.attach(core);

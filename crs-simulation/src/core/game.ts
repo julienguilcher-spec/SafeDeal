@@ -17,6 +17,11 @@
  * après 5 erreurs consécutives le système est désactivé jusqu'à la prochaine session. En mode
  * `strict` (option du contexte, activée par défaut dans les tests), l'exception est propagée au
  * lieu d'être isolée.
+ *
+ * Garde-fous : une durée qui n'est pas un nombre fini positif n'avance rien (step(Infinity) ne
+ * boucle pas) ; step()/frame() appelés depuis un update() ou un frame() en cours sont refusés
+ * (l'horloge n'avance jamais deux fois dans le même pas) ; un init() asynchrone qui ne répond pas
+ * est signalé au bout de INIT_WATCHDOG_MS, avec le nom du système en cause.
  * ===================================================================================== */
 
 import type { GameContext, GameSystem, ModuleFactory, SessionApi } from './contracts';
@@ -34,6 +39,8 @@ export const MAX_TIME_SCALE = 64;
 export const NEUTRAL_SYSTEM_ID = 'core:neutral';
 /** Clé du service de mesures : ctx.service<PerfApi>('perf') — pour un affichage des performances. */
 export const PERF_SERVICE = 'perf';
+/** Délai (ms) au bout duquel un init() asynchrone sans réponse est signalé en console. */
+export const INIT_WATCHDOG_MS = 10000;
 
 export interface GameOptions extends ContextOptions {
   /** Temps réel maximal pris en compte pour une image (s). Défaut : 0,1. */
@@ -127,6 +134,9 @@ export class Game {
   private rafId = 0;
   private lastTime = -1;
   private seq = 0;
+  /** Une image (simulation ou présentation) est en cours : step()/frame() imbriqués sont refusés. */
+  private advancing = false;
+  private reentryReported = false;
 
   constructor(options: GameOptions = {}) {
     this.ctx = createContext(options);
@@ -239,7 +249,7 @@ export class Game {
       if (!slot.sys.init || slot.bootFailed) continue;
       try {
         const result = slot.sys.init(ctx);
-        if (result && typeof (result as Promise<void>).then === 'function') await result;
+        if (result && typeof (result as Promise<void>).then === 'function') await this.watched(slot.sys.id, result);
       } catch (err) {
         this.fail(slot, 'init', err);
       }
@@ -249,9 +259,35 @@ export class Game {
   }
 
   /**
+   * Attend un init() asynchrone en surveillant sa durée : s'il n'a pas répondu au bout de
+   * INIT_WATCHDOG_MS, un avertissement nomme le système (écran de chargement bloqué : init() qui
+   * attend ctx.session.start(), ressource qui ne se charge pas…). L'attente continue ensuite.
+   */
+  private async watched(id: string, pending: Promise<void>): Promise<void> {
+    const g = globalThis as {
+      setTimeout?: (cb: () => void, ms: number) => unknown;
+      clearTimeout?: (handle: never) => void;
+    };
+    if (typeof g.setTimeout !== 'function') return pending;
+    const timer = g.setTimeout(() => {
+      console.warn(
+        `[core] init() du système « ${id} » n'a pas répondu depuis ${INIT_WATCHDOG_MS / 1000} s : le démarrage attend toujours ` +
+          '(un init() ne doit pas attendre ctx.session.start(), qui attend lui-même la fin du démarrage)',
+      );
+    }, INIT_WATCHDOG_MS);
+    // sous Node, cette minuterie ne doit pas retenir le processus à elle seule
+    (timer as { unref?: () => void } | null)?.unref?.();
+    try {
+      await pending;
+    } finally {
+      if (typeof g.clearTimeout === 'function') g.clearTimeout(timer as never);
+    }
+  }
+
+  /**
    * Avance la simulation de `dt` secondes (× clock.timeScale), sans appeler frame() et sans limite
    * de durée : step(60) simule une minute entière, par pas ≤ 0,05 s. Sans effet hors de la phase
-   * « playing ». Retourne le nombre de pas de simulation exécutés.
+   * « playing », ou si `dt` n'est pas un nombre fini positif. Retourne le nombre de pas exécutés.
    */
   step(dt: number): number {
     return this.advance(dt, false);
@@ -317,17 +353,38 @@ export class Game {
 
   private advance(dtReal: number, present: boolean): number {
     if (!this.booted_ || this.disposed) return 0;
+    if (this.advancing) {
+      // appelé depuis un update() ou un frame() : avancer l'horloge au milieu d'un pas corromprait la simulation
+      if (!this.reentryReported) {
+        this.reentryReported = true;
+        console.error(
+          '[core] step()/frame() appelé pendant une image en cours (depuis un système ?) : appel ignoré ' +
+            '(signalé une seule fois)',
+        );
+      }
+      return 0;
+    }
+    // une durée infinie ou NaN ne simule rien (step(Infinity) bouclerait sans fin)
+    const dt = dtReal > 0 && dtReal !== Infinity ? dtReal : 0;
     const slots = this.slots;
     for (let i = 0; i < slots.length; i++) {
       slots[i]!.accUpdate = 0;
       slots[i]!.accFrame = 0;
     }
-    const t0 = now();
+    this.advancing = true;
     let steps = 0;
-    if (dtReal > 0 && this.ctx.session.phase === 'playing') steps = this.simulate(dtReal, present);
-    const t1 = now();
-    if (present && !this.ctx.headless) this.present(dtReal > 0 ? dtReal : 0);
-    const t2 = now();
+    let t0 = 0;
+    let t1 = 0;
+    let t2 = 0;
+    try {
+      t0 = now();
+      if (dt > 0 && this.ctx.session.phase === 'playing') steps = this.simulate(dt, present);
+      t1 = now();
+      if (present && !this.ctx.headless) this.present(dt);
+      t2 = now();
+    } finally {
+      this.advancing = false;
+    }
 
     for (let i = 0; i < slots.length; i++) {
       const s = slots[i]!;

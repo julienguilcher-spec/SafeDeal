@@ -85,6 +85,31 @@ export const MEANS_LABELS: Readonly<Record<ForceMeans, string>> = {
   vehicule: 'le véhicule',
 };
 
+/** Nom du moyen au génitif (« Emploi du bâton de défense »). */
+export const MEANS_OF: Readonly<Record<ForceMeans, string>> = {
+  presence: 'de la simple présence',
+  contact: 'du contact physique',
+  baton: 'du bâton de défense',
+  gazeuse: "de l'aérosol lacrymogène",
+  lacrymo: 'de la grenade lacrymogène',
+  canon_eau: "de l'engin lanceur d'eau",
+  gm2l: 'de la grenade assourdissante-lacrymogène',
+  desencerclement: 'de la grenade de désencerclement',
+  lbd: 'du lanceur de balles de défense',
+  arme_feu: "de l'arme de service",
+  vehicule: 'du véhicule',
+};
+
+/** Contenu de chaque niveau de la gradation (contrat ForceLevel). */
+export const LEVEL_NAMES: readonly string[] = [
+  'aucune force',
+  'présence et contact',
+  'bâton et aérosol',
+  "lacrymogènes à main et engin lanceur d'eau",
+  'lanceurs, grenades assourdissantes et de désencerclement',
+  'arme de service',
+];
+
 /** Nom court du moyen (listes, statistiques). */
 export const MEANS_SHORT: Readonly<Record<ForceMeans, string>> = {
   presence: 'présence',
@@ -181,5 +206,5 @@ export function hourText(timeOfDay: number): string {
 
 /** Durée en secondes arrondie pour un message (« 12 s »). */
 export function secondsText(s: number): string {
-  return Math.max(1, Math.ceil(s)) + ' s';
+  return Math.max(1, Math.ceil(s - 1e-6)) + ' s';
 }

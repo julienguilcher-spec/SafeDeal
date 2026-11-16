@@ -66,7 +66,7 @@ export function buildShops(tiles, ctx) {
   const fc = readLayer('shops');
   const B = ctx.buildings;
   const report = {
-    source: fc.features.length, vacantExcluded: 0, attached: 0, onCourtFacade: 0, relocated: 0, droppedNoFacade: 0, droppedNoRoom: 0,
+    source: fc.features.length, vacantExcluded: 0, droppedInMonument: 0, attached: 0, onCourtFacade: 0, relocated: 0, droppedNoFacade: 0, droppedNoRoom: 0,
     droppedOutside: 0, kept: 0, byCategory: {}, widthMedian: 0, widthsShrunk: 0,
   };
 
@@ -151,12 +151,15 @@ export function buildShops(tiles, ctx) {
       }
     }
     const own = buildingAt(B, x, z);
+    // Un monument est modélisé à la main : ses façades ne reçoivent pas de vitrine (galerie sous le Louvre, boutiques d'une gare).
+    if (own >= 0 && B.list[own].landmarkKey !== '') { report.droppedInMonument++; continue; }
     let best = null, bestScore = Infinity;
     B.facades.forEachInRect(x - SHOP_ATTACH_DIST, z - SHOP_ATTACH_DIST, x + SHOP_ATTACH_DIST, z + SHOP_ATTACH_DIST, (i) => {
       const d = distToSegment(x, z, B.facades.ax[i], B.facades.az[i], B.facades.bx[i], B.facades.bz[i]);
       if (d > SHOP_ATTACH_DIST) return;
       const t = segT;
       const bi = B.facades.tag[i], ei = B.facades.tag2[i];
+      if (B.list[bi].landmarkKey !== '') return;
       const c = classOf(bi, ei);
       if (c === PARTY || c === SHORT) return;
       // Une façade sur cour ou le bâtiment voisin ne sont retenus que nettement plus proches.

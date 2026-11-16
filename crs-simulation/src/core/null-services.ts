@@ -20,7 +20,7 @@
  * ===================================================================================== */
 
 import type {
-  ActionApi, ArchetypeApi, AudioApi, DirectorApi, EnvApi, GameContext, HazardApi, HealthApi, InputState,
+  ActionApi, ArchetypeApi, AudioApi, DirectorApi, GameContext, HazardApi, HealthApi, InputState,
   LawApi, RadioApi,
 } from './contracts';
 import { createNullActions, createNullArchetypes, createNullInteractions } from './null-items';
@@ -29,6 +29,7 @@ import { createNullLaw, createNullRadio } from './null-law';
 import { createNullAudio, createNullInput, createNullPlayer, createNullUi } from './null-presentation';
 import type { NullPlayer, NullUi } from './null-presentation';
 import { createNullDirector, createNullEnv, createNullHazards, createNullHealth } from './null-sim';
+import type { NullEnv } from './null-sim';
 import { createNullWorld } from './null-world';
 import type { NullWorld } from './null-world';
 
@@ -41,7 +42,7 @@ export { createNullPlayer, createNullUi, createNullAudio, createNullInput } from
 /** Jeu complet de services neutres créés pour un contexte. */
 export interface NeutralServices {
   world: NullWorld;
-  env: EnvApi;
+  env: NullEnv;
   hazards: HazardApi;
   health: HealthApi;
   actions: ActionApi;

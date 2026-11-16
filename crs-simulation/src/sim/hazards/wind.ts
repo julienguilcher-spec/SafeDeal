@@ -9,9 +9,17 @@
 
 import type { EnvState, Rng } from '@/core/contracts';
 import { TAU } from '@/core/math';
-import { COURANT_MAX, CELL, FIELD_DT, MAX_SUBSTEPS } from './config';
+import * as cfg from './config';
 import type { HazardTuning } from './config';
-import { AXES, AXIS_X, AXIS_Z } from './statics';
+import * as statics from './statics';
+
+const COURANT_MAX = cfg.COURANT_MAX;
+const CELL = cfg.CELL;
+const FIELD_DT = cfg.FIELD_DT;
+const MAX_SUBSTEPS = cfg.MAX_SUBSTEPS;
+const AXES = statics.AXES;
+const AXIS_X = statics.AXIS_X;
+const AXIS_Z = statics.AXIS_Z;
 
 /** Périodes (s) des trois ondes de rafale et de saute : incommensurables, de 6 à 37 s. */
 const GUST_PERIODS = [11.3, 6.1, 23.9];

@@ -373,7 +373,10 @@ export interface RoadNode {
   signal: boolean;
   /** Passage piéton. */
   crossing: boolean;
-  /** Nœud en limite de carte (entrée / sortie de la circulation). */
+  /**
+   * Nœud en limite du réseau modélisé (entrée / sortie de la circulation) : bord de la carte, ou bouche d'un
+   * souterrain que la carte ne décrit pas. Dans les deux cas une seule arête carrossable y aboutit.
+   */
   boundary: boolean;
   /** DÉRIVÉ au décodage : indices des arêtes incidentes (les deux sens confondus). */
   edges: number[];

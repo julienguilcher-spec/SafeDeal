@@ -42,9 +42,16 @@ const WITNESS_RANGE = 40;
 const FORCE_BEFORE: ForceLevel = 1;
 const FORCE_AFTER: ForceLevel = 3;
 
-/** Une personne peut-elle prononcer les sommations (autorité habilitée, insigne apparent) ? */
+/**
+ * Une personne peut-elle prononcer les sommations ? Autorité habilitée : le commandant unique du
+ * BRIEF (poste « commandant_unite », chef d'unité ET autorité civile), le commissaire, l'autorité
+ * civile, ou tout membre des forces de l'ordre portant l'écharpe tricolore.
+ */
 export function isAuthority(p: Person): boolean {
-  return p.faction === 'police' && (p.kind === 'commissaire' || p.poste === 'autorite_civile' || p.look.sash);
+  return (
+    p.faction === 'police' &&
+    (p.kind === 'commissaire' || p.poste === 'commandant_unite' || p.poste === 'autorite_civile' || p.look.sash)
+  );
 }
 
 /**
@@ -63,11 +70,16 @@ export function createNullLaw(ctx: GameContext): LawApi {
     authorizedForce: FORCE_BEFORE,
   };
   const forceLog: ForceReport[] = [];
-  const witnesses: Person[] = [];
+  // contexte de la recherche de témoin en cours (évite une fermeture par appel, et ne retient personne)
   let offenderId: EntityId = 0;
+  let offenseX = 0;
+  let offenseZ = 0;
 
   function canWitness(p: Person): boolean {
-    return p.faction === 'police' && p.id !== offenderId && p.posture !== 'down';
+    return (
+      p.faction === 'police' && p.id !== offenderId && p.posture !== 'down' &&
+      ctx.world.lineOfSight(p.x, p.z, offenseX, offenseZ)
+    );
   }
 
   return {
@@ -75,21 +87,16 @@ export function createNullLaw(ctx: GameContext): LawApi {
     forceLog,
     recordOffense(p: Person, type: OffenseType, x: number, z: number, severity?: number): Offense {
       offenderId = p.id;
-      let witnessed = false;
-      const n = ctx.people.queryRadius(x, z, WITNESS_RANGE, witnesses, canWitness);
-      for (let i = 0; i < n; i++) {
-        const w = witnesses[i]!;
-        if (ctx.world.lineOfSight(w.x, w.z, x, z)) {
-          witnessed = true;
-          break;
-        }
-      }
+      offenseX = x;
+      offenseZ = z;
+      const witnessed = ctx.people.nearest(x, z, WITNESS_RANGE, canWitness) !== null;
       const offense: Offense = {
         type,
         t: ctx.clock.now,
         x,
         z,
-        severity: severity ?? OFFENSE_SEVERITY[type] ?? 2,
+        // gravité bornée à l'échelle du contrat (1 contravention … 5 crime) ; valeur invalide → barème par défaut
+        severity: typeof severity === 'number' && severity >= 1 ? (severity > 5 ? 5 : severity) : OFFENSE_SEVERITY[type] ?? 2,
         witnessed,
         filmed: false,
       };
@@ -124,8 +131,14 @@ export function createNullLaw(ctx: GameContext): LawApi {
       return SOMMATION_TEXTS[stage] ?? '';
     },
     authorize(level: ForceLevel, byId: EntityId): void {
-      roe.authorizedForce = level;
-      ctx.events.emit('law:authorized', { level, byId });
+      if (!Number.isFinite(level)) {
+        console.warn(`[law] niveau de force invalide (${level}) : autorisation inchangée`);
+        return;
+      }
+      // borné à la gradation du contrat (0 aucun … 5 arme à feu)
+      const bounded = (level < 0 ? 0 : level > 5 ? 5 : Math.round(level)) as ForceLevel;
+      roe.authorizedForce = bounded;
+      ctx.events.emit('law:authorized', { level: bounded, byId });
     },
     reportForce(by: Person, means: ForceMeans, target: Person | null, x: number, z: number): ForceVerdict {
       const verdict: ForceVerdict = {

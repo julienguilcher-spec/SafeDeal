@@ -9,7 +9,14 @@
  *   - repère des sièges (contrat) : x vers la droite du véhicule, z vers l'avant ;
  *   - emprise : boîte orientée de demi-dimensions (width / 2, length / 2) ; les engins volants
  *     ne bloquent ni les déplacements ni les lancers de rayon ;
- *   - queryRadius() retient les véhicules dont l'emprise touche le disque demandé.
+ *   - queryRadius() retient les véhicules dont l'emprise touche le disque demandé ;
+ *   - raycast() : une carrosserie arrête aussi bien le passage que la vue — le paramètre `mode` du
+ *     contrat est accepté et les deux modes donnent le même résultat ; RayHit.height porte la hauteur
+ *     du véhicule pour que l'appelant décide si un projectile ou un regard passe par-dessus ;
+ *   - événements : vehicle:spawned ; vehicle:removed au retrait (remove et clear) — le véhicule est
+ *     alors sorti de `list`, mais get(id) le renvoie encore le temps de l'événement ;
+ *   - un véhicule dont la position ou le cap n'est pas un nombre fini (bogue en amont) ne touche
+ *     rien : ni collision, ni obstacle de rayon, ni résultat de requête.
  * ===================================================================================== */
 
 import type {
@@ -166,22 +173,28 @@ class VehicleStoreImpl implements VehicleStore {
   remove(id: EntityId): void {
     const v = this.byId.get(id);
     if (!v) return;
-    this.eject(v);
-    this.byId.delete(id);
     const idx = this.list.indexOf(v);
-    if (idx >= 0) {
-      this.list[idx] = this.list[this.list.length - 1]!;
-      this.list.pop();
+    if (idx < 0) return; // retrait déjà en cours (appel ré-entrant depuis un abonné)
+    this.list[idx] = this.list[this.list.length - 1]!;
+    this.list.pop();
+    try {
+      this.eject(v);
+      this.ctx.events.emit('vehicle:removed', { id });
+    } finally {
+      this.byId.delete(id);
     }
-    this.ctx.events.emit('vehicle:removed', { id });
   }
 
   clear(): void {
+    if (this.list.length === 0) return;
     const all = this.list.slice();
-    for (let i = 0; i < all.length; i++) this.eject(all[i]!);
     this.list.length = 0;
-    this.byId.clear();
-    for (let i = 0; i < all.length; i++) this.ctx.events.emit('vehicle:removed', { id: all[i]!.id });
+    try {
+      for (let i = 0; i < all.length; i++) this.eject(all[i]!);
+      for (let i = 0; i < all.length; i++) this.ctx.events.emit('vehicle:removed', { id: all[i]!.id });
+    } finally {
+      for (let i = 0; i < all.length; i++) this.byId.delete(all[i]!.id);
+    }
   }
 
   queryRadius(x: number, z: number, r: number, out: Vehicle[]): number {
@@ -191,7 +204,8 @@ class VehicleStoreImpl implements VehicleStore {
     for (let i = 0; i < list.length; i++) {
       const v = list[i]!;
       if (v.dormant) continue;
-      if (distSqPointObb(x, z, v.x, v.z, v.def.width * 0.5, v.def.length * 0.5, v.heading) > r2) continue;
+      // « !(d ≤ r²) » écarte aussi les véhicules en position invalide
+      if (!(distSqPointObb(x, z, v.x, v.z, v.def.width * 0.5, v.def.length * 0.5, v.heading) <= r2)) continue;
       if (n < out.length) out[n] = v;
       else out.push(v);
       n++;
@@ -201,7 +215,7 @@ class VehicleStoreImpl implements VehicleStore {
   }
 
   enter(p: Person, v: Vehicle, seat?: number | SeatRole): boolean {
-    if (this.byId.get(v.id) !== v) return false;
+    if (this.byId.get(v.id) !== v || this.list.indexOf(v) < 0) return false; // inconnu, ou en cours de retrait
     if (p.vehicleId !== 0 && p.vehicleId !== v.id) return false; // il faut d'abord descendre de l'autre véhicule
     const seats = v.seats;
     const defs = v.def.seats;
@@ -300,7 +314,7 @@ class VehicleStoreImpl implements VehicleStore {
       const reach = radius + hx + hz;
       const dx = pos.x - v.x;
       const dz = pos.z - v.z;
-      if (dx * dx + dz * dz > reach * reach) continue;
+      if (!(dx * dx + dz * dz <= reach * reach)) continue; // trop loin, ou position invalide
       if (circleVsObb(pos.x, pos.z, radius, v.x, v.z, hx, hz, v.heading, tmp)) {
         pos.x += tmp.x;
         pos.z += tmp.z;
@@ -310,7 +324,7 @@ class VehicleStoreImpl implements VehicleStore {
     return hit;
   }
 
-  raycast(ax: number, az: number, bx: number, bz: number, out: RayHit): boolean {
+  raycast(ax: number, az: number, bx: number, bz: number, out: RayHit, _mode?: 'move' | 'sight'): boolean {
     let bestT = 2;
     let best: Vehicle | null = null;
     let nx = 0;

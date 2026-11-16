@@ -110,6 +110,8 @@ interface ActiveInteraction {
   elapsed: number;
   handler: InteractionHandler;
   actor: Person;
+  /** Numéro de la dernière mise à jour qui a traité cette interaction (une seule avance par pas). */
+  seen: number;
 }
 
 function byPriorityDesc(a: InteractionOption, b: InteractionOption): number {
@@ -127,8 +129,10 @@ export interface NullInteractions extends InteractionApi {
  * Registre d'interactions fonctionnel : les gestionnaires enregistrés proposent des options,
  * une interaction dure `duration` secondes (tick() peut l'interrompre), puis complete() est appelé.
  * Une seule interaction à la fois par personne ; elle est annulée si l'acteur disparaît ou est
- * mis hors de combat. startVerb() ne lance le verbe que si le gestionnaire propose bien la cible
- * demandée (find() ne reçoit pas de cible).
+ * mis hors de combat. startVerb() transmet la cible demandée à find(actor, targetId) et ne lance
+ * le verbe que si l'option renvoyée porte bien sur cette cible. Les gestionnaires peuvent lancer
+ * ou annuler d'autres interactions depuis tick() / complete() / cancel() : chaque interaction
+ * n'avance qu'une fois par pas.
  */
 export function createNullInteractions(ctx: GameContext): NullInteractions {
   const handlers: InteractionHandler[] = [];
@@ -136,6 +140,7 @@ export function createNullInteractions(ctx: GameContext): NullInteractions {
   const byActor = new Map<EntityId, ActiveInteraction>();
   /** Gestionnaire à l'origine d'une option (pour retrouver le bon quand plusieurs partagent un verbe). */
   const origin = new WeakMap<InteractionOption, InteractionHandler>();
+  let updateCount = 0;
 
   function drop(a: ActiveInteraction): void {
     const i = active.indexOf(a);
@@ -162,7 +167,8 @@ export function createNullInteractions(ctx: GameContext): NullInteractions {
       return true;
     }
     // copie : un gestionnaire peut réutiliser son objet d'option d'un appel de find() à l'autre
-    const a: ActiveInteraction = { opt: { ...opt }, elapsed: 0, handler, actor };
+    // `seen` vaut le pas courant : lancée pendant une mise à jour, elle ne commence à avancer qu'au pas suivant
+    const a: ActiveInteraction = { opt: { ...opt }, elapsed: 0, handler, actor, seen: updateCount };
     active.push(a);
     byActor.set(actor.id, a);
     return true;
@@ -204,7 +210,7 @@ export function createNullInteractions(ctx: GameContext): NullInteractions {
       for (let i = 0; i < handlers.length; i++) {
         const h = handlers[i]!;
         if (h.verb !== verb) continue;
-        const o = h.find(actor);
+        const o = h.find(actor, targetId);
         if (!o || o.targetId !== targetId) continue;
         origin.set(o, h);
         return start(actor, o);
@@ -219,8 +225,13 @@ export function createNullInteractions(ctx: GameContext): NullInteractions {
       return byActor.get(actor.id) ?? null;
     },
     update(dt: number): void {
+      updateCount++;
       for (let i = active.length - 1; i >= 0; i--) {
+        // un gestionnaire peut avoir raccourci ou remanié la liste : on relit, et on ne traite personne deux fois
+        if (i >= active.length) continue;
         const a = active[i]!;
+        if (a.seen === updateCount) continue;
+        a.seen = updateCount;
         if (ctx.people.get(a.actor.id) !== a.actor || ctx.health.isIncapacitated(a.actor)) {
           cancelActive(a);
           continue;

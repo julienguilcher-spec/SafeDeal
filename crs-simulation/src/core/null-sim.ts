@@ -24,13 +24,18 @@ const WEATHER_PRESETS: Record<WeatherKind, { clouds: number; rain: number; fog: 
   orage: { clouds: 1, rain: 0.9, fog: 0.1 },
 };
 
+export interface NullEnv extends EnvApi {
+  /** Début de session : plus de vent, horloge à la vitesse normale (heure et météo sont fixées par la session). */
+  reset(): void;
+}
+
 /**
  * Environnement neutre : midi, temps clair, sans vent. Modifiable par setTime / setWeather /
  * setClockScale / setWind (effet immédiat) ; l'heure n'avance pas toute seule.
  * Modèle solaire simple : lever à 6 h à l'est, midi au sud, coucher à 18 h à l'ouest ; la nuit,
  * la direction renvoyée est celle de la lune (à l'opposé du soleil).
  */
-export function createNullEnv(ctx: GameContext): EnvApi {
+export function createNullEnv(ctx: GameContext): NullEnv {
   const state: EnvState = {
     timeOfDay: 12,
     clockScale: 1,
@@ -110,6 +115,11 @@ export function createNullEnv(ctx: GameContext): EnvApi {
         state.windX = x;
         state.windZ = z;
       }
+    },
+    reset(): void {
+      state.windX = 0;
+      state.windZ = 0;
+      state.clockScale = 1;
     },
   };
 }
@@ -196,8 +206,8 @@ export function createNullHealth(ctx: GameContext): HealthApi {
       target.injury = injuryForHealth(target.health);
       ctx.events.emit('person:treated', { id: target.id, byId });
     },
-    setDown(target: Person, down: boolean): void {
-      setDown(target, down, 0);
+    setDown(target: Person, down: boolean, sourceId: EntityId = 0): void {
+      setDown(target, down, sourceId);
     },
     isIncapacitated(p: Person): boolean {
       return p.posture === 'down' || p.health <= 0 || p.injury === 'dead';

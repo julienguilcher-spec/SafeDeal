@@ -104,6 +104,11 @@ export interface PeopleRenderApi {
   aliasHeldModel(alias: string, key: string): void;
   /** Clés de modèles reconnues (alias compris). */
   heldModelKeys(): string[];
+  /**
+   * Texte porté par la pancarte ou la banderole d'une personne (slogan de sa cause) ; null pour revenir au
+   * slogan générique tiré de son identifiant. L'atlas contient une centaine de textes distincts au plus.
+   */
+  setHeldText(personId: EntityId, text: string | null): void;
   /** Force la relecture de l'apparence d'une personne (ou de toutes) à la prochaine image. */
   invalidate(personId?: EntityId): void;
   /** Position monde d'un os de la personne ('head', 'chest', 'handR', 'handL') ; false si non affichée. */

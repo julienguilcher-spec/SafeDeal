@@ -14,15 +14,15 @@
  * ===================================================================================== */
 import {
   M, readLayer, projectPolygons, projectLine, simplifyRing, simplifyLine, dedupeRing, signedArea, polygonArea, bboxOf,
-  ringCentroid, tilePolygon, tilePolyline, BoxGrid, pointInPoly, polylineLength, median, clamp, round1, clipStats,
-  selfIntersectsAtFormatPrecision, removeSpikes, simpleRings, hasTrademark,
+  ringCentroid, BoxGrid, SegGrid, pointInPoly, polylineLength, median, clamp, round1,
 } from './build-lib.mjs';
+import { tilePolygon, tilePolyline, clipStats, selfIntersectsAtFormatPrecision, removeSpikes, simpleRings } from './build-clip.mjs';
+import { hasTrademark } from './build-names.mjs';
 
 /** Rang de superposition de l'eau : au-dessus de tout. */
 const RANK_WATER = 9;
-
-/** Noms écartés : ce ne sont pas des toponymes publics (relevés à la lecture des données). */
-const NAME_BLOCKLIST = new Set(['fruitier Paris', 'Auditorium', 'Potager', 'Dépose minute', 'Parking handicapé']);
+/** Surfaces dures : le moteur en fait le tablier d'un pont là où elles recouvrent l'eau (src/world/view/raster.ts). */
+const PAVED_KINDS = new Set(['road', 'sidewalk', 'median', 'pedestrian', 'plaza']);
 
 /** Nature du format, rang, tolérance de simplification (m), surface minimale (m²), nom conservé ? */
 function classify(p) {
@@ -53,12 +53,12 @@ function classify(p) {
 export function prepareAreas() {
   const fc = readLayer('areas');
   const list = [];
-  const report = { source: fc.features.length, droppedSmall: 0, droppedHoles: 0, simplificationRelaxed: 0, spikesRemoved: 0, unkinked: 0, selfIntersectingKept: 0, vertices: { before: 0, after: 0 }, byKind: {} };
+  const report = { source: fc.features.length, droppedSmall: 0, droppedHoles: 0, holesOutsideOuterDropped: 0, simplificationRelaxed: 0, spikesRemoved: 0, unkinked: 0, selfIntersectingKept: 0, vertices: { before: 0, after: 0 }, byKind: {} };
   for (const f of fc.features) {
     const p = f.properties;
     const c = classify(p);
     const rank = c.rank ?? (Number.isFinite(p.z) ? p.z : 5);
-    const name = c.named && typeof p.name === 'string' && p.name !== '' && !NAME_BLOCKLIST.has(p.name) && !hasTrademark(p.name) ? p.name : '';
+    const name = c.named && typeof p.name === 'string' && p.name !== '' && !hasTrademark(p.name) ? p.name : '';
     for (const poly of projectPolygons(f.geometry)) {
       report.vertices.before += poly.outer.length >> 1;
       for (const h of poly.holes) report.vertices.before += h.length >> 1;
@@ -85,6 +85,10 @@ export function prepareAreas() {
       for (const h of poly.holes) {
         const s = dedupeRing(simplifyRing(h, c.tol), 0.05);
         if (s.length < 6 || Math.abs(signedArea(s)) < 1) { report.droppedHoles++; continue; }
+        // Un trou doit être DANS son contour. Quelques trous des sources le débordent (saisie imprécise, ou
+        // simplification indépendante du trou et du contour) : le polygone ne serait plus valide. Un tel
+        // trou est retiré ; la surface recouvre alors cet endroit, ce qui est sans effet sous un bâtiment.
+        if (!holeInsideOuter(s, outer)) { report.holesOutsideOuterDropped++; continue; }
         holes.push(s);
       }
       const item = { kind: c.kind, rank, name, sub: p.sub ?? '', poly: { outer, holes }, area: 0, bb: bboxOf(outer), level: null };
@@ -101,20 +105,46 @@ export function prepareAreas() {
       }
     }
   }
-  const sidewalkItems = list.filter((s) => s.kind === 'sidewalk');
-  const grid = new BoxGrid(32);
-  for (const s of sidewalkItems) grid.add(s.bb.minX, s.bb.minZ, s.bb.maxX, s.bb.maxZ);
-  const onSidewalk = (x, z) => {
-    let found = false;
-    grid.forEachInRect(x, z, x, z, (i) => {
-      if (found) return;
-      const s = sidewalkItems[i];
-      if (x < s.bb.minX || x > s.bb.maxX || z < s.bb.minZ || z > s.bb.maxZ) return;
-      if (pointInPoly(s.poly, x, z)) found = true;
-    });
-    return found;
+  /** Fabrique un test « le point est-il sur l'une de ces surfaces ? ». */
+  const locator = (items) => {
+    const grid = new BoxGrid(32);
+    for (const s of items) grid.add(s.bb.minX, s.bb.minZ, s.bb.maxX, s.bb.maxZ);
+    return (x, z) => {
+      let found = false;
+      grid.forEachInRect(x, z, x, z, (i) => {
+        if (found) return;
+        const s = items[i];
+        if (x < s.bb.minX || x > s.bb.maxX || z < s.bb.minZ || z > s.bb.maxZ) return;
+        if (pointInPoly(s.poly, x, z)) found = true;
+      });
+      return found;
+    };
   };
-  return { list, onSidewalk, report };
+  const onSidewalk = locator(list.filter((s) => s.kind === 'sidewalk'));
+  /** Sol dur du plan de voirie ou d'OpenStreetMap : là où il recouvre l'eau, c'est le tablier d'un pont. */
+  const onPaved = locator(list.filter((s) => PAVED_KINDS.has(s.kind)));
+  const inRiverOrCanal = locator(list.filter((s) => s.kind === 'water' && (s.sub === 'river' || s.sub === 'canal')));
+  /** Vrai si le point est dans le fleuve ou un canal, hors de tout tablier de pont : un objet n'a rien à y faire. */
+  const inOpenWater = (x, z) => inRiverOrCanal(x, z) && !onPaved(x, z);
+  return { list, onSidewalk, onPaved, inOpenWater, report };
+}
+
+/** Vrai si tous les sommets du trou sont dans le contour et qu'aucun de ses côtés ne le croise. */
+function holeInsideOuter(hole, outer) {
+  for (let i = 0; i < hole.length; i += 2) if (!M.pointInRing(outer, hole[i], hole[i + 1])) return false;
+  const n = hole.length >> 1, m = outer.length >> 1;
+  for (let i = 0; i < n; i++) {
+    const i2 = (i + 1) % n;
+    const ax = hole[2 * i], az = hole[2 * i + 1], bx = hole[2 * i2], bz = hole[2 * i2 + 1];
+    for (let j = 0; j < m; j++) {
+      const j2 = (j + 1) % m;
+      const cx = outer[2 * j], cz = outer[2 * j + 1], dx = outer[2 * j2], dz = outer[2 * j2 + 1];
+      const d1 = (bx - ax) * (cz - az) - (bz - az) * (cx - ax), d2 = (bx - ax) * (dz - az) - (bz - az) * (dx - ax);
+      const d3 = (dx - cx) * (az - cz) - (dz - cz) * (ax - cx), d4 = (dx - cx) * (bz - cz) - (dz - cz) * (bx - cx);
+      if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return false;
+    }
+  }
+  return true;
 }
 
 /** Polygones du fleuve et des canaux, pour le relief. */
@@ -201,15 +231,73 @@ const BARRIER_KIND = { wall: 'wall', fence: 'fence', railing: 'railing', hedge: 
 const BARRIER_HEIGHT = { wall: 2.4, fence: 1.8, railing: 1.1, hedge: 1.2 };
 const BARRIER_SUB_HEIGHT = { retaining: 2.0, city_wall: 6.0, jersey: 0.8 };
 
+/**
+ * Distance (m) au-delà de laquelle un mur de quai n'est plus « au bord de l'eau ». Le long de la Seine, le
+ * mur du quai haut est séparé du fleuve par la berge basse (même seuil que le lot A : 45 m) ; un canal
+ * n'a pas de berge basse : son mur est au bord même de l'eau.
+ */
+const QUAY_RIVER_REACH = 45;
+const QUAY_CANAL_REACH = 12;
+/** Longueur minimale (m) d'un tronçon de mur de quai conservé après le tri. */
+const QUAY_MIN_RUN = 8;
+
+/**
+ * Tronçons d'un mur de quai situés au bord d'une eau à ciel ouvert (fleuve, canal, bassin de canal).
+ * La BD TOPO trace aussi les quais du canal Saint-Martin SOUS sa voûte, de la rue du Faubourg-du-Temple
+ * au bassin de l'Arsenal (2 km sous les boulevards Jules-Ferry et Richard-Lenoir et sous la place de la
+ * Bastille) : en surface il n'y a ni eau ni mur. Ces tronçons sont retirés.
+ */
+function openWaterRuns(pts, river, canal) {
+  // Polyligne densifiée (un point tous les 4 m au plus), chaque point marqué « près de l'eau » ou non.
+  const dense = [], near = [];
+  const push = (x, z) => { dense.push(x, z); near.push(river.nearest(x, z, QUAY_RIVER_REACH) !== null || canal.nearest(x, z, QUAY_CANAL_REACH) !== null); };
+  push(pts[0], pts[1]);
+  for (let i = 2; i < pts.length; i += 2) {
+    const ax = pts[i - 2], az = pts[i - 1], bx = pts[i], bz = pts[i + 1];
+    const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / 4));
+    for (let k = 1; k <= steps; k++) push(ax + ((bx - ax) * k) / steps, az + ((bz - az) * k) / steps);
+  }
+  if (near.every((v) => v)) return [pts];
+  const runs = [];
+  let cur = [];
+  for (let k = 0; k < near.length; k++) {
+    if (near[k]) cur.push(dense[2 * k], dense[2 * k + 1]);
+    else if (cur.length > 0) { runs.push(cur); cur = []; }
+  }
+  if (cur.length > 0) runs.push(cur);
+  return runs.filter((r) => r.length >= 4 && polylineLength(r) >= QUAY_MIN_RUN).map((r) => simplifyLine(r, 0.2));
+}
+
 export function buildBarriers(tiles, ctx) {
   const fc = readLayer('barriers');
-  const report = { source: fc.features.length, pieces: 0, byKind: {}, heightFromSource: 0, quayWallHeights: null };
+  const report = { source: fc.features.length, pieces: 0, byKind: {}, heightFromSource: 0, quayWallHeights: null, quayWallsAwayFromWater: { lines: 0, removedM: 0, keptM: 0 } };
   const quay = [];
+  // Contours de l'eau à ciel ouvert : fleuve et canaux (les bassins d'agrément et les fontaines n'ont pas de quai).
+  const river = new SegGrid(32), canal = new SegGrid(32);
+  for (const s of ctx.areas.list) {
+    if (s.kind !== 'water' || (s.sub !== 'river' && s.sub !== 'canal')) continue;
+    const grid = s.sub === 'river' ? river : canal;
+    grid.addRing(s.poly.outer, 0);
+    for (const h of s.poly.holes) grid.addRing(h, 0);
+  }
+  const lines = [];
   for (const f of fc.features) {
-    const p = f.properties;
-    const kind = BARRIER_KIND[p.kind];
-    if (kind === undefined) throw new Error(`barrières : nature source inconnue « ${p.kind} »`);
-    const pts = simplifyLine(projectLine(f.geometry.coordinates), 0.2);
+    const kind = BARRIER_KIND[f.properties.kind];
+    if (kind === undefined) throw new Error(`barrières : nature source inconnue « ${f.properties.kind} »`);
+    const whole = simplifyLine(projectLine(f.geometry.coordinates), 0.2);
+    if (kind !== 'quay_wall') { lines.push({ p: f.properties, kind, pts: whole }); continue; }
+    const runs = openWaterRuns(whole, river, canal);
+    const total = polylineLength(whole), kept = runs.reduce((sum, r) => sum + polylineLength(r), 0);
+    if (total - kept > 1) {
+      report.quayWallsAwayFromWater.lines++;
+      report.quayWallsAwayFromWater.removedM += total - kept;
+      report.quayWallsAwayFromWater.keptM += kept;
+    }
+    for (const r of runs) lines.push({ p: f.properties, kind, pts: r });
+  }
+  report.quayWallsAwayFromWater.removedM = Math.round(report.quayWallsAwayFromWater.removedM);
+  report.quayWallsAwayFromWater.keptM = Math.round(report.quayWallsAwayFromWater.keptM);
+  for (const { p, kind, pts } of lines) {
     const len = polylineLength(pts);
     if (len < 0.5) continue;
     let height;

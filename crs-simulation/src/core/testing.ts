@@ -69,14 +69,16 @@ export function createTestContext(options: TestContextOptions = {}): TestContext
     ctx: game.ctx,
     ready,
     step(seconds: number, dt: number = 1 / 30): void {
-      if (!(seconds > 0) || !(dt > 0)) return;
+      if (!(seconds > 0) || !(dt > 0) || seconds === Infinity || dt === Infinity) return; // durée invalide ou infinie : rien
       const n = Math.max(1, Math.round(seconds / dt));
       const h = seconds / n;
       for (let i = 0; i < n; i++) game.step(h);
     },
     async start(partial: Partial<SessionConfig> = {}): Promise<SessionConfig> {
       await ready;
-      const config = defaultSessionConfig({ seed, x: 0, z: 0, ...partial });
+      // départ en (0, 0) par défaut — sauf si l'appelant donne des coordonnées ou un lieu
+      const origin = partial.place || partial.x !== undefined || partial.z !== undefined ? {} : { x: 0, z: 0 };
+      const config = defaultSessionConfig({ seed, ...origin, ...partial });
       await game.ctx.session.start(config);
       return game.ctx.session.config ?? config;
     },

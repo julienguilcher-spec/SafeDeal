@@ -82,6 +82,7 @@ export class PeopleRenderer {
   private modelById: (HeldModel | undefined)[] = [];
   private registryVersion = -1;
   private readonly itemModelCache = new Map<string, HeldModel | null>();
+  private readonly heldText = new Map<number, number>();
   private visorUp: HeldModel | undefined;
   private visorDown: HeldModel | undefined;
   private visorGold: HeldModel | undefined;
@@ -226,6 +227,7 @@ export class PeopleRenderer {
     const slot = this.slotOfId.get(id);
     if (slot === undefined) return;
     this.slotOfId.delete(id);
+    this.heldText.delete(id);
     this.slotId[slot] = 0;
     this.lookRef[slot] = null;
     this.freeSlots.push(slot);
@@ -234,6 +236,7 @@ export class PeopleRenderer {
   /** Libère tous les emplacements (nouvelle session). */
   reset(): void {
     this.slotOfId.clear();
+    this.heldText.clear();
     this.freeSlots.length = 0;
     this.nextSlot = 1;
     this.slotId.fill(0);
@@ -242,6 +245,14 @@ export class PeopleRenderer {
     this.fpRig.reset();
     this.fpLookSlot = -1;
     this.lastClock = -1;
+  }
+
+  /** Texte de la pancarte / banderole d'une personne (null : slogan générique). */
+  setHeldText(personId: number, text: string | null): void {
+    if (text === null || text === '') this.heldText.delete(personId);
+    else this.heldText.set(personId, this.atlas.cellOf(text.toUpperCase()));
+    const slot = this.slotOfId.get(personId);
+    if (slot !== undefined) this.modelOf[slot] = -1;   // relu à la prochaine image
   }
 
   invalidate(personId?: number): void {
@@ -292,7 +303,10 @@ export class PeopleRenderer {
         const c = m.colors[h % m.colors.length];
         r = srgbToLinear(((c >> 16) & 255) / 255); g = srgbToLinear(((c >> 8) & 255) / 255); b = srgbToLinear((c & 255) / 255);
       }
-      if (m.text === 'slogan') cell = this.atlas.sloganBase + ((h >>> 8) % SLOGANS.length);
+      if (m.text === 'slogan') {
+        const custom = this.heldText.get(p.id);
+        cell = custom !== undefined && custom > 0 ? custom : this.atlas.sloganBase + ((h >>> 8) % SLOGANS.length);
+      }
       else if (m.text === 'unit') {
         const t = p.look.backText;
         cell = this.atlas.cellOf(t === 'CRS' || t === 'GENDARMERIE' || t === 'POLICE' ? t : 'POLICE');

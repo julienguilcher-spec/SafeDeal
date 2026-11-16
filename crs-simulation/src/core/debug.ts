@@ -68,7 +68,7 @@ export function installDebugApi(game: Game, target: object = globalThis): DebugA
       return ctx.session.config;
     },
     step(seconds: number): number {
-      if (!(seconds > 0)) return 0;
+      if (!(seconds > 0) || seconds === Infinity) return 0; // durée invalide ou infinie : rien
       const n = Math.max(1, Math.round(seconds * 30));
       const h = seconds / n;
       let steps = 0;
@@ -76,6 +76,11 @@ export function installDebugApi(game: Game, target: object = globalThis): DebugA
       return steps;
     },
     teleport(x: number, z: number): { x: number; y: number; z: number } {
+      if (!Number.isFinite(x) || !Number.isFinite(z)) {
+        console.warn(`[debug] teleport(${x}, ${z}) : coordonnées invalides, déplacement ignoré`);
+        const here = ctx.player.person();
+        return here ? { x: here.x, y: here.y, z: here.z } : { x: 0, y: 0, z: 0 };
+      }
       const y = ctx.world.heightAt(x, z);
       const p = ctx.player.person();
       if (p) {

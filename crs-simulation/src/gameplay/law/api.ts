@@ -6,15 +6,21 @@
  *                                 (avec verdicts), interpellations, contrôles, plaintes potentielles,
  *                                 score de régularité et résumé en français ;
  *   'law.config'    LawConfig    réglages modifiables (délais des sommations, portées, durées) ;
+ *   'law.advisor'   LawAdvisor   aide à la décision, sans effet : verdict qu'obtiendrait un emploi de
+ *                                 la force, riposte ouverte ou non en un point, délais restants, motif
+ *                                 de refus d'une sommation (IA des forces, interface du commandant) ;
  *   'law.handover'  LawHandover  points de regroupement où remettre les interpellés. Le module en
  *                                 publie un vide ; un module de mission peut y pousser des points
  *                                 ou le remplacer : ctx.provide('law.handover', { points }).
  *
  * Événements libres émis (ctx.events.onAny) :
- *   'law:sommation_refused'  { byId, code, reason }          sommation refusée (motif en français)
+ *   'law:sommation_refused'  { byId, code, reason }          sommation refusée (motif en français) ;
+ *                                                            code : 'non_habilite' | 'indisponible' | 'insigne' | 'delai'
+ *   'law:authorize_refused'  { byId, level, reason }         ordre d'autorisation refusé (auteur non gradé)
  *   'law:under_attack'       { active, x, z }                début / fin de la riposte directe
  *   'law:force_amended'      { report }                      verdict révisé après coup (impact à la tête…)
  *   'law:dispersion_ended'   { x, z, reason }                fin de la séquence de dispersion
+ *   'law:enclosed'           { enclosed, x, z }              la foule sommée n'a plus (ou a de nouveau) d'issue libre
  *   'law:arrest_failed'      { id, byId, outcome }           la personne s'est dégagée ('fuite' | 'rebellion')
  *   'law:search'             { id, byId, seized }            résultat d'une palpation
  *   'law:control'            { id, byId, justified, known }  contrôle d'identité terminé
@@ -22,10 +28,12 @@
  * ===================================================================================== */
 
 import type {
-  EntityId, ForceLevel, ForceMeans, ForceReport, ForceVerdictKind, ItemId, OffenseType, SommationStage,
+  EntityId, ForceLevel, ForceMeans, ForceReport, ForceVerdict, ForceVerdictKind, ItemId, OffenseType, Person,
+  SommationStage,
 } from '@/core/contracts';
 
 export const LAW_RECORDS_SERVICE = 'law.records';
+export const LAW_ADVISOR_SERVICE = 'law.advisor';
 export const LAW_CONFIG_SERVICE = 'law.config';
 export const LAW_HANDOVER_SERVICE = 'law.handover';
 
@@ -42,6 +50,36 @@ export interface HandoverPoint {
 
 export interface LawHandover {
   points: HandoverPoint[];
+}
+
+// ───────────────────────────── aide à la décision ─────────────────────────────
+
+/** Questions posées au droit avant d'agir. Aucune de ces fonctions ne modifie l'état ni n'écrit au journal. */
+export interface LawAdvisor {
+  /**
+   * Verdict qu'obtiendrait cet emploi de la force s'il était déclaré maintenant (mêmes arguments que
+   * LawApi.reportForce). L'objet retourné est réutilisé : le lire tout de suite, ne pas le conserver.
+   */
+  assess(by: Person, means: ForceMeans, target: Person | null, x: number, z: number): ForceVerdict;
+  /** Des violences récentes contre les forces ouvrent-elles la riposte directe autour de ce point ? */
+  riposteAt(x: number, z: number): boolean;
+  /** Niveau de force que cet agent est autorisé à employer (ordre général, ordre de son unité, riposte). */
+  authorizedFor(by: Person): ForceLevel;
+  /** Motif pour lequel cette personne ne peut pas prononcer maintenant la sommation suivante ('' si elle le peut). */
+  sommationRefusal(by: Person): string;
+  /** Secondes avant que l'étape suivante des sommations (ou la réitération) soit possible ; 0 si elle l'est. */
+  sommationWait(): number;
+  /** Secondes avant que la force, puis les armes, deviennent licites (0 : acquis ; Infinity : sommation ou réitération manquante). */
+  forceWait(): number;
+  armsWait(): number;
+  /** La dernière sommation a été réitérée. */
+  readonly reiterated: boolean;
+  /** La foule sommée est encerclée, sans issue libre. */
+  readonly enclosed: boolean;
+  /** Centre et rayon du compartiment de terrain couvert par les sommations en cours. */
+  readonly zoneX: number;
+  readonly zoneZ: number;
+  readonly zoneRadius: number;
 }
 
 // ───────────────────────────── réglages ─────────────────────────────
