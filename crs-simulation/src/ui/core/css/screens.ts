@@ -116,7 +116,16 @@ export const CSS_SCREENS = `
 .ui-pause { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   padding: calc(14px + var(--ui-safe-t)) calc(16px + var(--ui-safe-r)) calc(14px + var(--ui-safe-b)) calc(16px + var(--ui-safe-l)); }
 .ui-pause__inner { display: flex; align-items: stretch; justify-content: center; gap: 18px; max-width: 100%; max-height: 100%; animation: ui-rise .18s ease-out; }
-.ui-pause__menu { width: min(380px, 100%); max-height: 100%; padding: 22px 20px 18px; display: grid; gap: 14px; align-content: start; background: #0e1728; }
+.ui-pause__menu { width: min(380px, 100%); max-height: 100%; padding: 22px 20px 18px; display: grid; gap: 14px; align-content: start; overflow-y: auto; background: #0e1728; }
+/* téléphone en paysage : les six ou sept boutons de la pause tiennent à l'écran (« Quitter » sortait par le bas) */
+@media (max-height: 430px) {
+  .ui-pause__menu { padding: 8px 12px 8px; gap: 6px; }
+  .ui-pause__head { gap: 0; }
+  .ui-pause__head .ui-kicker, .ui-pause__head .ui-sub { display: none; }
+  .ui-pause__head .ui-title { font-size: 17px; }
+  .ui-pause__list { gap: 4px; }
+  .ui-pause__list .ui-btn { min-height: 44px; }
+}
 .ui-pause__head { display: grid; gap: 4px; }
 .ui-pause__list { display: grid; gap: 7px; }
 .ui-pause__list .ui-btn { justify-content: flex-start; padding: 0 16px; }

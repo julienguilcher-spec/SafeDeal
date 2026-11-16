@@ -99,7 +99,8 @@ export function createPause(env: UiEnv): (host: HTMLElement) => ScreenInstance {
       bt.dataset.id = 'pause-tactique';
       buttons.push(bt);
     }
-    buttons.push(bfs, b2, b3, b4, b5);
+    // (« Paramètres » juste sous « Reprendre » ; le plein écran ensuite)
+    buttons.push(b2, bfs, b3, b4, b5);
     list.append(...buttons);
     for (const b of buttons) b.classList.add('ui-btn--block');
     menu.append(list);

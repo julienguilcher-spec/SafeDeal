@@ -619,8 +619,12 @@ try {
     check((await focused()) === 'role-chef_groupe', `croix droite : carte suivante (focus : ${await focused()})`);
     await tap(A);
     check(/Brigadier-chef/.test(await text(page, '.ui-sum__role')), 'A valide : rôle « chef de groupe » choisi');
+    // (la carte du dessous dépend du nombre de colonnes de la grille : on vérifie la géométrie, pas un rôle précis)
+    const topOf = (id) => page.evaluate((i) => { const e = document.querySelector(`[data-id="${i}"]`); return e ? Math.round(e.getBoundingClientRect().top) : -1; }, id);
+    const chefTop = await topOf('role-chef_groupe');
     await tap(DOWN);
-    check((await focused()) === 'role-centaure' || (await focused()) === 'role-gendarme_centaure', `croix bas : carte du dessous (focus : ${await focused()})`);
+    const below = await focused();
+    check(/^role-/.test(below) && below !== 'role-chef_groupe' && (await topOf(below)) > chefTop, `croix bas : carte du dessous (focus : ${below})`);
     await shot(page, 'ui-manette-roles-1280x720');
     check(/Start Lancer/.test(await text(page, '.ui-sum__hint')) && /LBRB Sections/.test(await text(page, '.ui-sum__hint')), `aide de navigation à la manette affichée (« ${await text(page, '.ui-sum__hint')} »)`);
     await tap(B);
@@ -672,7 +676,9 @@ try {
     await tap(START);
     check((await stack(page)).join() === 'pause' && (await phase(page)) === 'paused', 'Start en jeu : pause');
     await tap(DOWN, 2);
-    check((await focused()) === 'pause-recommencer', `navigation dans le menu de pause (focus : ${await focused()})`);
+    // (deux crans vers le bas depuis « Reprendre » : le troisième bouton du menu, quel qu'il soit)
+    const third = await page.evaluate(() => [...document.querySelectorAll('.ui-pause__list .ui-btn')].map((e) => e.dataset.id)[2]);
+    check((await focused()) === third && third !== 'pause-reprendre', `navigation dans le menu de pause (focus : ${await focused()}, attendu : ${third})`);
     await tap(B);
     check((await stack(page)).length === 0 && (await phase(page)) === 'playing', 'B : reprise');
     await tap(RIGHT);
