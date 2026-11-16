@@ -209,7 +209,7 @@ export const PHRASES_MISE_EN_PLACE: readonly PhraseDef[] = [
   sig('signe_nebuleuse', {}, [
     'La nébuleuse de tête grossit, secteur {lieu}. Volume devant la banderole de tête : {nombre}.',
     'Précortège en augmentation, secteur {lieu}. Volume devant le carré de tête : {nombre}.',
-    'De plus en plus de monde devant la banderole de tête, secteur {lieu}. Volume : {nombre}.',
+    'De plus en plus de monde devant la banderole de tête, secteur {lieu}. Volume du précortège : {nombre}.',
   ]),
   sig('signe_visages_couverts', {}, [
     'Visages qui se couvrent, secteur {lieu}. Nombre de personnes masquées : {nombre}.',

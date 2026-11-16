@@ -83,7 +83,9 @@ export const AMBIENT_BY_PHASE: Readonly<Record<CrowdPhase, readonly AmbientTopic
 
 /** Thèmes de nature « tension » : écartés quand la tension globale est faible. */
 const HEATED = new Set(['ambiance_tension', 'ambiance_affrontement']);
-/** Thèmes de calme : écartés quand la tension est forte. */
+/** Tension au-delà de laquelle on n'annonce plus ni calme ni ambiance bon enfant. */
+export const CALM_MAX = 0.4;
+/** Thèmes de calme : écartés quand la tension dépasse CALM_MAX. */
 const CALM_ONLY = new Set(['ambiance_ras', 'ambiance_slogans', 'ambiance_apres']);
 /** Thèmes toujours vrais, quel que soit l'état du monde : repli quand aucun autre n'est confirmé. */
 const ALWAYS_TRUE: readonly AmbientTopic[] = [{ key: 'ambiance_heure', weight: 1 }, { key: 'ambiance_meteo', weight: 1 }];
@@ -94,7 +96,7 @@ export function ambientTopics(phase: CrowdPhase, tension: number): AmbientTopic[
   const out: AmbientTopic[] = [];
   for (const t of base) {
     if (HEATED.has(t.key) && tension < 0.2 && phase !== 'affrontement') continue;
-    if (CALM_ONLY.has(t.key) && tension > 0.6) continue;
+    if (CALM_ONLY.has(t.key) && tension > CALM_MAX) continue;
     // « vigilance » et « groupes mobiles » décrivent une agitation : ils n'ont pas de sens quand tout est calme
     if ((t.key === 'ambiance_vigilance' || t.key === 'ambiance_groupes_mobiles') && tension < 0.1) continue;
     out.push(t);

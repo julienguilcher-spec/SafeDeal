@@ -72,7 +72,7 @@ export const GATE_WIDTH = 5;
 
 /** Chaussée minimale pour stationner sans gêner un engin large roulant au pilote automatique (m). */
 export const PARK_MIN_ONEWAY = 7.6;
-export const PARK_MIN_TWOWAY = 14;
+export const PARK_MIN_TWOWAY = 16;
 /** Longueur d'une place en file (m) et marge aux carrefours et passages piétons (m). */
 export const PARK_SLOT = 5.6;
 export const PARK_CLEAR_JUNCTION = 9;

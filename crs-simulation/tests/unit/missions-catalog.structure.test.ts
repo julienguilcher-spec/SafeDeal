@@ -371,6 +371,18 @@ describe('catalogue de missions : réalisme, cadre légal et vocabulaire', () =>
   });
 });
 
+/*
+ * Critères du DÉROULÉ (phases, déclencheurs, messages) que le catalogue ne remplit pas encore : relevés à la relecture
+ * du 16 novembre 2026. À transformer en tests réels quand le déroulé des 129 missions aura été réécrit.
+ */
+describe('catalogue de missions : déroulé à réécrire (critères de recette)', () => {
+  it.todo('chaque texte de phase décrit la scène en deux phrases au moins, lieu compris (relevé : 479 phases sur 504 en une seule phrase, médiane de 39 caractères)');
+  it.todo('aucun titre de phase passe-partout n\'est repris plus de trois fois (relevé : « Fin » 14 fois, « Départ » 11, « Évacuation » 11, « Dispersion » 10)');
+  it.todo('dans chaque mission, une phase au moins se termine sur un objectif atteint (relevé : aucun déclencheur « objectif » ; 100 missions sur 129 suivent deux gabarits temps / tension / foule)');
+  it.todo('aucun message écrit d\'avance n\'annonce un résultat qui dépend du joueur (« feu éteint », « place dégagée », nombre d\'interpellés…)');
+  it.todo('chaque mission compte au moins six messages et trois aléas de phase (relevé : un message par phase dans 492 phases sur 504, aucun aléa dans 336)');
+});
+
 describe('catalogue de missions : missions miroirs', () => {
   const miroirs = MISSIONS.filter((m) => m.mirrorOf !== '');
 
@@ -448,6 +460,31 @@ describe('carrière et campagne', () => {
       if (m.chapter >= 0) expect(vues.get(m.id), `${m.id} absente des chapitres`).toBe(m.chapter);
       else expect(vues.has(m.id)).toBe(false);
     }
+  });
+
+  it('les textes de la carrière et de la campagne suivent la même typographie que les missions', () => {
+    const textesCarriere = [
+      ...CAREER_CHAPTERS.flatMap((c) => [c.title, c.description, c.requirement, ...c.unlocks]),
+      CAMPAIGN_SEMAINE.title, CAMPAIGN_SEMAINE.description,
+    ];
+    for (const t of textesCarriere) {
+      expect(t, 'espace ordinaire avant ponctuation haute').not.toMatch(/[^ ] [;:!?»]/);
+      expect(t, 'guillemet ouvrant sans espace insécable').not.toMatch(/« [^ ]|«[^ ]/);
+      expect(t, 'apostrophe droite').not.toMatch(/'/);
+    }
+  });
+
+  it('les déblocages de grade suivent la hiérarchie : on obtient à la fin d\'un chapitre le grade du suivant', () => {
+    const libelles: Record<string, string> = {
+      gardien: 'gardien de la paix', brigadier_chef: 'brigadier-chef', major: 'major', capitaine: 'capitaine', commandant: 'commandant',
+    };
+    for (let i = 1; i < 6; i++) {
+      const suivant = CAREER_CHAPTERS[i + 1].rank;
+      if (suivant === CAREER_CHAPTERS[i].rank) continue;
+      expect(CAREER_CHAPTERS[i].unlocks.join(' | '), `chapitre ${i}`).toContain(`Grade de ${libelles[suivant]}`);
+    }
+    // l'école mène au chapitre 1 sans changer de grade ; aucun texte ne parle plus de groupe de sept
+    for (const c of CAREER_CHAPTERS) expect(brut(c.title + ' ' + c.description)).not.toMatch(/sept\b|dix-huit|commissaire/i);
   });
 
   it('la montée en grade va du gardien stagiaire au commandant', () => {

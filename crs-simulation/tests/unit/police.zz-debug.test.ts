@@ -4,24 +4,26 @@ import { createSystems as people } from '@/sim/people';
 import { createSystems as items } from '@/sim/items';
 import { createSystems as hazards } from '@/sim/hazards';
 import { createSystems as law } from '@/gameplay/law';
+import { createSystems as vehicles } from '@/sim/vehicles';
 import { frontRank, spawnProtesters, startPolice } from '@/sim/police/testkit';
 import { agentOf, unitOf } from '@/sim/police/brain';
 
-const MODULES = [world, people, items, hazards, law];
+const MODULES = [world, people, items, hazards, law, vehicles];
+const NORTH = Math.PI;
 
 describe('debug', () => {
-  it('proteger', async () => {
-    const pt = await startPolice(MODULES, { mode: 'test', x: 0, z: 0 });
+  it('embarquer', async () => {
+    const pt = await startPolice(MODULES, { mode: 'test', x: 0, z: -100 });
     const { ctx } = pt;
-    const sec = pt.units.createSection({ x: -120, z: 5, heading: Math.PI / 2 });
-    const medic = ctx.people.spawn({ kind: 'samu', x: -100, z: 5 });
-    ctx.squads.issue(sec.squad.id, { type: 'proteger', targetId: medic.id, heading: Math.PI / 2 });
+    const sec = pt.units.createSection({ x: 0, z: -60, heading: NORTH, layout: 'ligne', vehicles: true });
+    console.log('vehicles', sec.vehicles.map((v) => `${v.id}:${v.kind}(${v.x.toFixed(1)},${v.z.toFixed(1)}) seats ${v.seats.join(',')}`).join(' | '));
+    ctx.squads.issue(sec.squad.id, { type: 'embarquer' });
     const u = unitOf(sec.squad)!;
-    pt.run(40, 2, (t) => {
-      const g = u.groups[0];
-      console.log(t, 'phase', u.phase, 'medic', medic.x.toFixed(2), medic.z.toFixed(2), 'frame', g.ax.toFixed(2), g.az.toFixed(2), g.ah.toFixed(2), 'moving', g.moving, 'r', g.radius, 'errAll', g.errAll.toFixed(2), 'follow', g.followId);
-      console.log(g.front.map((a) => `(${a.p.x.toFixed(1)},${a.p.z.toFixed(1)}→${a.sx.toFixed(1)},${a.sz.toFixed(1)} h${a.p.heading.toFixed(2)}/${a.sh.toFixed(2)})`).join(' '));
-      return u.phase === 'en_place';
+    pt.run(100, 5, (t) => {
+      console.log(t, 'phase', u.phase, 'step', u.man.step);
+      console.log(sec.people.map((p) => { const a = agentOf(p)!; return `${p.id}${p.poste![0]}:b${a.boardId}(${p.x.toFixed(1)},${p.z.toFixed(1)})${a.able ? '' : 'X'}${p.vehicleId ? 'V' + p.vehicleId : ''}${a.pathN ? 'P' + a.pathN : ''}`; }).join(' '));
+      return u.phase === 'embarque';
     });
+    console.log('vehicles', sec.vehicles.map((v) => `${v.id}:${v.kind}(${v.x.toFixed(1)},${v.z.toFixed(1)}) seats ${v.seats.join(',')}`).join(' | '));
   });
 });

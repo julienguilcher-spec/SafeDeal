@@ -148,15 +148,6 @@ export function chooseRoute(ctx: GameContext, config: SessionConfig, rng: Rng): 
     trimEnds(ctx, points);
     return { points, id, label, length: pathLength(points) };
   };
-  if (extra['crowd.static'] === true) {
-    const pts: number[] = [];
-    if (ctx.world.nearestRoad(sx, sz, sample, 80)) {
-      const hx = Math.sin(sample.heading);
-      const hz = Math.cos(sample.heading);
-      pts.push(sample.x - hx * 30, sample.z - hz * 30, sample.x + hx * 30, sample.z + hz * 30);
-    } else pts.push(sx - 30, sz, sx + 30, sz);
-    return { points: pts, id: 'statique', label: 'Rassemblement statique', length: pathLength(pts) };
-  }
   // 1. parcours imposé
   const imposed = extra['crowd.route'];
   if (Array.isArray(imposed) && imposed.length >= 2) {

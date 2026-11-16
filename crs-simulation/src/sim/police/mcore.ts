@@ -26,9 +26,26 @@ export function copyOrder(o: SquadOrder): SquadOrder {
 }
 
 export function setPhase(k: Kernel, u: Unit, phase: UnitPhase): void {
+  if (phase === 'mise_en_place') {
+    // délai de grâce de la mise en place : le temps de marche du plus éloigné, plus une marge
+    let far = 0;
+    const agents = u.agents;
+    for (let i = 0; i < agents.length; i++) {
+      const a = agents[i];
+      if (!a.hasSlot || !a.able) continue;
+      const d = (a.sx - a.p.x) * (a.sx - a.p.x) + (a.sz - a.p.z) * (a.sz - a.p.z);
+      if (d > far) far = d;
+    }
+    u.formDeadline = k.now + T.FORM_TIMEOUT + Math.sqrt(far) / 1.6;
+  }
   if (u.phase === phase) return;
   u.phase = phase;
   u.phaseT = k.now;
+}
+
+/** La mise en place a-t-elle assez duré pour être déclarée faite malgré un retardataire ? */
+export function formLate(k: Kernel, u: Unit): boolean {
+  return k.now > u.formDeadline;
 }
 
 export function setStep(k: Kernel, u: Unit, step: number): void {

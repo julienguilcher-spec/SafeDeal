@@ -571,12 +571,16 @@ export class Cars {
     }
     const p = this.rp;
     r.sample(cp.stopS, p);
+    // Le point d'arrêt est posé à 20 cm de l'axe : le pilote automatique y reconnaît « un point de la rue »
+    // et s'arrête sur sa voie de droite. Posé exactement sur l'axe, il serait confondu avec le point
+    // d'accroche de l'itinéraire (ctx.world.findPath fusionne les points à moins de 5 cm) et le pilote
+    // viendrait s'arrêter au milieu de la chaussée.
     const o = this.opts;
     o.urgence = false;
     o.speed = undefined;
     o.pushThrough = undefined;
     o.stopBefore = b.halfL + 0.6;
-    if (!ap.driveTo(v, p.x, p.z, o)) ap.stop(v);
+    if (!ap.driveTo(v, p.x - p.dz * AXIS_NUDGE, p.z + p.dx * AXIS_NUDGE, o)) ap.stop(v);
   }
 
   /** « Range-toi » : s'arrête au bord droit de la chaussée pour laisser passer une sirène. */
@@ -689,6 +693,9 @@ export class Cars {
     }
   }
 }
+
+/** Écart à l'axe d'un point d'arrêt (m) : assez pour ne pas être fusionné, assez peu pour rester « sur l'axe ». */
+const AXIS_NUDGE = 0.2;
 
 /** Parts de la déviation essayées comme point de passage, de la plus longue à la plus courte. */
 const FRACTIONS: readonly number[] = [1, 0.6, 0.3, 0.1];

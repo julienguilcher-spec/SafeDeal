@@ -381,7 +381,7 @@ function makeGroups(entries: PlanEntry[], rng: Rng): PlanGroup[] {
         size = 1 + rng.int(1, 3);
         kind = 'famille';
       } else if (profile === 'militant') {
-        size = rng.int(5, 11);
+        size = rng.int(3, 7);
         kind = 'section';
       } else if (profile === 'radical') {
         size = rng.int(4, 9);

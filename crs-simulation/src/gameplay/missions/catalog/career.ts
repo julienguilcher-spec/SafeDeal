@@ -26,6 +26,7 @@ import {
   CRS_01, CRS_02, CRS_03, CRS_04, CRS_05, CRS_06, CRS_07, CRS_08, CRS_09, CRS_10, CRS_11, CRS_12,
 } from './crs';
 import { DRONE } from './drone';
+import { typo } from './dsl';
 import { ECOLE } from './ecole';
 import { JOURNALISTE } from './journaliste';
 import { MANIFESTANT } from './manifestant';
@@ -37,7 +38,8 @@ import {
 
 const ids = (...ms: readonly MissionDef[]): string[] => ms.map((m) => m.id);
 
-export const CAREER_CHAPTERS: CareerChapter[] = [
+/** Chapitres tels qu'ils sont rédigés ; la typographie française est appliquée à l'export, comme pour les missions. */
+const CHAPITRES: CareerChapter[] = [
   {
     index: 0,
     title: 'L\'école',
@@ -194,6 +196,14 @@ export const CAREER_CHAPTERS: CareerChapter[] = [
   },
 ];
 
+export const CAREER_CHAPTERS: CareerChapter[] = CHAPITRES.map((c) => ({
+  ...c,
+  title: typo(c.title),
+  description: typo(c.description),
+  requirement: typo(c.requirement),
+  unlocks: c.unlocks.map(typo),
+}));
+
 /** Un acte de la campagne : jour, mission et ce qui se reporte à l'acte suivant. */
 export interface CampaignAct {
   act: number;
@@ -216,7 +226,7 @@ export interface Campaign {
 export const CAMPAIGN_SEMAINE: Campaign = {
   id: 'semaine-de-mobilisation',
   title: 'Semaine de mobilisation',
-  description: 'Six actes du commandant, de mardi à dimanche. La situation s\'aggrave d\'un jour à l\'autre : la fatigue des sections, les blessés, l\'image publique et la colère de la rue se reportent.',
+  description: typo('Six actes du commandant, de mardi à dimanche. La situation s\'aggrave d\'un jour à l\'autre : la fatigue des sections, les blessés, l\'image publique et la colère de la rue se reportent.'),
   acts: [
     { act: 1, day: 'Mardi', missionId: SEMAINE_1.id, carryOver: ['fatigue', 'image_publique'], tensionShift: 0 },
     { act: 2, day: 'Mercredi', missionId: SEMAINE_2.id, carryOver: ['fatigue', 'blesses', 'image_publique', 'colere_de_la_rue'], tensionShift: 0.05 },

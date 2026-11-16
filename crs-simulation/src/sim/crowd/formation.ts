@@ -208,7 +208,7 @@ export class Formation implements FormationView {
     let current = -1;
     const W = corridor.refWidth;
     this.halfUse = W * 0.5 * 1.1;
-    const cap = n + Math.ceil(n * 0.3) + 96;
+    const cap = n * 3 + 160;
     this.slotBlock = new Int16Array(cap);
     this.slotBack = new Float32Array(cap);
     this.slotLat = new Float32Array(cap);

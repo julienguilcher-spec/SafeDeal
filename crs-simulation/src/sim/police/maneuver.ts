@@ -18,7 +18,7 @@ import { F_BOX, F_COLUMN, F_HOLD, F_LINE, F_NONE, F_SCREEN, F_TORTUE } from './b
 import type { Kernel } from './kernel';
 import {
   allSettled, commonRunSpeed, copyOrder, done, filesFor, formBox, formColumn, formHold, formLine, formScreen, formTortue,
-  gather, hasFormation, inPlace, isAligned, leaderOf, mainGroup, moveTo, personById, react, reform, report, setPhase,
+  formLate, gather, hasFormation, inPlace, isAligned, leaderOf, mainGroup, moveTo, personById, react, reform, report, setPhase,
   setStep, stepColumn, stepFrame, stopGroup, unitCenter, vehicleById,
 } from './mcore';
 import { appendPath, measure, placeGroup, settleSlots } from './place';
@@ -476,7 +476,7 @@ export function progress(k: Kernel, u: Unit, dt: number): void {
     case 'tortue':
     case 'cesser':
     case 'proteger':
-      if (u.phase === 'mise_en_place' && (allSettled(u, T.IN_PLACE_TOLERANCE) || k.now - u.phaseT > T.FORM_TIMEOUT)) {
+      if (u.phase === 'mise_en_place' && (allSettled(u, T.IN_PLACE_TOLERANCE) || formLate(k, u))) {
         const body = type === 'tortue' ? 'Tortue formée, boucliers hauts'
           : type === 'cesser' ? 'Halte. Action interrompue, je tiens sur place'
             : type === 'proteger' ? 'Dispositif de protection en place'
@@ -516,7 +516,7 @@ export function progress(k: Kernel, u: Unit, dt: number): void {
       } else if (m.step === 1 && arrived) {
         setStep(k, u, 2);
         setPhase(k, u, 'mise_en_place');
-      } else if ((m.step === 2 || u.phase === 'mise_en_place') && (allSettled(u, T.IN_PLACE_TOLERANCE) || k.now - u.phaseT > T.FORM_TIMEOUT)) {
+      } else if ((m.step === 2 || u.phase === 'mise_en_place') && (allSettled(u, T.IN_PLACE_TOLERANCE) || formLate(k, u))) {
         setStep(k, u, 3);
         inPlace(k, u, type === 'repli' ? 'Repli effectué, en position face ' + cardinalFr(g.ah) : g.kind === F_LINE ? lineReport(u, g) : 'En position');
         done(k, u, type, true, '');
@@ -530,7 +530,7 @@ export function progress(k: Kernel, u: Unit, dt: number): void {
       break;
 
     case 'escorter':
-      if (u.phase === 'mise_en_place' && (allSettled(u, 0.6) || k.now - u.phaseT > T.FORM_TIMEOUT)) inPlace(k, u, 'Escorte en place');
+      if (u.phase === 'mise_en_place' && (allSettled(u, 0.6) || formLate(k, u))) inPlace(k, u, 'Escorte en place');
       break;
 
     case 'suivre':

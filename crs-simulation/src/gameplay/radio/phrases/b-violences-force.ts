@@ -218,7 +218,7 @@ export const PHRASES_VIOLENCES_FORCE: readonly PhraseDef[] = [
   ]),
   dro('force_apercu', { a: 'commandant', fin: 'termine', reponse: true }, [
     'APERÇU. Je collationne : emploi de la force autorisé, limite : {limite}.',
-    'REÇU et APERÇU. Je collationne : force autorisée dans la limite : {limite}.',
+    'REÇU et APERÇU. Force autorisée, limite collationnée : {limite}.',
     'APERÇU, autorisation bien reçue. Je collationne la limite : {limite}.',
   ]),
   dro('force_suspendue', { de: 'commandant', a: 'tous', prio: 2, fin: 'termine' }, [

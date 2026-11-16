@@ -331,7 +331,8 @@ export class CarThinker {
     for (let i = r.cpNext; i < r.cpCount; i++) {
       const cp = r.cps[i]!;
       const dStop = cp.stopS - front;
-      if (dStop > reach) break;
+      // hors de portée : on n'y pense pas encore (sauf si l'on est déjà tenu à cette ligne, dans la file)
+      if (dStop > reach && cp !== b.holdCp) break;
       const inside = front > cp.nodeS - cp.radius;
       if (cp.cleared) {
         if ((cp.kind & CP_BOX) !== 0) {

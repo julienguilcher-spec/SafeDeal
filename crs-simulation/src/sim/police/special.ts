@@ -24,7 +24,7 @@ import { F_NONE, agentOf, createGroup, unitOf } from './brain';
 import { buildLine, probe, probeStreet } from './formation';
 import type { Kernel } from './kernel';
 import {
-  adopt, allSettled, clearSlots, done, formHold, formLine, gather, inPlace, leaderOf, mainGroup, moveTo, report, setPhase,
+  adopt, allSettled, clearSlots, done, formHold, formLate, formLine, gather, inPlace, leaderOf, mainGroup, moveTo, report, setPhase,
   setStep, unitCenter,
 } from './mcore';
 import { placeGroup, settleSlots } from './place';
@@ -514,7 +514,7 @@ export function progressRelief(k: Kernel, u: Unit, arrived: boolean): void {
       }
       break;
     case 3:
-      if (u.phase === 'mise_en_place' && (allSettled(u, T.IN_PLACE_TOLERANCE) || k.now - u.phaseT > T.FORM_TIMEOUT)) {
+      if (u.phase === 'mise_en_place' && (allSettled(u, T.IN_PLACE_TOLERANCE) || formLate(k, u))) {
         const target = unitOf(k.ctx.squads.get(m.otherId));
         if (target) target.needsRelief = false;
         inPlace(k, u, 'Relève effectuée, je tiens la position face ' + cardinalFr(g.ah));
@@ -545,7 +545,7 @@ export function startBarrage(k: Kernel, u: Unit, o: SquadOrder): void {
 
 export function progressBarrage(k: Kernel, u: Unit): void {
   if (u.phase !== 'mise_en_place') return;
-  if (!(allSettled(u, T.IN_PLACE_TOLERANCE) || k.now - u.phaseT > T.FORM_TIMEOUT)) return;
+  if (!(allSettled(u, T.IN_PLACE_TOLERANCE) || formLate(k, u))) return;
   const ctx = k.ctx;
   const g = u.groups[0];
   const m = u.man;
@@ -661,8 +661,8 @@ export function startDisembark(k: Kernel, u: Unit, o: SquadOrder): void {
   const leader = leaderOf(k, u);
   const fx = Math.sin(o.heading);
   const fz = Math.cos(o.heading);
-  // le chef est à bord : la ligne se forme une douzaine de mètres devant les véhicules
-  const ahead = leader && leader.vehicleId !== 0 ? 12 : 0;
+  // ordre donné sans point (celui du chef, encore à bord) : la ligne se forme une douzaine de mètres devant les véhicules
+  const ahead = leader && leader.vehicleId !== 0 && (o.x - leader.x) * (o.x - leader.x) + (o.z - leader.z) * (o.z - leader.z) < 64 ? 12 : 0;
   m.gx = o.x + fx * ahead;
   m.gz = o.z + fz * ahead;
   m.gh = o.heading;
@@ -721,7 +721,7 @@ export function progressBoarding(k: Kernel, u: Unit): void {
     setStep(k, u, 1);
     setPhase(k, u, 'mise_en_place');
   } else if (m.step === 1 && u.phase === 'mise_en_place') {
-    if (allSettled(u, T.IN_PLACE_TOLERANCE) || k.now - u.phaseT > T.FORM_TIMEOUT) {
+    if (allSettled(u, T.IN_PLACE_TOLERANCE) || formLate(k, u)) {
       const g = mainGroup(u);
       inPlace(k, u, 'Débarqué, en ligne face ' + cardinalFr(g.ah) + ', ' + spell(u.formed) + ' à pied');
       done(k, u, 'debarquer', true, '');
