@@ -316,7 +316,6 @@ function updateArrest(k: Kernel, op: Op): void {
           op.stage = 0;
           op.stageT = now;
           op.nextAt = now + 2.2;
-          op.count = op.count;
         } else {
           finish(k, op, false, 'L’individu s’est dégagé et a pris la fuite.');
         }
@@ -1100,13 +1099,13 @@ export function startTask(k: Kernel, owner: Unit, o: SquadOrder): string {
   }
   if (type === 'ravitailler') {
     owner.man.targetId = o.targetId;
-    return resupplyNext(k, owner, true) ? '' : 'Rien à compléter, ou aucune réserve à portée.';
+    return resupplyNext(k, owner) ? '' : 'Rien à compléter, ou aucune réserve à portée.';
   }
   return 'Ordre inconnu.';
 }
 
 /** Envoie au ravitaillement les agents à qui il manque quelque chose, quelques-uns à la fois. Retourne false s'il n'y a plus rien à faire. */
-export function resupplyNext(k: Kernel, owner: Unit, first: boolean): boolean {
+export function resupplyNext(k: Kernel, owner: Unit): boolean {
   const root = owner.lead;
   let running = 0;
   for (let i = 0; i < root.ops.length; i++) if (root.ops[i].kind === OP_RESUPPLY && root.ops[i].owner === owner && !root.ops[i].done) running++;
@@ -1130,7 +1129,7 @@ export function resupplyNext(k: Kernel, owner: Unit, first: boolean): boolean {
     createResupply(k, root, owner, a, v);
     started++;
   }
-  return running + started > 0 || (first && false);
+  return running + started > 0;
 }
 
 // ───────────────────────────── boucle ─────────────────────────────
