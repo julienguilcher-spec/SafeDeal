@@ -53,3 +53,11 @@ Points à reprendre lors de l'assemblage, parce qu'ils ont été décidés aprè
 - Moral : bonus aux unités proches du commandant à pied.
 - Mode « salle de commandement » : `GameMode` ou `config.extra.poste = 'salle'` ; pas de personnage incarné, caméra drone /
   carte ; sommations déléguées à un officier IA sur ordre. À proposer sur la page d'accueil.
+
+## Circulation (précision du 16/11, après le lancement du module de trafic)
+- Aucun véhicule civil dans la manifestation : le module `sim/traffic` doit fermer d'office le lieu de rassemblement et
+  tout le couloir du parcours (`ctx.director.route` + marge ~60 m) dès `session:started`, n'y faire apparaître ni rouler
+  aucun véhicule civil, et y retirer le stationnement. Vérifier aussi : arrêt et demi-tour à ≥ 40 m de toute foule dense ;
+  jamais d'entrée dans une foule ; plus d'incident « automobiliste pris dans le cortège ».
+- Les fermetures du joueur servent au périmètre (rues adjacentes, accès, itinéraires de secours).
+- Véhicules en stationnement conservés dans les rues adjacentes.

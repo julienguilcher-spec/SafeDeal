@@ -74,12 +74,21 @@ meilleur que les jeux « CRS simulation » existants. En priorité : **les manif
   L'affluence dépend de la taille de la manifestation et de l'heure. Comme en vrai, le commandement peut demander la
   **fermeture de stations** (ce qui tarit l'arrivée par cet endroit et déplace le flux vers les stations voisines), et des
   unités peuvent filtrer ou contrôler une sortie.
-- **Couper la circulation** (demande explicite du commanditaire) : le joueur gradé (et l'IA du commandement) peut
-  **fermer une rue, un carrefour, un pont ou tout un périmètre** à la circulation, depuis la carte tactique ou sur place :
-  barrières et véhicules de police en travers, agents postés qui font faire demi-tour, déviation. Le trafic réagit pour de
-  vrai : les voitures ralentissent, sont déviées par un autre itinéraire, font demi-tour, klaxonnent, des bouchons se
-  forment en amont ; bus et taxis compris. Une rue non coupée où arrive un cortège met des automobilistes en danger
-  (véhicules bloqués, pris à partie, incendiés) : couper à temps fait partie du travail. On peut rouvrir.
+- **Circulation : jamais de voitures dans la manifestation** (précision du commanditaire). Une manifestation, c'est
+  uniquement de la foule : le lieu de rassemblement et tout le parcours déclaré sont **fermés à la circulation dès le
+  départ**, automatiquement, comme le fait la préfecture. Aucun véhicule civil ne roule dans le cortège ni ne s'y
+  retrouve pris. Le trafic vit **autour** : il circule dans les rues voisines, s'arrête aux barrages, est dévié, fait
+  demi-tour, forme des bouchons en amont.
+  - **Couper la circulation** sert donc à tenir le périmètre et à **barrer les accès** : fermer une rue, un carrefour, un
+    pont ou toute une zone (barrières, véhicules de police en travers, agents postés) pour empêcher l'arrivée de groupes
+    par une rue adjacente, isoler un secteur, protéger un site, ou garder un itinéraire libre pour les secours. Cela se
+    fait depuis la carte tactique ou sur place, et on peut rouvrir.
+  - Si un groupe quitte le parcours (« manifestation sauvage ») vers des rues encore ouvertes, les conducteurs
+    s'arrêtent bien avant, font demi-tour ou se garent : ils n'entrent **jamais** dans une foule. Étendre les fermetures
+    à temps évite ces situations et fait partie du travail.
+  - Les **véhicules en stationnement** restent présents dans les rues adjacentes (ce sont eux que les émeutiers
+    incendient ou retournent) ; le stationnement est dégagé sur le parcours lui-même.
+  - Seuls roulent dans la zone : les véhicules de police, le camion sono du cortège, et les secours appelés.
 - **Barricades et feux de rue réalistes** (demande explicite du commanditaire) : les émeutiers construisent des barrages
   avec ce qu'ils trouvent — poubelles et conteneurs renversés puis enflammés, barrières de chantier, palettes, mobilier de
   terrasse, **vélos et trottinettes en libre-service**, scooters — et y mettent le feu. Chaque matériau brûle à sa façon :

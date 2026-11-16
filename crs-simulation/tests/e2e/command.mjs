@@ -306,6 +306,28 @@ async function bureau() {
   check(I.groups[1].every((g) => boxed.includes(g)), `cadre : les trois groupes de la section 2 sont sélectionnés (${boxed})`);
   check(await page.evaluate(() => window.__cmd.tactical().state.tool === 'main'), 'après le cadre, l\'outil revient à la main');
 
+  // ── bouton « Tout », sélection multiple à la liste, couches de la carte ──
+  await click(page, 'tac-all');
+  await settle(page, 200);
+  const allSel = await selection(page);
+  check(I.sections.every((id) => allSel.includes(id)) && allSel.includes(I.neptune) && !allSel.includes(I.groups[0][0]), `« Tout » : sections et moyens spéciaux, sans doublon avec leurs groupes (${allSel.length} unités)`);
+  await page.evaluate(() => window.__cmd.tactical().state.clearSelection());
+  await click(page, 'tac-multi');
+  await click(page, 'unit-' + I.groups[0][0]);
+  await click(page, 'unit-' + I.groups[0][1]);
+  await settle(page, 200);
+  check((await selection(page)).length === 2, 'sélection multiple : chaque clic dans la liste ajoute une unité');
+  await click(page, 'tac-multi');
+  await click(page, 'tac-layers');
+  await click(page, 'layer-crowd');
+  check(await page.evaluate(() => window.__cmd.tactical().map.overlay.layers.crowd === false), 'couches : la foule peut être masquée');
+  await click(page, 'layer-crowd');
+  await page.keyboard.press('Escape');
+  await settle(page, 200);
+  check(await page.evaluate(() => !document.querySelector('.ct-layers').classList.contains('is-on')) && (await stack(page)).includes('carte_tactique'), 'Échap referme le choix des couches sans fermer la carte');
+  await page.evaluate((keys) => window.__cmd.tactical().state.setSelection(keys), I.groups[1]);
+  await settle(page, 200);
+
   // ── niveau de force : ordre refusé au-dessus du niveau autorisé, puis autorisé ──
   await click(page, 'verb-charge');
   await settle(page, 200);
