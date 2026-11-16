@@ -8,6 +8,7 @@
  * Sur écran bas (téléphone), les onglets passent en bandeau horizontal et le résumé se resserre.
  * ===================================================================================== */
 
+import { embedded, fullscreenAvailable, openStandalone, toggleFullscreen } from '../core/fullscreen';
 import type { InputState, PlaceInfo, SessionConfig } from '@/core/contracts';
 import { createRng } from '@/core/rng';
 import type { ScreenInstance } from '@/core/extensions';
@@ -155,6 +156,9 @@ export function createHome(env: UiEnv): (host: HTMLElement, data: unknown) => Sc
     if (env.kit.hasScreen('missions')) navButton('Missions', 'list', 'missions');
     if (env.kit.hasScreen('personnalisation')) navButton('Personnalisation', 'edit', 'personnalisation');
     if (env.kit.hasScreen('garage')) navButton('Garage', 'car', 'garage');
+    const fs = widgets.button('Plein écran', () => { void goFullscreen(ctx); }, 'ghost', 'fullscreen');
+    fs.dataset.id = 'nav-plein-ecran';
+    nav.append(fs);
     navButton('Paramètres', 'gear', 'parametres');
     navButton('Crédits', 'info', 'credits');
     top.append(brand, nav);
@@ -426,4 +430,14 @@ export function createHome(env: UiEnv): (host: HTMLElement, data: unknown) => Sc
       },
     };
   };
+}
+
+/** Plein écran ; si l'hôte l'interdit (page intégrée), ouvre le jeu dans un onglet à part. */
+async function goFullscreen(ctx: import('@/core/contracts').GameContext): Promise<void> {
+  if (fullscreenAvailable() && (await toggleFullscreen())) return;
+  if (embedded() && openStandalone()) {
+    ctx.ui.notify('Le jeu s’ouvre dans un nouvel onglet : appuyez de nouveau sur « Plein écran » (ou F11).', 'info', 7);
+    return;
+  }
+  ctx.ui.notify('Plein écran indisponible ici : utilisez F11 (PC) ou « Ajouter à l’écran d’accueil » (téléphone).', 'warn', 7);
 }

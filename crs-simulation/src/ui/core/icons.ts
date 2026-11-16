@@ -21,6 +21,7 @@ const STAR = 'M12 3.500l2.500 5.200 5.700.700-4.200 4 1 5.700L12 16.400l-5 2.700
 export const ICONS = {
   // ── interface générale ──
   play: `<path d="M7.500 4.500v15l12-7.500z"${DOT}/>`,
+  fullscreen: '<path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/>',
   dice: `<rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="8.500" cy="8.500" r="1.250"${DOT}/><circle cx="15.500" cy="8.500" r="1.250"${DOT}/><circle cx="12" cy="12" r="1.250"${DOT}/><circle cx="8.500" cy="15.500" r="1.250"${DOT}/><circle cx="15.500" cy="15.500" r="1.250"${DOT}/>`,
   save: '<path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7V4M8 20v-6h8v6"/>',
   trash: '<path d="M4.500 7h15M9.500 7V4.500h5V7M6.500 7l1 13h9l1-13M10 10.500v6M14 10.500v6"/>',

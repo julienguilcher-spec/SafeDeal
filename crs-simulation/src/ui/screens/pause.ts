@@ -3,6 +3,7 @@
  * À droite : objectifs en cours et rappel des commandes du périphérique utilisé.
  * ===================================================================================== */
 
+import { toggleFullscreen } from '../core/fullscreen';
 import type { Button } from '@/core/contracts';
 import type { ScreenInstance } from '@/core/extensions';
 import type { InputLabelsApi, InputPointerApi } from '@/input/api';
@@ -47,6 +48,10 @@ export function createPause(env: UiEnv): (host: HTMLElement) => ScreenInstance {
     b1.setAttribute('data-autofocus', '');
     const b2 = widgets.button('Paramètres', () => ctx.ui.open('parametres'), 'secondary', 'gear');
     b2.dataset.id = 'pause-parametres';
+    const bfs = widgets.button('Plein écran', () => {
+      void toggleFullscreen().then((ok) => { if (!ok) ctx.ui.notify('Plein écran indisponible ici : F11 sur PC, ou ouvrez le jeu dans un onglet à part depuis l’accueil.', 'warn', 6); });
+    }, 'secondary', 'fullscreen');
+    bfs.dataset.id = 'pause-plein-ecran';
     const b3 = widgets.button('Recommencer', () => {
       widgets.confirm(host, {
         title: 'Recommencer la partie ?',
@@ -93,7 +98,7 @@ export function createPause(env: UiEnv): (host: HTMLElement) => ScreenInstance {
       bt.dataset.id = 'pause-tactique';
       buttons.push(bt);
     }
-    buttons.push(b2, b3, b4, b5);
+    buttons.push(bfs, b2, b3, b4, b5);
     list.append(...buttons);
     for (const b of buttons) b.classList.add('ui-btn--block');
     menu.append(list);

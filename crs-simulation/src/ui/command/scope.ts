@@ -80,7 +80,7 @@ export function computeScope(ctx: GameContext): CommandScope {
       canTraffic: true, canMetro: true, canDelegate: true,
       label: `${roleLabel(role === 'commissaire' ? 'commissaire' : 'commandant')} — tout le dispositif` +
         (ctx.session.config?.extra?.['variante'] === 'salle' ? ' · salle de commandement'
-          : commanderOffPost(ctx) ? ' · à pied : comptes rendus radio seulement (carte complète au véhicule de commandement)' : ' · véhicule de commandement'),
+          : commanderOffPost(ctx) ? ' · à pied (carte partielle)' : ' · au poste de commandement'),
     };
   }
 
