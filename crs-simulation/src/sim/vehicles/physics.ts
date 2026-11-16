@@ -480,12 +480,3 @@ export class GroundPhysics {
     }
   }
 }
-
-/** Remet à zéro les vitesses d'un véhicule (pose, téléportation). */
-export function haltVehicle(v: Vehicle): void {
-  v.vx = 0;
-  v.vz = 0;
-  v.vy = 0;
-  v.speed = 0;
-  v.yawRate = 0;
-}

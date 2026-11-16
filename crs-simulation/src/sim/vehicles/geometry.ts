@@ -133,11 +133,3 @@ export function obbVsObb(
   out.depth = best;
   return true;
 }
-
-/** Carré de la distance entre deux boîtes orientées approchées par leurs cercles englobants réduits (rapide). */
-export function boundsOverlap(ax: number, az: number, ar: number, bx: number, bz: number, br: number): boolean {
-  const dx = ax - bx;
-  const dz = az - bz;
-  const r = ar + br;
-  return dx * dx + dz * dz < r * r;
-}

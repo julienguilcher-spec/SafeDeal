@@ -54,7 +54,8 @@ if (!only || only === 'ambiances') {
   check(noon.stats.rainStreaks === 0, 'pas de pluie par temps clair');
   await view('02-midi-clair-sud', { ...STREET, t: 13.8, meteo: 'clair', yaw: 178, pos: [-3, 1.9, -50], pitch: 14 });
   await view('03-nuageux', { ...STREET, t: 15.5, meteo: 'nuageux' });
-  await view('04-fin-apres-midi-doree', { ...STREET, t: 20.3, meteo: 'nuageux', yaw: 176, pos: [1.5, 1.9, -62], pitch: 7 });
+  // soleil bas dans le dos, à l'entrée de la rue : les pignons prennent la lumière dorée
+  await view('04-fin-apres-midi-doree', { ...STREET, t: 20.3, meteo: 'nuageux', yaw: 180, pos: [0, 1.9, -305], pitch: 7 });
   const sunset = await view('05-coucher-de-soleil', { ...STREET, t: 20.8, meteo: 'nuageux', pitch: 7 });
   check(sunset.stats.sunElev > 0 && sunset.stats.sunElev < 5, 'soleil rasant attendu au coucher');
   await view('06-coucher-clair', { ...STREET, t: 20.95, meteo: 'clair', pitch: 7 });
@@ -142,6 +143,18 @@ if (!only || only === 'qualite') {
   const highRain = await view('52-qualite-ultra-pluie', { ...base, quality: 'ultra', meteo: 'averse' }, 6);
   check(lowRain.stats.rainStreaks < highRain.stats.rainStreaks / 4, 'bien moins de traits de pluie en qualité basse');
   await page.evaluate(() => window.__render.apply({ quality: 'haut' }));
+  // téléphone en paysage (844 × 390 points, densité 3) en qualité basse
+  const phone = await openPage(server.url + 'harness/render.html?q=bas&scale=0.7&hud=0&t=17.5&meteo=nuageux&cam=tps&pitch=-6&feu=1&gyro=1', { width: 844, height: 390, deviceScaleFactor: 3, mobile: true });
+  await waitFor(phone.page, 'window.__ready === true');
+  await phone.page.evaluate(() => window.__render.settle(4));
+  await phone.page.screenshot({ path: path.join(OUT, 'render-53-telephone-bas.png') });
+  const ps = await phone.page.evaluate(() => window.__render.stats());
+  console.log(`  53-telephone-bas       ${ps.drawCalls} appels  tampon ${ps.width}×${ps.height} (densité ${ps.pixelRatio.toFixed(2)})  prép. ${ps.prepareMs.toFixed(2)} ms`);
+  check(ps.quality === 'bas' && ps.shadows === false, 'téléphone : qualité basse sans ombre');
+  check(ps.width * ps.height < 420000, `téléphone : tampon de rendu trop grand (${ps.width}×${ps.height})`);
+  check(ps.pixelRatio <= 1.06, 'téléphone : densité de pixels plafonnée');
+  errors.push(...phone.errors);
+  await phone.browser.close();
 }
 
 if (!only || only === 'moteur') {

@@ -55,7 +55,6 @@ export class WaterJet {
   private count = 0;
   /** Ce qui arrête le jet : 0 dispersion en l'air, 1 sol, 2 décor, 3 véhicule, 4 objet. */
   private stop = 0;
-  private stopId: EntityId = 0;
   private readonly hit: RayHit = makeRayHit();
   private readonly people: Person[] = [];
   private readonly struck: Person[] = [];
@@ -92,7 +91,6 @@ export class WaterJet {
     this.pg[n] = world.heightAt(x, z);
     n++;
     this.stop = 0;
-    this.stopId = 0;
     const clear = rt.radius + 0.4;
     while (n < MAX_SAMPLES) {
       let nx = x + dirX * vh * dts;
@@ -101,7 +99,6 @@ export class WaterJet {
       vy -= GRAVITY * dts;
       let ground = world.heightAt(nx, nz);
       let stop = 0;
-      let stopId: EntityId = 0;
       let bestT = 2;
       if ((y < ny ? y : ny) - ground < 30) {
         if (world.raycast(x, z, nx, nz, hit) && hit.hit) {
@@ -120,7 +117,6 @@ export class WaterJet {
           if (other && yAt < other.y + other.def.height) {
             bestT = hit.t;
             stop = 3;
-            stopId = hit.id;
           }
         }
         if (ctx.props.raycast(x, z, nx, nz, hit, 'move') && hit.hit && hit.t < bestT) {
@@ -128,7 +124,6 @@ export class WaterJet {
           if (yAt < world.heightAt(hit.x, hit.z) + hit.height) {
             bestT = hit.t;
             stop = 4;
-            stopId = hit.id;
           }
         }
       }
@@ -159,7 +154,6 @@ export class WaterJet {
       z = nz;
       if (stop !== 0) {
         this.stop = stop;
-        this.stopId = stopId;
         break;
       }
       const hx = x - x0;

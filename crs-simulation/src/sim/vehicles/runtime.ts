@@ -266,8 +266,6 @@ export class VehicleKernel {
   readonly removals: EntityId[] = [];
   /** Dégâts de choc, déjà pondérés par la robustesse (posé par le système : évite les dépendances croisées). */
   hurtVehicle: (v: Vehicle, amount: number, kind: DamageKind, sourceId: EntityId, x: number, z: number) => void = () => {};
-  /** Fait descendre une personne (posé par le système). */
-  exitPerson: (p: Person) => boolean = () => false;
 
   /** Fiche du véhicule (créée au besoin : véhicule apparu sans événement). */
   rt(v: Vehicle): VehicleRt {

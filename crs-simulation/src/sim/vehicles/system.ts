@@ -63,7 +63,6 @@ export class VehiclesSystem implements GameSystem {
     k.store.registerDefs(createVehicleDefs());
     k.rng = ctx.rng.fork('vehicules');
     k.hurtVehicle = (v, amount, kind, sourceId): void => this.damage.apply(k.rt(v), amount, kind, sourceId, true);
-    k.exitPerson = (p): boolean => this.seats.exit(p);
     ctx.vehicles = this.api;
     ctx.provide(AUTOPILOT_SERVICE, this.autopilot);
     ctx.provide(VEHICLES_EXT_SERVICE, this.ext);
@@ -327,10 +326,3 @@ export class VehiclesSystem implements GameSystem {
     };
   }
 }
-
-/** Accès au système depuis ses propres tests (jamais depuis un autre module). */
-export function createVehiclesSystem(): VehiclesSystem {
-  return new VehiclesSystem();
-}
-
-export type { VehicleRt };

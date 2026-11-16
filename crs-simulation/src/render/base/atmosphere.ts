@@ -133,16 +133,16 @@ const SUN_COLOR = new Float32Array([
   1, 0.28, 0.07,
   1, 0.32, 0.09,
   1, 0.4, 0.14,
-  1, 0.52, 0.22,
-  1, 0.65, 0.36,
-  1, 0.8, 0.58,
+  1, 0.5, 0.2,
+  1, 0.6, 0.3,
+  1, 0.78, 0.54,
   1, 0.92, 0.8,
   1, 0.96, 0.9,
 ]);
 
 /** Intensité de la lumière directe du soleil selon sa hauteur (degrés → unités Three.js). */
 const SUN_INTENSITY_KEYS = new Float32Array([-3, -1, 0, 3, 7, 15, 30, 60]);
-const SUN_INTENSITY = new Float32Array([0, 0.14, 0.5, 1.45, 2.15, 2.7, 3.0, 3.2]);
+const SUN_INTENSITY = new Float32Array([0, 0.14, 0.55, 1.6, 2.35, 2.75, 3.0, 3.2]);
 
 const tmpA = new Float32Array(3);
 const tmpB = new Float32Array(3);
@@ -312,6 +312,8 @@ export function computeAtmosphere(inp: AtmosphereInput, out: Atmosphere): Atmosp
   // niveau : le ciel couvert devient la source principale ; la pluie et l'orage l'assombrissent
   let level = lerp(0.14, 0.95, dayAmb) * (1 + 0.7 * cover * dayAmb) * (1 - 0.55 * thick * dayAmb);
   level *= 1 - 0.12 * fog;
+  // soleil bas par ciel dégagé : le ciel éclaire moins, la lumière dorée du soleil domine
+  level *= 1 - 0.28 * smoothstep(-1, 3, elev) * smoothstep(16, 6, elev) * (1 - cover);
   // teinte : moyenne du ciel, ramenée à la luminance voulue
   const hs = out.hemiSky;
   hs[0] = out.zenith[0]! * 0.5 + out.horizon[0]! * 0.5;
