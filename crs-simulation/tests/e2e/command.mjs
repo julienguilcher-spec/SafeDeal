@@ -717,7 +717,7 @@ async function plan() {
     await page.evaluate(() => {
       const b = window.__cmd; let n = 0;
       const orig = b.ctx.ui.close.bind(b.ctx.ui);
-      b.ctx.ui.close = (id) => { console.log('DBG ui.close', id, new Error().stack.split('\n').slice(2, 5).join(' | ')); orig(id); };
+      b.ctx.ui.close = (id) => { console.log('DBG ui.close', id, new Error().stack.split('\n').slice(2, 9).map((l) => l.replace(/http:.*src\//, '')).join(' | ')); orig(id); };
       const f = () => {
         const inp = b.ctx.input;
         const st = b.ui.stack();
