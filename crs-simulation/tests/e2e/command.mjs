@@ -1138,7 +1138,11 @@ async function tactile() {
     const nasse = await page.evaluate(() => {
       const r = document.querySelector('.ct-quick .cw-svg').getBoundingClientRect();
       const cx = r.left + r.width / 2, cy = r.top + r.height / 2, k = r.width / 320;
-      const a = (3 * (Math.PI * 2 / 8)) - Math.PI / 2; // quatrième secteur : « Nasse »
+      // secteur « Nasse » : retrouvé par son libellé (le nombre de secteurs change quand on ajoute un ordre rapide)
+      const labels = [...document.querySelectorAll('.ct-quick .cw-label')].map((e) => e.textContent || '');
+      const n = document.querySelectorAll('.ct-quick .cw-wedge').length;
+      const i = labels.findIndex((t) => /Nasse/i.test(t));
+      const a = (i * (Math.PI * 2 / n)) - Math.PI / 2;
       return { x: cx + Math.cos(a) * 106 * k, y: cy + Math.sin(a) * 106 * k };
     });
     await page.touchscreen.tap(nasse.x, nasse.y);

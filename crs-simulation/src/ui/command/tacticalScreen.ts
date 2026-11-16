@@ -290,6 +290,12 @@ export class TacticalScreen implements ScreenInstance {
     // l'écran) ; à la manette, B ferme toujours la carte (LB / RB passent d'une zone à l'autre)
     const backToMap = (e: Event): void => {
       if (this.quick || ctx.input.device !== 'kbm') return;
+      // un ordre en préparation, une fenêtre ou un outil ouvert : Échap les annule d'abord (back(), non intercepté) ;
+      // le focus revient à la carte, si bien que l'Échap suivant ferme l'écran
+      if (this.state.mode.kind !== 'idle' || this.state.tool === 'box' || this.pop.active || this.layersBox.classList.contains('is-on')) {
+        this.focusMap();
+        return;
+      }
       e.preventDefault();
       this.focusMap();
     };
