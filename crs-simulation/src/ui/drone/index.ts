@@ -14,7 +14,11 @@
  *   - détection (activée par défaut) : un repère sur chaque manifestant dans le champ, posé à chaque nouvelle image
  *     avec la pose de caméra qui l'a produite — à 60 m une personne ne fait qu'un ou deux pixels ;
  *   - ouverture : bouton « Drone » des actions rapides, bouton « Vue drone » de la carte tactique, sélection de
- *     l'équipe drone sur la carte tactique, touche O ; fermeture : bouton ✕ ou touche O.
+ *     l'équipe drone sur la carte tactique, touche O ; fermeture : bouton ✕ ou touche O ;
+ *   - sans souris : Maj + O passe de la petite fenêtre à l'agrandie puis au plein écran, Alt + O change le zoom
+ *     optique (×1, ×2, ×4, ×8 : le champ se resserre, l'image garde sa définition) ;
+ *   - netteté : le canevas a la définition de l'écran (taille CSS × devicePixelRatio, plafonnée par un budget de
+ *     pixels qui baisse avec la cadence quand l'image principale ralentit).
  * Le placement de l'appareil reste l'affaire du commandement (src/sim/police/command/drone.ts : au-dessus du point
  * chaud, de la tête du cortège ou du point ordonné) : ce module ne pilote rien, il oriente la caméra.
  * Sans WebGL, sans DOM (tests Node) : le service répond, rien n'est affiché.
@@ -32,9 +36,10 @@ import { isPoliceRole } from '../maps/visibility';
 import { DRONE_FEED_SERVICE } from './api';
 import type { DroneFeedApi } from './api';
 import {
-  chooseDrone, compactScreen, createPose, crowdLabel, cycleDrone, damp, dampAngle, densestSpot, dronePose, feedDroneIds, feedSize, videoClock,
+  GIMBAL_DROP, chooseDrone, compactScreen, createPose, crowdLabel, cycleDrone, damp, dampAngle, densestSpot, dronePose, feedBudget, feedBufferSize,
+  feedDroneIds, feedSize, feedSlowLevel, nextFeedMode, nextZoom, videoClock, zoomFov,
 } from './logic';
-import type { PoseInput, Spot } from './logic';
+import type { FeedMode, PoseInput, Spot } from './logic';
 import { FeedPanel } from './panel';
 
 export type { DroneFeedApi } from './api';
@@ -47,14 +52,15 @@ export const DRONE_FEED_KEY = 'KeyO';
 
 /** Écrans par-dessus lesquels la fenêtre reste visible (null : HUD seul). */
 const OVER_SCREENS: ReadonlySet<ScreenId | null> = new Set<ScreenId | null>([null, 'carte_tactique', 'roue_ordres', 'radio']);
-/** Champ vertical de la caméra au zoom ×1 (degrés) et paliers de zoom. */
+/** Champ vertical de la caméra au zoom ×1 (degrés). */
 const BASE_FOV = 50;
-const ZOOMS: readonly number[] = [1, 2, 4];
 /** Rayon de recherche de la foule autour du point survolé (m). */
 const SEARCH_MIN = 60;
 const SEARCH_MAX = 150;
-/** Cadence du rendu annexe selon la qualité (images/s). */
-const FPS: Readonly<Record<string, number>> = { bas: 8, moyen: 12, haut: 15, ultra: 15 };
+/** Durée (s) pendant laquelle la visée est gardée quand la foule visée passe derrière un immeuble. */
+const TARGET_HOLD = 6;
+/** Plafond de densité de pixels du canevas vidéo (devicePixelRatio) selon la qualité. */
+const PIXEL_RATIO_CAP: Readonly<Record<string, number>> = { bas: 1, moyen: 2, haut: 2, ultra: 2 };
 
 interface VehiclesExtLike {
   droneOf(personId: number): Vehicle | null;
@@ -68,7 +74,8 @@ export class DroneFeedSystem implements GameSystem, DroneFeedApi {
   readonly order = SystemOrder.VIEW - 1;
 
   open = false;
-  large = false;
+  /** Format de la fenêtre : petite, agrandie, plein écran. */
+  mode: FeedMode = 'small';
   droneId = 0;
   /** Effectif de manifestants estimé dans le champ (dernier compte). */
   inView = 0;
@@ -95,6 +102,7 @@ export class DroneFeedSystem implements GameSystem, DroneFeedApi {
   private pitch = 0;
   private snap = true;
   private targetAt = 0;
+  private foundAt = -1e9;
   private countAt = 0;
   private infoAt = 0;
   private layoutAt = 0;
@@ -102,6 +110,9 @@ export class DroneFeedSystem implements GameSystem, DroneFeedApi {
   private lostSince = -1;
   private seenFrames = -1;
   private lastScreen: ScreenId | null | undefined = undefined;
+  /** Durée moyenne d'une image du jeu (ms, lissée) et palier de ralentissement (0 à 2) : budget du retour vidéo. */
+  frameMs = 0;
+  private slow = 0;
   private readonly frustum = new THREE.Frustum();
   private readonly m4 = new THREE.Matrix4();
   private readonly v3 = new THREE.Vector3();
@@ -126,7 +137,7 @@ export class DroneFeedSystem implements GameSystem, DroneFeedApi {
         next: () => this.cycle(),
         detect: () => this.toggleDetect(),
         zoom: () => this.cycleZoom(),
-        enlarge: () => this.setLarge(!this.large),
+        enlarge: () => this.cycleMode(),
         close: () => this.hide(),
       });
     } catch (err) {
@@ -135,13 +146,15 @@ export class DroneFeedSystem implements GameSystem, DroneFeedApi {
       return;
     }
     this.onKey = (e: KeyboardEvent): void => {
-      if (e.code !== DRONE_FEED_KEY || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.code !== DRONE_FEED_KEY || e.repeat || e.ctrlKey || e.metaKey) return;
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
       const phase = ctx.session.phase;
       if (phase !== 'playing' || !isPoliceRole(ctx.player.state.role)) return;
       if (!OVER_SCREENS.has(ctx.ui.current)) return;
-      this.toggle();
+      this.onFeedKey(e.shiftKey, e.altKey);
+      // Alt + O tape « œ » sur Mac : pas de caractère parasite
+      if (e.altKey || e.shiftKey) e.preventDefault();
     };
     window.addEventListener('keydown', this.onKey);
   }
@@ -231,11 +244,43 @@ export class DroneFeedSystem implements GameSystem, DroneFeedApi {
     }
   }
 
+  /** Fenêtre agrandie ou plein écran. */
+  get large(): boolean {
+    return this.mode !== 'small';
+  }
+
   setLarge(large: boolean): void {
-    if (large === this.large) return;
-    this.large = large;
+    this.setMode(large ? 'large' : 'small');
+  }
+
+  setMode(mode: FeedMode): void {
+    if (mode === this.mode) return;
+    this.mode = mode;
     this.layoutAt = 0;
     this.aux()?.requestFrame();
+  }
+
+  /** Format suivant : petite → agrandie → plein écran → petite. */
+  cycleMode(): void {
+    this.setMode(nextFeedMode(this.mode));
+  }
+
+  /**
+   * Touche O (sans souris) : O ouvre ou ferme ; Maj + O change le format (et ouvre la fenêtre, agrandie, si elle
+   * était fermée) ; Alt + O passe au palier de zoom suivant (fenêtre ouverte).
+   */
+  onFeedKey(shift: boolean, alt: boolean): void {
+    if (alt) {
+      if (this.open) this.cycleZoom();
+      else if (this.show()) this.cycleZoom();
+      return;
+    }
+    if (shift) {
+      if (this.open) this.cycleMode();
+      else if (this.show()) this.setMode('large');
+      return;
+    }
+    this.toggle();
   }
 
   toggleDetect(): void {
@@ -245,8 +290,7 @@ export class DroneFeedSystem implements GameSystem, DroneFeedApi {
   }
 
   cycleZoom(): void {
-    const i = ZOOMS.indexOf(this.zoom);
-    this.zoom = ZOOMS[(i + 1) % ZOOMS.length]!;
+    this.zoom = nextZoom(this.zoom);
     this.infoAt = 0;
     this.aux()?.requestFrame();
   }
@@ -258,6 +302,13 @@ export class DroneFeedSystem implements GameSystem, DroneFeedApi {
     const panel = this.panel;
     if (!ctx || !panel) return;
     this.time += dt;
+    // coût de l'image : durée moyenne d'une image du jeu, palier de ralentissement avec hystérésis
+    if (dt > 0 && dt < 0.5) this.frameMs += (dt * 1000 - this.frameMs) * (this.frameMs === 0 ? 1 : 0.05);
+    const slow = feedSlowLevel(this.slow, this.frameMs);
+    if (slow !== this.slow) {
+      this.slow = slow;
+      this.layoutAt = 0;
+    }
     const phase = ctx.session.phase;
     const visible = this.open && (phase === 'playing' || phase === 'paused') && OVER_SCREENS.has(ctx.ui.current);
     panel.setShown(visible);
@@ -324,11 +375,18 @@ export class DroneFeedSystem implements GameSystem, DroneFeedApi {
       else if (r > SEARCH_MAX) r = SEARCH_MAX;
       const n = ctx.people.queryRadius(v.x, v.z, r, this.people, isProtester);
       if (this.xz.length < n * 2) this.xz = new Float64Array(n * 2 + 256);
+      // seulement les personnes que la nacelle voit réellement : un attroupement derrière un immeuble de 20 m faisait
+      // braquer la caméra sur un toit (constaté : foule à 81 m, masquée, centre de l'image sur la toiture)
+      const cy = v.y - GIMBAL_DROP;
+      let m = 0;
       for (let i = 0; i < n; i++) {
-        this.xz[i * 2] = this.people[i]!.x;
-        this.xz[i * 2 + 1] = this.people[i]!.z;
+        const p = this.people[i]!;
+        if (!this.visibleFrom(ctx, v.x, cy, v.z, p.x, p.y + 1.2, p.z)) continue;
+        this.xz[m * 2] = p.x;
+        this.xz[m * 2 + 1] = p.z;
+        m++;
       }
-      const found = n >= 3 && densestSpot(this.xz, n, 12, v.x, v.z, this.spot, 70);
+      const found = m >= 3 && densestSpot(this.xz, m, 12, v.x, v.z, this.spot, 70);
       if (found) {
         this.rawX = this.spot.x;
         this.rawZ = this.spot.z;
@@ -336,8 +394,11 @@ export class DroneFeedSystem implements GameSystem, DroneFeedApi {
           this.tx = this.rawX;
           this.tz = this.rawZ;
         }
+        this.foundAt = this.time;
       }
-      this.hasTarget = found;
+      // foule masquée un instant (l'appareil tourne en orbite, un immeuble passe devant) : la nacelle garde sa visée
+      // quelques secondes au lieu de basculer vers l'avant de l'appareil — sur les toits
+      this.hasTarget = found || (this.hasTarget && !this.snap && this.time - this.foundAt < TARGET_HOLD);
     }
     if (this.hasTarget) {
       this.tx = damp(this.tx, this.rawX, dt, 1.4);
@@ -372,7 +433,7 @@ export class DroneFeedSystem implements GameSystem, DroneFeedApi {
     // caméra Three.js : regard vers −Z ; cap du jeu : avant = (sin, cos) → rotation y = cap + π ; x négatif : vers le bas
     cam.rotation.order = 'YXZ';
     cam.rotation.set(-this.pitch, this.yaw + Math.PI, 0);
-    const fov = (2 * Math.atan(Math.tan((BASE_FOV * Math.PI) / 360) / this.zoom) * 180) / Math.PI;
+    const fov = zoomFov(BASE_FOV, this.zoom);
     if (Math.abs(cam.fov - fov) > 0.01 || cam.near !== 1.5) {
       cam.fov = fov;
       cam.near = 1.5;
@@ -383,11 +444,11 @@ export class DroneFeedSystem implements GameSystem, DroneFeedApi {
     aux.target = this.panel ? this.panel.canvas : null;
     aux.range = 450;
     const q = ctx.view ? ctx.view.quality : 'moyen';
-    aux.fps = FPS[q] ?? 12;
+    aux.fps = feedBudget(q, this.slow).fps;
     aux.active = true;
   }
 
-  /** Manifestants dans le champ de la caméra (cône de vue réel, pas un simple rayon). */
+  /** Manifestants dans le champ de la caméra (cône de vue réel, pas un simple rayon) et en vue (pas derrière un immeuble). */
   private countInView(ctx: GameContext, aux: RenderAuxApi): number {
     const cam = aux.camera;
     const pose = this.pose;
@@ -399,7 +460,9 @@ export class DroneFeedSystem implements GameSystem, DroneFeedApi {
     let c = 0;
     for (let i = 0; i < n; i++) {
       const p = this.people[i]!;
-      if (this.frustum.containsPoint(this.v3.set(p.x, p.y + 1, p.z))) c++;
+      if (!this.frustum.containsPoint(this.v3.set(p.x, p.y + 1, p.z))) continue;
+      // comme les repères : une personne masquée par un immeuble n'est pas « dans le champ » de l'opérateur
+      if (this.visibleFrom(ctx, cam.position.x, cam.position.y, cam.position.z, p.x, p.y + 1.2, p.z)) c++;
     }
     return c;
   }
@@ -477,10 +540,12 @@ export class DroneFeedSystem implements GameSystem, DroneFeedApi {
     this.layoutAt = this.time + 0.5;
     const W = window.innerWidth || 1280;
     const H = window.innerHeight || 720;
-    const size = feedSize(W, H, this.large);
+    const size = feedSize(W, H, this.mode);
     const q = ctx.view ? ctx.view.quality : 'moyen';
-    const pr = Math.min(typeof window.devicePixelRatio === 'number' ? window.devicePixelRatio : 1, q === 'bas' ? 1 : 1.5);
-    panel.setSize(size, this.large, pr);
+    // définition : un pixel rendu par pixel affiché (taille CSS × densité de l'écran), dans le budget de pixels
+    const dpr = typeof window.devicePixelRatio === 'number' ? window.devicePixelRatio : 1;
+    const buf = feedBufferSize(size.width, size.height, dpr, PIXEL_RATIO_CAP[q] ?? 2, feedBudget(q, this.slow).pixels);
+    if (panel.setSize(size, this.mode, buf)) this.aux()?.requestFrame();
     let x = 16;
     let y = (H - size.height) / 2;
     const rectOf = (sel: string): DOMRect | null => {
@@ -489,7 +554,11 @@ export class DroneFeedSystem implements GameSystem, DroneFeedApi {
       const r = e.getBoundingClientRect();
       return r.width > 0 && r.height > 0 ? r : null;
     };
-    if (ctx.ui.current === 'carte_tactique') {
+    if (this.mode === 'full') {
+      // plein écran : centré, par-dessus le HUD (Maj + O ou O pour revenir)
+      x = (W - size.width) / 2;
+      y = (H - size.height) / 2;
+    } else if (ctx.ui.current === 'carte_tactique') {
       const m = rectOf('[data-id="tac-map"]');
       if (m) {
         x = m.left + 58;
@@ -574,7 +643,7 @@ export class DroneFeedSystem implements GameSystem, DroneFeedApi {
   private resetState(): void {
     this.hide();
     this.panel?.clearMarks();
-    this.large = false;
+    this.mode = 'small';
     this.zoom = 1;
     this.droneId = 0;
     this.hasTarget = false;

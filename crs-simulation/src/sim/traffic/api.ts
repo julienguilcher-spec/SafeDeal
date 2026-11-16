@@ -57,6 +57,13 @@ export type MotoristState = 'bloque' | 'libere' | 'fuite' | 'abandon' | 'demi_to
 export interface MotoristEvent { vehicleId: EntityId; personId: EntityId; state: MotoristState; x: number; z: number }
 export interface JamEvent { x: number; z: number; vehicles: number; state: 'forme' | 'resorbe' }
 
+/**
+ * Réponse à « Faire circuler » (TrafficApi.clearOff) : 'ok' le conducteur dégage ; 'sans_conducteur' personne au
+ * volant (véhicule garé, abandonné, épave) : il faut le pousser (Centaure) ; 'impossible' ni véhicule de la
+ * circulation ni véhicule garé, ou aucune rue sous lui.
+ */
+export type ClearOffResult = 'ok' | 'sans_conducteur' | 'impossible';
+
 /** Couleur d'un feu pour un sens de circulation. */
 export type SignalColor = 'vert' | 'orange' | 'rouge' | 'aucun';
 
@@ -174,4 +181,15 @@ export interface TrafficApi {
   isPedestrian(p: Person): boolean;
   /** Retire toute la vie civile de ce module (les fermetures de rues restent). */
   clearAmbient(): void;
+  /**
+   * « Faire circuler » : le conducteur de ce véhicule de la circulation (arrêté) libère la chaussée sur l'ordre de
+   * `byId` (policier, véhicule de police) — il se serre sur le côté, au besoin à cheval sur le trottoir, en avant ou en
+   * marche arrière, sans toucher personne, puis attend rangé que la voie soit passée avant de repartir.
+   */
+  clearOff(v: Vehicle, byId: EntityId): ClearOffResult;
+  /**
+   * Véhicule arrêté (circulation, garé, abandonné, épave) qui barre le couloir de `v` dans les `range` m devant son
+   * pare-chocs (défaut 25), le plus proche ; null si la voie est libre.
+   */
+  blockerAhead(v: Vehicle, range?: number): Vehicle | null;
 }

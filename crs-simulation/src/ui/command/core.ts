@@ -9,16 +9,20 @@ import { EXT } from '@/core/extensions';
 import type { IncidentsApi, MetroApi, RescueApi, TrafficControlApi, UiKit } from '@/core/extensions';
 import type { MapsRuntime } from '../maps/runtime';
 import type { CommandApi, CommandScope, IssuedOrder } from './api';
+import { issueObstacle } from './obstacleOrder';
 import { verbOf } from './orders';
 import type { OrderGeom, OrderVerb } from './orders';
 import { orderPhrase } from './phrases';
 import { computeScope } from './scope';
+import type { FollowApi } from '@/gameplay/session/follow';
 
 const ISSUED_MAX = 50;
 /** Distance (m) au-delà de laquelle un ordre de mouvement se fait en véhicules ; ordres concernés. */
 const MOTOR_DISTANCE = 250;
 const MOTOR_AUTO: ReadonlySet<string> = new Set(['colonne', 'avancer', 'tenir', 'ligne', 'proteger', 'encercler', 'couper_circulation', 'filtrer', 'repli']);
 const SCOPE_PERIOD = 0.5;
+/** Service des ordres « me suivre » (gameplay/session/follow.ts, FOLLOW_SERVICE). */
+const FOLLOW_SERVICE = 'session.follow';
 
 export interface IssueResult {
   ok: boolean;
@@ -123,6 +127,8 @@ export class CommandCore implements CommandApi {
     if (!verb) return { ok: false, reason: `Ordre inconnu\u00a0: ${String(type)}`, count: 0 };
     const chk = this.check(verb);
     if (!chk.ok) return { ok: false, reason: chk.reason, count: 0 };
+    // « Dégager l'obstacle » : c'est un Centaure qui pousse (le désigné, sinon le plus proche sous vos ordres)
+    if (type === 'degager_obstacle') return issueObstacle(this, squads, geoms);
     const ctx = this.ctx;
     const playerId = ctx.player.state.personId;
     const maxForce = this.effectiveForce();
@@ -136,12 +142,13 @@ export class CommandCore implements CommandApi {
       this.afterConvoy.delete(s.id);
       // voiture de patrouille (Police secours, BAC) : elle roule déjà, elle se rend elle-même sur le point en urgence
       // (service 'police.patrols') — ni colonne, ni débarquement ; « Faire mouvement » vaut « Avancer jusqu'à »
-      // « avec moi » : l'unité suit le joueur — elle vient en véhicules si elle est loin, puis prend place dans sa
-      // colonne quand il conduit (session/follow.ts), ou le suit à pied
-      if (type === 'avec_moi') {
-        if (this.callWithMe(s, from)) count++;
+      // « Me suivre en colonne (véhicules) » / « Me suivre à pied » (session/follow.ts)
+      if (type === 'avec_moi' || type === 'suivre_pied') {
+        if (this.callWithMe(s, from, type === 'avec_moi')) count++;
         continue;
       }
+      // tout autre ordre : l'unité quitte la colonne du joueur (ses véhicules cessent de le suivre)
+      this.follow?.release(s.id);
       const patrol = this.isPatrol(s.id);
       const t: OrderType = patrol && type === 'faire_mouvement' ? 'avancer' : type;
       // mouvement motorisé : demandé (« Faire mouvement ») ou implicite pour un point éloigné d'une unité qui a ses
@@ -225,15 +232,18 @@ export class CommandCore implements CommandApi {
     return false;
   }
 
-  /** Lance la colonne de l'unité vers le point (police.command.arrive) ; false si elle n'a pas de véhicule. */
-  private motorize(s: Squad, type: OrderType, g: OrderGeom, from: string): boolean {
+  /**
+   * Lance la colonne de l'unité vers le point (police.command.arrive) ; false si elle n'a pas de véhicule.
+   * `stayAboard` : l'unité reste à bord à l'arrivée (« Me suivre en colonne » : elle rejoint le joueur, sans débarquer).
+   */
+  private motorize(s: Squad, type: OrderType, g: OrderGeom, from: string, stayAboard = false): boolean {
     const ctx = this.ctx;
     const cmd = ctx.service<{ arrive(id: number, dest: Record<string, unknown>): boolean }>('police.command');
     if (!cmd || !this.hasVehicles(s)) return false;
     const lead = ctx.people.get(s.leaderId) ?? (s.members.length ? ctx.people.get(s.members[0]!) : undefined);
     const heading = lead ? Math.atan2(g.x - lead.x, g.z - lead.z) : g.heading;
-    if (!cmd.arrive(s.id, { x: g.x, z: g.z, heading, layout: 'file', boardFirst: true, stagger: true })) return false;
-    if (type !== 'faire_mouvement' && type !== 'colonne') this.afterConvoy.set(s.id, { type, geom: g, targetId: 0 });
+    if (!cmd.arrive(s.id, { x: g.x, z: g.z, heading, layout: 'file', boardFirst: true, stagger: true, disembark: !stayAboard })) return false;
+    if (type !== 'faire_mouvement' && type !== 'colonne' && !stayAboard) this.afterConvoy.set(s.id, { type, geom: g, targetId: 0 });
     else this.afterConvoy.delete(s.id);
     ctx.radio.say({
       channel: 'commandement', from, priority: 2, personId: ctx.player.state.personId,
@@ -242,22 +252,56 @@ export class CommandCore implements CommandApi {
     return true;
   }
 
-  /** Ordre « avec moi » donné à une unité. */
-  private callWithMe(s: Squad, from: string): boolean {
+  /** Ordres « me suivre » (session/follow.ts) : null si le module de session est absent. */
+  private get follow(): FollowApi | undefined {
+    const f = this.ctx.service<FollowApi>(FOLLOW_SERVICE);
+    return f && typeof f.column === 'function' ? f : undefined;
+  }
+
+  /**
+   * « Me suivre en colonne (véhicules) » (`column`) ou « Me suivre à pied ». En colonne, l'unité embarque, se range
+   * derrière le véhicule du joueur et le suit ; sans véhicule utilisable, elle le dit à la radio et suit à pied. À pied,
+   * elle descend si elle est à bord, puis suit en formation. Une unité loin du joueur à pied vient d'abord en véhicules.
+   */
+  private callWithMe(s: Squad, from: string, column: boolean): boolean {
     const ctx = this.ctx;
     const me = ctx.player.person();
     if (!me) return false;
     const playerId = me.id;
-    if (this.farFor(s, me.x, me.z) && this.motorize(s, 'suivre', { x: me.x, z: me.z, heading: me.heading, width: 0 }, from)) {
-      this.afterConvoy.set(s.id, { type: 'suivre', geom: { x: me.x, z: me.z, heading: me.heading, width: 0 }, targetId: playerId });
+    const follow = this.follow;
+    const caller = from.toUpperCase();
+    const here = { x: me.x, z: me.z, heading: me.heading, width: 0 };
+    const far = me.vehicleId === 0 && this.farFor(s, me.x, me.z);
+    // l'ordre est dit avant d'être exécuté : l'accusé de réception de l'unité vient après lui
+    const say = (text: string): void => ctx.radio.say({ channel: 'commandement', from, priority: 1, personId: playerId, text });
+    if (column && follow) {
+      // loin d'un joueur à pied : la colonne vient jusqu'à lui (deux tons) et y reste à bord, prête à le suivre
+      if (!far) say(`${s.name} ICI ${caller}. Me suivre en colonne : embarquez, prenez place derrière mon véhicule. PARLEZ.`);
+      const motorized = far && this.motorize(s, 'avec_moi', here, from, true);
+      if (follow.column(s.id)) {
+        this.trace(s, 'embarquer');
+        return true;
+      }
+      if (motorized) return true;
+    }
+    if (column) {
+      if (!follow) say(`${s.name} ICI ${caller}. Me suivre en colonne : embarquez, prenez place derrière mon véhicule. PARLEZ.`);
+      // aucun véhicule utilisable : l'unité le dit, et suit à pied
+      ctx.radio.say({
+        channel: 'commandement', from: s.name, priority: 1, personId: s.leaderId,
+        text: `${caller} ICI ${s.name}. Pas de véhicule disponible, je vous suis à pied. TERMINÉ.`,
+      });
+    } else {
+      say(`${s.name} ICI ${caller}. Me suivre à pied : en formation derrière moi. PARLEZ.`);
+    }
+    follow?.release(s.id);
+    if (far && this.motorize(s, 'suivre', here, from)) {
+      this.afterConvoy.set(s.id, { type: 'suivre', geom: here, targetId: playerId });
       return true;
     }
-    ctx.squads.issue(s.id, { type: 'suivre', targetId: playerId, issuedBy: playerId });
+    if (follow) follow.onFoot(s.id);
+    else ctx.squads.issue(s.id, { type: 'suivre', targetId: playerId, issuedBy: playerId });
     this.trace(s, 'suivre');
-    ctx.radio.say({
-      channel: 'commandement', from, priority: 1, personId: playerId,
-      text: `${s.name} ICI ${from.toUpperCase()}. Avec moi : prenez place dans ma colonne, derrière mon véhicule. PARLEZ.`,
-    });
     return true;
   }
 

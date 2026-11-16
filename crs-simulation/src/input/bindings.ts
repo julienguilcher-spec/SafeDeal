@@ -79,7 +79,7 @@ const PAD_CODE = /^B(\d|1[0-6])$/;
 const KBM_CODE = /^[A-Z][A-Za-z0-9]{1,24}$/;
 
 /**
- * Touches lues directement par l'interface, hors de cette table : O = retour vidéo du drone
+ * Touches lues directement par l'interface, hors de cette table : O = retour vidéo du drone (Maj + O : taille, Alt + O : zoom)
  * (ui/drone/index.ts, DRONE_FEED_KEY), P / Maj + P = proposition de l'adjoint (ui/command/quickActions.ts).
  * Les affecter à une action ferait agir un seul appui deux fois : elles sont refusées.
  */

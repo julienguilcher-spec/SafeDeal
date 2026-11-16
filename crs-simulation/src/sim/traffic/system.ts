@@ -5,13 +5,14 @@
  * ===================================================================================== */
 
 import type {
-  GameContext, GameSystem, Person, PersonKind, ProjectileKind, SessionConfig, Vehicle, VehicleKind,
+  EntityId, GameContext, GameSystem, Person, PersonKind, ProjectileKind, SessionConfig, Vehicle, VehicleKind,
 } from '@/core/contracts';
 import { SystemOrder } from '@/core/contracts';
 import { EXT } from '@/core/extensions';
 import type { WorldData } from '@/world/query/api';
 import { JAM_EVENT, TRAFFIC_SERVICE, TRAFFIC_SYSTEM_ID } from './api';
-import type { MotoristStatus, SignalColor, TrafficApi } from './api';
+import type { ClearOffResult, MotoristStatus, SignalColor, TrafficApi } from './api';
+import { blockerAhead, registerClearOff } from './car-clear';
 import { Cars } from './cars';
 import { Closures } from './closures';
 import type { EdgeHit, EdgePoint } from './graph';
@@ -74,6 +75,8 @@ export class TrafficSystem implements GameSystem {
 
   init(ctx: GameContext): void {
     const k = this.kernel;
+    // « Faire circuler ce véhicule » : un policier à pied fait dégager un véhicule arrêté qui barre la voie
+    registerClearOff(ctx, this.api);
     const ev = ctx.events;
     const dangers = k.dangers;
     this.unsub.push(
@@ -295,6 +298,13 @@ export class TrafficSystem implements GameSystem {
         self.parking.clear();
         self.peds.clear();
       },
+      clearOff(v: Vehicle, byId: EntityId): ClearOffResult {
+        const b = self.cars.byVehicle.get(v.id);
+        if (!b) return self.parking.isParked(v) || self.cars.abandoned.indexOf(v.id) >= 0 || v.seats[0] === 0 ? 'sans_conducteur' : 'impossible';
+        if (!self.cars.ap || !k.cache.ready) return 'impossible';
+        return self.cars.clearer.start(b, byId, false) ? 'ok' : 'impossible';
+      },
+      blockerAhead: (v: Vehicle, range = 25): Vehicle | null => blockerAhead(k.ctx, v, range),
     };
   }
 

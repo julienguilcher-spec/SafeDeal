@@ -10,8 +10,12 @@ export const DRONE_FEED_SERVICE = 'ui.drone';
 export interface DroneFeedApi {
   /** La fenêtre vidéo est demandée (elle peut être momentanément masquée par un écran). */
   readonly open: boolean;
-  /** Fenêtre agrandie. */
+  /** Fenêtre agrandie ou plein écran. */
   readonly large: boolean;
+  /** Format de la fenêtre : 'small' (petite), 'large' (agrandie), 'full' (plein écran). */
+  readonly mode: 'small' | 'large' | 'full';
+  /** Zoom optique de la nacelle (×1, ×2, ×4, ×8). */
+  readonly zoom: number;
   /** Drone montré (identifiant de véhicule, 0 si aucun). */
   readonly droneId: number;
   /** Nombre de drones de police en état de transmettre en ce moment. */
@@ -29,4 +33,8 @@ export interface DroneFeedApi {
   cycle(): void;
   /** Agrandit ou réduit la fenêtre. */
   setLarge(large: boolean): void;
+  /** Format suivant : petite → agrandie → plein écran → petite (Maj + O). */
+  cycleMode(): void;
+  /** Palier de zoom optique suivant (Alt + O). */
+  cycleZoom(): void;
 }

@@ -5,14 +5,17 @@
  *                  indicatif de l'appareil, altitude, cap, zoom, horodatage, effectif estimé dans le champ ;
  *   détection      calque de repères sur les manifestants dans le champ (comme l'aide à l'analyse des drones de
  *                  surveillance) : à 60 m, une personne ne fait qu'un ou deux pixels dans une petite fenêtre ;
- *   commandes      appareil suivant, détection, zoom, agrandir, fermer ; un clic sur l'image agrandit ou réduit.
+ *   commandes      appareil suivant, détection, zoom, format, fermer ; un clic sur l'image change de format ;
+ *                  touches rappelées sur l'image : O fermer, Maj + O format, Alt + O zoom.
+ * Netteté : le canevas occupe exactement la taille CSS de la fenêtre (cadre dessiné par une ombre, pas une bordure
+ * qui le réduirait de 2 px et le ferait rééchantillonner) ; pas de trame ni de filtre qui brouillerait l'image.
  * La fenêtre vit dans son propre calque (au-dessus des écrans, sous les notifications) : elle reste visible
  * par-dessus la carte tactique.
  * ===================================================================================== */
 
 import { button, el, setClass, setText } from '../maps/icons';
 import { ensureMapsStyle } from '../maps/style';
-import type { FeedSize } from './logic';
+import type { FeedMode, FeedSize } from './logic';
 
 const STYLE_ID = 'dv-feed-style';
 
@@ -24,14 +27,13 @@ function ensureFeedStyle(): void {
   s.textContent = `
 .dv-layer{position:absolute;inset:0;z-index:45;pointer-events:none;overflow:hidden}
 .dv{position:absolute;left:0;top:0;pointer-events:auto;border-radius:6px;overflow:hidden;background:#05080d;
-border:1px solid rgba(255,255,255,.22);box-shadow:0 6px 22px rgba(0,0,0,.55);font:600 11px/1.2 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+box-shadow:0 0 0 1px rgba(255,255,255,.22),0 6px 22px rgba(0,0,0,.55);font:600 11px/1.2 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
 color:#f2f5fa;font-variant-numeric:tabular-nums;letter-spacing:.04em;text-shadow:0 1px 2px rgba(0,0,0,.85);user-select:none;-webkit-user-select:none}
 .dv.is-off{display:none}
-.dv-video{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:zoom-in;filter:saturate(.82) contrast(1.06)}
-.dv.is-large .dv-video{cursor:zoom-out}
+.dv-video{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:zoom-in;filter:contrast(1.08)}
+.dv.is-full .dv-video{cursor:zoom-out}
 .dv-marks{position:absolute;inset:0;width:100%;height:100%;display:block;pointer-events:none}
 .dv-hud{position:absolute;inset:0;pointer-events:none}
-.dv-hud::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(to bottom,rgba(255,255,255,.035) 0 1px,transparent 1px 3px);mix-blend-mode:overlay}
 .dv-c{position:absolute;width:14px;height:14px;border:1.5px solid rgba(255,255,255,.85);filter:drop-shadow(0 0 1px rgba(0,0,0,.8))}
 .dv-c--tl{left:10%;top:16%;border-right:0;border-bottom:0}.dv-c--tr{right:10%;top:16%;border-left:0;border-bottom:0}
 .dv-c--bl{left:10%;bottom:16%;border-right:0;border-top:0}.dv-c--br{right:10%;bottom:16%;border-left:0;border-top:0}
@@ -49,6 +51,11 @@ color:#f2f5fa;font-variant-numeric:tabular-nums;letter-spacing:.04em;text-shadow
 .dv-gap{flex:1}
 .dv-count{padding:1px 6px;border-radius:4px;background:rgba(255,196,64,.18);border:1px solid rgba(255,196,64,.55);color:#ffd36a}
 .dv-dim{color:#c5cfdf}
+.dv-zoom{color:#fff}
+.dv.is-large .dv-zoom::before,.dv.is-full .dv-zoom::before{content:"ZOOM ";color:#c5cfdf}
+.dv-keys{position:absolute;right:6px;bottom:22px;padding:1px 5px;border-radius:3px;background:rgba(0,0,0,.45);color:#d5dcea;font-size:9.5px;font-weight:600;letter-spacing:.02em}
+.dv.is-large .dv-keys,.dv.is-full .dv-keys{bottom:28px;font-size:11px}
+.dv.is-small .dv-keys{display:none}
 .dv-tools{position:absolute;top:3px;right:3px;display:flex;gap:3px;pointer-events:auto}
 .dv-tools .cm-btn{min-height:24px;min-width:24px;height:24px;padding:0 5px;border-radius:5px;background:rgba(8,13,24,.72);border:1px solid rgba(255,255,255,.2);color:#e8ecf3;font-size:11px;font-weight:700;gap:3px;justify-content:center}
 .dv-tools .cm-btn:hover{background:rgba(30,44,70,.92)}
@@ -61,6 +68,8 @@ background:repeating-linear-gradient(45deg,#0b0f16 0 6px,#0f141d 6px 12px);color
 .dv.is-lost .dv-lost{display:flex}
 .dv.is-lost .dv-video{visibility:hidden}
 .dv.is-large .dv-top,.dv.is-large .dv-bot{font-size:12.5px;padding:6px 9px}
+.dv.is-full .dv-top,.dv.is-full .dv-bot{font-size:14px;padding:8px 12px}
+.dv.is-full .dv-c{width:28px;height:28px}
 .dv.is-small .dv-bot .dv-dim{display:none}
 .dv.is-small .dv-top,.dv.is-small .dv-bot{gap:5px;padding:3px 5px;font-size:10.5px}
 .dv.is-large .dv-c{width:20px;height:20px}
@@ -134,11 +143,13 @@ export class FeedPanel {
     const bot = el('div', 'dv-bot');
     this.alt = el('span', undefined, 'ALT —');
     this.cap = el('span', 'dv-dim', 'CAP —');
-    this.zoomTxt = el('span', 'dv-dim', '×1');
+    this.zoomTxt = el('span', 'dv-zoom', '×1');
     this.clock = el('span', 'dv-dim', '');
     this.count = el('b', 'dv-count', '');
     bot.append(this.alt, this.cap, this.zoomTxt, el('span', 'dv-gap'), this.clock, this.count);
-    hud.append(top, bot);
+    // touches, sans souris (Mac portable) : rappel discret sur l'image
+    const keys = el('span', 'dv-keys', 'O fermer · Maj + O taille · Alt + O zoom');
+    hud.append(top, bot, keys);
 
     const lost = el('div', 'dv-lost');
     this.lostTitle = el('b', undefined, 'PAS DE SIGNAL');
@@ -148,8 +159,8 @@ export class FeedPanel {
     const tools = el('div', 'dv-tools');
     this.nextBtn = button('', () => actions.next(), { icon: 'chevron', id: 'drone-feed-next', title: 'Drone suivant' });
     this.detectBtn = button('', () => actions.detect(), { icon: 'eye', id: 'drone-feed-detect', title: 'Détection des personnes' });
-    this.zoomBtn = button('×1', () => actions.zoom(), { id: 'drone-feed-zoom', title: 'Zoom de la caméra' });
-    const size = button('', () => actions.enlarge(), { icon: 'select', id: 'drone-feed-size', title: 'Agrandir ou réduire' });
+    this.zoomBtn = button('×1', () => actions.zoom(), { id: 'drone-feed-zoom', title: 'Zoom optique de la caméra (Alt + O)' });
+    const size = button('', () => actions.enlarge(), { icon: 'select', id: 'drone-feed-size', title: 'Taille : petite, agrandie, plein écran (Maj + O)' });
     const close = button('', () => actions.close(), { icon: 'close', id: 'drone-feed-close', title: 'Fermer le retour vidéo (O)' });
     tools.append(this.nextBtn, this.detectBtn, this.zoomBtn, size, close);
 
@@ -168,9 +179,10 @@ export class FeedPanel {
     return this.shown;
   }
 
-  /** Taille (pixels CSS) et définition du canevas (pixels physiques). */
-  setSize(size: FeedSize, large: boolean, pixelRatio: number): void {
-    setClass(this.root, 'is-large', large);
+  /** Taille (pixels CSS) et définition du canevas (pixels physiques). Retourne true si la définition a changé (image effacée). */
+  setSize(size: FeedSize, mode: FeedMode, buffer: FeedSize): boolean {
+    setClass(this.root, 'is-large', mode === 'large');
+    setClass(this.root, 'is-full', mode === 'full');
     // petite fenêtre (téléphone) : altitude et effectif seulement en bas de l'image
     setClass(this.root, 'is-small', size.width < 300);
     if (size.width !== this.w || size.height !== this.h) {
@@ -179,14 +191,14 @@ export class FeedPanel {
       this.root.style.width = size.width + 'px';
       this.root.style.height = size.height + 'px';
     }
-    const cw = Math.max(2, Math.round(size.width * pixelRatio));
-    const ch = Math.max(2, Math.round(size.height * pixelRatio));
-    if (this.canvas.width !== cw || this.canvas.height !== ch) {
-      this.canvas.width = cw;
-      this.canvas.height = ch;
-      this.marks.width = cw;
-      this.marks.height = ch;
-    }
+    const cw = Math.max(2, Math.round(buffer.width));
+    const ch = Math.max(2, Math.round(buffer.height));
+    if (this.canvas.width === cw && this.canvas.height === ch) return false;
+    this.canvas.width = cw;
+    this.canvas.height = ch;
+    this.marks.width = cw;
+    this.marks.height = ch;
+    return true;
   }
 
   get width(): number {

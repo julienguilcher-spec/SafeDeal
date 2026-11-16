@@ -21,17 +21,20 @@ import type { WheelItem } from './wheel';
 export const WHEEL_SCREEN = 'roue_ordres';
 
 /** Secteurs de la roue, dans le sens horaire à partir du haut. */
-const WHEEL: readonly { type: string; label: string }[] = [
+export const WHEEL: readonly { type: string; label: string; sub?: string }[] = [
   { type: 'avancer', label: 'En avant' },
   { type: 'bond_offensif', label: 'Bond' },
   { type: 'charge', label: 'Charge' },
   { type: 'disperser_gaz', label: 'Gaz' },
+  { type: 'degager_obstacle', label: 'Obstacle' },
   { type: 'interpeller', label: 'Interpeller' },
   { type: 'repli', label: 'Repli' },
   { type: 'cesser', label: 'Cesser' },
   { type: 'tenir', label: 'Tenir' },
   { type: 'ligne', label: 'En ligne' },
-  { type: 'suivre', label: 'Suivez-moi' },
+  // les deux ordres « me suivre », côte à côte (à pied / en colonne de véhicules)
+  { type: 'suivre_pied', label: 'Me suivre', sub: 'à pied' },
+  { type: 'avec_moi', label: 'Me suivre', sub: 'en colonne (véh.)' },
 ];
 
 /** Durée en deçà de laquelle un appui est « bref » : la roue reste alors affichée (s). */
@@ -107,7 +110,7 @@ export class OrderWheelScreen implements ScreenInstance {
       const w = WHEEL[i]!;
       const verb = verbOf(w.type)!;
       let disabled = verb.force > roe.authorizedForce && !roe.underAttack;
-      let sub: string | undefined;
+      let sub: string | undefined = w.sub;
       if (w.type === 'interpeller' && this.targetId === 0) {
         disabled = true;
         sub = 'aucune cible';
@@ -171,7 +174,7 @@ export class OrderWheelScreen implements ScreenInstance {
     let targetName = '';
     const toAim = Math.atan2(this.aimX - this.unitX, this.aimZ - this.unitZ);
     switch (type) {
-      case 'avancer': case 'bond_offensif': case 'charge': case 'disperser_gaz':
+      case 'avancer': case 'bond_offensif': case 'charge': case 'disperser_gaz': case 'degager_obstacle':
         geom = { x: this.aimX, z: this.aimZ, heading: toAim, width: 0 };
         break;
       case 'ligne':
@@ -190,10 +193,6 @@ export class OrderWheelScreen implements ScreenInstance {
           x: this.unitX - Math.sin(this.yaw) * REPLI_DISTANCE, z: this.unitZ - Math.cos(this.yaw) * REPLI_DISTANCE,
           heading: this.yaw, width: 0,
         };
-        break;
-      case 'suivre':
-        targetId = ctx.player.state.personId;
-        targetName = 'mon mouvement';
         break;
       default:
         break;

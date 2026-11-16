@@ -84,7 +84,7 @@ export function ackBody(k: Kernel, o: SquadOrder, dist: number): string {
   switch (o.type as OrderType) {
     case 'tenir': return 'je tiens la position' + at(sec);
     case 'ligne': return 'ligne de barrage' + at(sec) + ', face ' + cardinalFr(o.heading);
-    case 'colonne': return 'en colonne vers le point' + at(sec);
+    case 'colonne': return 'en file, à pied, vers le point' + at(sec);
     case 'tortue': return 'tortue, boucliers hauts';
     case 'avancer': return 'en avant, ' + d + ' mètres';
     case 'bond_offensif': return 'bond offensif, puis halte et réalignement';

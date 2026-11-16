@@ -275,6 +275,42 @@ export interface FeedSize {
   height: number;
 }
 
+/** Format de la fenêtre vidéo : petite (coin gauche), agrandie, plein écran. Maj + O passe de l'un à l'autre. */
+export type FeedMode = 'small' | 'large' | 'full';
+
+export const FEED_MODES: readonly FeedMode[] = ['small', 'large', 'full'];
+
+/** Format suivant, en boucle : petite → agrandie → plein écran → petite. */
+export function nextFeedMode(mode: FeedMode): FeedMode {
+  const i = FEED_MODES.indexOf(mode);
+  return FEED_MODES[(i + 1) % FEED_MODES.length]!;
+}
+
+/** Libellé du format (bouton de la fenêtre). */
+export function feedModeLabel(mode: FeedMode): string {
+  return mode === 'small' ? 'Petite' : mode === 'large' ? 'Agrandie' : 'Plein écran';
+}
+
+/**
+ * Paliers du zoom optique de la nacelle : le champ se resserre (focale plus longue), l'image garde sa définition —
+ * rien n'est agrandi au pixel. ×8 : une personne à 100 m occupe alors une trentaine de pixels de haut.
+ */
+export const FEED_ZOOMS: readonly number[] = [1, 2, 4, 8];
+
+/** Palier de zoom suivant (step = 1) ou précédent (step = −1), en boucle ; ×1 si le zoom courant n'est pas un palier. */
+export function nextZoom(zoom: number, step = 1): number {
+  const i = FEED_ZOOMS.indexOf(zoom);
+  if (i < 0) return FEED_ZOOMS[0]!;
+  const n = FEED_ZOOMS.length;
+  return FEED_ZOOMS[(((i + step) % n) + n) % n]!;
+}
+
+/** Champ vertical (degrés) d'une optique de champ `baseFov` au zoom ×`zoom` : tan(champ / 2) divisé par le zoom. */
+export function zoomFov(baseFov: number, zoom: number): number {
+  const z = zoom >= 1 ? zoom : 1;
+  return (2 * Math.atan(Math.tan((baseFov * Math.PI) / 360) / z) * 180) / Math.PI;
+}
+
 /** Disposition compacte (téléphone, petite fenêtre) : mêmes seuils que le HUD. */
 export function compactScreen(width: number, height: number): boolean {
   return height < 520 || width < 1100;
@@ -282,9 +318,20 @@ export function compactScreen(width: number, height: number): boolean {
 
 /**
  * Taille de la fenêtre vidéo (pixels CSS, format 16:9) : 320 × 180 sur grand écran, 224 × 126 en disposition
- * compacte ; agrandie : 560 × 315 (360 × 203 en compact). Jamais plus de 46 % de la largeur ni 52 % de la hauteur.
+ * compacte ; agrandie : 560 × 315 (360 × 203 en compact), jamais plus de 46 % de la largeur ni 52 % de la hauteur ;
+ * plein écran : la plus grande image 16:9 qui tient dans l'écran avec une marge de 12 px (`large` booléen : ancien
+ * appel, true = agrandie).
  */
-export function feedSize(screenW: number, screenH: number, large: boolean): FeedSize {
+export function feedSize(screenW: number, screenH: number, mode: FeedMode | boolean): FeedSize {
+  const m: FeedMode = mode === true ? 'large' : mode === false ? 'small' : mode;
+  if (m === 'full') {
+    const mw = Math.max(160, screenW - 24);
+    const mh = Math.max(90, screenH - 24);
+    let w = mw;
+    if (w * 9 / 16 > mh) w = Math.floor(mh * 16 / 9);
+    return { width: w, height: Math.round(w * 9 / 16) };
+  }
+  const large = m === 'large';
   const compact = compactScreen(screenW, screenH);
   let w = compact ? (large ? 360 : 224) : (large ? 560 : 320);
   const maxW = Math.max(160, Math.floor(screenW * 0.46));
@@ -292,4 +339,56 @@ export function feedSize(screenW: number, screenH: number, large: boolean): Feed
   if (w > maxW) w = maxW;
   if (w * 9 / 16 > maxH) w = Math.floor(maxH * 16 / 9);
   return { width: w, height: Math.round(w * 9 / 16) };
+}
+
+/**
+ * Définition du canevas vidéo (pixels physiques) : la taille CSS × la densité de l'écran (devicePixelRatio), pour
+ * qu'un pixel rendu soit un pixel affiché — sur un écran Retina (×2), un tampon à ×1,5 était étiré de 33 % et
+ * l'image floue. La densité est plafonnée à `cap` (≥ 1) et le nombre de pixels à `maxPixels` (coût du rendu) : au-delà,
+ * la définition baisse dans les deux sens en gardant le format. Densité invalide : 1.
+ */
+export function feedBufferSize(cssW: number, cssH: number, devicePixelRatio: number, cap: number, maxPixels = Infinity): FeedSize {
+  const dpr = devicePixelRatio > 0 && Number.isFinite(devicePixelRatio) ? devicePixelRatio : 1;
+  const pr = Math.min(dpr, cap >= 1 ? cap : 1);
+  const w0 = Math.max(1, cssW) * pr;
+  const h0 = Math.max(1, cssH) * pr;
+  const k = maxPixels > 0 && w0 * h0 > maxPixels ? Math.sqrt(maxPixels / (w0 * h0)) : 1;
+  return { width: Math.max(2, Math.round(w0 * k)), height: Math.max(2, Math.round(h0 * k)) };
+}
+
+/** Budget de pixels de l'image vidéo selon la qualité (ultra : plein écran Retina 2560 × 1440). */
+const FEED_PIXELS: Readonly<Record<string, number>> = { bas: 0.5e6, moyen: 1.3e6, haut: 2.4e6, ultra: 3.7e6 };
+/** Cadence de l'image vidéo selon la qualité (images/s). */
+const FEED_FPS: Readonly<Record<string, number>> = { bas: 8, moyen: 12, haut: 15, ultra: 15 };
+
+export interface FeedBudget {
+  /** Pixels au plus dans le canevas vidéo. */
+  pixels: number;
+  /** Images par seconde visées. */
+  fps: number;
+}
+
+/**
+ * Palier de ralentissement de l'image principale (0 : fluide, 1 : lente, 2 : très lente) d'après la durée moyenne
+ * d'une image du jeu (ms, lissée), avec hystérésis pour ne pas changer de définition à chaque oscillation :
+ * on monte au-delà de 28 ms (moins de 36 images/s) puis 45 ms (22 images/s), on redescend sous 22 ms et 36 ms.
+ */
+export function feedSlowLevel(prev: number, frameMs: number): number {
+  const ms = Number.isFinite(frameMs) ? frameMs : 0;
+  if (ms > 45) return 2;
+  if (ms > 28) return prev >= 2 && ms > 36 ? 2 : 1;
+  if (prev >= 1 && ms > 22) return prev >= 2 ? 1 : prev;
+  return 0;
+}
+
+/**
+ * Budget du retour vidéo : selon la qualité et le palier de ralentissement de l'image principale (feedSlowLevel). Lente :
+ * 70 % des pixels et cadence réduite ; très lente : moitié des pixels, 6 images/s. Le jeu reste fluide sur un portable.
+ */
+export function feedBudget(quality: string, slowLevel = 0): FeedBudget {
+  const pixels = FEED_PIXELS[quality] ?? FEED_PIXELS.moyen!;
+  const fps = FEED_FPS[quality] ?? FEED_FPS.moyen!;
+  if (slowLevel >= 2) return { pixels: Math.round(pixels * 0.5), fps: 6 };
+  if (slowLevel >= 1) return { pixels: Math.round(pixels * 0.7), fps: Math.max(6, Math.round(fps * 0.67)) };
+  return { pixels, fps };
 }

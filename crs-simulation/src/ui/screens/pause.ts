@@ -149,6 +149,7 @@ export function createPause(env: UiEnv): (host: HTMLElement) => ScreenInstance {
         row('Pause', 'Échap');
         if (isPoliceRole(ctx.player.state.role)) {
           row('Retour vidéo du drone', 'O');
+          row('Retour vidéo : taille / zoom', 'Maj + O / Alt + O');
           row('Proposition de l’adjoint : accepter / plus tard', 'P / Maj + P');
         }
       }

@@ -21,12 +21,21 @@ interface Autopilot {
   status(v: Vehicle): Readonly<{ mode: string; state: string; reason: string; blockedFor: number; remaining: number; leaderId?: number }>;
   driveTo(v: Vehicle, x: number, z: number, options?: { urgence?: boolean; speed?: number; stopBefore?: number; pushThrough?: boolean }): boolean;
   reroute?(v: Vehicle, pushThrough?: boolean): boolean;
+  follow?(v: Vehicle, leaderId: EntityId, distance?: number): boolean;
+  stop?(v: Vehicle): void;
+  isActive?(v: Vehicle): boolean;
 }
 interface CrowdCore {
   stir(x: number, z: number, radius: number, fear: number, anger: number): number;
 }
 interface VehiclesExt {
   setSiren?(v: Vehicle, mode: 0 | 1 | 2): void;
+  horn?(v: Vehicle, seconds: number): void;
+}
+/** Vue minimale du service 'traffic' (src/sim/traffic) : faire dégager un automobiliste. */
+interface TrafficLike {
+  motorist(v: Vehicle): { mode: string } | null;
+  clearOff(v: Vehicle, byId: EntityId): string;
 }
 
 const ARMORED: ReadonlySet<string> = new Set(['centaure', 'canon_eau']);
@@ -92,6 +101,7 @@ export class EnginsSystem implements GameSystem {
   readonly order = SystemOrder.CONTROL + 48;
 
   private ctx: GameContext | null = null;
+  private readonly near: Vehicle[] = [];
   private nextThink = 0;
   private nextEscort = 0;
   private readonly blocked = new Map<EntityId, Blocked>();
@@ -102,6 +112,11 @@ export class EnginsSystem implements GameSystem {
   private readonly stillSince = new Map<EntityId, number>();
   /** Suivi de la progression des véhicules sous pilote automatique. */
   private readonly progress = new Map<EntityId, { remaining: number; at: number }>();
+  /**
+   * Engins qui reculent de quelques mètres pour laisser manœuvrer l'automobiliste qu'ils font dégager (collés à son
+   * pare-chocs, ils l'enfermaient) : fin du recul, position de départ, conduite à reprendre (destination ou meneur).
+   */
+  private readonly backoff = new Map<EntityId, { until: number; x: number; z: number; mode: string; leaderId: number; tx: number; tz: number }>();
 
   readonly stats: EnginsStats = { unstickFollow: 0, skipAhead: 0, wallNudge: 0, civilRemoved: 0, log: [] };
 
@@ -134,12 +149,14 @@ export class EnginsSystem implements GameSystem {
     this.target.clear();
     this.stillSince.clear();
     this.progress.clear();
+    this.backoff.clear();
   }
 
   update(_dt: number): void {
     const ctx = this.ctx;
     if (!ctx || ctx.session.phase !== 'playing') return;
     const now = ctx.clock.now;
+    if (this.backoff.size > 0) this.backoffStep(now);
     if (now >= this.nextThink) {
       this.nextThink = now + THINK;
       this.clearWay(now);
@@ -233,6 +250,25 @@ export class EnginsSystem implements GameSystem {
         if (ap.driveTo(ov, tx, tz, { speed: 3, stopBefore: 1 })) return;
       }
     }
+    // automobiliste arrêté devant l'engin (autobus trop long pour se ranger, véhicule retenu par la foule) : coup
+    // d'avertisseur, et on le fait dégager — il se serre sur le côté, au besoin à cheval sur le trottoir (le contourner
+    // ou le retirer hors de la vue du joueur ne suffit pas : le joueur, dans la colonne, restait bloqué derrière lui)
+    if (ov && ov.faction !== 'police' && Math.abs(ov.speed) < 0.3) {
+      const traffic = ctx.service<TrafficLike>('traffic');
+      const m = traffic && typeof traffic.clearOff === 'function' ? traffic.motorist(ov) : null;
+      if (traffic && m && m.mode !== 'range') {
+        const ext = ctx.service<VehiclesExt>('vehicles.ext');
+        if (ext && ext.horn) ext.horn(v, 0.8);
+        if (traffic.clearOff(ov, v.id) === 'ok') {
+          this.giveRoom(v, ov, ap);
+          return;
+        }
+      } else if (traffic && m && m.mode === 'range') {
+        // il manœuvre déjà : on lui laisse la place de reculer
+        this.giveRoom(v, ov, ap);
+        return;
+      }
+    }
     if (ov && ov.faction !== 'police' && Math.abs(ov.speed) < 0.3 && blockedFor > CIVIL_AFTER && this.unseen(v) && this.unseen(ov)) {
       // voiture garée en travers (ou abandonnée) : le Centaure la pousse à la lame, sinon elle est dégagée
       const driver = ov.seats[0] !== 0 ? ctx.people.get(ov.seats[0]!) : undefined;
@@ -251,6 +287,74 @@ export class EnginsSystem implements GameSystem {
         this.blocked.set(v.id, { since: this.ctx!.clock.now, rerouted: true, hornAt: 0, firstAt: this.ctx!.clock.now });
       }
     }
+  }
+
+  /**
+   * Collé au pare-chocs de l'automobiliste qu'il fait dégager (moins de 4 m) : l'engin recule de quelques mètres, le
+   * temps que l'autre manœuvre, puis reprend sa conduite (même destination, ou même meneur dans la colonne).
+   */
+  private giveRoom(v: Vehicle, ov: Vehicle, ap: Autopilot): void {
+    if (this.backoff.has(v.id) || !ap.stop) return;
+    const hx = Math.sin(v.heading);
+    const hz = Math.cos(v.heading);
+    const along = (ov.x - v.x) * hx + (ov.z - v.z) * hz;
+    const gap = along - v.def.length * 0.5 - ov.def.length * 0.5 * Math.abs(Math.sin(ov.heading) * hx + Math.cos(ov.heading) * hz);
+    if (gap > 4) return;
+    const st = ap.status(v);
+    const t = this.destinationOf(v, ap);
+    if (st.mode !== 'follow' && !t) return;
+    this.backoff.set(v.id, {
+      until: this.ctx!.clock.now + 4, x: v.x, z: v.z, mode: st.mode, leaderId: st.leaderId ?? 0, tx: t ? t.x : v.x, tz: t ? t.z : v.z,
+    });
+    ap.stop(v);
+  }
+
+  /** À chaque pas : marche arrière des engins qui laissent la place, puis reprise de leur conduite. */
+  private backoffStep(now: number): void {
+    const ctx = this.ctx!;
+    const ap = ctx.service<Autopilot>('vehicles.autopilot');
+    for (const [id, b] of this.backoff) {
+      const v = ctx.vehicles.get(id);
+      if (!v || !ap || v.seats[0] === 0) {
+        this.backoff.delete(id);
+        continue;
+      }
+      if (ap.isActive && ap.isActive(v)) continue; // le pilote automatique finit de freiner
+      const c = v.cmd;
+      const back = Math.hypot(v.x - b.x, v.z - b.z);
+      if (now < b.until && back < 6 && this.freeBehind(v)) {
+        c.throttle = v.speed > -1.2 ? -0.5 : 0;
+        c.brake = 0;
+        c.steer = 0;
+        c.handbrake = false;
+        continue;
+      }
+      c.throttle = 0;
+      c.brake = 1;
+      if (now < b.until + 6) continue; // il attend, à distance, que l'autre ait manœuvré
+      this.backoff.delete(id);
+      // reprise : même meneur dans la colonne, ou même destination
+      const lead = b.leaderId !== 0 ? ctx.vehicles.get(b.leaderId) : undefined;
+      if (b.mode === 'follow' && lead && ap.follow && ap.follow(v, lead.id, 6)) continue;
+      ap.driveTo(v, b.tx, b.tz, { urgence: v.siren !== 0, pushThrough: v.def.canPush === true });
+    }
+  }
+
+  /** Rien derrière l'engin sur 2,5 m (personne, véhicule, façade). */
+  private freeBehind(v: Vehicle): boolean {
+    const ctx = this.ctx!;
+    const hx = Math.sin(v.heading);
+    const hz = Math.cos(v.heading);
+    const bx = v.x - hx * (v.def.length * 0.5 + 1.5);
+    const bz = v.z - hz * (v.def.length * 0.5 + 1.5);
+    if (!ctx.world.isFree(bx, bz, v.def.width * 0.4)) return false;
+    if (ctx.people.countIn(bx, bz, v.def.width * 0.5 + 0.8) > 0) return false;
+    const list = this.near;
+    const n = ctx.vehicles.queryRadius(bx, bz, v.def.width * 0.5 + 2.5, list);
+    let free = true;
+    for (let i = 0; i < n && free; i++) if (list[i] !== v) free = false;
+    list.length = 0;
+    return free;
   }
 
   /**

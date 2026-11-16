@@ -79,7 +79,7 @@ describe('définitions des véhicules', () => {
     expect(spec.launchers[0]!.ranges).toEqual([50, 100, 200]);
     expect(spec.launchers[0]!.reloadTime).toBe(120);
     expect(spec.mast).toBeGreaterThan(0);
-    expect(spec.pushMass).toBe(12000);
+    expect(spec.pushMass).toBe(18000); // un autobus chargé (12 t + passagers) se pousse à la lame
     const ele = byKind.get('canon_eau')!;
     expect(ele.turrets.map((t) => t.kind)).toEqual(['canon_eau', 'canon_eau']);
     expect(ele.turrets[0]!.capacity).toBe(10000);

@@ -9,10 +9,15 @@
  *   degager_barricade vérification de l'obstacle (personne dedans ni derrière), annonce à la
  *                     sonorisation, puis poussée à la lame à 5–8 km/h. Jamais de poussée sur un obstacle
  *                     habité.
+ *   degager_obstacle  véhicule qui barre la voie (autobus, voiture abandonnée, épave, véhicule incendié) :
+ *                     l'engin se présente en biais derrière lui, fait descendre ses occupants, attend que
+ *                     personne ne soit dans le couloir de poussée (avertisseur, sonorisation), puis le pousse
+ *                     au pas, lame basse, vers le bord de la chaussée jusqu'à rendre un couloir de 3,4 m ;
+ *                     compte rendu « voie dégagée ». Sans véhicule au point : la barricade la plus proche.
  * C'est le canon à eau qui éteint : le Centaure ne reçoit pas l'ordre « eteindre ».
  * ===================================================================================== */
 
-import type { OrderType, Person, Prop, Squad, SquadOrder, Vehicle } from '@/core/contracts';
+import type { OrderType, Person, Prop, RoadSample, Squad, SquadOrder, Vehicle } from '@/core/contracts';
 import { FORCE_USED_EVENT } from '../api';
 import type { CommandCore } from './core';
 import { isPoliceOnFoot, isProtester, notPolice } from './core';
@@ -28,6 +33,18 @@ const AIM_TOLERANCE = 8;
 /** Durée de la vérification de l'obstacle (s) et patience maximale si quelqu'un se tient derrière (s). */
 const CHECK_TIME = 3;
 const CHECK_PATIENCE = 20;
+/** Véhicule qui barre la voie : rayon de recherche autour du point désigné (m). */
+const OBSTACLE_SEARCH = 20;
+/** Angle de la poussée par rapport à l'axe de la rue, vers le bord (rad) ; couloir à rendre (m). */
+const OBSTACLE_ANGLE = 0.5;
+const OBSTACLE_CORRIDOR = 3.4;
+/** Point visé pendant la poussée : à … m du centre de l'obstacle, côté bord (m). */
+const PUSH_AIM = 2;
+/** Glissade de l'obstacle sous la lame (m/s) et redressement dans l'axe de la rue (rad/s). */
+const PUSH_SLIDE = 0.45;
+const PUSH_TURN = 0.08;
+/** Patience devant des personnes dans le couloir de poussée (s). */
+const OBSTACLE_PATIENCE = 40;
 
 export function isCentaure(core: CommandCore, s: Squad): boolean {
   const v = s.vehicleId !== 0 ? core.ctx.vehicles.get(s.vehicleId) : undefined;
@@ -54,6 +71,18 @@ export class CentaureUnit extends SpecialUnit {
   private stallSince = 0;
   private backUntil = 0;
   private readonly people: Person[] = [];
+  // ── véhicule qui barre la voie ──
+  private obsId = 0;
+  /** Axe de la rue au droit de l'obstacle (point, direction de la poussée le long de la rue), demi-largeur. */
+  private obsAx = 0;
+  private obsAz = 0;
+  private obsDx = 0;
+  private obsDz = 1;
+  private obsHalf = 4;
+  /** Côté de la chaussée vers lequel on pousse (1 : à droite de obsD, −1 : à gauche). */
+  private obsSide = 1;
+  private obsHorn = 0;
+  private readonly road: RoadSample = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '', roadClass: 'residential', oneway: false };
 
   constructor(core: CommandCore, pic: Picture, squad: Squad) {
     super(core, pic, squad, 'centaure');
@@ -93,6 +122,10 @@ export class CentaureUnit extends SpecialUnit {
     }
     if (type === 'degager_barricade') {
       this.beginClear(v, o);
+      return true;
+    }
+    if (type === 'degager_obstacle') {
+      this.beginObstacle(v, o);
       return true;
     }
     if (type === 'avancer' || type === 'refoulement' || type === 'repli' || type === 'colonne') {
@@ -383,10 +416,10 @@ export class CentaureUnit extends SpecialUnit {
    * sur l'obstacle, à 5–8 km/h. Appelé à chaque pas.
    */
   override step(): void {
-    if (this.status.stage !== 'poussee') return;
+    if (this.status.stage !== 'poussee' && this.status.stage !== 'obstacle_poussee') return;
     const v = this.core.ctx.vehicles.get(this.squad.vehicleId);
     if (!v || !this.seated(v, 'driver')) return;
-    const want = Math.atan2(this.dirX, this.dirZ);
+    const want = this.status.stage === 'obstacle_poussee' ? this.obsHeading(v) : Math.atan2(this.dirX, this.dirZ);
     let err = want - v.heading;
     while (err > Math.PI) err -= 2 * Math.PI;
     while (err < -Math.PI) err += 2 * Math.PI;
@@ -407,6 +440,19 @@ export class CentaureUnit extends SpecialUnit {
     }
     cmd.steer = steer;
     cmd.throttle = v.speed < this.core.tuning.centaurePush ? 1 : 0;
+    // l'engin a glissé le long de l'obstacle au lieu de le pousser (lame à sa hauteur) : il recule et reprend
+    if (this.status.stage === 'obstacle_poussee' && this.besideObstacle(v)) {
+      this.stallSince = 0;
+      this.backUntil = now + 2.5;
+      cmd.throttle = 0;
+      return;
+    }
+    // véhicule qui barre la voie : lame en appui, il glisse au pas vers le bord (l'engin le suit)
+    if (this.status.stage === 'obstacle_poussee' && this.slideObstacle(v)) {
+      cmd.throttle = v.speed < 0.6 ? 0.5 : 0;
+      this.stallSince = 0;
+      return;
+    }
     // engin calé contre l'obstacle depuis deux secondes : recul, puis nouvelle poussée
     if (v.speed < 0.3 && this.sinceStage() > 2) {
       if (this.stallSince === 0) this.stallSince = now;
@@ -496,6 +542,403 @@ export class CentaureUnit extends SpecialUnit {
     }
   }
 
+  // ───────────────────────────── véhicule qui barre la voie ─────────────────────────────
+
+  /** Véhicule désigné (targetId) ou, à défaut, le véhicule à l'arrêt le plus proche du point (ni police, ni secours). */
+  private findObstacle(o: SquadOrder): Vehicle | null {
+    const ctx = this.core.ctx;
+    const t = o.targetId > 0 ? ctx.vehicles.get(o.targetId) : undefined;
+    if (t && t.faction !== 'police' && !t.def.flying) return t;
+    const n = ctx.vehicles.queryRadius(o.x, o.z, OBSTACLE_SEARCH, this.core.vehicles);
+    let best: Vehicle | null = null;
+    let bestD = Infinity;
+    for (let i = 0; i < n; i++) {
+      const q = this.core.vehicles[i];
+      if (q.faction === 'police' || q.faction === 'rescue' || q.def.flying || q.dormant || Math.abs(q.speed) > 1.5) continue;
+      if (q.kind === 'velo' || q.kind === 'scooter') continue;
+      const d = (q.x - o.x) * (q.x - o.x) + (q.z - o.z) * (q.z - o.z);
+      if (d < bestD) {
+        bestD = d;
+        best = q;
+      }
+    }
+    this.core.vehicles.length = 0;
+    return best;
+  }
+
+  /** Écart latéral (m, à droite de la direction de poussée le long de la rue) des deux bords du gabarit d'un véhicule. */
+  private obsSpan(q: Vehicle, out: { lo: number; hi: number }): void {
+    const rx = -this.obsDz;
+    const rz = this.obsDx;
+    const lat = (q.x - this.obsAx) * rx + (q.z - this.obsAz) * rz;
+    const sn = Math.abs(Math.sin(q.heading) * rx + Math.cos(q.heading) * rz);
+    const cs = Math.sqrt(Math.max(0, 1 - sn * sn));
+    const ext = 0.5 * (q.def.length * sn + q.def.width * cs);
+    out.lo = lat - ext;
+    out.hi = lat + ext;
+  }
+
+  private readonly span = { lo: 0, hi: 0 };
+
+  /** Couloir rendu à la circulation (m) : de l'obstacle au bord de chaussée opposé au côté où on le pousse. */
+  private obsCorridor(q: Vehicle): number {
+    this.obsSpan(q, this.span);
+    return this.obsSide > 0 ? this.span.lo + this.obsHalf : this.obsHalf - this.span.hi;
+  }
+
+  private beginObstacle(v: Vehicle, o: SquadOrder): void {
+    const core = this.core;
+    const ctx = core.ctx;
+    const q = this.findObstacle(o);
+    if (!q) {
+      // pas de véhicule au point : la barricade la plus proche, s'il y en a une
+      if (this.findBarricade(o)) {
+        this.beginClear(v, o);
+        return;
+      }
+      this.order = this.copy(o);
+      this.status.order = o.type;
+      this.say(refused(this.squad.name, 'Aucun obstacle au point indiqué'));
+      this.refuse(o, 'Aucun obstacle au point indiqué.');
+      return;
+    }
+    this.order = this.copy(o);
+    this.status.order = o.type;
+    if (!v.def.canPush || !core.autopilot) {
+      this.say(refused(this.squad.name, 'Lame indisponible'));
+      this.refuse(o, 'Lame indisponible.');
+      return;
+    }
+    const road = this.road;
+    if (!ctx.world.nearestRoad(q.x, q.z, road, 20)) {
+      this.say(refused(this.squad.name, 'Obstacle hors de la chaussée'));
+      this.refuse(o, 'Obstacle hors de la chaussée.');
+      return;
+    }
+    // axe de la rue, orienté de l'engin vers l'obstacle ; poussée vers le bord le plus proche de l'obstacle
+    let dx = Math.sin(road.heading);
+    let dz = Math.cos(road.heading);
+    if ((q.x - v.x) * dx + (q.z - v.z) * dz < 0) {
+      dx = -dx;
+      dz = -dz;
+    }
+    // la place derrière l'obstacle est prise (le véhicule bloqué, sa colonne) : l'engin vient par l'autre côté
+    let around = false;
+    if (this.approachTaken(v, q, dx, dz)) {
+      dx = -dx;
+      dz = -dz;
+      around = true;
+    }
+    this.obsId = q.id;
+    this.obsAx = road.x;
+    this.obsAz = road.z;
+    this.obsDx = dx;
+    this.obsDz = dz;
+    this.obsHalf = road.width * 0.5;
+    const lat = (q.x - road.x) * -dz + (q.z - road.z) * dx;
+    this.obsSide = lat >= -0.2 ? 1 : -1;
+    this.status.targetId = q.id;
+    this.warned = false;
+    this.obsHorn = 0;
+    if (this.obsCorridor(q) >= OBSTACLE_CORRIDOR) {
+      this.say(report(this.superior(), this.squad.name, 'Le véhicule ne barre pas la voie, passage libre'));
+      this.finish(true, '');
+      this.setStage('repos');
+      return;
+    }
+    // direction de poussée : en biais, vers le bord
+    this.setPushDir();
+    this.say(received(this.squad.name, 'je fais descendre les occupants, puis je pousse le véhicule hors de la voie'));
+    // point d'approche : derrière l'obstacle, dans sa file, l'axe de l'engin décalé vers l'intérieur de la chaussée
+    const back = q.def.length * 0.5 + v.def.length * 0.5 + 3;
+    const off = lat - this.obsSide * 0.8;
+    const ax = road.x + dx * ((q.x - road.x) * dx + (q.z - road.z) * dz - back) - dz * off;
+    const az = road.z + dz * ((q.x - road.x) * dx + (q.z - road.z) * dz - back) + dx * off;
+    if (Math.hypot(ax - v.x, az - v.z) > 3) {
+      // (par l'autre côté : itinéraire qui évite la rue barrée, par les rues voisines)
+      const avoid = around ? [{ x: q.x, z: q.z, r: q.def.length * 0.5 + 2, cost: 600 }] : undefined;
+      if (!core.autopilot.driveTo(v, ax, az, { speed: 4, stopBefore: 0.5, avoid })) {
+        this.say(refused(this.squad.name, 'Itinéraire impossible jusqu’à l’obstacle'));
+        this.refuse(o, 'Aucun itinéraire.');
+        return;
+      }
+      this.setStage('obstacle_approche');
+    } else {
+      core.autopilot.stop(v);
+      this.setStage('obstacle_evacuation');
+    }
+  }
+
+  /** Un autre véhicule occupe-t-il la place d'approche, derrière l'obstacle dans le sens (dx, dz) ? */
+  private approachTaken(v: Vehicle, q: Vehicle, dx: number, dz: number): boolean {
+    const ctx = this.core.ctx;
+    const back = q.def.length * 0.5 + v.def.length * 0.5 + 3;
+    const x = q.x - dx * back;
+    const z = q.z - dz * back;
+    const n = ctx.vehicles.queryRadius(x, z, v.def.length * 0.5 + 3, this.core.vehicles);
+    let taken = false;
+    for (let i = 0; i < n && !taken; i++) {
+      const o = this.core.vehicles[i];
+      if (o !== v && o !== q && !o.def.flying) taken = true;
+    }
+    this.core.vehicles.length = 0;
+    return taken;
+  }
+
+  private setPushDir(): void {
+    const c = Math.cos(OBSTACLE_ANGLE);
+    const s = Math.sin(OBSTACLE_ANGLE) * this.obsSide;
+    // droite de (dx, dz) : (−dz, dx)
+    this.dirX = this.obsDx * c - this.obsDz * s;
+    this.dirZ = this.obsDz * c + this.obsDx * s;
+  }
+
+  /**
+   * Personnes (hors policiers) dans la zone que l'obstacle va balayer (son gabarit et 6 m devant lui, dans le sens de
+   * la poussée), ou entre l'engin et lui.
+   */
+  private peopleInPush(v: Vehicle, q: Vehicle): number {
+    const ctx = this.core.ctx;
+    const c = Math.abs(Math.sin(q.heading) * this.dirX + Math.cos(q.heading) * this.dirZ);
+    const sn = Math.sqrt(Math.max(0, 1 - c * c));
+    const along = 0.5 * (q.def.length * c + q.def.width * sn);
+    const perp = 0.5 * (q.def.length * sn + q.def.width * c);
+    const n = ctx.people.queryRadius(q.x + this.dirX * 3, q.z + this.dirZ * 3, along + perp + 10, this.people, notPolice);
+    let m = 0;
+    for (let i = 0; i < n; i++) {
+      const p = this.people[i];
+      if (p.dormant) continue;
+      const fwd = (p.x - q.x) * this.dirX + (p.z - q.z) * this.dirZ;
+      const lat = Math.abs((p.x - q.x) * -this.dirZ + (p.z - q.z) * this.dirX);
+      if (fwd > -along - 0.8 && fwd < along + 6 && lat < perp + 0.8) {
+        m++;
+        continue;
+      }
+      // entre l'engin et l'obstacle
+      const ux = q.x - v.x;
+      const uz = q.z - v.z;
+      const d = Math.hypot(ux, uz) || 1;
+      const fv = ((p.x - v.x) * ux + (p.z - v.z) * uz) / d;
+      const lv = Math.abs(((p.x - v.x) * -uz + (p.z - v.z) * ux) / d);
+      if (fv > 0 && fv < d && lv < v.def.width * 0.5 + 1) m++;
+    }
+    this.people.length = 0;
+    return m;
+  }
+
+  /**
+   * Cap de poussée : vers un point situé à quelques mètres du centre de l'obstacle, côté bord de chaussée — l'engin
+   * pousse l'arrière en biais, l'obstacle glisse vers le bord.
+   */
+  private obsHeading(v: Vehicle): number {
+    const q = this.core.ctx.vehicles.get(this.obsId);
+    if (!q) return Math.atan2(this.dirX, this.dirZ);
+    const tx = q.x - this.obsDz * this.obsSide * PUSH_AIM;
+    const tz = q.z + this.obsDx * this.obsSide * PUSH_AIM;
+    return Math.atan2(tx - v.x, tz - v.z);
+  }
+
+  /** L'avant de l'engin a dépassé l'arrière de l'obstacle, le long de la rue (il le longe au lieu de le pousser). */
+  private besideObstacle(v: Vehicle): boolean {
+    const q = this.core.ctx.vehicles.get(this.obsId);
+    if (!q) return false;
+    this.obsSpan(q, this.span);
+    const c = Math.abs(Math.sin(q.heading) * this.obsDx + Math.cos(q.heading) * this.obsDz);
+    const sn = Math.sqrt(Math.max(0, 1 - c * c));
+    const rear = (q.x - this.obsAx) * this.obsDx + (q.z - this.obsAz) * this.obsDz - 0.5 * (q.def.length * c + q.def.width * sn);
+    const nose = (v.x - this.obsAx) * this.obsDx + (v.z - this.obsAz) * this.obsDz + v.def.length * 0.5;
+    return nose > rear + 2.5;
+  }
+
+  /**
+   * Lame en appui contre l'obstacle (avant de l'engin à moins de 0,8 m de son gabarit) : l'obstacle glisse vers le bord
+   * de la chaussée à PUSH_SLIDE m/s, en se remettant dans l'axe de la rue. Jamais contre une façade ou un obstacle
+   * fixe, jamais sur quelqu'un : la glissade s'arrête net si une personne se tient contre son flanc. true si l'engin est
+   * au contact et pousse.
+   */
+  private slideObstacle(v: Vehicle): boolean {
+    const ctx = this.core.ctx;
+    const q = ctx.vehicles.get(this.obsId);
+    if (!q) return false;
+    const hx = Math.sin(v.heading);
+    const hz = Math.cos(v.heading);
+    // distance de l'avant de l'engin (milieu et coins de la lame) au gabarit de l'obstacle
+    const qx = Math.sin(q.heading);
+    const qz = Math.cos(q.heading);
+    let gap = Infinity;
+    for (let k = -1; k <= 1; k++) {
+      const fx = v.x + hx * (v.def.length * 0.5 + 0.2) - hz * k * v.def.width * 0.45;
+      const fz = v.z + hz * (v.def.length * 0.5 + 0.2) + hx * k * v.def.width * 0.45;
+      const along = Math.abs((fx - q.x) * qx + (fz - q.z) * qz) - q.def.length * 0.5;
+      const lat = Math.abs((fx - q.x) * -qz + (fz - q.z) * qx) - q.def.width * 0.5;
+      const d = Math.hypot(Math.max(0, along), Math.max(0, lat));
+      if (d < gap) gap = d;
+    }
+    if (gap > 0.9) return false;
+    const dt = this.core.dt;
+    if (!(dt > 0)) return true;
+    // côté bord : droite de la direction de la rue × côté
+    const sx = -this.obsDz * this.obsSide;
+    const sz = this.obsDx * this.obsSide;
+    // le flanc côté bord, un pas plus loin : libre de façade et de personne ?
+    this.obsSpan(q, this.span);
+    const edge = (this.obsSide > 0 ? this.span.hi : -this.span.lo) + 0.35;
+    const step = PUSH_SLIDE * dt;
+    const halfL = q.def.length * 0.5;
+    const world = ctx.world;
+    for (let s = -halfL; s <= halfL + 0.01; s += 1.5) {
+      // point du flanc côté bord, à la hauteur s le long de la rue
+      const ax = this.obsAx + this.obsDx * (((q.x - this.obsAx) * this.obsDx + (q.z - this.obsAz) * this.obsDz) + s) + sx * (edge + step);
+      const az = this.obsAz + this.obsDz * (((q.x - this.obsAx) * this.obsDx + (q.z - this.obsAz) * this.obsDz) + s) + sz * (edge + step);
+      if (!world.isFree(ax, az, 0.3)) return true;
+      const surf = world.surfaceAt(ax, az);
+      if (surf === 'building' || surf === 'water') return true;
+    }
+    const n = ctx.people.queryRadius(q.x + sx * 2, q.z + sz * 2, halfL + 4, this.people);
+    let blocked = false;
+    for (let i = 0; i < n && !blocked; i++) {
+      const p = this.people[i];
+      if (p.vehicleId !== 0 || p.dormant) continue;
+      const l = ((p.x - this.obsAx) * sx + (p.z - this.obsAz) * sz);
+      const a = Math.abs((p.x - q.x) * this.obsDx + (p.z - q.z) * this.obsDz);
+      if (a < halfL + 1 && l > edge - 0.6 && l < edge + 1.2) blocked = true;
+    }
+    this.people.length = 0;
+    if (blocked) return true;
+    q.x += sx * step;
+    q.z += sz * step;
+    // il se remet dans l'axe de la rue (sens le plus proche)
+    let want = Math.atan2(this.obsDx, this.obsDz);
+    let err = want - q.heading;
+    while (err > Math.PI) err -= 2 * Math.PI;
+    while (err < -Math.PI) err += 2 * Math.PI;
+    if (Math.abs(err) > Math.PI / 2) {
+      want += Math.PI;
+      err = err > 0 ? err - Math.PI : err + Math.PI;
+    }
+    const turn = PUSH_TURN * dt;
+    q.heading += err > turn ? turn : err < -turn ? -turn : err;
+    q.vx = 0;
+    q.vz = 0;
+    q.speed = 0;
+    q.yawRate = 0;
+    return true;
+  }
+
+  private thinkObstacle(v: Vehicle): void {
+    const core = this.core;
+    const ctx = core.ctx;
+    const ap = core.autopilot;
+    const o = this.order;
+    if (!ap || !o) return;
+    const stage = this.status.stage;
+    const q = ctx.vehicles.get(this.obsId);
+    if (!q) {
+      // retiré entre-temps (dépanneuse, incendie) : la voie est libre
+      this.brake(v);
+      this.say(report(this.superior(), this.squad.name, 'Obstacle enlevé, voie dégagée'));
+      this.finish(true, '');
+      this.setStage('repos');
+      return;
+    }
+    if (stage === 'obstacle_approche') {
+      const st = ap.status(v);
+      const d = Math.hypot(q.x - v.x, q.z - v.z);
+      // arrivé, ou arrêté par l'obstacle lui-même à quelques mètres de sa place d'approche
+      const atIt = st.reason === 'vehicule' && st.blockedFor > 3 && d < q.def.length * 0.5 + v.def.length * 0.5 + 6;
+      if ((st.state === 'arrive' || st.mode === 'idle' || atIt || d < q.def.length * 0.5 + v.def.length * 0.5 + 2) && Math.abs(v.speed) < 0.5) {
+        ap.stop(v);
+        this.setStage('obstacle_evacuation');
+      } else if (st.state === 'echec' || this.sinceStage() > 150) {
+        this.say(report(this.superior(), this.squad.name, 'Obstacle hors d’atteinte'));
+        this.finish(false, 'Obstacle hors d’atteinte.');
+        this.setStage('repos');
+      }
+      return;
+    }
+    if (stage === 'obstacle_evacuation') {
+      // les occupants descendent : on ne pousse jamais un véhicule occupé
+      let aboard = 0;
+      for (let i = 0; i < q.seats.length; i++) {
+        const id = q.seats[i];
+        if (id === 0) continue;
+        const p = ctx.people.get(id);
+        if (!p) continue;
+        aboard++;
+        if (!p.isPlayer && this.sinceStage() > 1.5) ctx.vehicles.exit(p);
+      }
+      if (aboard > 0 && !this.warned) {
+        this.warned = true;
+        core.say(this.squad.name, 'Police ! Descendez du véhicule, il va être dégagé.', 1, 'public', this.squad.leaderId);
+      }
+      if (aboard === 0) {
+        this.warned = false;
+        this.setStage('obstacle_verification');
+      } else if (this.sinceStage() > 20) {
+        this.say(report(this.superior(), this.squad.name, 'Occupants à bord, je ne pousse pas'));
+        this.finish(false, 'Véhicule occupé : poussée refusée.');
+        this.setStage('repos');
+      }
+      return;
+    }
+    if (stage === 'obstacle_verification') {
+      if (this.sinceStage() < CHECK_TIME) return;
+      const inPath = this.peopleInPush(v, q);
+      if (inPath > 0) {
+        // avertisseur et sonorisation : les personnes s'écartent ; l'engin attend
+        if (core.now >= this.obsHorn) {
+          this.obsHorn = core.now + 4;
+          if (core.vext) core.vext.horn(v, 1.5);
+          if (!this.warned) {
+            this.warned = true;
+            core.say(this.squad.name, 'Écartez-vous, l’engin va dégager le véhicule.', 1, 'public', this.squad.leaderId);
+          }
+          if (core.crowd) core.crowd.stir(q.x + this.dirX * 4, q.z + this.dirZ * 4, 10, 0.45, 0);
+        }
+        if (this.sinceStage() > OBSTACLE_PATIENCE) {
+          this.say(report(this.superior(), this.squad.name, 'Des personnes restent dans le couloir de poussée. Je ne pousse pas'));
+          this.finish(false, 'Personnes dans le couloir de poussée : poussée refusée.');
+          this.setStage('repos');
+        }
+        return;
+      }
+      this.say(report(this.superior(), this.squad.name, 'Véhicule vide, personne dans le couloir. Je pousse'));
+      ap.stop(v);
+      this.pushX = v.x;
+      this.pushZ = v.z;
+      this.stallSince = 0;
+      this.backUntil = 0;
+      this.setStage('obstacle_poussee');
+      return;
+    }
+    if (stage === 'obstacle_poussee') {
+      const corridor = this.obsCorridor(q);
+      const advanced = Math.hypot(v.x - this.pushX, v.z - this.pushZ);
+      if (corridor >= OBSTACLE_CORRIDOR) {
+        this.brake(v);
+        const street = ctx.world.sectorName(q.x, q.z);
+        this.say(report(this.superior(), this.squad.name, 'Véhicule poussé hors de la voie' + (street ? ', ' + street : '') + '. Voie dégagée'));
+        this.finish(true, '');
+        this.setStage('repos');
+        return;
+      }
+      if (this.peopleInPush(v, q) > 0) {
+        // quelqu'un est revenu dans le couloir : halte immédiate, nouvelle vérification
+        this.brake(v);
+        this.warned = false;
+        this.setStage('obstacle_verification');
+        return;
+      }
+      // le véhicule a pivoté sous la poussée : on garde le cap de poussée, recalé sur sa position
+      if (this.sinceStage() > 60 || advanced > 30) {
+        this.brake(v);
+        this.say(report(this.superior(), this.squad.name, 'Obstacle trop lourd pour la lame'));
+        this.finish(false, 'Obstacle non dégagé.');
+        this.setStage('repos');
+      }
+    }
+  }
+
   // ───────────────────────────── réflexion ─────────────────────────────
 
   think(): void {
@@ -508,6 +951,10 @@ export class CentaureUnit extends SpecialUnit {
       case 'approche':
       case 'verification':
       case 'poussee': this.thinkClear(v); break;
+      case 'obstacle_approche':
+      case 'obstacle_evacuation':
+      case 'obstacle_verification':
+      case 'obstacle_poussee': this.thinkObstacle(v); break;
       default: break;
     }
   }

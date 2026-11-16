@@ -79,7 +79,7 @@ export function orderPhrase(o: OrderPhraseInput): string {
       body = `Ligne de barrage${at(o.sector)}, face ${facingCardinal(o.heading)}` +
         (o.width >= 3 ? `, front ${spellNumber(Math.round(o.width))} mètres` : '');
       break;
-    case 'colonne': body = `En colonne, rejoignez le point${at(o.sector)}`; break;
+    case 'colonne': body = `En file, à pied, rejoignez le point${at(o.sector)}`; break;
     case 'tortue': body = 'Formez la tortue, boucliers hauts'; break;
     case 'avancer': body = `En avant${at(o.sector)}, ${d} mètres, puis halte`; break;
     case 'bond_offensif': body = `Bond offensif, ${d} mètres, en avant, puis halte et réalignement`; break;

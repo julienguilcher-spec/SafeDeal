@@ -51,7 +51,7 @@ const LAYERS: readonly { key: keyof LayerMask; label: string }[] = [
 ];
 
 /** Verbes de l'ordre rapide (appui long, clic droit maintenu, bouton X de la manette). */
-const QUICK_VERBS: readonly string[] = ['avancer', 'bond_offensif', 'charge', 'encercler', 'repli', 'cesser', 'tenir', 'ligne'];
+export const QUICK_VERBS: readonly string[] = ['avancer', 'bond_offensif', 'charge', 'encercler', 'repli', 'cesser', 'tenir', 'ligne', 'suivre_pied', 'avec_moi'];
 
 /** Vue et sélection retrouvées à la réouverture de la carte pendant la même session. */
 interface Memory { cx: number; cz: number; mpp: number; tab: TacticalTab; selection: number[]; session: unknown }
@@ -392,7 +392,9 @@ export class TacticalScreen implements ScreenInstance {
     for (let i = 0; i < QUICK_VERBS.length; i++) {
       const v = verbOf(QUICK_VERBS[i]!)!;
       verbs.push(v);
-      items.push({ id: v.type, label: v.short, force: v.coercive, disabled: v.force > roe.authorizedForce && !roe.underAttack });
+      // « me suivre » : intitulé complet (« À pied » seul ne dirait pas qui l'unité suit)
+      const follow = v.type === 'suivre_pied' ? 'à pied' : v.type === 'avec_moi' ? 'en colonne (véh.)' : '';
+      items.push({ id: v.type, label: follow !== '' ? 'Me suivre' : v.short, sub: follow !== '' ? follow : undefined, force: v.coercive, disabled: v.force > roe.authorizedForce && !roe.underAttack });
     }
     const n = this.tmap.selectedUnits().length;
     this.quick = new RadialMenu(this.quickBox, items, {

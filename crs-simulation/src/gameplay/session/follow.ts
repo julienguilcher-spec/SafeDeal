@@ -13,6 +13,13 @@
  *     dans la colonne : c'est la colonne de fourgons qui traverse Paris, sirènes hurlantes ;
  *   - quand le joueur descend, la colonne s'arrête, tout le monde descend et reprend « suivre » à pied ; les autres
  *     groupes débarquent en ligne à côté de leur fourgon.
+ * Ordres du joueur (service 'session.follow', donnés depuis la roue d'ordres ou la carte tactique) :
+ *   - « Me suivre en colonne (véhicules) » : l'unité remonte dans ses véhicules, se range derrière celui du joueur et le
+ *     suit en colonne, qu'il conduise ou qu'il soit passager, feux et sirène comme lui. Donné à pied, l'unité embarque et
+ *     attend, moteurs tournants (« en colonne, prête à vous suivre ») ; quand le joueur descend, la colonne se gare
+ *     derrière lui et l'unité RESTE À BORD jusqu'au prochain ordre ;
+ *   - « Me suivre à pied » : l'unité quitte la colonne, descend si elle est à bord, puis suit le joueur à pied ; elle ne
+ *     monte pas dans les fourgons quand il prend le volant.
  * Simulation pure (aucun DOM). Sans pilote automatique (module des véhicules absent), seul l'embarquement à bord du
  * véhicule du joueur a lieu.
  * ===================================================================================== */
@@ -27,7 +34,28 @@ interface Autopilot {
 }
 interface CommandLike {
   stateOf(companyId: number): { phase: string; commanderId: EntityId; missionEnded: boolean } | null;
+  convoyOf?(squadId: number): { stage: string } | null;
 }
+
+/** Service des ordres « Me suivre à pied » / « Me suivre en colonne (véhicules) ». */
+export const FOLLOW_SERVICE = 'session.follow';
+export interface FollowApi {
+  /** « Me suivre en colonne » : l'unité embarque et suit le véhicule du joueur. false : aucun véhicule utilisable. */
+  column(squadId: number): boolean;
+  /** « Me suivre à pied » : l'unité quitte la colonne, descend si elle est à bord, puis suit le joueur à pied. */
+  onFoot(squadId: number): void;
+  /** Autre ordre : l'unité quitte la colonne (ses véhicules s'arrêtent). */
+  release(squadId: number): void;
+  /** L'unité (ou une unité dont elle dépend) est-elle « en colonne » derrière le joueur ? */
+  inColumn(squadId: number): boolean;
+}
+/** Délai maximal d'embarquement avant de se déclarer prête (s) et de débarquement avant de suivre à pied (s). */
+const MOTOR_READY_MAX = 60;
+const DISMOUNT_MAX = 45;
+/** Rayon dans lequel les véhicules d'une unité « en colonne » rejoignent celle du joueur qui conduit (m). */
+const MOTOR_RADIUS = 3000;
+/** Étapes d'un mouvement motorisé encore en cours (police.command) : la colonne de l'unité roule vers le joueur. */
+const CONVOY_BUSY: ReadonlySet<string> = new Set(['route', 'stationnement', 'debarquement', 'rembarquement', 'depart']);
 interface VehiclesExt {
   setSiren?(v: Vehicle, mode: 0 | 1 | 2): void;
   setBeacons?(v: Vehicle, on: boolean): void;
@@ -40,10 +68,19 @@ const BOARD_REACH = 4.5;
 const FLEET_RADIUS = 90;
 /** Intervalle entre deux véhicules de la colonne (m, pare-chocs à pare-chocs). */
 const COLUMN_GAP = 9;
+/**
+ * Premier véhicule de la colonne garé en bloc (un véhicule juste devant lui) : il ne prend la suite du meneur qu'à cette
+ * distance (m) — au-delà, le pilote automatique le rejoint par les rues ; en deçà, il viserait tout droit le point de
+ * départ du meneur, à travers les véhicules garés autour de lui (il restait alors bloqué indéfiniment, et toute la
+ * colonne derrière lui).
+ */
+const FIRST_ENGAGE = 42;
+/** Véhicule « juste devant » : à moins de tant de mètres devant le pare-chocs, dans l'axe (m). */
+const BOXED_AHEAD = 10;
+const BOXED_SIDE = 2.4;
 /** Rayon dans lequel les fourgons d'une unité accompagnatrice peuvent rejoindre la colonne (m). */
 const COMPANY_RADIUS = 160;
-/** Unités appelées « avec moi » : rayon dans lequel leurs véhicules rejoignent la colonne (m), revue périodique (s). */
-const CALLED_RADIUS = 700;
+/** Revue périodique des unités « en colonne » qui rejoignent la colonne du joueur qui conduit (s). */
 const JOIN_PERIOD = 3;
 /** Ordres qui n'engagent pas une unité : on peut l'emmener sans défaire une manœuvre (une unité qui tient un barrage reste). */
 const ARMORED: ReadonlySet<string> = new Set(['centaure', 'canon_eau']);
@@ -74,6 +111,29 @@ export class FollowLeaderSystem implements GameSystem {
   private escortSince = 0;
   private nextThink = 0;
   private nextJoin = 0;
+  /** Unités « en colonne » (ordre du joueur) : instant de l'ordre, compte rendu « prête à vous suivre » fait. */
+  private readonly motor = new Map<number, { since: number; ready: boolean }>();
+  /** Unités qui descendent de leurs véhicules pour suivre le joueur à pied (instant de l'ordre). */
+  private readonly dismount = new Map<number, number>();
+  /** Unités qui ont reçu « Me suivre à pied » : elles ne montent pas dans leur fourgon quand le joueur prend le volant. */
+  private readonly afoot = new Set<number>();
+  /** Branches d'une unité « en colonne » qui ont reçu un autre ordre : elles ne font plus partie de la colonne. */
+  private readonly detached = new Set<number>();
+  /** Colonne derrière le véhicule où le joueur est passager (il ne conduit pas) : véhicules dans l'ordre. */
+  private ride: EntityId[] = [];
+
+  provide(ctx: GameContext): void {
+    const api: FollowApi = {
+      column: (id) => this.orderColumn(id),
+      onFoot: (id) => this.orderOnFoot(id),
+      release: (id) => this.leaveColumn(id),
+      inColumn: (id) => {
+        const s = this.ctx?.squads.get(id);
+        return !!s && this.motorRoot(s) !== 0;
+      },
+    };
+    ctx.provide(FOLLOW_SERVICE, api);
+  }
 
   init(ctx: GameContext): void {
     this.ctx = ctx;
@@ -86,8 +146,14 @@ export class FollowLeaderSystem implements GameSystem {
     this.escorts = [];
     this.escortSince = 0;
     this.nextThink = 0;
-    // l'horloge repart de 0 à chaque session : une échéance héritée bloquerait la revue « avec moi »
+    // l'horloge repart de 0 à chaque session : une échéance héritée bloquerait la revue des unités « en colonne »
     this.nextJoin = 0;
+    // ordres « me suivre » : propres à la session (les identifiants d'unités sont réattribués)
+    this.motor.clear();
+    this.dismount.clear();
+    this.afoot.clear();
+    this.detached.clear();
+    this.ride = [];
   }
 
   /** Unités qui suivent le joueur : celles qu'il commande, et la sienne quand il conduit le véhicule de son groupe. */
@@ -112,17 +178,24 @@ export class FollowLeaderSystem implements GameSystem {
     const driving = me.vehicleId !== 0 ? ctx.vehicles.get(me.vehicleId) ?? null : null;
     const isDriver = driving !== null && !driving.def.flying && driving.seats[0] === me.id;
 
-    if (isDriver && this.mounted !== driving.id) this.startConvoy(me, driving);
-    else if (!isDriver && this.mounted !== 0) this.endConvoy();
+    if (isDriver && this.mounted !== driving.id) {
+      // le joueur prend le volant : la colonne « passager » devient la sienne
+      this.ride = [];
+      this.startConvoy(me, driving);
+    } else if (!isDriver && this.mounted !== 0) this.endConvoy();
 
-    if (this.mounted === 0) return;
     // marche vers les véhicules (à chaque pas : l'IA de police réécrit les commandes avant nous)
-    this.walkToSeats(me, now);
+    if (this.mounted !== 0) this.walkToSeats(me, now);
     if (now < this.nextThink) return;
     this.nextThink = now + 0.5;
     void dt;
+    this.tendOrders(me, now);
+    if (this.mounted === 0) {
+      this.tendRide(me);
+      return;
+    }
     this.board(now);
-    // unités appelées « avec moi » arrivées entre-temps (venues en véhicules de loin) : elles prennent place dans la colonne
+    // unités « en colonne » arrivées entre-temps (venues en véhicules de loin, ou ordre donné en route) : elles prennent place dans la colonne
     if (now >= this.nextJoin) {
       this.nextJoin = now + JOIN_PERIOD;
       const mine: Squad[] = [];
@@ -187,6 +260,7 @@ export class FollowLeaderSystem implements GameSystem {
       if (mi >= members.length) break;
     }
     this.gatherEscorts(me, lead, squads);
+    this.departureOrder(this.column, lead);
     ctx.radio.say({ channel: 'unite', from: ctx.squads.get(me.squadId)?.name ?? 'UNITÉ', text: 'Embarquez, on part en colonne derrière moi.', priority: 1, personId: me.id });
   }
 
@@ -219,38 +293,376 @@ export class FollowLeaderSystem implements GameSystem {
         if (d < best) { best = d; pair = s; }
       }
     }
+    const joining: Squad[] = [];
     for (const s of ctx.squads.list) {
       if (s.faction !== 'police' || mine.indexOf(s) >= 0 || s.vehicleId === 0 || s.vehicleId === lead.id) continue;
       if (s.members.length === 0 || s.leaderId === me.id) continue;
-      // unités appelées « avec moi » sur la carte tactique (ordre « suivre » le joueur, à elles ou à une unité mère)
-      const called = this.withMe(s, me.id);
+      // unités en « Me suivre en colonne (véhicules) », elles-mêmes ou par une unité mère
+      const root = this.motorRoot(s);
+      const called = root !== 0;
+      // une unité qui a l'ordre de suivre le joueur À PIED ne monte pas dans son fourgon
+      if (!called && s !== pair && this.followsOnFoot(s)) continue;
+      // unité « en colonne » venue de loin : sa colonne roule encore vers le joueur (police.command), elle la laisse finir
+      if (called && this.convoying(root)) continue;
       const under = this.underAny(s, led) || s === pair || called;
       if (!under && !(companyFree && this.rootOf(s.id) === company)) continue;
       // l'escorte à pied d'un blindé (session/engins.ts) part avec la colonne, dans son fourgon
       const guardsEngine = s.order.type === 'proteger' && ARMORED.has(ctx.vehicles.get(s.order.targetId)?.kind ?? '');
-      if (!FREE_ORDERS.has(s.order.type) && s !== pair && !guardsEngine) continue;
+      // l'ordre « en colonne » est donné à l'unité mère : les groupes partent quel que soit leur ordre propre
+      if (!FREE_ORDERS.has(s.order.type) && s !== pair && !guardsEngine && !called) continue;
       const v = ctx.vehicles.get(s.vehicleId);
       if (!v || v.state === 'wrecked' || v.state === 'burnt' || v.def.flying || !POLICE_FLEET.has(v.kind) && !TROOP_KINDS.has(v.kind)) continue;
-      if (Math.hypot(v.x - lead.x, v.z - lead.z) > (called ? CALLED_RADIUS : COMPANY_RADIUS)) continue;
+      if (Math.hypot(v.x - lead.x, v.z - lead.z) > (called ? MOTOR_RADIUS : COMPANY_RADIUS)) continue;
       if (this.escorts.indexOf(s.id) >= 0) continue;
-      // le véhicule doit être libre, ou déjà occupé par les siens
-      if (v.seats.some((id) => id !== 0 && s.members.indexOf(id) < 0)) continue;
+      // le véhicule doit être libre, ou déjà occupé par les siens (pour une unité « en colonne » : par son unité mère)
+      if (v.seats.some((id) => id !== 0 && (called ? !this.inTree(id, root) : s.members.indexOf(id) < 0))) continue;
+      joining.push(s);
+    }
+    // ordre de départ (le plus avancé d'abord) : personne ne double ni ne traverse le bloc pour prendre sa place
+    const ids = joining.map((s) => s.vehicleId);
+    this.departureOrder(ids, lead);
+    joining.sort((a, b) => ids.indexOf(a.vehicleId) - ids.indexOf(b.vehicleId));
+    for (const s of joining) {
       this.escorts.push(s.id);
-      if (this.column.indexOf(v.id) < 0) this.column.push(v.id);
-      ctx.squads.issue(s.id, { type: 'embarquer', issuedBy: me.id });
+      if (this.column.indexOf(s.vehicleId) < 0) this.column.push(s.vehicleId);
+      // une unité déjà à bord (« en colonne ») n'est pas réembarquée
+      if (!(this.motorRoot(s) !== 0 && s.order.type === 'embarquer')) ctx.squads.issue(s.id, { type: 'embarquer', issuedBy: me.id });
     }
     this.escortSince = ctx.clock.now;
   }
 
-  /** L'unité (ou une unité dont elle dépend) a-t-elle l'ordre de suivre le joueur ? */
-  private withMe(s: Squad, meId: EntityId): boolean {
+  /** L'unité (ou une unité dont elle dépend) a-t-elle reçu du joueur « Me suivre à pied » ? */
+  private followsOnFoot(s: Squad): boolean {
     const ctx = this.ctx!;
     let q: Squad | undefined = s;
     for (let guard = 0; q && guard < 8; guard++) {
-      if (q.order.type === 'suivre' && q.order.targetId === meId) return true;
+      if (this.afoot.has(q.id)) return true;
       q = q.parentId !== 0 ? ctx.squads.get(q.parentId) ?? undefined : undefined;
     }
     return false;
+  }
+
+  /** Unité « en colonne » dont celle-ci fait partie (elle-même ou une unité mère) ; 0 si aucune. */
+  private motorRoot(s: Squad): number {
+    const ctx = this.ctx!;
+    let q: Squad | undefined = s;
+    for (let guard = 0; q && guard < 8; guard++) {
+      if (this.motor.has(q.id)) return q.id;
+      // branche détachée de la colonne par un autre ordre
+      if (this.detached.has(q.id)) return 0;
+      q = q.parentId !== 0 ? ctx.squads.get(q.parentId) ?? undefined : undefined;
+    }
+    return 0;
+  }
+
+  /** Branches de l'unité « en colonne » encore dans la colonne (sans les branches détachées par un autre ordre). */
+  private columnTree(rootId: number): Squad[] {
+    return this.tree(rootId, []).filter((q) => this.motorRoot(q) === rootId);
+  }
+
+  /** L'unité `id` est-elle `rootId` ou placée sous elle ? */
+  private isUnder(id: number, rootId: number): boolean {
+    const ctx = this.ctx!;
+    let q = ctx.squads.get(id);
+    for (let guard = 0; q && guard < 8; guard++) {
+      if (q.id === rootId) return true;
+      q = q.parentId !== 0 ? ctx.squads.get(q.parentId) : undefined;
+    }
+    return false;
+  }
+
+  /** La personne appartient-elle à l'unité `rootId` ou à l'une de ses subordonnées ? */
+  private inTree(personId: EntityId, rootId: number): boolean {
+    const p = this.ctx!.people.get(personId);
+    return !!p && p.squadId !== 0 && this.isUnder(p.squadId, rootId);
+  }
+
+  /** L'unité et ses subordonnées. */
+  private tree(rootId: number, out: Squad[]): Squad[] {
+    out.length = 0;
+    for (const q of this.ctx!.squads.list) if (this.isUnder(q.id, rootId)) out.push(q);
+    return out;
+  }
+
+  /** Véhicules utilisables de l'unité et de ses subordonnées (motos de la BRAV-M comprises). */
+  private fleetOf(rootId: number): Vehicle[] {
+    const ctx = this.ctx!;
+    const out: Vehicle[] = [];
+    for (const q of this.motor.has(rootId) ? this.columnTree(rootId) : this.tree(rootId, [])) {
+      const v = q.vehicleId !== 0 ? ctx.vehicles.get(q.vehicleId) : undefined;
+      if (!v || out.indexOf(v) >= 0 || v.def.flying || v.state === 'wrecked' || v.state === 'burnt') continue;
+      if (!POLICE_FLEET.has(v.kind) && !TROOP_KINDS.has(v.kind)) continue;
+      out.push(v);
+    }
+    return out;
+  }
+
+  /**
+   * Membres de l'unité et de ses subordonnées encore à pied (valides, libres), et à bord — les conducteurs à bord ne
+   * comptent pas (ils restent aux véhicules quand l'unité met pied à terre).
+   */
+  private crewCount(rootId: number): { onFoot: number; aboard: number } {
+    const ctx = this.ctx!;
+    let onFoot = 0;
+    let aboard = 0;
+    for (const q of this.motor.has(rootId) ? this.columnTree(rootId) : this.tree(rootId, [])) {
+      for (const id of q.members) {
+        const p = ctx.people.get(id);
+        if (!p || p.isPlayer) continue;
+        if (p.vehicleId !== 0) {
+          if (p.poste !== 'conducteur' && q.kind !== 'equipage') aboard++;
+        } else if (p.custody === 'free' && p.posture !== 'down') onFoot++;
+      }
+    }
+    return { onFoot, aboard };
+  }
+
+  /** Mouvement motorisé de l'unité encore en cours (police.command : elle vient de loin rejoindre le joueur). */
+  private convoying(squadId: number): boolean {
+    const cmd = this.ctx!.service<CommandLike>('police.command');
+    const st = cmd && cmd.convoyOf ? cmd.convoyOf(squadId) : null;
+    return !!st && CONVOY_BUSY.has(st.stage);
+  }
+
+  private distTo(vehicleId: EntityId, lead: Vehicle): number {
+    const v = this.ctx!.vehicles.get(vehicleId);
+    return v ? Math.hypot(v.x - lead.x, v.z - lead.z) : Infinity;
+  }
+
+  /**
+   * Ordre de départ de la colonne (trié en place) : véhicules orientés dans le même sens (garés en bloc ou en file), le
+   * plus avancé d'abord — chacun part derrière celui qui le précède dans sa file, personne ne traverse le bloc ; sinon,
+   * au plus près du meneur d'abord.
+   */
+  private departureOrder(ids: EntityId[], lead: Vehicle): void {
+    const ctx = this.ctx!;
+    let hx = 0;
+    let hz = 0;
+    let n = 0;
+    for (const id of ids) {
+      const v = ctx.vehicles.get(id);
+      if (!v) continue;
+      hx += Math.sin(v.heading);
+      hz += Math.cos(v.heading);
+      n++;
+    }
+    const len = Math.hypot(hx, hz);
+    const aligned = n > 1 && len > n * 0.85;
+    const key = new Map<EntityId, number>();
+    for (const id of ids) {
+      const v = ctx.vehicles.get(id);
+      const d = this.distTo(id, lead);
+      key.set(id, !v ? Infinity : aligned ? -((v.x * hx + v.z * hz) / len) + d * 1e-3 : d);
+    }
+    ids.sort((a, b) => key.get(a)! - key.get(b)!);
+  }
+
+  /**
+   * Le véhicule peut-il prendre (ou garder) la suite de `prev` ? Le premier, s'il est garé en bloc (un véhicule juste
+   * devant lui), attend que le meneur se soit dégagé : il le rejoindra par les rues.
+   */
+  private mayFollow(v: Vehicle, prev: EntityId, lead: Vehicle, st: Readonly<{ mode: string; leaderId: EntityId }> | null): boolean {
+    if (prev !== lead.id || (st && st.mode === 'follow' && st.leaderId === prev)) return true;
+    return Math.hypot(v.x - lead.x, v.z - lead.z) > FIRST_ENGAGE || !this.boxed(v, lead);
+  }
+
+  /** Un autre véhicule (hors meneur) est-il arrêté juste devant celui-ci, dans son axe ? */
+  private boxed(v: Vehicle, lead: Vehicle): boolean {
+    const fx = Math.sin(v.heading);
+    const fz = Math.cos(v.heading);
+    for (const o of this.ctx!.vehicles.list) {
+      if (o === v || o === lead || o.def.flying || Math.abs(o.speed) > 0.5) continue;
+      const dx = o.x - v.x;
+      const dz = o.z - v.z;
+      const ahead = dx * fx + dz * fz - (v.def.length + o.def.length) * 0.5;
+      if (ahead < -0.5 || ahead > BOXED_AHEAD) continue;
+      if (Math.abs(-dx * fz + dz * fx) < BOXED_SIDE + o.def.width * 0.5) return true;
+    }
+    return false;
+  }
+
+  // ───────────────────────────── ordres du joueur ─────────────────────────────
+
+  /** « Me suivre en colonne (véhicules) ». */
+  private orderColumn(squadId: number): boolean {
+    const ctx = this.ctx;
+    const me = ctx ? ctx.player.person() : null;
+    const s = ctx ? ctx.squads.get(squadId) : undefined;
+    if (!ctx || !me || !s) return false;
+    if (this.fleetOf(squadId).length === 0) return false;
+    this.dismount.delete(squadId);
+    this.afoot.delete(squadId);
+    // déjà « en colonne » par son unité mère : rien de plus
+    const root = this.motorRoot(s);
+    if (root !== 0 && root !== squadId) return true;
+    for (const id of [...this.motor.keys()]) if (id !== squadId && this.isUnder(id, squadId)) this.motor.delete(id);
+    for (const id of [...this.dismount.keys()]) if (this.isUnder(id, squadId)) this.dismount.delete(id);
+    for (const id of [...this.afoot]) if (this.isUnder(id, squadId)) this.afoot.delete(id);
+    for (const id of [...this.detached]) if (this.isUnder(id, squadId)) this.detached.delete(id);
+    this.motor.set(squadId, { since: ctx.clock.now, ready: false });
+    // ordre déjà donné (colonne lancée de loin par police.command) : on ne relance pas l'embarquement
+    if (s.order.type !== 'embarquer') ctx.squads.issue(squadId, { type: 'embarquer', issuedBy: me.id });
+    // le joueur conduit déjà : l'unité prend place dans sa colonne à la prochaine revue
+    this.nextJoin = 0;
+    return true;
+  }
+
+  /** « Me suivre à pied ». */
+  private orderOnFoot(squadId: number): void {
+    const ctx = this.ctx;
+    const me = ctx ? ctx.player.person() : null;
+    const s = ctx ? ctx.squads.get(squadId) : undefined;
+    if (!ctx || !me || !s) return;
+    this.leaveColumn(squadId);
+    this.afoot.add(squadId);
+    if (this.crewCount(squadId).aboard > 0) {
+      // à bord : on descend d'abord, à côté du véhicule de l'unité (ou du premier de ses véhicules)
+      const v = (s.vehicleId !== 0 ? ctx.vehicles.get(s.vehicleId) : undefined) ?? this.fleetOf(squadId)[0];
+      const side = v ? v.heading + Math.PI / 2 : 0;
+      const x = v ? v.x + Math.sin(side) * 4 : me.x;
+      const z = v ? v.z + Math.cos(side) * 4 : me.z;
+      ctx.squads.issue(squadId, { type: 'debarquer', x, z, heading: v ? v.heading : me.heading, width: 0, issuedBy: me.id });
+      this.dismount.set(squadId, ctx.clock.now);
+      return;
+    }
+    ctx.squads.issue(squadId, { type: 'suivre', targetId: me.id, issuedBy: me.id });
+  }
+
+  /** L'unité quitte la colonne : ses véhicules s'arrêtent où ils sont (ils ne suivent plus le joueur). */
+  private leaveColumn(squadId: number): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const tree = this.tree(squadId, []);
+    let dropped = false;
+    for (const q of tree) {
+      if (this.motor.delete(q.id)) dropped = true;
+      this.dismount.delete(q.id);
+    }
+    // unité « en colonne » par une unité mère : seule cette branche quitte la colonne (les autres restent)
+    const s = ctx.squads.get(squadId);
+    if (dropped) {
+      for (const id of [...this.detached]) if (this.isUnder(id, squadId)) this.detached.delete(id);
+    } else if (s && this.motorRoot(s) !== 0) {
+      // la branche se détache : elle n'est plus réembarquée ni emmenée avec la colonne
+      this.detached.add(squadId);
+    } else return;
+    const pilot = ctx.service<Autopilot>('vehicles.autopilot');
+    for (const q of tree) {
+      const ei = this.escorts.indexOf(q.id);
+      if (ei >= 0) this.escorts.splice(ei, 1);
+      if (q.vehicleId === 0) continue;
+      const ci = this.column.indexOf(q.vehicleId);
+      if (ci >= 0) this.column.splice(ci, 1);
+      const ri = this.ride.indexOf(q.vehicleId);
+      if (ri >= 0) this.ride.splice(ri, 1);
+      const v = ctx.vehicles.get(q.vehicleId);
+      if (!v || !pilot) continue;
+      const st = pilot.status ? pilot.status(v) : null;
+      if (!st || st.mode === 'follow') pilot.stop(v);
+    }
+  }
+
+  /** Suivi des ordres : autre ordre reçu (l'unité quitte la colonne), compte rendu « prête », passage à pied. */
+  private tendOrders(me: Person, now: number): void {
+    const ctx = this.ctx!;
+    for (const [sid, st] of [...this.motor]) {
+      const s = ctx.squads.get(sid);
+      if (!s) {
+        this.motor.delete(sid);
+        continue;
+      }
+      // un autre ordre (joueur, commandement IA) : l'unité n'est plus dans la colonne
+      if (s.order.type !== 'embarquer') {
+        this.leaveColumn(sid);
+        continue;
+      }
+      if (st.ready || this.convoying(sid)) continue;
+      const crew = this.crewCount(sid);
+      if (crew.onFoot > 0 && now - st.since < MOTOR_READY_MAX) continue;
+      st.ready = true;
+      const to = ctx.squads.get(me.squadId)?.name ?? me.name;
+      ctx.radio.say({
+        channel: 'commandement', from: s.name, priority: 1, personId: s.leaderId,
+        text: `${to.toUpperCase()} ICI ${s.name.toUpperCase()}. En colonne, prête à vous suivre${crew.onFoot > 0 ? ', ' + crew.onFoot + ' sans place à pied' : ''}. TERMINÉ.`,
+      });
+    }
+    // « à pied » levé par un autre ordre
+    for (const sid of [...this.afoot]) {
+      const s = ctx.squads.get(sid);
+      if (!s || (s.order.type !== 'suivre' && s.order.type !== 'debarquer')) this.afoot.delete(sid);
+    }
+    // descente avant de suivre à pied : tout le monde dehors (ou délai écoulé) → « suivre » le joueur
+    for (const [sid, since] of [...this.dismount]) {
+      const s = ctx.squads.get(sid);
+      if (!s || s.order.type !== 'debarquer') {
+        this.dismount.delete(sid);
+        continue;
+      }
+      if (this.crewCount(sid).aboard > 0 && now - since < DISMOUNT_MAX) continue;
+      this.dismount.delete(sid);
+      ctx.squads.issue(sid, { type: 'suivre', targetId: me.id, issuedBy: me.id });
+    }
+  }
+
+  /**
+   * Joueur passager (il ne conduit pas) : les véhicules des unités « en colonne » suivent celui où il se trouve, en
+   * chaîne, feux et sirène comme lui. Joueur à pied : la colonne s'arrête là où elle est (derrière lui), l'unité à bord.
+   */
+  private tendRide(me: Person): void {
+    const ctx = this.ctx!;
+    const pilot = ctx.service<Autopilot>('vehicles.autopilot');
+    const inV = me.vehicleId !== 0 ? ctx.vehicles.get(me.vehicleId) : undefined;
+    const lead = inV && !inV.def.flying ? inV : null;
+    const want: Vehicle[] = [];
+    if (lead) {
+      for (const [sid, st] of this.motor) {
+        if (this.convoying(sid)) continue;
+        // on ne part pas en laissant des équipiers sur le trottoir (sauf délai d'embarquement écoulé)
+        if (!st.ready) continue;
+        for (const v of this.fleetOf(sid)) if (v !== lead && v.seats[0] !== 0 && want.indexOf(v) < 0) want.push(v);
+      }
+    }
+    // véhicules qui ne sont plus de la colonne : ils s'arrêtent (joueur descendu, ordre levé)
+    for (const id of this.ride) {
+      if (want.some((v) => v.id === id)) continue;
+      const v = ctx.vehicles.get(id);
+      const st = v && pilot && pilot.status ? pilot.status(v) : null;
+      if (v && pilot && (!st || st.mode === 'follow')) pilot.stop(v);
+    }
+    if (!lead || want.length === 0) {
+      this.ride = [];
+      return;
+    }
+    // l'ordre établi est gardé ; les nouveaux venus prennent la queue, dans l'ordre de départ
+    const next = this.ride.filter((id) => want.some((v) => v.id === id));
+    const fresh = want.filter((v) => next.indexOf(v.id) < 0).map((v) => v.id);
+    this.departureOrder(fresh, lead);
+    next.push(...fresh);
+    this.ride = next;
+    const ext = ctx.service<VehiclesExt>('vehicles.ext');
+    let prev: EntityId = lead.id;
+    for (const id of next) {
+      const v = ctx.vehicles.get(id);
+      if (!v) continue;
+      if (pilot) {
+        const st = pilot.status ? pilot.status(v) : null;
+        if (this.mayFollow(v, prev, lead, st) && (!st || st.mode !== 'follow' || st.leaderId !== prev)) pilot.follow(v, prev, COLUMN_GAP);
+      }
+      this.mirrorLights(v, lead, ext);
+      prev = v.id;
+    }
+  }
+
+  private mirrorLights(v: Vehicle, lead: Vehicle, ext: VehiclesExt | undefined): void {
+    const ctx = this.ctx!;
+    if (v.siren !== lead.siren) {
+      if (ext && ext.setSiren) ext.setSiren(v, lead.siren);
+      else { v.siren = lead.siren; ctx.events.emit('vehicle:siren', { id: v.id, siren: lead.siren }); }
+    }
+    if (v.beacons !== lead.beacons) {
+      if (ext && ext.setBeacons) ext.setBeacons(v, lead.beacons);
+      else v.beacons = lead.beacons;
+    }
   }
 
   /** Unité racine (compagnie) d'une unité. */
@@ -353,16 +765,10 @@ export class FollowLeaderSystem implements GameSystem {
       if (waiting) continue;
       if (pilot) {
         const st = pilot.status ? pilot.status(v) : null;
-        if (!st || st.mode !== 'follow' || st.leaderId !== prev) pilot.follow(v, prev, COLUMN_GAP);
+        // (garé en bloc, il attend que le meneur se dégage : feux et sirène déjà comme lui)
+        if (this.mayFollow(v, prev, lead, st) && (!st || st.mode !== 'follow' || st.leaderId !== prev)) pilot.follow(v, prev, COLUMN_GAP);
       }
-      if (v.siren !== lead.siren) {
-        if (ext && ext.setSiren) ext.setSiren(v, lead.siren);
-        else { v.siren = lead.siren; ctx.events.emit('vehicle:siren', { id: v.id, siren: lead.siren }); }
-      }
-      if (v.beacons !== lead.beacons) {
-        if (ext && ext.setBeacons) ext.setBeacons(v, lead.beacons);
-        else v.beacons = lead.beacons;
-      }
+      this.mirrorLights(v, lead, ext);
       prev = v.id;
     }
   }
@@ -380,6 +786,9 @@ export class FollowLeaderSystem implements GameSystem {
     }
     for (const [id] of this.assign) {
       const p = ctx.people.get(id);
+      // unité « en colonne » : elle reste à bord jusqu'au prochain ordre
+      const sq = p && p.squadId !== 0 ? ctx.squads.get(p.squadId) : undefined;
+      if (sq && this.motorRoot(sq) !== 0) continue;
       if (p && p.vehicleId !== 0) ctx.vehicles.exit(p);
     }
     // les groupes accompagnateurs débarquent en ligne à côté de leur fourgon
@@ -387,8 +796,9 @@ export class FollowLeaderSystem implements GameSystem {
       const sq = ctx.squads.get(sid);
       const v = sq ? ctx.vehicles.get(sq.vehicleId) : undefined;
       if (!sq || !v) continue;
-      // un équipage d'engin (canon à eau, Centaure) reste à son poste
-      if (sq.kind === 'equipage') continue;
+      // un équipage d'engin (canon à eau, Centaure) reste à son poste ; une unité « en colonne » reste à bord, garée
+      // derrière le joueur, jusqu'au prochain ordre
+      if (sq.kind === 'equipage' || this.motorRoot(sq) !== 0) continue;
       const side = v.heading + Math.PI / 2;
       ctx.squads.issue(sid, { type: 'debarquer', x: v.x + Math.sin(side) * 4, z: v.z + Math.cos(side) * 4, heading: v.heading, width: 0, issuedBy: ctx.player.person()?.id ?? 0 });
     }

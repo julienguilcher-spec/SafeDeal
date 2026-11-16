@@ -129,12 +129,13 @@ describe('commandement — catalogue des ordres', () => {
   const CONTRACT: OrderType[] = [
     'libre', 'suivre', 'tenir', 'ligne', 'colonne', 'tortue', 'avancer', 'bond_offensif', 'charge', 'refoulement', 'repli',
     'encercler', 'disperser_gaz', 'interpeller', 'proteger', 'embarquer', 'debarquer', 'degager_barricade', 'escorter', 'cesser',
+    'degager_obstacle',
   ];
 
   it('tous les verbes d\'OrderType du contrat ont un libellé français, une seule fois', () => {
     // « faire_mouvement » est un ordre de l'interface seule (colonne motorisée lancée par police.command), jamais
     // transmis tel quel à une unité
-    const types = ORDER_VERBS.map((v) => v.type).filter((t) => t !== 'faire_mouvement' && t !== 'avec_moi').sort();
+    const types = ORDER_VERBS.map((v) => v.type).filter((t) => t !== 'faire_mouvement' && t !== 'avec_moi' && t !== 'suivre_pied').sort();
     expect(types).toEqual([...CONTRACT].sort());
     expect(ORDER_VERBS.some((v) => v.type === 'faire_mouvement')).toBe(true);
     for (const v of ORDER_VERBS) {

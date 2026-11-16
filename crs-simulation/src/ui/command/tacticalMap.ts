@@ -234,7 +234,8 @@ export class TacticalMap {
   /** Ordre désignant un point ; `face` : cap imposé par un glissement (NaN = déduit du déplacement). */
   issuePoint(verb: OrderVerb, x: number, z: number, face: number, targetId = 0, targetName = ''): boolean {
     const units = this.selectedUnits();
-    if (units.length === 0) {
+    // (« Dégager l'obstacle » : sans sélection, le Centaure libre le plus proche y va)
+    if (units.length === 0 && verb.type !== 'degager_obstacle') {
       this.core.ctx.ui.notify('Sélectionnez d’abord une unité sous vos ordres.', 'warn', 3);
       return false;
     }

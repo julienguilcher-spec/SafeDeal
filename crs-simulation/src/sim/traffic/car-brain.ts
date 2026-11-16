@@ -18,6 +18,8 @@ export const MODE_PULL = 2;
 export const MODE_PARK = 3;
 /** Arrivé (automobiliste créé par une mission) : ne fait plus rien. */
 export const MODE_DONE = 4;
+/** Fait dégager la voie (ordre d'un policier, deux-tons d'un véhicule arrêté derrière lui) : se serre sur le côté. */
+export const MODE_CLEAR = 5;
 
 export class CarBrain {
   readonly route = new CarRoute();
@@ -88,6 +90,25 @@ export class CarBrain {
   viaAt = 0;
   /** Âge (s) : pas de disparition dans les premières secondes. */
   bornAt = 0;
+  // ── dégagement de la voie (car-clear.ts) ──
+  /** Qui l'a fait dégager (véhicule de police ou policier à pied). */
+  clearBy: EntityId = 0;
+  /** Début de la manœuvre ; fin (rangé) ; −1 tant qu'il manœuvre (s). */
+  clearAt = 0;
+  clearDone = -1;
+  /** Axe de la rue (point, direction dans son sens de marche) et écart visé à droite de l'axe (m). */
+  clearAx = 0;
+  clearAz = 0;
+  clearDx = 0;
+  clearDz = 1;
+  clearOff = 0;
+  /** Sens de la manœuvre : 1 en avant, −1 en marche arrière, 0 à l'arrêt (rien de libre). */
+  clearSign = 0;
+  /** Distance parcourue depuis la dernière reprise (m) : une reprise ne dépasse pas une dizaine de mètres. */
+  clearRun = 0;
+  /** Temps passé sans avancer malgré la commande (s) ; dernier coup d'avertisseur (s). */
+  clearStall = 0;
+  clearHorn = 0;
 
   constructor(readonly v: Vehicle) {
     this.halfL = v.def.length * 0.5;
@@ -102,6 +123,7 @@ export function modeName(b: CarBrain): 'route' | 'arret' | 'range' | 'stationne'
     case MODE_DONE:
       return 'arret';
     case MODE_PULL:
+    case MODE_CLEAR:
       return 'range';
     case MODE_PARK:
       return 'stationne';

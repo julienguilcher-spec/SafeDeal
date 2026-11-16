@@ -86,7 +86,7 @@ const TABLE: Record<string, SpecInit> = {
   fourgon_cellulaire: { engine: DIESEL(26), handling: H_FOURGON, fire: F_FOURGON, boardTime: 1.8 },
   centaure: {
     engine: LOURD(15.2, '4x4'), handling: H_BLINDE, fire: F_BLINDE, toughness: 0.12, boardTime: 2.0,
-    seatTurret: [-1, 1, 0], jets: [null, null], launchers: [LANCEUR_CENTAURE, null], pushMass: 12000, mast: 1.6,
+    seatTurret: [-1, 1, 0], jets: [null, null], launchers: [LANCEUR_CENTAURE, null], pushMass: 18000, mast: 1.6,
   },
   canon_eau: {
     engine: LOURD(10.5), handling: H_LOURD, fire: F_LOURD, toughness: 0.45, boardTime: 2.0,

@@ -9,7 +9,7 @@
 import type { Person, RoadSample, Vehicle } from '@/core/contracts';
 import type { BlockCause } from './api';
 import type { CarBrain } from './car-brain';
-import { MODE_DONE, MODE_GO, MODE_HOLD, MODE_PARK, MODE_PULL, modeName } from './car-brain';
+import { MODE_CLEAR, MODE_DONE, MODE_GO, MODE_HOLD, MODE_PARK, MODE_PULL, modeName } from './car-brain';
 import { CarWatcher } from './car-watch';
 import type { Cars } from './cars';
 import type { ControlPoint, RoutePoint } from './route';
@@ -70,6 +70,11 @@ export class CarThinker {
       // conducteur inconscient ou interpellé au volant : le véhicule s'arrête et n'est plus conduit
       if (cars.ap) cars.ap.stop(v);
       cars.forget(b, true);
+      return;
+    }
+    // on le fait dégager : il manœuvre, puis attend rangé que la voie soit passée (car-clear.ts)
+    if (b.mode === MODE_CLEAR) {
+      cars.clearer.think(b);
       return;
     }
     if (b.mode === MODE_DONE || !cars.ap) return;

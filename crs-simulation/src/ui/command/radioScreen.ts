@@ -23,6 +23,11 @@ interface SupplyRequest {
   pendingUntil(): number;
 }
 
+/** Vue minimale du service 'police.obstacle' (src/sim/police/command/obstacle.ts) : demande de Centaure. */
+interface ObstacleRequest {
+  radioRequest(from: string): { ok: boolean; name: string; reason: string };
+}
+
 /** Délai entre deux messages rapides (s) : un seul locuteur à la fois sur le canal. */
 const COOLDOWN = 2;
 
@@ -93,6 +98,7 @@ export class RadioScreen implements ScreenInstance {
       add('Compte rendu de situation', 'eye', 'radio-cr', () => this.sendSituation());
       add('Demande de renfort', 'units', 'radio-renfort', () => this.sendReinforcement());
       add('Demande de ravitaillement', 'list', 'radio-ravitaillement', () => this.sendSupply());
+      add('Demande Centaure pour dégager un obstacle', 'road', 'radio-centaure', () => this.sendCentaure());
       add('Demande d’autorisation d’emploi de la force', 'megaphone', 'radio-force', () => this.sendForce());
       add('Demande de secours\u00a0: pompiers', 'fire', 'radio-pompiers', () => this.sendRescue('pompiers'));
       add('Demande de secours\u00a0: SAMU', 'cross', 'radio-samu', () => this.sendRescue('samu'));
@@ -155,6 +161,19 @@ export class RadioScreen implements ScreenInstance {
     const at = supply.pendingUntil();
     if (at >= 0) ctx.ui.notify(`Ravitaillement déjà demandé : arrivée à la zone de stationnement dans environ ${Math.max(1, Math.ceil((at - ctx.clock.now) / 60))} min.`, 'info', 4);
     else ctx.ui.notify('Ni fourgon de compagnie ni engin à faire ravitailler.', 'warn', 4);
+  }
+
+  /** Véhicule qui barre la voie : le commandement envoie un Centaure s'il en a un de libre (police.obstacle). */
+  private sendCentaure(): void {
+    const ctx = this.core.ctx;
+    const desk = ctx.service<ObstacleRequest>('police.obstacle');
+    if (!desk) {
+      ctx.ui.notify('Aucun Centaure joignable pour cette mission.', 'warn', 4);
+      return;
+    }
+    const r = desk.radioRequest(this.core.callsign());
+    ctx.audio.play('radio_bip');
+    ctx.ui.notify(r.ok ? `${r.name} vient dégager l’obstacle : restez à distance du véhicule.` : `Demande refusée : ${r.reason.charAt(0).toLowerCase()}${r.reason.slice(1)}`, r.ok ? 'ok' : 'warn', 5);
   }
 
   private sendRescue(kind: RescueKind): void {

@@ -941,6 +941,8 @@ export type OrderType = Open<
   | 'embarquer' | 'debarquer' | 'degager_barricade' | 'escorter' | 'cesser'
   // traitement d'un incident : éteindre un feu (targetId ou point), aller chercher un blessé ou un agent à terre
   | 'eteindre' | 'secourir' | 'releve' | 'ravitailler' | 'couper_circulation' | 'filtrer'
+  // Centaure : pousser hors de la voie le véhicule qui la barre (targetId ou point)
+  | 'degager_obstacle'
 >;
 
 export interface SquadOrder {

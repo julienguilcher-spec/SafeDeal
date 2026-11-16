@@ -30,6 +30,7 @@ import { DroneUnit, isDroneTeam } from './drone';
 import { Picture } from './picture';
 import { Reaction } from './react';
 import { SpecialRegistry } from './special';
+import { OBSTACLE_SERVICE, ObstacleDesk } from './obstacle';
 import { onMetroWave } from './sustain';
 
 const HOSTILE_PROJECTILES: Readonly<Record<string, number>> = { pave: 0.25, bouteille: 0.25, molotov: 0.7, mortier: 0.5, oeuf_peinture: 0.1, debris: 0.15 };
@@ -45,6 +46,8 @@ export class CommandSystem implements GameSystem {
   readonly adjoint = new Adjoint(this.core);
   readonly delegation = new Delegation(this.core, this.pic);
   readonly commands: Command[] = [];
+  /** Véhicule qui barre la voie du joueur : Centaure à faire venir, proposition de l'adjoint, demande radio. */
+  readonly obstacle = new ObstacleDesk(this.core, () => this.specials.list, (sp): sp is CentaureUnit => sp instanceof CentaureUnit, this.adjoint, () => this.playerCommand());
   private readonly reactions: Reaction[] = [];
   private readonly states: CommandState[] = [];
   private ctx!: GameContext;
@@ -119,6 +122,7 @@ export class CommandSystem implements GameSystem {
     };
     ctx.provide(POLICE_COMMAND_SERVICE, api);
     ctx.provide(COMMAND_POST_SERVICE, post);
+    ctx.provide(OBSTACLE_SERVICE, this.obstacle.api);
     // reconnaissance des unités spéciales
     this.specials.register((s) => (isCentaure(core, s) ? new CentaureUnit(core, this.pic, s) : null));
     this.specials.register((s) => (isCanon(core, s) ? new CanonUnit(core, this.pic, s) : null));
@@ -255,6 +259,7 @@ export class CommandSystem implements GameSystem {
     this.specials.reset();
     this.convoy.reset();
     this.adjoint.reset();
+    this.obstacle.reset();
     this.delegation.reset();
     this.commands.length = 0;
     this.reactions.length = 0;
@@ -278,6 +283,18 @@ export class CommandSystem implements GameSystem {
   private indexOf(squadId: number): number {
     for (let i = 0; i < this.commands.length; i++) if (this.commands[i].squad.id === squadId) return i;
     return -1;
+  }
+
+  /** Commandement tenu par le joueur (mode adjoint) dont il fait partie, ou null (exécutant, commandant IA). */
+  private playerCommand(): Command | null {
+    const me = this.ctx.player.person();
+    if (!me) return null;
+    for (let i = 0; i < this.commands.length; i++) {
+      const c = this.commands[i];
+      if (c.ia) continue;
+      if (c.squad.leaderId === me.id || (me.squadId !== 0 && this.core.isUnder(me.squadId, c.squad.id))) return c;
+    }
+    return null;
   }
 
   private commandOf(squadId: number): Command | null {
@@ -485,6 +502,7 @@ export class CommandSystem implements GameSystem {
       this.pic.refreshCortege();
       this.pic.update(1);
       this.autoAssume();
+      this.obstacle.update();
     }
     for (let i = 0; i < this.commands.length; i++) if (now >= this.commands[i].thinkAt) this.think(i);
     this.adjoint.update();

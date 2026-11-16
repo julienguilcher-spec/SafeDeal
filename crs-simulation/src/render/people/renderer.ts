@@ -435,9 +435,13 @@ export class PeopleRenderer {
     }
     // vue annexe active : son champ (quatre plans latéraux), sa position et sa portée
     const aux = this.auxView();
-    let auxOn = false, auxX = 0, auxY = 0, auxZ = 0, auxR2 = 0;
+    let auxOn = false, auxX = 0, auxY = 0, auxZ = 0, auxR2 = 0, auxK = 1;
     if (aux && aux.active && aux.target) {
       const ac = aux.camera;
+      // zoom optique de la vue annexe : distance apparente = distance × tan(champ annexe / 2) / tan(champ principal / 2)
+      const mainFov = (cam as THREE.PerspectiveCamera).fov > 0 ? (cam as THREE.PerspectiveCamera).fov : 60;
+      auxK = Math.tan((ac.fov * Math.PI) / 360) / Math.tan((mainFov * Math.PI) / 360);
+      if (!(auxK > 0) || !Number.isFinite(auxK)) auxK = 1;
       ac.updateMatrixWorld();
       const ae = ac.matrixWorld.elements;
       auxX = ae[12]; auxY = ae[13]; auxZ = ae[14];
@@ -534,7 +538,9 @@ export class PeopleRenderer {
       // niveau de détail avec hystérésis
       let lod: number;
       if (force >= 0) lod = force;
-      else if (auxOnly) lod = 2;
+      // vu seulement par la vue annexe : niveau moyen quand le zoom optique la rapproche, lointain sinon
+      // (jamais le niveau proche : son budget appartient à la vue principale)
+      else if (auxOnly) lod = Math.sqrt((x - auxX) * (x - auxX) + (y + 0.9 - auxY) * (y + 0.9 - auxY) + (z - auxZ) * (z - auxZ)) * auxK < midD * 0.93 ? 1 : 2;
       else {
         const dist = Math.sqrt(d2);
         const prev = fresh ? 2 : this.lodOf[slot];

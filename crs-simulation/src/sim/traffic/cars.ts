@@ -16,7 +16,8 @@ import type { IncidentsApi } from '@/core/extensions';
 import type { AutopilotApi, DriveOptions, VehiclesExtApi } from '@/sim/vehicles/api';
 import { MOTORIST_EVENT } from './api';
 import type { MotoristState } from './api';
-import { CarBrain, MODE_GO, MODE_HOLD, MODE_PARK, MODE_PULL } from './car-brain';
+import { CarBrain, MODE_CLEAR, MODE_GO, MODE_HOLD, MODE_PARK, MODE_PULL } from './car-brain';
+import { CarClearer } from './car-clear';
 import { AXIS_NUDGE, CarRouter } from './car-routing';
 import { CarThinker } from './car-think';
 import type { EdgePoint } from './graph';
@@ -45,6 +46,8 @@ export class Cars {
   parking: Parking | null = null;
   readonly thinker: CarThinker;
   readonly router: CarRouter;
+  /** Automobilistes qu'on fait dégager (deux-tons d'un véhicule arrêté, ordre d'un policier). */
+  readonly clearer: CarClearer;
   /** Facteur local selon le type des voies autour du joueur (grands axes : plus de trafic). */
   roadFactor = 1;
 
@@ -63,6 +66,7 @@ export class Cars {
   constructor(readonly k: TrafficKernel) {
     this.router = new CarRouter(k);
     this.thinker = new CarThinker(k, this);
+    this.clearer = new CarClearer(k, this);
   }
 
   reset(): void {
@@ -74,6 +78,7 @@ export class Cars {
     this.roadT = 0;
     this.roadFactor = 1;
     this.thinker.reset();
+    this.clearer.reset();
   }
 
   private services(): void {
@@ -92,9 +97,12 @@ export class Cars {
       this.services();
     }
     this.thinker.update(dt);
+    if (this.ap) this.clearer.update(dt);
     const list = this.list;
     for (let i = list.length - 1; i >= 0; i--) {
       const b = list[i]!;
+      // manœuvre de dégagement : le conducteur tient le volant à chaque pas
+      if (b.mode === MODE_CLEAR) this.clearer.step(b, dt);
       b.thinkT -= dt;
       if (b.thinkT > 0) continue;
       b.thinkT += CAR_THINK;

@@ -688,7 +688,9 @@ export class ApDriver {
       // voiture qui attend son tour dans la circulation
       // (la circulation ordinaire, elle, attend ou se fait dévier par le module de circulation)
       const urgent = ap.urgence || ap.convoy;
-      if (!urgent) return false;
+      // un véhicule qui suit un meneur (colonne du joueur, escorte) contourne aussi un véhicule GARÉ (sans conducteur)
+      // qui lui barre la voie : sinon, sorti d'un stationnement en bloc, il attendait derrière indéfiniment
+      if (!urgent && !(parked && ap.mode === 'follow')) return false;
       if (!parked && ap.blockedFor < (urgent ? AVOID_WAIT_URGENT : AVOID_WAIT)) return false;
       vehId = o.v.id;
     } else {

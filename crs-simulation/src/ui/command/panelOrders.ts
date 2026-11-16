@@ -217,7 +217,8 @@ export class OrdersPanel {
       this.core.ctx.audio.play('ui_alerte');
       return;
     }
-    if (this.tmap.selectedUnits().length === 0) {
+    // (« Dégager l'obstacle » : sans sélection, le Centaure libre le plus proche y va)
+    if (this.tmap.selectedUnits().length === 0 && verb.type !== 'degager_obstacle') {
       this.core.ctx.ui.notify('Sélectionnez d’abord une unité sous vos ordres.', 'warn', 3);
       return;
     }
