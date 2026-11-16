@@ -11,6 +11,7 @@
  * Simulation pure.
  * ===================================================================================== */
 
+import { concludeCustom, watchCustom } from './custom';
 import type { GameContext, Person, PlaceInfo } from '@/core/contracts';
 import { EXT } from '@/core/extensions';
 import type { TrafficControlApi } from '@/core/extensions';
@@ -32,6 +33,8 @@ export interface ObjectiveRun {
   note: string;
   /** Instant de la décision (s de mission). */
   decidedAt: number;
+  /** « Tenir la position » : temps cumulé où la position est submergée (ligne enfoncée). */
+  broken?: number;
 }
 
 /** Objectifs jugés seulement à la fin (sauf violation). */
@@ -97,6 +100,16 @@ export function evaluate(o: ObjectiveRun, env: EvalEnv): void {
     case 'tenir_position': {
       const p = placeOf(o, env);
       const n = ctx.people.countIn(p.x, p.z, p.r + 10, (q) => q.faction === 'police' && q.posture !== 'down');
+      // ligne enfoncée : des individus violents occupent la position en nombre nettement supérieur aux agents qui la
+      // tiennent, plus de 25 s (un cortège pacifique qui passe à côté ne compte pas)
+      const violent = ctx.people.countIn(p.x, p.z, p.r, (q) => q.faction === 'protest' && q.custody === 'free' && q.posture !== 'down'
+        && (q.profile === 'radical' || q.profile === 'pilleur'));
+      if (violent >= Math.max(6, n * 2)) o.broken = (o.broken ?? 0) + env.dt;
+      else o.broken = Math.max(0, (o.broken ?? 0) - env.dt * 0.5);
+      if ((o.broken ?? 0) > 25) {
+        fail(o, env, `Ligne enfoncée : ${violent} individus violents ont submergé la position, ${n} agents pour la tenir.`);
+        break;
+      }
       const mine = me ? Math.hypot(me.x - p.x, me.z - p.z) <= p.r + 10 : false;
       if (n >= 3 || mine) o.held += env.dt;
       const want = o.def.seconds ?? 300;
@@ -213,8 +226,11 @@ export function evaluate(o: ObjectiveRun, env: EvalEnv): void {
         o.progress = env.elapsed > 0 ? Math.min(1, o.held / Math.max(1, env.elapsed)) : 0;
       }
       break;
-    case 'prevention':
     case 'personnalise':
+      // objectif dont le texte décrit une grandeur mesurable (voir custom.ts) : violations en cours de mission
+      watchCustom(o, env, (note) => fail(o, env, note));
+      break;
+    case 'prevention':
       break;
     default:
       break;
@@ -247,6 +263,7 @@ export function conclude(o: ObjectiveRun, env: EvalEnv, failed: boolean): void {
       succeed(o, env, 'Votre groupe est resté indemne.');
       break;
     case 'personnalise':
+      if (concludeCustom(o, env, (note) => succeed(o, env, note), (note) => fail(o, env, note))) break;
       if (failed) fail(o, env, 'Non mesuré automatiquement ; mission échouée.');
       else succeed(o, env, 'Non mesuré automatiquement ; jugé sur l’issue de la mission.');
       break;

@@ -25,6 +25,9 @@ export class MissionTracker {
   anyWorstFault = 0;
   withoutWarning = 0;
   forceUses = 0;
+  /** Emplois de la force par le joueur lui-même, et coups qu'il a portés (blessures dont il est la source). */
+  playerForceUses = 0;
+  playerBlows = 0;
   /** Phases de foule déjà vues (même brièvement). */
   readonly crowdPhases = new Set<string>();
   /** Membres du groupe du joueur interpellés ou blessés graves (rôle manifestant). */
@@ -59,7 +62,14 @@ export class MissionTracker {
         this.forceUses++;
         if (r.verdict.kind === 'sans_sommation') this.withoutWarning++;
         this.anyWorstFault = Math.max(this.anyWorstFault, r.verdict.severity);
-        if (r.byId === pid()) this.playerWorstFault = Math.max(this.playerWorstFault, r.verdict.severity);
+        if (r.byId === pid()) {
+          this.playerWorstFault = Math.max(this.playerWorstFault, r.verdict.severity);
+          this.playerForceUses++;
+        }
+      }),
+      ev.on('person:hurt', (e) => {
+        const k = e.info.kind;
+        if (e.info.sourceId === pid() && e.id !== pid() && (k === 'blunt' || k === 'impact')) this.playerBlows++;
       }),
       ev.on('crowd:phase', (e) => { this.crowdPhases.add(e.phase); }),
       ev.on('person:down', (e) => {
@@ -87,6 +97,7 @@ export class MissionTracker {
   reset(): void {
     this.stop();
     this.arrests = this.lawfulArrests = this.treated = this.firesOut = this.fires = this.windows = this.shots = 0;
+    this.playerForceUses = this.playerBlows = 0;
     this.barricadesCleared = this.playerOrders = this.reliefs = 0;
     this.playerWorstFault = this.anyWorstFault = this.withoutWarning = this.forceUses = 0;
     this.ownHarmed = 0;
