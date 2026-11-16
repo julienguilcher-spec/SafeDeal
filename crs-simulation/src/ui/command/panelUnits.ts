@@ -40,6 +40,8 @@ interface Row {
 
 /** Texte et nature de l'ordre en cours d'une unité. */
 export function orderStatus(u: MapUnit): { text: string; free: boolean; force: boolean } {
+  // voiture de patrouille : son état propre (« Patrouille », « En route (urgence) », « Sur place »)
+  if (u.patrol) return { text: u.status, free: u.status === 'Patrouille', force: false };
   const o = u.order;
   if (!o || o.type === 'libre') return { text: u.squadId !== 0 ? 'Libre' : '', free: true, force: false };
   const v = verbOf(o.type);
@@ -192,7 +194,7 @@ export class UnitsPanel {
     let key = sel.length + '|' + own + '|' + this.core.scope().level;
     for (let i = 0; i < sel.length; i++) {
       const u = sel[i]!;
-      key += `|${u.key}:${u.valid}/${u.total}:${u.injured}:${Math.round(u.morale * 20)}:${u.ammo}:${u.order ? u.order.type : ''}:${u.orderDist <= arrivalRadius(u.order ? u.order.width : 0) ? 1 : 0}`;
+      key += `|${u.key}:${u.valid}/${u.total}:${u.injured}:${Math.round(u.morale * 20)}:${u.ammo}:${u.order ? u.order.type : ''}:${u.orderDist <= arrivalRadius(u.order ? u.order.width : 0) ? 1 : 0}:${u.status}`;
     }
     if (key === this.cardKey) return;
     this.cardKey = key;
@@ -227,7 +229,10 @@ export class UnitsPanel {
         if (u.ammo >= 0) add('Munitions collectives', String(u.ammo));
         const os = orderStatus(u);
         const arrived = u.order ? u.orderDist <= arrivalRadius(u.order.width) : true;
-        add('Ordre en cours', os.free ? 'Aucun (initiative)' : `${os.text} — ${arrived ? 'en place' : 'en cours'}`);
+        if (u.patrol) {
+          add('État', u.status);
+          if (u.order && u.order.type !== 'libre' && u.status !== 'Patrouille') add('Ordre reçu', orderLabel(u.order.type));
+        } else add('Ordre en cours', os.free ? 'Aucun (initiative)' : `${os.text} — ${arrived ? 'en place' : 'en cours'}`);
         if (u.total > 0 && u.valid / u.total < 0.6) {
           card.appendChild(kv);
           card.appendChild(el('div', 'ct-note is-warn', 'Moins de 60\u00a0% d’agents valides\u00a0: relève conseillée.'));

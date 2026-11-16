@@ -216,7 +216,9 @@ export function drawUnits(g: CanvasRenderingContext2D, t: MapTransform, scene: M
       SYM.strength = u.total > 0 ? u.valid / u.total : 1;
       SYM.injured = u.injured > 0;
       SYM.code = u.code;
-      SYM.detail = (selected || t.mpp < 0.75) && u.squadId !== 0 && u.total > 0 ? `${u.valid}/${u.total}` : '';
+      // voiture de patrouille : son état (patrouille, en route, sur place) se lit de loin ; les autres unités, leur effectif
+      if (u.patrol) SYM.detail = selected || t.mpp < 6 ? u.status : '';
+      else SYM.detail = (selected || t.mpp < 0.75) && u.squadId !== 0 && u.total > 0 ? `${u.valid}/${u.total}${selected && u.status !== '' ? ' · ' + u.status : ''}` : '';
       SYM.compact = false;
       drawUnitSymbol(g, u.symbol, SP.x, SP.y, SYM);
     }

@@ -92,6 +92,29 @@ function drawGlyph(g: CanvasRenderingContext2D, symbol: UnitSymbol, hw: number, 
       g.fill();
       break;
     }
+    case 'patrouille': {
+      // voiture de police : berline de profil, gyrophare sur le toit
+      g.beginPath();
+      g.moveTo(-ix, iy * 0.4);
+      g.lineTo(-ix, -iy * 0.05);
+      g.lineTo(-ix * 0.55, -iy * 0.12);
+      g.lineTo(-ix * 0.3, -iy * 0.55);
+      g.lineTo(ix * 0.32, -iy * 0.55);
+      g.lineTo(ix * 0.6, -iy * 0.12);
+      g.lineTo(ix, -iy * 0.02);
+      g.lineTo(ix, iy * 0.4);
+      g.closePath();
+      g.stroke();
+      const r = hh * 0.19;
+      g.beginPath();
+      g.arc(-ix * 0.55, iy * 0.58, r, 0, Math.PI * 2);
+      g.arc(ix * 0.55, iy * 0.58, r, 0, Math.PI * 2);
+      g.fill();
+      g.beginPath();
+      g.rect(-hw * 0.12, -iy * 0.95, hw * 0.24, iy * 0.32);
+      g.fill();
+      break;
+    }
     case 'centaure': {
       // blindé à roues : ovale, roues dessous
       g.beginPath();

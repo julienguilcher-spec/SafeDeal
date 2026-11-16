@@ -9,7 +9,12 @@ import type { MapVisibility } from './api';
 
 export type UnitSymbol =
   | 'compagnie' | 'section' | 'groupe' | 'binome' | 'vehicule' | 'centaure' | 'canon_eau' | 'bravm' | 'drone'
-  | 'pompiers' | 'samu';
+  | 'pompiers' | 'samu' | 'patrouille';
+
+/** Lecture du service des patrouilles (module gameplay/patrols), sans en dépendre. */
+interface PatrolsLike {
+  statusOf(squadId: number): { label: string; state: string } | null;
+}
 
 export interface MapUnit {
   /** Clé stable : identifiant d'unité (> 0), ou −identifiant du véhicule pour un véhicule hors unité. */
@@ -46,6 +51,13 @@ export interface MapUnit {
   leaderId: number;
   /** Membres rattachés directement à l'unité (hors subordonnées). */
   own: number;
+  /**
+   * État en clair pour la carte et la liste : voiture de patrouille (« Patrouille », « En route (urgence) », « Sur
+   * place »…), sinon d'après l'ordre en cours (« en route », « en place ») ; '' sans ordre.
+   */
+  status: string;
+  /** Voiture de patrouille (Police secours, BAC) gérée par le service 'police.patrols'. */
+  patrol: boolean;
   /** Horodatage interne de rafraîchissement. */
   stamp: number;
 }
@@ -60,6 +72,11 @@ export function unitCode(name: string): string {
   const tokens = name.trim().toUpperCase().split(/\s+/).filter((t) => t.length > 0);
   if (tokens.length === 0) return '';
   const last = tokens[tokens.length - 1]!;
+  // indicatifs de patrouille : « TV 75-09 » → « T09 », « BAC 75N » → « BN »
+  const dash = /^\d+-(\d+)$/.exec(last);
+  if (tokens.length >= 2 && dash) return tokens[0]!.charAt(0) + dash[1]!;
+  const suffix = /^\d+([A-Z])$/.exec(last);
+  if (tokens.length >= 2 && suffix) return tokens[0]!.charAt(0) + suffix[1]!;
   if (tokens.length >= 3 && ALPHABET.has(last) && /^\d+$/.test(tokens[tokens.length - 2]!)) {
     return tokens[tokens.length - 2]! + last.charAt(0);
   }
@@ -77,6 +94,7 @@ function symbolOfVehicle(kind: string): UnitSymbol {
     case 'camion_pompiers': return 'pompiers';
     case 'ambulance': return 'samu';
     case 'moto_bravm': return 'bravm';
+    case 'voiture_police': return 'patrouille';
     default: return 'vehicule';
   }
 }
@@ -102,6 +120,15 @@ function symbolOfSquad(squad: Squad, vehicle: Vehicle | undefined, first: Person
   }
 }
 
+/** Ordres sans point à rejoindre (pas d'état « en route / en place »). */
+const NO_POINT: ReadonlySet<string> = new Set(['libre', 'suivre', 'escorter', 'cesser', 'embarquer', 'debarquer', 'tortue']);
+
+/** État d'une unité d'après son ordre : « en route » tant qu'elle n'a pas rejoint le point, puis « en place ». */
+export function statusOfOrder(o: SquadOrder, dist: number): string {
+  if (NO_POINT.has(o.type)) return '';
+  return dist > 6 + o.width * 0.25 + 4 ? 'en route' : 'en place';
+}
+
 interface Acc {
   total: number; valid: number; injured: number; sx: number; sz: number; n: number; ammo: number; ammoKnown: boolean;
   morale: number; moraleN: number; hasPlayer: boolean; first: Person | undefined;
@@ -122,6 +149,7 @@ export class UnitModel {
   private readonly children = new Map<number, Squad[]>();
   private readonly accs = new Map<number, Acc>();
   private stamp = 0;
+  private patrols: PatrolsLike | undefined = undefined;
 
   get(key: number): MapUnit | undefined {
     const u = this.byKey.get(key);
@@ -139,6 +167,7 @@ export class UnitModel {
     this.accs.clear();
     const playerId = ctx.player.state.personId;
     const squadVehicles = new Set<number>();
+    this.patrols = ctx.service<PatrolsLike>('police.patrols');
 
     for (let i = 0; i < squads.length; i++) {
       const s = squads[i]!;
@@ -167,7 +196,9 @@ export class UnitModel {
       for (let k = 0; k < v.seats.length; k++) if (v.seats[k] !== 0) occupants++;
       u.squadId = 0;
       u.vehicleId = v.id;
-      u.symbol = symbolOfVehicle(v.kind);
+      const sym = symbolOfVehicle(v.kind);
+      // voiture garée sans équipage : simple véhicule
+      u.symbol = sym === 'patrouille' ? 'vehicule' : sym;
       u.faction = v.faction;
       u.name = v.def.name;
       u.code = '';
@@ -188,6 +219,8 @@ export class UnitModel {
       u.hasPlayer = false;
       u.leaderId = v.seats.length > 0 ? v.seats[0]! : 0;
       u.own = occupants;
+      u.status = '';
+      u.patrol = false;
       list.push(u);
     }
     return list;
@@ -199,7 +232,7 @@ export class UnitModel {
       u = {
         key, squadId: 0, vehicleId: 0, symbol: 'groupe', faction: 'police', name: '', code: '', x: 0, z: 0, heading: 0,
         parentKey: 0, depth: 0, childCount: 0, total: 0, valid: 0, injured: 0, morale: 1, ammo: -1, order: null,
-        orderDist: 0, embarked: false, hasPlayer: false, leaderId: 0, own: 0, stamp: 0,
+        orderDist: 0, embarked: false, hasPlayer: false, leaderId: 0, own: 0, status: '', patrol: false, stamp: 0,
       };
       this.byKey.set(key, u);
     }
@@ -312,6 +345,9 @@ export class UnitModel {
     u.orderDist = Math.hypot(s.order.x - u.x, s.order.z - u.z);
     u.hasPlayer = acc.hasPlayer;
     u.leaderId = s.leaderId;
+    const patrol = s.faction === 'police' && this.patrols ? this.patrols.statusOf(s.id) : null;
+    u.patrol = patrol !== null;
+    u.status = patrol ? patrol.label : statusOfOrder(s.order, u.orderDist);
     return acc;
   }
 }

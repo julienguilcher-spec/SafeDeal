@@ -132,9 +132,13 @@ export class CommandCore implements CommandApi {
       const s = squads[i]!;
       if (!this.canCommand(s.id)) continue;
       const g = geoms ? geoms[geoms.length === 1 ? 0 : i] : undefined;
+      // voiture de patrouille (Police secours, BAC) : elle roule déjà, elle se rend elle-même sur le point en urgence
+      // (service 'police.patrols') — ni colonne, ni débarquement ; « Faire mouvement » vaut « Avancer jusqu'à »
+      const patrol = this.isPatrol(s.id);
+      const t: OrderType = patrol && type === 'faire_mouvement' ? 'avancer' : type;
       // mouvement motorisé : demandé (« Faire mouvement ») ou implicite pour un point éloigné d'une unité qui a ses
       // véhicules — elle embarque, roule en colonne jusqu'au point, débarque, puis exécute l'ordre donné
-      if (g && (type === 'faire_mouvement' || (MOTOR_AUTO.has(type) && this.farFor(s, g.x, g.z)))) {
+      if (g && !patrol && (type === 'faire_mouvement' || (MOTOR_AUTO.has(type) && this.farFor(s, g.x, g.z)))) {
         // une unité dont un supérieur est aussi désigné fait partie de sa colonne
         if (squads.some((q) => q !== s && this.isAncestor(q.id, s))) { count++; continue; }
         if (this.motorize(s, type, g, from)) { count++; continue; }
@@ -147,18 +151,14 @@ export class CommandCore implements CommandApi {
       }
       if (g) {
         ctx.squads.issue(s.id, {
-          type, x: g.x, z: g.z, heading: g.heading, width: g.width, targetId, maxForce, issuedBy: playerId,
+          type: t, x: g.x, z: g.z, heading: g.heading, width: g.width, targetId, maxForce, issuedBy: playerId,
         });
       } else {
         // ordre immédiat : point et cap du chef d'unité (valeurs par défaut du magasin)
-        ctx.squads.issue(s.id, { type, targetId, maxForce, issuedBy: playerId });
+        ctx.squads.issue(s.id, { type: t, targetId, maxForce, issuedBy: playerId });
       }
       const o = s.order;
-      this.issued.push({
-        squadId: s.id, type, x: o.x, z: o.z, heading: o.heading, width: o.width, targetId: o.targetId, maxForce: o.maxForce,
-        t: ctx.clock.now,
-      });
-      if (this.issued.length > ISSUED_MAX) this.issued.splice(0, this.issued.length - ISSUED_MAX);
+      this.trace(s, t);
       // compte rendu radio : au plus trois messages détaillés pour un ordre groupé
       if (count < 3) {
         const leader = s.leaderId !== 0 ? ctx.people.get(s.leaderId) : undefined;
@@ -166,7 +166,7 @@ export class CommandCore implements CommandApi {
         ctx.radio.say({
           channel: 'commandement', from, priority: verb.coercive ? 2 : 1, personId: playerId,
           text: orderPhrase({
-            type, unit: s.name, from, sector: g ? ctx.world.sectorName(o.x, o.z) : '', heading: o.heading, width: o.width,
+            type: t, unit: s.name, from, sector: g ? ctx.world.sectorName(o.x, o.z) : '', heading: o.heading, width: o.width,
             distance: dist, target: targetName,
           }),
         });
@@ -177,6 +177,22 @@ export class CommandCore implements CommandApi {
     if (chk.warning !== '') ctx.ui.notify(chk.warning, 'warn', 5);
     ctx.audio.play('radio_bip');
     return { ok: true, reason: '', count };
+  }
+
+  /** Ordre donné : tracé dans `issued`. */
+  private trace(s: Squad, type: OrderType): void {
+    const o = s.order;
+    this.issued.push({
+      squadId: s.id, type, x: o.x, z: o.z, heading: o.heading, width: o.width, targetId: o.targetId, maxForce: o.maxForce,
+      t: this.ctx.clock.now,
+    });
+    if (this.issued.length > ISSUED_MAX) this.issued.splice(0, this.issued.length - ISSUED_MAX);
+  }
+
+  /** Voiture de patrouille gérée par le service 'police.patrols' (module gameplay/patrols) ? */
+  isPatrol(squadId: number): boolean {
+    const api = this.ctx.service<{ isPatrol(id: number): boolean }>('police.patrols');
+    return !!api && api.isPatrol(squadId);
   }
 
   // ───────────────────────────── mouvement motorisé ─────────────────────────────

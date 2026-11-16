@@ -32,6 +32,25 @@ interface HazardFieldLike {
 
 export interface SceneFire { x: number; z: number; radius: number; intensity: number }
 
+/** Foyer secondaire (service 'crowd.foyers', module de foule) tel que la carte l'affiche. */
+export interface SceneFoyer {
+  id: number;
+  kind: 'rassemblement' | 'casseurs' | 'blocage' | string;
+  /** Lieu (« place de l'Opéra ») et libellé complet. */
+  name: string;
+  label: string;
+  x: number;
+  z: number;
+  people: number;
+  tension: number;
+  kettled: boolean;
+}
+
+/** Lecture du service 'crowd.foyers' (forme attendue, sans dépendre du module de foule). */
+interface FoyersLike {
+  readonly list: readonly { id: number; kind: string; name: string; label: string; x: number; z: number; people: number; tension: number; kettled: boolean }[];
+}
+
 const UNITS_PERIOD = 0.2;
 const CROWD_PERIOD = 0.5;
 const HAZARD_PERIOD = 0.5;
@@ -101,6 +120,11 @@ export class MapScene {
   fires: SceneFire[] = [];
 
   incidents: Incident[] = [];
+  /**
+   * Foyers secondaires en cours (rassemblements sauvages, casseurs, blocages) : tous pour le commandement (CENTRAL les
+   * annonce), ceux qu'on voit autour de soi pour les autres rôles.
+   */
+  foyers: SceneFoyer[] = [];
   closures: readonly RoadClosure[] = [];
   stations: MetroStation[] = [];
   calls: RescueCall[] = [];
@@ -273,6 +297,8 @@ export class MapScene {
       }
     }
 
+    this.refreshFoyers();
+
     const traffic = ctx.service<TrafficControlApi>(EXT.traffic);
     this.closures = traffic && vis.closures ? traffic.closures : EMPTY_CLOSURES;
 
@@ -315,6 +341,38 @@ export class MapScene {
     const env = ctx.env.state;
     this.windX = env.windX;
     this.windZ = env.windZ;
+  }
+
+  private readonly foyerPool: SceneFoyer[] = [];
+
+  private refreshFoyers(): void {
+    const foyers = this.foyers;
+    foyers.length = 0;
+    const api = this.ctx.service<FoyersLike>('crowd.foyers');
+    if (!api) return;
+    const vis = this.vis;
+    const r2 = vis.nearRadius * vis.nearRadius;
+    for (let i = 0; i < api.list.length; i++) {
+      const f = api.list[i]!;
+      if (f.people <= 0) continue;
+      // les forces de l'ordre les connaissent tous (annonces de CENTRAL, comptes rendus des patrouilles), même à pied
+      if (!vis.police && vis.crowd !== 'full' && (!this.hasPlayer || (f.x - this.px) * (f.x - this.px) + (f.z - this.pz) * (f.z - this.pz) > r2)) continue;
+      let slot = this.foyerPool[foyers.length];
+      if (!slot) {
+        slot = { id: 0, kind: '', name: '', label: '', x: 0, z: 0, people: 0, tension: 0, kettled: false };
+        this.foyerPool.push(slot);
+      }
+      slot.id = f.id;
+      slot.kind = f.kind;
+      slot.name = f.name;
+      slot.label = f.label;
+      slot.x = f.x;
+      slot.z = f.z;
+      slot.people = f.people;
+      slot.tension = f.tension;
+      slot.kettled = f.kettled;
+      foyers.push(slot);
+    }
   }
 
   private refreshCrowd(): void {

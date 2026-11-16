@@ -9,7 +9,8 @@ import type { OrderType, Prop, RoadSample, Squad } from '@/core/contracts';
 import type { Incident, MetroStation, RescueKind, RoadClosure } from '@/core/extensions';
 import type { PointerInfo } from '../maps/gestures';
 import type { MapCanvas } from '../maps/mapCanvas';
-import { INCIDENT_RADIUS } from '../maps/overlay';
+import { INCIDENT_RADIUS, foyerRadius } from '../maps/overlay';
+import type { SceneFoyer } from '../maps/scene';
 import { createShown, visibleUnits } from '../maps/overlay-units';
 import type { MapUnit } from '../maps/units';
 import type { CommandCore } from './core';
@@ -26,6 +27,8 @@ export interface MapPick {
   incident: Incident | null;
   station: MetroStation | null;
   closure: RoadClosure | null;
+  /** Foyer secondaire (rassemblement, casseurs, blocage) touché. */
+  foyer: SceneFoyer | null;
 }
 
 /** Espacement entre unités envoyées sur un même point (m). */
@@ -112,7 +115,7 @@ export class TacticalMap {
     const scene = this.core.maps.scene;
     const view = this.map.view;
     const r = touch ? 26 : 18;
-    const out: MapPick = { unit: this.pickUnit(x, y, r), incident: null, station: null, closure: null };
+    const out: MapPick = { unit: this.pickUnit(x, y, r), incident: null, station: null, closure: null, foyer: this.pickFoyer(x, y, touch) };
     let bestD = (INCIDENT_RADIUS + (touch ? 14 : 7)) ** 2;
     for (let i = 0; i < scene.incidents.length; i++) {
       const inc = scene.incidents[i]!;
@@ -144,6 +147,24 @@ export class TacticalMap {
       }
     }
     return out;
+  }
+
+  /** Foyer secondaire dont le marqueur contient le point (pixels), le plus proche. */
+  pickFoyer(x: number, y: number, touch: boolean): SceneFoyer | null {
+    const list = this.core.maps.scene.foyers;
+    const view = this.map.view;
+    let best: SceneFoyer | null = null;
+    let bestD = Infinity;
+    for (let i = 0; i < list.length; i++) {
+      const f = list[i]!;
+      view.worldToScreen(f.x, f.z, this.sp);
+      const d = Math.hypot(this.sp.x - x, this.sp.y - y);
+      if (d <= foyerRadius(f.people, false) + (touch ? 10 : 4) && d < bestD) {
+        bestD = d;
+        best = f;
+      }
+    }
+    return best;
   }
 
   /** Unités sélectionnées que le joueur peut commander (sans celles dont une unité supérieure est déjà retenue). */
@@ -352,9 +373,11 @@ export class TacticalMap {
       }
       const verb = mode.verb;
       let ok = false;
+      // un point désigné sur le marqueur d'un foyer vaut son centre (« avancer jusqu'au rassemblement… »)
+      const foyer = verb.gesture === 'point' || verb.gesture === 'area' ? this.pickFoyer(x, y, touch) : null;
       if (verb.gesture === 'target') ok = this.issueTarget(verb, x, y, touch);
-      else if (verb.gesture === 'area') ok = this.issueArea(verb, wx, wz, wx, wz);
-      else ok = this.issuePoint(verb, wx, wz, NaN);
+      else if (verb.gesture === 'area') ok = foyer ? this.issueArea(verb, foyer.x, foyer.z, foyer.x, foyer.z) : this.issueArea(verb, wx, wz, wx, wz);
+      else ok = foyer ? this.issuePoint(verb, foyer.x, foyer.z, NaN, 0, foyer.name) : this.issuePoint(verb, wx, wz, NaN);
       if (ok) st.setMode(IDLE);
       return;
     }
@@ -385,13 +408,28 @@ export class TacticalMap {
     }
     // mode libre
     if (info.button === 2) {
-      // clic droit : « avancer » immédiat pour la sélection
-      if (this.selectedUnits().length > 0) this.issuePoint(verbOf('avancer')!, wx, wz, NaN);
+      // clic droit : « avancer » immédiat pour la sélection (au centre du foyer désigné, s'il y en a un)
+      if (this.selectedUnits().length > 0) {
+        const foyer = this.pickFoyer(x, y, touch);
+        if (foyer) this.issuePoint(verbOf('avancer')!, foyer.x, foyer.z, NaN, 0, foyer.name);
+        else this.issuePoint(verbOf('avancer')!, wx, wz, NaN);
+      }
       return;
     }
     const pick = this.pick(x, y, touch);
     if (pick.unit) {
       st.select(pick.unit.key, info.shift || info.ctrl || st.multi);
+      return;
+    }
+    if (pick.foyer && !pick.incident) {
+      // foyer touché : unités sélectionnées sous mes ordres → elles s'y portent ; sinon, sa fiche en bref
+      const f = pick.foyer;
+      if (this.selectedUnits().length > 0) {
+        this.issuePoint(verbOf('avancer')!, f.x, f.z, NaN, 0, f.name);
+        return;
+      }
+      const tension = f.tension < 0.35 ? 'calme' : f.tension < 0.65 ? 'tension montante' : 'très tendu';
+      this.core.ctx.ui.notify(`${f.label} — ${f.people} personnes, ${tension}${f.kettled ? ', encerclé' : ''}. Sélectionnez des unités puis touchez le foyer pour les y envoyer.`, 'info', 6);
       return;
     }
     if (pick.incident) {

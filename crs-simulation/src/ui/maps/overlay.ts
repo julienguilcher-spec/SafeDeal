@@ -1,5 +1,5 @@
 /* =====================================================================================
- * Couches dessinées par-dessus le fond de plan : foule (densité teintée par la tension), gaz et
+ * Couches dessinées par-dessus le fond de plan : foule (densité teintée par la tension, foyers secondaires), gaz et
  * feux, parcours et tête de cortège, fermetures de rues, métro, incidents, secours attendus,
  * objectifs, itinéraire GPS, joueur. Les unités et les ordres sont dans overlay-units.ts.
  * ===================================================================================== */
@@ -483,6 +483,62 @@ function drawObjectives(g: CanvasRenderingContext2D, t: MapTransform, scene: Map
   }
 }
 
+// ───────────────────────────── foyers secondaires ─────────────────────────────
+
+/** Rayon écran (px) du marqueur d'un foyer : croît avec l'effectif. */
+export function foyerRadius(people: number, compact: boolean): number {
+  const r = 9 + Math.sqrt(Math.max(1, people)) * 1.3;
+  return compact ? Math.min(9, r * 0.5) : Math.min(26, r);
+}
+
+const FOYER_KIND_LABEL: Readonly<Record<string, string>> = {
+  rassemblement: 'RASSEMBLEMENT', casseurs: 'CASSEURS', blocage: 'BLOCAGE',
+};
+
+/** Couleur d'un foyer selon sa tension : jaune (calme), orange, rouge (débordements). */
+function foyerColor(tension: number): string {
+  return tension < 0.35 ? '#ffd60a' : tension < 0.65 ? '#ff9500' : '#ff3b30';
+}
+
+function drawFoyers(g: CanvasRenderingContext2D, t: MapTransform, scene: MapScene, o: OverlayOptions): void {
+  const list = scene.foyers;
+  for (let i = 0; i < list.length; i++) {
+    const f = list[i]!;
+    if (!t.contains(f.x, f.z, 60)) continue;
+    t.worldToScreen(f.x, f.z, SP);
+    const color = foyerColor(f.tension);
+    const r = foyerRadius(f.people, o.compact);
+    // halo pulsé : point chaud
+    const k = (o.time * 0.8 + f.id * 0.37) % 1;
+    g.strokeStyle = color;
+    g.globalAlpha = 0.85 * (1 - k);
+    g.lineWidth = o.compact ? 1.4 : 2;
+    g.beginPath();
+    g.arc(SP.x, SP.y, r + k * (o.compact ? 6 : 14), 0, Math.PI * 2);
+    g.stroke();
+    g.globalAlpha = 1;
+    // disque hachuré : la zone du foyer
+    g.fillStyle = color;
+    g.globalAlpha = 0.22;
+    g.beginPath();
+    g.arc(SP.x, SP.y, r, 0, Math.PI * 2);
+    g.fill();
+    g.globalAlpha = 1;
+    g.setLineDash(f.kettled ? [] : [5, 3]);
+    g.lineWidth = f.kettled ? 3 : 2;
+    g.strokeStyle = f.kettled ? '#58a6ff' : color;
+    g.stroke();
+    g.setLineDash([]);
+    // effectif au centre
+    if (!o.compact) {
+      label(g, String(f.people), SP.x, SP.y, '#ffffff', 11, 800);
+      const kind = FOYER_KIND_LABEL[f.kind] ?? 'FOYER';
+      label(g, `${kind} · ${f.people} pers.`, SP.x, SP.y - r - 10, color, 9.5, 700);
+      if (f.name !== '') label(g, f.name, SP.x, SP.y + r + 10, '#e8eef9', 9, 600);
+    }
+  }
+}
+
 // ───────────────────────────── GPS, joueur ─────────────────────────────
 
 function drawGps(g: CanvasRenderingContext2D, t: MapTransform, o: OverlayOptions): void {
@@ -558,6 +614,7 @@ export function drawOverlay(g: CanvasRenderingContext2D, t: MapTransform, scene:
   const L = o.layers;
   const vis = scene.vis;
   if (L.crowd) drawCrowd(g, t, scene);
+  if (L.crowd) drawFoyers(g, t, scene, o);
   if (L.route && vis.route) drawRoute(g, t, scene, o.compact);
   if (L.hazards) drawHazards(g, t, scene, o.time, o.compact);
   if (L.closures && vis.closures) drawClosures(g, t, scene, o);
