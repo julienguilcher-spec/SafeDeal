@@ -403,6 +403,22 @@ export class TurretSystem {
     t.aimT = 0;
   }
 
+  /**
+   * Soute du lance-grenades complétée par la logistique : jusqu'à la dotation (ou `count` grenades). Retourne le
+   * nombre de grenades ajoutées. Sans cela, une soute vide le restait jusqu'à la fin de la partie.
+   */
+  restock(rt: VehicleRt, turret: number, count?: number): number {
+    const L = rt.spec.launchers[turret];
+    const t = rt.turrets[turret];
+    if (!L || !t || (rt.v.state !== 'ok' && rt.v.state !== 'damaged')) return 0;
+    const add = Math.max(0, Math.min(count ?? L.reserve, L.reserve - t.reserve));
+    if (add > 0) {
+      t.reserve += add;
+      rt.awake = true;
+    }
+    return add;
+  }
+
   reload(rt: VehicleRt, turret: number): boolean {
     const v = rt.v;
     const def = v.def.turrets[turret];

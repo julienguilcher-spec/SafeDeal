@@ -24,10 +24,16 @@ import * as T from './tuning';
 
 // ───────────────────────────── ravitaillement ─────────────────────────────
 
-const SUPPLY: readonly (readonly [ItemId, keyof VehicleReserve])[] = [
+/** Objets ravitaillés au fourgon et clé de la réserve du véhicule correspondante. */
+export const SUPPLY: readonly (readonly [ItemId, keyof VehicleReserve])[] = [
   ['grenade_lacrymo', 'lacrymoMain'], ['lanceur_cougar', 'lacrymoLanceur'], ['grenade_gm2l', 'gm2l'], ['lbd40', 'lbd'],
   ['grenade_desencerclement', 'desencerclement'], ['extincteur', 'extincteur'], ['gazeuse', 'gazeuse'], ['menottes', 'menottes'],
 ];
+
+/** Ce que la personne possède d'un objet ravitaillable (extincteur : charge, s'il n'est pas vide). */
+export function haveOf(k: Kernel, p: Person, id: ItemId): number {
+  return id === 'extincteur' ? extinguisherLeft(p) : k.count(p, id);
+}
 
 /** Ce qui manque à l'agent par rapport à la dotation de son poste (nombre d'unités, tous objets confondus). */
 export function shortage(k: Kernel, a: Agent): number {
@@ -45,10 +51,10 @@ export function shortage(k: Kernel, a: Agent): number {
 function supplyVehicle(k: Kernel, a: Agent, wanted: EntityId): Vehicle | null {
   const ctx = k.ctx;
   const named = wanted > 0 ? ctx.vehicles.get(wanted) : undefined;
-  if (named && k.reserveOf(named)) return named;
+  if (k.canSupply(named)) return named;
   for (let x: Unit | null = a.home; x; x = x.parent) {
     const v = x.squad.vehicleId !== 0 ? ctx.vehicles.get(x.squad.vehicleId) : undefined;
-    const r = k.reserveOf(v);
+    const r = k.canSupply(v) ? k.reserveOf(v) : null;
     if (v && r && r.lacrymoMain + r.lacrymoLanceur + r.lbd + r.extincteur > 0) return v;
   }
   const n = ctx.vehicles.queryRadius(a.p.x, a.p.z, 200, k.vehicles);
@@ -56,7 +62,7 @@ function supplyVehicle(k: Kernel, a: Agent, wanted: EntityId): Vehicle | null {
   let bestD = Infinity;
   for (let i = 0; i < n; i++) {
     const v = k.vehicles[i];
-    const r = k.reserveOf(v);
+    const r = k.canSupply(v) ? k.reserveOf(v) : null;
     if (!r || r.lacrymoMain + r.lacrymoLanceur + r.lbd + r.extincteur <= 0) continue;
     const d = dist(a.p, v.x, v.z);
     if (d < bestD) {
@@ -83,7 +89,7 @@ export function updateResupply(k: Kernel, op: Op): void {
   const ctx = k.ctx;
   const a = op.lead;
   const v = ctx.vehicles.get(op.destId);
-  if (!a || !a.able || !v) {
+  if (!a || !a.able || !k.canSupply(v)) {
     finish(k, op, false, '');
     return;
   }
@@ -115,10 +121,10 @@ export function updateResupply(k: Kernel, op: Op): void {
         if (take <= 0) continue;
         (r[key] as number) = stock - take;
         if (id === 'extincteur') {
-          // appareil échangé contre un plein
+          // appareil échangé contre un plein, dans la limite de ce que contient la réserve
           ctx.actions.remove(p, 'extincteur');
-          const st = ctx.actions.give(p, 'extincteur', full);
-          st.state = 1;
+          const st = ctx.actions.give(p, 'extincteur', have + take);
+          st.state = (have + take) / full;
           ctx.actions.selectById(p, 'extincteur');
         } else {
           ctx.actions.give(p, id, take);

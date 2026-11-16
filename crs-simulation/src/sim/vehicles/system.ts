@@ -277,6 +277,7 @@ export class VehiclesSystem implements GameSystem {
       turretStatus: (v: Vehicle, turret: number): Readonly<TurretStatus> => self.turrets.status(k.rt(v), turret) ?? NO_TURRET,
       predictImpact: (v: Vehicle, turret: number, out: Vec3): boolean => self.turrets.aimer.predict(k.rt(v), turret, out),
       reloadTurret: (v: Vehicle, turret: number): boolean => self.turrets.reload(k.rt(v), turret),
+      restockTurret: (v: Vehicle, turret: number, count?: number): number => self.turrets.restock(k.rt(v), turret, count),
       refill: (v: Vehicle): boolean => self.turrets.refill(k.rt(v)),
       setMast: (v: Vehicle, raised: boolean): void => self.turrets.setMast(k.rt(v), raised),
 

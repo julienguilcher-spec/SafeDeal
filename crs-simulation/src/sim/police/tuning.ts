@@ -202,6 +202,9 @@ export const RESCUE_TIMEOUT = 75;
 /** Ravitaillement au fourgon (s), agents simultanément hors du rang. */
 export const RESUPPLY_TIME = 3;
 export const RESUPPLY_PARALLEL = 3;
+/** Ravitaillement du joueur au fourgon (s) et délai d'acheminement par la logistique après une demande radio (s). */
+export const PLAYER_RESUPPLY_TIME = 4;
+export const RESTOCK_DELAY = 300;
 /** Opérations simultanées par unité. */
 export const OPS_MAX = 4;
 

@@ -71,6 +71,9 @@ export const POLICE_TUNING_SERVICE = 'police.tuning';
 /** Service PRIVÉ du module (noyau partagé avec src/sim/police/command) : les autres modules ne l'utilisent pas. */
 export const POLICE_KERNEL_SERVICE = 'police.internal';
 export const POLICE_SYSTEM_ID = 'police.ai';
+/** Ravitaillement du joueur (PlayerSupplyApi) : indication à l'écran, demande de ravitaillement à la logistique. */
+export const PLAYER_SUPPLY_SERVICE = 'session.supply';
+
 
 /** Valeur de SquadOrder.targetId pour « encercler » : fermer toutes les issues (aucune laissée ouverte). */
 export const ENCIRCLE_CLOSE_ALL: EntityId = -1;
@@ -395,3 +398,32 @@ export interface RosterSlot {
 }
 
 export type { VehicleKind };
+
+// ───────────────────────────── ravitaillement du joueur ─────────────────────────────
+
+/** Indication de ravitaillement pour le joueur : quoi faire, et où (marqueur, GPS). */
+export interface SupplyHint {
+  text: string;
+  x: number;
+  z: number;
+  /** 'bas' : sous le quart de la dotation ; 'vide' : un objet épuisé ; 'attente' : ravitaillement demandé, en route. */
+  level: 'bas' | 'vide' | 'attente';
+  /** Véhicule (fourgon, engin) ou 0 (bouche d'incendie, zone de stationnement). */
+  vehicleId: EntityId;
+}
+
+export interface PlayerSupplyApi {
+  /** Indication courante pour le joueur (null : rien à signaler). Recalculée deux fois par seconde. */
+  hint(): SupplyHint | null;
+  /**
+   * Demande de ravitaillement par radio pour la compagnie de l'unité `squadId` (défaut : celle du joueur) : les réserves
+   * des fourgons de la compagnie sont complétées après un délai (annonce radio « Ravitaillement arrivé »). false si une
+   * demande est déjà en cours ou s'il n'y a pas de compagnie à ravitailler.
+   */
+  request(squadId?: number): boolean;
+  /** Instant d'arrivée du ravitaillement demandé pour cette compagnie (unité racine), ou -1. */
+  pendingUntil(squadId?: number): number;
+  /** Délai d'acheminement du ravitaillement après la demande (s, réglable pour les essais). */
+  restockDelay: number;
+}
+

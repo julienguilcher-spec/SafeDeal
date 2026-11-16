@@ -146,6 +146,15 @@ export class Kernel {
     return r;
   }
 
+  /**
+   * Peut-on puiser dans la réserve de ce véhicule ? Pas dans un véhicule en feu ou calciné (caisses perdues ou
+   * inaccessibles), ni dans un véhicule qui roule ou qui n'a pas de réserve.
+   */
+  canSupply(v: Vehicle | undefined): v is Vehicle {
+    if (!v || v.dormant || v.state === 'burning' || v.state === 'burnt' || v.burning > 0.05 || Math.abs(v.speed) > 1.5) return false;
+    return this.reserveOf(v) !== null;
+  }
+
   /** Ajoute une zone à éviter (fusionnée avec une zone voisine). */
   addDanger(x: number, z: number, r: number, seconds: number, fire: boolean): void {
     const list = this.dangers;

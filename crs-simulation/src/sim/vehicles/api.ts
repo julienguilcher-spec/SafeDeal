@@ -395,6 +395,8 @@ export interface VehiclesExtApi {
   predictImpact(v: Vehicle, turret: number, out: Vec3): boolean;
   /** Rechargement du lance-grenades : à l'arrêt seulement. */
   reloadTurret(v: Vehicle, turret: number): boolean;
+  /** Soute du lance-grenades complétée par la logistique (jusqu'à la dotation, ou `count` grenades) ; retourne l'ajout. */
+  restockTurret(v: Vehicle, turret: number, count?: number): number;
   /** Plein d'eau : à l'arrêt seulement. */
   refill(v: Vehicle): boolean;
   /** Lève ou rentre le mât de caméra. */

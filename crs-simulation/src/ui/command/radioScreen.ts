@@ -17,6 +17,12 @@ import { ensureCommandStyle } from './style';
 
 export const RADIO_SCREEN = 'radio';
 
+/** Vue minimale du service 'session.supply' (src/sim/police/supply-player.ts) : demande de ravitaillement. */
+interface SupplyRequest {
+  request(): boolean;
+  pendingUntil(): number;
+}
+
 /** Délai entre deux messages rapides (s) : un seul locuteur à la fois sur le canal. */
 const COOLDOWN = 2;
 
@@ -86,6 +92,7 @@ export class RadioScreen implements ScreenInstance {
     if (isPoliceRole(ctx.player.state.role)) {
       add('Compte rendu de situation', 'eye', 'radio-cr', () => this.sendSituation());
       add('Demande de renfort', 'units', 'radio-renfort', () => this.sendReinforcement());
+      add('Demande de ravitaillement', 'list', 'radio-ravitaillement', () => this.sendSupply());
       add('Demande d’autorisation d’emploi de la force', 'megaphone', 'radio-force', () => this.sendForce());
       add('Demande de secours\u00a0: pompiers', 'fire', 'radio-pompiers', () => this.sendRescue('pompiers'));
       add('Demande de secours\u00a0: SAMU', 'cross', 'radio-samu', () => this.sendRescue('samu'));
@@ -131,6 +138,23 @@ export class RadioScreen implements ScreenInstance {
     const roe = this.core.ctx.law.roe;
     const want = Math.min(4, roe.authorizedForce + 1) as 0 | 1 | 2 | 3 | 4;
     this.say(forceRequest(this.core.callsign(), this.sector(this.core.player()), want, roe.underAttack, this.core.ctx.squads.list.find((q) => q.kind === 'compagnie' && q.faction === 'police')?.name), 2, 'commandement');
+  }
+
+  /** Réserves des fourgons de la compagnie complétées par la logistique après un délai (src/sim/police/supply-player.ts). */
+  private sendSupply(): void {
+    const ctx = this.core.ctx;
+    const supply = ctx.service<SupplyRequest>('session.supply');
+    if (!supply) {
+      ctx.ui.notify('Aucune logistique joignable pour cette mission.', 'warn', 4);
+      return;
+    }
+    if (supply.request()) {
+      ctx.audio.play('radio_bip');
+      return;
+    }
+    const at = supply.pendingUntil();
+    if (at >= 0) ctx.ui.notify(`Ravitaillement déjà demandé : arrivée à la zone de stationnement dans environ ${Math.max(1, Math.ceil((at - ctx.clock.now) / 60))} min.`, 'info', 4);
+    else ctx.ui.notify('Ni fourgon de compagnie ni engin à faire ravitailler.', 'warn', 4);
   }
 
   private sendRescue(kind: RescueKind): void {

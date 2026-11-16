@@ -5,6 +5,8 @@
  * et « Fin de mission, retour à la base ». Fonctions sur un Command (command.ts).
  * ===================================================================================== */
 
+import { PLAYER_SUPPLY_SERVICE } from '../api';
+import type { PlayerSupplyApi } from '../api';
 import { COMMAND_MISSION_END_EVENT } from './api';
 import type { Command } from './command';
 import * as TX from './texts';
@@ -16,6 +18,7 @@ export function logistics(cmd: Command): void {
   const status = core.status;
   if (!status) return;
   const now = core.now;
+  const supply = core.ctx.service<PlayerSupplyApi>(PLAYER_SUPPLY_SERVICE);
   for (let i = 0; i < cmd.elements.length; i++) {
     const el = cmd.elements[i];
     const st = status.of(el.squadId);
@@ -47,6 +50,11 @@ export function logistics(cmd: Command): void {
       if (left < el.ammo0 * limit && stock > 0 && cmd.ready('ravit:' + el.squadId, 240)) {
         cmd.act('ravit:' + el.squadId, 1, st.x, st.z, TX.propose(el.name + ' est à court de grenades', 'un ravitaillement aux fourgons'), () => {
           cmd.task(el, 'ravitaillement', { type: 'ravitailler' }, TX.orderForce(el.name, cmd.squad.name, 'ravitailler', '', 0, 0));
+        });
+      } else if (left < el.ammo0 * limit && stock <= 0 && supply && supply.pendingUntil(cmd.squad.id) < 0 && cmd.ready('logistique', 300)) {
+        // réserves des fourgons épuisées : demande à la logistique (réserves complétées à la zone de stationnement)
+        cmd.act('logistique', 1, st.x, st.z, TX.propose('les réserves des fourgons sont épuisées', 'une demande de ravitaillement à la logistique'), () => {
+          supply.request(cmd.squad.id);
         });
       }
     }
