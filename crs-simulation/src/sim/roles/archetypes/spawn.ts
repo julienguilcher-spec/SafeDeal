@@ -141,6 +141,9 @@ export function spawnPerson(core: ArchetypeCore, kind: PersonKind, x: number, z:
   init.squadId = o.squadId;
   init.seed = seed;
   const p = ctx.people.spawn(init);
+  // le magasin recopie l'apparence et la dotation ; s'il gardait nos objets de travail, on les lui laisse en propre
+  if (p.look === look) p.look = { ...look };
+  if (p.inventory === init.inventory) p.inventory = init.inventory.map((s) => ({ id: s.id, count: s.count, state: s.state, cooldown: s.cooldown }));
 
   // ── caractéristiques : vitesses de base (la charge est appliquée par la locomotion), protections ──
   p.speedWalk = id.walk;

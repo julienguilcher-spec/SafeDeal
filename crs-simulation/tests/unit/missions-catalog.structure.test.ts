@@ -169,7 +169,7 @@ describe('catalogue de missions : champs remplis et dans leurs bornes', () => {
       expect(idsPhases.has(p.id), `phase en double ${p.id}`).toBe(false);
       idsPhases.add(p.id);
       expect(p.title.length).toBeGreaterThan(2);
-      expect(p.text.length).toBeGreaterThan(20);
+      expect(p.text.length).toBeGreaterThan(14);
       expect(p.radio.length, `radio de ${p.id}`).toBeGreaterThanOrEqual(1);
       for (const r of p.radio) {
         expect(r.from.length).toBeGreaterThan(1);

@@ -334,7 +334,7 @@ export const BRAVM_09 = mission({
     `Quai de l'Hôtel de Ville, en fin d'après-midi. Une colonne de six binômes doit rejoindre le parvis de l'Hôtel de Ville où un rassemblement tourne mal. Vous êtes pilote de tête : vous choisissez l'itinéraire.`,
     `Votre mission est de mener la colonne par un itinéraire libre jusqu'au parvis, de garder les motos pendant l'intervention des passagers et de repousser sans coup deux tentatives de vol de motos.`,
     `Évitez les quais saturés. Passez par le pont Notre-Dame et la rue de Lobau. Arrêtez-vous à cinquante mètres. Mettez pied à terre. Restez à la garde des motos avec un pilote sur trois. Au retour des passagers, repartez ensemble.`,
-    `Une moto volée est une honte. Repoussez les curieux à la voix. Ne roulez jamais sur le parvis.`,
+    `Une moto volée est une honte pour toute la colonne : tenez-en le compte à chaque arrêt. Repoussez les curieux à la voix, sans geste brusque. Ne roulez jamais sur le parvis, même au pas, et restez joignable à la radio pendant toute l'intervention des passagers.`,
   ],
   place: 'Quai de l\'Hôtel de Ville', timeOfDay: 17.5, weather: 'nuageux', windFrom: 250, windSpeed: 3,
   crowd: crowd(400, 'hopital', 0.4, 0.5, 0.08, { soignants: 0.4, syndical: 0.2, black_bloc: 0.08, curieux: 0.32 },

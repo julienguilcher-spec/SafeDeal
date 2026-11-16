@@ -369,7 +369,7 @@ export const CRS_09 = mission({
   ],
   type: 'protection_secours', place: 'Rue Saint-Antoine', timeOfDay: 15, weather: 'clair', windFrom: 280, windSpeed: 2,
   crowd: crowd(300, '', 0.15, 0.2, 0, { curieux: 0.6, riverains: 0.3, familles: 0.1 },
-    ['Rue Saint-Antoine'], 0.3),
+    ['Rue Saint-Antoine', 'Place de la Bastille'], 0.3),
   forces: forces({ sections: 1, fourgons: 2, pompiers: 3, samu: 1 }),
   intel: intel(
     'Trois cents curieux autour d\'un immeuble en feu ; ambiance inquiète.',
@@ -447,7 +447,7 @@ export const CRS_11 = mission({
     `Avenue de l'Opéra, fin d'un défilé de contestation. Un groupe de casseurs lance des projectiles enflammés sur votre ligne. Des poubelles brûlent devant une devanture de bijouterie. Vous êtes extincteur : vous opérez au second rang, derrière les boucliers.`,
     `Votre mission est de tenir cinq minutes sans qu'aucun collègue ne soit brûlé et d'éteindre deux poubelles avant qu'elles ne propagent le feu à la façade. Un extincteur suffit pour un petit feu, mais pas pour un véhicule embrasé.`,
     `À l'ordre, avancez derrière deux boucliers jusqu'au feu, éteignez, reculez. Vous n'avez pas à quitter la couverture plus de dix secondes. Si un cocktail incendiaire touche un collègue, passez immédiatement à son extinction.`,
-    `Un agent brûlé passe avant la poubelle. Ne visez pas les flammes : visez la base du feu. Gardez votre masque à portée.`,
+    `Un agent brûlé passe avant la poubelle, toujours. Ne visez pas les flammes : visez la base du feu, par un balayage lent. Gardez votre masque à portée de main et prévenez votre chef avant de vider l'extincteur.`,
   ],
   type: 'protection_secours', place: 'Avenue de l\'Opéra', timeOfDay: 18.5, weather: 'couvert', windFrom: 250, windSpeed: 3,
   crowd: crowd(500, 'libertes', 0.5, 0.65, 0.15, { black_bloc: 0.2, gilets_jaunes: 0.3, etudiants: 0.2, curieux: 0.3 },

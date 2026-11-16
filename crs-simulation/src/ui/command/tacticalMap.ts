@@ -290,7 +290,7 @@ export class TacticalMap {
       const st = ctx.player.state;
       const aimed = st.aimedPersonId !== 0 ? ctx.people.get(st.aimedPersonId) : undefined;
       if (aimed && Math.hypot(aimed.x - wx, aimed.z - wz) < 25) return this.issuePoint(verb, aimed.x, aimed.z, NaN, aimed.id, 'la cible désignée');
-      ctx.ui.notify('Aucun auteur identifié ici : interpellation sur le secteur, sur fait constaté.', 'info', 4);
+      ctx.ui.notify('Aucun auteur identifié ici\u00a0: interpellation sur le secteur, sur fait constaté.', 'info', 4);
       return this.issuePoint(verb, wx, wz, NaN);
     }
     if (type === 'degager_barricade') {
@@ -567,7 +567,7 @@ export class TacticalMap {
       return;
     }
     const name = this.closureName(c);
-    core.ctx.ui.notify(`Circulation coupée : ${name}${holder ? ` — barrage tenu par ${holder.name}` : ''}`, 'ok', 3.5);
+    core.ctx.ui.notify(`Circulation coupée\u00a0: ${name}${holder ? ` — barrage tenu par ${holder.name}` : ''}`, 'ok', 3.5);
     core.ctx.radio.say({
       channel: 'commandement', from: core.callsign(), priority: 1, personId: core.ctx.player.state.personId,
       text: radioFrame('CENTRAL', core.callsign(), `Circulation coupée, ${name}${holder ? `, barrage tenu par ${holder.name}` : ''}`, false),
@@ -584,7 +584,7 @@ export class TacticalMap {
     const sector = core.ctx.world.sectorName(x, z);
     if (list.length === 0) core.ctx.ui.notify('Aucune rue n’entre dans ce périmètre.', 'warn', 3);
     else {
-      core.ctx.ui.notify(`Périmètre fermé : ${list.length} accès coupés autour de ${sector || 'ce point'}`, 'ok', 3.5);
+      core.ctx.ui.notify(`Périmètre fermé\u00a0: ${list.length} accès coupés autour de ${sector || 'ce point'}`, 'ok', 3.5);
       core.ctx.radio.say({
         channel: 'commandement', from: core.callsign(), priority: 1, personId: core.ctx.player.state.personId,
         text: radioFrame('CENTRAL', core.callsign(), `Périmètre de circulation fermé${sector ? `, ${sector}` : ''}, rayon ${Math.round(radius)} mètres`, false),
@@ -634,7 +634,7 @@ export class TacticalMap {
     const ok = api.assign(incidentId, means, u.squadId);
     const ctx = core.ctx;
     if (!ok) {
-      ctx.ui.notify(`${u.name} ne peut pas traiter « ${INCIDENT_KIND_LABELS[inc.kind] ?? inc.label} ».`, 'warn', 4);
+      ctx.ui.notify(`${u.name} ne peut pas traiter «\u00a0${INCIDENT_KIND_LABELS[inc.kind] ?? inc.label}\u00a0».`, 'warn', 4);
       ctx.audio.play('ui_alerte');
       return false;
     }

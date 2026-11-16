@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import rawLandmarks from '../../public/data/paris/landmarks.json';
 import { decodeLandmarks, type Landmark, type RawLandmarks } from '@/world/mapdata';
+import { createSystems } from '@/world/monuments';
 import { getMonument } from '@/world/monuments/registry';
 import { getColliders, getWorldColliders, listColliderKeys, siteOfLandmark } from '@/world/monuments/colliders';
 import { statsOf } from '@/world/monuments/kit';
@@ -16,7 +17,7 @@ import { isSimpleRing, pointInRing, ringBounds, signedArea } from '@/world/monum
 import { PASS_UNDER_Y, type MonumentCollider, type MonumentSite } from '@/world/monuments/types';
 import { SUL, porticoColumns } from '@/world/monuments/collide/saint_sulpice';
 import { CP } from '@/world/monuments/collide/centre_pompidou';
-import type { QualityLevel } from '@/core/contracts';
+import type { GameContext, LandmarkInfo, QualityLevel } from '@/core/contracts';
 
 const LANDMARKS = decodeLandmarks(rawLandmarks as unknown as RawLandmarks);
 const EMPTY: MonumentSite = { footprint: [], height: 0 };
@@ -274,6 +275,50 @@ describe('lot édifices : passages praticables', () => {
       }
       expect(inside).toBeGreaterThan(20);
     }
+  });
+});
+
+describe('lot édifices : dans le système d\'affichage, sur la carte réelle', () => {
+  it('chaque édifice est posé (ancrage, cap) sur son emprise MONDE', () => {
+    const landmarks: LandmarkInfo[] = KEYS.map((k) => { const l = landmark(k); return { key: l.key, name: l.name, x: l.x, z: l.z, y: l.y, heading: l.heading, height: l.height, footprint: l.footprint }; });
+    const world = new THREE.Group();
+    const cam = { x: 0, y: 1.7, z: 0 };
+    const services = new Map<string, unknown>();
+    const view = { world, quality: 'bas', drawDistance: 600, get camX() { return cam.x; }, get camY() { return cam.y; }, get camZ() { return cam.z; } };
+    const ctx = {
+      headless: false, view,
+      world: { ready: true, landmarks, heightAt: () => 0 },
+      env: { state: { timeOfDay: 14, daylight: 1, isNight: false } },
+      events: { on: () => () => { /* rien à désabonner */ } },
+      provide: (k: string, v: unknown) => { services.set(k, v); },
+      service: (k: string) => services.get(k),
+    } as unknown as GameContext;
+    const system = createSystems()[0];
+    system.provide?.(ctx);
+    void system.init?.(ctx);
+    for (const lm of landmarks) {
+      cam.x = lm.x; cam.z = lm.z;
+      for (let i = 0; i < 6; i++) system.frame?.(0.25);
+      const root = world.children.find((c) => c.name === 'monuments')!;
+      const group = root.children.find((c) => c.name === `monument:${lm.key}`)!;
+      expect(group, lm.key).toBeDefined();
+      expect(group.visible).toBe(true);
+      const near = group.children.find((c) => c.visible && c.name === lm.key);
+      expect(near, `${lm.key} : modèle détaillé affiché`).toBeDefined();
+      world.updateMatrixWorld(true);
+      // boîte exacte, sommet par sommet : le groupe est tourné du cap du repère
+      const box = new THREE.Box3().setFromObject(near!, true), fpw = ringBounds(lm.footprint);
+      const [ox0, ox1, oz0, oz1] = SPECS[lm.key].over ?? [2, 2, 2, 2], slack = Math.max(ox0, ox1, oz0, oz1) + 1.5;
+      expect(box.min.x, lm.key).toBeGreaterThan(fpw.minX - slack);
+      expect(box.max.x, lm.key).toBeLessThan(fpw.maxX + slack);
+      expect(box.min.z, lm.key).toBeGreaterThan(fpw.minZ - slack);
+      expect(box.max.z, lm.key).toBeLessThan(fpw.maxZ + slack);
+      expect(box.min.x, lm.key).toBeLessThan(fpw.minX + 4.5);
+      expect(box.max.x, lm.key).toBeGreaterThan(fpw.maxX - 4.5);
+      expect(box.min.z, lm.key).toBeLessThan(fpw.minZ + 4.5);
+      expect(box.max.z, lm.key).toBeGreaterThan(fpw.maxZ - 4.5);
+    }
+    system.dispose?.();
   });
 });
 

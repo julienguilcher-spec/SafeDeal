@@ -98,16 +98,16 @@ export class CommandCore implements CommandApi {
    */
   check(verb: OrderVerb): { ok: boolean; reason: string; warning: string } {
     const roe = this.ctx.law.roe;
-    if (this.scope().level === 'lecture') return { ok: false, reason: 'Lecture seule : vous ne donnez pas d’ordre.', warning: '' };
+    if (this.scope().level === 'lecture') return { ok: false, reason: 'Lecture seule\u00a0: vous ne donnez pas d’ordre.', warning: '' };
     if (verb.force > roe.authorizedForce && !roe.underAttack) {
       return {
         ok: false, warning: '',
-        reason: `Refusé : « ${verb.label} » suppose une force de niveau ${verb.force}, le niveau autorisé est ${roe.authorizedForce}.`,
+        reason: `Refusé\u00a0: «\u00a0${verb.label}\u00a0» suppose une force de niveau ${verb.force}, le niveau autorisé est ${roe.authorizedForce}.`,
       };
     }
     let warning = '';
     if (verb.coercive && roe.sommation < 3 && !roe.underAttack) {
-      warning = 'Emploi de la force avant la dernière sommation : l’ordre part, vous en répondrez.';
+      warning = 'Emploi de la force avant la dernière sommation\u00a0: l’ordre part, vous en répondrez.';
     }
     return { ok: true, reason: '', warning };
   }
@@ -118,7 +118,7 @@ export class CommandCore implements CommandApi {
    */
   issue(type: OrderType, squads: readonly Squad[], geoms: readonly OrderGeom[] | null, targetId = 0, targetName = ''): IssueResult {
     const verb = verbOf(type);
-    if (!verb) return { ok: false, reason: `Ordre inconnu : ${String(type)}`, count: 0 };
+    if (!verb) return { ok: false, reason: `Ordre inconnu\u00a0: ${String(type)}`, count: 0 };
     const chk = this.check(verb);
     if (!chk.ok) return { ok: false, reason: chk.reason, count: 0 };
     const ctx = this.ctx;

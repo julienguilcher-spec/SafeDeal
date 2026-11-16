@@ -5,6 +5,8 @@
  *   ctx.ui                                         UiApi du contrat (notify, subtitle, banner, open, close…)
  *   ctx.service<UiKit>(EXT.uiKit)                  boîte à outils (extensions.ts) : écrans, HUD, boutons, focus
  *   ctx.service<ObjectivesApi>(EXT.objectives)     objectifs affichés (extensions.ts)
+ *   ctx.service<Widgets>('ui.widgets')             composants du jeu (curseur, sélecteur segmenté, interrupteur,
+ *                                                  carte de choix, pastille, compteur, onglets, champ, confirmation)
  *   ctx.service<UiDebugApi>('ui.debug')            état de l'interface, pour les tests et les bancs d'essai
  *
  * Événements libres écoutés (ctx.events.emitAny) :
@@ -39,6 +41,9 @@ export interface UiLoadingEvent {
 
 /** Clé du service de diagnostic de l'interface. */
 export const UI_DEBUG_SERVICE = 'ui.debug';
+/** Clé du service des composants (classe Widgets), pour les écrans des autres modules. */
+export const UI_WIDGETS_SERVICE = 'ui.widgets';
+export type { Choice, DialogOptions, FieldHandle, SliderHandle, SliderOptions, TabDef, TabsHandle, ValueHandle, Widgets } from './components';
 
 /**
  * Touches d'interface lues dans ctx.input (à chaque image) et écrans qu'elles ouvrent ou ferment.

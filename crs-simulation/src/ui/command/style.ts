@@ -155,6 +155,8 @@ background:var(--cm-panel);border:1px solid var(--cm-line2);box-shadow:0 6px 18p
 .ct-tools .cm-btn{background:var(--cm-panel);box-shadow:0 4px 14px rgba(0,0,0,.35)}
 .ct-tools .cm-btn.is-on{background:#f1f5fd}
 .ct:not(.is-compact) .ct-tool-units{display:none}
+.ct.is-nounits .ct-left,.ct.is-nounits .ct-tool-units,.ct.is-nounits [data-id="tac-tool-box"]{display:none}
+.ct.is-nounits:not(.is-compact) .ct-mapwrap{left:0}
 .ct-wind{left:10px;bottom:46px}
 .ct-layers{position:absolute;right:54px;bottom:10px;z-index:6;display:none;flex-direction:column;gap:2px;padding:8px;min-width:170px}
 .ct-layers.is-on{display:flex}

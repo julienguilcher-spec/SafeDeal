@@ -46,10 +46,10 @@ sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 sun.shadow.bias = -0.0005;
 sun.shadow.normalBias = 0.03;
-scene.add(sun, sun.target, new THREE.HemisphereLight(night ? 0x35425f : 0xcfe0ff, night ? 0x1a1712 : 0x5a5448, night ? 1.0 : 1.05));
+scene.add(sun, sun.target, new THREE.HemisphereLight(night ? 0x35425f : 0xcfe0ff, night ? 0x1a1712 : 0x5a5448, night ? 0.6 : 1.05));
 if (night) {
   // lueur chaude d'un candélabre : la nuit parisienne n'est jamais noire
-  const lampPost = new THREE.PointLight(0xffc27a, 260, 60, 1.7);
+  const lampPost = new THREE.PointLight(0xffc27a, 90, 60, 1.7);
   lampPost.position.set(9, 9, 9);
   scene.add(lampPost);
 }
@@ -345,7 +345,7 @@ if (view === 'alignement') {
   const rnd = (): number => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
   for (let i = picks.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); const t = picks[i]!; picks[i] = picks[j]!; picks[j] = t; }
   const lanes = 6, laneW = 3.6;
-  const cursor = new Array<number>(lanes).fill(-140);
+  const cursor = new Array<number>(lanes).fill(-105);
   const moving: Vehicle[] = [];
   for (let i = 0; i < n; i++) {
     const lane = i % lanes;
@@ -353,7 +353,7 @@ if (view === 'alignement') {
     const def = ctx.vehicles.def(k)!;
     const dirSign = lane < lanes / 2 ? 1 : -1;
     const z = cursor[lane]! + def.length / 2;
-    cursor[lane] = z + def.length / 2 + 2 + rnd() * 5;
+    cursor[lane] = z + def.length / 2 + 1.5 + rnd() * 3.5;
     const color = k === 'bus' ? 0x3fa78a : k === 'taxi' ? (rnd() < 0.5 ? 0x1c1d20 : 0x4a4f57) : CIVIL_COLORS[Math.floor(rnd() * CIVIL_COLORS.length)]!;
     const v = spawn(k, (lane - (lanes - 1) / 2) * laneW, z, dirSign > 0 ? 0 : Math.PI, color);
     const edge = lane === 0 || lane === lanes - 1;
@@ -362,7 +362,7 @@ if (view === 'alignement') {
     if (rnd() < 0.15) v.indicator = rnd() < 0.5 ? -1 : 1;
     if (rnd() < 0.3 || night) v.headlights = true;
   }
-  const lenTotal = 300;
+  const lenTotal = 230;
   frameHook = (dt) => {
     for (const v of moving) {
       const f = Math.cos(v.heading);
@@ -374,7 +374,7 @@ if (view === 'alignement') {
   setShadowArea(0, 0, 60);
   const cam = params.get('cam') ?? 'haut';
   if (cam === 'sol') { camera.position.set(1.8, 1.7, -8); target = new THREE.Vector3(0, 1.2, 40); }
-  else { camera.position.set(34, 30, -52); target = new THREE.Vector3(0, 0, 8); }
+  else { camera.position.set(62, 52, -128); target = new THREE.Vector3(2, 0, -8); }
   camera.lookAt(target);
 }
 

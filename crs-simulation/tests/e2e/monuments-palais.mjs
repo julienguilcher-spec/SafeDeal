@@ -47,6 +47,17 @@ const only = args.filter((a) => !a.startsWith('--'));
 const want = (name) => only.length === 0 || only.includes(name);
 const wantVue = (name) => vues === null || vues.includes(name);
 
+// rapport cumulatif, écrit après chaque monument : une exécution partielle (ou interrompue) met à jour les
+// monuments traités sans effacer les autres
+const file = path.join(OUT, rapportArg ? rapportArg.slice(10) : 'monuments-palais-report.json');
+function saveReport(entry) {
+  let all = [];
+  if (existsSync(file)) { try { all = JSON.parse(readFileSync(file, 'utf8')); } catch { all = []; } }
+  const i = all.findIndex((x) => x.key === entry.key);
+  if (i >= 0) all[i] = entry; else all.push(entry);
+  writeFileSync(file, JSON.stringify(all, null, 2));
+}
+
 const server = await startServer();
 const errors = [];
 const report = [];
@@ -111,20 +122,16 @@ for (const key of KEYS) {
   const max = BUDGET[key] ?? 60000;
   const pass = st.triangles <= max && st.drawCalls <= 12 && st.rendererCalls <= 12 && stFar.triangles <= 400;
   if (!pass) ok = false;
-  report.push({
+  const entry = {
     key, triangles: st.triangles, rendererTriangles: st.rendererTriangles, drawCalls: st.drawCalls, rendererCalls: st.rendererCalls,
     farTriangles: stFar.triangles, farCalls: stFar.rendererCalls, buildMs: st.buildMs, height: st.height, width: st.width, depth: st.depth,
     budget: max, pass, ms: Date.now() - t0,
-  });
+  };
+  report.push(entry);
+  saveReport(entry);
   pageErrors.forEach((e) => errors.push(`${key} : ${e}`));
   console.log(`[monuments-palais] ${key} : ${st.triangles} triangles, ${st.rendererCalls} appels (silhouette ${stFar.triangles} tri., ${stFar.rendererCalls} appels) ${st.width} × ${st.height} × ${st.depth} m ${pass ? 'OK' : 'HORS BUDGET'} — ${Date.now() - t0} ms`);
 }
 
-// rapport cumulatif : une exécution partielle met à jour les monuments concernés sans effacer les autres
-const file = path.join(OUT, rapportArg ? rapportArg.slice(10) : 'monuments-palais-report.json');
-let all = [];
-if (existsSync(file)) { try { all = JSON.parse(readFileSync(file, 'utf8')); } catch { all = []; } }
-for (const r of report) { const i = all.findIndex((x) => x.key === r.key); if (i >= 0) all[i] = r; else all.push(r); }
-writeFileSync(file, JSON.stringify(all, null, 2));
 console.log('rapport :', file);
 await finish({ browser, server, errors, ok, label: 'monuments-palais' });

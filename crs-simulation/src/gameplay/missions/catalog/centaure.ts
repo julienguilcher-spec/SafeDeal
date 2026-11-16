@@ -137,7 +137,7 @@ export const CENT_04 = mission({
     `Place Charles-de-Gaulle, manifestation interdite. Deux cents individus violents attaquent la ligne depuis l'avenue de la Grande-Armée. À cent cinquante mètres sur l'avenue Foch, un cortège pacifique de trois cents personnes attend. Le vent d'ouest souffle de travers.`,
     `Vous êtes opérateur : votre mission est de repousser les violents avec le moins de salves possible, d'éviter tout gaz sur le cortège pacifique et de respecter le plafond de quinze coups.`,
     `À l'ordre, lancez une salve de six grenades en tir courbe, zone désignée. Annoncez « Tir ! ». Regardez le nuage. Si le vent le pousse vers l'avenue Foch, suspendez. Le chef décide : vous exécutez. Le pilote garde l'engin en retrait.`,
-    `Un tir tendu est une faute grave. Comptez vos grenades. Chaque salve doit être justifiée par une violence constatée.`,
+    `Un tir tendu est une faute grave pour tout l'équipage. Comptez vos grenades : vous en avez dix-huit. Chaque salve doit être justifiée par une violence constatée et annoncée au chef avant le tir.`,
   ],
   place: 'Place Charles de Gaulle', timeOfDay: 17, weather: 'nuageux', windFrom: 270, windSpeed: 5,
   crowd: crowd(600, 'libertes', 0.55, 0.7, 0.3, { gilets_jaunes: 0.3, black_bloc: 0.3, militants: 0.2, familles: 0.1, curieux: 0.1 },
@@ -169,7 +169,7 @@ export const CENT_04 = mission({
 });
 
 export const CENT_05 = mission({
-  ...PILOTE, ...scene(CRS_12), difficulty: 3, chapter: 12, mirrorOf: CRS_12.id, altRoles: ['crs'],
+  ...PILOTE, ...scene(CRS_12), forces: forces({ ...CRS_12.forces, centaure: 1, pelotons: 1 }), difficulty: 3, chapter: 12, mirrorOf: CRS_12.id, altRoles: ['crs'],
   id: 'centaure-05-abri-mobile',
   title: 'Abri mobile',
   pitch: 'Avancer de deux cents mètres sous les jets avec huit gendarmes à l\'abri derrière soi, pour récupérer un blessé.',

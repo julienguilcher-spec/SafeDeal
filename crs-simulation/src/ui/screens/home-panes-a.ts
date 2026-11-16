@@ -11,7 +11,8 @@ import { icon, roleIconName, weatherIconName } from '../core/icons';
 import { MODES, POSTE_LABELS, POSTE_NOTES, RANK_NOTES, ROLES, WEATHERS, fold, rankLabel, roleInfo, weatherLabel } from './catalog';
 import type { PlaceChoice } from './catalog';
 import type { HomeModel } from './home';
-import { drawMiniPlan } from './miniplan';
+import { drawMiniPlan, nearestPlace } from './miniplan';
+import type { MiniPlanView } from './miniplan';
 import { DAY_PHASE_LABELS, buildSessionConfig, dayPhase, draftFromConfig, windLabel } from './scenario';
 
 function note(text: string, warn = false): HTMLElement {
@@ -230,6 +231,7 @@ export function buildLieu(model: HomeModel): HTMLElement {
 
   const all: PlaceChoice[] = [...model.places, ...model.otherPlaces];
   const buttons: HTMLButtonElement[] = [];
+  let view: MiniPlanView | null = null;
 
   function selectedIndex(): number {
     const name = fold(model.draft.place);
@@ -239,11 +241,11 @@ export function buildLieu(model: HomeModel): HTMLElement {
   function paint(): void {
     const sel = selectedIndex();
     for (let i = 0; i < buttons.length; i++) buttons[i]!.setAttribute('aria-pressed', String(i === sel));
-    const real = drawMiniPlan(canvas, ctx, all, sel);
+    view = drawMiniPlan(canvas, ctx, all, sel);
     const place = sel >= 0 ? all[sel]! : null;
     canvas.setAttribute('aria-label', place ? `Plan de situation : ${place.name}` : 'Plan de situation');
-    cap.textContent = real ? 'Grands axes du cœur de Paris' : 'Plan schématique du cœur de Paris';
-    noteEl.textContent = place && place.note ? place.note + '.' : '';
+    cap.textContent = view.real ? 'Grands axes du cœur de Paris' : 'Plan schématique du cœur de Paris';
+    noteEl.textContent = (place && place.note ? place.note + '. ' : '') + 'Touchez le plan pour choisir le lieu le plus proche.';
   }
 
   const addList = (title: string, places: readonly PlaceChoice[], offset: number): void => {
@@ -265,6 +267,19 @@ export function buildLieu(model: HomeModel): HTMLElement {
     });
     listCol.append(list);
   };
+  // choisir sur le plan : le lieu proposé le plus proche du point touché
+  canvas.style.cursor = 'pointer';
+  canvas.addEventListener('click', (e) => {
+    if (!view) return;
+    const r = canvas.getBoundingClientRect();
+    const w = view.toWorld(e.clientX - r.left, e.clientY - r.top);
+    const i = nearestPlace(all, w.x, w.z);
+    if (i < 0) return;
+    const p = all[i]!;
+    model.update({ place: p.name, x: p.x, z: p.z });
+    paint();
+    buttons[i]?.scrollIntoView({ block: 'nearest' });
+  });
   addList('Lieux de manifestation', model.places, 0);
   addList('Autres places', model.otherPlaces, model.places.length);
   root.append(listCol, side);

@@ -145,11 +145,11 @@ export const POMP_04 = mission({
   ],
   place: 'Rue du Temple', timeOfDay: 21, weather: 'couvert', windFrom: 240, windSpeed: 2,
   crowd: crowd(150, '', 0.6, 0.7, 0.35, { black_bloc: 0.4, curieux: 0.3, fetards: 0.3 },
-    ['Rue du Temple', 'Rue de Rambuteau'], 0.1),
+    ['Rue du Temple', 'Rue Rambuteau'], 0.1),
   forces: forces({ sections: 1, fourgons: 2, pompiers: 2, samu: 1 }),
   intel: intel(
     'Cent cinquante personnes ; un groupe agressif près d\'un feu de voiture.',
-    'Une trentaine d\'individus déterminés.', ['Rue du Temple', 'Rue de Rambuteau'],
+    'Une trentaine d\'individus déterminés.', ['Rue du Temple', 'Rue Rambuteau'],
     ['Se replier en marche arrière', 'Demander la protection', 'Ne pas répondre']),
   phases: [
     ph('extinction', 'Extinction', 'Vous attaquez le feu de voiture.', T(90),

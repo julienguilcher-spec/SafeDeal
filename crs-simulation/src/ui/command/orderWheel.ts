@@ -92,7 +92,7 @@ export class OrderWheelScreen implements ScreenInstance {
 
     if (!squad) {
       const cap = el('div', 'cw-cap');
-      cap.append(el('b', undefined, 'Roue d’ordres'), document.createTextNode('Aucune unité n’est sous vos ordres : vous recevez les ordres, vous n’en donnez pas.'));
+      cap.append(el('b', undefined, 'Roue d’ordres'), document.createTextNode('Aucune unité n’est sous vos ordres\u00a0: vous recevez les ordres, vous n’en donnez pas.'));
       this.root.appendChild(cap);
       return;
     }
@@ -121,8 +121,8 @@ export class OrderWheelScreen implements ScreenInstance {
     const cap = el('div', 'cw-cap');
     const key = core.kit ? core.kit.keyLabel('orders') : '';
     if (ctx.input.device === 'touch' || coarsePointer()) cap.textContent = 'Touchez un ordre — le centre annule';
-    else if (ctx.input.device === 'gamepad') cap.textContent = 'Stick : choisir · relâchez pour valider · B : annuler';
-    else cap.textContent = `Dirigez la souris vers un ordre, relâchez ${key !== '' ? '« ' + key + ' »' : 'la touche'} pour valider · Échap : annuler`;
+    else if (ctx.input.device === 'gamepad') cap.textContent = 'Stick\u00a0: choisir · relâchez pour valider · B\u00a0: annuler';
+    else cap.textContent = `Dirigez la souris vers un ordre, relâchez ${key !== '' ? '« ' + key + ' »' : 'la touche'} pour valider · Échap\u00a0: annuler`;
     this.root.appendChild(cap);
     window.addEventListener('pointermove', this.onMove);
   }
@@ -198,7 +198,7 @@ export class OrderWheelScreen implements ScreenInstance {
     if (!res.ok) {
       ctx.ui.notify(res.reason, 'warn', 5);
       ctx.audio.play('ui_alerte');
-    } else ctx.ui.notify(`${squad.name} : ${verb.label.toLowerCase()}`, 'ok', 2.5);
+    } else ctx.ui.notify(`${squad.name}\u00a0: ${verb.label.toLowerCase()}`, 'ok', 2.5);
     this.close();
   }
 
@@ -236,10 +236,11 @@ export class OrderWheelScreen implements ScreenInstance {
     if (this.held && !input.down('orders')) {
       this.held = false;
       // touche relâchée : un secteur surligné est validé ; un appui bref laisse la roue affichée
-      // (bref = relâché dans les deux premières images, ou en moins d'un quart de seconde)
+      // (bref = relâché dans les toutes premières images, ou en moins d'un quart de seconde : le compte
+      // d'images protège des images lentes, où un appui bref paraîtrait long)
       if (wheel.highlighted >= 0) {
         if (!wheel.choose()) this.close();
-      } else if (this.ticks > 2 && this.age > TAP_SECONDS) this.close();
+      } else if (this.ticks > 4 && this.age > TAP_SECONDS) this.close();
     }
   }
 

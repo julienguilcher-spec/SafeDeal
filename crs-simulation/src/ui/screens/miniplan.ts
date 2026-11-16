@@ -85,11 +85,16 @@ function drawRoads(ctx: GameContext, width: number, height: number, f: Fit): HTM
   return canvas;
 }
 
-/**
- * Dessine le plan. `selected` : index du lieu choisi dans `places` (−1 si aucun).
- * Retourne true si de vraies rues ont été tracées (sinon le plan est schématique).
- */
-export function drawMiniPlan(canvas: HTMLCanvasElement, ctx: GameContext, places: readonly PlanPlace[], selected: number): boolean {
+/** Résultat du dessin : nature du fond et passage d'un point du canevas (pixels CSS) au monde. */
+export interface MiniPlanView {
+  /** De vraies rues ont été tracées (sinon le plan est schématique). */
+  real: boolean;
+  /** Coordonnées du monde d'un point donné en pixels CSS depuis le coin haut gauche du canevas. */
+  toWorld(cssX: number, cssY: number): { x: number; z: number };
+}
+
+/** Dessine le plan. `selected` : index du lieu choisi dans `places` (−1 si aucun). */
+export function drawMiniPlan(canvas: HTMLCanvasElement, ctx: GameContext, places: readonly PlanPlace[], selected: number): MiniPlanView {
   const dpr = Math.min(typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1, 2);
   const cssW = canvas.clientWidth || 320;
   const cssH = Math.round(cssW * 0.58);
@@ -97,10 +102,14 @@ export function drawMiniPlan(canvas: HTMLCanvasElement, ctx: GameContext, places
   const height = Math.max(70, Math.round(cssH * dpr));
   if (canvas.width !== width) canvas.width = width;
   if (canvas.height !== height) canvas.height = height;
-  const g = canvas.getContext('2d');
-  if (!g) return false;
   const bounds = usableBounds(ctx.world.bounds);
   const f = fit(bounds, width, height, 10 * dpr);
+  const view: MiniPlanView = {
+    real: false,
+    toWorld: (cssX: number, cssY: number) => ({ x: (cssX * (width / cssW) - f.ox) / f.scale, z: (cssY * (height / cssH) - f.oz) / f.scale }),
+  };
+  const g = canvas.getContext('2d');
+  if (!g) return view;
   let real = false;
 
   g.setTransform(1, 0, 0, 1, 0, 0);
@@ -201,5 +210,22 @@ export function drawMiniPlan(canvas: HTMLCanvasElement, ctx: GameContext, places
   g.fillStyle = 'rgba(223, 230, 242, .8)';
   g.textBaseline = 'top';
   g.fillText('N ↑', width - 30 * dpr, 6 * dpr);
-  return real;
+  view.real = real;
+  return view;
+}
+
+/** Index du lieu le plus proche d'un point du monde (−1 si aucun lieu n'a de coordonnées). */
+export function nearestPlace(places: readonly PlanPlace[], x: number, z: number): number {
+  let best = -1;
+  let bestD = Infinity;
+  for (let i = 0; i < places.length; i++) {
+    const p = places[i]!;
+    if (p.x === null || p.z === null) continue;
+    const d = Math.hypot(p.x - x, p.z - z);
+    if (d < bestD) {
+      bestD = d;
+      best = i;
+    }
+  }
+  return best;
 }

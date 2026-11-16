@@ -376,6 +376,11 @@ try {
     check(/Commissaire, autorité civile/.test(await text(page, '.ui-sum__role')), 'choix du rôle répercuté dans le résumé');
     // lieu
     await page.locator('[data-id="tab-lieu"]').click();
+    // choisir sur le plan : un clic vers l'ouest de l'emprise sélectionne le Trocadéro, puis la liste reprend la main
+    const plan = await page.locator('.ui-miniplan canvas').boundingBox();
+    await page.mouse.click(plan.x + plan.width * 0.075, plan.y + plan.height * 0.62);
+    await frames(page, 2);
+    check(/Trocadéro/.test(await text(page, '.ui-home__summary')), `choix du lieu sur le mini-plan (résumé : ${(await text(page, '.ui-sum__row')).slice(0, 40)})`);
     await page.locator('[data-id="lieu-1"]').click();
     check(/Place de la Bastille/.test(await text(page, '.ui-home__summary')), 'choix du lieu répercuté dans le résumé');
     // heure : glisser le curseur à la souris

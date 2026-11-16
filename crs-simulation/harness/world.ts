@@ -11,7 +11,7 @@
 //   quality=bas|moyen|haut|ultra (défaut haut)    dist=distance d'affichage en m (défaut 1500)
 //   map=test         quartier d'essai (sinon Paris si public/data/paris existe, sinon repli automatique)
 //   shot=1           pas d'interface, rendu à la demande (captures)    carte=1  mini-carte affichée
-//   immeubles=0      sol seul        monuments=0
+//   immeubles=0      sol seul        monuments=0        lampes=0  sans les points lumineux de démonstration (halos seuls)
 // Souris : glisser pour regarder ; ZQSD / flèches pour se déplacer, A/E monter et descendre, Maj pour aller vite.
 // API de test : window.__ready, __goto(vue, { heure, meteo }), __stats(), __memory(), __roundTrip(), __map(…), __bench(essais).
 import * as THREE from 'three';
@@ -345,8 +345,9 @@ const VUES: Record<string, Vue> = {
     label: 'Place de la Concorde',
     go() {
       if (!paris()) { standAt(60, 40, 0, 0, 5); return; }
+      // au nord de la place, dos à la rue Royale : la fontaine des Fleuves, l'obélisque, la fontaine des Mers, le pont et le Palais Bourbon
       const ob = landmarkXZ('obelisque_concorde', -8, 17);
-      standAt(ob.x + 78, ob.z + 62, ob.x - 6, ob.z - 10, 9);
+      standAt(ob.x + 34, ob.z - 122, ob.x - 4, ob.z + 40, 5);
     },
   },
   rivoli: {
@@ -450,7 +451,7 @@ function updateLamps(): void {
     const p = near[i];
     if (!p) { l.intensity = 0; continue; }
     l.position.set(p.x, ctx.world.heightAt(p.x, p.z) + 7.6, p.z);
-    l.intensity = 420;
+    l.intensity = params.get('lampes') === '0' ? 0 : 420;
   }
 }
 

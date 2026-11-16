@@ -37,8 +37,8 @@ export const createSystems: ModuleFactory = () => {
 };
 
 export { UiSystem } from './core/system';
-export { HOTKEY_SCREENS, SCENARIOS_SECTION, SCENARIO_AREA_RADIUS, UI_DEBUG_SERVICE, UI_LOADING_EVENT } from './core/api';
+export { HOTKEY_SCREENS, SCENARIOS_SECTION, SCENARIO_AREA_RADIUS, UI_DEBUG_SERVICE, UI_LOADING_EVENT, UI_WIDGETS_SERVICE } from './core/api';
 export type {
   CauseLike, CrowdFamily, Derapage, Map2dLike, MissionLike, MissionResultLike, SavedScenario, ScenarioExtra, ScenarioMeans,
-  ScenarioOptions, ScenariosFile, UiDebugApi, UiLoadingEvent,
+  ScenarioOptions, ScenariosFile, UiDebugApi, UiLoadingEvent, Widgets,
 } from './core/api';

@@ -412,8 +412,8 @@ export class TacticalScreen implements ScreenInstance {
       pop.textContent = '';
       if (s) {
         pop.appendChild(el('b', undefined, `Station ${s.name}`));
-        pop.appendChild(el('small', undefined, !s.open ? `Fermée — ${s.arrived} personnes sorties avant la fermeture.`
-          : `${s.filtered ? 'Sortie filtrée. ' : ''}${Math.round(s.inflow)} arrivées par minute, ${s.arrived} personnes sorties.`));
+        pop.appendChild(el('small', undefined, !s.open ? `Fermée — ${Math.round(s.arrived)} personnes sorties avant la fermeture.`
+          : `${s.filtered ? 'Sortie filtrée. ' : ''}${Math.round(s.inflow)} arrivées par minute, ${Math.round(s.arrived)} personnes sorties.`));
         const row = el('div', 'ct-btnrow');
         if (sc.canMetro) row.appendChild(button(s.open ? 'Fermer la station' : 'Rouvrir', () => this.traffic.setOpen(s, !s.open), { className: 'is-small' + (s.open ? ' is-danger' : ' is-primary'), id: 'pop-metro-open' }));
         if (sc.level !== 'lecture' && s.open) row.appendChild(button(s.filtered ? 'Lever le filtrage' : 'Filtrer la sortie', () => this.traffic.setFiltered(s, !s.filtered), { className: 'is-small', id: 'pop-metro-filter' }));
@@ -465,10 +465,10 @@ export class TacticalScreen implements ScreenInstance {
       rule = mode.verb.rule;
     } else if (mode.kind === 'close_road') {
       title = 'Fermer une rue';
-      text = 'Désignez la rue à couper. Chaque toucher ferme une rue ; « Terminer » quand c’est fait.';
+      text = 'Désignez la rue à couper. Chaque toucher ferme une rue\u00a0; «\u00a0Terminer\u00a0» quand c’est fait.';
     } else if (mode.kind === 'close_area') {
       title = 'Périmètre';
-      text = 'Posez le centre et glissez pour fixer le rayon : toutes les rues qui y entrent seront coupées.';
+      text = 'Posez le centre et glissez pour fixer le rayon\u00a0: toutes les rues qui y entrent seront coupées.';
     } else if (mode.kind === 'rescue') {
       title = mode.rescue === 'pompiers' ? 'Pompiers' : 'SAMU';
       text = 'Désignez le point où les secours doivent se présenter. Ils arrivent par la rue et attendent une zone sûre.';
@@ -522,7 +522,10 @@ export class TacticalScreen implements ScreenInstance {
         this.tabBtns[i]!.style.display = (id === 'incidents' && !hasIncidents) || (id === 'circulation' && !hasTraffic) ? 'none' : '';
         setClass(this.panes[i]!, 'is-on', st.tab === id);
       }
-      setClass(this.leftEl, 'is-open', st.leftOpen);
+      // un rôle qui ne voit pas le dispositif de police n'a pas d'arborescence d'unités
+      const noUnits = !this.core.maps.scene.vis.police;
+      setClass(this.root, 'is-nounits', noUnits);
+      setClass(this.leftEl, 'is-open', st.leftOpen && !noUnits);
       setClass(this.rightEl, 'is-open', st.rightOpen);
       setClass(this.unitsBtn, 'is-on', st.leftOpen);
       setClass(this.toolMain, 'is-on', st.tool === 'main');

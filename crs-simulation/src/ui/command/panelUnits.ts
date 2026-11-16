@@ -201,7 +201,7 @@ export class UnitsPanel {
     if (sel.length === 0) {
       const level = this.core.scope().level;
       card.appendChild(el('div', 'ct-card-empty', level === 'lecture'
-        ? 'Lecture seule : vous voyez le dispositif, vous ne donnez pas d’ordre.'
+        ? 'Lecture seule\u00a0: vous voyez le dispositif, vous ne donnez pas d’ordre.'
         : own === 0 ? 'Aucune unité n’est sous vos ordres pour l’instant.'
           : 'Sélectionnez une ou plusieurs unités, sur la carte ou dans la liste, puis donnez un ordre.'));
       return;
@@ -230,7 +230,7 @@ export class UnitsPanel {
         add('Ordre en cours', os.free ? 'Aucun (initiative)' : `${os.text} — ${arrived ? 'en place' : 'en cours'}`);
         if (u.total > 0 && u.valid / u.total < 0.6) {
           card.appendChild(kv);
-          card.appendChild(el('div', 'ct-note is-warn', 'Moins de 60 % d’agents valides : relève conseillée.'));
+          card.appendChild(el('div', 'ct-note is-warn', 'Moins de 60 % d’agents valides\u00a0: relève conseillée.'));
         } else card.appendChild(kv);
       } else {
         add('Occupants', String(u.total));

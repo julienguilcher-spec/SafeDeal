@@ -215,7 +215,7 @@ export class PlanScreen implements ScreenInstance {
     if (!this.pick) return;
     this.runtime.setWaypoint(this.pick.x, this.pick.z, this.pick.label);
     this.ctx.audio.play('ui_valide');
-    this.ctx.ui.notify(`Repère GPS posé : ${this.pick.label}`, 'ok', 3);
+    this.ctx.ui.notify(`Repère GPS posé\u00a0: ${this.pick.label}`, 'ok', 3);
     this.pick = null;
     this.lastCard = -1;
     this.map.invalidate();
@@ -243,7 +243,7 @@ export class PlanScreen implements ScreenInstance {
     setClass(this.card, 'is-off', false);
     const x = p ? p.x : wp!.x;
     const z = p ? p.z : wp!.z;
-    setText(this.cardTitle, p ? p.label : `Repère : ${wp!.label}`);
+    setText(this.cardTitle, p ? p.label : `Repère\u00a0: ${wp!.label}`);
     let sub = '';
     if (!p && this.runtime.gps.distance >= 0) sub = `${formatDistance(this.runtime.gps.distance)} par l’itinéraire`;
     else if (s.hasPlayer) sub = `${formatDistance(Math.hypot(x - s.px, z - s.pz))} à vol d’oiseau`;

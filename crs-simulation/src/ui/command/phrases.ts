@@ -98,7 +98,7 @@ export function orderPhrase(o: OrderPhraseInput): string {
     case 'degager_barricade': body = `Vérifiez l’obstacle, puis dégagez la barricade${at(o.sector)}`; break;
     case 'cesser': body = 'Halte à l’action en cours'; break;
     case 'libre': body = 'Reprenez votre mission, initiative laissée'; break;
-    default: body = `Exécutez : ${String(o.type)}`;
+    default: body = `Exécutez\u00a0: ${String(o.type)}`;
   }
   return radioFrame(o.unit, o.from, body, true);
 }
@@ -128,8 +128,8 @@ export function situationReport(s: SituationInput): string {
   }
   const nature = volume === 0 ? 'aucun rassemblement à vue' : s.phase === 'cortege' || s.phase === 'depart' ? 'cortège' : 'attroupement';
   const body = volume === 0
-    ? `Position ${s.sector || 'inconnue'}. Nature : ${nature}. Rien à signaler`
-    : `Position ${s.sector || 'inconnue'}. Nature : ${nature}. Volume : ${spellNumber(volume)}. Attitude : ${attitude}`;
+    ? `Position ${s.sector || 'inconnue'}. Nature\u00a0: ${nature}. Rien à signaler`
+    : `Position ${s.sector || 'inconnue'}. Nature\u00a0: ${nature}. Volume\u00a0: ${spellNumber(volume)}. Attitude\u00a0: ${attitude}`;
   return radioFrame('CENTRAL', s.from, body, true);
 }
 

@@ -62,6 +62,8 @@ export const F = {
   UNCOUNTED: 128,
   /** Retenu sur place par un aléa (sit-in). */
   PINNED: 256,
+  /** S'est assis de lui-même pour souffler. */
+  RESTING: 512,
 } as const;
 
 export interface CrowdBrain {
@@ -149,6 +151,12 @@ export interface CrowdBrain {
   /** Faits déjà traités (instants) : dernière charge, dernière interpellation regardée. */
   seenCharge: number;
   seenArrest: number;
+  /** Objet tenu en main avant un geste (filmer), pour le reprendre ensuite (−2 : rien à reprendre). */
+  hand: number;
+  /** Minuterie libre de l'état courant (prochain petit déplacement, fin d'un repos). */
+  timer: number;
+  /** Fin de la réaction à une interpellation (huer, filmer). */
+  gawkUntil: number;
 }
 
 export function isCrowdBrain(v: unknown): v is CrowdBrain {
@@ -171,6 +179,6 @@ export function createBrain(p: Person, index: number, now: number, r1: number, r
     watchId: 0, watchX: 0, watchZ: 0, watchUntil: -1, act: A.NONE, actUntil: 0,
     stuckX: p.x, stuckZ: p.z, stuckSince: now, origin: p.profile, nextRad: now + 4 + r3 * 10, radAt: -1e9,
     calmSince: now, density: 0, gasSince: -1, controller: null, data: null,
-    dir: NaN, anchorX: p.x, anchorZ: p.z, stuck: 0, seenCharge: -1, seenArrest: -1,
+    dir: NaN, anchorX: p.x, anchorZ: p.z, stuck: 0, seenCharge: -1, seenArrest: -1, hand: -2, timer: 0, gawkUntil: -1,
   };
 }

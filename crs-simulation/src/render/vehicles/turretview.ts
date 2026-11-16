@@ -88,7 +88,7 @@ void main() {
 	float led = step( length( r ), 0.018 );
 	col += mix( vec3( 1.0, 0.25, 0.15 ), vec3( 0.3, 1.0, 0.4 ), uReady ) * led;
 	// bandeau de texte en bas
-	vec2 tu = vec2( ( p.x / ( uAspect * 0.92 ) ) * 0.5 + 0.5, ( p.y + 0.93 ) / 0.11 );
+	vec2 tu = vec2( ( p.x / ( uAspect * 0.9 ) ) * 0.5 + 0.5, ( p.y + 0.94 ) / 0.17 );
 	if ( tu.x > 0.0 && tu.x < 1.0 && tu.y > 0.0 && tu.y < 1.0 ) {
 		vec4 tx = texture2D( uText, tu );
 		col += ink * tx.a;
@@ -114,7 +114,7 @@ export class TurretView {
   constructor(scene: THREE.Scene) {
     this.canvas = document.createElement('canvas');
     this.canvas.width = 1024;
-    this.canvas.height = 64;
+    this.canvas.height = 96;
     this.g = this.canvas.getContext('2d')!;
     this.texture = new THREE.CanvasTexture(this.canvas);
     this.texture.generateMipmaps = false;
@@ -186,14 +186,17 @@ export class TurretView {
         : def.kind === 'canon_eau' ? `CUVE ${am.toLocaleString('fr-FR')} L` : '';
       const sgn = (n: number): string => (n >= 0 ? '+' : '−') + String(Math.abs(n)).padStart(3, '0');
       const g = this.g;
-      g.clearRect(0, 0, 1024, 64);
+      g.clearRect(0, 0, 1024, 96);
       g.fillStyle = '#ffffff';
       g.textBaseline = 'middle';
-      g.font = '700 26px "Arial Narrow", Arial, "Liberation Sans Narrow", "DejaVu Sans Condensed", sans-serif';
       g.textAlign = 'left';
-      g.fillText(title, 10, 34);
+      // deux lignes : désignation de l'équipement, puis les valeurs
+      g.font = '700 24px "Arial Narrow", Arial, "Liberation Sans Narrow", "DejaVu Sans Condensed", sans-serif';
+      g.fillText(title, 10, 24);
+      g.font = '700 30px "Arial Narrow", Arial, "Liberation Sans Narrow", "DejaVu Sans Condensed", sans-serif';
+      g.fillText(`GISEMENT ${sgn(yd)}°    SITE ${sgn(pd)}°    ZOOM ×${zoom.toFixed(1)}`, 10, 68);
       g.textAlign = 'right';
-      g.fillText(`GISEMENT ${sgn(yd)}°   SITE ${sgn(pd)}°   ZOOM ×${zoom.toFixed(1)}   ${load}`, 1014, 34);
+      g.fillText(load, 1014, 68);
       this.texture.needsUpdate = true;
     }
   }

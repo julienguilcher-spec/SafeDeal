@@ -65,6 +65,37 @@ describe('tous les types de personnes', () => {
     expect(ctx.people.list.length).toBe(ALL_KINDS.length * 25);
   });
 
+  it('un magasin de personnes qui garderait les objets reçus ne fait pas partager apparence ni dotation', async () => {
+    const { ctx } = await startRoles(40);
+    const base = ctx.people;
+    // magasin de remplacement (autre module) qui adopte tels quels l'apparence et l'inventaire fournis
+    ctx.people = {
+      get list() { return base.list; },
+      get: (id) => base.get(id),
+      spawn(init) {
+        const p = base.spawn(init);
+        if (init.look) p.look = init.look as Person['look'];
+        if (init.inventory) p.inventory = init.inventory;
+        return p;
+      },
+      remove: (id) => base.remove(id),
+      clear: () => base.clear(),
+      queryRadius: (x, z, r, out, filter) => base.queryRadius(x, z, r, out, filter),
+      nearest: (x, z, r, filter) => base.nearest(x, z, r, filter),
+      countIn: (x, z, r, filter) => base.countIn(x, z, r, filter),
+      rebuildIndex: () => base.rebuildIndex(),
+    };
+    const a = ctx.archetypes.spawn('crs', 0, 0, { poste: 'bouclier' });
+    const b = ctx.archetypes.spawn('manifestant', 0, 0, { profile: 'meneur' });
+    expect(a.look).not.toBe(b.look);
+    expect(a.inventory).not.toBe(b.inventory);
+    expect(a.look.outfit).toBe('crs_mo');
+    expect(b.look.outfit).not.toBe('crs_mo');
+    expect(countOf(a, 'bouclier')).toBe(1);
+    expect(countOf(b, 'megaphone')).toBe(1);
+    expect(a.inventory[0]).not.toBe(b.inventory[0]);
+  });
+
   it('type inconnu : un passant, sans erreur', async () => {
     const { ctx } = await startRoles(22);
     const p = ctx.archetypes.spawn('extraterrestre' as PersonKind, 0, 0);

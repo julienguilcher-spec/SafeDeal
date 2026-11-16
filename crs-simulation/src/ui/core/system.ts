@@ -18,7 +18,7 @@ import { SystemOrder } from '@/core/contracts';
 import { EXT } from '@/core/extensions';
 import type { MetroApi, ScreenOptions, TrafficControlApi, UiKit } from '@/core/extensions';
 import type { LaunchParams } from '@/core/launch';
-import { HOTKEY_SCREENS, SCENARIO_AREA_RADIUS, UI_DEBUG_SERVICE } from './api';
+import { HOTKEY_SCREENS, SCENARIO_AREA_RADIUS, UI_DEBUG_SERVICE, UI_WIDGETS_SERVICE } from './api';
 import type { ScenarioExtra, UiDebugApi } from './api';
 import { Tooltip, Widgets } from './components';
 import { CSS_BASE } from './css/base';
@@ -189,6 +189,7 @@ export class UiSystem implements GameSystem {
       },
     };
     ctx.provide(UI_DEBUG_SERVICE, debug);
+    ctx.provide(UI_WIDGETS_SERVICE, widgets);
 
     registerScreens(this.env);
   }

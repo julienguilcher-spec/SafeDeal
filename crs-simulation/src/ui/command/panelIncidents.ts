@@ -160,7 +160,7 @@ export class IncidentsPanel {
           const call = rescue.request(means, inc.x, inc.z, ctx.player.state.personId, inc.id);
           called = true;
           const eta = Math.max(0, Math.round(call.eta));
-          ctx.ui.notify(`${MEANS_LABELS[means]} demandés pour « ${inc.label} » — environ ${Math.max(1, Math.round(eta / 60))} min`, 'ok', 4);
+          ctx.ui.notify(`${MEANS_LABELS[means]} demandés pour «\u00a0${inc.label}\u00a0» — environ ${Math.max(1, Math.round(eta / 60))} min`, 'ok', 4);
           ctx.radio.say({
             channel: 'secours', from: core.callsign(), priority: 2, personId: ctx.player.state.personId,
             text: rescueRequest(core.callsign(), ctx.world.sectorName(inc.x, inc.z), means),
@@ -173,7 +173,7 @@ export class IncidentsPanel {
       return;
     }
     if (!unit) {
-      ctx.ui.notify(`${MEANS_LABELS[means]} : aucun moyen de ce type sous vos ordres.`, 'warn', 4);
+      ctx.ui.notify(`${MEANS_LABELS[means]}\u00a0: aucun moyen de ce type sous vos ordres.`, 'warn', 4);
       return;
     }
     this.tmap.assignToUnit(inc.id, unit);
@@ -375,7 +375,7 @@ export class IncidentsPanel {
       const c = calls[i]!;
       const row = this.callsList.children[i] as HTMLElement | undefined;
       if (!row) continue;
-      const reason = c.state === 'en_attente' && c.waitingReason ? ` : ${c.waitingReason}` : '';
+      const reason = c.state === 'en_attente' && c.waitingReason ? `\u00a0: ${c.waitingReason}` : '';
       setText(row.children[1] as HTMLElement, `${CALL_STATES[c.state] ?? ''}${reason}`);
       const s = Math.max(0, Math.round(c.eta));
       setText(row.children[2] as HTMLElement, c.state === 'sur_place' ? '' : `${Math.floor(s / 60)}:${s % 60 < 10 ? '0' : ''}${s % 60}`);

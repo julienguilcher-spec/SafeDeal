@@ -87,8 +87,8 @@ export class RadioScreen implements ScreenInstance {
       add('Compte rendu de situation', 'eye', 'radio-cr', () => this.sendSituation());
       add('Demande de renfort', 'units', 'radio-renfort', () => this.sendReinforcement());
       add('Demande d’autorisation d’emploi de la force', 'megaphone', 'radio-force', () => this.sendForce());
-      add('Demande de secours : pompiers', 'fire', 'radio-pompiers', () => this.sendRescue('pompiers'));
-      add('Demande de secours : SAMU', 'cross', 'radio-samu', () => this.sendRescue('samu'));
+      add('Demande de secours\u00a0: pompiers', 'fire', 'radio-pompiers', () => this.sendRescue('pompiers'));
+      add('Demande de secours\u00a0: SAMU', 'cross', 'radio-samu', () => this.sendRescue('samu'));
     } else {
       add('Appeler les pompiers (18)', 'fire', 'radio-pompiers', () => this.sendRescue('pompiers'));
       add('Appeler le SAMU (15)', 'cross', 'radio-samu', () => this.sendRescue('samu'));
@@ -141,7 +141,7 @@ export class RadioScreen implements ScreenInstance {
     if (police) this.say(rescueRequest(core.callsign(), this.sector(p), kind), 2, 'secours');
     else {
       const who = kind === 'pompiers' ? 'les pompiers' : 'le SAMU';
-      this.say(radioFrame(kind === 'pompiers' ? 'Pompiers' : 'SAMU', p ? p.name : 'Témoin', `J’appelle ${who} : il y a besoin de secours${this.sector(p) ? ', ' + this.sector(p) : ''}`, false), 2, 'public');
+      this.say(radioFrame(kind === 'pompiers' ? 'Pompiers' : 'SAMU', p ? p.name : 'Témoin', `J’appelle ${who}\u00a0: il y a besoin de secours${this.sector(p) ? ', ' + this.sector(p) : ''}`, false), 2, 'public');
     }
     const rescue = core.rescue;
     if (rescue && p) {

@@ -235,7 +235,7 @@ export const CG_06 = mission({
   ],
   type: 'emeute_nocturne', place: 'Rue du Faubourg du Temple', timeOfDay: 22, weather: 'couvert', windFrom: 230, windSpeed: 3,
   crowd: crowd(200, '', 0.6, 0.75, 0.35, { black_bloc: 0.4, curieux: 0.3, fetards: 0.3 },
-    ['Rue du Faubourg du Temple', 'Boulevard de Belleville'], 0.1),
+    ['Rue du Faubourg du Temple', 'Boulevard de la Villette'], 0.1),
   forces: forces({ sections: 1, fourgons: 2, pompiers: 0, samu: 0 }),
   intel: intel(
     'Deux cents personnes en groupes mobiles.',

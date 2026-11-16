@@ -72,15 +72,15 @@ export const MEANS_FOR: Readonly<Record<IncidentKind, readonly IncidentMeans[]>>
 
 /** Conseil affiché sous l'incident sélectionné. */
 export const MEANS_ADVICE: Readonly<Record<IncidentKind, string>> = {
-  feu_poubelle: 'Petit feu : un porte-extincteur suffit. Canon à eau ou pompiers s’il se propage.',
-  feu_barricade: 'Canon à eau ou pompiers sous protection ; l’extincteur ne suffit pas longtemps.',
-  feu_vehicule: 'Véhicule embrasé : pompiers (itinéraire dégagé et protection) ou canon à eau.',
-  feu_boutique: 'Feu de bâtiment : pompiers en priorité, sous protection.',
-  blesse: 'Blessé grave : SAMU. Sinon un groupe l’extrait vers l’arrière.',
+  feu_poubelle: 'Petit feu\u00a0: un porte-extincteur suffit. Canon à eau ou pompiers s’il se propage.',
+  feu_barricade: 'Canon à eau ou pompiers sous protection\u00a0; l’extincteur ne suffit pas longtemps.',
+  feu_vehicule: 'Véhicule embrasé\u00a0: pompiers (itinéraire dégagé et protection) ou canon à eau.',
+  feu_boutique: 'Feu de bâtiment\u00a0: pompiers en priorité, sous protection.',
+  blesse: 'Blessé grave\u00a0: SAMU. Sinon un groupe l’extrait vers l’arrière.',
   agent_a_terre: 'Deux boucliers couvrent, deux agents le tirent derrière la ligne.',
   agent_isole: 'Un groupe ou une BRAV-M le rejoint sans délai.',
-  pillage: 'BRAV-M ou groupe d’intervention : interpellation sur fait constaté.',
-  barricade: 'Le Centaure pousse à la lame après vérification de l’obstacle ; à défaut, un groupe.',
+  pillage: 'BRAV-M ou groupe d’intervention\u00a0: interpellation sur fait constaté.',
+  barricade: 'Le Centaure pousse à la lame après vérification de l’obstacle\u00a0; à défaut, un groupe.',
   automobiliste_bloque: 'Un groupe dégage le véhicule et le fait sortir de la zone.',
   secours_bloques: 'Ouvrir un couloir de 3,50 m et escorter les secours.',
   suspect: 'Binôme d’interpellation ou BRAV-M, sur fait constaté.',

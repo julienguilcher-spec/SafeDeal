@@ -109,7 +109,7 @@ export class TrafficPanel {
     if (!t || !core.scope().canTraffic) return;
     const name = this.tmap.closureName(c);
     t.open(c.id);
-    core.ctx.ui.notify(`Circulation rétablie : ${name}`, 'ok', 3);
+    core.ctx.ui.notify(`Circulation rétablie\u00a0: ${name}`, 'ok', 3);
     core.ctx.radio.say({
       channel: 'commandement', from: core.callsign(), priority: 1, personId: core.ctx.player.state.personId,
       text: radioFrame('CENTRAL', core.callsign(), `Circulation rétablie, ${name}`, false),
@@ -205,8 +205,8 @@ export class TrafficPanel {
       setClass(this.roadBtn, 'is-on', mode.kind === 'close_road');
       setClass(this.areaBtn, 'is-on', mode.kind === 'close_area');
       const sel = this.tmap.selectedUnits();
-      setText(this.roadNote, !can ? 'Vous voyez les rues coupées ; les fermer relève du commandement.'
-        : sel.length === 1 ? `Le barrage sera tenu par ${sel[0]!.name}.` : 'Sans unité sélectionnée : barrières seules. Sélectionnez une unité pour qu’elle tienne le barrage.');
+      setText(this.roadNote, !can ? 'Vous voyez les rues coupées\u00a0; les fermer relève du commandement.'
+        : sel.length === 1 ? `Le barrage sera tenu par ${sel[0]!.name}.` : 'Sans unité sélectionnée\u00a0: barrières seules. Sélectionnez une unité pour qu’elle tienne le barrage.');
       const list = traffic.closures;
       let sig = this.state.focusClosure + '|' + (can ? 1 : 0) + '|';
       for (let i = 0; i < list.length; i++) sig += list[i]!.id + ':' + list[i]!.squadId + ',';
@@ -219,7 +219,7 @@ export class TrafficPanel {
       const key = c.moving * 1000 + c.stopped;
       if (key !== this.lastCount) {
         this.lastCount = key;
-        setText(this.count, `${list.length === 0 ? 'Aucune rue coupée. ' : ''}Trafic dans 300 m autour du centre de la carte : ${c.moving} en circulation, ${c.stopped} à l’arrêt.`);
+        setText(this.count, `${list.length === 0 ? 'Aucune rue coupée. ' : ''}Trafic dans 300 m autour du centre de la carte\u00a0: ${c.moving} en circulation, ${c.stopped} à l’arrêt.`);
       }
     }
     if (metro) {
@@ -238,7 +238,7 @@ export class TrafficPanel {
         const s = this.shown[i]!;
         const row = this.stations.children[i] as HTMLElement | undefined;
         const small = row?.querySelector('small');
-        if (small) setText(small as HTMLElement, s.open ? `${Math.round(s.inflow)} arrivées/min · ${s.arrived} sortis` : `${s.arrived} sortis avant la fermeture`);
+        if (small) setText(small as HTMLElement, s.open ? `${Math.round(s.inflow)} arrivées/min · ${Math.round(s.arrived)} sortis` : `${Math.round(s.arrived)} sortis avant la fermeture`);
       }
     }
   }

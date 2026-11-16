@@ -4,6 +4,7 @@ import {
   NBSP, NNBSP, capitalize, cardinal8, cardinalName, decimal, distanceLabel, durationLabel, hourClock, hourLabel, int, percent, plural,
   quote, speedLabel, stopwatch, times,
 } from '@/ui/core/format';
+import { nearestPlace } from '@/ui/screens/miniplan';
 import { readCauses, readMissionResult, readMissions } from '@/ui/screens/services';
 import { TIPS, tipsFor } from '@/ui/screens/tips';
 
@@ -92,6 +93,16 @@ describe('ui/services facultatifs', () => {
     const r = readMissionResult({ result: { title: 'Le pont', success: true, score: 140, grade: 'Bien', lines: [{ label: 'Barrage tenu', value: '25 min', delta: 20 }, { value: 3 }, { label: 'Tir', valeur: -12, motif: 'trop tôt' }] } });
     expect(r).toEqual({ title: 'Le pont', success: true, score: 100, grade: 'Bien', lines: [{ label: 'Barrage tenu', value: '25 min', delta: 20 }, { label: 'Tir', value: -12, note: 'trop tôt' }] });
     expect(readMissionResult({ debrief: () => ({ reussite: false }) })).toEqual({ success: false });
+  });
+});
+
+describe('ui/mini-plan', () => {
+  it('lieu le plus proche d’un point touché sur le plan', () => {
+    const places = [{ name: 'A', x: 0, z: 0 }, { name: 'sans coordonnées', x: null, z: null }, { name: 'B', x: 1000, z: 200 }];
+    expect(nearestPlace(places, 900, 100)).toBe(2);
+    expect(nearestPlace(places, -50, 30)).toBe(0);
+    expect(nearestPlace([{ name: 'x', x: null, z: null }], 0, 0)).toBe(-1);
+    expect(nearestPlace([], 0, 0)).toBe(-1);
   });
 });
 

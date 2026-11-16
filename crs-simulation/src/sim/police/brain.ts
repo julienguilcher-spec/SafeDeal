@@ -129,6 +129,8 @@ export interface Agent {
   goalX: number;
   goalZ: number;
   goalRun: boolean;
+  /** Immobile sur place (geste en cours : saisie, menottage, ravitaillement). */
+  hold: boolean;
 
   // ── action d'arme ──
   act: number;
@@ -428,7 +430,7 @@ export function createAgent(p: Person, seed: number): Agent {
     path: [], pathN: 0, pathI: 0, pathAt: -100, stuckT: 0, lastX: p.x, lastZ: p.z, sideX: 0, sideZ: 0, sideUntil: 0,
     reactAt: 0, thinkAt: 0,
     alertUntil: 0, highGuard: false, crouch: false, maskAt: 0, maskOffAt: 0, avoidX: 0, avoidZ: 0, avoidUntil: 0, jx: 0, jz: 0,
-    op: null, opRole: 0, goalX: p.x, goalZ: p.z, goalRun: false,
+    op: null, opRole: 0, goalX: p.x, goalZ: p.z, goalRun: false, hold: false,
     act: ACT_NONE, actItem: '', actMeans: '', actT: 0, actUntil: 0, actTx: 0, actTy: 0, actTz: 0, actTarget: 0,
     actRestore: '', actPower: 1, actDone: false, contactAt: 0, postX: 0, postZ: 0, postUntil: 0,
     formable: true, able: true, downSince: 0, crew: false, boardId: 0, seed,

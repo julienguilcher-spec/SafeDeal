@@ -14,7 +14,7 @@ import { IDLE } from './tacticalState';
 import type { TacticalState } from './tacticalState';
 
 const STAGE_LABELS: readonly string[] = [
-  'Aucune sommation', 'Annonce faite : « Obéissance à la loi »', 'Première sommation faite', 'Dernière sommation faite',
+  'Aucune sommation', 'Annonce faite\u00a0: «\u00a0Obéissance à la loi\u00a0»', 'Première sommation faite', 'Dernière sommation faite',
 ];
 const NEXT_LABELS: readonly string[] = ['Faire l’annonce', 'Première sommation', 'Dernière sommation', 'Sommations terminées'];
 
@@ -92,7 +92,7 @@ export class OrdersPanel {
       this.verbBtns.push({ verb: v, b });
     }
     this.rule = el('div', 'ct-note');
-    this.readonlyNote = el('div', 'ct-note', 'Lecture seule : vous recevez les ordres, vous n’en donnez pas. La carte montre le dispositif et la foule.');
+    this.readonlyNote = el('div', 'ct-note', 'Lecture seule\u00a0: vous recevez les ordres, vous n’en donnez pas. La carte montre le dispositif et la foule.');
     sVerbs.append(vh, this.palette, this.rule, this.readonlyNote);
 
     this.root.append(sLegal, sForce, sVerbs);
@@ -106,7 +106,7 @@ export class OrdersPanel {
     const before = ctx.law.roe.sommation;
     const stage = ctx.law.sommation(p);
     if (stage === before) {
-      ctx.ui.notify(before >= 3 ? 'Les sommations sont terminées.' : 'Sommation refusée : seule l’autorité habilitée, insigne apparent, peut la prononcer.', 'warn', 4);
+      ctx.ui.notify(before >= 3 ? 'Les sommations sont terminées.' : 'Sommation refusée\u00a0: seule l’autorité habilitée, insigne apparent, peut la prononcer.', 'warn', 4);
       return;
     }
     // le texte réglementaire est diffusé par l'événement law:sommation (sous-titre, voix) ; ici, la trace radio
@@ -173,13 +173,13 @@ export class OrdersPanel {
     const stage: SommationStage = roe.sommation;
     this.dot.className = 'ct-dot' + (roe.underAttack ? ' atk' : stage > 0 ? ' s' + stage : '');
     setText(this.legal, STAGE_LABELS[stage] ?? '');
-    setText(this.lawful, `Force licite à cet instant : niveau ${roe.lawfulForce} — ${FORCE_LABELS[roe.lawfulForce] ?? ''}.`);
-    setText(this.attack, roe.underAttack ? 'Violences contre les forces de l’ordre : riposte immédiate permise.' : '');
+    setText(this.lawful, `Force licite à cet instant\u00a0: niveau ${roe.lawfulForce} — ${FORCE_LABELS[roe.lawfulForce] ?? ''}.`);
+    setText(this.attack, roe.underAttack ? 'Violences contre les forces de l’ordre\u00a0: riposte immédiate permise.' : '');
     this.attack.style.display = roe.underAttack ? '' : 'none';
     this.somBtn.style.display = sc.canSommation ? '' : 'none';
     this.somBtn.disabled = stage >= 3;
     const lbl = this.somBtn.querySelector('.cm-btn-t');
-    if (lbl) setText(lbl as HTMLElement, stage >= 3 ? NEXT_LABELS[3]! : `Sommation suivante : ${NEXT_LABELS[stage]!.toLowerCase()}`);
+    if (lbl) setText(lbl as HTMLElement, stage >= 3 ? NEXT_LABELS[3]! : `Sommation suivante\u00a0: ${NEXT_LABELS[stage]!.toLowerCase()}`);
 
     // force : l'autorité fixe le niveau ; un chef d'unité plafonne ses propres ordres
     const authorized = roe.authorizedForce;
@@ -193,8 +193,8 @@ export class OrdersPanel {
       b.disabled = sc.level === 'lecture' || (!sc.canAuthorize && lvl > authorized);
     }
     let note = `Niveau ${shown} — ${FORCE_LABELS[shown] ?? ''}.`;
-    if (!sc.canAuthorize) note += ` Autorisé par la hiérarchie : niveau ${authorized}.`;
-    else if (authorized > roe.lawfulForce) note += ` Au-delà du cadre légal actuel (niveau ${roe.lawfulForce}) : sommations requises.`;
+    if (!sc.canAuthorize) note += ` Autorisé par la hiérarchie\u00a0: niveau ${authorized}.`;
+    else if (authorized > roe.lawfulForce) note += ` Au-delà du cadre légal actuel (niveau ${roe.lawfulForce})\u00a0: sommations requises.`;
     setText(this.forceNote, note);
     setClass(this.forceNote, 'is-warn', sc.canAuthorize && authorized > roe.lawfulForce);
     this.askBtn.style.display = !sc.canAuthorize && sc.level !== 'lecture' ? '' : 'none';

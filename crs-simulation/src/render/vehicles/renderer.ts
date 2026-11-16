@@ -430,7 +430,7 @@ export class VehiclesRenderer {
     composeVehicleMatrix(m, 0, v.x, v.y, v.z, v.heading, v.pitch, v.roll);
     const fwdX = Math.sin(v.heading), fwdZ = Math.cos(v.heading);
     const k = 0.55 + 0.45 * night;                 // les éclats sont plus discrets en plein jour
-    const size = (0.55 + 0.9 * night) * (1 + dist * 0.012);
+    const size = (0.4 + 0.5 * night) * (1 + dist * 0.014);
     if (!inside) {
       if (bA > 0) for (let i = 0; i + 2 < meta.beaconA.length; i += 3) {
         transformPoint(m, 0, meta.beaconA[i]!, meta.beaconA[i + 1]!, meta.beaconA[i + 2]!, tmp);
@@ -442,7 +442,7 @@ export class VehiclesRenderer {
       }
       if (head > 0) for (let i = 0; i + 2 < meta.head.length; i += 3) {
         transformPoint(m, 0, meta.head[i]!, meta.head[i + 1]!, meta.head[i + 2]!, tmp);
-        fx.sprite(tmp.x, tmp.y, tmp.z, size * 0.9, 1.0, 0.93, 0.78, k * 1.1);
+        fx.sprite(tmp.x, tmp.y, tmp.z, size * 0.9, 1.0, 0.93, 0.78, k * 0.8);
       }
       if (head > 0 || brake > 0) for (let i = 0; i + 2 < meta.tail.length; i += 3) {
         transformPoint(m, 0, meta.tail[i]!, meta.tail[i + 1]!, meta.tail[i + 2]!, tmp);
@@ -468,8 +468,8 @@ export class VehiclesRenderer {
     const api = this.lightsApi;
     // (pas pour le véhicule du joueur en vue intérieure : une lumière ponctuelle sans ombre inonderait l'habitacle)
     if (api && !inside && beacon > 0 && this.pulses < this.q.maxPulses && dist < 90 && meta.beaconA.length > 0) {
-      transformPoint(m, 0, 0, meta.beaconA[1]! + 0.6, meta.beaconA[2]!, tmp);
-      api.pulse(tmp.x, tmp.y, tmp.z, 0x1e5bff, beacon * (30 + 110 * night), 26);
+      transformPoint(m, 0, 0, meta.beaconA[1]! + 1.2, meta.beaconA[2]!, tmp);
+      api.pulse(tmp.x, tmp.y, tmp.z, 0x1e5bff, beacon * (14 + 34 * night), 26);
       this.pulses++;
     }
     if (v.state === 'burning') {
@@ -491,7 +491,7 @@ export class VehiclesRenderer {
         if (night > 0.2) fx.ground(FX_POOL, v.x, v.y + 0.05, v.z, fwdX, fwdZ, 9, 9, 1.0, 0.42, 0.1, night * 0.5 * (0.6 + 0.4 * fire));
       }
       if (api && this.pulses < this.q.maxPulses && dist < 90) {
-        api.pulse(v.x, v.y + 1.6, v.z, 0xff7a1c, (60 + 140 * night) * (0.5 + 0.5 * fire), 22);
+        api.pulse(v.x, v.y + 2.2, v.z, 0xff7a1c, (24 + 50 * night) * (0.5 + 0.5 * fire), 22);
         this.pulses++;
       }
     }
