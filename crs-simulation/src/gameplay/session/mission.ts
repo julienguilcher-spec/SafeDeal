@@ -29,7 +29,7 @@ import { ExecutantRadioFilter, listenForRole } from '@/gameplay/radio/relevance'
 import type { ChannelListen, RadioScope } from '@/gameplay/radio/relevance';
 import { JOURNEE_OBJECTIVE_ID, JOURNEE_SERVICE } from './journee';
 import type { JourneeApi } from './journee';
-import { ORDER_OBJECTIVE_ID, ORDERS_SERVICE } from './orders';
+import { ORDER_OBJECTIVE_ID, ORDERS_SERVICE, STANDBY_TEXT } from './orders';
 import type { PlayerOrdersApi } from './orders';
 import { chainLabel, chiefLabel, isExecutantRole, plainOrder, resolveInstruction, strayed } from './executant';
 import type { Instruction, InstructionInputs, PlainOrder } from './executant';
@@ -237,8 +237,10 @@ export class MissionBriefSystem implements GameSystem {
       order = this.groupOrder(me, group);
       this.watchOrder(group, order, travelling, now);
     } else if (given) {
-      order = { title: given.text, detail: given.arrived ? 'Vous êtes en place : tenez la position, rendez compte de ce que vous voyez.'
-        : 'Rendez-vous au point indiqué, puis rendez compte « en place ».', radio: '', target: 'place', x: given.x, z: given.z };
+      // en place : stand-by explicite (la même phrase que la liste des objectifs) ; tir désigné : zone, gisement, distance
+      order = { title: given.arrived && !given.fire ? STANDBY_TEXT : given.text,
+        detail: given.detail || (given.arrived ? 'Tenez la position, surveillez la foule et rendez compte de ce que vous voyez.'
+          : 'Rendez-vous au point indiqué, puis rendez compte « en place ».'), radio: '', target: 'place', x: given.x, z: given.z };
       this.watchGiven(given.text, now);
     }
     inputs.order = order;
