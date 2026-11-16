@@ -24,6 +24,9 @@ import { hashString } from './rng';
 import { defaultSessionConfig } from './session';
 
 /** Clé du service publié par la racine de composition. */
+/** Caserne de la journée de service (voir src/gameplay/session/journee-data.ts, SERVICE_BASE) : zone à charger aussi. */
+const JOURNEE_BASE = { x: 1760, z: 1225 };
+
 export const LAUNCH_SERVICE = 'launch';
 
 export interface LaunchParams {
@@ -149,6 +152,6 @@ export function launchSessionConfig(launch: LaunchParams): SessionConfig {
   if (launch.mission) cfg.missionId = launch.mission;
   if (launch.duration) cfg.duration = launch.duration;
   // &journee=1 : journée de service (prise de service à la caserne, trajet en colonne)
-  if (launch.raw['journee'] === '1') cfg.extra = { ...(cfg.extra ?? {}), journee: true };
+  if (launch.raw['journee'] === '1') cfg.extra = { ...(cfg.extra ?? {}), journee: true, preload: [JOURNEE_BASE] };
   return cfg;
 }

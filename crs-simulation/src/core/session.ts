@@ -340,6 +340,17 @@ export class SessionController implements SessionApi {
       ctx.world.setFocus(x, z);
       await ctx.world.whenLoaded(x, z, START_LOAD_RADIUS);
       if (token !== this.token) return; // remplacée ou annulée pendant le chargement
+      // autres zones où la mise en place pose des forces (journée de service : la caserne, loin du rassemblement) :
+      // sans leurs données de surface, aucune place de stationnement n'y était trouvée (motos de la BRAV-M absentes)
+      const more = cfg.extra ? cfg.extra['preload'] : undefined;
+      if (Array.isArray(more)) {
+        for (const pt of more) {
+          if (!pt || typeof pt !== 'object') continue;
+          const px = Number((pt as { x?: unknown }).x), pz = Number((pt as { z?: unknown }).z);
+          if (Number.isFinite(px) && Number.isFinite(pz)) await ctx.world.whenLoaded(px, pz, START_LOAD_RADIUS);
+          if (token !== this.token) return;
+        }
+      }
 
       ctx.env.setTime(cfg.timeOfDay);
       ctx.env.setWeather(cfg.weather, true);

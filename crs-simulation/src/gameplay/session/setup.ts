@@ -34,7 +34,7 @@ import {
 import type {
   EngagedMeans, LoadingProgress, PoliceCommandLike, PoliceUnitHandleLike, PoliceUnitsLike, SessionSetupApi, SessionSetupSummary,
 } from './api';
-import { FILE_SPACING, RANK_DEPTH, chooseStand, chooseStandOffCrowd, parkingSpot, settle, supportSpot } from './placement';
+import { FILE_SPACING, RANK_DEPTH, chooseStand, chooseStandOffCrowd, parkingSpot, roadSpot, settle, supportSpot } from './placement';
 import type { Stand } from './placement';
 import { castFor, isPoliceRole, meansOf, rankOf } from './roster';
 import type { Cast, CastSlot, RequestedMeans } from './roster';
@@ -431,7 +431,8 @@ export class SessionSetupSystem implements GameSystem {
     const special = (make: (x: number, z: number, heading: number) => PoliceUnitHandleLike | undefined, radius: number, what: string, rearLane = 0): void => {
       // (pour des machines à ranger en file : d'abord avec toute la bande libre derrière, sinon avec la moitié)
       if (!supportSpot(ctx, stand, index, radius, taken, spot, rearLane) && !(rearLane > 0 && supportSpot(ctx, stand, index, radius, taken, spot, rearLane * 0.6))
-        && !(rearLane > 0 && supportSpot(ctx, stand, index, radius, taken, spot, rearLane * 0.3))) {
+        && !(rearLane > 0 && supportSpot(ctx, stand, index, radius, taken, spot, rearLane * 0.3))
+        && !roadSpot(ctx, stand.x, stand.z, radius * 2, radius, spot)) {
         index++;
         console.warn(`[session] pas de place pour ${what} près de l'unité : moyen non engagé`);
         return;
@@ -663,7 +664,8 @@ export class SessionSetupSystem implements GameSystem {
       const def = ctx.vehicles.def(kind);
       const length = def ? def.length : 5;
       const width = def ? def.width : 2;
-      if (!parkingSpot(ctx, stand, i, length, width, this.spot)) continue;
+      // derrière l'unité ; à défaut (place prise par une compagnie, parvis piéton), sur la chaussée la plus proche
+      if (!parkingSpot(ctx, stand, i, length, width, this.spot) && !roadSpot(ctx, stand.x, stand.z, length, width, this.spot)) continue;
       const v = ctx.vehicles.spawn(kind, this.spot.x, this.spot.z, this.spot.heading, { faction });
       v.cmd.handbrake = true;
       vehicles.push(v);

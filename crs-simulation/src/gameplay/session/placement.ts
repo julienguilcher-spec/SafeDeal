@@ -385,3 +385,48 @@ export function supportSpot(
   }
   return false;
 }
+
+/**
+ * Filet de sécurité : un véhicule qui n'a trouvé de place ni derrière l'unité ni sur ses flancs se gare sur la
+ * CHAUSSÉE la plus proche (couronnes de plus en plus larges autour du point, jusqu'à 220 m), dans l'axe de la voie,
+ * du côté droit. Sans lui, un BRAV-M ou un équipage pouvait commencer sans son véhicule et rester à pied.
+ */
+export function roadSpot(
+  ctx: GameContext, x: number, z: number, length: number, width: number, out: { x: number; z: number; heading: number },
+): boolean {
+  const world = ctx.world;
+  const road = roadTmp;
+  const half = Math.max(length, width) * 0.5 + 0.4;
+  for (let r = 0; r <= 220; r += 10) {
+    const n = r === 0 ? 1 : Math.max(8, Math.round((2 * Math.PI * r) / 14));
+    for (let k = 0; k < n; k++) {
+      const a = (k / n) * Math.PI * 2;
+      const qx = x + Math.cos(a) * r, qz = z + Math.sin(a) * r;
+      if (!world.nearestRoad(qx, qz, road, 12) || road.width < Math.max(4, width + 1)) continue;
+      const h = road.heading;
+      const edge = Math.max(0, road.width * 0.5 - width * 0.5 - 0.6);
+      // le long du trottoir de droite d'abord (potelets et candélabres le bordent souvent), puis vers l'axe
+      for (const f of OFFSETS) {
+        const off = edge * f;
+        const px = road.x + Math.cos(h) * off, pz = road.z - Math.sin(h) * off;
+        // (surface encore inconnue — tuile non chargée — : la voie du réseau suffit)
+        const surf = world.surfaceAt(px, pz);
+        if ((!(WHEELED[surf] > 0) && surf !== 'void') || !world.isFree(px, pz, width * 0.5 + 0.2)) continue;
+        if (!world.isFree(px + Math.sin(h) * length * 0.45, pz + Math.cos(h) * length * 0.45, width * 0.5)) continue;
+        if (!world.isFree(px - Math.sin(h) * length * 0.45, pz - Math.cos(h) * length * 0.45, width * 0.5)) continue;
+        if (ctx.vehicles.queryRadius(px, pz, half + 0.6, propsOut as never[]) > 0) continue;
+        if (ctx.props.queryRadius(px, pz, half, propsOut as never[], (p) => p.blocksMove) > 0) continue;
+        if (ctx.people.countIn(px, pz, Math.max(1, width * 0.5 + 0.3)) > 0) continue;
+        out.x = px;
+        out.z = pz;
+        out.heading = h;
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+const OFFSETS: readonly number[] = [1, 0.6, 0.25, 0];
+const roadTmp = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '' } as RoadSample;
+

@@ -40,10 +40,15 @@ interface Convoy {
   /** Attente du joueur (instant du début, 0 sinon) et du dernier rappel radio. */
   waitSince: number;
   remindAt: number;
+  /** Véhicules sortis de la colonne parce que bloqués (ils rejoignent seuls) et prochain contrôle. */
+  solo: Vehicle[];
+  unstuckAt: number;
 }
 
 /** Attente maximale du joueur avant que la colonne parte sans lui (s), et intervalle des rappels radio. */
 const PLAYER_WAIT = 300;
+/** Un véhicule de la colonne bloqué plus longtemps que cela (s) la quitte et rejoint seul. */
+const STUCK_LEAVE = 25;
 const PLAYER_REMIND = 30;
 
 /** Rang d'un véhicule dans la colonne : commandement en tête, fourgons, puis le cellulaire en serre-file. */
@@ -93,7 +98,7 @@ export class ConvoyControl {
       c = {
         status: { squadId, stage: 'route', vehicles: 0, parked: 0, alignError: -1, headingError: -1, t0: this.core.now },
         vehicles: [], dest: { x: 0, z: 0, heading: 0 }, hasDest: false, exitX: 0, exitZ: 0, hasExit: false, stageT: this.core.now,
-        fromX: 0, fromZ: 0, orderDone: false, stragglersAt: 0, boarding: false, waitSince: 0, remindAt: 0,
+        fromX: 0, fromZ: 0, orderDone: false, stragglersAt: 0, boarding: false, waitSince: 0, remindAt: 0, solo: [], unstuckAt: 0,
       };
       this.list.push(c);
     }
@@ -350,11 +355,29 @@ export class ConvoyControl {
       this.beginDisembark(c);
       return;
     }
-    const st = ap.status(lead);
     const now = core.now;
+    // un véhicule bloqué (garé en travers, embouteillage) ne doit pas immobiliser toute la colonne : il la quitte et
+    // rejoint le point seul, en urgence ; les autres reforment la colonne et repartent
+    if (now >= c.unstuckAt) {
+      for (let i = 1; i < c.vehicles.length; i++) {
+        const vs = ap.status(c.vehicles[i]!);
+        if (vs.mode === 'follow' && vs.state === 'bloque' && vs.blockedFor > STUCK_LEAVE) {
+          const v = c.vehicles.splice(i, 1)[0]!;
+          ap.driveTo(v, c.dest.x, c.dest.z, { urgence: true, speed: core.tuning.convoySpeed });
+          c.solo.push(v);
+          if (c.vehicles.length > 0) ap.convoy(c.vehicles, c.dest.x, c.dest.z, { gap: core.tuning.convoyGap, speed: core.tuning.convoySpeed, urgence: true });
+          c.unstuckAt = now + 10;
+          break;
+        }
+      }
+    }
+    const st = ap.status(lead);
     const arrived = st.state === 'arrive' || st.mode === 'idle';
     const stuck = st.state === 'echec' || (st.state === 'bloque' && st.blockedFor > 40) || now - c.stageT > 420;
     if (!arrived && !stuck) return;
+    // les véhicules partis seuls reprennent leur place pour le stationnement
+    for (const v of c.solo) if (c.vehicles.indexOf(v) < 0) c.vehicles.push(v);
+    c.solo.length = 0;
     // toute la colonne à l'arrêt avant de se garer
     for (let i = 0; i < c.vehicles.length; i++) if (Math.abs(c.vehicles[i].speed) > 0.4 && now - c.stageT < 440) return;
     const d = c.dest;

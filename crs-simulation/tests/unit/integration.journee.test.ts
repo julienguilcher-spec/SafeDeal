@@ -41,7 +41,7 @@ describe('journée de service', () => {
 
     expect(said.some((x) => /n'attend plus que vous/.test(x))).toBe(true);
     // il monte dans le véhicule de la compagnie le plus proche où il reste une place (celui que l'objectif lui indique)
-    const van = ctx.vehicles.list.filter((v) => (v.kind === 'fourgon_crs' || v.kind === 'vl_commandement') && v.seats.some((id, i) => id === 0 && i > 0))
+    const van = ctx.vehicles.list.filter((v) => (v.kind === 'fourgon_crs' || v.kind === 'vl_commandement') && v.seats[0] !== 0 && v.seats.some((id, i) => id === 0 && i > 0))
       .sort((a, b) => Math.hypot(a.x - me.x, a.z - me.z) - Math.hypot(b.x - me.x, b.z - me.z))[0]!;
     expect(van).toBeDefined();
     me.x = van.x + 3; me.z = van.z;
@@ -64,12 +64,14 @@ describe('journée de service', () => {
     const cmd = ctx.service<{ endMission(id: number): void; convoyOf(id: number): { stage: string } | null }>('police.command')!;
     const company = ctx.squads.list.find((s) => s.kind === 'compagnie')!;
     cmd.endMission(company.id);
-    for (let i = 0; i < 80 && j.stage === 'sur_place'; i++) t.step(5);
+    for (let i = 0; i < 140 && j.stage === 'sur_place'; i++) {
+      t.step(5);
+    }
     console.log(`fin de mission : étape ${j.stage} ; convoi ${cmd.convoyOf(company.id)?.stage}`);
     expect(j.stage).toBe('rembarquement');
     t.step(40);
     expect(cmd.convoyOf(company.id)?.stage).toBe('rembarquement'); // on l'attend
-    const back = ctx.vehicles.list.filter((v) => (v.kind === 'fourgon_crs' || v.kind === 'vl_commandement') && v.seats.some((id, i) => id === 0 && i > 0))
+    const back = ctx.vehicles.list.filter((v) => (v.kind === 'fourgon_crs' || v.kind === 'vl_commandement') && v.seats[0] !== 0 && v.seats.some((id, i) => id === 0 && i > 0))
       .sort((a, b) => Math.hypot(a.x - me.x, a.z - me.z) - Math.hypot(b.x - me.x, b.z - me.z))[0]!;
     me.x = back.x + 3; me.z = back.z;
     expect(ctx.vehicles.enter(me, back, 'passenger')).toBe(true);
@@ -88,7 +90,7 @@ describe('journée de service', () => {
     expect(j.stage).toBe('rembarquement');
     t.step(20);
     if (me.vehicleId === 0) {
-      const v2 = ctx.vehicles.list.filter((v) => (v.kind === 'fourgon_crs' || v.kind === 'vl_commandement') && v.seats.some((id, i) => id === 0 && i > 0))
+      const v2 = ctx.vehicles.list.filter((v) => (v.kind === 'fourgon_crs' || v.kind === 'vl_commandement') && v.seats[0] !== 0 && v.seats.some((id, i) => id === 0 && i > 0))
         .sort((a, b) => Math.hypot(a.x - me.x, a.z - me.z) - Math.hypot(b.x - me.x, b.z - me.z))[0]!;
       me.x = v2.x + 3; me.z = v2.z;
       ctx.vehicles.enter(me, v2, 'passenger');

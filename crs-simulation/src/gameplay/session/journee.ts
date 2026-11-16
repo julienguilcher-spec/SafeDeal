@@ -94,6 +94,7 @@ export class JourneeSystem implements GameSystem {
   private returnAt = 0;
   private secondDone = false;
   private interventionAt = 0;
+  private onSiteAt = 0;
   private site: { x: number; z: number; name: string } | null = null;
   private readonly fires: { x: number; z: number; vehicleId: number }[] = [];
   private nextCity = 0;
@@ -455,7 +456,11 @@ export class JourneeSystem implements GameSystem {
     } else if (this.site) {
       this.objective(`Intervention : feux, ${this.site.name}`, this.site.x, this.site.z, true);
     }
-    if (!st || st.stage === 'debarquement' || st.stage === 'en_place') this.onIntervention();
+    // sur place : la colonne débarque PRÈS du site (et non un ancien état du convoi), ou délai de garde dépassé
+    const site = this.site!;
+    const close = lead ? Math.hypot(lead.x - site.x, lead.z - site.z) < 160 : true;
+    const late = ctx.clock.now - this.interventionAt > 900;
+    if (!st || ((st.stage === 'debarquement' || st.stage === 'en_place') && close) || late) this.onIntervention();
   }
 
   /** Sur place : le joueur passager descend, la compagnie forme un cordon autour des feux. */
@@ -473,6 +478,7 @@ export class JourneeSystem implements GameSystem {
       ctx.squads.issue(company.id, { type: 'proteger', x: site.x, z: site.z, heading: this.dest ? this.dest.heading : 0, width: 36, issuedBy: company.leaderId });
     }
     this.stage_ = 'intervention';
+    this.onSiteAt = ctx.clock.now;
     this.objective(`Sécurisez le périmètre pour les pompiers : ${site.name}`, site.x, site.z, true);
     ctx.radio.say({ channel: 'commandement', from: this.companyName(), priority: 1,
       text: `CENTRAL de ${this.companyName()}. Sur place, ${site.name}. Périmètre en cours, j'attends les sapeurs-pompiers.` });
@@ -487,7 +493,9 @@ export class JourneeSystem implements GameSystem {
       if (v && v.state === 'burning') burning++;
       else if (!v && ctx.hazards.fireAt(f.x, f.z) > 0.05) burning++;
     }
-    if (burning > 0 && now - this.interventionAt < INTERVENTION_MAX) return;
+    // le périmètre est tenu au moins une minute et demie, et jusqu'à l'extinction (sept minutes au plus)
+    if (now - this.onSiteAt < 90) return;
+    if (burning > 0 && now - this.onSiteAt < INTERVENTION_MAX) return;
     const command = ctx.service<CommandLike>('police.command');
     ctx.radio.say({ channel: 'commandement', from: this.companyName(), priority: 1,
       text: burning > 0 ? `CENTRAL de ${this.companyName()}. Les sapeurs-pompiers tiennent le feu, on lève le périmètre. Retour ${SERVICE_BASE.name}.`
@@ -549,7 +557,9 @@ export class JourneeSystem implements GameSystem {
     for (const s of ctx.squads.list) {
       if (s.vehicleId === 0 || this.companyOf(s.id) !== this.companyId) continue;
       const v = ctx.vehicles.get(s.vehicleId);
-      if (v && CONVOY_KINDS.has(v.kind) && !v.def.flying && list.indexOf(v) < 0 && Math.abs(v.speed) < 0.2) list.push(v);
+      // (un véhicule sans conducteur — fourgon cellulaire sans équipage — ne part pas : le mettre en file sur
+      // l'itinéraire bloquerait ceux qui le suivent)
+      if (v && CONVOY_KINDS.has(v.kind) && !v.def.flying && list.indexOf(v) < 0 && Math.abs(v.speed) < 0.2 && v.seats[0] !== 0) list.push(v);
     }
     if (list.length === 0) return;
     const rank = (v: Vehicle): number => (v.kind === 'vl_commandement' ? 0 : v.kind === 'fourgon_cellulaire' ? 3 : v.kind === 'fourgon_crs' || v.kind === 'car_crs' ? 1 : 2);
@@ -605,7 +615,9 @@ export class JourneeSystem implements GameSystem {
   private seatFor(me: Person): Vehicle | null {
     const ctx = this.ctx!;
     const own = me.squadId !== 0 ? ctx.squads.get(me.squadId) : undefined;
+    // une place libre dans un véhicule qui a son conducteur (sans conducteur, il ne partira pas avec la colonne)
     const free = (v: Vehicle): boolean => {
+      if (v.seats[0] === 0) return false;
       for (let i = 1; i < v.seats.length; i++) if (v.seats[i] === 0) return true;
       return false;
     };
