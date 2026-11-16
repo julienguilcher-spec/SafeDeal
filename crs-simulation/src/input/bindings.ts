@@ -41,7 +41,8 @@ export const DEFAULT_KBM: Readonly<Table> = {
   radio: ['KeyT'], orders: ['KeyF'], map: ['KeyM'], tactical: ['Tab'], camera: ['KeyV'],
   mask: ['KeyG'], visor: ['KeyH'],
   siren: ['KeyR'], beacons: ['KeyB'], horn: ['KeyN'], handbrake: ['Space'],
-  fast_forward: ['Period'], pause: ['Escape', 'KeyP'],
+  fast_forward: ['Period'], pause: ['Escape'],
+  // P est réservé à l'acceptation des propositions de l'adjoint (ui/command/quickActions.ts)
   // actions absentes du tableau : choix du module
   reload: ['KeyR'], flashlight: ['KeyL'], headlights: ['KeyL'], megaphone: ['KeyX'],
   zoom_in: ['Equal', 'NumpadAdd'], zoom_out: ['Minus', 'NumpadSubtract'],

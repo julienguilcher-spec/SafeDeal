@@ -75,7 +75,7 @@ describe('entrées — table par défaut conforme à docs/ARCHITECTURE.md §5', 
     expect(kbm('horn')).toEqual(['KeyN']);
     expect(kbm('handbrake')).toEqual(['Space']);
     expect(kbm('fast_forward')).toEqual(['Period']);
-    expect(kbm('pause')).toEqual(['Escape', 'KeyP']);
+    expect(kbm('pause')).toEqual(['Escape']);
   });
 
   it('manette (mapping standard)', () => {

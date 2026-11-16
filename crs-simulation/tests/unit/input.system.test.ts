@@ -403,7 +403,7 @@ describe('entrées — libellés et surcouche tactile sans DOM', () => {
     expect(t.labels.labelFor('primary')).toBe('Clic gauche');
     expect(t.labels.labelFor('sprint')).toBe('Maj');
     expect(t.labels.labelFor('pause')).toBe('Échap');
-    expect(t.labels.labelsFor('pause')).toEqual(['Échap', 'P']);
+    expect(t.labels.labelsFor('pause')).toEqual(['Échap']);
     expect(t.labels.moveLabel()).toBe('ZQSD');
     expect(t.labels.lookLabel()).toBe('Souris');
     expect(t.labels.labelFor('interact', 'gamepad')).toBe('X');
