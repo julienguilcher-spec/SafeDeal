@@ -56,6 +56,8 @@ export class PropsRenderer {
   private readonly propList: PropRec[] = [];
   private readonly shopRecs = new Map<EntityId, ShopRec>();
   private readonly shopList: ShopRec[] = [];
+  private readonly spawned: EntityId[] = [];
+  private readonly removed: EntityId[] = [];
   private readonly queueP: PropRec[] = [];
   private readonly queueS: ShopRec[] = [];
   private readonly dynList: PropRec[] = [];
@@ -128,11 +130,9 @@ export class PropsRenderer {
       }
     };
     this.unsub.push(
-      ev.on('prop:spawned', (e) => {
-        const p = this.ctx.props.get(e.id);
-        if (p) this.addProp(p);
-      }),
-      ev.on('prop:removed', (e) => this.removeProp(e.id)),
+      // les événements partent du pas de simulation : on ne fait qu'y noter l'identifiant, le travail attend frame()
+      ev.on('prop:spawned', (e) => { this.spawned.push(e.id); }),
+      ev.on('prop:removed', (e) => { this.removed.push(e.id); }),
       ev.on('prop:damaged', prop),
       ev.on('prop:moved', prop),
       ev.on('barricade:built', prop),
@@ -200,6 +200,7 @@ export class PropsRenderer {
     const ch = this.store.at(p.x, p.z);
     rec.chunk = ch;
     rec.ci = ch.props.length;
+    if (ch.level < 0 && ch.props.length === 0 && ch.shops.length === 0) ch.groundY = p.y;
     ch.props.push(rec);
     this.syncProp(rec, true);
   }
@@ -283,6 +284,7 @@ export class PropsRenderer {
       this.detach(rec);
       rec.chunk = ch;
       rec.ci = ch.props.length;
+      if (ch.level < 0 && ch.props.length === 0 && ch.shops.length === 0) ch.groundY = p.y;
       ch.props.push(rec);
     }
     if (changed || moved) this.rig.prop(rec, this.lib, this.store.hidden(p.dormant));
@@ -334,6 +336,7 @@ export class PropsRenderer {
     const ch = this.store.at(s.x, s.z);
     rec.chunk = ch;
     rec.ci = ch.shops.length;
+    if (ch.level < 0 && ch.props.length === 0 && ch.shops.length === 0) ch.groundY = s.y;
     ch.shops.push(rec);
     rec.sig = this.readShop(rec);
     rec.wasSooty = hasSoot(rec.state);
@@ -564,6 +567,20 @@ export class PropsRenderer {
     this.updateUniforms(dt);
 
     // 1. changements signalés par les événements, puis relecture d'une tranche des listes
+    const props = this.ctx.props;
+    const sp = this.spawned;
+    for (let i = 0; i < sp.length; i++) {
+      const p = props.get(sp[i]!);
+      if (p) this.addProp(p);
+    }
+    sp.length = 0;
+    const rm = this.removed;
+    for (let i = 0; i < rm.length; i++) {
+      // on ne retire la fiche que si l'objet a bien quitté le magasin
+      const rec = this.propRecs.get(rm[i]!);
+      if (rec && props.get(rec.id) !== rec.prop) this.removeProp(rec.id);
+    }
+    rm.length = 0;
     const qp = this.queueP;
     for (let i = 0; i < qp.length; i++) {
       const rec = qp[i]!;
@@ -610,7 +627,7 @@ export class PropsRenderer {
     }
     if (this.store.glassDirty) this.rebuildGlass();
     // modèles construits d'avance tant qu'il reste du temps dans l'image
-    if (done === 0 && this.warming) this.warming = this.lib.warm(1.2);
+    if (done === 0 && this.warming) this.warming = this.lib.warm(0.8);
 
     // 4. lumières, atlas
     this.lightTimer -= dt;
@@ -661,6 +678,8 @@ export class PropsRenderer {
     this.propList.length = 0;
     this.shopRecs.clear();
     this.shopList.length = 0;
+    this.spawned.length = 0;
+    this.removed.length = 0;
     this.queueP.length = 0;
     this.queueS.length = 0;
     this.dynList.length = 0;

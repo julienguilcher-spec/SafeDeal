@@ -200,7 +200,7 @@ export class Reaction {
       const ahead = ((sx - hx) * Math.sin(hh) + (sz - hz) * Math.cos(hh)) / (d || 1);
       if (d >= 12 && d <= 45 && ahead > 0.5 && this.crowdAt(sx, sz, 14) >= 3 && cmd.ready('bond:' + hit.squadId, 60)) {
         const el = hit;
-        cmd.act('bond:' + hit.squadId, 3, sx, sz, TX.propose('groupe hostile ' + (sector !== '' ? sector : 'devant ' + el.name), 'un bond offensif de ' + el.name), () => {
+        cmd.act('bond:' + hit.squadId, 3, sx, sz, TX.propose('groupe hostile en formation ' + (sector !== '' ? sector : 'devant ' + el.name), 'un bond offensif de ' + el.name), () => {
           cmd.order(el, 'force', { type: 'bond_offensif', x: sx, z: sz, heading: Math.atan2(sx - hx, sz - hz), width: 0, maxForce: 3 }, TX.orderForce(el.name, cmd.squad.name, 'bond_offensif', sector, Math.min(25, d), 0));
         });
       }

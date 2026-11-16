@@ -111,7 +111,7 @@ export class MedicalWork {
     const ctx = k.ctx;
     const p = r.p;
     // celui qui porte le patient d'une équipe à pied ne fait plus rien d'autre
-    if (crew.onFoot && crew.patientId !== 0 && p.carrying === crew.patientId) return false;
+    if (crew.onFoot && crew.patientId !== 0 && p.carrying === crew.patientId && r.task !== T_CASUALTY) return false;
     if (r.task !== T_CASUALTY) {
       let next: Person | null = null;
       for (let i = 0; i < crew.victims.length; i++) {

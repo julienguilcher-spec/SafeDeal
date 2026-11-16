@@ -106,23 +106,25 @@ export function buildShopfront(
   const display = looted || broken && st.stock < 0.3 ? region('etal_pille') : displayRegion(category);
   const frame = char(style.frame);
 
-  // ── lointain : trois ou quatre quads ──
+  // ── lointain : trois ou quatre quads, décollés de la façade d'autant plus qu'ils sont loin
+  //    (la précision du tampon de profondeur baisse avec la distance) ──
   if (lod >= 2) {
-    b.c(frame).quadZ(0, SHOP_HEIGHT / 2, 0.05, w, SHOP_HEIGHT);
+    const z0 = lod === 2 ? 0.14 : 0.3, z1 = z0 + 0.03;
+    b.c(frame).quadZ(0, SHOP_HEIGHT / 2, z0, w, SHOP_HEIGHT);
     const ww = w - 2 * PIL, y0 = style.sill, hh = GLASS_TOP - y0;
-    if (burnt) b.c(0x0c0b0a).quadZ(0, y0 + hh / 2, 0.06, ww, hh);
-    else if (boarded) b.c(0xffffff).tex('contreplaque').quadZ(0, y0 + hh / 2, 0.06, ww, hh).tex('');
-    else if (st.hasShutter && st.shutter > 0.5) b.c(0xd8d8d8).tex('rideau').quadZ(0, y0 + hh / 2, 0.06, ww, hh).tex('');
+    if (burnt) b.c(0x0c0b0a).quadZ(0, y0 + hh / 2, z1, ww, hh);
+    else if (boarded) b.c(0xffffff).tex('contreplaque').quadZ(0, y0 + hh / 2, z1, ww, hh).tex('');
+    else if (st.hasShutter && st.shutter > 0.5) b.c(0xd8d8d8).tex('rideau').quadZ(0, y0 + hh / 2, z1, ww, hh).tex('');
     else {
       b.c(broken ? 0x8a8a8a : 0xffffff).texRegion(display).gloss(broken ? 0 : 0.6);
       if (burning) b.emit(FX_FIRE, 0.9, hash01(seed));
       else if (lit) b.emit(FX_NIGHT, broken ? 0.5 : 1);
-      b.quadZ(0, y0 + hh / 2, 0.06, ww, hh).tex('').gloss(0).emit(0);
+      b.quadZ(0, y0 + hh / 2, z1, ww, hh).tex('').gloss(0).emit(0);
     }
     b.c(char(style.band));
     if (style.litSign && !burnt) b.emit(FX_NIGHT, 0.7);
     if (lod === 2 && !burnt) b.tex('texte_flou');
-    b.quadZ(0, (SHOP_BAND0 + SHOP_BAND1) / 2, 0.06, w, SHOP_BAND1 - SHOP_BAND0).tex('').emit(0);
+    b.quadZ(0, (SHOP_BAND0 + SHOP_BAND1) / 2, z1, w, SHOP_BAND1 - SHOP_BAND0).tex('').emit(0);
     return;
   }
 

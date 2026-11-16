@@ -28,6 +28,8 @@ import { createSystems as worldQuery } from '@/world/query';         // relief, 
 import { createSystems as simRoles } from '@/sim/roles';             // archétypes : tenues, dotations
 import { createSystems as simPeople } from '@/sim/people';           // locomotion, santé, interactions, joueur
 import { createSystems as simVehicles } from '@/sim/vehicles';       // physique des véhicules, tourelles
+import { createSystems as simTraffic } from '@/sim/traffic';         // circulation, piétons civils, fermeture de rues
+import { createSystems as simCrowd } from '@/sim/crowd';             // manifestants, cortège, tension, métro
 import { createSystems as simItems } from '@/sim/items';             // objets, projectiles
 import { createSystems as simProps } from '@/sim/props';             // mobilier, vitrines, barricades
 import { createSystems as simHazards } from '@/sim/hazards';         // gaz, fumée, feu, eau
@@ -39,17 +41,15 @@ import { createSystems as worldView } from '@/world/view';           // maillage
 import { createSystems as monuments } from '@/world/monuments';      // monuments
 import { createSystems as renderPeople } from '@/render/people';     // personnages
 import { createSystems as renderVehicles } from '@/render/vehicles'; // véhicules
+import { createSystems as renderFx } from '@/render/fx';             // gaz, fumée, feu, eau, projectiles, décalques
 import { createSystems as ui } from '@/ui';                          // accueil, HUD, cartes, commandement
 import { createSystems as audio } from '@/audio';                    // sons, ambiances, voix
 import type { Map2dService } from '@/ui/maps/api';
 import type { Map2dApi } from '@/world/view/api';
 
 // ── modules encore en cours d'écriture au moment de l'assemblage (à brancher quand ils seront livrés) ──
-//   import { createSystems as simTraffic } from '@/sim/traffic';         // circulation, piétons civils
-//   import { createSystems as simCrowd } from '@/sim/crowd';             // manifestants, tension, métro
 //   import { createSystems as simPolice } from '@/sim/police';           // IA des unités, formations, ordres
 //   import { createSystems as renderProps } from '@/render/props';       // mobilier urbain, vitrines, barricades
-//   import { createSystems as renderFx } from '@/render/fx';             // particules (gaz, feu, eau), décals
 //   import { createSystems as incidents } from '@/gameplay/incidents';   // incidents à traiter
 //   import { createSystems as missions } from '@/gameplay/missions';     // cadre de mission (remplacera gameplay/session)
 //   import { createSystems as career } from '@/gameplay/career';         // carrière, mode libre
@@ -111,9 +111,10 @@ function map2dAdapter(): GameSystem[] {
 
 const MODULES: ModuleFactory[] = [
   // simulation
-  input, env, worldQuery, simRoles, simPeople, simVehicles, simItems, simProps, simHazards, law, radio, session,
+  // (la circulation après les véhicules : elle attend leur pilote automatique)
+  input, env, worldQuery, simRoles, simPeople, simVehicles, simTraffic, simCrowd, simItems, simProps, simHazards, law, radio, session,
   // présentation — le rendu de base d'abord
-  renderBase, worldView, map2dAdapter, monuments, renderPeople, renderVehicles, ui, audio,
+  renderBase, worldView, map2dAdapter, monuments, renderPeople, renderVehicles, renderFx, ui, audio,
 ];
 
 // ───────────────────────────── démarrage ─────────────────────────────

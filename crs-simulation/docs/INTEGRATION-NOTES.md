@@ -212,3 +212,21 @@ pause, paramètres, commandes tactiles sur téléphone. Zéro erreur console.
   ailleurs.
 - Indicatif radio « AUTORITÉ » du droit contre « MISTRAL 0 » de la radio, sous-titres radio possibles en double
   (`ui` et `gameplay/radio` appellent tous deux `ui.subtitle`) : non traités, à voir avec l'IA des unités.
+
+## Radio et missions (relectures du 16/11)
+- **Sous-titres en double** : l'interface (`src/ui/core/system.ts`) sous-titre `radio:message` ET le module radio appelle
+  `ctx.ui.subtitle`. Ne garder qu'un des deux (proposition : le module radio ; retirer l'abonnement côté interface).
+- **Phraséologie en double** : `sim/police/radio.ts`, `ui/command/phrases.ts` et `gameplay/law` composent encore leurs
+  propres messages ; les faire converger vers le service `radio.phrases`. Indicatif du commandant = « MISTRAL » (pas
+  « MISTRAL 0 », pas « AUTORITÉ »). Comptes rendus d'unité vers la salle : canal « commandement ».
+- Pompiers : indicatif « SAPEUR 1 » dans le module radio, « SANTÉ 1 » dans le catalogue et la bible — choisir.
+- Un message urgent ne coupe pas un message d'ambiance en cours (attente ≤ 16 s).
+- **Catalogue de missions** (129 missions, 619 phases) : le cadre de mission à écrire doit (1) prévoir une issue quand
+  l'objectif qui clôt une phase n'est jamais atteint ; (2) savoir constater « tenu N secondes » et « N personnes
+  dégagées » pour le type `proteger_les_siens` ; (3) faire respecter la durée de 3 minutes des ateliers de l'école ;
+  (4) dire lequel des deux effectifs il affiche (effectif narratif du briefing ou `crowd.size` simulé).
+- Lacunes de contenu : aucune mission au poste « lbd » ; chapitre 4 de la carrière à 2 missions ; pas de rôle « chef de
+  section » dans le contrat (cg-11, cg-12 utilisent `chef_groupe`).
+- **Bilan de l'option 1 (modèle léger)** : les deux livrables avaient un compte rendu inexact et ont demandé une
+  relecture lourde (radio : corrigée ; missions : déroulé refait sur le modèle haut de gamme). À réserver désormais aux
+  tâches purement mécaniques.

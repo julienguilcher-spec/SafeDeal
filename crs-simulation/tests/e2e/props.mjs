@@ -14,6 +14,19 @@ const results = {};
 
 async function capture(name, query, opts = {}) {
   if (filter && filter !== 'libre' && !name.includes(filter)) return null;
+  // la machine d'essai est partagée : un navigateur peut être fermé de l'extérieur — on réessaie une fois
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await captureOnce(name, query, opts);
+    } catch (err) {
+      const msg = err && err.message ? err.message : String(err);
+      if (attempt >= 2) { allErrors.push(name + ' : ' + msg); return null; }
+      console.warn(`[props] ${name} : nouvel essai après « ${msg.split('\n')[0]} »`);
+    }
+  }
+}
+
+async function captureOnce(name, query, opts) {
   const t0 = Date.now();
   const { browser, page, errors } = await openPage(server.url + 'harness/props.html?' + query, { width: opts.width ?? 1600, height: opts.height ?? 900 });
   browserRef = browser;
@@ -91,6 +104,18 @@ if (all) await capture('atlas', 'view=atlas', { frames: 1, width: 1200, height: 
 // (f) mesures : coût CPU du module seul (sans rendu), appels de dessin, triangles
 async function measure(name, query) {
   if (filter && !name.includes(filter)) return null;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await measureOnce(name, query);
+    } catch (err) {
+      const msg = err && err.message ? err.message : String(err);
+      if (attempt >= 2) { allErrors.push(name + ' : ' + msg); return null; }
+      console.warn(`[props] ${name} : nouvel essai après « ${msg.split('\n')[0]} »`);
+    }
+  }
+}
+
+async function measureOnce(name, query) {
   const { browser, page, errors } = await openPage(server.url + 'harness/props.html?' + query, { width: 1280, height: 720 });
   browserRef = browser;
   try {

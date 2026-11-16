@@ -387,9 +387,9 @@ function buildBoard(page: number): void {
   } else if (moitie > 0 && cols > 4) {
     // demi-planche : quatre états à la fois, deux fois plus gros
     const cx = (moitie === 1 ? 1.5 : 5.5) * def.pitch - wTot / 2 - (moitie === 1 ? def.pitch * 0.35 : 0);
-    frame(cx, def.pitch * (moitie === 1 ? 4.9 : 4.2), dTot + def.row, tall ? 30 : 40, tall ? 3 : 0.4);
+    frame(cx, def.pitch * (moitie === 1 ? 4.9 : 4.2), dTot + def.row * (tall ? 2.2 : 1), tall ? 30 : 40, tall ? 3 : 0.4);
   } else {
-    frame(-def.pitch * 0.35, span, dTot + def.row, tall ? 30 : 40, tall ? 3 : 0.4);
+    frame(-def.pitch * 0.35, span, dTot + def.row * (tall ? 2.2 : 1), tall ? 30 : 40, tall ? 3 : 0.4);
   }
 }
 

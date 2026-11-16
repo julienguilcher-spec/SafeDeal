@@ -271,7 +271,7 @@ export class ModelLibrary {
    */
   warm(budgetMs: number): boolean {
     if (this.warmAt >= MODEL_KEYS.length * 3) return false;
-    const t0 = Date.now();
+    const t0 = performance.now();
     do {
       const kind = MODEL_KEYS[Math.floor(this.warmAt / 3)]!;
       // d'abord les niveaux lointain et moyen (présents partout), puis le détaillé
@@ -280,7 +280,7 @@ export class ModelLibrary {
       if (kind === 'barricade') continue;
       const info = kindInfo(kind);
       for (let skin = 0; skin < info.skins; skin++) this.get(kind, lod, V_INTACT, skin, info.panes);
-    } while (this.warmAt < MODEL_KEYS.length * 3 && Date.now() - t0 < budgetMs);
+    } while (this.warmAt < MODEL_KEYS.length * 3 && performance.now() - t0 < budgetMs);
     return true;
   }
 

@@ -207,11 +207,12 @@ export class Dispatcher {
     const calls = k.calls;
     for (let i = calls.length - 1; i >= 0; i--) {
       const c = calls[i];
-      if (!c.live) {
-        if (now - c.closedAt > CALL_LINGER) calls.splice(i, 1);
-        continue;
-      }
-      if (c.state === 'demande' && !c.playerLed) this.pending(c);
+      if (!c.live && now - c.closedAt > CALL_LINGER) calls.splice(i, 1);
+    }
+    // les appels en attente sont servis dans l'ordre où ils ont été passés
+    for (let i = 0; i < calls.length; i++) {
+      const c = calls[i];
+      if (c.live && c.state === 'demande' && !c.playerLed) this.pending(c);
     }
     this.flushPending();
     const crews = k.crews;
@@ -305,6 +306,10 @@ export class Dispatcher {
     crew.blockedSince = -1;
     crew.retreatUntil = 0;
     crew.walking = false;
+    crew.bestDistance = Infinity;
+    crew.bestAt = now;
+    crew.unstuck = 0;
+    crew.unstickUntil = 0;
     crew.thinkAt = now;
     for (let i = 0; i < crew.members.length; i++) {
       crew.members[i].reset();
@@ -314,7 +319,11 @@ export class Dispatcher {
     this.drive(crew, call.x, call.z, k.tuning.standoff, true);
   }
 
-  /** Lance l'engin vers un point (sirène et feux en intervention). S'il n'y a pas d'itinéraire, l'équipage continue à pied. */
+  /**
+   * Lance l'engin vers un point (sirène et feux en intervention). Si l'itinéraire repart dans son dos, il passe
+   * d'abord par un point situé devant lui (tour du pâté de maisons) plutôt que de tenter un demi-tour sur place.
+   * false s'il n'y a pas d'itinéraire.
+   */
   private drive(crew: Crew, x: number, z: number, stopBefore: number, urgent: boolean): boolean {
     const k = this.k;
     const v = crew.vehicle;
@@ -328,8 +337,65 @@ export class Dispatcher {
       v.beacons = true;
       v.siren = urgent ? 1 : 0;
     }
-    if (ap.driveTo(v, x, z, { speed: urgent ? CRUISE_URGENT : CRUISE_RETURN, urgence: urgent, stopBefore })) return true;
+    crew.destX = x;
+    crew.destZ = z;
+    crew.destStop = stopBefore;
+    crew.destUrgent = urgent;
+    crew.via = false;
+    const speed = urgent ? CRUISE_URGENT : CRUISE_RETURN;
+    if (this.spawner.pickVia(v, x, z, this.origin) && ap.driveTo(v, this.origin.x, this.origin.z, { speed, urgence: urgent })) {
+      crew.via = true;
+      crew.viaX = this.origin.x;
+      crew.viaZ = this.origin.z;
+      return true;
+    }
+    return ap.driveTo(v, x, z, { speed, urgence: urgent, stopBefore });
+  }
+
+  /** Point de passage atteint (ou impraticable) : on prend la route de la destination. Retourne true tant que le détour est en cours. */
+  private viaStep(crew: Crew): boolean {
+    if (!crew.via) return false;
+    const k = this.k;
+    const v = crew.vehicle;
+    const ap = k.autopilot();
+    if (!v || !ap) {
+      crew.via = false;
+      return false;
+    }
+    const st = ap.status(v);
+    const d = Math.hypot(v.x - crew.viaX, v.z - crew.viaZ);
+    if (d > 24 && st.state !== 'arrive' && st.state !== 'echec' && !(st.state === 'bloque' && st.blockedFor > 8)) return true;
+    crew.via = false;
+    ap.driveTo(v, crew.destX, crew.destZ, { speed: crew.destUrgent ? CRUISE_URGENT : CRUISE_RETURN, urgence: crew.destUrgent, stopBefore: crew.destStop });
     return false;
+  }
+
+  /**
+   * Engin coincé contre un mur dans sa manœuvre : le conducteur recule de quelques mètres, puis reprend sa route
+   * (trois tentatives). Retourne true tant que le dégagement est en cours.
+   */
+  private unstick(crew: Crew, blockedByWall: boolean): boolean {
+    const k = this.k;
+    const now = k.now;
+    const v = crew.vehicle;
+    const ap = k.autopilot();
+    if (!v || !ap) return false;
+    if (now < crew.unstickUntil) {
+      if (!this.reverse(crew)) crew.unstickUntil = now; // plus de place derrière
+      return true;
+    }
+    if (crew.unstickUntil > 0) {
+      // fin du recul : on repart vers la destination
+      crew.unstickUntil = 0;
+      this.halt(crew);
+      this.drive(crew, crew.destX, crew.destZ, crew.destStop, crew.destUrgent);
+      return true;
+    }
+    if (!blockedByWall || crew.unstuck >= 3) return false;
+    crew.unstuck++;
+    ap.stop(v);
+    crew.unstickUntil = now + 2.5;
+    return true;
   }
 
   /**
@@ -355,6 +421,8 @@ export class Dispatcher {
     }
     if (lost) crew.onFoot = true;
     else crew.walking = true;
+    crew.bestDistance = Infinity;
+    crew.bestAt = k.now;
   }
 
   // ───────────────────────────── réflexion d'un équipage ─────────────────────────────
@@ -445,7 +513,10 @@ export class Dispatcher {
     const work = call.kind === 'pompiers' ? t.workDistanceFire : t.workDistanceCare;
     const st = ap.status(v);
     const dScene = Math.hypot(v.x - call.x, v.z - call.z);
-    call.eta = (st.remaining > 1 ? st.remaining : dScene * 1.3) / ETA_SPEED_VEHICLE;
+    call.eta = (st.remaining > 1 && !crew.via ? st.remaining : dScene * 1.3) / ETA_SPEED_VEHICLE;
+    // détour par un point de passage, ou dégagement d'un engin coincé : rien d'autre à décider pendant ce temps
+    if (this.unstick(crew, st.state === 'bloque' && st.reason === 'mur' && st.blockedFor > 6)) return;
+    if (this.viaStep(crew)) return;
 
     let reason = '';
     if (now < crew.retreatUntil) {
@@ -516,6 +587,18 @@ export class Dispatcher {
     }
     const dScene = Math.hypot(lead.x - call.x, lead.z - call.z);
     call.eta = (dScene * 1.3) / ETA_SPEED_FOOT;
+    // aucune progression depuis longtemps (lieu inaccessible à pied) : l'intervention est abandonnée
+    if (dScene < crew.bestDistance - 6) {
+      crew.bestDistance = dScene;
+      crew.bestAt = k.now;
+    } else if (crew.phase === C_TRAVEL && k.now - crew.bestAt > 120) {
+      call.waitingReason = 'aucun accès pour les secours';
+      call.record.waitReason = call.waitingReason;
+      call.record.cancelled = true;
+      k.setState(call, 'annule');
+      this.startLeave(crew, false);
+      return;
+    }
     let reason = '';
     if (k.now < crew.retreatUntil) reason = 'équipage pris à partie, repli';
     else if (dScene < ASSESS_RANGE) {
@@ -787,6 +870,8 @@ export class Dispatcher {
     crew.phase = C_LEAVE;
     crew.phaseAt = now;
     crew.blockedSince = -1;
+    crew.unstuck = 0;
+    crew.unstickUntil = 0;
     if (crew.vehicle && !crew.onFoot) {
       for (let i = 0; i < crew.members.length; i++) this.tasks.board(crew, crew.members[i]);
       this.driveOut(crew);
@@ -821,15 +906,10 @@ export class Dispatcher {
     if (v && ap && !crew.onFoot) {
       const st = ap.status(v);
       const d = Math.hypot(v.x - tx, v.z - tz);
-      arrived = st.state === 'arrive' || d < 14 || st.state === 'echec';
+      const busy = this.unstick(crew, st.state === 'bloque' && st.reason === 'mur' && st.blockedFor > 6) || this.viaStep(crew);
+      arrived = !busy && (st.state === 'arrive' || d < 14 || st.state === 'echec');
       // retardataires : l'engin les attend un instant avant de partir
-      if (!arrived && !ap.isActive(v) && now - crew.phaseAt > 3) this.driveOut(crew);
-      // coincé dans sa manœuvre : on cherche une autre sortie
-      if (!arrived && st.state === 'bloque' && st.blockedFor > 10 && now - crew.blockedSince > 12) {
-        crew.blockedSince = now;
-        ap.stop(v);
-        this.driveOut(crew);
-      }
+      if (!busy && !arrived && !ap.isActive(v) && now - crew.phaseAt > 3) this.driveOut(crew);
       // non pré-positionné : dès qu'il est loin des lieux et hors de la vue du joueur, il a quitté le secteur
       if (!arrived && !crew.staged) {
         const call = crew.call;

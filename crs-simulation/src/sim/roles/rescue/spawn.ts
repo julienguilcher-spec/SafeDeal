@@ -114,8 +114,14 @@ export class Spawner {
             }
           }
           if (length < Math.min(110, reach * 0.6)) continue; // trop près du lieu de l'appel
-        } else if (length < 40) {
-          continue;
+        } else {
+          if (length < 40) continue;
+          // à pied : il faut un chemin réel jusqu'au lieu de l'appel
+          const path = this.path;
+          if (!w.findPath(cx, cz, x, z, 'foot', path) || path.length < 4) continue;
+          length = 0;
+          for (let j = 2; j < path.length; j += 2) length += Math.hypot(path[j] - path[j - 2], path[j + 1] - path[j - 1]);
+          if (length > reach * 2.5) continue; // détour démesuré (fleuve, îlot fermé)
         }
         if (!w.isFree(cx, cz, roads ? 1.6 : 0.5)) continue;
         // le côté le plus calme, hors de la vue immédiate du joueur, sur une voie dégagée
@@ -189,6 +195,93 @@ export class Spawner {
         out.heading = v.heading;
         out.length = length;
         out.road = true;
+      }
+    }
+    return found;
+  }
+
+  /** Longueur de l'itinéraire dans this.path ; écrit dans `dir` le sens du départ (à ~18 m) et dans `end` celui de l'arrivée. */
+  private pathInfo(dir: { x: number; z: number }, end: { x: number; z: number }): number {
+    const path = this.path;
+    let length = 0;
+    let aimed = false;
+    dir.x = 0;
+    dir.z = 0;
+    for (let j = 2; j < path.length; j += 2) {
+      const dx = path[j] - path[j - 2];
+      const dz = path[j + 1] - path[j - 1];
+      const seg = Math.sqrt(dx * dx + dz * dz);
+      length += seg;
+      if (!aimed && length >= 18) {
+        dir.x = path[j] - path[0];
+        dir.z = path[j + 1] - path[1];
+        aimed = true;
+      }
+      if (seg > 1) {
+        end.x = dx / seg;
+        end.z = dz / seg;
+      }
+    }
+    if (!aimed && path.length >= 4) {
+      dir.x = path[path.length - 2] - path[0];
+      dir.z = path[path.length - 1] - path[1];
+    }
+    const dl = Math.hypot(dir.x, dir.z) || 1;
+    dir.x /= dl;
+    dir.z /= dl;
+    return length;
+  }
+
+  private readonly dirA = { x: 0, z: 0 };
+  private readonly endA = { x: 0, z: 0 };
+  private readonly dirB = { x: 0, z: 0 };
+  private readonly endB = { x: 0, z: 0 };
+
+  /**
+   * L'itinéraire vers (x, z) repart-il dans le dos de l'engin ? Si oui, cherche un point de passage DEVANT lui
+   * (au prochain carrefour, dans une rue de côté) d'où l'on rejoint le but sans demi-tour : un engin de 6,5 m ne
+   * fait pas demi-tour dans une rue de 12 m, il fait le tour du pâté de maisons. false si la route directe convient
+   * (ou si aucun détour n'existe).
+   */
+  pickVia(v: Vehicle, x: number, z: number, out: Origin): boolean {
+    const k = this.k;
+    const w = k.ctx.world;
+    if (w.nodeCount === 0) return false;
+    const path = this.path;
+    const fx = Math.sin(v.heading);
+    const fz = Math.cos(v.heading);
+    if (!w.findPath(v.x, v.z, x, z, 'vehicle', path) || path.length < 4) return false;
+    this.pathInfo(this.dirA, this.endA);
+    if (this.dirA.x * fx + this.dirA.z * fz > -0.2) return false; // le départ n'est pas dans son dos
+    const s = this.sample;
+    let best = Infinity;
+    let found = false;
+    for (let ring = 0; ring < 2; ring++) {
+      const reach = ring === 0 ? 90 : 170;
+      for (let i = 0; i < 9; i++) {
+        const a = v.heading + ((i / 8) - 0.5) * 3.6;
+        if (!w.nearestRoad(v.x + Math.sin(a) * reach, v.z + Math.cos(a) * reach, s, 70)) continue;
+        if (s.roadClass === 'pedestrian' || s.roadClass === 'footway' || w.edge(s.edgeId).pedestrianOnly) continue;
+        const cx = s.x;
+        const cz = s.z;
+        if (Math.hypot(cx - v.x, cz - v.z) < 35) continue;
+        if (!w.findPath(v.x, v.z, cx, cz, 'vehicle', path) || path.length < 4) continue;
+        const len1 = this.pathInfo(this.dirA, this.endA);
+        if (this.dirA.x * fx + this.dirA.z * fz < 0.3) continue; // ce détour aussi commence par un demi-tour
+        if (!w.findPath(cx, cz, x, z, 'vehicle', path) || path.length < 4) continue;
+        const len2 = this.pathInfo(this.dirB, this.endB);
+        // au point de passage, on ne doit pas repartir d'où l'on vient
+        if (this.endA.x * this.dirB.x + this.endA.z * this.dirB.z < -0.3) continue;
+        const total = len1 + len2;
+        if (total < best) {
+          best = total;
+          found = true;
+          out.x = cx;
+          out.z = cz;
+          out.heading = Math.atan2(this.endA.x, this.endA.z);
+          out.length = total;
+          out.road = true;
+        }
       }
     }
     return found;

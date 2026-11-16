@@ -62,6 +62,7 @@ describe('secours — sans module de véhicules', () => {
     wound(ctx, victim, 'critical');
     const samu = rescue.request('samu', victim.x, victim.z, 0);
     const tCarried = rig.run(400, 0.5, () => victim.heldBy !== 0 && (rig.care.state(victim.id)?.treatedAt ?? -1) >= 0);
+    if (tCarried < 0) console.log('[à pied] SAMU :', samu.state, samu.waitingReason, rig.states(samu), 'victime', victim.posture, victim.injury, victim.health.toFixed(0), 'feu', ctx.hazards.fireAt(victim.x, victim.z).toFixed(2), 'soins', JSON.stringify(rig.care.state(victim.id)));
     expect(tCarried).toBeGreaterThanOrEqual(0);
     expect(ctx.people.get(victim.heldBy)!.kind).toBe('samu');
     let evacuated = false;

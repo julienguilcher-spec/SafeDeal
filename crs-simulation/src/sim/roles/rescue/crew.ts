@@ -197,6 +197,20 @@ export class Crew implements CrewView {
   /** Une demande de SAMU a déjà été faite par cet équipage pour cette intervention. */
   askedSamu = false;
   blockedSince = -1;
+  /** Trajet en cours : destination finale, et point de passage quand il faut contourner un pâté de maisons. */
+  destX = 0;
+  destZ = 0;
+  destStop = 0;
+  destUrgent = false;
+  via = false;
+  viaX = 0;
+  viaZ = 0;
+  /** Dégagement d'un engin coincé contre un mur : marche arrière jusqu'à cet instant ; nombre de tentatives. */
+  unstickUntil = 0;
+  unstuck = 0;
+  /** Progression à pied : meilleure distance au but relevée, et instant de ce relevé. */
+  bestDistance = Infinity;
+  bestAt = 0;
 
   constructor(readonly id: number, readonly kind: RescueKind) {}
 

@@ -122,7 +122,8 @@ export class SessionSetupSystem implements GameSystem {
       }
 
       this.progress(0.5, 'Passants et riverains');
-      summary.bystanders = this.spawnBystanders(config, stand, x, z, rand);
+      // le module de circulation fait vivre de vrais piétons civils : pas de passants figés en double
+      if (ctx.service('traffic') === undefined) summary.bystanders = this.spawnBystanders(config, stand, x, z, rand);
       this.applyScenario(config, x, z, summary.playerId);
 
       ctx.people.rebuildIndex();

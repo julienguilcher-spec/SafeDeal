@@ -143,6 +143,10 @@ export function createMaterials(atlas: THREE.Texture, u: PropUniforms, lambert: 
     ? new THREE.MeshLambertMaterial(common)
     : new THREE.MeshStandardMaterial({ ...common, roughness: 0.82, metalness: 0, alphaHash: hashed });
   opaque.name = 'decor';
+  // léger décalage vers la caméra : décalcomanies de sol et devantures ne luttent pas avec la chaussée et les façades
+  opaque.polygonOffset = true;
+  opaque.polygonOffsetFactor = -1;
+  opaque.polygonOffsetUnits = -1;
   opaque.onBeforeCompile = (shader) => patch(shader as unknown as Shader, u, !lambert, false);
   opaque.customProgramCacheKey = () => 'crs-decor-' + (lambert ? 'l' : 's') + (hashed ? 'h' : '');
 
@@ -150,6 +154,9 @@ export function createMaterials(atlas: THREE.Texture, u: PropUniforms, lambert: 
     ? new THREE.MeshLambertMaterial({ map: atlas, vertexColors: true, transparent: true, depthWrite: false })
     : new THREE.MeshStandardMaterial({ map: atlas, vertexColors: true, transparent: true, depthWrite: false, roughness: 0.6, metalness: 0 });
   glass.name = 'decor-verre';
+  glass.polygonOffset = true;
+  glass.polygonOffsetFactor = -1;
+  glass.polygonOffsetUnits = -2;
   glass.onBeforeCompile = (shader) => patch(shader as unknown as Shader, u, !lambert, true);
   glass.customProgramCacheKey = () => 'crs-decor-verre-' + (lambert ? 'l' : 's');
 

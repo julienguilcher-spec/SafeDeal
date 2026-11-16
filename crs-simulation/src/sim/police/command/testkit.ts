@@ -12,7 +12,7 @@
  * que de tenir leur registre.
  * ===================================================================================== */
 
-import type { EntityId, EntityKind, GameContext, GameSystem, ModuleFactory, SessionConfig } from '@/core/contracts';
+import type { CrowdPhase, DirectorApi, EntityId, EntityKind, GameContext, GameSystem, ModuleFactory, SessionConfig } from '@/core/contracts';
 import { SystemOrder } from '@/core/contracts';
 import { EXT } from '@/core/extensions';
 import type { Incident, IncidentKind, IncidentMeans, IncidentsApi, RoadClosure, TrafficControlApi } from '@/core/extensions';
@@ -257,4 +257,39 @@ export function createTestServices(what: { incidents?: boolean; traffic?: boolea
     },
   };
   return { system, incidents: () => incidents!, traffic: () => traffic! };
+}
+
+// ───────────────────────────── doublure : directeur de foule ─────────────────────────────
+
+export interface TestDirector extends DirectorApi {
+  phase: CrowdPhase;
+  tension: number;
+  route: number[];
+  headProgress: number;
+}
+
+/**
+ * Directeur de foule scripté (DirectorApi) pour essayer le commandement sans le module de foule : parcours,
+ * phase, tension et progression de la tête sont posés par le test.
+ */
+export function createTestDirector(route: number[], phase: CrowdPhase = 'rassemblement'): { system: GameSystem; director: TestDirector } {
+  const director: TestDirector = {
+    phase,
+    tension: 0.1,
+    tensionAt: () => director.tension,
+    addTension: (amount: number) => {
+      director.tension = Math.max(0, Math.min(1, director.tension + amount));
+    },
+    stats: { total: 300, present: 300, dispersed: 0, radicals: 0, injured: 0, arrested: 0 },
+    route,
+    headProgress: 0,
+  };
+  const system: GameSystem = {
+    id: 'test.command.director',
+    order: SystemOrder.RULES + 2,
+    provide: (ctx: GameContext) => {
+      ctx.director = director;
+    },
+  };
+  return { system, director };
 }
