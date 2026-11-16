@@ -310,3 +310,162 @@ Salle : « CENTRAL ». Autorité civile du secteur n : « AUTORITÉ n ». Compag
 Commandements à la voix dans la section (estimé) : « Section, en ligne ! » ; « Boucliers ! » ; « En avant, marche ! » ; « Halte ! » ; « Porte ! » ; « Lanceurs, cent mètres, tir courbe, feu ! » ; « Halte au feu ! » ; « Couloir ! » ; « Reformez ! ». Fin de charge : coup de sifflet ; dépasser le sifflet de plus de 2 s est une faute (estimé).
 
 ---
+
+## F. Modèle de comportement de foule
+
+Repères réels (vérifié, rapport parlementaire de 2023) : 0,5 à 1 % de manifestants « à risque » ; 1 interpellation pour 1 000 manifestants ; à Paris, 3 à 10 policiers et gendarmes pour 100 manifestants ; précortège parisien de 2 000 à 12 000 personnes ; aucune violence pendant le rassemblement ; le bloc se forme **après** le départ ; les violents arrivent les mains vides et ramassent sur place ; la peur soude la foule si l'action policière paraît indistincte.
+
+### F.1 Types de participants et proportions (en % de l'effectif simulé, estimé ; les scénarios tendus forcent le trait)
+
+| Profil (`ProtestProfile`) | Comportement | Marche calme | Journée nationale tendue | Samedi sans organisateur | Soir spontané | Soir de match |
+|---|---|---|---|---|---|---|
+| `pacifique` | Marche, chante, filme ; s'écarte des violences ; reste et hue s'il se sent visé à tort | 62 | 59 | 60 | 55 | 78 |
+| `famille` | Lente, sur les trottoirs ; part au premier signe | 10 | 5 | 3 | 0 | 6 |
+| `militant` | En chasuble derrière son camion ; suit le service d'ordre | 20 | 20 | 5 | 8 | 0 |
+| `service_ordre` | Chaîne humaine, canalise ; protège son cortège, n'attaque pas le bloc ; 200 personnes au plus | 5 | 4 | 0 | 0 | 0 |
+| `meneur` | Animateur au micro ; dans le bloc : donne le signal, désigne les cibles, ordonne le repli | 0,5 | 0,5 | 0,5 | 0,5 | 0 |
+| `opportuniste` | Suiveur : imite, maladroit, le plus souvent interpellé | 2 | 8 | 20 | 25 | 10 |
+| `radical` | Noyau prudent : agit 30 à 90 s, se replie, se rechange | 0,3 | 2 | 10 | 8 | 2 |
+| `pilleur` | Arrive à la dispersion par le point d'arrivée ; n'agit que sur une vitrine déjà brisée | 0,2 | 1,5 | 1,5 | 3,5 | 4 |
+| Tiers pour 1 000 manifestants | Journalistes / observateurs / street medics | 4 / 2 / 3 | 8 / 3 / 6 | 10 / 3 / 8 | 8 / 2 / 5 | 3 / 0 / 0 |
+
+`volatility` déplace des suiveurs vers les radicaux et multiplie les hausses de tension par `0,5 + volatility`. Mode libre, réglage « Qui dérape » (estimé) : « la foule » = parts de `radical` et d'`opportuniste` × 1,5 ; « les forces » = quand la tension locale dépasse 0,6, probabilité de 0,15 par minute qu'un policier PNJ de l'unité commette un geste hors cadre, que le joueur doit prévenir, arrêter ou signaler ; « les deux » ; « personne » ; « au hasard » (40 % personne, 20 % chacun des trois autres).
+
+### F.2 Phases et durées
+
+| Phase (`CrowdPhase`) | Contenu | Part (estimé) | 10 min | 25 min | 45 min | Réel (estimé) |
+|---|---|---|---|---|---|---|
+| `rassemblement` | Arrivées par les bouches de métro, camions sono, banderole de tête ; **aucune violence** | 12 % | 70 s | 180 s | 330 s | 60 à 120 min |
+| `depart` | Le carré de tête s'ébranle ; précortège devant | 4 % | 25 s | 60 s | 110 s | 10 à 20 min |
+| `cortege` | Marche avec arrêts ; forces à distance ; le bloc se forme pendant cette phase | 44 % | 265 s | 660 s | 1 190 s | 180 à 300 min |
+| `dispersion` | Annonce des organisateurs ; afflux des pilleurs ; le point d'arrivée devient le point chaud | 16 % | 95 s | 240 s | 430 s | 30 à 60 min |
+| `apres_manif` | Cortèges sauvages de 20 à 300 personnes, feux, vitrines, barricade finale | 24 % | 145 s | 360 s | 640 s | 120 à 300 min |
+
+- `tension` et `affrontement` sont des **états superposés**, pas des tranches de temps. La mission se termine quand les phases sont jouées **et** qu'il reste moins de 5 % de la foule dans le périmètre ; sinon prolongations de 300 s, 3 au plus (estimé). L'horloge affichée est l'heure de la journée.
+- Allures : piéton libre 1,34 m/s (vérifié) ; cortège entre deux arrêts 0,6 à 0,9 m/s ; moyenne réelle arrêts compris 0,3 m/s (estimé). Les PNJ ne sont **jamais accélérés** : en durée standard, une mission joue un tronçon de 500 à 700 m du parcours (estimé).
+- Ordre du cortège (vérifié pour la structure, longueurs estimées) : forces de tête à 50–150 m → précortège de 100 à 600 m contenant le bloc (30 à 80 m) → tampon de 20 à 60 m → service d'ordre sur 3 rangs → carré de tête (15 à 30 m) → blocs d'organisations de 40 à 150 m avec camion et ballon → cortèges divers → fin.
+- Densités (personnes par m², estimé) : cortège aéré 0,3 à 0,8 ; blocs avec camion 1 à 2 ; carré de tête et bloc 2 à 3 ; rassemblement serré 3 à 4. Effets : 2 à 3 → vitesse × 0,5 ; 3 à 4 → × 0,25 et peur +0,02 par seconde ; 4 à 5 → quasi-immobilité, malaises après 60 s ; plus de 5 → 1 blessé par compression toutes les 10 s par tranche de 50 personnes, faute grave du commandement qui a fermé les issues.
+- **Métro** (demande du BRIEF ; valeurs estimées) : chaque bouche de la carte est une source et un puits. Au rassemblement, une vague de 20 à 60 personnes sort toutes les 20 à 40 s de jeu par bouche située à moins de 400 m du point de rendez-vous ; à la dispersion, la moitié des partants gagnent une bouche à moins de 300 m. Une station fermée (pratique réelle prévue par le schéma national, vérifié) tarit sa bouche et reporte 70 % du flux sur les deux stations voisines avec 60 à 120 s de retard.
+- Signes avant-coureurs, dans l'ordre (vérifié pour la nature, avance en durée standard estimée) : nébuleuse de tête qui grossit (300 s avant les premiers jets) ; visages qui se couvrent (120 s) ; signal de ralliement : fumigène noir ou parapluie multicolore (60 s) ; regroupement compact et changement de tenue (40 s) ; banderoles et parapluies déployés (20 s) ; dépavage, mobilier tiré en travers (10 s).
+
+### F.3 Variables, seuils et vitesses (estimé)
+
+`peur` (demi-vie 45 s ; 25 s pour `radical` ; 90 s pour `famille`), `colere` (demi-vie 180 s), `legitimite` par tronçon de 50 m (départ 0,7 ; 0,5 si `volatility` > 0,6 ; +0,01 par 10 s sans emploi de la force), `cohesion` (départ 0,3 ; −0,01 par 10 s). Contagion toutes les 2 s : chacun rapproche sa peur et sa colère de la moyenne de ses voisins à moins de 5 m, d'une fraction `0,10 + 0,30 × cohesion`.
+
+| Profil | Recule si | Quitte les lieux si | Se solidarise (reste, hue, filme, fait écran) si | Change de profil |
+|---|---|---|---|---|
+| `famille` | peur > 0,15 | peur > 0,25 | jamais | — |
+| `pacifique` | peur > 0,40 | peur > 0,60 | colère > 0,60 et légitimité < 0,40 | → `opportuniste` : colère > 0,80, légitimité < 0,25 et un `radical` agit à moins de 15 m : 5 % par 10 s |
+| `militant` | consigne, ou peur > 0,45 | avec son bloc, ou peur > 0,65 | colère > 0,55 et légitimité < 0,40 | → `opportuniste` : 3 % par 10 s, mêmes conditions |
+| `service_ordre` | peur > 0,60 | avec le carré de tête | protège son cortège | — |
+| `opportuniste` | peur > 0,45 | peur > 0,65 ou unité à moins de 10 m | imite si 3 `radical` agissent à moins de 20 m et aucune ligne à moins de 25 m | → `radical` après 2 actes impunis et colère > 0,85 ; → `pacifique` si peur > 0,70 pendant 30 s |
+| `radical` | unité qui avance à moins de 15 m | peur > 0,80 ou bloc réduit à moins de 15 | agit si cible à moins de 60 m, ligne à plus de 20 m et 30 personnes à moins de 15 m pour le couvrir | se rechange et redevient visuellement `pacifique` |
+| `pilleur` | unité visible à moins de 60 m | unité à moins de 40 m | — | — |
+
+Distances tenues face à une ligne immobile : curieux 5 à 10 m ; foule calme 8 à 15 m ; bloc qui lance 20 à 35 m ; tireurs de mortiers 30 à 60 m derrière un obstacle ; pacifiques après la première grenade 40 à 60 m ; tous à plus de 40 m de l'engin lanceur d'eau. Vitesses en m/s (marche / trot / course) : manifestant 0,8 / 3,0 / 5,0 pendant 20 s ; famille 0,6 / 2,0 / 3,0 ; radical 0,9 / 3,5 / 6,0 pendant 35 s ; agent équipé 1,2 (pas cadencé) / 2,3 (bond offensif) / 4,0 (charge, 20 s ; 3,2 bouclier levé).
+
+### F.4 Déclencheurs d'escalade et de désescalade (estimé)
+
+« Justifié » = un acte violent a été visible à moins de 40 m dans les 60 s précédentes. Dernière colonne : valeur passée à `addTension`.
+
+| Événement | Rayon | Δ peur | Δ colère | Δ légitimité | Δ cohésion | Δ tension locale |
+|---|---|---|---|---|---|---|
+| Signal du bloc (fumigène noir, parapluie) | 40 | 0 | 0 | 0 | +0,05 | +0,10 |
+| Jets de projectiles, par salve de 5 | 30 | +0,05 | 0 | 0 | 0 | +0,03 |
+| Détonation (grenade, mortier) | 15 | +0,35 | +0,05 | 0 | +0,05 | +0,05 |
+| Feu de poubelle / de véhicule ; barricade | 30 / 50 ; 40 | +0,05 / +0,10 | 0 | 0 | 0 | +0,04 / +0,10 ; +0,06 |
+| Vitrine brisée / pillage | 30 | +0,03 | 0 | 0 | 0 | +0,03 / +0,06 |
+| Présence policière massive et visible par temps calme | 50 | 0 | +0,05 | −0,03 | 0 | +0,05 |
+| Gaz subi : justifié / non justifié | nuage + 20 | +0,20 / +0,20 | +0,05 / +0,25 | −0,03 / −0,15 | +0,05 / +0,15 | +0,04 / +0,20 |
+| Charge vue : justifiée / non justifiée | 40 | +0,40 / +0,40 | +0,05 / +0,30 | −0,02 / −0,20 | +0,05 / +0,20 | +0,05 / +0,25 |
+| Pacifique frappé ou à terre | 25 | +0,20 | +0,30 | −0,25 | +0,20 | +0,15 |
+| Journaliste, secouriste ou observateur frappé | 25 | +0,10 | +0,20 | −0,20 | +0,10 | +0,10 |
+| Interpellation : auteur vu en train d'agir / sans fait constaté | 25 | +0,05 / +0,10 | 0 / +0,25 | +0,05 / −0,20 | 0 / +0,15 | +0,02 / +0,20 |
+| Encerclement sans sortie | intérieur | +0,01 par s | +0,01 par s | −0,005 par s | +0,01 par s | +0,10 par 30 s |
+| Blessé grave visible ; vidéo devenue virale | 60, puis toute la foule en 60 s | +0,10 | +0,30 | −0,20 | +0,20 | +0,15 et +0,05 global ; +0,08 global |
+| Sommation audible ; annonce claire avant une manœuvre | 60 | +0,10 ; −0,05 | 0 ; −0,05 | +0,05 | 0 | −0,03 |
+| Retrait des forces à plus de 80 m | 80 | −0,20 | −0,10 | +0,03 | −0,05 | −0,10 (−0,02 si la colère locale dépasse 0,6) |
+| Feu éteint, blessé secouru par les forces | 30 | −0,05 | −0,05 | +0,05 | 0 | −0,04 |
+| Parcours de délestage ouvert, parcours respecté | tronçon | 0 | −0,05 | +0,03 | 0 | −0,05 |
+| Équipe de liaison au contact des organisateurs | cortège organisé | — | — | — | — | hausses × 0,7 ; décroissance doublée |
+
+Tension globale = `0,6 × moyenne locale pondérée par l'effectif + 0,4 × maximum local`, lissée sur 10 s ; décroissance de 0,01 par 10 s sans incident. Le signal du bloc tombe entre 20 % et 70 % de la phase `cortege` selon `volatility`. Paliers : 0 à 0,15 calme ; 0,15 à 0,30 agitation (huées, fumigènes, tags) ; 0,30 à 0,50 tension (bloc formé, premiers jets) ; 0,50 à 0,70 affrontement localisé (jets nourris, vitrines, feux) ; 0,70 à 0,85 affrontement généralisé (mortiers, engins incendiaires, barricades enflammées, véhicules en feu) ; 0,85 à 1 émeute (groupes dispersés, pillages en série). La tension est **locale** : 0,7 autour du bloc et 0,1 à 300 m dans le cortège organisé est la situation normale.
+
+### F.5 Cibles de la casse, par ordre de priorité (poids relatifs, estimé ; nature des cibles vérifiée par les arrêtés préfectoraux et le rapport parlementaire)
+
+1. Forces de l'ordre et leurs véhicules, agent isolé (10). 2. Agences bancaires, assurances (9). 3. Panneaux publicitaires, abribus (8). 4. Restauration rapide, agences d'intérim et immobilières, grandes enseignes (7). 5. Caméras, horodateurs (6) ; enseignes de luxe et grands magasins (6, et 10 dans les quartiers de luxe) ; bâtiments publics (6). 6. Chantiers, kiosques, vélos et trottinettes en libre-service (5) : réserve de projectiles, de combustible et de matériaux de barricade. 7. Monuments (2). 8. Petits commerces indépendants, habitations (1). 9. Hôpitaux, écoles (0). Pilleurs : tabac, téléphonie, optique, alimentation, habillement (9) ; jamais le reste.
+
+Durées d'action (estimé) : vitrine 3 à 10 s ; pillage 20 à 60 s par personne ; abribus 15 à 30 s ; tag 4 à 8 s ; barricade de 8 m en 40 à 90 s à six ; voiture renversée en 8 s à six ; renvoi d'un palet : fenêtre de 30 s, réussite 60 %.
+
+---
+
+## G. Blessures, gaz, secours
+
+### G.1 Nuage lacrymogène (estimé, cohérent avec la table B)
+
+| Paramètre | Valeur |
+|---|---|
+| Source | 6 palets tombés dans un rayon de 5 à 15 m, 30 s d'émission chacun ; un palet déplacé emporte son nuage |
+| Dérive et diffusion | vitesse du nuage = vent × 0,8 ; étalement latéral 0,3 m/s |
+| Persistance après émission | 60 à 180 s sans vent ; 20 à 40 s si le vent dépasse 15 km/h ; divisée par 2 sous la pluie |
+| Rue de moins de 12 m de large | concentration × 2, durée × 1,5 |
+| Retour de gaz | vent soufflant vers la ligne : le nuage l'atteint en `distance ÷ vitesse du vent` ; agent sans masque : toux, visée dégradée 20 s ; aléa « vent tournant » : 35 % par mission où du gaz est employé |
+| Réaction de la foule | la zone se vide en 20 à 60 s si une issue existe ; le bloc équipé de lunettes et de masques y résiste (vérifié, Cour des comptes) |
+
+| Effet sur une personne | Sans protection | Lunettes ou masque de fortune | Masque à gaz |
+|---|---|---|---|
+| Délai avant la gêne | 3 s | 8 s | aucun effet |
+| Pendant l'exposition | vision floue, toux, vitesse × 0,6, ni visée ni lancer | vitesse × 0,8, précision × 0,5 | champ de vision −30 % |
+| Après la sortie du nuage | gêne forte 60 s, légère 300 s ; 20 s si un secouriste rince les yeux | 30 s | — |
+| Plus de 40 s dans le nuage | s'arrête, a besoin d'aide ; malaise pour 5 % des PNJ | — | — |
+
+Réel (vérifié, réponse ministérielle) : produit CS ; l'effet irritant disparaît 15 à 30 minutes après décontamination ; le gaz touche « de manière indifférenciée » un groupe.
+
+### G.2 Blessures par cause (probabilités par impact, estimé ; niveaux `InjuryLevel`)
+
+| Cause | Agent en tenue (casque, protections) | Personne non protégée | Remarques |
+|---|---|---|---|
+| Pavé, fragment | paré au bouclier : rien ; sinon 12 % `light`, 3 % `serious` | 45 % `light`, 20 % `serious`, 3 % `critical` | Tête, genoux (zones réelles des blessures policières, vérifié) ; les jets courts blessent d'autres manifestants |
+| Bouteille | 5 % `light` | 30 % `light`, 5 % `serious` | Éclats au sol : glissade |
+| Mortier d'artifice | 15 % `light`, 3 % `serious` | 35 % `light`, 10 % `serious` | Brûlure, traumatisme sonore |
+| Engin incendiaire, feu | `light` après 2 s, `serious` après 6 s, `critical` après 16 s | `light` 1 s, `serious` 3 s, `critical` 8 s | Un jet d'extincteur en moins de 3 s évite toute blessure grave |
+| Bâton, membres ou tronc | — | 60 % `light`, 10 % `serious` | À la tête : 40 % `serious`, 5 % `critical`, faute lourde |
+| LBD, torse ou membres, de 10 à 50 m | — | 65 % `light`, 30 % `serious` | Tête : 50 % `serious`, 45 % `critical` ; à moins de 10 m : un niveau de plus |
+| Grenade de désencerclement, à moins de 7 m | — | 50 % `light`, 10 % `serious`, sidération 3 s | Jambes, visage |
+| Grenade assourdissante, à moins de 5 m | 10 % `light` sans protection auditive | 20 % `light`, 2 % `serious` | Ramassée en main : `serious` |
+| Jet d'eau droit à moins de 15 m | — | chute 80 %, 15 % `light`, 3 % `serious` | Au-delà : recul de 2 à 3 m/s sans blessure |
+| Véhicule | — | 10 km/h : `serious` ; 30 km/h : `critical` | Échec immédiat pour le conducteur joueur |
+| Chute en fuite, densité de 2 à 3 | — | 1 % par seconde de course : `light` | Voir F.2 pour la compression |
+
+État : `light` = continue, vitesse × 0,8 ; `serious` = hors de combat, à évacuer ; `critical` = décès évitable si la prise en charge commence en moins de 240 s. Agent blessé : indisponible 1 à 3 missions en Carrière. Réglage « sobre » : mêmes mécaniques, sang masqué.
+
+### G.3 Tri et gestes (estimé ; tri de type START d'après une source secondaire)
+
+Vert : marche. Rouge : plus de 30 respirations par minute, ou pouls radial absent, ou n'exécute pas un ordre simple. Jaune : les autres. Noir : ne respire pas après libération des voies aériennes. Couleurs `#2E9E44`, `#D0021B`, `#F5C400`, `#1A1A1A`.
+
+| Geste | Durée | Effet |
+|---|---|---|
+| Évaluer | 5 s sommaire, 15 s complète | Révèle la couleur de tri |
+| Rincer les yeux | 6 s, 1 dose | Gêne ramenée de 60 s à 20 s |
+| Comprimer, panser | 10 s | Stabilise un jaune |
+| Garrot (secours officiels, secouriste d'unité) | 4 s | Stabilise un rouge 360 s |
+| Position latérale de sécurité | 6 s | Inconscient qui respire |
+| Porter | 1,2 m/s à deux ; 0,6 m/s seul | Vers un abri à 30–80 m ou le point de rassemblement |
+| Transmettre un bilan ; remettre aux secours | 6 s ; 4 s | Fait venir une équipe en 60 à 120 s |
+
+Secours officiels : ils n'entrent en zone dangereuse que sous protection policière (estimé, presse). Couloir de 3,5 m ouvert en 6 s et tenu 30 à 90 s. Point de rassemblement des victimes à 100–200 m derrière le dispositif : un engin-pompe, une ambulance, une tente de 3 × 6 m, 8 brancards. Agent à terre : 2 boucliers couvrent, 2 agents le tirent à 0,6 m/s, moins de 20 s.
+
+### G.4 Feux de rue et barricades (demande du BRIEF ; valeurs estimées)
+
+| Matériau | Allumage | Durée | Flamme et fumée | Particularité | Extinction |
+|---|---|---|---|---|---|
+| Bac roulant, conteneur (plastique) | 5 à 10 s | 240 à 600 s | 1 à 3 m ; fumée noire épaisse `#141414` | Fond en flaque ; gagne un objet à moins de 1,5 m après 60 s, une façade après 90 s | Extincteur 8 s ; canon à eau 3 s |
+| Palette, barrière de chantier, mobilier de terrasse | 10 à 20 s | 300 à 480 s | 1 à 2 m ; fumée grise `#5A5A5A` | Braises | Extincteur 10 s |
+| Vélo ou trottinette en libre-service (batterie) | 15 à 30 s | 180 à 360 s | Embrasement violent, étincelles projetées à 3 m, crépitements | **Se rallume** dans 30 % des cas sous 120 s | Eau en quantité (canon à eau, pompiers) ; un extincteur ne suffit pas |
+| Scooter, pneus | 20 à 40 s | 600 à 900 s | Fumée très noire | Pneu qui éclate : détonation, sursaut à 15 m | Pompiers 15 s |
+| Voiture | embrasement complet en 120 à 240 s | 900 à 1 500 s | 3 à 5 m | Gagne un véhicule à moins de 2 m | Pompiers ou canon à eau 20 à 30 s |
+| Barricade (8 m de large, 1 à 1,5 m de haut) | selon matériaux | — | — | Arrête un véhicule léger ; ligne à pied : franchissement 6 s par agent ; dégagée à la main en 30 s à six | Lame du Centaure : 2 à 4 s (léger), 6 à 10 s (voiture) ; en feu, la poussée la divise en 2 à 4 foyers |
+
+Résidus persistants : carcasse calcinée `#1A1A1A`, bitume noirci sur 1,5 fois l'emprise, débris, verre brisé `#CFE3EA` (nouveaux projectiles).
+
+---
