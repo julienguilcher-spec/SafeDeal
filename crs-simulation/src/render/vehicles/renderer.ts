@@ -466,7 +466,8 @@ export class VehiclesRenderer {
     }
     // éclairs bleus sur les façades et les personnes proches, via le service facultatif
     const api = this.lightsApi;
-    if (api && beacon > 0 && this.pulses < this.q.maxPulses && dist < 90 && meta.beaconA.length > 0) {
+    // (pas pour le véhicule du joueur en vue intérieure : une lumière ponctuelle sans ombre inonderait l'habitacle)
+    if (api && !inside && beacon > 0 && this.pulses < this.q.maxPulses && dist < 90 && meta.beaconA.length > 0) {
       transformPoint(m, 0, 0, meta.beaconA[1]! + 0.6, meta.beaconA[2]!, tmp);
       api.pulse(tmp.x, tmp.y, tmp.z, 0x1e5bff, beacon * (30 + 110 * night), 26);
       this.pulses++;
@@ -479,12 +480,12 @@ export class VehiclesRenderer {
         for (let i = 0; i + 2 < meta.fire.length; i += 3) {
           transformPoint(m, 0, meta.fire[i]!, meta.fire[i + 1]! * 0.55, meta.fire[i + 2]!, tmp);
           const sd = st.seed + i * 0.37;
-          fx.upright(FX_FLAME, tmp.x, tmp.y, tmp.z, scale * 1.5, scale * 2.6, 1, 1, 1, 0.75 + 0.5 * b, sd, t);
-          fx.upright(FX_FLAME, tmp.x + fwdX * 0.3, tmp.y + scale * 0.3, tmp.z + fwdZ * 0.3, scale * 1.0, scale * 1.9, 1, 1, 1, 0.6 + 0.4 * b, sd + 0.5, t * 1.13);
+          fx.upright(FX_FLAME, tmp.x, tmp.y, tmp.z, scale * 1.25, scale * 1.7, 1, 1, 1, 0.5 + 0.3 * b, sd, t);
+          fx.upright(FX_FLAME, tmp.x + fwdX * 0.35, tmp.y + scale * 0.25, tmp.z + fwdZ * 0.35, scale * 0.8, scale * 1.25, 1, 1, 1, 0.42 + 0.25 * b, sd + 0.5, t * 1.13);
           // colonne de fumée noire
           for (let j = 0; j < 3; j++) {
             const ph = (t * 0.22 + j / 3 + sd) % 1;
-            fx.upright(FX_SMOKE, tmp.x + Math.sin(sd * 9 + j) * 0.3 * ph, tmp.y + scale * (1.4 + ph * 5), tmp.z + Math.cos(sd * 7 + j) * 0.3 * ph, scale * (1.5 + ph * 2.6), scale * (1.5 + ph * 2.6), 0.012, 0.011, 0.01, (1 - ph) * 0.62 * b, sd + j, t);
+            fx.upright(FX_SMOKE, tmp.x + Math.sin(sd * 9 + j) * 0.3 * ph, tmp.y + scale * (1.0 + ph * 4.5), tmp.z + Math.cos(sd * 7 + j) * 0.3 * ph, scale * (1.4 + ph * 2.4), scale * (1.4 + ph * 2.4), 0.012, 0.011, 0.01, (1 - ph) * 0.6 * b, sd + j, t);
           }
         }
         if (night > 0.2) fx.ground(FX_POOL, v.x, v.y + 0.05, v.z, fwdX, fwdZ, 9, 9, 1.0, 0.42, 0.1, night * 0.5 * (0.6 + 0.4 * fire));

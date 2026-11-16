@@ -15,8 +15,11 @@
  *   barricades.ts  détection par regroupement, composite, démontage, enfoncement
  *   tiles.ts       peuplement depuis la carte, mobilier d'ambiance, mémoire des tuiles
  *   sweep.ts       balayage lent : sommeil, exposition au feu, commerçants
- *   handlers.ts    gestes : renverser, pousser, porter, déposer, dépaver, ramasser, piller, dégager,
- *                  éteindre, incendier
+ *   barricade-geom.ts  écart entre boîtes, boîte orientée ajustée sur un tas
+ *   handlers.ts    gestes sur les objets : renverser, pousser, porter, déposer, dépaver, ramasser, dégager
+ *   handlers-shops.ts  gestes sur les boutiques et le feu : piller, éteindre, incendier
+ *   handlers-kit.ts    outils communs aux gestes (conditions, choix de la cible, libellés)
+ *   testkit.ts     banc d'essai des tests (monde, dangers et directeur factices)
  *   system.ts      système de simulation, ctx.props et service étendu
  * ===================================================================================== */
 
@@ -26,7 +29,7 @@ import { PropsSystem } from './system';
 export const createSystems: ModuleFactory = () => [new PropsSystem()];
 
 export {
-  BARRICADE_CLEARED_EVENT, BARRICADE_EXTENDED_EVENT, GLASS_EVENT, PROPS_EXT_SERVICE, SHUTTER_FORCED_EVENT,
+  BARRICADE_CLEARED_EVENT, BARRICADE_EXTENDED_EVENT, GLASS_EVENT, PROPS_EXT_SERVICE, SESSION_EXTRA_KEY, SHUTTER_FORCED_EVENT,
 } from './api';
 export type {
   BarricadeEvent, BarricadePart, CarryMode, GlassEvent, PropDef, PropMaterial, PropsExtApi, PropsStats, PropsTuning,

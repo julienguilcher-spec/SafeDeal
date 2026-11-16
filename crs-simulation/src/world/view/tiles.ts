@@ -260,14 +260,17 @@ export class DetailTile {
     // 4. Textures de la tuile : grille des classes, couleurs lointaines ; surélévations pour les autres modules.
     const macroSize = 256;
     this.phase = 'textures';
-    const macroPixels = bakeMacro(raster, macroSize, undefined, ctx.shared.palette);
-    yield 0;
+    const macroPixels = new Uint8Array(macroSize * macroSize * 4);
+    for (let row = 0; row < macroSize; row += 64) {
+      bakeMacro(raster, macroSize, macroPixels, ctx.shared.palette, row, row + 64);
+      yield 0;
+    }
     const lift = new Uint8Array(512 * 512);
     for (let j = 0; j < 512; j++) {
       for (let i = 0; i < 512; i++) lift[j * 512 + i] = Math.round(liftOfCode(codeAt(raster, ox + i + 0.5, oz + j + 0.5)) * 100);
+      if ((j & 127) === 127) yield 0;
     }
     this.lift = lift;
-    yield 0;
     const ids = dataTexture(raster.codes, raster.n, THREE.RedFormat, `ville-grille-${tile.tx}_${tile.tz}`);
     ids.magFilter = THREE.NearestFilter;
     ids.minFilter = THREE.NearestFilter;

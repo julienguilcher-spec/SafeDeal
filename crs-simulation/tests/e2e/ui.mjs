@@ -296,7 +296,9 @@ try {
           check(arcAtHit, `indicateur de direction du coup reçu visible au moment du coup [${size.key}]`);
           const dash = await page.evaluate(() => Number(document.querySelector('.r-charge').getAttribute('stroke-dashoffset')));
           check(dash > 40 && dash < 70, `jauge de charge du lancer à 62 % (décalage ${dash}) [${size.key}]`);
-          check((await page.evaluate(() => window.__uiTest.debug().notices().length)) === 3, `trois notifications empilées [${size.key}]`);
+          check((await page.evaluate(() => window.__uiTest.debug().notices().length)) === 3, `trois notifications en file [${size.key}]`);
+          const shownToasts = await page.evaluate(() => [...document.querySelectorAll('.ui-toast')].filter((e) => e.getBoundingClientRect().height > 0).length);
+          check(shownToasts === (size.height < 520 ? 1 : 3), `notifications affichées : ${shownToasts} (une seule sur écran bas) [${size.key}]`);
           check(/Alpha 1/i.test(await text(page, '.ui-subs')), `sous-titre radio affiché [${size.key}]`);
           if (!size.mobile) check(/Menotter/.test(await text(page, '.hud-prompt')), `invite d'interaction avec progression [${size.key}]`);
           else check(/Menotter/.test(await text(page, '.crs-touch .ct-k-interact')), `libellé d'interaction transmis au bouton tactile [${size.key}]`);
@@ -304,6 +306,40 @@ try {
         if (scene.name === 'crs-calme' && size.mobile) {
           const items = await page.evaluate(() => [...document.querySelectorAll('.crs-touch .ct-item')].filter((e) => e.getBoundingClientRect().width > 0).length);
           check(items === 8, `barre d'objets tactile alimentée par le HUD (${items} cases) [${size.key}]`);
+          check(/Bouclier/.test(await text(page, '.crs-touch .ct-item')), `barre d'objets tactile : noms français transmis (« ${await text(page, '.crs-touch .ct-item')} ») [${size.key}]`);
+        }
+        if (scene.name === 'journaliste-viseur' && size.mobile) {
+          check(/Appareil/.test(await text(page, '.crs-touch .ct-item')), `viseur : la barre d'objets tactile reste alimentée (« ${await text(page, '.crs-touch .ct-item')} ») [${size.key}]`);
+        }
+        if (scene.name === 'crs-calme' && !size.mobile) {
+          // coût du HUD : mutations du DOM au repos puis regard en rotation, temps moyen par image du système
+          const perf = await page.evaluate(async () => {
+            const t = window.__uiTest;
+            let n = 0;
+            const mo = new MutationObserver((list) => { n += list.length; });
+            mo.observe(document.querySelector('.ui-hud'), { subtree: true, childList: true, attributes: true, characterData: true });
+            await new Promise((r) => setTimeout(r, 1000));
+            const idle = n;
+            n = 0;
+            let count = 0;
+            const start = performance.now();
+            await new Promise((resolve) => {
+              const f = () => {
+                t.ctx.player.state.camYaw += 0.01;
+                count++;
+                if (performance.now() - start < 1000) requestAnimationFrame(f);
+                else resolve();
+              };
+              requestAnimationFrame(f);
+            });
+            mo.disconnect();
+            const ui = t.game.perf.find((p) => p.id === 'ui');
+            return { idle, turning: n, frames: count, avgFrameMs: ui.avgFrameMs };
+          });
+          notes.push(`HUD au repos : ${perf.idle} mutation(s) du DOM en 1 s ; regard en rotation : ${(perf.turning / perf.frames).toFixed(1)} mutation(s) par image sur ${perf.frames} images ; système « ui » : ${perf.avgFrameMs.toFixed(3)} ms par image`);
+          check(perf.idle <= 12, `HUD au repos : presque aucune écriture dans le DOM (${perf.idle} en 1 s)`);
+          check(perf.turning / perf.frames <= 14, `HUD, regard en rotation : écritures bornées (${(perf.turning / perf.frames).toFixed(1)} par image)`);
+          check(perf.avgFrameMs < 3, `coût moyen du système d'interface par image : ${perf.avgFrameMs.toFixed(3)} ms`);
         }
         if (scene.name === 'commissaire-sommations') {
           check(/Première sommation/.test(await text(page, '.hud-legal')), `cadre légal : « Première sommation » [${size.key}]`);
@@ -505,7 +541,41 @@ try {
     await close(e, 'sauvegarde');
     const noExtras = await open('', size);
     check(await noExtras.page.locator('[data-id="nav-carriere"]').count() === 0, 'entrée « Carrière » absente quand son écran n’est pas enregistré');
+    // infobulle au survol
+    await noExtras.page.locator('[data-id="surprise"]').hover();
+    await noExtras.page.waitForTimeout(250);
+    check(/scénario cohérent/.test(await text(noExtras.page, '.ui-tip.is-on')), 'infobulle affichée au survol de « Surprends-moi »');
     await close(noExtras, 'sans extras');
+
+    // bandeau de début de mission
+    const b = await open('screen=hud&role=crs', size);
+    await b.page.evaluate(() => window.__uiTest.demo.banner());
+    await settle(b.page, 350);
+    check(/Le cortège s’ébranle/.test(await text(b.page, '.ui-banner__title')) && !(await b.page.evaluate(() => document.querySelector('.ui-banner').hidden)), 'bandeau affiché par ctx.ui.banner');
+    await shot(b.page, 'ui-hud-bandeau-1280x720');
+    check((await b.page.evaluate(hudReport)).problems.length === 0, `bandeau sans chevauchement avec le HUD : ${(await b.page.evaluate(hudReport)).problems.join(' ; ')}`);
+    await close(b, 'bandeau');
+
+    // sans module d'entrées : services neutres, navigation au clavier lue par l'interface elle-même
+    const n = await open('noinput=1', size);
+    check((await stack(n.page)).join() === 'menu_principal', 'sans module d’entrées : accueil affiché, aucune erreur');
+    await n.page.keyboard.press('ArrowDown');
+    await frames(n.page, 2);
+    check((await n.page.evaluate(() => window.__uiTest.debug().focused())) === 'tab-mode', `sans module d’entrées : flèche bas déplace le focus (${await n.page.evaluate(() => window.__uiTest.debug().focused())})`);
+    await n.page.keyboard.press('Enter');
+    await frames(n.page, 2);
+    check((await n.page.evaluate(() => document.querySelector('[data-id="tab-mode"]').getAttribute('aria-selected'))) === 'true', 'sans module d’entrées : Entrée valide');
+    await n.page.locator('[data-id="nav-parametres"]').click();
+    await frames(n.page, 3);
+    check(/n’est pas chargé/.test(await (async () => { await n.page.locator('[data-id="ptab-touches"]').click(); await frames(n.page, 2); return text(n.page, '.ui-window__pane'); })()), 'sans module d’entrées : la section « Touches » explique que la réaffectation est indisponible');
+    await n.page.keyboard.press('Escape');
+    await frames(n.page, 3);
+    check((await stack(n.page)).join() === 'menu_principal', 'sans module d’entrées : Échap ferme l’écran du dessus');
+    await n.page.locator('[data-id="lancer"]').click();
+    await waitFor(n.page, 'window.__uiTest.ctx.session.phase === "playing"', 30000);
+    await settle(n.page, 300);
+    check(await n.page.evaluate(() => window.__uiTest.debug().hudVisible), 'sans module d’entrées : la partie démarre et le HUD s’affiche');
+    await close(n, 'sans module d’entrées');
   }
 
   // ═════════════════════════ 3. Parcours complet à la manette simulée ═════════════════════════

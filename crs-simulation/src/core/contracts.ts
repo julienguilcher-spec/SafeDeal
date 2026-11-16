@@ -642,6 +642,9 @@ export type PropKind = Open<
   | 'colonne_morris' | 'panneau_pub' | 'potelet' | 'velo' | 'trottinette' | 'palette' | 'pile_paves'
   | 'table_terrasse' | 'chaise' | 'candelabre' | 'feu_tricolore' | 'distributeur' | 'fontaine_wallace'
   | 'barricade' | 'debris' | 'cone' | 'jardiniere' | 'echafaudage' | 'sanisette' | 'station_velo'
+  // types propres à la carte
+  | 'boite_aux_lettres' | 'arceau_velo' | 'panneau' | 'statue' | 'mat_drapeau' | 'bouche_incendie' | 'horodateur'
+  | 'armoire_technique' | 'colonne_verre' | 'horloge' | 'camera' | 'autre'
 >;
 
 export type PropState = 'intact' | 'damaged' | 'broken' | 'burning' | 'burnt';
@@ -1093,7 +1096,7 @@ export type InteractVerb = Open<
   | 'maitriser' | 'menotter' | 'palper' | 'escorter' | 'remettre' | 'relacher' | 'soigner' | 'rincer_yeux'
   | 'porter' | 'trainer' | 'deposer' | 'monter' | 'descendre' | 'conduire' | 'ramasser' | 'renvoyer'
   | 'pousser' | 'renverser' | 'piller' | 'ouvrir' | 'parler' | 'controler' | 'equiper' | 'briefing'
-  | 'depaver' | 'eteindre' | 'interviewer' | 'degager'
+  | 'depaver' | 'eteindre' | 'interviewer' | 'degager' | 'incendier'
 >;
 
 export interface InteractionOption {

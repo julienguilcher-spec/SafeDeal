@@ -14,9 +14,7 @@ import type { Vehicle, VehicleDef } from '@/core/contracts';
 import { tile } from './atlas-layout';
 import { Dashboard } from './dashboard';
 import { EYE_ABOVE_SEAT, EYE_AHEAD_OF_SEAT, composeVehicleMatrix, pack2, steerToThree, steeringWheelAngle } from './frame';
-import {
-  Geo, LIGHT_BEACON_A, LIGHT_NONE, LIGHT_SIGN, PART_STEERING, SURF_DARK, SURF_FIXED, SURF_GLASS, SURF_LAMP,
-} from './geo';
+import { Geo, LIGHT_BEACON_A, LIGHT_NONE, LIGHT_SIGN, PART_STEERING, SURF_DARK, SURF_FIXED, SURF_LAMP } from './geo';
 import { COL, grilleOver } from './kit';
 import { modelKey } from './models/index';
 import type { ModelMeta } from './models/index';
@@ -25,8 +23,8 @@ import { InstancePool } from './pool';
 /** Emplacement du combiné d'instruments dans le repère Three local du véhicule. */
 export interface GaugePlacement { x: number; y: number; z: number; tilt: number; w: number; h: number }
 
-const TRIM = 0x2a2c30;      // garnitures
-const DASH = 0x1b1d20;      // planche de bord
+const TRIM = 0x3a3d43;      // garnitures
+const DASH = 0x2b2e33;      // planche de bord
 const LINER = 0x8e9198;     // ciel de pavillon
 
 /** Position du conducteur (repère Three local) : siège 'driver' de la définition, sinon place avant gauche. */
@@ -71,15 +69,22 @@ export function buildCockpit(g: Geo, def: VehicleDef, meta: ModelMeta): GaugePla
   }
 
   // ── planche de bord et casquette d'instruments ──
-  const dashRear = Math.min(cowl - 0.18, Math.max(cowl - 0.78, eyeZ + 0.6));
-  const dashTop = Math.min(belt, eyeY - 0.3);
+  // Le combiné se lit À TRAVERS la moitié haute du volant : son centre est 30° sous l'horizontale de l'œil
+  // (0,38 m plus bas, 0,66 m devant) ; le haut de la jante passe à 22°, le moyeu vers 42°.
+  const dashRear = Math.min(cowl - 0.18, Math.max(cowl - 0.78, eyeZ + 0.62));
+  const dashTop = Math.min(belt + 0.12, Math.max(belt - 0.05, eyeY - 0.5));
+  const gTilt = 0.42, gW = 0.34, gH = 0.17;
+  const gy = Math.max(dashTop + 0.05, eyeY - 0.38), gz = dashRear + 0.04;
+  const gyT = gy + (gH / 2) * Math.cos(gTilt), gzT = gz + (gH / 2) * Math.sin(gTilt);
+  const gyB = gy - (gH / 2) * Math.cos(gTilt), gzB = gz - (gH / 2) * Math.sin(gTilt);
   g.paint(DASH, SURF_FIXED);
   let from = g.mark();
   g.prism([cowl + 0.06, dashTop + 0.02, dashRear, dashTop - 0.03, dashRear - 0.1, dashTop - 0.55, cowl + 0.06, dashTop - 0.55], -wBelt, wBelt);
   g.smooth(from, 35);
   from = g.mark();
-  g.prism([dashRear + 0.24, dashTop - 0.02, dashRear + 0.03, dashTop + 0.1, dashRear - 0.025, dashTop + 0.095, dashRear - 0.05, dashTop - 0.06], d.x - 0.22, d.x + 0.22);
-  g.smooth(from, 35);
+  // casquette : sa face arrière est parallèle au combiné, 12 mm derrière lui
+  g.prism([gz + 0.32, dashTop - 0.02, gzT + 0.05, gyT + 0.03, gzT + 0.012, gyT + 0.022, gzB + 0.012, gyB - 0.012, gzB + 0.012, dashTop - 0.06], d.x - 0.23, d.x + 0.23);
+  g.smooth(from, 30);
   // console centrale : écran de bord (éclairé avec les feux) et boîtier de commande des avertisseurs
   g.paint(TRIM, SURF_FIXED).box(-0.16, 0.16, dashTop - 0.5, dashTop - 0.04, dashRear - 0.13, dashRear - 0.02);
   g.paint(0x2b4a6a, SURF_LAMP).light(LIGHT_SIGN);
@@ -111,9 +116,9 @@ export function buildCockpit(g: Geo, def: VehicleDef, meta: ModelMeta): GaugePla
     const my = belt + (tall ? 0.34 : 0.1), mz = cowl - 0.3, ms = tall ? 0.32 : 0.14, mw = tall ? 0.18 : 0.2;
     g.paint(COL.plastic, SURF_FIXED).tube(hw - 0.02, my - ms * 0.3, mz, hw + 0.14, my, mz, 0.014, 0.014, 4, false, false);
     g.cube(hw + 0.14 + mw / 2, my, mz + 0.02, mw, ms, 0.05);
-    g.paint(0x7c8a96, SURF_GLASS).tile(tile('verre'));
+    g.paint(0x6f7f8d, SURF_LAMP);
     g.face([hw + 0.15, my - ms * 0.44, mz - 0.006, hw + 0.13 + mw, my - ms * 0.44, mz - 0.006, hw + 0.13 + mw, my + ms * 0.44, mz - 0.006, hw + 0.15, my + ms * 0.44, mz - 0.006], null, [0, 0, -1]);
-    g.tile(null).paint(TRIM, SURF_FIXED);
+    g.paint(TRIM, SURF_FIXED);
   });
   g.box(-wRoof, wRoof, wsTopY - 0.02, wsTopY + 0.07, wsTopZ - 0.14, wsTopZ + 0.03);
   g.paint(LINER, SURF_FIXED);
@@ -129,9 +134,8 @@ export function buildCockpit(g: Geo, def: VehicleDef, meta: ModelMeta): GaugePla
   } else if (kind !== 'truck') {
     // rétroviseur intérieur
     g.paint(COL.plastic, SURF_FIXED).cube(0, wsTopY - 0.13, wsTopZ + 0.14, 0.24, 0.07, 0.03);
-    g.paint(0x7c8a96, SURF_GLASS).tile(tile('verre'));
+    g.paint(0x6f7f8d, SURF_LAMP);
     g.face([0.11, wsTopY - 0.16, wsTopZ + 0.123, -0.11, wsTopY - 0.16, wsTopZ + 0.123, -0.11, wsTopY - 0.1, wsTopZ + 0.123, 0.11, wsTopY - 0.1, wsTopZ + 0.123], null, [0, 0, -1]);
-    g.tile(null);
   }
 
   // ── essuie-glaces ──
@@ -140,12 +144,12 @@ export function buildCockpit(g: Geo, def: VehicleDef, meta: ModelMeta): GaugePla
   g.tube(wBelt * 0.55, wy, wz, wBelt * 0.02, wy + 0.03, wz - 0.01, 0.01, 0.007, 4, false, false);
   g.tube(-wBelt * 0.1, wy, wz, -wBelt * 0.63, wy + 0.03, wz - 0.01, 0.01, 0.007, 4, false, false);
 
-  // ── grille de protection devant le pare-brise ──
+  // ── grille de protection devant le pare-brise, vue de l'intérieur (face tournée vers le conducteur) ──
   if (meta.grille) {
-    const quad = [-wBelt, belt + 0.01, cowl + 0.02, wBelt, belt + 0.01, cowl + 0.02, wRoof, wsTopY, wsTopZ + 0.02, -wRoof, wsTopY, wsTopZ + 0.02];
+    const quad = [wBelt, belt + 0.01, cowl + 0.02, -wBelt, belt + 0.01, cowl + 0.02, -wRoof, wsTopY, wsTopZ + 0.02, wRoof, wsTopY, wsTopZ + 0.02];
     const ny = rake, nz = wsTopY - belt;
     const nl = Math.hypot(ny, nz) || 1;
-    grilleOver(g, quad, [0, ny / nl, nz / nl], 0.09);
+    grilleOver(g, quad, [0, -ny / nl, -nz / nl], -0.09);
   }
 
   // ── siège passager et appuie-tête ──
@@ -160,7 +164,7 @@ export function buildCockpit(g: Geo, def: VehicleDef, meta: ModelMeta): GaugePla
   const tilt = kind === 'car' ? 0.42 : kind === 'van' ? 0.72 : 0.95;
   const R = kind === 'car' ? 0.185 : kind === 'van' ? 0.2 : 0.23;
   const kx = 0, ky = Math.sin(tilt), kz = -Math.cos(tilt);
-  const cz = dashRear - 0.17, cy = Math.min(eyeY - 0.34, dashTop - 0.02 + (kind === 'car' ? 0 : -0.06));
+  const cz = eyeZ + 0.41, cy = eyeY - 0.365;
   g.paint(TRIM, SURF_FIXED);
   g.tube(d.x, cy - ky * 0.02, cz - kz * 0.02, d.x - kx * 0.3, cy - ky * 0.3, cz - kz * 0.3, 0.035, 0.04, 6, false, false);
   g.part(PART_STEERING, d.x, cy, cz, tilt);
@@ -187,7 +191,7 @@ export function buildCockpit(g: Geo, def: VehicleDef, meta: ModelMeta): GaugePla
   g.noPart();
   body();
 
-  return { x: d.x, y: dashTop + 0.022, z: dashRear - 0.04, tilt: 0.35, w: 0.36, h: 0.18 };
+  return { x: d.x, y: gy, z: gz, tilt: gTilt, w: gW, h: gH };
 }
 
 export class Cockpit {

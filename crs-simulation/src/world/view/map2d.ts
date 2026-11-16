@@ -124,6 +124,8 @@ export class Map2d implements Map2dApi {
   private indexedGraph: RoadGraph | null = null;
   private readonly edgeScratch: number[] = [];
   private readonly labelBest = new Map<string, { edge: number; score: number }>();
+  private readonly labels: { text: string; x: number; y: number; angle: number; font: string; prio: number; room: number }[] = [];
+  private readonly placed: number[] = [];
 
   constructor(source: () => Map2dSource | null) {
     this.source = source;
@@ -136,9 +138,23 @@ export class Map2d implements Map2dApi {
     this.indexedGraph = null;
   }
 
-  /** Une tuile vient d'être déchargée : son tracé est oublié. */
-  forgetTile(tx: number, tz: number): void {
-    this.tiles.delete(`${tx}_${tz}`);
+  /**
+   * Propose les données d'une tuile que la simulation n'a pas chargée (lue pour la vue lointaine) : son
+   * tracé est construit et gardé, la carte tactique montre ainsi le fleuve et les jardins au loin.
+   */
+  offerTile(tile: Tile): void {
+    const key = `${tile.tx}_${tile.tz}`;
+    if (this.tiles.has(key) || typeof Path2D === 'undefined') return;
+    this.remember(key, buildTilePaths(tile));
+  }
+
+  /** Garde le tracé d'une tuile ; la mémoire reste bornée : au-delà de 64 tuiles, les plus anciennes sont oubliées. */
+  private remember(key: string, paths: TilePaths): void {
+    this.tiles.set(key, paths);
+    if (this.tiles.size > 64) {
+      const first = this.tiles.keys().next();
+      if (!first.done) this.tiles.delete(first.value);
+    }
   }
 
   worldToScreen(x: number, z: number, cx: number, cz: number, mpp: number, rotation: number, width: number, height: number, out: { x: number; y: number }): { x: number; y: number } {
@@ -271,7 +287,7 @@ export class Map2d implements Map2dApi {
           if (tile === null || budget <= 0) continue;
           budget--;
           tp = buildTilePaths(tile);
-          this.tiles.set(key, tp);
+          this.remember(key, tp);
         }
         g.fillStyle = pal.green;
         g.fill(tp.green, 'evenodd');
@@ -337,13 +353,11 @@ export class Map2d implements Map2dApi {
     radius: number, pal: Palette, landmarks: boolean,
   ): void {
     const size = Math.max(9, Math.min(13, Math.round(Math.min(width, height) / 38)));
-    g.font = `600 ${size}px system-ui, "Segoe UI", Arial, sans-serif`;
-    g.textAlign = 'center';
-    g.textBaseline = 'middle';
-    g.lineJoin = 'round';
-    g.lineWidth = 3;
-    g.strokeStyle = pal.halo;
-    g.fillStyle = pal.label;
+    const fontStreet = `600 ${size}px system-ui, "Segoe UI", Arial, sans-serif`;
+    const fontLandmark = `700 ${size}px system-ui, "Segoe UI", Arial, sans-serif`;
+    const fontPlace = `italic 600 ${size + 1}px system-ui, "Segoe UI", Arial, sans-serif`;
+    const labels = this.labels;
+    labels.length = 0;
     // Noms de voies : pour chaque nom, l'arête visible la plus longue, la plus proche du centre.
     const best = this.labelBest;
     best.clear();
@@ -353,7 +367,7 @@ export class Map2d implements Map2dApi {
       if (ed.name === '' || ed.tunnel) continue;
       const major = ed.roadClass === 'primary' || ed.roadClass === 'secondary' || ed.roadClass === 'motorway';
       if (!major && (mpp > 1.6 || ed.roadClass === 'footway' || ed.roadClass === 'service')) continue;
-      if (major && mpp > 12) continue;
+      if (major && mpp > 9) continue;
       const pts = ed.points, mid = (pts.length >> 2) * 2;
       const mx = (pts[Math.max(0, mid - 2)] + pts[Math.min(pts.length - 2, mid)]) / 2, mz = (pts[Math.max(1, mid - 1)] + pts[Math.min(pts.length - 1, mid + 1)]) / 2;
       this.worldToScreen(mx, mz, cx, cz, mpp, rot, width, height, tmp);
@@ -364,12 +378,8 @@ export class Map2d implements Map2dApi {
       const cur = best.get(ed.name);
       if (cur === undefined || score > cur.score) best.set(ed.name, { edge: ids[k], score });
     }
-    const maxLabels = Math.max(4, Math.round((width * height) / 26000));
-    const chosen = Array.from(best.entries()).sort((p, q) => q[1].score - p[1].score).slice(0, maxLabels);
-    for (const [name, pick] of chosen) {
+    for (const [name, pick] of best) {
       const ed = graph.edges[pick.edge];
-      const textW = g.measureText(name).width;
-      if (ed.length / mpp < textW * 0.6 && chosen.length > 4) continue;
       const pts = ed.points, mid = (pts.length >> 2) * 2;
       const i0 = Math.max(0, mid - 2), i1 = Math.min(pts.length - 2, mid);
       const ax = pts[i0], az = pts[i0 + 1], bx = i1 === i0 ? pts[i0 + 2] : pts[i1], bz = i1 === i0 ? pts[i0 + 3] : pts[i1 + 1];
@@ -379,34 +389,67 @@ export class Map2d implements Map2dApi {
       let ang = Math.atan2(tmp.y - sy0, tmp.x - sx0);
       if (ang > Math.PI / 2) ang -= Math.PI;
       else if (ang < -Math.PI / 2) ang += Math.PI;
-      g.save();
-      g.translate((sx0 + tmp.x) / 2, (sy0 + tmp.y) / 2);
-      g.rotate(ang);
-      g.strokeText(name, 0, 0);
-      g.fillText(name, 0, 0);
-      g.restore();
+      const major = ed.roadClass === 'primary' || ed.roadClass === 'secondary' || ed.roadClass === 'motorway';
+      labels.push({ text: name, x: (sx0 + tmp.x) / 2, y: (sy0 + tmp.y) / 2, angle: ang, font: fontStreet, prio: (major ? 200 : 100) + Math.min(90, pick.score * 0.1), room: ed.length / mpp });
     }
-    // Monuments, puis lieux majeurs.
     if (landmarks && mpp <= 8) {
-      g.font = `700 ${size}px system-ui, "Segoe UI", Arial, sans-serif`;
       for (const lm of data.landmarks) {
         if (Math.abs(lm.x - cx) > radius || Math.abs(lm.z - cz) > radius) continue;
         this.worldToScreen(lm.x, lm.z, cx, cz, mpp, rot, width, height, tmp);
         if (tmp.x < 20 || tmp.y < 10 || tmp.x > width - 20 || tmp.y > height - 10) continue;
-        g.strokeText(lm.name, tmp.x, tmp.y - size);
-        g.fillText(lm.name, tmp.x, tmp.y - size);
+        labels.push({ text: lm.name, x: tmp.x, y: tmp.y - size, angle: 0, font: fontLandmark, prio: 300 + Math.min(80, lm.height), room: 1e9 });
       }
     }
     if (mpp > 2.5) {
-      g.font = `italic 600 ${size + 1}px system-ui, "Segoe UI", Arial, sans-serif`;
       const need = mpp > 9 ? 3 : 2;
       for (const p of data.places) {
         if (p.importance < need || (p.kind !== 'square' && p.kind !== 'district' && p.kind !== 'garden')) continue;
         if (Math.abs(p.x - cx) > radius || Math.abs(p.z - cz) > radius) continue;
         this.worldToScreen(p.x, p.z, cx, cz, mpp, rot, width, height, tmp);
         if (tmp.x < 30 || tmp.y < 10 || tmp.x > width - 30 || tmp.y > height - 10) continue;
-        g.strokeText(p.name, tmp.x, tmp.y);
-        g.fillText(p.name, tmp.x, tmp.y);
+        labels.push({ text: p.name, x: tmp.x, y: tmp.y, angle: 0, font: fontPlace, prio: 150 + p.importance * 100 + (p.kind === 'square' ? 20 : 0), room: 1e9 });
+      }
+    }
+    // Pose par priorité décroissante ; un nom qui en recouvrirait un autre est écarté.
+    labels.sort((p, q) => q.prio - p.prio);
+    const placed = this.placed;
+    placed.length = 0;
+    const maxLabels = Math.max(6, Math.round((width * height) / 14000));
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.lineJoin = 'round';
+    g.lineWidth = 3;
+    g.strokeStyle = pal.halo;
+    g.fillStyle = pal.label;
+    let count = 0, font = '';
+    for (let k = 0; k < labels.length && count < maxLabels; k++) {
+      const lb = labels[k];
+      if (lb.font !== font) {
+        font = lb.font;
+        g.font = font;
+      }
+      const w = g.measureText(lb.text).width;
+      if (lb.room < w * 0.55) continue;
+      // boîte englobante du texte tourné
+      const ca = Math.abs(Math.cos(lb.angle)), sa = Math.abs(Math.sin(lb.angle));
+      const hw = (w * ca + (size + 4) * sa) / 2 + 3, hh = (w * sa + (size + 4) * ca) / 2 + 2;
+      const x0 = lb.x - hw, x1 = lb.x + hw, y0 = lb.y - hh, y1 = lb.y + hh;
+      if (x0 < 0 || y0 < 0 || x1 > width || y1 > height) continue;
+      let free = true;
+      for (let q = 0; q < placed.length && free; q += 4) free = x1 < placed[q] || x0 > placed[q + 2] || y1 < placed[q + 1] || y0 > placed[q + 3];
+      if (!free) continue;
+      placed.push(x0, y0, x1, y1);
+      count++;
+      if (lb.angle === 0) {
+        g.strokeText(lb.text, lb.x, lb.y);
+        g.fillText(lb.text, lb.x, lb.y);
+      } else {
+        g.save();
+        g.translate(lb.x, lb.y);
+        g.rotate(lb.angle);
+        g.strokeText(lb.text, 0, 0);
+        g.fillText(lb.text, 0, 0);
+        g.restore();
       }
     }
   }

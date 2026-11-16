@@ -2,9 +2,9 @@
  * « SAPEURS-POMPIERS », « SAMU », lumineux « TAXI », bandes tricolores, grilles de protection à découpe alpha,
  * jantes, vitrages (intact, brisé, brûlé), banderole du camion sono… Aucune marque réelle.
  *
- * Les niveaux de mipmap sont REDESSINÉS un par un (dessin vectoriel) au lieu d'être filtrés : les fils des
- * grilles et les lettres gardent une épaisseur d'au moins un pixel, de sorte que la découpe alpha ne fait
- * pas disparaître les grilles à distance. */
+ * Les niveaux de mipmap sont construits à la main : la grille de protection est REDESSINÉE en vectoriel à
+ * chaque niveau (ses fils gardent au moins un pixel d'épaisseur, la découpe alpha ne la fait donc pas
+ * disparaître à distance) ; les autres tuiles sont réduites de niveau en niveau. */
 
 import * as THREE from 'three';
 import { ATLAS_H, ATLAS_W, GLASS_CELL, PLATE_COLS, PLATE_H, PLATE_ROWS, PLATE_SLOTS, PLATE_W, TILE_PX } from './atlas-layout';
@@ -316,16 +316,34 @@ const PAINTERS: Record<TileName, Painter> = {
   },
 };
 
-/** Dessine tout l'atlas dans un canvas de largeur `width` (hauteur proportionnelle). */
-function drawAtlas(width: number): HTMLCanvasElement {
+/** Tuiles redessinées en vectoriel à chaque niveau de mipmap (fils fins qui doivent garder un pixel d'épaisseur). */
+const VECTOR_MIPS: ReadonlySet<TileName> = new Set<TileName>(['grille']);
+/** Tuiles à fond transparent (découpe alpha) : leur couverture est renforcée à chaque réduction. */
+const CUTOUT: ReadonlySet<TileName> = new Set<TileName>(['police', 'gendarmerie', 'pompiers', 'samu', 'ambulance', 'bande_police']);
+
+/**
+ * Dessine l'atlas dans un canvas de largeur `width`. Niveau 0 (`prev` nul) : dessin vectoriel de chaque tuile.
+ * Niveaux suivants : chaque tuile est la réduction de la même tuile du niveau précédent — les lettres gardent
+ * exactement la même forme d'un niveau à l'autre, sans quoi le mélange trilinéaire suivi de la découpe alpha les
+ * déchiquette. Les tuiles à découpe sont dessinées deux fois pour compenser la perte de couverture des traits fins.
+ */
+function drawAtlas(width: number, prev: HTMLCanvasElement | null): HTMLCanvasElement {
   const scale = width / ATLAS_W;
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = Math.max(1, Math.round(ATLAS_H * scale));
   const g = canvas.getContext('2d')!;
   g.clearRect(0, 0, canvas.width, canvas.height);
+  g.imageSmoothingEnabled = true;
+  g.imageSmoothingQuality = 'high';
+  const ps = prev ? prev.width / ATLAS_W : 0;
   for (const name of Object.keys(TILE_PX) as TileName[]) {
     const t = TILE_PX[name];
+    if (prev && !VECTOR_MIPS.has(name)) {
+      const passes = CUTOUT.has(name) ? 2 : 1;
+      for (let i = 0; i < passes; i++) g.drawImage(prev, t.x * ps, t.y * ps, t.w * ps, t.h * ps, t.x * scale, t.y * scale, t.w * scale, t.h * scale);
+      continue;
+    }
     g.save();
     g.setTransform(scale, 0, 0, scale, t.x * scale, t.y * scale);
     g.beginPath(); g.rect(0, 0, t.w, t.h); g.clip();
@@ -338,7 +356,11 @@ function drawAtlas(width: number): HTMLCanvasElement {
 /** Texture de l'atlas : `size` = largeur du niveau 0 (2048 ou 1024 selon la qualité). */
 export function createAtlasTexture(size: number, anisotropy: number): THREE.CanvasTexture {
   const levels: HTMLCanvasElement[] = [];
-  for (let w = size; w >= 8; w >>= 1) levels.push(drawAtlas(w));
+  let prev: HTMLCanvasElement | null = null;
+  for (let w = size; w >= 8; w >>= 1) {
+    prev = drawAtlas(w, prev);
+    levels.push(prev);
+  }
   const tex = new THREE.CanvasTexture(levels[0]!);
   tex.mipmaps = levels as unknown as THREE.Texture['mipmaps'];
   tex.generateMipmaps = false;

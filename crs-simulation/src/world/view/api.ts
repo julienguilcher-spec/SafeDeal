@@ -82,4 +82,26 @@ export interface WorldViewApi {
   flush(maxMs?: number): boolean;
   /** Promesse résolue quand tout ce qui entoure la caméra est construit (lectures lointaines comprises). */
   whenIdle(): Promise<void>;
+  /**
+   * Mesure (diagnostic) : construit `runs` fois la version détaillée d'une tuile chargée, hors scène et
+   * sans les immeubles, et rend les durées. Pour écarter le bruit d'une machine chargée, chaque étape
+   * est créditée de sa durée la plus courte sur l'ensemble des essais. null si la tuile n'est pas chargée.
+   */
+  benchTile(tx: number, tz: number, runs?: number): TileBench | null;
+}
+
+export interface TileBench {
+  /** Nombre d'étapes de la construction. */
+  steps: number;
+  /** Durée totale (ms) : somme des durées minimales des étapes. */
+  totalMs: number;
+  /** Plus longue étape (ms), et son nom. */
+  maxStepMs: number;
+  maxStepLabel: string;
+  /** Nombre d'étapes de plus de 4 ms et de plus de 8 ms. */
+  over4: number;
+  over8: number;
+  triangles: number;
+  drawCalls: number;
+  gpuBytes: number;
 }

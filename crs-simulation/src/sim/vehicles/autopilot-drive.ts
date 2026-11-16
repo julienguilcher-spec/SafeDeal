@@ -29,6 +29,7 @@ export class ApDriver {
 
   constructor(private readonly k: VehicleKernel, private readonly sensor: ApSensor) {}
 
+  /** Met à jour l'état lisible du pilote ; un changement d'état émet l'événement libre 'vehicles:autopilot'. */
   setStatus(rt: VehicleRt, ap: ApState, state: AutopilotState, reason: AutopilotReason): void {
     const s = ap.status;
     s.mode = ap.mode;

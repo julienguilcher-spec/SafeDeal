@@ -116,6 +116,31 @@ describe('pilote automatique : conduite jusqu\'à un point', () => {
     expect(v.z).toBeCloseTo(z, 3);
   });
 
+  it('rend la main au joueur dès qu\'il s\'assoit au volant ; un conducteur PNJ, lui, se laisse conduire', async () => {
+    const b = await createVehicleBench({ world: town() });
+    const v = b.spawn('fourgon_crs', -1.75, 5, 0);
+    const npc = b.driver(v);
+    b.autopilot.driveTo(v, 0, 190);
+    b.step(8);
+    expect(b.autopilot.isActive(v)).toBe(true); // le PNJ au volant ne gêne pas le pilote
+    expect(v.speed).toBeGreaterThan(4);
+    b.ctx.vehicles.exit(npc);
+    const player = b.person('crs', 0, 0);
+    b.ctx.player.possess(player.id);
+    expect(b.ctx.vehicles.enter(player, v, 'driver')).toBe(true);
+    b.step(0.1);
+    expect(b.autopilot.isActive(v)).toBe(false);
+    expect(b.autopilot.status(v).state).toBe('repos');
+    // les commandes sont désormais celles du joueur
+    v.cmd.throttle = 0;
+    v.cmd.brake = 1;
+    b.step(4);
+    expect(Math.abs(v.speed)).toBeLessThan(0.05);
+    const z = v.z;
+    b.step(3);
+    expect(v.z).toBeCloseTo(z, 3);
+  });
+
   it('refuse un point sans itinéraire et un véhicule hors d\'usage ; s\'interrompt si le véhicule devient une épave', async () => {
     // deux rues sans liaison
     const world = createFakeWorld({
@@ -459,5 +484,44 @@ describe('pilote automatique : suivre, convoi, stationnement', () => {
     expect(Math.max(...zs) - Math.min(...zs)).toBeLessThan(0.6); // nez sur la même ligne
     for (const h of hs) expect(h).toBeLessThan(0.08);
     for (const v of list) expect(v.health).toBe(100);
+  });
+
+  it('se range aussi en épi et en file, à intervalles réguliers', async () => {
+    const b = await createVehicleBench({ world: createFakeWorld() });
+    const cars: Vehicle[] = [];
+    for (let i = 0; i < 3; i++) cars.push(b.spawn('voiture', -40, i * 8, Math.PI / 2));
+    // en épi : rang orienté vers le nord, véhicules tournés de 30° vers la droite
+    expect(b.autopilot.parkRow(cars, 30, 10, Math.PI, 'epi')).toBe(true);
+    expect(runUntil(b, () => cars.every((v) => b.autopilot.status(v).state === 'arrive'), 300)).toBeGreaterThan(0);
+    const want = Math.PI - 0.5236;
+    const pitch = (cars[0]!.def.width + 0.9) / Math.cos(0.5236);
+    const xs = cars.map((v) => v.x).sort((a, c) => a - c);
+    for (const v of cars) {
+      expect(Math.abs(Math.atan2(Math.sin(v.heading - want), Math.cos(v.heading - want)))).toBeLessThan(0.08);
+      expect(Math.abs(v.z - 10)).toBeLessThan(0.5);
+      expect(v.health).toBe(100);
+    }
+    expect(xs[1]! - xs[0]!).toBeGreaterThan(pitch - 0.5);
+    expect(xs[1]! - xs[0]!).toBeLessThan(pitch + 0.5);
+    expect(xs[2]! - xs[1]!).toBeGreaterThan(pitch - 0.5);
+    expect(xs[2]! - xs[1]!).toBeLessThan(pitch + 0.5);
+
+    // en file : l'un derrière l'autre, 2 m entre pare-chocs
+    const vans: Vehicle[] = [];
+    for (let i = 0; i < 3; i++) vans.push(b.spawn('fourgon_crs', 200, -60 - i * 9, 0));
+    expect(b.autopilot.parkRow(vans, 200, 40, 0, 'file')).toBe(true);
+    expect(runUntil(b, () => vans.every((v) => b.autopilot.status(v).state === 'arrive'), 300)).toBeGreaterThan(0);
+    const zs = vans.map((v) => v.z);
+    console.log(`file de 3 fourgons : z = ${zs.map((z) => z.toFixed(2)).join(' / ')}, x = ${vans.map((v) => v.x.toFixed(2)).join(' / ')}`);
+    for (let i = 1; i < vans.length; i++) {
+      const gap = zs[i - 1]! - zs[i]! - vans[i]!.def.length;
+      expect(gap).toBeGreaterThan(1.5);
+      expect(gap).toBeLessThan(2.5);
+    }
+    for (const v of vans) {
+      expect(Math.abs(v.x - 200)).toBeLessThan(0.25);
+      expect(Math.abs(v.heading)).toBeLessThan(0.05);
+      expect(v.health).toBe(100);
+    }
   });
 });

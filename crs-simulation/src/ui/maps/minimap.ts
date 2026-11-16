@@ -38,6 +38,7 @@ export class Minimap implements HudWidget {
   private readonly g: CanvasRenderingContext2D | null;
   private readonly north: HTMLDivElement;
   private readonly gpsArrow: HTMLDivElement;
+  private readonly info: HTMLDivElement;
   private readonly street: HTMLDivElement;
   private readonly dist: HTMLDivElement;
   private readonly base: BaseLayer;
@@ -57,6 +58,9 @@ export class Minimap implements HudWidget {
   private gpsT = '';
   private needLayout = true;
   private shown = true;
+  private touchOn = false;
+  private lastTouchCheck = -1;
+  private lastDodge = -1;
   private readonly onResize = (): void => { this.needLayout = true; };
 
   constructor(private readonly ctx: GameContext, private readonly runtime: MapsRuntime, host: HTMLElement) {
@@ -78,10 +82,10 @@ export class Minimap implements HudWidget {
     this.gpsArrow = el('div', 'cm-mini-gps');
     this.gpsArrow.appendChild(el('i'));
     this.disc.append(clip, this.gpsArrow, this.north);
-    const info = el('div', 'cm-mini-info');
-    this.street = el('div', 'cm-mini-street');
+    const info = (this.info = el('div', 'cm-mini-info is-off'));
     this.dist = el('div', 'cm-mini-dist');
-    info.append(this.street, this.dist);
+    this.street = el('div', 'cm-mini-street');
+    info.append(this.dist, this.street);
     this.root.append(this.disc, info);
     host.appendChild(this.root);
     this.disc.addEventListener('click', () => ctx.ui.open('carte'));
@@ -99,6 +103,8 @@ export class Minimap implements HudWidget {
     this.needLayout = false;
     const small = window.innerHeight < 520 || window.innerWidth < 700;
     this.size = small ? 112 : 168;
+    // petit écran : l'étiquette passe à droite du disque (sous lui se trouvent les commandes tactiles)
+    setClass(this.root, 'is-small', small);
     this.root.style.setProperty('--cm-mini', this.size + 'px');
     // le canevas couvre le disque quelle que soit la rotation, plus une petite marge de glissement
     this.side = Math.ceil(this.size * Math.SQRT2) + 24;
@@ -112,6 +118,28 @@ export class Minimap implements HudWidget {
     s.top = -this.side / 2 + 'px';
     this.view.setSize(this.side, this.side);
     this.lastDraw = -1;
+    this.dodgeTouchControls();
+  }
+
+  /**
+   * Tactile : si un autre élément du HUD pousse la mini-carte sur les boutons « Radio » et « Ordres » du
+   * module d'entrées (à gauche, au-dessus du joystick), elle se décale à leur droite. Une seule mesure de
+   * mise en page, faite ici (redimensionnement, changement de périphérique, contrôle toutes les 2 s).
+   */
+  private dodgeTouchControls(): void {
+    const root = this.root;
+    if (root.style.marginLeft !== '') root.style.marginLeft = '';
+    if (!this.touchOn) return;
+    // cotes de docs/modules/entrees.md : 844 × 390 à l'échelle 1, échelle bornée entre 0,82 et 1,45
+    const W = window.innerWidth, H = window.innerHeight;
+    const scale = Math.min(1.45, Math.max(0.82, Math.min(W / 844, H / 390)));
+    const r = this.disc.getBoundingClientRect();
+    if (r.width === 0) return;
+    const buttonsTop = H - 250 * scale;
+    const buttonsRight = 136 * scale;
+    if (r.bottom > buttonsTop - 4 && r.left < buttonsRight + 4) {
+      root.style.marginLeft = Math.round(buttonsRight + 10 - r.left) + 'px';
+    }
   }
 
   update(dt: number): void {
@@ -124,9 +152,21 @@ export class Minimap implements HudWidget {
       setClass(this.root, 'is-off', !visible);
     }
     if (!visible) return;
-    if (this.needLayout) this.layout();
     rt.use();
     const time = rt.time;
+    if (time - this.lastTouchCheck > 0.5) {
+      this.lastTouchCheck = time;
+      const touch = this.ctx.service<{ visible: boolean }>('input.touch');
+      const on = touch !== undefined && touch.visible === true;
+      if (on !== this.touchOn) {
+        this.touchOn = on;
+        this.needLayout = true;
+      } else if (on && time - this.lastDodge > 2) {
+        this.lastDodge = time;
+        this.dodgeTouchControls();
+      }
+    }
+    if (this.needLayout) this.layout();
 
     // échelle selon le déplacement : trois paliers, transition douce
     if (scene.inVehicle) {
@@ -178,10 +218,16 @@ export class Minimap implements HudWidget {
     }
     setClass(this.gpsArrow, 'is-on', gpsOn);
 
+    // étiquette : seulement pour un repère posé par le joueur (la rue courante est donnée par la boussole,
+    // la distance d'un objectif ou d'un incident par leurs propres éléments)
     if (time - this.lastInfo > 0.5) {
       this.lastInfo = time;
-      setText(this.street, this.ctx.world.sectorName(scene.px, scene.pz) || 'Paris');
-      setText(this.dist, gt && rt.gps.distance >= 0 ? `➤ ${formatDistance(rt.gps.distance)} · ${gt.label}` : '');
+      const on = gt !== null && gt.source === 'repere' && rt.gps.distance >= 0;
+      setClass(this.info, 'is-off', !on);
+      if (on) {
+        setText(this.street, gt.label);
+        setText(this.dist, `➤ ${formatDistance(rt.gps.distance)}`);
+      }
     }
   }
 

@@ -9,7 +9,8 @@
 //   tactile    : téléphone 844×390 et tablette 1180×820 — toucher, glisser, pincer, tracé de ligne ;
 //                aucun chevauchement entre le HUD et les commandes tactiles du module d'entrées.
 //   degrade    : services étendus absents, monde neutre.
-// Usage : node tests/e2e/command.mjs [bureau] [roles] [plan] [manette] [tactile] [degrade]   (défaut : tout)
+//   socle      : les mêmes écrans branchés dans le VRAI socle de l'interface (src/ui) : HUD, touches, focus.
+// Usage : node tests/e2e/command.mjs [bureau] [roles] [plan] [manette] [tactile] [degrade] [socle]   (défaut : tout)
 import { startServer, openPage, waitFor, shot, finish } from './lib.mjs';
 
 const only = process.argv.slice(2);
@@ -54,14 +55,14 @@ const settle = (page, ms = 320) => page.waitForTimeout(ms);
 /** Position à l'écran (client) d'un point du monde sur la carte ouverte ('tactique' ou 'plan'). */
 const mapPoint = (page, x, z) => page.evaluate(([wx, wz]) => {
   const b = window.__cmd;
-  const map = b.tactical() ? b.tactical().map : b.ui.instance('carte').map;
+  const map = b.tactical() ? b.tactical().map : b.plan().map;
   const r = map.canvas.getBoundingClientRect();
   const p = map.screenOf(wx, wz);
   return { x: r.left + p.x, y: r.top + p.y };
 }, [x, z]);
 const worldAt = (page, cx, cy) => page.evaluate(([x, y]) => {
   const b = window.__cmd;
-  const map = b.tactical() ? b.tactical().map : b.ui.instance('carte').map;
+  const map = b.tactical() ? b.tactical().map : b.plan().map;
   const r = map.canvas.getBoundingClientRect();
   const w = { x: 0, z: 0 };
   map.view.screenToWorld(x - r.left, y - r.top, w);
@@ -639,23 +640,23 @@ async function plan() {
   const { browser, page } = await open('role=chef_groupe&freeze=1&ai=0');
   const I = await ids(page);
   await page.keyboard.press('KeyM');
-  await page.waitForFunction(() => { const m = window.__cmd.ui.instance('carte'); return !!m && m.map.draws > 0; }, null, { timeout: 20000 });
+  await page.waitForFunction(() => { const m = window.__cmd.plan(); return !!m && m.map.draws > 0; }, null, { timeout: 20000 });
   await settle(page, 400);
   check((await stack(page)).includes('carte'), 'la touche M ouvre le plan');
-  const planBase = await page.evaluate(() => { const b = window.__cmd.ui.instance('carte').map.base; return { ms: b.maxMs, n: b.renders }; });
+  const planBase = await page.evaluate(() => { const b = window.__cmd.plan().map.base; return { ms: b.maxMs, n: b.renders }; });
   const surf = await page.evaluate(() => { const s = window.__cmd.maps.fallback.surfaces; return { ms: s.lastMs, n: s.built }; });
   info.push(`plan 1280×720 : dessin complet du fond en ${planBase.ms.toFixed(0)} ms au plus (${planBase.n} dessins), puis recopie ; ${surf.n} images d'occupation du sol, ${surf.ms.toFixed(1)} ms pour la dernière`);
   check(await page.evaluate(() => window.__cmd.ctx.session.phase === 'paused'), 'le plan met la simulation en pause');
   await shot(page, 'command-plan-1280x720');
   // zoom à la molette, déplacement au glisser
-  const v0 = await page.evaluate(() => { const v = window.__cmd.ui.instance('carte').map.view; return { cx: v.cx, cz: v.cz, mpp: v.mpp }; });
+  const v0 = await page.evaluate(() => { const v = window.__cmd.plan().map.view; return { cx: v.cx, cz: v.cz, mpp: v.mpp }; });
   await page.mouse.move(700, 400);
   await page.mouse.wheel(0, -400);
   await settle(page, 400);
-  const v1 = await page.evaluate(() => { const v = window.__cmd.ui.instance('carte').map.view; return { cx: v.cx, cz: v.cz, mpp: v.mpp }; });
+  const v1 = await page.evaluate(() => { const v = window.__cmd.plan().map.view; return { cx: v.cx, cz: v.cz, mpp: v.mpp }; });
   check(v1.mpp < v0.mpp * 0.8, `molette : zoom avant (${v0.mpp.toFixed(2)} → ${v1.mpp.toFixed(2)} m/px)`);
   await drag(page, { x: 700, y: 400 }, { x: 560, y: 330 });
-  const v2 = await page.evaluate(() => { const v = window.__cmd.ui.instance('carte').map.view; return { cx: v.cx, cz: v.cz, mpp: v.mpp }; });
+  const v2 = await page.evaluate(() => { const v = window.__cmd.plan().map.view; return { cx: v.cx, cz: v.cz, mpp: v.mpp }; });
   near(v2.cx - v1.cx, 140 * v1.mpp, 1.5, 'glisser : la carte suit le pointeur (x)');
   near(v2.cz - v1.cz, 70 * v1.mpp, 1.5, 'glisser : la carte suit le pointeur (z)');
   // recherche
@@ -681,9 +682,9 @@ async function plan() {
   await shot(page, 'command-hud-gps-1280x720');
   // repère par clic droit sur le plan
   await key(page, 'KeyM', 'carte', true);
-  await page.waitForFunction(() => { const m = window.__cmd.ui.instance('carte'); return !!m && m.map.draws > 0; }, null, { timeout: 20000 });
+  await page.waitForFunction(() => { const m = window.__cmd.plan(); return !!m && m.map.draws > 0; }, null, { timeout: 20000 });
   await settle(page, 300);
-  if (process.env.DEBUG_CMD) console.log('avant clic droit', JSON.stringify(await page.evaluate(() => ({ stack: window.__cmd.ui.stack(), el: document.elementFromPoint(820, 300).className, phase: window.__cmd.ctx.session.phase, v: (() => { const m = window.__cmd.ui.instance('carte'); return m ? { cx: m.map.view.cx, cz: m.map.view.cz, mpp: m.map.view.mpp } : null; })(), b: window.__cmd.ctx.world.bounds }))));
+  if (process.env.DEBUG_CMD) console.log('avant clic droit', JSON.stringify(await page.evaluate(() => ({ stack: window.__cmd.ui.stack(), el: document.elementFromPoint(820, 300).className, phase: window.__cmd.ctx.session.phase, v: (() => { const m = window.__cmd.plan(); return m ? { cx: m.map.view.cx, cz: m.map.view.cz, mpp: m.map.view.mpp } : null; })(), b: window.__cmd.ctx.world.bounds }))));
   await page.mouse.click(820, 300, { button: 'right' });
   await settle(page, 300);
   const wp2 = await page.evaluate(() => window.__cmd.maps.waypoint);
@@ -712,21 +713,6 @@ async function plan() {
   near(o.x, aim.x, 0.5, 'roue : l\'ordre vise le point regardé (x)');
   near(o.z, aim.z, 0.5, 'roue : l\'ordre vise le point regardé (z)');
   // appui bref : la roue reste affichée ; un clic choisit
-  if (process.env.DEBUG_CMD) {
-    page.on('console', (m) => { if (m.text().startsWith('DBG')) console.log(m.text()); });
-    await page.evaluate(() => {
-      const b = window.__cmd; let n = 0;
-      const orig = b.ctx.ui.close.bind(b.ctx.ui);
-      b.ctx.ui.close = (id) => { console.log('DBG ui.close', id, new Error().stack.split('\n').slice(2, 9).map((l) => l.replace(/http:.*src\//, '')).join(' | ')); orig(id); };
-      const f = () => {
-        const inp = b.ctx.input;
-        const st = b.ui.stack();
-        if (st.length || inp.pressed('orders') || inp.pressed('ui_back') || inp.pressed('pause') || inp.pressed('ui_accept')) console.log('DBG', n, JSON.stringify(st), 'orders', inp.down('orders'), inp.pressed('orders'), 'back', inp.pressed('ui_back'), 'pause', inp.pressed('pause'), 'accept', inp.pressed('ui_accept'), 'phase', b.ctx.session.phase);
-        if (++n < 70) requestAnimationFrame(f);
-      };
-      requestAnimationFrame(f);
-    });
-  }
   await key(page, 'KeyF', 'roue_ordres', true);
   await settle(page, 600);
   check((await stack(page)).includes('roue_ordres'), 'appui bref : la roue reste affichée');
@@ -978,7 +964,7 @@ async function tactile() {
     await settle(page, 700);
     await shot(page, `command-plan-${size.name}`);
     const cxp = size.w / 2, cyp = size.h / 2 + 30;
-    const m0 = await page.evaluate(() => window.__cmd.ui.instance('carte').map.view.mpp);
+    const m0 = await page.evaluate(() => window.__cmd.plan().map.view.mpp);
     await down(1, cxp - 40, cyp);
     await down(2, cxp + 40, cyp);
     await move(1, cxp - 110, cyp, 6);
@@ -986,7 +972,7 @@ async function tactile() {
     await up(1);
     await up(2);
     await settle(page, 400);
-    const m1 = await page.evaluate(() => window.__cmd.ui.instance('carte').map.view.mpp);
+    const m1 = await page.evaluate(() => window.__cmd.plan().map.view.mpp);
     check(m1 < m0 * 0.6, `${size.name} : pincement = zoom (${m0.toFixed(2)} → ${m1.toFixed(2)} m/px)`);
     // appui long : repère GPS
     await down(3, cxp + 60, cyp - 40);
@@ -1042,7 +1028,7 @@ async function tactile() {
     }
     u = await unit(page, I.sections[2]);
     p = await mapPoint(page, u.x, u.z);
-    const A = { x: p.x - 70, y: p.y - 70 }, B = { x: p.x + 60, y: p.y - 70 };
+    const A = { x: p.x - 70, y: p.y + 70 }, B = { x: p.x + 60, y: p.y + 70 };
     const wA = await worldAt(page, A.x, A.y), wB = await worldAt(page, B.x, B.y);
     await down(5, A.x, A.y);
     await move(5, B.x, B.y, 8);
@@ -1056,7 +1042,7 @@ async function tactile() {
     near(o.x, (wA.x + wB.x) / 2, 0.5, `${size.name} : centre de la ligne (x)`);
     angleNear(o.heading, Math.PI, 0.03, `${size.name} : tracé ouest → est, face au nord`);
     // appui long avec une sélection : ordre rapide (menu radial), « Nasse »
-    const L = { x: p.x - 90, y: p.y + 70 };
+    const L = { x: p.x - 100, y: p.y + 20 };
     const wL = await worldAt(page, L.x, L.y);
     await down(6, L.x, L.y);
     await settle(page, 800);
@@ -1167,7 +1153,110 @@ async function degrade() {
   }
 }
 
-const steps = [['bureau', bureau], ['roles', roles], ['plan', plan], ['manette', manette], ['tactile', tactile], ['degrade', degrade]];
+// ══════════════════════════════════ VRAI SOCLE DE L'INTERFACE ══════════════════════════════════
+async function socle() {
+  console.log('— intégration dans le vrai socle de l\'interface (src/ui)');
+  const { browser, page } = await open('role=commandant&freeze=1&ai=0&kit=core');
+  const I = await ids(page);
+  await settle(page, 800);
+  const hud = await page.evaluate(() => ({
+    widgets: window.__cmd.ctx.service('ui.debug').hudWidgets(),
+    mini: !!document.querySelector('.ui-layer--hud [data-id="minimap"]'), unit: document.querySelector('[data-id="hud-unit"]')?.textContent ?? '',
+    screens: ['carte', 'carte_tactique', 'roue_ordres', 'radio'].map((id) => window.__cmd.ctx.service('ui.kit').hasScreen(id)),
+  }));
+  check(hud.widgets.includes('maps.minimap') && hud.widgets.includes('command.unit') && hud.widgets.includes('command.incident'), `éléments de HUD enregistrés auprès du vrai UiKit (${hud.widgets.join(', ')})`);
+  check(hud.mini && /MISTRAL/.test(hud.unit), 'mini-carte et « mon unité » affichés dans le HUD du socle');
+  check(hud.screens.every(Boolean), 'écrans carte, carte_tactique, roue_ordres et radio enregistrés');
+  await shot(page, 'command-socle-hud-1280x720');
+  // touches d'interface du socle (table HOTKEY_SCREENS)
+  check(await key(page, 'Tab', 'carte_tactique', true), 'socle : Tab ouvre la carte tactique');
+  await settle(page, 600);
+  check(await page.evaluate(() => document.activeElement === window.__cmd.tactical().map.canvas), 'socle : à l\'ouverture, le focus est sur la carte (data-autofocus)');
+  await click(page, 'unit-' + I.sections[2]);
+  await click(page, 'verb-ligne');
+  const u = await unit(page, I.sections[2]);
+  const p = await mapPoint(page, u.x, u.z);
+  const A = { x: p.x - 60, y: p.y + 80 }, B = { x: p.x + 70, y: p.y + 80 };
+  const wA = await worldAt(page, A.x, A.y), wB = await worldAt(page, B.x, B.y);
+  await drag(page, A, B);
+  await settle(page);
+  const o = await order(page, I.sections[2]);
+  check(o.type === 'ligne', `socle : ligne tracée, ordre reçu (${o.type})`);
+  near(o.width, Math.hypot(wB.x - wA.x, wB.z - wA.z), 0.4, 'socle : largeur de la ligne');
+  near(o.x, (wA.x + wB.x) / 2, 0.4, 'socle : centre de la ligne');
+  await settle(page, 400);
+  await shot(page, 'command-socle-tactique-1280x720');
+  check(await page.evaluate(() => window.__cmd.ctx.session.phase === 'playing'), 'socle : la simulation n\'est pas en pause carte tactique ouverte');
+  await click(page, 'verb-avancer');
+  check(await key(page, 'Escape', 'carte_tactique', true) && await page.evaluate(() => window.__cmd.tactical().state.mode.kind === 'idle'), 'socle : Échap annule d\'abord l\'ordre en préparation');
+  check(await key(page, 'Escape', 'carte_tactique', false), 'socle : Échap ferme ensuite la carte');
+  check(await key(page, 'KeyM', 'carte', true), 'socle : M ouvre le plan');
+  await page.waitForFunction(() => { const m = window.__cmd.plan(); return !!m && m.map.draws > 0; }, null, { timeout: 20000 }).catch(() => {});
+  check(await page.evaluate(() => window.__cmd.ctx.session.phase === 'paused'), 'socle : le plan met en pause');
+  await shot(page, 'command-socle-plan-1280x720');
+  check(await key(page, 'KeyM', 'carte', false) && await page.evaluate(() => window.__cmd.ctx.session.phase === 'playing'), 'socle : M referme le plan, reprise');
+  check(await key(page, 'KeyT', 'radio', true), 'socle : T ouvre la radio');
+  const n0 = await page.evaluate(() => window.__cmd.ctx.radio.log.length);
+  await click(page, 'radio-cr');
+  await settle(page, 300);
+  check(await page.evaluate((n) => window.__cmd.ctx.radio.log.length === n + 1, n0), 'socle : message rapide émis');
+  await shot(page, 'command-socle-radio-1280x720');
+  check(await key(page, 'KeyT', 'radio', false), 'socle : T referme la radio');
+  await page.keyboard.down('KeyF');
+  check(await untilStack(page, 'roue_ordres', true), 'socle : F maintenue ouvre la roue d\'ordres');
+  await settle(page, 300);
+  await page.mouse.move(640, 360);
+  await page.mouse.move(640, 250, { steps: 4 });
+  await settle(page, 200);
+  await shot(page, 'command-socle-roue-1280x720');
+  await page.keyboard.up('KeyF');
+  check(await untilStack(page, 'roue_ordres', false), 'socle : relâchement, la roue se ferme');
+  check((await order(page, I.company)).type === 'avancer', 'socle : ordre de la roue transmis à l\'unité du joueur');
+  // manette dans le vrai socle : zones de focus par LB / RB
+  await page.evaluate(() => {
+    const pad = { id: 'Manette d\'essai (STANDARD GAMEPAD Vendor: 045e Product: 02ea)', index: 0, connected: true, mapping: 'standard', timestamp: 0, axes: [0, 0, 0, 0], buttons: Array.from({ length: 17 }, () => ({ pressed: false, touched: false, value: 0 })) };
+    window.__pad = pad;
+    window.__press = (i, v = 1) => { pad.buttons[i] = { pressed: v > 0.5, touched: v > 0, value: v }; };
+    Object.defineProperty(navigator, 'getGamepads', { value: () => [pad, null, null, null], configurable: true });
+    window.dispatchEvent(new Event('gamepadconnected'));
+    window.__cmd.ctx.ui.open('carte_tactique');
+  });
+  await settle(page, 600);
+  await page.evaluate(() => { window.__pad.axes[0] = 1; });
+  await settle(page, 300);
+  await page.evaluate(() => { window.__pad.axes[0] = 0; });
+  await frames(page, 4);
+  const pad = await page.evaluate(() => ({ on: window.__cmd.tactical().map.cursorOn, focus: document.activeElement === window.__cmd.tactical().map.canvas }));
+  check(pad.on && pad.focus, `socle + manette : le stick déplace le curseur, le focus reste sur la carte (${JSON.stringify(pad)})`);
+  await page.evaluate(() => window.__press(5, 1));
+  await frames(page, 4);
+  await page.evaluate(() => window.__press(5, 0));
+  await settle(page, 300);
+  check(await page.evaluate(() => !!document.activeElement && document.activeElement.classList.contains('ct-unit')), 'socle + manette : RB passe le focus à la liste des unités (« ui:tab »)');
+  await browser.close();
+  // téléphone : HUD du socle + le nôtre + commandes tactiles
+  {
+    const m = await open('role=commandant&freeze=1&ai=0&kit=core&touch=1', { width: 844, height: 390, mobile: true, deviceScaleFactor: 2 });
+    await settle(m.page, 3200);
+    const overlap = await m.page.evaluate(() => {
+      const rects = (sel) => Array.from(document.querySelectorAll(sel)).filter((e) => { const s = getComputedStyle(e); return s.display !== 'none' && s.visibility !== 'hidden'; })
+        .map((e) => { const r = e.getBoundingClientRect(); return { id: e.dataset.id || e.className, x0: r.left, y0: r.top, x1: r.right, y1: r.bottom }; }).filter((r) => r.x1 > r.x0 && r.y1 > r.y0);
+      const controls = rects('.ct-c').concat(rects('.ct-stick'));
+      const mine = rects('.cm-mini-disc').concat(rects('.cm-mini-info'), rects('.ch:not(.is-off)'));
+      const hits = [];
+      for (const a of mine) for (const b of controls) if (a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0) hits.push(`${a.id} ∩ ${b.id}`);
+      return { hits, controls: controls.length, mine: mine.length };
+    });
+    check(overlap.controls >= 8 && overlap.mine >= 2 && overlap.hits.length === 0, `socle, téléphone : nos éléments de HUD ne recouvrent aucune commande tactile (${overlap.hits.join(', ') || 'aucun chevauchement'})`);
+    await shot(m.page, 'command-socle-hud-844x390');
+    await m.page.evaluate(() => window.__cmd.ctx.ui.open('carte_tactique'));
+    await settle(m.page, 900);
+    await shot(m.page, 'command-socle-tactique-844x390');
+    await m.browser.close();
+  }
+}
+
+const steps = [['bureau', bureau], ['roles', roles], ['plan', plan], ['manette', manette], ['tactile', tactile], ['degrade', degrade], ['socle', socle]];
 let crashed = false;
 for (const [name, fn] of steps) {
   if (!want(name)) continue;

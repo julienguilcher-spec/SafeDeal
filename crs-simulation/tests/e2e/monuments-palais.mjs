@@ -6,7 +6,7 @@
 //   node tests/e2e/monuments-palais.mjs louvre --vues=pieton,pres1   seulement certaines vues
 import { writeFileSync, existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { startServer, openPage, waitFor, shot, finish, OUT } from './lib.mjs';
+import { startServer, openPage, waitFor, finish, OUT } from './lib.mjs';
 
 export const KEYS = [
   'louvre', 'pyramide_louvre', 'arc_carrousel', 'invalides', 'hotel_de_ville', 'palais_bourbon', 'palais_elysee', 'hotel_marine',
@@ -41,6 +41,8 @@ const CLOSE = {
 const args = process.argv.slice(2);
 const vuesArg = args.find((a) => a.startsWith('--vues='));
 const vues = vuesArg ? vuesArg.slice(7).split(',') : null;
+// --rapport=<nom> : fichier de rapport propre à cette exécution (plusieurs exécutions en parallèle)
+const rapportArg = args.find((a) => a.startsWith('--rapport='));
 const only = args.filter((a) => !a.startsWith('--'));
 const want = (name) => only.length === 0 || only.includes(name);
 const wantVue = (name) => vues === null || vues.includes(name);
@@ -50,6 +52,17 @@ const errors = [];
 const report = [];
 let ok = true;
 let browser = null;
+
+/** Capture avec un délai large et deux reprises : le WebGL logiciel peut être très lent sur une machine chargée. */
+async function snap(page, name) {
+  const file = path.join(OUT, name + '.png');
+  for (let attempt = 0; ; attempt++) {
+    try { await page.screenshot({ path: file, timeout: 180000 }); return file; } catch (err) {
+      if (attempt >= 2) throw err;
+      console.log(`[monuments-palais] capture ${name} : nouvelle tentative (${String(err).split('\n')[0]})`);
+    }
+  }
+}
 
 async function settle(page, n = 3) {
   const f = await page.evaluate(() => window.__frames);
@@ -73,13 +86,13 @@ for (const key of KEYS) {
     if (!wantVue(name)) continue;
     await page.evaluate((v) => window.__setView(v), i);
     await settle(page);
-    await shot(page, `palais-${key}-jour-${name}`);
+    await snap(page, `palais-${key}-jour-${name}`);
   }
   for (const [name, cx, cy, cz, tx, ty, tz] of CLOSE[key] ?? []) {
     if (!wantVue(name)) continue;
     await page.evaluate((v) => window.__look(...v), [cx, cy, cz, tx, ty, tz]);
     await settle(page);
-    await shot(page, `palais-${key}-${name}`);
+    await snap(page, `palais-${key}-${name}`);
   }
   // bilan mesuré en vue d'ensemble (tout le monument dans le champ : aucun maillage écarté)
   await page.evaluate(() => window.__setView(0));
@@ -88,12 +101,12 @@ for (const key of KEYS) {
   if (wantVue('nuit')) {
     await page.evaluate(() => { window.__setNight(true); window.__setView(0); });
     await settle(page, 4);
-    await shot(page, `palais-${key}-nuit`);
+    await snap(page, `palais-${key}-nuit`);
     await page.evaluate(() => window.__setNight(false));
   }
   await page.evaluate(() => { window.__setFar(true); window.__setView(0); });
   await settle(page);
-  if (wantVue('silhouette')) await shot(page, `palais-${key}-silhouette`);
+  if (wantVue('silhouette')) await snap(page, `palais-${key}-silhouette`);
   const stFar = await page.evaluate(() => window.__stats());
   const max = BUDGET[key] ?? 60000;
   const pass = st.triangles <= max && st.drawCalls <= 12 && st.rendererCalls <= 12 && stFar.triangles <= 400;
@@ -108,7 +121,7 @@ for (const key of KEYS) {
 }
 
 // rapport cumulatif : une exécution partielle met à jour les monuments concernés sans effacer les autres
-const file = path.join(OUT, 'monuments-palais-report.json');
+const file = path.join(OUT, rapportArg ? rapportArg.slice(10) : 'monuments-palais-report.json');
 let all = [];
 if (existsSync(file)) { try { all = JSON.parse(readFileSync(file, 'utf8')); } catch { all = []; } }
 for (const r of report) { const i = all.findIndex((x) => x.key === r.key); if (i >= 0) all[i] = r; else all.push(r); }

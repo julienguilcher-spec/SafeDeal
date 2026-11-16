@@ -74,8 +74,11 @@ export function flatQuad(
   const i1 = buf.vertex(x1, y1, z1, 0, 1, 0, cls, mode, tint, shade);
   const i2 = buf.vertex(x2, y2, z2, 0, 1, 0, cls, mode, tint, shade);
   const i3 = buf.vertex(x3, y3, z3, 0, 1, 0, cls, mode, tint, shade);
-  if ((z1 - z0) * (x2 - x0) - (x1 - x0) * (z2 - z0) > 0) buf.quad(i0, i1, i2, i3);
-  else buf.quad(i3, i2, i1, i0);
+  // Chaque triangle est orienté pour son compte : à un angle très aigu, une bande en onglet peut se croiser.
+  if ((z1 - z0) * (x2 - x0) - (x1 - x0) * (z2 - z0) >= 0) buf.tri(i0, i1, i2);
+  else buf.tri(i0, i2, i1);
+  if ((z2 - z0) * (x3 - x0) - (x2 - x0) * (z3 - z0) >= 0) buf.tri(i0, i2, i3);
+  else buf.tri(i0, i3, i2);
 }
 
 /** Comme flatQuad, avec des coordonnées de texture (tampon créé avec `withUv`) : u0,v0 … u3,v3 dans l'ordre des sommets. */
@@ -92,8 +95,10 @@ export function flatQuadUv(
   buf.setUv(i1, u1, v1);
   buf.setUv(i2, u2, v2);
   buf.setUv(i3, u3, v3);
-  if ((z1 - z0) * (x2 - x0) - (x1 - x0) * (z2 - z0) > 0) buf.quad(i0, i1, i2, i3);
-  else buf.quad(i3, i2, i1, i0);
+  if ((z1 - z0) * (x2 - x0) - (x1 - x0) * (z2 - z0) >= 0) buf.tri(i0, i1, i2);
+  else buf.tri(i0, i2, i1);
+  if ((z2 - z0) * (x3 - x0) - (x2 - x0) * (z3 - z0) >= 0) buf.tri(i0, i2, i3);
+  else buf.tri(i0, i3, i2);
 }
 
 /**

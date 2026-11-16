@@ -17,6 +17,16 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+/**
+ * Temps processeur consommé par ce processus de test (ms). Contrairement à l'horloge murale, il ne
+ * compte pas les moments où un autre processus occupe la machine : les seuils restent valables quand
+ * tous les tests tournent en parallèle sur une machine chargée.
+ */
+function cpuMs(): number {
+  const u = process.cpuUsage();
+  return (u.user + u.system) / 1000;
+}
+
 // ───────────────────────────── bus d'événements ─────────────────────────────
 
 describe('adverse — bus d\'événements', () => {
@@ -385,7 +395,7 @@ describe('adverse — grille de hachage spatiale', () => {
   });
 
   it('removeItem reste rapide dans une grande grille : coût linéaire, pas quadratique', () => {
-    /** Durée du retrait un à un de n éléments (meilleure de trois mesures : la machine de test est partagée). */
+    /** Temps processeur du retrait un à un de n éléments (meilleure de trois mesures). */
     const measure = (n: number): number => {
       let best = Infinity;
       for (let rep = 0; rep < 3; rep++) {
@@ -404,9 +414,9 @@ describe('adverse — grille de hachage spatiale', () => {
           all[i]!.z += rng.range(-2, 2);
         }
         let removed = 0;
-        const t0 = performance.now();
+        const t0 = cpuMs();
         for (let i = 0; i < all.length; i++) if (grid.removeItem(all[i]!)) removed++;
-        const ms = performance.now() - t0;
+        const ms = cpuMs() - t0;
         expect(removed).toBe(n);
         expect(grid.size).toBe(0);
         expect(grid.removeItem(all[0]!)).toBe(false);
@@ -417,10 +427,10 @@ describe('adverse — grille de hachage spatiale', () => {
     measure(2000); // échauffement du compilateur
     const five = measure(5000);
     const thirty = measure(30000);
-    console.log(`[adverse] SpatialHash.removeItem un à un : 5 000 → ${five.toFixed(2)} ms | 30 000 → ${thirty.toFixed(2)} ms`);
-    // 30 000 retraits : quelques millisecondes en temps constant, plus de deux secondes avec une recherche
-    // linéaire par retrait (≈ 450 millions de comparaisons). Le seuil laisse une large marge à une machine chargée.
-    expect(thirty).toBeLessThan(400);
+    console.log(`[adverse] SpatialHash.removeItem un à un (temps processeur) : 5 000 → ${five.toFixed(2)} ms | 30 000 → ${thirty.toFixed(2)} ms`);
+    // 30 000 retraits : ≈ 5 à 10 ms de temps processeur en temps constant ; ≈ 730 ms avec une recherche
+    // linéaire par retrait (code d'origine, mesuré : ≈ 450 millions de comparaisons).
+    expect(thirty).toBeLessThan(200);
   });
 });
 

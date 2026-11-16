@@ -12,49 +12,21 @@
 
 import type * as THREE from 'three';
 import type { CameraMode, GameContext, Person, Vehicle } from '@/core/contracts';
-import type { RenderCameraApi, TacticalView } from './api';
+import type { RenderCameraApi } from './api';
 import {
-  cameraSweep, copyPose, createPose, eyeHeight, seatIndexOf, seatedEyeOffset, shoulderPivotHeight, turretIndexOf, zoomedFov,
+  PITCH_LIMIT, cameraSweep, copyPose, createPose, eyeHeight, findDrone, seatIndexOf, seatedEyeOffset, shoulderPivotHeight,
+  turretIndexOf, vehiclePoint, vehicleTilt, zoomedFov,
 } from './cameraMath';
 import type { CameraPose } from './cameraMath';
+import { TACTICAL_HEIGHT, TACTICAL_PITCH, Tactical } from './cameraTactical';
 import { TAU, clamp, damp, lerp, lerpAngle, noise1, wrapAngle } from './util';
 
-const PITCH_LIMIT = 1.52;
 /** Durée du fondu entre deux modes (s). */
 const BLEND_TIME = 0.24;
-/** Vue tactique : inclinaison (quasi verticale) et hauteur pour un zoom de 1. */
-const TACTICAL_PITCH = -1.36;
-const TACTICAL_HEIGHT = 150;
 /** Drone : pour camPitch = 0, la nacelle regarde déjà vers le bas. */
 const DRONE_TILT = 0.6;
 /** Téléobjectif : champ vertical pour un zoom de 1 (≈ 70 mm). */
 const VIEWFINDER_FOV = 34;
-
-class Tactical implements TacticalView {
-  x = 0;
-  z = 0;
-  height = TACTICAL_HEIGHT;
-  inputPan = true;
-  /** Position lissée réellement affichée. */
-  sx = 0;
-  sz = 0;
-  sh = TACTICAL_HEIGHT;
-  fresh = true;
-
-  setCenter(x: number, z: number): void {
-    if (Number.isFinite(x) && Number.isFinite(z)) {
-      this.x = x;
-      this.z = z;
-    }
-  }
-
-  pan(dx: number, dz: number): void {
-    if (Number.isFinite(dx) && Number.isFinite(dz)) {
-      this.x += dx;
-      this.z += dz;
-    }
-  }
-}
 
 export class CameraRig implements RenderCameraApi {
   readonly pose: CameraPose = createPose();
@@ -352,8 +324,8 @@ export class CameraRig implements RenderCameraApi {
       sx = s.x; sy = s.y; sz = s.z;
     }
     const eyeY = Math.min(sy + seatedEyeOffset(p), Math.max(sy + 0.3, def.height - 0.14));
-    this.vehiclePoint(v, sx, eyeY, sz, t);
-    this.vehicleTilt(v, yaw, pitch, t);
+    vehiclePoint(v, sx, eyeY, sz, t);
+    vehicleTilt(v, yaw, pitch, t);
     t.fov = zoomedFov(fov, zoom);
     t.near = 0.1;
   }
@@ -368,15 +340,15 @@ export class CameraRig implements RenderCameraApi {
     const ti = turretIndexOf(v, seatIndexOf(v, p));
     if (ti < 0) {
       // pas de tourelle : on se tient debout dans la trappe de toit
-      this.vehiclePoint(v, 0, v.def.height + 0.45, 0, t);
+      vehiclePoint(v, 0, v.def.height + 0.45, 0, t);
     } else {
       const tu = v.def.turrets[ti]!;
-      this.vehiclePoint(v, tu.x, tu.y + 0.32, tu.z, t);
+      vehiclePoint(v, tu.x, tu.y + 0.32, tu.z, t);
     }
     // légèrement en avant de l'axe, pour voir par-dessus l'affût
     t.x += Math.sin(yaw) * 0.28;
     t.z += Math.cos(yaw) * 0.28;
-    this.vehicleTilt(v, yaw, pitch, t);
+    vehicleTilt(v, yaw, pitch, t);
     t.fov = zoomedFov(fov * 0.92, zoom);
     t.near = 0.15;
   }
@@ -384,7 +356,7 @@ export class CameraRig implements RenderCameraApi {
   /** Drone : la caméra est sous l'appareil, regard plongeant. */
   private poseDrone(v: Vehicle | null, p: Person | null, yaw: number, pitch: number, zoom: number, fov: number): void {
     const t = this.target;
-    const drone = this.findDrone(v, p);
+    const drone = findDrone(this.ctx.vehicles.list, v, p);
     if (drone) {
       t.x = drone.x;
       t.y = drone.y - 0.14;
@@ -570,50 +542,6 @@ export class CameraRig implements RenderCameraApi {
       ps.camYaw = wrapAngle(ps.camYaw + diff * damp(rate, dt));
       ps.camPitch += (0 - ps.camPitch) * damp(rate * 0.6, dt);
     }
-  }
-
-  /** Point exprimé dans le repère du véhicule (x = droite, y = haut, z = avant) → monde, dans la pose. */
-  private vehiclePoint(v: Vehicle, lx: number, ly: number, lz: number, out: CameraPose): void {
-    const s = Math.sin(v.heading);
-    const c = Math.cos(v.heading);
-    // avant = (sin h, cos h) ; droite = (-cos h, sin h)
-    out.x = v.x + -c * lx + s * lz;
-    out.z = v.z + s * lx + c * lz;
-    out.y = v.y + ly;
-  }
-
-  /** Orientation à bord : celle du joueur, plus le tangage et le roulis du véhicule. */
-  private vehicleTilt(v: Vehicle, yaw: number, pitch: number, out: CameraPose): void {
-    const rel = yaw - v.heading;
-    const c = Math.cos(rel);
-    const s = Math.sin(rel);
-    const k = 0.7;
-    out.yaw = yaw;
-    out.pitch = clamp(pitch + (v.pitch * c + v.roll * s) * k, -PITCH_LIMIT, PITCH_LIMIT);
-    out.roll = (v.roll * c - v.pitch * s) * k;
-  }
-
-  /** Engin volant piloté : celui du joueur, sinon le drone le plus proche de lui. */
-  private findDrone(v: Vehicle | null, p: Person | null): Vehicle | null {
-    if (v && v.def.flying) return v;
-    const list = this.ctx.vehicles.list;
-    let best: Vehicle | null = null;
-    let bestD = Infinity;
-    for (let i = 0; i < list.length; i++) {
-      const c = list[i]!;
-      if (!c.def.flying || c.dormant) continue;
-      if (p) {
-        for (let s = 0; s < c.seats.length; s++) if (c.seats[s] === p.id) return c;
-      }
-      const d = p ? (c.x - p.x) * (c.x - p.x) + (c.z - p.z) * (c.z - p.z) : 0;
-      // les drones avant les hélicoptères
-      const score = d + (c.kind === 'drone' ? 0 : 1e9);
-      if (score < bestD) {
-        bestD = score;
-        best = c;
-      }
-    }
-    return best;
   }
 
   /** Reporte la pose (plus les secousses) sur la caméra Three.js. */

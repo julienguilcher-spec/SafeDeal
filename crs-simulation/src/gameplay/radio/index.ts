@@ -1,0 +1,141 @@
+/* =====================================================================================
+ * Radio — service de messages et phraséologie des forces de l'ordre et des secours.
+ *
+ * Publie :
+ *   ctx.radio          RadioApi du contrat : say() avec files d'attente par canal, anti-répétition, voix stable
+ *                      par émetteur, journal horodaté, événement 'radio:message' et sous-titre (priorité ≥ 1)
+ *   'radio.phrases'    RadioPhrases : plus de cent situations, 3 à 5 variantes chacune (voir PHRASES.md)
+ *   'radio.callsigns'  CallsignBook : indicatifs fictifs cohérents avec la bible (section E)
+ *   'radio.control'    RadioControl : ambiance, sous-titres, statistiques et état des files
+ *
+ * Simulation pure : ni DOM ni Three.js ; aléatoire dérivé de ctx.rng (fork « radio »), temps de ctx.clock.
+ * La voix elle-même est produite par le module audio, à l'écoute de 'radio:message' (msg.voice = indice stable).
+ * ===================================================================================== */
+
+import type { GameContext, GameSystem, ModuleFactory, RadioApi, RadioChannel, RadioMessage, Rng } from '@/core/contracts';
+import { SystemOrder } from '@/core/contracts';
+import { RadioAmbient } from './ambient';
+import type { RadioControl, RadioStats } from './api';
+import { RADIO_CALLSIGNS_SERVICE, RADIO_CONTROL_SERVICE, RADIO_PHRASES_SERVICE } from './api';
+import { createCallsigns } from './callsigns';
+import { createPhraseLibrary } from './phrase-lib';
+import { RadioQueue } from './queue';
+
+/** Nombre maximal de messages conservés dans le journal. */
+const LOG_MAX = 500;
+/** Durée d'affichage du sous-titre au-delà de la durée estimée du message (s). */
+const SUBTITLE_EXTRA = 1.5;
+
+export const createSystems: ModuleFactory = (): GameSystem[] => {
+  let ambient: RadioAmbient | null = null;
+  let queue: RadioQueue | null = null;
+  let rng: Rng | null = null;
+  let radioCtx: GameContext | null = null;
+
+  const log: (RadioMessage & { t: number })[] = [];
+  const control = { ambient: true, subtitles: true };
+
+  const radio: GameSystem = {
+    id: 'radio',
+    order: SystemOrder.RULES - 50,
+
+    provide(ctx: GameContext): void {
+      radioCtx = ctx;
+      rng = ctx.rng.fork('radio');
+      const calls = createCallsigns(ctx);
+
+      const q = new RadioQueue((msg, now, duration) => {
+        const out: RadioMessage = msg.voice === undefined ? { ...msg, voice: calls.voiceOf(msg.from) } : msg;
+        if (log.length >= LOG_MAX) log.splice(0, LOG_MAX >> 1);
+        log.push({ ...out, t: now });
+        ctx.events.emit('radio:message', { msg: out, t: now });
+        if (control.subtitles && out.priority >= 1) ctx.ui.subtitle(out.from, out.text, duration + SUBTITLE_EXTRA);
+      });
+      queue = q;
+
+      const api: RadioApi = {
+        log,
+        say(msg: RadioMessage): void {
+          q.submit(msg, ctx.clock.now);
+        },
+        clear(): void {
+          log.length = 0;
+          q.reset();
+        },
+      };
+      ctx.radio = api;
+
+      const phrases = createPhraseLibrary({
+        ctx,
+        calls,
+        rng: () => rng!,
+        submit: (msg) => {
+          const o = q.submit(msg, ctx.clock.now);
+          return o === 'played' || o === 'queued';
+        },
+      });
+
+      ambient = new RadioAmbient(ctx, phrases, calls, rng, (channel: RadioChannel) => q.pending(channel));
+
+      const stats: RadioStats = {
+        get broadcast(): number {
+          return q.counters.broadcast;
+        },
+        get repeated(): number {
+          return q.counters.repeated;
+        },
+        get dropped(): number {
+          return q.counters.dropped;
+        },
+        get pending(): number {
+          return q.pendingTotal;
+        },
+      };
+      const ctl: RadioControl = {
+        get ambient(): boolean {
+          return ambient!.enabled;
+        },
+        set ambient(v: boolean) {
+          ambient!.enabled = v;
+          control.ambient = v;
+        },
+        get subtitles(): boolean {
+          return control.subtitles;
+        },
+        set subtitles(v: boolean) {
+          control.subtitles = v;
+        },
+        stats,
+        pending: (channel) => q.pending(channel),
+        busyUntil: (channel) => q.busyUntil(channel),
+        flush: () => q.flush(),
+      };
+
+      ctx.provide(RADIO_CALLSIGNS_SERVICE, calls);
+      ctx.provide(RADIO_PHRASES_SERVICE, phrases);
+      ctx.provide(RADIO_CONTROL_SERVICE, ctl);
+    },
+
+    update(): void {
+      if (!queue || !ambient || !radioCtx) return;
+      queue.update(radioCtx.clock.now);
+      ambient.update();
+    },
+
+    reset(): void {
+      // le journal et les files sont aussi vidés par ctx.radio.clear() appelé par la session
+      log.length = 0;
+      queue?.reset();
+      if (!radioCtx) return;
+      rng = radioCtx.rng.fork('radio');
+      ambient?.reset(radioCtx.rng.fork('radio.ambiance'));
+    },
+  };
+
+  return [radio];
+};
+
+export type {
+  CallsignBook, PhraseEnd, PhraseInfo, PhraseParam, PhraseParams, PhraseRole, RadioControl, RadioPhrases, RadioStats, SayOptions,
+} from './api';
+export { RADIO_CALLSIGNS_SERVICE, RADIO_CONTROL_SERVICE, RADIO_PHRASES_SERVICE } from './api';

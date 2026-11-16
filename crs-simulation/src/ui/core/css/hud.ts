@@ -54,7 +54,7 @@ export const CSS_HUD = `
 .hud-cap { font-size: 10.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: #b9c5d9; }
 
 /* ── situation : horloge, météo, phase, tension, cadre légal ── */
-.hud-sit { display: grid; gap: 4px; padding: 7px 10px; min-width: 212px; max-width: 352px; position: relative; overflow: hidden; }
+.hud-sit { display: grid; gap: 4px; padding: 7px 10px; min-width: 212px; max-width: 420px; position: relative; overflow: hidden; }
 .hud-sit::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
   background: linear-gradient(to bottom, #0055a4 0 33.34%, #fff 33.34% 66.67%, #ef4135 66.67% 100%); opacity: .9; }
 .hud-sit__row { display: flex; align-items: center; gap: 8px; min-height: 20px; white-space: nowrap; }
@@ -278,7 +278,7 @@ export const CSS_HUD = `
 
 /* ── messages transitoires ── */
 .ui-toasts { position: absolute; left: 50%; top: calc(var(--ui-notice-top, 14px) + var(--ui-safe-t)); transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px;
-  width: max-content; max-width: var(--ui-toast-max, min(520px, 62vw)); pointer-events: none; }
+  width: max-content; max-width: var(--ui-toast-max, min(460px, 62vw)); pointer-events: none; }
 .ui-toast { display: flex; align-items: center; gap: 9px; padding: 7px 14px 7px 10px; border-radius: 8px; background: rgba(8, 13, 24, .9); border: 1px solid rgba(255, 255, 255, .14);
   border-left: 3px solid var(--ui-blue-hi); font-size: 13.5px; font-weight: 550; line-height: 1.3; box-shadow: 0 6px 18px rgba(0, 0, 0, .35); animation: ui-rise .18s ease-out;
   transition: opacity .2s, transform .2s; }
@@ -304,7 +304,7 @@ export const CSS_HUD = `
   .ui-banner__title { font-size: 19px; }
   .ui-banner__sub { font-size: 13px; }
   .ui-toast { font-size: 12.5px; padding: 5px 12px 5px 8px; }
-  /* écran bas : deux notifications visibles au plus, les plus récentes */
-  .ui-toast:nth-last-child(n+3) { display: none; }
+  /* écran bas : une seule notification visible, la plus récente */
+  .ui-toast:nth-last-child(n+2) { display: none; }
 }
 `;

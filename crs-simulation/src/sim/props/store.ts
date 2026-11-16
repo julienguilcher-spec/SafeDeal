@@ -65,8 +65,12 @@ export class Store {
     return this.byId.get(id);
   }
 
-  /** Crée un objet au gabarit de son type et l'inscrit dans l'index. */
-  create(kind: PropKind, x: number, z: number, heading: number): PropObj {
+  /**
+   * Crée un objet au gabarit de son type et l'inscrit dans l'index. `announce = false` : l'appelant
+   * finit de le préparer (gabarit d'une barricade, état d'une épave) puis appelle announce() — ainsi
+   * prop:spawned ne part que pour un objet complet.
+   */
+  create(kind: PropKind, x: number, z: number, heading: number, announce = true): PropObj {
     const ctx = this.k.ctx;
     const p = new PropObj(ctx.newId(), kind, propDef(kind), x, z, heading);
     const y = ctx.world.heightAt(x, z);
@@ -83,8 +87,12 @@ export class Store {
     this.byId.set(p.id, p);
     this.reindex(p);
     if (kind === 'barricade') this.barricades.push(p);
-    ctx.events.emit('prop:spawned', { id: p.id });
+    if (announce) ctx.events.emit('prop:spawned', { id: p.id });
     return p;
+  }
+
+  announce(p: PropObj): void {
+    if (p.slot >= 0) this.k.ctx.events.emit('prop:spawned', { id: p.id });
   }
 
   /** Retire un objet. `silent` : sans événement (déchargement en masse géré par l'appelant). */
@@ -112,7 +120,10 @@ export class Store {
     }
     const events = this.k.ctx.events;
     // un objet qui disparaît en flammes : son feu s'arrête avec lui (boucles sonores, incidents)
-    if (burning) events.emit('fire:out', { x: p.x, z: p.z, targetKind: 'prop', targetId: p.id, byId: 0 });
+    if (burning) {
+      events.emit('fire:out', { x: p.x, z: p.z, targetKind: 'prop', targetId: p.id, byId: 0 });
+      p.burning = 0;
+    }
     // l'objet reste accessible par get(id) le temps de l'événement
     if (!silent) events.emit('prop:removed', { id: p.id });
     this.byId.delete(p.id);

@@ -276,8 +276,17 @@ export class RenderView implements ViewApi, RenderBaseApi {
     const vis = visibilityFor(clear, env.fog, env.rain);
     this.visibility_ = vis;
     // inutile de dessiner plus loin que ce que le brouillard laisse voir (par paliers de 10 m)
-    this.drawDistance_ = Math.min(clear, Math.ceil((vis * 1.15) / 10) * 10);
-    this.lighting.apply(atm, fogDensityFor(vis));
+    let draw = Math.min(clear, Math.ceil((vis * 1.15) / 10) * 10);
+    let density = fogDensityFor(vis);
+    if (this.rig.mode === 'tactical') {
+      // vue de commandement : on regarde le sol depuis très haut ; la brume ne doit pas noyer la carte,
+      // et tout ce qui est sous la caméra doit rester dans la distance d'affichage
+      const above = Math.max(1, cam.y - ctx.world.heightAt(cam.x, cam.z));
+      density *= Math.min(1, 110 / above);
+      draw = Math.max(draw, Math.ceil((above * 1.7 + 150) / 10) * 10);
+    }
+    this.drawDistance_ = draw;
+    this.lighting.apply(atm, density);
 
     // ── ombres : portée selon la hauteur de la caméra (vues hautes) ──
     if (this.lighting.shadows) {

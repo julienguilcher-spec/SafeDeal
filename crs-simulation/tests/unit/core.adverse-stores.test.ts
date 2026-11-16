@@ -27,6 +27,16 @@ function bruteIds(ctx: GameContext, x: number, z: number, r: number, filter?: (p
 
 const sortedIds = (out: readonly { id: number }[]): number[] => out.map((p) => p.id).sort((a, b) => a - b);
 
+/**
+ * Temps processeur consommé par ce processus de test (ms). Contrairement à l'horloge murale, il ne
+ * compte pas les moments où un autre processus occupe la machine : les seuils restent valables quand
+ * tous les tests tournent en parallèle sur une machine chargée.
+ */
+function cpuMs(): number {
+  const u = process.cpuUsage();
+  return (u.user + u.system) / 1000;
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -58,7 +68,9 @@ describe('adverse — magasin des personnes', () => {
     for (let i = 0; i < 5000; i += 50) ctx.people.list[i]!.dormant = true;
     for (let i = 0; i < 200; i++) ctx.people.rebuildIndex(); // échauffement du compilateur
     const t1 = performance.now();
+    const c1 = cpuMs();
     for (let i = 0; i < 200; i++) ctx.people.rebuildIndex();
+    const rebuildCpu = (cpuMs() - c1) / 200;
     const rebuildMs = (performance.now() - t1) / 200;
 
     const out: Person[] = [];
@@ -84,11 +96,15 @@ describe('adverse — magasin des personnes', () => {
     const list = ctx.people.list;
     let found = 0;
     const t2 = performance.now();
+    const c2 = cpuMs();
     for (let i = 0; i < list.length; i++) found += ctx.people.queryRadius(list[i]!.x, list[i]!.z, 1.5, out);
+    const neighCpu = cpuMs() - c2;
     const neighMs = performance.now() - t2;
     const t3 = performance.now();
+    const c3 = cpuMs();
     let seen = 0;
     for (let i = 0; i < list.length; i++) if (ctx.people.nearest(list[i]!.x, list[i]!.z, 15, isPolice)) seen++;
+    const nearCpu = cpuMs() - c3;
     const nearMs = performance.now() - t3;
     console.log(
       `[adverse] 5 000 personnes : création ${spawnMs.toFixed(1)} ms | rebuildIndex ${rebuildMs.toFixed(3)} ms | ` +
@@ -97,10 +113,10 @@ describe('adverse — magasin des personnes', () => {
     );
     expect(found).toBeGreaterThan(5000);
     expect(seen).toBeGreaterThan(1000);
-    // seuils très larges : la machine de test est partagée, ces mesures servent surtout à être lues
-    expect(rebuildMs).toBeLessThan(10);
-    expect(neighMs).toBeLessThan(1500);
-    expect(nearMs).toBeLessThan(4000);
+    // seuils sur le temps processeur (insensible à la charge de la machine), larges : ces mesures servent surtout à être lues
+    expect(rebuildCpu).toBeLessThan(10);
+    expect(neighCpu).toBeLessThan(500);
+    expect(nearCpu).toBeLessThan(1000);
   });
 
   it('une personne retirée disparaît aussitôt des requêtes, sans attendre rebuildIndex', () => {
@@ -204,9 +220,9 @@ describe('adverse — magasin des personnes', () => {
       ctx.people.rebuildIndex();
       for (const p of ctx.people.list) p.x += rng.range(-2, 2);
       const ids = ctx.people.list.map((p) => p.id);
-      const t0 = performance.now();
+      const t0 = cpuMs();
       for (let i = 0; i < ids.length; i++) ctx.people.remove(ids[i]!);
-      const ms = performance.now() - t0;
+      const ms = cpuMs() - t0;
       expect(ctx.people.list.length).toBe(0);
       expect(ctx.people.countIn(0, 0, 1e6)).toBe(0);
       return ms;
@@ -223,9 +239,9 @@ describe('adverse — magasin des personnes', () => {
       expect(cortege.members.length).toBe(n);
       let events = 0;
       ctx.events.on('person:removed', () => void events++);
-      const t0 = performance.now();
+      const t0 = cpuMs();
       ctx.people.clear();
-      const ms = performance.now() - t0;
+      const ms = cpuMs() - t0;
       expect(events).toBe(n);
       expect(cortege.members.length).toBe(0);
       expect(cortege.leaderId).toBe(0);
@@ -235,14 +251,13 @@ describe('adverse — magasin des personnes', () => {
     const clear5k = best(() => clearSquad(5000));
     const clear15k = clearSquad(15000);
     console.log(
-      `[adverse] people.remove un à un : 5 000 → ${remove5k.toFixed(2)} ms | 30 000 → ${remove30k.toFixed(2)} ms || ` +
+      `[adverse] temps processeur — people.remove un à un : 5 000 → ${remove5k.toFixed(2)} ms | 30 000 → ${remove30k.toFixed(2)} ms || ` +
         `people.clear() d'une unité : 5 000 membres → ${clear5k.toFixed(2)} ms | 15 000 membres → ${clear15k.toFixed(2)} ms`,
     );
-    // Coût linéaire attendu (quelques dizaines de ms). Avec une recherche linéaire par retrait, 30 000
-    // retraits dépassent 1,3 s et le vidage de 15 000 membres 2 s : les seuils séparent nettement les
-    // deux cas, même sur une machine très chargée.
-    expect(remove30k).toBeLessThan(900);
-    expect(clear15k).toBeLessThan(800);
+    // Coût linéaire attendu : ≈ 40 ms et ≈ 5 ms de temps processeur. Avec une recherche linéaire par retrait
+    // (code d'origine, mesuré), 30 000 retraits coûtent ≈ 750 ms et le vidage de 15 000 membres ≈ 3 s.
+    expect(remove30k).toBeLessThan(300);
+    expect(clear15k).toBeLessThan(500);
   }, 120000);
 
   it('identifiants : uniques toutes catégories confondues et jamais réutilisés pendant une session', () => {

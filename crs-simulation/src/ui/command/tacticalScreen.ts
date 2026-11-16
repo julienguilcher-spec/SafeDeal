@@ -91,6 +91,7 @@ export class TacticalScreen implements ScreenInstance {
   private quick: RadialMenu | null = null;
   private quickX = 0;
   private quickZ = 0;
+  private quickHeld = false;
   private popStation: MetroStation | null = null;
   private popClosure: RoadClosure | null = null;
   private popT = '';
@@ -155,6 +156,15 @@ export class TacticalScreen implements ScreenInstance {
     this.tmap.onPickEntity = (pick) => this.openPop(pick);
     // en mode carte, les directions pilotent le curseur : la navigation au focus ne s'en mêle pas
     this.map.canvas.addEventListener('ui:nav', (e) => e.preventDefault());
+    // menu radial ouvert par un appui long : glisser vers un secteur le surligne, relâcher le choisit
+    this.map.canvas.addEventListener('pointermove', (e) => {
+      if (this.quick && this.quickHeld) this.quick.pointerAt(e.clientX, e.clientY);
+    });
+    this.map.canvas.addEventListener('pointerup', () => {
+      if (!this.quick || !this.quickHeld) return;
+      this.quickHeld = false;
+      if (this.quick.highlighted >= 0) this.quick.choose();
+    });
 
     this.hint = el('div', 'ct-hint is-off');
     this.hintTitle = el('b');
@@ -259,7 +269,8 @@ export class TacticalScreen implements ScreenInstance {
       st.leftOpen = false;
       st.rightOpen = open.tab !== undefined || open.incidentId !== undefined;
     }
-    this.root.addEventListener('ui:tab', (e) => this.cycleZone((e as CustomEvent<{ step: number }>).detail.step));
+    // LB / RB : le socle envoie « ui:tab » au conteneur du groupe de focus actif (l'hôte de l'écran, ou notre racine)
+    host.addEventListener('ui:tab', (e) => this.cycleZone((e as CustomEvent<{ step: number }>).detail.step));
     window.addEventListener('resize', this.onResize);
     this.focus = core.kit ? core.kit.focusGroup(this.root) : { dispose(): void {} };
     this.refresh(true);
@@ -359,6 +370,10 @@ export class TacticalScreen implements ScreenInstance {
       onCancel: () => this.closeQuick(),
     });
     this.quick.setCenter('Ordre rapide', n > 1 ? `${n} unités` : 'au point désigné');
+    // ouvert par un appui long encore en cours : le relâchement ne doit pas annuler le menu ;
+    // on peut aussi glisser vers un secteur et relâcher pour le choisir
+    this.quick.swallowHubClick = this.map.gestures.active;
+    this.quickHeld = this.map.gestures.active;
     this.quickBox.classList.add('is-on');
     // la roue reste dans la carte
     const vx = Math.min(this.map.view.width - 140, Math.max(140, x));

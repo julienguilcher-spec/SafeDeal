@@ -35,30 +35,43 @@ export const BLOC_BANNERS: readonly string[] = [
   'ICI COMMENCE DEMAIN',
 ];
 
-/** Coupe un texte en lignes équilibrées de `maxChars` caractères au plus (mots jamais coupés). */
+function wrapAt(words: readonly string[], width: number): string[] {
+  const lines: string[] = [];
+  let line = '';
+  for (const w of words) {
+    // la ponctuation double reste accrochée au mot qui la précède
+    const glue = w === '?' || w === '!' || w === ':' || w === ';' || w === '=';
+    if (line.length === 0) line = w;
+    else if (glue || line.length + 1 + w.length <= width) line += ' ' + w;
+    else {
+      lines.push(line);
+      line = w;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+/**
+ * Coupe un texte en lignes équilibrées (mots jamais coupés) : le moins de lignes possible pour
+ * `maxChars` caractères par ligne — `maxLines` au plus, quitte à élargir —, puis la largeur la plus
+ * étroite qui tient dans ce nombre de lignes.
+ */
 export function wrapSign(text: string, maxChars = 14, maxLines = 3): string[] {
   const words = text.split(' ').filter((w) => w.length > 0);
   if (words.length === 0) return [];
-  // largeur visée : celle qui répartit le texte sur le moins de lignes possible, sans dépasser maxLines
-  let width = maxChars;
-  for (let attempt = 0; attempt < 24; attempt++) {
-    const lines: string[] = [];
-    let line = '';
-    for (const w of words) {
-      // la ponctuation double reste accrochée au mot qui la précède
-      const glue = w === '?' || w === '!' || w === ':' || w === ';' || w === '=';
-      if (line.length === 0) line = w;
-      else if (glue || line.length + 1 + w.length <= width) line += ' ' + w;
-      else {
-        lines.push(line);
-        line = w;
-      }
-    }
-    lines.push(line);
-    if (lines.length <= maxLines) return lines;
-    width += 2;
+  let width = Math.max(1, maxChars);
+  let lines = wrapAt(words, width);
+  while (lines.length > maxLines && width < text.length) {
+    width++;
+    lines = wrapAt(words, width);
   }
-  return [text];
+  const count = lines.length;
+  for (let w = Math.ceil(text.length / count); w < width; w++) {
+    const tighter = wrapAt(words, w);
+    if (tighter.length <= count) return tighter;
+  }
+  return lines;
 }
 
 class CausesRegistry implements CausesApi {

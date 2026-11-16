@@ -182,14 +182,15 @@ export function createMarkers(env: HudEnv): HudPart {
       // cadre utile : hors des panneaux du HUD et, en tactile, hors des commandes à l'écran
       const compact = s.compact;
       if (s.touch === 'none') {
+        // le repère est dessiné 30 px au-dessus du point projeté : la marge haute en tient compte
         margins.left = margins.right = compact ? 30 : 44;
-        margins.top = compact ? 96 : 110;
+        margins.top = compact ? 124 : 150;
         margins.bottom = compact ? 96 : 130;
       } else {
         const ts = touchScale(s.width, s.height);
         margins.left = 176 * ts;
         margins.right = (s.touch === 'vehicule' ? 290 : 214) * ts;
-        margins.top = 120 * ts;
+        margins.top = 124 * ts + 30;
         margins.bottom = 80 * ts;
       }
       for (let i = 0; i < count; i++) {

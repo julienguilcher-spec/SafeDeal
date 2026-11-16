@@ -17,7 +17,7 @@
  * Sorties : speed, yawRate, steerAngle, braking, rpm, gear, pitch, roll, y, vy.
  * ===================================================================================== */
 
-import type { Vehicle, VehicleDef } from '@/core/contracts';
+import type { VehicleDef } from '@/core/contracts';
 import { clamp } from '@/core/math';
 import { GRAVITY } from './api';
 import { OCCUPANT_MASS } from './runtime';

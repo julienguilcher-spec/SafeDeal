@@ -27,6 +27,16 @@ function bench(label: string, iterations: number, fn: () => void): number {
   return ms;
 }
 
+/**
+ * Temps processeur consommé par ce processus de test (ms). Contrairement à l'horloge murale, il ne
+ * compte pas les moments où un autre processus occupe la machine : les seuils restent valables quand
+ * tous les tests tournent en parallèle sur une machine chargée.
+ */
+function cpuMs(): number {
+  const u = process.cpuUsage();
+  return (u.user + u.system) / 1000;
+}
+
 interface GcObserver {
   observe(options: { entryTypes: string[] }): void;
   disconnect(): void;
@@ -147,11 +157,13 @@ describe('performances du cœur', () => {
     const ctx = t.ctx;
     const rng = createRng(3);
     const t0 = performance.now();
+    const c0 = cpuMs();
     for (let i = 0; i < 2000; i++) {
       ctx.people.spawn({ kind: i % 5 === 0 ? 'crs' : 'manifestant', x: rng.range(-120, 120), z: rng.range(-120, 120) });
     }
+    const spawnCpu = cpuMs() - c0;
     const spawnMs = performance.now() - t0;
-    console.log(`[perf] création de 2 000 personnes : ${spawnMs.toFixed(1)} ms (${((spawnMs / 2000) * 1000).toFixed(1)} µs par personne)`);
+    console.log(`[perf] création de 2 000 personnes : ${spawnMs.toFixed(1)} ms (${((spawnMs / 2000) * 1000).toFixed(1)} µs par personne ; temps processeur ${spawnCpu.toFixed(1)} ms)`);
     const police = (p: Person): boolean => p.faction === 'police';
     const out: Person[] = [];
     const rebuild = bench('people.rebuildIndex(), 2 000 personnes', 500, () => ctx.people.rebuildIndex());
@@ -165,7 +177,7 @@ describe('performances du cœur', () => {
       }
     });
     expect(found).toBeGreaterThan(0);
-    expect(spawnMs).toBeLessThan(400);
+    expect(spawnCpu).toBeLessThan(400); // temps processeur : insensible à la charge de la machine
     expect(rebuild).toBeLessThan(8);
     expect(query).toBeLessThan(120);
   });
@@ -181,10 +193,12 @@ describe('performances du cœur', () => {
     expect(calls).toBeGreaterThan(30 * 5000);
     expect(step).toBeLessThan(1.5);
     const t0 = performance.now();
+    const c0 = cpuMs();
     t.step(60); // une minute simulée
+    const minuteCpu = cpuMs() - c0;
     const minute = performance.now() - t0;
-    console.log(`[perf] une minute simulée (1 800 pas, 500 personnes) : ${minute.toFixed(0)} ms, soit × ${(60000 / minute).toFixed(0)} le temps réel`);
-    expect(minute).toBeLessThan(3000);
+    console.log(`[perf] une minute simulée (1 800 pas, 500 personnes) : ${minute.toFixed(0)} ms, soit × ${(60000 / minute).toFixed(0)} le temps réel (temps processeur ${minuteCpu.toFixed(0)} ms)`);
+    expect(minuteCpu).toBeLessThan(3000); // temps processeur : insensible à la charge de la machine
   });
 
   it('bus d\'événements et géométrie', () => {

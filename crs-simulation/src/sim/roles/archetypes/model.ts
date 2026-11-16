@@ -154,6 +154,28 @@ export function resetDraft(d: Draft, id: Identity): void {
   d.gasProtection = 0;
 }
 
+/**
+ * Retire du brouillon les clés propres aux vêtements de ville (blouson, manches, jupe, écharpe, couleurs
+ * de casquette et de sac) : une tenue officielle laisse le rendu appliquer ses teintes réglementaires.
+ */
+export function clearCivilExtras(e: Record<string, number>): void {
+  delete e.jacket;
+  delete e.sleeves;
+  delete e.shorts;
+  delete e.skirt;
+  delete e.scarf;
+  delete e.coverColor;
+  delete e.hoodDown;
+  delete e.helmetColor;
+  delete e.packColor;
+}
+
+/** Retire l'écharpe de ville (quand un foulard, un masque ou une tenue la remplace). */
+export function noScarf(e: Record<string, number>): void {
+  e.scarf = 0;
+  delete e.coverColor;
+}
+
 /** Ajoute un objet à la dotation du brouillon (cumule si déjà présent). */
 export function kitAdd(d: Draft, id: ItemId, count = 1): void {
   for (let i = 0; i < d.kitN; i++) {

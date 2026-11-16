@@ -35,34 +35,41 @@ function build(tile: Tile, graph: RoadGraph, terrain: Terrain, waterLevel: numbe
   return { site, meshes, stats: builder.stats, steps };
 }
 
-/** Contrôles communs : pas de valeur aberrante, faces horizontales tournées vers le haut, surfaces posées sur le sol en facettes. */
+/** Contrôles communs : pas de valeur aberrante, faces horizontales tournées vers le haut, trottoirs posés sur le sol en facettes. */
 function checkGround(b: Built): { surfaceArea: number; flushTriangles: number } {
   const g = b.meshes.ground;
-  const { tin, raster, ox, oz } = b.site;
-  for (let i = 0; i < g.nv * 3; i++) expect(Number.isFinite(g.pos[i])).toBe(true);
-  for (let i = 0; i < g.ni; i++) expect(g.idx[i]).toBeLessThan(g.nv);
-  let surfaceArea = 0, flushTriangles = 0, checked = 0;
+  const { tin, profile, ox, oz } = b.site;
+  let bad = 0;
+  for (let i = 0; i < g.nv * 3; i++) if (!Number.isFinite(g.pos[i])) bad++;
+  expect(bad).toBe(0);
+  let outOfRange = 0;
+  for (let i = 0; i < g.ni; i++) if (g.idx[i] >= g.nv) outOfRange++;
+  expect(outOfRange).toBe(0);
+  let surfaceArea = 0, flushTriangles = 0, checked = 0, down = 0, minLift = Infinity, maxLift = -Infinity;
   for (let t = 0; t < g.ni; t += 3) {
     const a = g.idx[t], bb = g.idx[t + 1], c = g.idx[t + 2];
     const mode = g.dat[a * 4 + 1];
     if (g.nor[a * 3 + 1] < 100) continue; // faces verticales : pas de sens « haut »
     const ax = g.pos[a * 3], az = g.pos[a * 3 + 2], bx = g.pos[bb * 3], bz = g.pos[bb * 3 + 2], cx = g.pos[c * 3], cz = g.pos[c * 3 + 2];
     const cross = (bz - az) * (cx - ax) - (bx - ax) * (cz - az);
-    expect(cross).toBeGreaterThanOrEqual(-1e-6);
+    // (les éclats de moins d'un centimètre carré, à la précision des flottants, ne comptent pas)
+    if (cross < -2e-4) down++;
     if (mode === MODE_FLUSH) flushTriangles++;
     if (mode !== MODE_SURFACE) continue;
     surfaceArea += cross / 2;
-    // un sommet sur dix : son altitude est celle du sol en facettes plus la surélévation de sa surface
-    if (t % 30 !== 0) continue;
+    // trottoirs loin de tout pont : exactement une hauteur de bordure au-dessus du sol en facettes
+    if (g.dat[a * 4] !== CL_SIDEWALK) continue;
     const wx = ax + ox, wz = az + oz;
-    const code = codeAt(raster, wx, wz);
-    if ((code & CODE_DECK) !== 0) continue; // tablier : altitude du pont
+    if (profile.nearest(wx, wz)) continue;
     const lift = g.pos[a * 3 + 1] - tin.y(wx, wz);
-    expect(lift).toBeGreaterThan(CURB_HEIGHT - 1e-3);
-    expect(lift).toBeLessThan(0.14);
+    if (lift < minLift) minLift = lift;
+    if (lift > maxLift) maxLift = lift;
     checked++;
   }
+  expect(down).toBe(0);
   expect(checked).toBeGreaterThan(10);
+  expect(minLift).toBeGreaterThan(CURB_HEIGHT - 2e-3);
+  expect(maxLift).toBeLessThan(CURB_HEIGHT + 2e-3);
   return { surfaceArea, flushTriangles };
 }
 
@@ -106,35 +113,39 @@ describe('ville 3D — sol du quartier d\'essai', () => {
     const tile = data.tiles[0];
     const b = build(tile, data.roadGraph, data.terrain, level, index, profile);
     const g = b.meshes.ground;
-    let strips = 0;
+    let strips = 0, minLift = Infinity, maxLift = -Infinity;
     for (let v = 0; v < g.nv; v++) {
       if (g.dat[v * 4] !== CL_CURB || g.dat[v * 4 + 1] !== MODE_DECAL) continue;
-      strips++;
-      if (strips % 7 !== 0) continue;
       const x = g.pos[v * 3] + b.site.ox, z = g.pos[v * 3 + 2] + b.site.oz;
+      if (b.site.profile.nearest(x, z)) continue;
+      strips++;
       const lift = g.pos[v * 3 + 1] - b.site.tin.y(x, z);
-      // posée sur un trottoir (8 cm) ou une pelouse (13 cm), quelques millimètres au-dessus
-      expect(lift).toBeGreaterThan(CURB_HEIGHT);
-      expect(lift).toBeLessThan(0.15);
+      minLift = Math.min(minLift, lift);
+      maxLift = Math.max(maxLift, lift);
     }
     expect(strips).toBeGreaterThan(100);
+    // posée sur un trottoir (8 cm) ou une pelouse (13 cm), quelques millimètres au-dessus
+    expect(minLift).toBeGreaterThan(CURB_HEIGHT);
+    expect(maxLift).toBeLessThan(0.15);
   });
 
   it('les marquages sont peints au niveau de la chaussée', () => {
     const tile = data.tiles[1];
     const b = build(tile, data.roadGraph, data.terrain, level, index, profile);
     const g = b.meshes.ground;
-    let painted = 0;
+    let painted = 0, minLift = Infinity, maxLift = -Infinity;
     for (let v = 0; v < g.nv; v++) {
       if (g.dat[v * 4] !== CL_PAINT) continue;
-      painted++;
       const x = g.pos[v * 3] + b.site.ox, z = g.pos[v * 3 + 2] + b.site.oz;
       if ((codeAt(b.site.raster, x, z) & CODE_DECK) !== 0) continue;
+      painted++;
       const lift = g.pos[v * 3 + 1] - b.site.tin.y(x, z);
-      expect(lift).toBeGreaterThan(0.005);
-      expect(lift).toBeLessThan(0.03);
+      minLift = Math.min(minLift, lift);
+      maxLift = Math.max(maxLift, lift);
     }
     expect(painted).toBeGreaterThan(100);
+    expect(minLift).toBeGreaterThan(0.005);
+    expect(maxLift).toBeLessThan(0.03);
   });
 
   it('barrières : murs et haies en volume, grilles et garde-corps en panneaux', () => {
@@ -148,13 +159,18 @@ describe('ville 3D — sol du quartier d\'essai', () => {
     expect(st.panels).toBeGreaterThan(0);
     expect(volumes.triangles).toBeGreaterThan(0);
     expect(cutout.triangles).toBe(st.panels * 2);
-    for (let i = 0; i < volumes.nv * 3; i++) expect(Number.isFinite(volumes.pos[i])).toBe(true);
+    let bad = 0;
+    for (let i = 0; i < volumes.nv * 3; i++) if (!Number.isFinite(volumes.pos[i])) bad++;
+    expect(bad).toBe(0);
     // les coordonnées de texture des panneaux restent dans la bande de leur motif
     const uv = cutout.uv as Float32Array;
+    let minV = Infinity, maxV = -Infinity;
     for (let v = 0; v < cutout.nv; v++) {
-      expect(uv[2 * v + 1]).toBeGreaterThanOrEqual(0);
-      expect(uv[2 * v + 1]).toBeLessThan(0.75);
+      minV = Math.min(minV, uv[2 * v + 1]);
+      maxV = Math.max(maxV, uv[2 * v + 1]);
     }
+    expect(minV).toBeGreaterThanOrEqual(0);
+    expect(maxV).toBeLessThan(0.75);
   });
 
   it('ponts : travées d\'une trentaine de mètres, arches en anse de panier, piles dans l\'eau', () => {
@@ -173,7 +189,9 @@ describe('ville 3D — sol du quartier d\'essai', () => {
       spans += st.spans;
       piers += st.piers;
       tris += volumes.triangles;
-      for (let i = 0; i < volumes.nv * 3; i++) expect(Number.isFinite(volumes.pos[i])).toBe(true);
+      let bad = 0;
+      for (let i = 0; i < volumes.nv * 3; i++) if (!Number.isFinite(volumes.pos[i])) bad++;
+      expect(bad).toBe(0);
     }
     // 120 m de pont au-dessus du fleuve : quatre travées, trois piles — construites une seule fois malgré la limite de tuile
     expect(spans).toBe(4);

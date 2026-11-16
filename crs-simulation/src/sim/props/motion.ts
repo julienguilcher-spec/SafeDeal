@@ -330,9 +330,7 @@ export class Motion {
       if (speed <= REST_SPEED) {
         p.vx = 0;
         p.vz = 0;
-        p.act &= ~ACT_MOVING;
-        moving[i] = moving[moving.length - 1]!;
-        moving.pop();
+        store.deactivate(p, ACT_MOVING);
         if (store.stale(p)) store.reindex(p);
         this.m.barricades.schedule(p);
       }

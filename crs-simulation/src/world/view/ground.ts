@@ -219,7 +219,10 @@ export class GroundBuilder {
   private piece(poly: Float64Array, n: number): void {
     const g = this.out.ground;
     const ox = this.ox, oz = this.oz;
-    const up = (poly[3] - poly[1]) * (poly[4] - poly[0]) - (poly[2] - poly[0]) * (poly[5] - poly[1]) > 0;
+    // Sens du contour (aire signée du morceau entier : ses trois premiers sommets peuvent être alignés).
+    let twice = 0;
+    for (let k = 0, j = n - 1; k < n; j = k++) twice += poly[2 * k] * poly[2 * j + 1] - poly[2 * j] * poly[2 * k + 1];
+    const up = twice > 0;
     let cls = this.curCls;
     let overWater = false;
     if (this.curDeck) {

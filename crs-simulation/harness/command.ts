@@ -10,6 +10,7 @@
 //   absent=incidents,traffic,metro,rescue,hazards  services étendus NON fournis (dégradation propre)
 //   crowd=300  vehicle=1 (joueur en voiture)  touch=1 (commandes tactiles forcées)  freeze=1 (cortège figé)
 //   ai=0 (les unités n'exécutent pas les ordres)  seed=…
+//   kit=core   utilise le VRAI socle de l'interface (src/ui) au lieu de la petite implémentation locale
 // Le test de bout en bout (tests/e2e/command.mjs) pilote la page par window.__cmd.
 import type { GameContext, PlayableRole, PoliceRank } from '@/core/contracts';
 import { Game } from '@/core/game';
@@ -22,7 +23,7 @@ import { FakeScenario } from '@/ui/command/dev/fakeScenario';
 import { createLocalUi } from '@/ui/command/dev/localKit';
 import type { LocalUi } from '@/ui/command/dev/localKit';
 import { MapsSystem } from '@/ui/maps';
-import type { MapsRuntime } from '@/ui/maps';
+import type { MapsRuntime, PlanScreen } from '@/ui/maps';
 import { createWorldQuerySystems } from '@/world/query';
 
 const params = new URLSearchParams(location.search);
@@ -89,15 +90,22 @@ function paintBackground(ctx: GameContext | null): void {
 
 // ───────────────────────────── assemblage ─────────────────────────────
 
+/** Ce que les tests lisent de l'interface, quel que soit le socle (local ou réel). */
+export interface BenchUi {
+  stack(): string[];
+  readonly notices: string[];
+}
+
 export interface CommandBench {
   game: Game;
   ctx: GameContext;
-  ui: LocalUi;
+  ui: BenchUi;
   scenario: FakeScenario;
   maps: MapsRuntime;
   mapsSystem: MapsSystem;
   command: CommandCore;
   tactical(): TacticalScreen | null;
+  plan(): PlanScreen | null;
   script: InputScriptApi | undefined;
   /** Mesures : temps moyen (ms) des systèmes d'interface par image. */
   perf(): Record<string, number>;
@@ -116,8 +124,9 @@ async function main(): Promise<void> {
   const ctx = game.ctx;
   if (mapName !== 'none') game.addModule(() => createWorldQuerySystems({ source: mapName === 'test' ? 'test' : 'paris', baseUrl: params.get('base') ?? '../data/paris/' }));
   game.addModule(inputModule);
-  const ui = createLocalUi();
-  game.addSystem(ui.system);
+  const useCore = params.get('kit') === 'core';
+  let ui: BenchUi;
+  let local: LocalUi | null = null;
   const scenario = new FakeScenario({
     role, crowd: Number(params.get('crowd') ?? 300), vehicle: params.get('vehicle') === '1',
     incidents: !absent.has('incidents'), traffic: !absent.has('traffic'), metro: !absent.has('metro'),
@@ -126,10 +135,33 @@ async function main(): Promise<void> {
   if (params.get('freeze') === '1') scenario.marchSpeed = 0;
   if (params.get('ai') === '0') scenario.aiEnabled = false;
   game.addSystem(scenario.system);
-  const mapsSystem = new MapsSystem();
-  const commandSystem = new CommandSystem();
-  game.addSystem(mapsSystem);
-  game.addSystem(commandSystem);
+  let mapsSystem: MapsSystem;
+  let commandSystem: CommandSystem;
+  if (useCore) {
+    // le vrai module d'interface agrège lui-même les cartes et le commandement
+    ctx.provide('launch', { nomenu: true, autostart: 'paris', raw: {} });
+    const real = await import('@/ui');
+    const systems = real.createSystems();
+    for (const sys of systems) game.addSystem(sys);
+    mapsSystem = systems.find((x) => x.id === 'ui:maps') as MapsSystem;
+    commandSystem = systems.find((x) => x.id === 'ui:command') as CommandSystem;
+    const seen: string[] = [];
+    ui = {
+      stack: () => [...(ctx.service<{ stack: readonly string[] }>('ui.debug')?.stack ?? [])],
+      get notices(): string[] {
+        for (const t of ctx.service<{ notices(): string[] }>('ui.debug')?.notices() ?? []) if (seen[seen.length - 1] !== t && seen.indexOf(t) < 0) seen.push(t);
+        return seen;
+      },
+    };
+  } else {
+    local = createLocalUi();
+    ui = local;
+    game.addSystem(local.system);
+    mapsSystem = new MapsSystem();
+    commandSystem = new CommandSystem();
+    game.addSystem(mapsSystem);
+    game.addSystem(commandSystem);
+  }
   await game.boot();
 
   const place = params.get('place') ?? (mapName === 'paris' ? 'Place de la République' : '');
@@ -155,6 +187,7 @@ async function main(): Promise<void> {
   const bench: CommandBench = {
     game, ctx, ui, scenario, maps: mapsSystem.runtime!, mapsSystem, command: commandSystem.core!,
     tactical: () => commandSystem.tactical,
+    plan: () => mapsSystem.plan,
     script: ctx.service<InputScriptApi>('input.script'),
     perf(): Record<string, number> {
       const out: Record<string, number> = {};

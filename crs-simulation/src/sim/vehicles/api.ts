@@ -11,6 +11,7 @@
  *                                                     incendie, retournement, vol, règles d'accès.
  *
  * CONVENTIONS (à connaître pour le rendu et les contrôleurs) :
+ *   - Vehicle.y          véhicule terrestre : altitude du sol sous lui ; engin volant : altitude de l'appareil ;
  *   - Vehicle.speed      vitesse longitudinale signée (m/s), négative en marche arrière ;
  *   - Vehicle.yawRate    d(heading)/dt (rad/s) : POSITIF = le véhicule tourne à GAUCHE ;
  *   - Vehicle.steerAngle braquage réel des roues (rad) : POSITIF = roues braquées à DROITE (comme
@@ -19,21 +20,33 @@
  *   - Vehicle.roll       POSITIF = le véhicule penche à DROITE (côté droit plus bas). Une voiture qui
  *                        vire à gauche prend du roulis positif ; une moto, elle, penche dans le virage ;
  *   - Vehicle.rpm        tours par minute réels (ralenti … régime maximal du type de moteur) ;
- *   - Vehicle.gear       −1 marche arrière, 0 point mort (moteur coupé ou arrêt sans commande), 1…n ;
+ *   - Vehicle.gear       −1 marche arrière, 0 point mort (moteur coupé, ou personne aux commandes), 1…n ;
  *   - turretYaw          gisement dans le repère du véhicule, POSITIF = vers la DROITE (comme steerAngle
  *                        et cmd.steer) : cap monde de la tourelle = heading − turretYaw. Côté rendu :
  *                        tourelle.rotation.y = −turretYaw. turretPitch positif = canon levé ;
  *   - turretAmmo         tubes chargés (lance-grenades) ou litres d'eau. Les deux canons de l'engin
  *                        lanceur d'eau puisent dans LA MÊME cuve : leurs deux compteurs sont égaux ;
+ *   - tourelle ↔ siège   la n-ième place de tireur (SeatRole 'gunner') sert la n-ième tourelle armée ;
+ *                        la caméra du mât du Centaure revient au chef d'engin (voir turretOfSeat) ;
  *   - occupant assis     Person.y = Vehicle.y + SeatDef.y − SEAT_FEET_DROP (SeatDef.y = hauteur de
  *                        l'assise) ; posture 'seated', haut du corps 'drive' (conducteur) ou 'ride' ;
- *   - DamageInfo.knockback (jet d'eau, choc) est une vitesse de recul en m/s.
+ *   - DamageInfo.knockback (jet d'eau, choc) est une vitesse de recul en m/s ; dirX / dirZ en donnent le sens.
+ *
+ * QUI CONDUIT ? Un véhicule terrestre n'obéit à Vehicle.cmd que si quelqu'un est aux commandes : un
+ * occupant au siège conducteur, le pilote automatique de ce module, ou un autre module qui pilote par cmd
+ * et le signale en posant Vehicle.brain (non nul). Sinon il reste frein serré. Un engin volant obéit à
+ * cmd en mode « manuel » : throttle = avance, strafe = latéral (1 = droite), lift = vertical, steer = lacet.
+ *
+ * TOURELLES. Un contrôleur peut écrire turretYaw / turretPitch pas à pas (ils sont bornés et limités à la
+ * vitesse de pointage), ou appeler aimTurret (angles) / aimTurretAt (point du monde). fireTurret tire dans
+ * l'orientation courante : une salve de setSalvo() coups pour le lance-grenades ; pour un canon à eau,
+ * l'appel doit être répété à chaque pas (au moins cinq fois par seconde) tant que la détente est tenue.
  *
  * ÉVÉNEMENTS LIBRES (ctx.events.onAny) :
  *   'drone:toggle'         { personId }                      ÉCOUTÉ : déploie ou rappelle le drone du télépilote
  *   'hazards:douse'        { x, z, radius, amount }          ÉCOUTÉ : l'eau éteint les véhicules en feu touchés
  *   'vehicles:drone'       DroneEvent                        décollage, rappel, batterie faible, posé, perdu
- *   'vehicles:flipped'     { id, x, z }                      véhicule retourné par un groupe
+ *   'vehicles:flipped'     { id, x, z, byId }                véhicule retourné par un groupe
  *   'vehicles:cleared'     { vehicleId, propId, x, z }       obstacle dégagé à la lame
  *   'vehicles:service'     ServiceEvent                      rechargement / ravitaillement commencé, fini, interrompu
  *   'vehicles:lights'      { id, beacons, headlights, indicator }
@@ -248,7 +261,7 @@ export interface AutopilotStatus {
 export interface AutopilotApi {
   /** Conduit le véhicule jusqu'au point par les rues (ctx.world.findPath, mode 'vehicle'). false si impossible. */
   driveTo(v: Vehicle, x: number, z: number, options?: DriveOptions): boolean;
-  /** Suit un meneur (véhicule ou personne) à distance constante, sur sa trace. */
+  /** Suit un meneur (véhicule ou personne) sur sa trace ; `distance` = intervalle entre mon pare-chocs et lui (m, défaut 6). */
   follow(v: Vehicle, leaderId: EntityId, distance?: number): boolean;
   /** Colonne : le premier conduit jusqu'au point, les autres suivent à intervalle régulier et s'arrêtent alignés. */
   convoy(list: readonly Vehicle[], x: number, z: number, options?: ConvoyOptions): boolean;

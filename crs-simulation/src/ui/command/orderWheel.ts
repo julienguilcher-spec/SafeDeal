@@ -135,7 +135,8 @@ export class OrderWheelScreen implements ScreenInstance {
   private relativeMove(e: PointerEvent): void {
     const wheel = this.wheel;
     if (!wheel || e.pointerType === 'touch') return;
-    if (this.originX !== this.originX) {
+    // pendant le premier dixième de seconde, on ne fait que suivre la position (événements de mise en place)
+    if (this.originX !== this.originX || this.age < 0.12) {
       this.originX = e.clientX;
       this.originY = e.clientY;
       return;
@@ -222,6 +223,11 @@ export class OrderWheelScreen implements ScreenInstance {
       }
       if (Math.hypot(input.moveX, input.moveY) > 0.5) wheel.pointAt(input.moveX, -input.moveY, 0.5);
       else wheel.pointAt(this.vx, this.vy, 0.4);
+    }
+    // roue restée affichée après un appui bref : un nouvel appui sur « Ordres » la referme
+    if (!this.held && this.ticks > 1 && input.pressed('orders')) {
+      this.close();
+      return;
     }
     if (input.pressed('ui_accept') && wheel.highlighted >= 0) {
       if (!wheel.choose()) this.core.ctx.audio.play('ui_alerte');

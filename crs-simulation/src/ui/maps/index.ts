@@ -25,6 +25,7 @@ import { MapsRuntime } from './runtime';
 export type { GpsTarget, Map2dOptions, Map2dService, MapVisibility, MapsApi, PlanOpenData } from './api';
 export { MAP2D_SERVICE, MAPS_SERVICE } from './api';
 export { MapsRuntime } from './runtime';
+export { PlanScreen } from './planScreen';
 
 export const MAPS_SYSTEM_ID = 'ui:maps';
 export const MINIMAP_WIDGET_ID = 'maps.minimap';
@@ -35,6 +36,8 @@ export class MapsSystem implements GameSystem {
   runtime: MapsRuntime | null = null;
   /** Mini-carte en service (null tant que le HUD ne l'a pas créée). */
   minimap: Minimap | null = null;
+  /** Plan actuellement ouvert (null sinon) : pour les tests et le débogage. */
+  plan: PlanScreen | null = null;
   private kit: UiKit | undefined;
 
   provide(ctx: GameContext): void {
@@ -53,9 +56,16 @@ export class MapsSystem implements GameSystem {
       console.warn('[cartes] boîte à outils d’interface absente : ni mini-carte ni plan');
       return;
     }
-    kit.registerScreen('carte', (host, data) => new PlanScreen(ctx, kit, runtime, host, data), {
-      modal: true, pauses: true, hidesHud: true,
-    });
+    kit.registerScreen('carte', (host, data) => {
+      const screen = new PlanScreen(ctx, kit, runtime, host, data);
+      this.plan = screen;
+      const dispose = screen.dispose.bind(screen);
+      screen.dispose = () => {
+        if (this.plan === screen) this.plan = null;
+        dispose();
+      };
+      return screen;
+    }, { modal: true, pauses: true, hidesHud: true });
     kit.addHudWidget(MINIMAP_WIDGET_ID, 'top-left', (host) => {
       const m = new Minimap(ctx, runtime, host);
       this.minimap = m;

@@ -19,7 +19,7 @@ import type { GameSystem, ModuleFactory } from '../../core/contracts';
 import type { WorldViewOptions } from './api';
 import { WorldViewSystem } from './system';
 
-export type { FarTileProvider, Map2dApi, Map2dOptions, WorldViewApi, WorldViewOptions, WorldViewStats } from './api';
+export type { FarTileProvider, Map2dApi, Map2dOptions, TileBench, WorldViewApi, WorldViewOptions, WorldViewStats } from './api';
 export { WORLD_MAP2D_SERVICE, WORLD_VIEW_SERVICE } from './api';
 export { MAP_NORTH_UP } from './map2d';
 export { CURB_HEIGHT } from './classes';

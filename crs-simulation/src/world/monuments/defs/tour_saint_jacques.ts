@@ -65,7 +65,9 @@ function build(site: MonumentSite, quality: QualityLevel): Builder {
       const bx = sx * (HALF - 0.85);
       const g = buttress(1.7, 1.9, L3 - 2.2, 4, 0.4).translate(bx, 0, HALF);
       g.append(pinnacle(0.95, 6.2, lod).translate(bx, L3 - 2.6, HALF + 0.45));
-      for (const [py, pz, ph] of [[L1 - 2.4, 1.75, 4.2], [L1 + 7.2, 1.45, 3.8], [L2 - 2.2, 1.2, 4.0], [L2 + 7.6, 0.95, 3.6]] as const) g.append(pinnacle(0.62, ph, 0).translate(bx, py, HALF + pz));
+      // un pinacle sur le glacis de chaque ressaut (le contrefort a 5 assises de hauteur égale, saillie décroissante)
+      const bh = L3 - 2.2;
+      for (let k = 1; k <= 4; k++) g.append(pinnacle(0.55, 3.4, 0).translate(bx, (k / 5) * bh - 0.45, HALF + 1.9 * (1 - 0.6 * (k / 5)) + 0.22));
       if (lod > 0) {
         for (const [fy, fz] of [[13.6, 1.75], [25.4, 1.35]] as const) {
           g.append(box(1.2, 0.3, 0.75, { bottom: true }).translate(bx, fy, HALF + fz));

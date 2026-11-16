@@ -27,6 +27,8 @@ const P_MILITANT = PROFILE_IDS.indexOf('militant');
 const P_SO = PROFILE_IDS.indexOf('service_ordre');
 const P_MENEUR = PROFILE_IDS.indexOf('meneur');
 const P_OPPORTUNISTE = PROFILE_IDS.indexOf('opportuniste');
+/** Un service d'ordre ne dépasse pas 150 à 200 personnes (docs/research/06-roles-jouables.md §12.1). */
+export const SERVICE_ORDRE_MAX = 200;
 const P_RADICAL = PROFILE_IDS.indexOf('radical');
 const F_SYNDICAL = FAMILY_IDS.indexOf('syndical');
 const F_FAMILLES = FAMILY_IDS.indexOf('familles');
@@ -192,6 +194,31 @@ function balanceColumns(n: number): void {
   }
 }
 
+/** Part du cortège syndical qui marche derrière chaque organisation, de la première à la dernière (estimé). */
+const ORG_BLOCK_SHARES: readonly (readonly number[])[] = [[1], [0.58, 0.42], [0.45, 0.32, 0.23], [0.38, 0.27, 0.2, 0.15]];
+
+/**
+ * Cortège syndical : un bloc par organisation (chacune derrière son camion et ses ballons), chasubles
+ * assorties. La tête — banderole, service d'ordre, animateur — appartient à la première organisation.
+ */
+function assignOrgBlocks(cause: CauseInfo, head: CrowdSlot[], body: CrowdSlot[]): void {
+  let n = 0;
+  for (let i = 0; i < cause.orgCount && n < 4; i++) {
+    const k = cause.orgs[i]!.kind;
+    if (k === 'syndicat' || k === 'intersyndicale') scratchInt[n++] = cause.orgBase + i;
+  }
+  if (n === 0) return;
+  const shares = ORG_BLOCK_SHARES[n - 1]!;
+  for (let i = 0; i < head.length; i++) head[i]!.org = scratchInt[0]!;
+  let at = 0;
+  let acc = 0;
+  for (let b = 0; b < n; b++) {
+    acc += shares[b]!;
+    const end = b === n - 1 ? body.length : Math.round(body.length * acc);
+    for (; at < end; at++) body[at]!.org = scratchInt[b]!;
+  }
+}
+
 function isStructured(c: object): c is CrowdComposition {
   return 'families' in c || 'profiles' in c || 'scenario' in c || 'volatility' in c || 'children' in c || 'banners' in c;
 }
@@ -236,13 +263,14 @@ export function buildCrowd(
     profShare[P_OPPORTUNISTE] = profShare[P_OPPORTUNISTE]! + toFollow - toRadical;
     profShare[P_RADICAL] = profShare[P_RADICAL]! + toRadical;
   }
-  if (!profilesGiven) {
-    // cohérence avec les familles demandées : un bloc est fait de radicaux, les « familles » de familles,
-    // un cortège syndical de militants. Ce qui est relevé est repris aux autres profils, à proportion.
+  if (familiesGiven && !profilesGiven && !comp.scenario) {
+    // familles imposées sans profils : on accorde les profils de la cause aux familles demandées — un
+    // bloc est fait de radicaux, les « familles » de familles, un cortège syndical de militants. Ce qui
+    // est relevé est repris aux autres profils, à proportion.
     let raised = 0;
     let others = 0;
     const floorRadical = 0.72 * famShare[F_BLOC]!;
-    const floorFamille = 0.6 * famShare[F_FAMILLES]!;
+    const floorFamille = 0.8 * famShare[F_FAMILLES]!;
     const floorMilitant = 0.45 * famShare[F_SYNDICAL]!;
     for (let p = 0; p < P; p++) {
       const floor = p === P_RADICAL ? floorRadical : p === P_FAMILLE ? floorFamille : p === P_MILITANT ? floorMilitant : -1;
@@ -260,7 +288,7 @@ export function buildCrowd(
       for (let p = 0; p < P; p++) if (scratchInt[p] === 0) profShare[p] = profShare[p]! * k;
     }
     // sans cortège syndical, pas de service d'ordre : ses membres redeviennent de simples marcheurs
-    if (famShare[F_SYNDICAL] === 0 && profShare[P_SO]! > 0 && familiesGiven) {
+    if (famShare[F_SYNDICAL] === 0 && profShare[P_SO]! > 0) {
       profShare[P_PACIFIQUE] = profShare[P_PACIFIQUE]! + profShare[P_SO]!;
       profShare[P_SO] = 0;
     }
@@ -280,6 +308,16 @@ export function buildCrowd(
     largestRemainder(exactP, P, nf, cellCount, f * P);
   }
   balanceColumns(n);
+
+  // plafond du service d'ordre : le surplus redevient de simples militants
+  let so = 0;
+  for (let f = 0; f < F; f++) so += cellCount[f * P + P_SO]!;
+  for (let f = 0; f < F && so > SERVICE_ORDRE_MAX; f++) {
+    const cut = Math.min(cellCount[f * P + P_SO]!, so - SERVICE_ORDRE_MAX);
+    cellCount[f * P + P_SO] = cellCount[f * P + P_SO]! - cut;
+    cellCount[f * P + P_MILITANT] = cellCount[f * P + P_MILITANT]! + cut;
+    so -= cut;
+  }
 
   // un cortège a toujours quelqu'un au mégaphone
   if (n >= 20 && profShare[P_MENEUR]! > 0) {
@@ -356,6 +394,7 @@ export function buildCrowd(
     }
     // en tête de la famille : banderole, service d'ordre, meneur ; derrière, les marcheurs mêlés
     shuffle(rng, block);
+    if (f === F_SYNDICAL) assignOrgBlocks(cause, front, block);
     for (let i = 0; i < front.length; i++) out.push(front[i]!);
     for (let i = 0; i < block.length; i++) out.push(block[i]!);
   }

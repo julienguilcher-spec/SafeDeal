@@ -62,7 +62,7 @@ function dropAt(p: Person, index: number): void {
 /**
  * Met l'inventaire d'une personne en accord avec la dotation du brouillon :
  *   1. retire ce qui n'en fait plus partie (les objets ramassés sont gardés si `keepLoose`) ;
- *   2. complète ce qui manque et recomplète les munitions (réapprovisionnement) ;
+ *   2. complète ce qui manque, recomplète les munitions (réapprovisionnement) et rend le surplus ;
  *   3. range les emplacements dans l'ordre de la dotation, objets ramassés à la suite ;
  *   4. garde en main l'objet tenu s'il existe encore, sinon prend l'objet du poste.
  */
@@ -81,7 +81,7 @@ export function syncInventory(ctx: GameContext, p: Person, d: Draft, keepLoose: 
     const want = clampCount(ctx, id, d.kitCounts[k]!);
     const have = ctx.actions.has(p, id);
     if (have < want) ctx.actions.give(p, id, want - have);
-    else if (have === 0) ctx.actions.give(p, id, 0);
+    else if (have > want && want > 0) ctx.actions.remove(p, id, have - want);
   }
   // ordre des emplacements
   const held = p.active >= 0 ? inv[p.active] : undefined;

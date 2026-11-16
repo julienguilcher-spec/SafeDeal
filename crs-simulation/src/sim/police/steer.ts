@@ -1,0 +1,237 @@
+/* =====================================================================================
+ * FORCES DE L'ORDRE — pilotage individuel : l'IA écrit person.cmd comme le ferait un joueur.
+ *
+ * Chaque pas, l'agent vise son emplacement (ou le point de sa tâche) :
+ *   vitesse voulue = vitesse de l'emplacement (la formation qui avance) + rappel proportionnel à
+ *   l'écart, bornée par un freinage de référence — tous les agents d'une ligne en marche reçoivent
+ *   donc la même vitesse de fond et la ligne avance d'un bloc ;
+ *   allure et norme de la commande sont choisies pour que la locomotion atteigne exactement cette
+ *   vitesse (limites d'allure lues dans 'people.locomotion', marche arrière compensée) ;
+ *   le corps reste tourné vers la menace (cap de la formation) sauf en colonne et sur les longs
+ *   trajets, où l'agent regarde où il va.
+ * Quelques fois par seconde (navigate) : contournement d'un bâtiment par un itinéraire du monde,
+ * pas de côté s'il reste bloqué, mise à jour des limites d'allure.
+ * ===================================================================================== */
+
+import type { Person } from '@/core/contracts';
+import type { Agent } from './brain';
+import { ACT_AIM } from './brain';
+import type { Kernel } from './kernel';
+import * as T from './tuning';
+
+const DEAD2 = T.STEER_DEAD * T.STEER_DEAD;
+const BRAKE2 = 2 * T.STEER_BRAKE;
+
+/** Immobilise l'agent (commande neutre), le regard vers `face`. */
+export function halt(a: Agent, face: number): void {
+  const cmd = a.p.cmd;
+  cmd.moveX = 0;
+  cmd.moveZ = 0;
+  cmd.gait = 0;
+  if (a.act < ACT_AIM) {
+    cmd.faceMove = false;
+    cmd.aimYaw = face;
+    cmd.aimPitch = a.highGuard ? 0.26 : 0;
+  }
+  cmd.crouch = a.crouch;
+}
+
+/**
+ * Commande de déplacement vers (tx, tz), cible animée de la vitesse (tvx, tvz). `face` : cap du regard à
+ * tenir ; `vcap` : vitesse maximale ; `lookAhead` : l'agent regarde où il va (colonne, longs trajets).
+ */
+export function steer(k: Kernel, a: Agent, tx: number, tz: number, tvx: number, tvz: number, face: number, vcap: number, lookAhead: boolean): void {
+  const p = a.p;
+  const cmd = p.cmd;
+  let direct = true;
+  // contournement : point de passage courant de l'itinéraire
+  if (a.pathN > 0) {
+    const path = a.path;
+    let i = a.pathI;
+    while (i < a.pathN) {
+      const wx = path[i] - p.x;
+      const wz = path[i + 1] - p.z;
+      if (wx * wx + wz * wz > 0.8) break;
+      i += 2;
+    }
+    a.pathI = i;
+    if (i < a.pathN) {
+      tx = path[i];
+      tz = path[i + 1];
+      tvx = 0;
+      tvz = 0;
+      direct = false;
+    } else {
+      a.pathN = 0;
+    }
+  }
+  let dx = tx - p.x;
+  let dz = tz - p.z;
+  if (direct && a.avoidUntil > k.now) {
+    dx += a.avoidX;
+    dz += a.avoidZ;
+  }
+  const d2 = dx * dx + dz * dz;
+  const still = tvx === 0 && tvz === 0;
+  cmd.crouch = a.crouch;
+  const aiming = a.act >= ACT_AIM;
+  if (still && d2 < DEAD2 && k.now >= a.sideUntil) {
+    cmd.moveX = 0;
+    cmd.moveZ = 0;
+    cmd.gait = 0;
+    if (!aiming) {
+      cmd.faceMove = false;
+      cmd.aimYaw = face;
+      cmd.aimPitch = a.highGuard ? 0.26 : 0;
+    }
+    return;
+  }
+  // rappel vers l'emplacement, borné par le freinage de référence : pas de dépassement à l'arrivée
+  const d = Math.sqrt(d2);
+  let pull = d * T.STEER_GAIN;
+  const brake = Math.sqrt(BRAKE2 * d);
+  if (pull > brake) pull = brake;
+  let vx = tvx;
+  let vz = tvz;
+  if (d > 1e-5) {
+    vx += (dx / d) * pull;
+    vz += (dz / d) * pull;
+  }
+  if (k.now < a.sideUntil) {
+    vx += a.sideX;
+    vz += a.sideZ;
+  }
+  let v = Math.sqrt(vx * vx + vz * vz);
+  if (v < 0.02) {
+    cmd.moveX = 0;
+    cmd.moveZ = 0;
+    cmd.gait = 0;
+    if (!aiming) {
+      cmd.faceMove = false;
+      cmd.aimYaw = face;
+      cmd.aimPitch = a.highGuard ? 0.26 : 0;
+    }
+    return;
+  }
+  if (v > vcap) {
+    const s = vcap / v;
+    vx *= s;
+    vz *= s;
+    v = vcap;
+  }
+  const ux = vx / v;
+  const uz = vz / v;
+  const ahead = !aiming && (lookAhead || (d > T.FACE_MOVE_FROM && still) || !direct);
+  // facteur de marche arrière ou latérale appliqué par la locomotion quand le corps suit la visée
+  let factor = 1;
+  if (!ahead) {
+    const dot = ux * Math.sin(p.heading) + uz * Math.cos(p.heading);
+    if (dot < 0.3) factor = 0.6 + (0.4 * (dot + 1)) / 1.3;
+  }
+  let gait: 0 | 1 | 2 = 0;
+  let lim = a.lim0 * factor;
+  if (v > lim * 0.985) {
+    gait = 1;
+    lim = a.lim1 * factor;
+    if (v > lim * 0.985 && a.lim2 > a.lim1) {
+      gait = 2;
+      lim = a.lim2 * factor;
+    }
+  }
+  let norm = lim > 0.05 ? v / lim : 1;
+  if (norm > 1) norm = 1;
+  cmd.moveX = ux * norm;
+  cmd.moveZ = uz * norm;
+  cmd.gait = gait;
+  if (!aiming) {
+    if (ahead) {
+      cmd.faceMove = true;
+      cmd.aimYaw = Math.atan2(ux, uz);
+      cmd.aimPitch = 0;
+    } else {
+      cmd.faceMove = false;
+      cmd.aimYaw = face;
+      cmd.aimPitch = a.highGuard ? 0.26 : 0;
+    }
+  } else {
+    cmd.faceMove = false;
+  }
+}
+
+/** Met à jour les limites d'allure de l'agent (service 'people.locomotion' s'il est branché). */
+export function refreshLimits(k: Kernel, a: Agent): void {
+  const p = a.p;
+  const loco = k.loco;
+  if (loco) {
+    a.lim0 = loco.speedLimit(p, 0);
+    a.lim1 = loco.speedLimit(p, 1);
+    a.lim2 = loco.speedLimit(p, 2);
+  } else {
+    a.lim0 = p.speedWalk;
+    a.lim1 = p.speedRun;
+    a.lim2 = p.speedSprint;
+  }
+  if (a.lim1 < a.lim0) a.lim1 = a.lim0;
+  if (a.lim2 < a.lim1) a.lim2 = a.lim1;
+  a.limAt = k.now;
+}
+
+/**
+ * Navigation (quelques fois par seconde) vers (tx, tz) : itinéraire de contournement si un bâtiment
+ * masque le but, abandon de l'itinéraire dès que le but est en vue, pas de côté si l'agent piétine.
+ * `interval` : temps écoulé depuis le dernier appel.
+ */
+export function navigate(k: Kernel, a: Agent, tx: number, tz: number, interval: number): void {
+  const p = a.p;
+  const dx = tx - p.x;
+  const dz = tz - p.z;
+  const d2 = dx * dx + dz * dz;
+  const world = k.ctx.world;
+  if (a.pathN > 0) {
+    // le but a bougé (formation en marche) ou est en vue : on reprend le trajet direct
+    const ex = a.path[a.pathN - 2] - tx;
+    const ez = a.path[a.pathN - 1] - tz;
+    if (ex * ex + ez * ez > 36 || (d2 < 900 && world.lineOfSight(p.x, p.z, tx, tz))) a.pathN = 0;
+  } else if (d2 > 25 && k.now - a.pathAt >= T.REPATH_INTERVAL && !world.lineOfSight(p.x, p.z, tx, tz)) {
+    a.pathAt = k.now;
+    if (world.findPath(p.x, p.z, tx, tz, 'foot', a.path) && a.path.length >= 4) {
+      a.pathN = a.path.length;
+      a.pathI = 2;
+    } else {
+      a.pathN = 0;
+    }
+  }
+  // piétinement : l'agent veut avancer mais n'avance pas
+  const mx = p.x - a.lastX;
+  const mz = p.z - a.lastZ;
+  a.lastX = p.x;
+  a.lastZ = p.z;
+  if (d2 > 0.5 && mx * mx + mz * mz < T.STUCK_SPEED * interval * (T.STUCK_SPEED * interval) && p.stun <= 0) {
+    a.stuckT += interval;
+    if (a.stuckT >= T.STUCK_TIME) {
+      a.stuckT = 0;
+      // pas de côté, d'un côté puis de l'autre
+      const d = Math.sqrt(d2);
+      const side = ((k.ctx.clock.tick >> 5) + p.id) & 1 ? 1 : -1;
+      a.sideX = (-dz / d) * side * 1.4;
+      a.sideZ = (dx / d) * side * 1.4;
+      a.sideUntil = k.now + 0.9;
+      if (a.pathN === 0 && d2 > 9 && k.now - a.pathAt >= T.REPATH_INTERVAL) {
+        a.pathAt = k.now;
+        if (world.findPath(p.x, p.z, tx, tz, 'foot', a.path) && a.path.length >= 6) {
+          a.pathN = a.path.length;
+          a.pathI = 2;
+        }
+      }
+    }
+  } else {
+    a.stuckT = 0;
+  }
+}
+
+/** Distance entre deux personnes. */
+export function distPP(a: Person, b: Person): number {
+  const dx = a.x - b.x;
+  const dz = a.z - b.z;
+  return Math.sqrt(dx * dx + dz * dz);
+}

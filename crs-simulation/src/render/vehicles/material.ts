@@ -42,7 +42,7 @@ varying vec3 vCrsCol;
 varying vec3 vCrsEmis;
 varying vec4 vCrsSurf;   // rugosité, métal, carbonisation, dégâts
 varying vec3 vCrsLocal;
-varying vec2 vCrsKind;   // x : 0 opaque, 1..3 vitrage (intact, brisé, brûlé) ; y : 1 = plaque
+varying vec2 vCrsKind;   // x : 0 opaque, 1..3 vitrage (intact, brisé, brûlé) ; y : 1 = plaque, 2 = peinture
 vec3 crsRotX( vec3 p, float a ) { float c = cos( a ), s = sin( a ); return vec3( p.x, p.y * c - p.z * s, p.y * s + p.z * c ); }
 vec3 crsRotY( vec3 p, float a ) { float c = cos( a ), s = sin( a ); return vec3( p.x * c + p.z * s, p.y, - p.x * s + p.z * c ); }
 vec3 crsRotAxis( vec3 p, vec3 k, float a ) { float c = cos( a ), s = sin( a ); return p * c + cross( k, p ) * s + k * dot( k, p ) * ( 1.0 - c ); }
@@ -135,7 +135,7 @@ const VERT_AFTER_UV = /* glsl */`
 	else { rough = 0.95; }
 	float burnt = step( 0.999, iState.y );
 	vCrsSurf = vec4( rough, metal, iState.y, iState.x );
-	vCrsKind = vec2( 0.0 );
+	vCrsKind = vec2( 0.0, surf < 0.5 ? 2.0 : 0.0 );
 	if ( surf > 1.5 && surf < 2.5 ) {
 		float gs = burnt > 0.5 ? 2.0 : ( iState.x > 0.3 ? 1.0 : 0.0 );
 		vCrsKind.x = 1.0 + gs;
@@ -190,7 +190,7 @@ float crsNoise( vec3 x ) {
 const FRAG_MAP = /* glsl */`
 vec4 sampledDiffuseColor = texture2D( map, vMapUv );
 vec4 crsPlate = texture2D( uPlates, vMapUv );
-if ( vCrsKind.y > 0.5 ) sampledDiffuseColor = vec4( crsPlate.rgb, 1.0 );
+if ( vCrsKind.y > 0.5 && vCrsKind.y < 1.5 ) sampledDiffuseColor = vec4( crsPlate.rgb, 1.0 );
 vec3 crsBase = vCrsCol;
 float crsChar = vCrsSurf.z;
 float crsDmg = vCrsSurf.w;
@@ -211,7 +211,7 @@ if ( vCrsKind.x < 0.5 ) {
 	// tôles assombries par plaques (suie, impacts), puis carbonisation : noir de fumée et rouille
 	float blot = smoothstep( 0.42, 0.7, crsN * 0.7 + crsN2 * 0.3 + crsDmg * 0.22 );
 	crsBase *= 1.0 - 0.72 * crsDmg * blot;
-	vec3 burntCol = mix( vec3( 0.014, 0.013, 0.012 ), vec3( 0.13, 0.055, 0.028 ), smoothstep( 0.5, 0.82, crsN2 * 0.6 + crsN * 0.4 ) );
+	vec3 burntCol = mix( vec3( 0.012, 0.011, 0.010 ), vec3( 0.062, 0.03, 0.018 ), smoothstep( 0.55, 0.85, crsN2 * 0.6 + crsN * 0.4 ) );
 	crsBase = mix( crsBase, burntCol, smoothstep( 0.0, 1.0, crsChar * 1.35 - crsN * 0.35 ) );
 }
 diffuseColor.rgb *= crsBase;
@@ -229,6 +229,10 @@ if ( vCrsKind.x > 0.5 && vCrsKind.x < 1.5 ) {
 	// reflet du ciel sur les vitrages intacts (terme de Fresnel simplifié, sans carte d'environnement)
 	float crsF = pow( 1.0 - abs( dot( normal, normalize( vViewPosition ) ) ), 3.0 );
 	totalEmissiveRadiance += uSky * ( 0.035 + 0.5 * crsF ) * ( 1.0 - vCrsSurf.z );
+} else if ( vCrsKind.y > 1.5 ) {
+	// vernis de carrosserie : léger reflet du ciel en incidence rasante (garde du modelé aux teintes sombres)
+	float crsF = pow( 1.0 - abs( dot( normal, normalize( vViewPosition ) ) ), 2.5 );
+	totalEmissiveRadiance += uSky * ( 0.01 + 0.16 * crsF ) * ( 1.0 - vCrsSurf.z ) * ( 1.0 - 0.7 * vCrsSurf.w );
 }
 `;
 

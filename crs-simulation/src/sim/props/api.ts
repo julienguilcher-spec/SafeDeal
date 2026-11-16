@@ -24,6 +24,12 @@ import type { EntityId, ItemId, Person, Prop, PropKind, Shop, ShopCategory } fro
 /** Clé du service étendu publié par le module. */
 export const PROPS_EXT_SERVICE = 'props.ext';
 
+/**
+ * Clé de SessionConfig.extra sous laquelle une mission peut fournir des réglages (PropsTuning partiel)
+ * appliqués dès le chargement de la session : { extra: { props: { ambientDensity: 0.3 } } }.
+ */
+export const SESSION_EXTRA_KEY = 'props';
+
 export const BARRICADE_EXTENDED_EVENT = 'props:barricade_extended';
 export const BARRICADE_CLEARED_EVENT = 'props:barricade_cleared';
 export const GLASS_EVENT = 'props:glass';
@@ -191,7 +197,10 @@ export interface PropsStats {
   barricadesBuilt: number;
 }
 
-/** Réglages du module (modifiables à chaud ; remis aux valeurs par défaut par resetTuning()). */
+/**
+ * Réglages du module, modifiables à chaud. Ils reviennent aux valeurs par défaut au début de chaque
+ * session (puis reçoivent SessionConfig.extra.props, voir SESSION_EXTRA_KEY) et par resetTuning().
+ */
 export interface PropsTuning {
   /** Mobilier ajouté quand la carte en manque : 0 = rien, 1 = normal, 2 = dense. */
   ambientDensity: number;

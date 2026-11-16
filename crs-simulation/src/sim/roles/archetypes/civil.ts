@@ -35,7 +35,7 @@ export const CIVIL_LABELS: Readonly<Record<CivilKind, string>> = {
   vip: 'Personnalité officielle',
 };
 
-const SHOP_VARIANTS = [VARIANT.cafe, VARIANT.boutique, VARIANT.alimentation];
+const SHOP_VARIANTS: readonly number[] = [VARIANT.cafe, VARIANT.boutique, VARIANT.alimentation];
 
 /** Habille et dote un civil. `variant` : type de commerce (café, boutique, alimentation). */
 export function dressCivil(d: Draft, id: Identity, kind: CivilKind, variant: number, rng: Rng): void {

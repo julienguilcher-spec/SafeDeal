@@ -391,10 +391,10 @@ export function buildHelico(g: Geo, far: boolean, def: VehicleDef): ModelMeta {
   lampBox(g, -0.05, 0.05, belly - 0.06, belly, zCab0 + 0.6, zCab0 + 0.7, 0xff2a20, LIGHT_BEACON_B);
   lampBox(g, cw - 0.02, cw + 0.03, 1.3 * k, 1.36 * k, zCab0 + 1.0, zCab0 + 1.08, 0xff2a20, LIGHT_TAIL);
   lampBox(g, -cw - 0.03, -cw + 0.02, 1.3 * k, 1.36 * k, zCab0 + 1.0, zCab0 + 1.08, 0x30ff60, LIGHT_TAIL);
-  const markZ = zCab0 - L * 0.07;
-  const markH = 0.2 * k;
-  decal(g, 'gendarmerie', 'L', 0.2 * k + 0.1, 1.82 * k, markZ - 0.9 * k, markH);
-  decal(g, 'gendarmerie', 'R', -0.2 * k - 0.1, 1.82 * k, markZ - 0.9 * k, markH);
+  const markH = 0.19 * k;
+  const markZ = zCab0 - L * 0.12 - markH * 3.5 - 0.15;
+  decal(g, 'gendarmerie', 'L', 0.2 * k + 0.012, 1.86 * k, markZ, markH);
+  decal(g, 'gendarmerie', 'R', -0.2 * k - 0.012, 1.86 * k, markZ, markH);
   body();
   meta.head.push(-cw * 0.6, belly, zNose - 1.1 * k);
   meta.tail.push(0, 2.0 * k, zTail);

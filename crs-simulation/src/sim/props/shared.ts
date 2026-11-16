@@ -107,6 +107,8 @@ export class PropObj implements Prop, GridItem {
   fuelMax: number;
   heat = 0;
   heatBy: EntityId = 0;
+  /** Instant du dernier apport de chaleur. */
+  heatAt = -1e9;
   igniterId: EntityId = 0;
   /** État avant l'incendie (repris si le feu est éteint à temps). */
   preFire: PropState = 'intact';

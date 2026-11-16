@@ -2,9 +2,9 @@
  * HUD — barre d'objets (quantités, objet en main) et invite d'interaction (libellé de la touche,
  * progression). Zone : bas centre.
  *
- * En tactile, la barre d'objets est celle de la surcouche du module d'entrées : cet élément la
- * remplit (InputTouchApi.setItemBar) et masque la sienne ; de même l'invite passe par le bouton
- * contextuel (setInteractLabel) et seule la progression reste affichée ici.
+ * En tactile, la barre d'objets est celle de la surcouche du module d'entrées : createTouchFeed la
+ * remplit (InputTouchApi.setItemBar) et la barre du HUD se masque ; de même l'invite passe par le
+ * bouton contextuel (setInteractLabel) et seule la progression reste affichée ici.
  * ===================================================================================== */
 
 import type { ItemStack, Person } from '@/core/contracts';
@@ -40,14 +40,12 @@ export function createItemBar(env: HudEnv): HudPart {
   let nameLeft = 0;
   let cooldown: Transform | null = null;
   let cooldownShown: Shown | null = null;
-  let touchFed = false;
 
   function rebuild(p: Person, s: HudState): void {
     clear(row);
     cooldown = null;
     cooldownShown = null;
     const inv = p.inventory;
-    const touchItems: TouchItem[] = [];
     for (let i = 0; i < inv.length && i < MAX_SLOTS; i++) {
       const stack: ItemStack = inv[i]!;
       const def = ctx.actions.def(stack.id);
@@ -70,21 +68,7 @@ export function createItemBar(env: HudEnv): HudPart {
         cooldownShown = new Shown(cd);
       }
       row.append(slot);
-      const item: TouchItem = { icon: def?.icon || label.slice(0, 3).toUpperCase(), label: label.split(' ')[0] };
-      if (counted) item.count = stack.count;
-      touchItems.push(item);
     }
-    const touch = ctx.service<InputTouchApi>('input.touch');
-    if (touch) {
-      touch.setItemBar(touchItems, p.active);
-      touchFed = true;
-    }
-  }
-
-  function releaseTouch(): void {
-    if (!touchFed) return;
-    touchFed = false;
-    ctx.service<InputTouchApi>('input.touch')?.setItemBar(null);
   }
 
   return {
@@ -133,7 +117,6 @@ export function createItemBar(env: HudEnv): HudPart {
     hidden(): void {
       sig = '';
       lastActive = -2;
-      releaseTouch();
     },
     reset(): void {
       sig = '';
@@ -141,8 +124,65 @@ export function createItemBar(env: HudEnv): HudPart {
       nameLeft = 0;
       nameOff.set(true);
     },
+  };
+}
+
+/**
+ * Alimente la barre d'objets de la surcouche tactile (noms français, quantités, objet en main) tant
+ * qu'elle est affichée, que la barre du HUD soit visible ou non (viseur du journaliste, par exemple).
+ * Élément sans affichage propre ; à la disparition, la surcouche revient à son remplissage automatique.
+ */
+export function createTouchFeed(env: HudEnv): HudPart {
+  const ctx = env.ctx;
+  const root = h('div');
+  root.style.display = 'none';
+  let sig = '';
+  let fed = false;
+
+  function release(): void {
+    sig = '';
+    if (!fed) return;
+    fed = false;
+    ctx.service<InputTouchApi>('input.touch')?.setItemBar(null);
+  }
+
+  return {
+    id: 'touch-feed',
+    el: root,
+    order: 0,
+    slot(): HudSlot | null {
+      return null;
+    },
+    visible(s: HudState): boolean {
+      return s.touch === 'pied' && s.person !== null;
+    },
+    tick(s: HudState): void {
+      const p = s.person;
+      const touch = ctx.service<InputTouchApi>('input.touch');
+      if (!p || !touch) return;
+      const next = signature(p, 'touch');
+      if (next === sig) return;
+      sig = next;
+      const items: TouchItem[] = [];
+      for (let i = 0; i < p.inventory.length && i < MAX_SLOTS; i++) {
+        const stack = p.inventory[i]!;
+        const def = ctx.actions.def(stack.id);
+        const label = itemName(stack.id, def?.name);
+        const item: TouchItem = { icon: def?.icon || label.slice(0, 3).toUpperCase(), label: label.split(' ')[0] };
+        if (showsCount(stack.id, stack.count, def?.maxCount)) item.count = stack.count;
+        items.push(item);
+      }
+      touch.setItemBar(items, p.active);
+      fed = true;
+    },
+    hidden(): void {
+      release();
+    },
+    reset(): void {
+      sig = '';
+    },
     dispose(): void {
-      releaseTouch();
+      release();
     },
   };
 }

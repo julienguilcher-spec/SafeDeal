@@ -33,6 +33,8 @@ export class RadialMenu {
   highlighted = -1;
   /** Le survol à la souris surligne les secteurs (désactivé tant que le pointeur n'a pas réellement bougé). */
   hoverEnabled = true;
+  /** Ignorer le prochain clic au centre (celui que produit le relâchement de l'appui long qui a ouvert le menu). */
+  swallowHubClick = false;
   private readonly svg: SVGSVGElement;
   private readonly wedges: SVGPathElement[] = [];
   private readonly title: SVGTextElement;
@@ -104,6 +106,10 @@ export class RadialMenu {
     svg.addEventListener('click', (e) => {
       const i = this.indexAtClient(e.clientX, e.clientY);
       e.stopPropagation();
+      if (i === -2 && this.swallowHubClick) {
+        this.swallowHubClick = false;
+        return;
+      }
       if (i === -2) this.options.onCancel();
       else if (i >= 0) {
         this.setHighlight(i);

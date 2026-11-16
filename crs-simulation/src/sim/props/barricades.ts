@@ -19,9 +19,11 @@
  * ===================================================================================== */
 
 import type { EntityId, Person, RoadSample, Vec2 } from '@/core/contracts';
-import { clamp, distSqPointObb } from '@/core/math';
+import { clamp } from '@/core/math';
 import { BARRICADE_CLEARED_EVENT, BARRICADE_EXTENDED_EVENT } from './api';
 import type { BarricadeEvent, BarricadePart } from './api';
+import { boxGap, fitBox } from './barricade-geom';
+import type { FittedBox } from './barricade-geom';
 import { propDef } from './defs';
 import type { Mod } from './mod';
 import { ACT_BURNING, ACT_MOVING, TENSION } from './shared';
@@ -56,6 +58,7 @@ export class Barricades {
   private readonly road = makeRoadSample();
   private readonly tmp: Vec2 = { x: 0, z: 0 };
   private readonly event: BarricadeEvent = { id: 0, x: 0, z: 0, parts: 0, byId: 0 };
+  private readonly fit: FittedBox = { x: 0, z: 0, heading: 0, halfX: 0, halfZ: 0, ax: 1, az: 0 };
   private markId = 1;
 
   constructor(private readonly m: Mod) {}
@@ -101,31 +104,6 @@ export class Barricades {
 
   // ───────────────────────────── détection ─────────────────────────────
 
-  /** Distance bord à bord approchée de deux boîtes (chacune vue comme une capsule le long de son grand axe). */
-  private gap(a: PropObj, b: PropObj): number {
-    const d1 = this.capsuleToBox(a, b);
-    const d2 = this.capsuleToBox(b, a);
-    return d1 < d2 ? d1 : d2;
-  }
-
-  private capsuleToBox(a: PropObj, b: PropObj): number {
-    const long = a.halfX >= a.halfZ;
-    const r = long ? a.halfZ : a.halfX;
-    const e = (long ? a.halfX : a.halfZ) - r;
-    // grand axe de a dans le monde
-    const ux = long ? Math.cos(a.heading) : Math.sin(a.heading);
-    const uz = long ? -Math.sin(a.heading) : Math.cos(a.heading);
-    let best = distSqPointObb(a.x, a.z, b.x, b.z, b.halfX, b.halfZ, b.heading);
-    if (e > 0.05) {
-      const d1 = distSqPointObb(a.x + ux * e, a.z + uz * e, b.x, b.z, b.halfX, b.halfZ, b.heading);
-      const d2 = distSqPointObb(a.x - ux * e, a.z - uz * e, b.x, b.z, b.halfX, b.halfZ, b.heading);
-      if (d1 < best) best = d1;
-      if (d2 < best) best = d2;
-    }
-    const d = Math.sqrt(best) - r;
-    return d > 0 ? d : 0;
-  }
-
   private check(seed: PropObj): void {
     if (!this.material(seed)) return;
     const store = this.m.store;
@@ -144,10 +122,10 @@ export class Barricades {
         const q = buf[j]!;
         if (q.mark === id || q.dormant) continue;
         if (q.parts !== null) {
-          if (host === null && q.state !== 'burnt' && this.gap(a, q) <= LINK_GAP) host = q;
+          if (host === null && q.state !== 'burnt' && boxGap(a, q) <= LINK_GAP) host = q;
           continue;
         }
-        if (!this.material(q) || this.gap(a, q) > LINK_GAP) continue;
+        if (!this.material(q) || boxGap(a, q) > LINK_GAP) continue;
         q.mark = id;
         if (n < members.length) members[n] = q;
         else members.push(q);
@@ -162,71 +140,20 @@ export class Barricades {
     for (let i = 0; i < n; i++) bulk += members[i]!.def.bulk;
     if (n < MIN_COUNT || bulk < MIN_BULK) return;
 
-    // axe principal du tas : analyse en composantes principales des coins des boîtes
-    let cx = 0;
-    let cz = 0;
-    for (let i = 0; i < n; i++) {
-      cx += members[i]!.x;
-      cz += members[i]!.z;
-    }
-    cx /= n;
-    cz /= n;
-    let sxx = 0;
-    let szz = 0;
-    let sxz = 0;
-    for (let i = 0; i < n; i++) {
-      const p = members[i]!;
-      const c = Math.cos(p.heading);
-      const s = Math.sin(p.heading);
-      for (let k = 0; k < 4; k++) {
-        const lx = k & 1 ? p.halfX : -p.halfX;
-        const lz = k & 2 ? p.halfZ : -p.halfZ;
-        const dx = p.x + lx * c + lz * s - cx;
-        const dz = p.z - lx * s + lz * c - cz;
-        sxx += dx * dx;
-        szz += dz * dz;
-        sxz += dx * dz;
-      }
-    }
-    const theta = 0.5 * Math.atan2(2 * sxz, sxx - szz);
-    const ax = Math.cos(theta);
-    const az = Math.sin(theta);
-    let uMin = Infinity;
-    let uMax = -Infinity;
-    let vMin = Infinity;
-    let vMax = -Infinity;
-    for (let i = 0; i < n; i++) {
-      const p = members[i]!;
-      const c = Math.cos(p.heading);
-      const s = Math.sin(p.heading);
-      for (let k = 0; k < 4; k++) {
-        const lx = k & 1 ? p.halfX : -p.halfX;
-        const lz = k & 2 ? p.halfZ : -p.halfZ;
-        const dx = p.x + lx * c + lz * s - cx;
-        const dz = p.z - lx * s + lz * c - cz;
-        const u = dx * ax + dz * az;
-        const v = -dx * az + dz * ax;
-        if (u < uMin) uMin = u;
-        if (u > uMax) uMax = u;
-        if (v < vMin) vMin = v;
-        if (v > vMax) vMax = v;
-      }
-    }
-    const length = uMax - uMin;
-    if (length < MIN_LENGTH) return;
-    const uMid = (uMin + uMax) * 0.5;
-    const vMid = (vMin + vMax) * 0.5;
-    const X = cx + ax * uMid - az * vMid;
-    const Z = cz + az * uMid + ax * vMid;
+    // boîte orientée selon l'axe principal du tas
+    const fit = fitBox(members, n, this.fit);
+    if (fit.halfX * 2 < MIN_LENGTH) return;
+    const X = fit.x;
+    const Z = fit.z;
 
     // en travers d'une rue, pas rangés le long du trottoir
     const world = this.m.k.ctx.world;
     const road = this.road;
     if (world.edgeCount > 0 && world.nearestRoad(X, Z, road, 30)) {
-      const along = Math.abs(ax * Math.sin(road.heading) + az * Math.cos(road.heading));
+      const along = Math.abs(fit.ax * Math.sin(road.heading) + fit.az * Math.cos(road.heading));
       if (road.dist <= road.width * 0.5 + 2.5 && along > ALONG_ROAD) return;
     }
-    this.build(n, X, Z, Math.atan2(-az, ax), length * 0.5, (vMax - vMin) * 0.5, bulk);
+    this.build(n, X, Z, fit.heading, fit.halfX, fit.halfZ, bulk);
   }
 
   // ───────────────────────────── formation et extension ─────────────────────────────
@@ -270,7 +197,7 @@ export class Barricades {
     const store = m.store;
     const members = this.members;
     const now = k.ctx.clock.now;
-    const b = store.create('barricade', x, z, heading);
+    const b = store.create('barricade', x, z, heading, false);
     b.halfX = halfX;
     b.halfZ = clamp(halfZ, 0.45, 1.6);
     b.height = this.heightFor(bulk);
@@ -304,6 +231,7 @@ export class Barricades {
     b.movedBy = this.blame(n, x, z);
     for (let i = 0; i < n; i++) store.remove(members[i]!);
     store.reindex(b);
+    store.announce(b);
     k.stats.barricadesBuilt++;
     k.ctx.events.emit('barricade:built', { id: b.id, x, z });
     k.tension(TENSION.barricade, x, z, 'barricade');
@@ -443,7 +371,7 @@ export class Barricades {
   /** Recrée l'objet d'un élément à la position donnée. */
   private restore(b: PropObj, part: PartRec, x: number, z: number, heading: number): PropObj {
     const m = this.m;
-    const q = m.store.create(part.kind, x, z, heading);
+    const q = m.store.create(part.kind, x, z, heading, false);
     q.hp = Math.min(q.maxHp, Math.max(1, part.hp));
     q.battery = part.battery;
     const left = b.fuelMax > 0 ? clamp(b.fuel / b.fuelMax, 0, 1) : 1;
@@ -461,6 +389,7 @@ export class Barricades {
     }
     if (part.toppled) m.motion.applyTopple(q, Math.sin(heading), Math.cos(heading));
     q.dirty = true;
+    m.store.announce(q);
     return q;
   }
 

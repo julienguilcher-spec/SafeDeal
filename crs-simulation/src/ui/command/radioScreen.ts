@@ -27,6 +27,7 @@ export class RadioScreen implements ScreenInstance {
   private readonly chanBtns: { channel: RadioChannel | null; b: HTMLButtonElement }[] = [];
   private readonly focus: { dispose(): void };
   private cooldown = 0;
+  private ticks = 0;
   private lastRefresh = -1;
   private readonly found: Person[] = [];
 
@@ -158,7 +159,12 @@ export class RadioScreen implements ScreenInstance {
     for (let i = 0; i < this.quickBtns.length; i++) if (this.quickBtns[i]!.disabled !== off) this.quickBtns[i]!.disabled = off;
   }
 
-  update(dt: number, _input: InputState): void {
+  update(dt: number, input: InputState): void {
+    // la touche « Radio » referme le panneau (le socle ne fait que l'ouvrir) ; la première image est celle de l'ouverture
+    if (this.ticks++ > 0 && input.pressed('radio')) {
+      this.core.ctx.ui.close(RADIO_SCREEN);
+      return;
+    }
     if (this.cooldown > 0) {
       this.cooldown -= dt;
       if (this.cooldown <= 0) this.lastRefresh = -1;

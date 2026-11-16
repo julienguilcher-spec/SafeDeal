@@ -12,7 +12,7 @@ import type {
   ShopCategory, ShopInit, Unsubscribe, Vec2,
 } from '@/core/contracts';
 import { SystemOrder } from '@/core/contracts';
-import { PROPS_EXT_SERVICE } from './api';
+import { PROPS_EXT_SERVICE, SESSION_EXTRA_KEY } from './api';
 import type { BarricadePart, PropDef, PropsExtApi, PropsStats, PropsTuning, PropView, ShopView } from './api';
 import { Barricades } from './barricades';
 import { Damage } from './damage';
@@ -92,6 +92,8 @@ export class PropsSystem implements GameSystem {
     m.fire.init();
     this.handlers = createHandlers(m);
     for (let i = 0; i < this.handlers.length; i++) ctx.interactions.register(this.handlers[i]!);
+    // tuiles chargées par le monde pendant son propre démarrage, avant que nous n'écoutions
+    m.tiles.syncAll();
   }
 
   reset(): void {
@@ -103,6 +105,30 @@ export class PropsSystem implements GameSystem {
     m.sweep.reset();
     m.k.reset();
     resetHandlers(this.handlers);
+    this.applySessionTuning();
+  }
+
+  /**
+   * Les réglages reviennent à leurs valeurs de référence à chaque session, puis reçoivent ceux que la
+   * mission a prévus dans SessionConfig.extra.props (ex. { ambientDensity: 0.3 } après un retrait
+   * préventif du mobilier) — lus ici parce que le peuplement a lieu pendant le chargement, avant
+   * 'session:started'.
+   */
+  private applySessionTuning(): void {
+    const k = this.m.k;
+    const tuning = k.tuning as unknown as Record<string, unknown>;
+    const defaults = defaultTuning() as unknown as Record<string, unknown>;
+    Object.assign(tuning, defaults);
+    const extra = k.ctx.session.config?.extra?.[SESSION_EXTRA_KEY];
+    if (extra === null || typeof extra !== 'object') return;
+    const wanted = extra as Record<string, unknown>;
+    for (const key of Object.keys(defaults)) {
+      const value = wanted[key];
+      if (value === undefined || typeof value !== typeof defaults[key]) continue;
+      if (typeof value === 'number' && !Number.isFinite(value)) continue;
+      if (key === 'blade' && value !== 'auto' && value !== 'on' && value !== 'off') continue;
+      tuning[key] = value;
+    }
   }
 
   update(dt: number): void {
@@ -149,8 +175,9 @@ export class PropsSystem implements GameSystem {
       get: (id: EntityId): Prop | undefined => store.get(id),
       shop: (id: EntityId): Shop | undefined => store.shop(id),
       spawn(kind: PropKind, x: number, z: number, heading: number): Prop {
-        const p = store.create(kind, Number.isFinite(x) ? x : 0, Number.isFinite(z) ? z : 0, Number.isFinite(heading) ? heading : 0);
+        const p = store.create(kind, Number.isFinite(x) ? x : 0, Number.isFinite(z) ? z : 0, Number.isFinite(heading) ? heading : 0, false);
         if (kind === 'barricade') m.barricades.prefab(p);
+        store.announce(p);
         return p;
       },
       remove(id: EntityId): void {

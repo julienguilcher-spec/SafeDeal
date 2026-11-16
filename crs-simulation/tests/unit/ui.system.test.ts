@@ -32,6 +32,21 @@ describe('ui/système (headless)', () => {
     t.ctx.session.end(false);
   });
 
+  it('index du module : le système principal vient en premier, les sous-modules présents sont agrégés', async () => {
+    const { createSystems } = await import('@/ui');
+    const systems = createSystems();
+    expect(systems.length).toBeGreaterThanOrEqual(1);
+    expect(systems[0]!.id).toBe('ui');
+    expect(new Set(systems.map((s) => s.id)).size).toBe(systems.length);
+    // l'ensemble démarre sans DOM (mode headless) et publie le service des objectifs
+    const t = createTestContext({ modules: [createSystems], strict: false });
+    await t.ready;
+    expect(t.ctx.service<ObjectivesApi>(EXT.objectives)).toBeDefined();
+    await t.start();
+    t.step(0.5);
+    t.ctx.session.end(false);
+  });
+
   it('table des touches d’interface : un écran par touche, identifiants stables', () => {
     expect(HOTKEY_SCREENS.pause).toEqual(['pause']);
     expect(HOTKEY_SCREENS.map).toEqual(['carte']);

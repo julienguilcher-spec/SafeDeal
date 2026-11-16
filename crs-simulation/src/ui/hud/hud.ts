@@ -63,6 +63,7 @@ export class Hud {
   };
 
   private noticeTop = -1;
+  private toastMax = -1;
   private subBottom = -1;
 
   constructor(
@@ -147,6 +148,7 @@ export class Hud {
       }
       for (const name of ['--ui-sub-bottom', '--ui-notice-top', '--ui-sub-max', '--ui-sub-shift', '--ui-toast-max']) this.styleRoot.style.removeProperty(name);
       this.noticeTop = -1;
+      this.toastMax = -1;
       this.subBottom = -1;
       this.lastTouch = '';
     } else {
@@ -222,11 +224,33 @@ export class Hud {
   private placeMessages(): void {
     const s = this.state;
     if (this.messages.toastCount() > 0) {
-      const bottom = this.slots.top.getBoundingClientRect().bottom;
-      const top = Math.round(Math.max(bottom, 0) + 8);
-      if (Math.abs(top - this.noticeTop) > 1) {
+      const scale = touchScale(s.width, s.height);
+      const center = s.width / 2;
+      const mid = this.slots.top.getBoundingClientRect();
+      const left = this.slots['top-left'].getBoundingClientRect();
+      const right = this.slots['top-right'].getBoundingClientRect();
+      // rangées de boutons système de la surcouche tactile, en haut à droite (290 × 110 à l'échelle 1)
+      const chipsLeft = s.touch === 'none' ? s.width : s.width - 293 * scale;
+      const chipsBottom = s.touch === 'none' ? 0 : (s.touch === 'drone' ? 60 : 112) * scale;
+      let top = (mid.height > 0 ? mid.bottom : 0) + 8;
+      // place disponible de part et d'autre du centre, à côté des panneaux encore présents à cette hauteur
+      const leftLimit = left.height > 0 && left.bottom > top ? left.right + 10 : 12;
+      let rightLimit = right.height > 0 && right.bottom > top ? right.left - 10 : s.width - 12;
+      if (chipsBottom > top) rightLimit = Math.min(rightLimit, chipsLeft - 8);
+      let room = 2 * Math.min(center - leftLimit, rightLimit - center);
+      if (room < 230) {
+        // trop étroit entre les panneaux : les notifications passent dessous, sur toute la largeur utile
+        top = Math.max(top, left.height > 0 ? left.bottom + 8 : 0, chipsBottom + 8);
+        const rightEdge = right.height > 0 && right.bottom > top ? right.left - 10 : s.width - 12;
+        room = 2 * Math.min(center - 12, rightEdge - center);
+      }
+      const width = Math.round(Math.max(200, Math.min(460, room)));
+      top = Math.round(top);
+      if (Math.abs(top - this.noticeTop) > 1 || width !== this.toastMax) {
         this.noticeTop = top;
+        this.toastMax = width;
         this.styleRoot.style.setProperty('--ui-notice-top', top + 'px');
+        this.styleRoot.style.setProperty('--ui-toast-max', width + 'px');
       }
     }
     if (this.messages.subtitleCount() > 0) {
@@ -321,17 +345,16 @@ export class Hud {
     if (s.touch === 'none') {
       this.styleRoot.style.removeProperty('--ui-sub-max');
       this.styleRoot.style.removeProperty('--ui-sub-shift');
-      this.styleRoot.style.removeProperty('--ui-toast-max');
     } else {
-      // notifications : entre le panneau de situation et la rangée de boutons système (290 px à l'échelle 1)
-      this.styleRoot.style.setProperty('--ui-toast-max', Math.max(220, Math.round(s.width - 602 * scale)) + 'px');
       const [left, right] = TOUCH_SIDES[s.touch];
       this.styleRoot.style.setProperty('--ui-sub-max', Math.round(s.width - (left + right) * scale) + 'px');
       this.styleRoot.style.setProperty('--ui-sub-shift', Math.round(((left - right) * scale) / 2) + 'px');
     }
     // positions de départ des messages ; affinées par placeMessages() dès qu'un message est affiché
     this.noticeTop = -1;
+    this.toastMax = -1;
     this.subBottom = -1;
+    this.styleRoot.style.removeProperty('--ui-toast-max');
     this.styleRoot.style.setProperty('--ui-sub-bottom', (s.touch === 'pied' ? Math.round(68 * scale) + 60 : s.compact ? 110 : 150) + 'px');
     this.styleRoot.style.setProperty('--ui-notice-top', (s.compact ? 92 : 80) + 'px');
   }

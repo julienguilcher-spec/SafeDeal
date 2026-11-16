@@ -206,9 +206,10 @@ export function buildCar(g: Geo, far: boolean, def: VehicleDef, st: CarStyle): M
     meta.beaconA.push(0.36, H + 0.1, (zB + zC) / 2 + 0.2);
     meta.beaconB.push(-0.36, H + 0.1, (zB + zC) / 2 + 0.2);
     // capot : « POLICE » lisible de face ; hayon ; bande tricolore avant
-    const hy = (s6.y1 + yBelt) / 2 + 0.012, hz = (zA + hl - 0.1) / 2;
-    const slope = Math.atan2(yBelt - s6.y1, zA - (hl - 0.1));
-    decalFree(g, 'police', 0, hy + 0.01, hz, [1, 0, 0], [0, Math.sin(slope), -Math.cos(slope)], 0.26);
+    const s5 = stations[last - 2]!;
+    const hy = (s5.y1 + yBelt) / 2 + 0.012, hz = (zA + s5.z) / 2;
+    const slope = Math.atan2(yBelt - s5.y1, zA - s5.z);
+    decalFree(g, 'police', 0, hy, hz, [1, 0, 0], [0, Math.sin(slope), -Math.cos(slope)], Math.min(0.24, (zA - s5.z) * 0.55));
     if (!far) {
       decal(g, 'police', 'B', 0, rY1 - 0.09 + 0.2, rz - 0.002, 0.13);
       g.mirror(() => { /* liseré bleu de bas de caisse */ g.paint(COL.policeBlue, SURF_FIXED).box(hw + 0.012, hw + 0.016, sill + 0.01, sill + 0.06, zR + r * 1.25, zF - r * 1.25); });

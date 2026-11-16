@@ -60,6 +60,7 @@ export class WaterJet {
   private readonly struck: Person[] = [];
   private readonly struckZone: number[] = [];
   private readonly struckDist: number[] = [];
+  private struckN = 0;
   private readonly props: Prop[] = [];
   private readonly vehicles: Vehicle[] = [];
   private readonly tmp: Vec2 = { x: 0, z: 0 };
@@ -172,15 +173,17 @@ export class WaterJet {
   private strike(p: Person, zone: number, dist: number): void {
     if (p.vehicleId !== 0 || p.dormant) return;
     const struck = this.struck;
-    const i = struck.indexOf(p);
-    if (i >= 0) {
+    const n = this.struckN;
+    for (let i = 0; i < n; i++) {
+      if (struck[i] !== p) continue;
       // touchée par plusieurs tronçons : on garde l'impact le plus haut (le plus dangereux)
       if (zone > this.struckZone[i]!) this.struckZone[i] = zone;
       return;
     }
-    struck.push(p);
-    this.struckZone.push(zone);
-    this.struckDist.push(dist);
+    struck[n] = p;
+    this.struckZone[n] = zone;
+    this.struckDist[n] = dist;
+    this.struckN = n + 1;
   }
 
   /** Effets du jet pendant `dtE` secondes, le long de la trajectoire tracée. Retourne le nombre de personnes atteintes. */
@@ -198,9 +201,7 @@ export class WaterJet {
     const mode = t.mode;
     const people = this.people;
     const struck = this.struck;
-    struck.length = 0;
-    this.struckZone.length = 0;
-    this.struckDist.length = 0;
+    this.struckN = 0;
 
     // ── personnes prises dans la partie basse du jet ──
     for (let i = 1; i < n; i++) {
@@ -249,7 +250,8 @@ export class WaterJet {
     const dirX = Math.sin(yaw);
     const dirZ = Math.cos(yaw);
     const neutral = this.k.neutralHealth;
-    for (let j = 0; j < struck.length; j++) {
+    const hitCount = this.struckN;
+    for (let j = 0; j < hitCount; j++) {
       const p = struck[j]!;
       const dist = this.struckDist[j]!;
       let strength = dist <= spec.useful ? 1 : 1 - (dist - spec.useful) / Math.max(1, spec.range - spec.useful);
@@ -288,7 +290,7 @@ export class WaterJet {
         }
       }
     }
-    if (force && struck.length > 0 && gunner) {
+    if (force && hitCount > 0 && gunner) {
       t.reportT -= dtE;
       if (t.reportT <= 0) {
         t.reportT = 2.5;
@@ -311,7 +313,7 @@ export class WaterJet {
       }
       ctx.events.emit('fx', { id: 'eclaboussure', x: ix, y: t.impactY, z: iz, size: splash });
     }
-    return struck.length;
+    return hitCount;
   }
 
   /** Éteint les véhicules en feu dont l'emprise touche le disque arrosé. */

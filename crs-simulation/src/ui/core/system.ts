@@ -37,7 +37,7 @@ import { Hud } from '../hud/hud';
 import { createDroneBand, createDroneFrame, createViewfinderBand, createViewfinderFrame } from '../hud/cameras';
 import { createCenter } from '../hud/center';
 import { createCompass } from '../hud/compass';
-import { createItemBar, createPrompt } from '../hud/items';
+import { createItemBar, createPrompt, createTouchFeed } from '../hud/items';
 import { createMarkers } from '../hud/markers';
 import { createObjectivesPart } from '../hud/objectives';
 import { createFps, createSituation } from '../hud/situation';
@@ -207,6 +207,7 @@ export class UiSystem implements GameSystem {
       createDroneFrame(env),
       createViewfinderFrame(env),
       createCenter(env, this.hud.root),
+      createTouchFeed(env),
       createSituation(env),
       createFps(env),
       createCompass(env),

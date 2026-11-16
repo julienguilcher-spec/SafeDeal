@@ -451,6 +451,8 @@ const CROWN_FRAG_MAP = /* glsl */ `
     // Silhouette découpée : près du contour, seules les feuilles restent.
     float cNdv = abs(dot(normalize(vViewPosition), normalize(vNormal)));
     if (cTex.a < 1.05 - cNdv * 1.9) discard;
+    // le pourtour, fait de feuilles éparses, est plus sombre que le plein du feuillage
+    diffuseColor.rgb *= 0.72 + 0.28 * smoothstep(0.0, 0.55, cNdv);
   #endif
 #endif
 `;

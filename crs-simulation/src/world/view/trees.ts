@@ -32,7 +32,7 @@ function blob(detail: number, cx: number, cy: number, cz: number, rx: number, ry
   const col = new Float32Array(n * 3);
   for (let i = 0; i < n; i++) {
     const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
-    const k = 1 + 0.26 * lump(x * 1.3 + seed, y * 1.3, z * 1.3 - seed);
+    const k = 1 + 0.3 * lump(x * 1.3 + seed, y * 1.3, z * 1.3 - seed);
     // dessous aplati : un houppier porte ses feuilles vers le haut et sur les côtés
     const flat = y < 0 ? 0.72 : 1;
     const px = cx + x * rx * k, py = cy + y * ry * k * flat, pz = cz + z * rz * k;
@@ -78,11 +78,12 @@ function mergeGeometries(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
 
 /** Houppier unité (tient dans une boule de rayon ≈ 1,15 autour de l'origine). */
 export function createCrownGeometry(detail: TreeDetail): THREE.BufferGeometry {
-  const parts = [blob(detail.main, 0, 0.04, 0, 0.86, 0.92, 0.86, 1.3)];
+  const parts = [blob(detail.main, 0, 0.05, 0, 0.84, 0.93, 0.84, 1.3)];
   if (detail.side >= 0) {
-    parts.push(blob(detail.side, 0.52, -0.2, 0.22, 0.6, 0.55, 0.6, 4.1));
-    parts.push(blob(detail.side, -0.44, -0.08, -0.4, 0.62, 0.6, 0.62, 7.7));
-    parts.push(blob(detail.side, -0.2, 0.3, 0.5, 0.52, 0.5, 0.52, 2.9));
+    parts.push(blob(detail.side, 0.5, -0.24, 0.24, 0.62, 0.52, 0.62, 4.1));
+    parts.push(blob(detail.side, -0.46, -0.14, -0.38, 0.64, 0.58, 0.64, 7.7));
+    parts.push(blob(detail.side, -0.22, 0.28, 0.5, 0.54, 0.52, 0.54, 2.9));
+    parts.push(blob(detail.side, 0.3, 0.36, -0.42, 0.5, 0.5, 0.5, 5.3));
   }
   const g = mergeGeometries(parts);
   g.computeBoundingSphere();

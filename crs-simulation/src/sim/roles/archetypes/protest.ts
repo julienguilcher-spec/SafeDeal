@@ -14,7 +14,7 @@ import type { ItemId, ProtestProfile, Rng } from '@/core/contracts';
 import { CARRY, FAMILY_IDS, PROFILE_IDS } from './api';
 import type { VisualFamily } from './api';
 import type { BodySpec, Draft, Identity } from './model';
-import { kitAdd, pickOf } from './model';
+import { kitAdd, noScarf, pickOf } from './model';
 import {
   BLOC_ANTHRACITE, BLOC_BLACK, BLOUSE_BLUE, BLOUSE_WHITE, CHASUBLE_COLORS, CLIMATE_GREEN, CLIMATE_YELLOW, FARMER_GREEN,
   FARMER_STRAW, FLUO_YELLOW, SENIOR_BEIGE, SENIOR_GREY, SO_ARMBAND, STUDENT_JEANS, STUDENT_SWEAT,
@@ -185,14 +185,14 @@ function blocAttire(d: Draft, rng: Rng, full: boolean): void {
   d.armorBody = full ? 0.15 : 0.05;
   const goggles = goggleRoll < (full ? 0.85 : 0.3);
   if (goggles) e.goggles = 1; else delete e.goggles;
-  if (gloveRoll < (full ? 0.85 : 0.3)) e.gloves = BLOC_BLACK; else delete e.gloves;
+  if (gloveRoll < (full ? 0.85 : 0.3)) e.gloves = BLOC_ANTHRACITE; else delete e.gloves;
   d.gasProtection = goggles ? 0.5 : 0.3;
-  e.helmetColor = BLOC_BLACK;
-  e.packColor = 0x1c1c1f;
-  e.coverColor = 0x141416;
+  // casque, sac et foulard : le rendu de la tenue du bloc applique ses noirs
+  delete e.helmetColor;
+  delete e.packColor;
+  noScarf(e);
   e.jacket = jacketRoll < 0.5 ? 1 : 0;
   e.sleeves = 1;
-  e.scarf = 0;
   e.bloc = 1;
   delete e.hoodDown;
   delete e.shorts;
@@ -256,7 +256,7 @@ function dressFamily(d: Draft, id: Identity, family: VisualFamily, orgColor: num
         e.jacket = 0;
       }
       e.sleeves = 1;
-      e.scarf = 0;
+      noScarf(e);
       delete e.hoodDown;
       delete e.shorts;
       delete e.skirt;
@@ -294,7 +294,7 @@ function dressFamily(d: Draft, id: Identity, family: VisualFamily, orgColor: num
       // avant de se changer : vêtements sombres ordinaires, le noir est dans le sac
       d.top = DARK_TOPS[Math.floor(a * DARK_TOPS.length)]!;
       d.backpack = true;
-      e.packColor = 0x1c1c1f;
+      e.packColor = BLOC_ANTHRACITE;
       if (d.headgear !== 'capuche') e.hoodDown = 1;
       e.jacket = 0;
       e.sleeves = 1;
@@ -334,11 +334,13 @@ const PILLEUR_TOOLS: readonly ToolChance[] = [
   { item: 'marteau', p: 0.15, count: 1 },
 ];
 
-function addTools(d: Draft, tools: readonly ToolChance[], rng: Rng): void {
+/** Tirages des outils, faits une fois par personne avant tout autre tirage dépendant de la tenue. */
+const toolRolls = new Float64Array(RADICAL_TOOLS.length);
+
+function addTools(d: Draft, tools: readonly ToolChance[]): void {
   for (let i = 0; i < tools.length; i++) {
     const t = tools[i]!;
-    // un tirage par outil, pris ou non : la suite aléatoire ne dépend pas du résultat
-    if (rng.next() < t.p) kitAdd(d, t.item, t.count);
+    if (toolRolls[i]! < t.p) kitAdd(d, t.item, t.count);
   }
 }
 
@@ -393,6 +395,8 @@ export function dressProtester(d: Draft, id: Identity, o: ProtestOptions, lookRn
   const r1 = kitRng.next();
   const r2 = kitRng.next();
   const r3 = kitRng.next();
+  // outils : toujours tirés, ici, pour que la dotation ne dépende pas de la tenue portée (noir ou ville)
+  for (let i = 0; i < toolRolls.length; i++) toolRolls[i] = kitRng.next();
   let signP = fd.sign;
   let flagP = fd.flag;
   let phoneP = 0.9;
@@ -474,7 +478,7 @@ export function dressProtester(d: Draft, id: Identity, o: ProtestOptions, lookRn
       if (r3 < 0.4) e.gloves = 0x17181b;
       d.gasProtection = goggles ? 0.5 : 0.3;
       e.scarf = 0;
-      e.coverColor = 0x1c1c1f;
+      e.coverColor = BLOC_ANTHRACITE;
       delete e.hoodDown;
     } else {
       // « déterminé qui reste » : garde sa tenue, visage souvent découvert, parfois lunettes et foulard
@@ -497,8 +501,8 @@ export function dressProtester(d: Draft, id: Identity, o: ProtestOptions, lookRn
     d.top = DARK_TOPS[Math.floor(r2 * DARK_TOPS.length)]!;
     d.faceCover = r3 < 0.5;
     d.gasProtection = d.faceCover ? 0.3 : 0;
-    e.coverColor = 0x1c1c1f;
-    e.packColor = 0x1c1c1f;
+    e.coverColor = BLOC_ANTHRACITE;
+    e.packColor = BLOC_ANTHRACITE;
     e.scarf = 0;
     delete e.hoodDown;
   }
@@ -515,8 +519,8 @@ export function dressProtester(d: Draft, id: Identity, o: ProtestOptions, lookRn
   if (hand) kitAdd(d, hand, 1);
   if (profile === 'meneur' && hand !== 'megaphone') kitAdd(d, 'megaphone', 1);
   if (phoneRoll < phoneP) kitAdd(d, 'telephone', 1);
-  if (profile === 'radical') addTools(d, RADICAL_TOOLS, kitRng);
-  else if (profile === 'pilleur') addTools(d, PILLEUR_TOOLS, kitRng);
+  if (profile === 'radical') addTools(d, RADICAL_TOOLS);
+  else if (profile === 'pilleur') addTools(d, PILLEUR_TOOLS);
   else if (profile === 'meneur' && inBloc) kitAdd(d, 'fumigene', 1);
   d.hand = hand;
 }

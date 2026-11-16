@@ -89,8 +89,9 @@ export function visibleUnits(scene: MapScene, mpp: number, compact: boolean, out
             }
           }
           crowded = min <= limit;
-        } else {
-          // échelon supérieur (compagnie) : seulement quand tout le dispositif tient dans un symbole
+        } else if (!(u.symbol === 'compagnie' && u.own > 0)) {
+          // échelon supérieur : seulement quand tout le dispositif tient dans un symbole (une compagnie
+          // dont le poste de commandement est figuré à part ne se fond jamais : ses sections restent lisibles)
           let spread = 0;
           for (let k = i + 1; k < j; k++) {
             const c = units[k]!;

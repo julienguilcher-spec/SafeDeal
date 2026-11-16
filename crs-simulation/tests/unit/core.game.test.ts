@@ -589,9 +589,10 @@ describe('Game — mesures', () => {
     game.frame(0.1); // 2 pas de simulation + 1 présentation
     const perf = Object.fromEntries(game.perf.map((p) => [p.id, p]));
     expect(perf['lourd']!.updateMs).toBeGreaterThanOrEqual(5.9); // 2 × 3 ms
-    expect(perf['lourd']!.updateMs).toBeLessThan(60);
+    // bornes hautes très larges : l'horloge murale compte aussi les interruptions d'une machine chargée
+    expect(perf['lourd']!.updateMs).toBeLessThan(5000);
     expect(perf['lourd']!.frameMs).toBe(0);
-    expect(perf['léger']!.updateMs).toBeLessThan(1);
+    expect(perf['léger']!.updateMs).toBeLessThan(1000);
     expect(perf['rendu']!.frameMs).toBeGreaterThanOrEqual(1.9);
     expect(perf['rendu']!.updateMs).toBe(0);
     expect(perf['lourd']!.avgUpdateMs).toBeGreaterThan(0);

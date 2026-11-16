@@ -21,7 +21,7 @@ export const BC = {
 } as const;
 
 const TRIM = 'pierre_lisse', ZINC = 'zinc', SLATE = 'ardoise';
-const GLASS = glazingMaterial('verriere_bourse', { frame: 0x8d979c, glass: 0xa9bcc2, tile: [2.4, 2.4], panes: [3, 3], bar: 0.06, minor: 0.02, night: 1.6 });
+const GLASS = glazingMaterial('verriere_bourse', { frame: 0x8d979c, glass: 0xa9bcc2, tile: [2.4, 2.4], panes: [3, 3], bar: 0.06, minor: 0.02, night: 1.4, lit: 0.97 });
 const IRON = plainMaterial('fer_bourse', 0x59636a, { roughness: 0.5, metalness: 0.4, night: 0.6 });
 const STYLE: PalaceStyle = {
   ...PALACE_STYLES.classique, id: 'bourse_commerce', bay: 4.35, stone: 0xdbd0b8,

@@ -24,9 +24,9 @@ import { WaterJet } from './jet';
 import { LightSystem } from './lights';
 import { GroundPhysics } from './physics';
 import { countOccupants, OCCUPANT_MASS, VehicleKernel } from './runtime';
-import type { VehicleRt } from './runtime';
 import { SeatSystem } from './seats';
 import { specFor } from './specs';
+import { TurretAim } from './turret-aim';
 import { TurretSystem } from './turrets';
 
 const NO_TURRET: Readonly<TurretStatus> = Object.freeze({
@@ -44,7 +44,7 @@ export class VehiclesSystem implements GameSystem {
   readonly damage = new DamageSystem(this.kernel);
   readonly seats = new SeatSystem(this.kernel, this.damage);
   readonly jet = new WaterJet(this.kernel, this.damage);
-  readonly turrets = new TurretSystem(this.kernel, this.jet);
+  readonly turrets = new TurretSystem(this.kernel, this.jet, new TurretAim(this.kernel));
   readonly flight = new FlightSystem(this.kernel);
   readonly autopilot = new Autopilot(this.kernel);
   readonly lights = new LightSystem(this.kernel);
@@ -275,7 +275,7 @@ export class VehiclesSystem implements GameSystem {
       setSalvo: (v: Vehicle, turret: number, count: number): number => self.turrets.setSalvo(v, turret, count),
       setJetMode: (v: Vehicle, turret: number, mode: JetMode): void => self.turrets.setJetMode(v, turret, mode),
       turretStatus: (v: Vehicle, turret: number): Readonly<TurretStatus> => self.turrets.status(k.rt(v), turret) ?? NO_TURRET,
-      predictImpact: (v: Vehicle, turret: number, out: Vec3): boolean => self.turrets.predict(k.rt(v), turret, out),
+      predictImpact: (v: Vehicle, turret: number, out: Vec3): boolean => self.turrets.aimer.predict(k.rt(v), turret, out),
       reloadTurret: (v: Vehicle, turret: number): boolean => self.turrets.reload(k.rt(v), turret),
       refill: (v: Vehicle): boolean => self.turrets.refill(k.rt(v)),
       setMast: (v: Vehicle, raised: boolean): void => self.turrets.setMast(k.rt(v), raised),

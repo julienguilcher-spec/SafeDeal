@@ -293,6 +293,18 @@ export class Autopilot implements AutopilotApi {
       rt.apActive = false;
       return;
     }
+    // le joueur a pris le volant : le pilote automatique lui rend la main sans freiner
+    const driverId = rt.driverId;
+    if (driverId !== 0) {
+      const driver = this.k.ctx.people.get(driverId);
+      if (driver && driver.isPlayer) {
+        ap.mode = 'idle';
+        rt.apActive = false;
+        v.indicator = 0;
+        this.driver.setStatus(rt, ap, 'repos', '');
+        return;
+      }
+    }
     rt.awake = true;
     if (ap.waitFor !== 0) {
       const w = this.k.peek(ap.waitFor);

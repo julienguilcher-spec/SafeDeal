@@ -34,6 +34,10 @@ const SPREAD_EVERY = 2;
 const SPREAD_REACH = 1.5;
 /** Durée pendant laquelle un objet arrosé ne reprend pas (s). */
 const WET_SECONDS = 45;
+/** Après un arrosage signalé, durée pendant laquelle la disparition de la nappe ne vaut pas extinction (s). */
+const DOUSE_MEMORY = 8;
+/** Délai sans apport de chaleur avant qu'un objet ne commence à refroidir (s). */
+const HEAT_HOLD = 6;
 /** Intensité au départ du feu. */
 const START_INTENSITY = 0.15;
 /** Batterie : agent nécessaire et reprise du feu (un extincteur à 1 unité/s ne suffit pas). */
@@ -117,6 +121,7 @@ export class Fire {
     if (!(amount > 0) || !this.canBurn(p)) return;
     if (this.m.k.ctx.clock.now < p.wetUntil) return;
     p.heat += amount;
+    p.heatAt = this.m.k.ctx.clock.now;
     if (byId !== 0) p.heatBy = byId;
     if (p.heat >= 1) this.ignite(p, p.heatBy, spread);
   }
@@ -141,7 +146,8 @@ export class Fire {
       if (f2 > f) f = f2;
     }
     if (f > 0.15) this.addHeat(p, (f * elapsed) / p.def.igniteSeconds, 0);
-    else if (p.heat > 0) {
+    else if (p.heat > 0 && this.m.k.ctx.clock.now - p.heatAt > HEAT_HOLD) {
+      // plus rien ne le chauffe depuis un moment : il refroidit
       p.heat -= elapsed * 0.03;
       if (p.heat < 0) p.heat = 0;
     }
@@ -284,10 +290,9 @@ export class Fire {
         if (p.suppress > 0) {
           const need = this.needOf(p);
           target *= 1 - 0.85 * Math.min(1, p.suppress / need);
-          if (now - p.dousedAt > 1) {
-            p.suppress -= (p.battery ? BATTERY_RECOVERY : def.recovery) * dt;
-            if (p.suppress < 0) p.suppress = 0;
-          }
+          // le feu reprend sans cesse, même sous le jet : il faut verser plus vite qu'il ne reprend
+          p.suppress -= (p.battery ? BATTERY_RECOVERY : def.recovery) * dt;
+          if (p.suppress < 0) p.suppress = 0;
         }
         target *= 1 - 0.3 * rain;
         // montée en puissance : une batterie s'embrase en quelques secondes, un bac en une demi-minute
@@ -343,17 +348,20 @@ export class Fire {
     const I = p.burning;
     const feed = p.fireTicks % FEED_EVERY === 1;
 
+    const sinceDouse = k.ctx.clock.now - p.dousedAt;
     if (feed && p.fireTicks > FEED_EVERY) {
-      // la nappe entretenue au dernier passage existe-t-elle encore ?
+      // La nappe entretenue au dernier passage existe-t-elle encore ? Ce contrôle ne joue que si l'eau ne
+      // nous est pas signalée par 'hazards:douse' : quand elle l'est, c'est la quantité versée qui décide
+      // (un extincteur noie la nappe au sol sans venir à bout d'une batterie ou d'un kiosque).
       if (hazards.fireAt(p.x, p.z) > 0.02) {
         p.coupled = true;
         p.missed = 0;
-      } else if (p.coupled && ++p.missed >= 2) {
+      } else if (p.coupled && sinceDouse > DOUSE_MEMORY && ++p.missed >= 2) {
         this.extinguish(p, this.douser(p.x, p.z), true);
         return;
       }
     }
-    const hosed = k.ctx.clock.now - p.dousedAt < 2; // sous le jet : on ne rallume pas la nappe
+    const hosed = sinceDouse < 2; // sous le jet : on ne rallume pas la nappe
 
     if (p.parts !== null && p.halfX > 1.5) {
       // barricade : un foyer tous les 2,5 m environ, le long de l'axe

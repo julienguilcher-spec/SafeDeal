@@ -13,7 +13,7 @@
 //   shot=1           pas d'interface, rendu à la demande (captures)    carte=1  mini-carte affichée
 //   immeubles=0      sol seul        monuments=0
 // Souris : glisser pour regarder ; ZQSD / flèches pour se déplacer, A/E monter et descendre, Maj pour aller vite.
-// API de test : window.__ready, __goto(vue, { heure, meteo }), __stats(), __memory(), __roundTrip(), __map(…).
+// API de test : window.__ready, __goto(vue, { heure, meteo }), __stats(), __memory(), __roundTrip(), __map(…), __bench(essais).
 import * as THREE from 'three';
 import type { EnvApi, EnvState, QualityLevel, RoadSample, ViewApi, WeatherKind } from '../src/core/contracts';
 import { Game } from '../src/core/game';
@@ -659,6 +659,7 @@ async function main(): Promise<void> {
   W.__look = (x: number, y: number, z: number, tx: number, ty: number, tz: number) => { lookAt(x, y, z, tx, ty, tz); return settle(); };
   W.__stand = (x: number, z: number, tx: number, tz: number, up?: number) => { standAt(x, z, tx, tz, up); return settle(); };
   W.__render = () => { tick(0.016); renderOnce(); };
+  W.__bench = (runs = 5) => view.benchTile(Math.floor(cam.x / 512), Math.floor(cam.z / 512), runs);
   W.__ctx = ctx;
   W.__renderer = renderer;
   await settle();

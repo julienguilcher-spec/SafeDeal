@@ -5,13 +5,21 @@
 //   node tests/e2e/render.mjs            tout
 //   node tests/e2e/render.mjs ambiances  seulement un groupe (ambiances | cameras | effets | qualite)
 import path from 'node:path';
-import { startServer, openPage, waitFor, shot, finish, OUT } from './lib.mjs';
+import { startServer, openPage, waitFor, finish, OUT } from './lib.mjs';
 
 const only = process.argv[2] ?? '';
 const server = await startServer();
 const t0 = Date.now();
-const { browser, page, errors } = await openPage(server.url + 'harness/render.html?q=haut&hud=0');
-await waitFor(page, 'window.__ready === true');
+// 960 × 540 : le WebGL logiciel est lent, et la machine de test est souvent partagée
+const SIZE = { width: 960, height: 540 };
+const { browser, page, errors } = await openPage(server.url + 'harness/render.html?q=haut&hud=0', SIZE);
+await waitFor(page, 'window.__ready === true', 300000);
+/** Capture avec un délai large (une image peut prendre plusieurs secondes en rendu logiciel). */
+const capture = async (target, name) => {
+  const file = path.join(OUT, name + '.png');
+  await target.screenshot({ path: file, timeout: 240000 });
+  return file;
+};
 const failures = [];
 const check = (cond, message) => { if (!cond) failures.push(message); };
 
@@ -21,7 +29,7 @@ async function view(name, setup, frames = 3) {
     window.__render.apply(s);
     await window.__render.settle(n);
   }, [setup, frames]);
-  const file = await shot(page, 'render-' + name);
+  const file = await capture(page, 'render-' + name);
   const stats = await page.evaluate(() => {
     const s = window.__render.stats();
     return {
@@ -80,7 +88,8 @@ if (!only || only === 'ambiances') {
   check(fog.stats.visibility < noon.stats.visibility / 3, 'le brouillard réduit nettement la visibilité');
   await view('15-orage', { ...STREET, t: 18, meteo: 'orage' });
   await view('16-orage-eclair', { cam: 'free', pos: [0, 30, 60], yaw: 0, pitch: 8, zoom: 1, t: 18, meteo: 'orage', eclair: 0.9, feu: false, gyro: false });
-  await view('17-orage-nuit', { ...STREET, t: 22.5, meteo: 'orage', eclair: 0, feu: true, gyro: true });
+  // averse de nuit : la chaussée détrempée renvoie candélabres, gyrophare et feu (l'orage, lui, tire ses éclairs au hasard)
+  await view('17-averse-nuit', { ...STREET, t: 22.5, meteo: 'averse', eclair: 0, feu: true, gyro: true });
   await view('18-aube', { ...STREET, t: 6.45, meteo: 'nuageux', yaw: 178, pos: [-3, 1.9, -50], pitch: 9 });
 }
 
@@ -106,6 +115,9 @@ if (!only || only === 'cameras') {
   }
   const tps = await page.evaluate(() => window.__render.stats());
   check(tps.mode === 'free', 'dernier mode : free');
+  const tac = await view('33-cam-tactical-haute', { ...base, cam: 'tactical', zoom: 0.3 }, 40);
+  check(tac.stats.cam[1] > 400, 'vue tactique : zoom arrière ⇒ caméra très haute');
+  check(tac.stats.drawDistance >= tac.stats.cam[1] * 1.5, 'vue tactique : le sol sous la caméra reste dans la distance d’affichage');
   // collision de la caméra d'épaule : dos au mur, le recul est réduit et la caméra reste hors de l'immeuble
   const wall = await view('31-cam-tps-dos-au-mur', { ...base, cam: 'tps', joueur: [12.3, 30], yaw: -90, pitch: -3 }, 4);
   check(wall.stats.tpsDistance < 1.5, `dos au mur : recul ${wall.stats.tpsDistance.toFixed(2)} m, attendu < 1,5 m`);
@@ -145,9 +157,9 @@ if (!only || only === 'qualite') {
   await page.evaluate(() => window.__render.apply({ quality: 'haut' }));
   // téléphone en paysage (844 × 390 points, densité 3) en qualité basse
   const phone = await openPage(server.url + 'harness/render.html?q=bas&scale=0.7&hud=0&t=17.5&meteo=nuageux&cam=tps&pitch=-6&feu=1&gyro=1', { width: 844, height: 390, deviceScaleFactor: 3, mobile: true });
-  await waitFor(phone.page, 'window.__ready === true');
+  await waitFor(phone.page, 'window.__ready === true', 300000);
   await phone.page.evaluate(() => window.__render.settle(4));
-  await phone.page.screenshot({ path: path.join(OUT, 'render-53-telephone-bas.png') });
+  await capture(phone.page, 'render-53-telephone-bas');
   const ps = await phone.page.evaluate(() => window.__render.stats());
   console.log(`  53-telephone-bas       ${ps.drawCalls} appels  tampon ${ps.width}×${ps.height} (densité ${ps.pixelRatio.toFixed(2)})  prép. ${ps.prepareMs.toFixed(2)} ms`);
   check(ps.quality === 'bas' && ps.shadows === false, 'téléphone : qualité basse sans ombre');
@@ -160,11 +172,11 @@ if (!only || only === 'qualite') {
 if (!only || only === 'moteur') {
   // les deux modules branchés sur le vrai moteur (Game, session, boucle) : cycle de vie réel
   console.log('Moteur réel :');
-  const engine = await openPage(server.url + 'harness/render.html?moteur=1&hud=0');
-  await waitFor(engine.page, 'window.__ready === true');
+  const engine = await openPage(server.url + 'harness/render.html?moteur=1&hud=0', SIZE);
+  await waitFor(engine.page, 'window.__ready === true', 300000);
   await engine.page.waitForTimeout(1500);
   const report = await engine.page.evaluate(() => window.__engine.report());
-  await engine.page.screenshot({ path: path.join(OUT, 'render-60-moteur.png') });
+  await capture(engine.page, 'render-60-moteur');
   const ids = report.systems.map((s) => s.id + ':' + s.order);
   console.log('  systèmes : ' + ids.join(', ') + ' | mode ' + report.mode + ' | ' + report.stats.drawCalls + ' appels');
   check(report.view === true, 'moteur : ctx.view publié');

@@ -1,0 +1,698 @@
+/* =====================================================================================
+ * Catalogue — commandant (commandement et autorité habilitée réunis, voir BRIEF §1).
+ * Les anciennes missions du « commissaire » sont ici : le commandant tient l'écharpe,
+ * le mégaphone et les sommations. Ses ordres s'appliquent immédiatement.
+ * ===================================================================================== */
+
+import type { MissionDef } from '../../../core/missions-schema';
+import { crowd, fail, forces, FIN, FOULE, intel, mission, ob, os, ph, T, TENS } from './dsl';
+import type { MissionSpec } from './dsl';
+import { SEMAINE } from './semaine';
+
+const CDT: Pick<MissionSpec, 'role' | 'rank' | 'poste'> = { role: 'commandant', rank: 'commandant', poste: 'commandant_unite' };
+const ADJ: Pick<MissionSpec, 'role' | 'rank' | 'poste'> = { role: 'commandant', rank: 'capitaine', poste: 'commandant_unite' };
+
+/** Première prise de commandement : cortège déclaré, ambiance calme (miroirs : journaliste, manifestant pacifique). */
+export const CDT_01 = mission({
+  ...ADJ,
+  id: 'cdt-01-prise-de-commandement',
+  title: 'Prise de commandement',
+  pitch: 'Votre première demi-compagnie, un cortège déclaré de neuf cents personnes et un camion sonorisé capricieux : le métier commence par savoir se faire oublier.',
+  briefing: [
+    `Une intersyndicale fictive, le « Front commun des Ateliers », défile contre le « projet Horizon », une réforme des horaires de travail. Parcours déclaré en préfecture : place de la République, boulevard du Temple, boulevard des Filles du Calvaire, boulevard Beaumarchais, place de la Bastille, soit 1,5 km. Neuf cents marcheurs sont attendus, familles et retraités compris, avec un service d'ordre de bonne volonté. Aucun renseignement ne signale de groupe violent.`,
+    `Vous commandez la demi-compagnie : deux sections, six fourgons. Votre mission est d'accompagner le cortège jusqu'à la Bastille sans incident, de garder libres les axes perpendiculaires et de ne pas peser sur l'ambiance. Vous portez l'écharpe tricolore et tenez le mégaphone : vous êtes seul décideur, ce qui vous rend aussi seul responsable de chaque ordre.`,
+    `Section 1 en tête discrète à 100 m devant le cortège, section 2 en réserve dans les rues parallèles, les fourgons alignés rue Amelot. Vous jalonnez chaque carrefour sans montrer vos boucliers : casques à la ceinture, rien en ligne tant que rien ne l'exige. Si le camion sonorisé tombe en panne, vous ouvrez un parcours de délestage plutôt que de laisser s'allonger l'attente. À la Bastille, vous laissez la dispersion se faire par la rue Saint-Antoine.`,
+    `Le renseignement ne vous demande pas de faire un exploit : il vous demande de ne rien provoquer. Toute unité visible du cortège hors de la tête compte contre vous. Rendez compte à la salle toutes les cinq minutes. Un agent blessé ou un geste de trop pèsera plus lourd que toute la réussite du reste.`,
+  ],
+  ...{ type: 'manifestation_declaree' as const, place: 'Place de la République', timeOfDay: 14, weather: 'clair' as const, windFrom: 270, windSpeed: 4 },
+  crowd: crowd(900, 'pouvoir_achat', 0.1, 0.2, 0.01, { syndical: 0.55, familles: 0.15, retraites: 0.1, etudiants: 0.1, gilets_jaunes: 0.1 },
+    ['Place de la République', 'Boulevard du Temple', 'Boulevard des Filles du Calvaire', 'Boulevard Beaumarchais', 'Place de la Bastille'], 0.45),
+  forces: forces({ sections: 2, fourgons: 6, pompiers: 1, samu: 1 }),
+  intel: intel(
+    'Neuf cents personnes, ambiance de marche calme, camion sono en tête, service d\'ordre syndical identifié.',
+    'Aucun signalement de groupe radical ; une poignée d\'opportunistes possibles à l\'arrivée.',
+    ['Boulevard du Temple', 'Place de la Bastille', 'Rue Saint-Antoine'],
+    ['Placer la réserve dans les rues parallèles, hors de vue', 'Prévoir un délestage par la rue de Turbigo', 'Rouvrir les stations de métro dès la dispersion']),
+  phases: [
+    ph('plan', 'Mise en place', 'Les sections rejoignent leurs rues parallèles pendant que le cortège se forme sur la place.', T(240),
+      [['CENTRAL', 'MISTRAL ICI CENTRAL. Cortège déclaré, parcours République, Bastille. Vous accompagnez, vous ne précédez pas. FAITES L\'APERÇU.'], ['MISTRAL', 'CENTRAL ICI MISTRAL. APERÇU. Dispositif en place dans UN-ZÉRO minutes. TERMINÉ.']],
+      ['Quelques manifestants offrent le café aux agents du poste fixe']),
+    ph('depart', 'Départ du cortège', 'La tête s\'ébranle derrière sa banderole ; le camion sono lance les chants.', T(420),
+      [['MISTRAL 1', 'MISTRAL ICI MISTRAL UN. Tête de cortège à DEUX-ZÉRO-ZÉRO mètres. Nature : cortège déclaré. Volume : NEUF CENTS. Attitude : calme. PARLEZ.']],
+      ['Un touriste cherche la colonne de Juillet au milieu des marcheurs']),
+    ph('sono', 'Panne de sonorisation', 'Le camion sono tombe en panne ; le cortège s\'étire et l\'impatience monte.', FOULE('dispersion'),
+      [['LIAISON', 'MISTRAL ICI LIAISON. Les organisateurs demandent un délestage par la rue de Turbigo, arrêt de CINQ minutes. PARLEZ.']],
+      ['Averse de deux minutes sur le boulevard Beaumarchais']),
+    ph('dispersion', 'Dispersion à la Bastille', 'Le cortège arrive place de la Bastille ; la foule se disloque vers le métro et la rue Saint-Antoine.', FIN,
+      [['CENTRAL', 'MISTRAL ICI CENTRAL. Stations rouvertes, confirmez fin de mission quand la chaussée est libre. PARLEZ.']], []),
+  ],
+  objectives: [
+    ob('o1', 'Accompagner le cortège jusqu\'à la place de la Bastille sans emploi de la force', 'zero_bavure', { place: 'Place de la Bastille' }),
+    ob('o2', 'Ouvrir le parcours de délestage dès la panne du camion sonorisé', 'traiter_incidents', { target: 'panne_sono', count: 1 }),
+    os('o3', 'Rendre compte à la salle toutes les cinq minutes', 'personnalise', { target: 'compte_rendu_radio', count: 5 }),
+    os('o4', 'Ne déplorer aucun agent blessé', 'limiter_blesses', { max: 0 }),
+  ],
+  failures: [fail('bavure_grave', 'Emploi de la force sur un cortège pacifique : enquête de l\'IGPN.'), fail('revocation', 'Ordre manifestement illégal donné : retrait du commandement.')],
+  randomEvents: ['Un touriste traverse le cortège avec une valise', 'Averse de deux minutes', 'Malaise d\'un retraité à hauteur de la rue Amelot', 'Rumeur en ligne sur un affrontement imaginaire (tension +0,05)'],
+  unique: 'Aucune violence au programme : l\'essentiel du commandement consiste à rester invisible et à ne rien déclencher.',
+  difficulty: 2, chapter: 5, altRoles: ['journaliste', 'manifestant'], tags: ['miroir', 'debutant', 'declaree'],
+});
+
+/** Précortège de tête violent, journée nationale tendue (miroirs : journaliste, manifestant radical, télépilote). */
+export const CDT_02 = mission({
+  ...CDT,
+  id: 'cdt-02-le-precortege',
+  title: 'Le précortège',
+  pitch: 'Trois cents personnes cagoulées devant huit mille marcheurs : séparer les uns des autres sans gazer les autres.',
+  briefing: [
+    `Journée nationale d'action du « Front commun des Ateliers » contre le « projet Horizon ». Huit mille marcheurs sont déclarés place de la République, avec boulevard du Temple pour axe. Le renseignement signale un précortège d'environ trois cents personnes, dont une centaine déterminée, qui se forme en avant de la banderole officielle. Des fumigènes noirs et des parapluies ont déjà été repérés par une patrouille en civil.`,
+    `Vous commandez la compagnie complète : quatre sections, douze fourgons, un drone. Votre mission est de séparer le précortège du cortège déclaré, d'empêcher le saccage du boulevard et de garder ouverte la voie de sortie du gros de la manifestation. Vous êtes l'autorité qui qualifie, somme et ordonne : aucun gaz ne doit atteindre les familles.`,
+    `Deux sections face au précortège sur le boulevard du Temple, une section en réserve rue du Temple, une section sur le flanc par la rue de Turbigo. Le drone suit les changements de tenue et les regroupements. Dès qu'un bloc se forme, repérez-le et choisissez : canalisation, interpellation différée, ou sommations puis refoulement vers l'est. Pesez chaque ordre : la tête de cortège regarde votre ligne.`,
+    `Les familles sont dans le cortège principal, à moins de cent mètres de la zone d'affrontement probable. Tout tir de grenade qui aboutit sur elles est une faute lourde. La liaison avec les organisateurs est ouverte : utilisez-la avant la force.`,
+  ],
+  type: 'manifestation_declaree', place: 'Boulevard du Temple', timeOfDay: 15, weather: 'couvert', windFrom: 250, windSpeed: 4,
+  crowd: crowd(1200, 'pouvoir_achat', 0.35, 0.6, 0.12, { syndical: 0.4, familles: 0.1, black_bloc: 0.1, etudiants: 0.15, gilets_jaunes: 0.15, retraites: 0.1 },
+    ['Place de la République', 'Boulevard du Temple', 'Boulevard des Filles du Calvaire', 'Boulevard Beaumarchais', 'Place de la Bastille'], 0.5),
+  forces: forces({ sections: 4, fourgons: 12, drone: true, pompiers: 2, samu: 1 }),
+  intel: intel(
+    'Environ huit mille déclarés, douze cents simulés ; un précortège de trois cents personnes en tête.',
+    'Une centaine d\'individus déterminés, noir intégral, parapluies et banderole renforcée.',
+    ['Boulevard du Temple', 'Rue de Turbigo', 'Rue du Temple'],
+    ['Retirer poubelles et barrières du boulevard avant l\'arrivée', 'Faire parler la liaison au service d\'ordre', 'Demander le drone sur la tête de cortège']),
+  phases: [
+    ph('rassemblement', 'Rassemblement tendu', 'Le cortège se forme ; le précortège se regroupe à l\'écart et se change.', T(240),
+      [['ICARE', 'CENTRAL ICI ICARE. Fumigène noir, parapluies ouverts, changements de tenue : un bloc se forme à hauteur du kiosque. PARLEZ.'], ['CENTRAL', 'MISTRAL ICI CENTRAL. Qualifiez et décidez. Vous avez toute latitude, TERMINÉ.']],
+      ['Un fumigène noir enflamme un banc au bord du boulevard']),
+    ph('depart', 'Départ et poussée de tête', 'Le précortège avance sans attendre le camion sono et pousse vers votre ligne.', TENS(0.55),
+      [['MISTRAL 2', 'MISTRAL ICI MISTRAL DEUX. Chaussée dépavée à l\'angle du boulevard du Temple, barrières de chantier tirées en travers. PARLEZ.']],
+      ['Premiers jets de bouteilles sur la ligne', 'Un cocktail incendiaire est lancé sur un fourgon']),
+    ph('affrontement', 'Affrontement de tête', 'Le bloc attaque la ligne ; le gros du cortège ralentit, inquiet.', FOULE('dispersion'),
+      [['LIAISON', 'MISTRAL ICI LIAISON. Les organisateurs acceptent de ralentir le cortège de CINQ-ZÉRO mètres. PARLEZ.']],
+      ['Mortiers d\'artifice tirés à tir tendu vers les agents']),
+    ph('dispersion', 'Dispersion', 'Le précortège reflue vers le canal ; le cortège reprend sa marche.', FIN,
+      [['MISTRAL', 'CENTRAL ICI MISTRAL. Dispersion effective, chaussée libre. PARLEZ.']], []),
+  ],
+  objectives: [
+    ob('o1', 'Séparer le précortège du cortège déclaré sans gaz sur ce dernier', 'disperser', { place: 'Boulevard du Temple' }),
+    ob('o2', 'Garder libre la voie de sortie du cortège pendant toute l\'action', 'tenir_position', { place: 'Boulevard des Filles du Calvaire', seconds: 900 }),
+    os('o3', 'Repérer au moins trois signes avant-coureurs avant le premier jet', 'reperer_signaux', { count: 3 }),
+    os('o4', 'Limiter les vitrines brisées à cinq', 'limiter_degats', { max: 5 }),
+  ],
+  failures: [fail('bavure_grave', 'Gaz ou charge sur le cortège déclaré : faute lourde.'), fail('ligne_enfoncee', 'La ligne est percée et le boulevard est saccagé.'), fail('trop_de_blesses', 'Trop de blessés dans le cortège.', 20)],
+  randomEvents: ['Vent tournant qui renvoie le gaz', 'Poussette prise dans la bousculade', 'Deux journalistes se plaquent contre un mur', 'Camion sono bloqué par une barricade'],
+  unique: 'Isoler l\'avant-garde violente d\'un grand cortège pacifique, avec la liaison et le drone comme voies sans force.',
+  difficulty: 4, chapter: 6, altRoles: ['journaliste', 'manifestant', 'telepilote'], tags: ['miroir', 'precortege', 'tendue'],
+});
+
+/** Manifestation interdite à l'Étoile : douze barrages radiaux. */
+export const CDT_03 = mission({
+  ...CDT,
+  id: 'cdt-03-etoile-a-douze-branches',
+  title: 'L\'Étoile à douze branches',
+  pitch: 'Douze avenues convergent vers l\'Arc de Triomphe et un appel non déclaré à s\'y retrouver : tenir un cercle que l\'on ne peut pas fermer.',
+  briefing: [
+    `Un appel anonyme, sans organisateur, invite à converger vers la place Charles-de-Gaulle. Le préfet a interdit tout rassemblement dans le périmètre de l'Étoile. Le renseignement estime qu'un millier de personnes arriveront par les avenues Foch, de la Grande-Armée, des Champs-Élysées et Kléber, dont quelques centaines de personnes décidées à atteindre l'Arc de Triomphe.`,
+    `Vous commandez toutes les sections disponibles : quatre sections, un Centaure, un canon à eau, un drone. Votre mission est d'interdire l'accès à la place sans jamais laisser un barrage isolé, de protéger l'Arc de Triomphe et le Soldat inconnu, et de garder libre un couloir de secours vers l'avenue Hoche.`,
+    `Une section à l'est vers les Champs-Élysées, une à l'ouest avenue de la Grande-Armée, une au nord avenue de Wagram, une en réserve mobile. Le Centaure et le canon à eau au sud, prêts à ouvrir un barrage. Vous constatez, vous annoncez, vous sommez : avant toute force, prononcez les sommations de votre voix depuis le mégaphone. Le drone vous dit où la foule est la plus dense.`,
+    `Le rond-point ne s'enferme pas : douze issues, donc douze fuites pour la foule. N'enfermez personne. Un tir de grenade lacrymogène dans l'une des avenues peut pousser la foule vers les autres : pensez à la suite avant de donner l'ordre.`,
+  ],
+  type: 'manifestation_interdite', place: 'Place Charles de Gaulle', timeOfDay: 15.5, weather: 'nuageux', windFrom: 290, windSpeed: 5,
+  crowd: crowd(1500, 'libertes', 0.4, 0.65, 0.1, { gilets_jaunes: 0.45, militants: 0.15, black_bloc: 0.1, familles: 0.1, curieux: 0.2 },
+    ['Avenue des Champs-Élysées', 'Avenue de la Grande Armée', 'Avenue Foch', 'Avenue Kléber', 'Place Charles de Gaulle'], 0.6),
+  forces: forces({ sections: 4, fourgons: 12, centaure: 1, canonEau: 1, drone: true, pompiers: 2, samu: 1 }),
+  intel: intel(
+    'Un millier de personnes sans organisateur, ambiance « acte non déclaré », foule dispersée sur douze avenues.',
+    'Quelques centaines de personnes décidées, sans coordination claire ; un bloc possible avenue de la Grande-Armée.',
+    ['Avenue de la Grande Armée', 'Avenue des Champs-Élysées', 'Avenue Foch'],
+    ['Fermer la circulation des douze avenues avant 14 h', 'Garder un couloir de secours avenue Hoche', 'Placer la réserve au centre de l\'anneau']),
+  phases: [
+    ph('bouclage', 'Mise en place des barrages', 'Les sections se déploient sur les avenues ; le trafic est coupé en amont.', T(300),
+      [['CENTRAL', 'MISTRAL ICI CENTRAL. Mission : INTERDIRE la place Charles-de-Gaulle. Cadre : manifestation interdite. FAITES L\'APERÇU.'], ['MISTRAL', 'CENTRAL ICI MISTRAL. APERÇU. Barrages en place, face aux avenues. PARLEZ.']],
+      ['Un car de touristes bloque l\'avenue de Friedland']),
+    ph('arrivee', 'Arrivée par vagues', 'Les premiers groupes sortent du métro et tentent de forcer les barrages.', TENS(0.55),
+      [['ICARE', 'CENTRAL ICI ICARE. Groupe de TROIS-ZÉRO-ZÉRO sur l\'avenue de la Grande-Armée, visages couverts. PARLEZ.']],
+      ['Jets de bouteilles sur le barrage ouest']),
+    ph('pression', 'Pression sur les barrages', 'Plusieurs avenues sont attaquées en même temps ; la réserve doit choisir.', FOULE('dispersion'),
+      [['MISTRAL 3', 'MISTRAL ICI MISTRAL TROIS. Barrage nord débordé par DEUX-ZÉRO personnes, je demande la réserve. PARLEZ.']],
+      ['Barricade enflammée avenue de Wagram']),
+    ph('retour', 'Retour au calme', 'La pression retombe avec la nuit ; reste à rendre la place.', FIN,
+      [['CENTRAL', 'MISTRAL ICI CENTRAL. Rouvrez les avenues au fur et à mesure. PARLEZ.']], []),
+  ],
+  objectives: [
+    ob('o1', 'Interdire l\'accès à la place Charles-de-Gaulle', 'proteger_site', { place: 'Place Charles de Gaulle', target: 'arc_de_triomphe' }),
+    ob('o2', 'Ne laisser aucun barrage isolé plus de quinze secondes', 'tenir_position', { seconds: 900 }),
+    ob('o3', 'Prononcer les trois sommations avant tout emploi de la force', 'sommations_regulieres', { count: 3 }),
+    os('o4', 'Garder libre le couloir de secours avenue Hoche', 'proteger_site', { place: 'Avenue Hoche' }),
+  ],
+  failures: [fail('site_envahi', 'L\'Arc de Triomphe est envahi.'), fail('bavure_grave', 'Emploi de la force sans sommation.'), fail('ligne_enfoncee', 'Un barrage est percé et ne se reforme pas.')],
+  randomEvents: ['Touristes pris entre deux barrages', 'Bloc noir avenue de la Grande-Armée', 'Panne radio de soixante secondes', 'Ordre contradictoire de la salle'],
+  unique: 'Douze barrages radiaux autour d\'un monument, où l\'on ne peut ni tout fermer ni tout surveiller.',
+  difficulty: 5, chapter: 6, tags: ['interdite', 'monument', 'etoile'],
+});
+
+/** Émeute nocturne et pillages dans le quartier du Palais-Royal. */
+export const CDT_04 = mission({
+  ...ADJ,
+  id: 'cdt-04-nuit-des-vitrines',
+  title: 'Nuit des vitrines',
+  pitch: 'La nuit tombe sur le quartier du Palais-Royal : une cinquantaine de pilleurs, des vitrines qui sautent, et vos deux sections trop peu nombreuses pour tout garder.',
+  briefing: [
+    `Après une journée de mobilisation, une partie des manifestants ne se disperse pas. Au crépuscule, des groupes mobiles remontent la rue de Rivoli, la rue Saint-Honoré et la place Vendôme. Les premières vitrines sont brisées. Les commerçants appellent le 17.`,
+    `Vous commandez la demi-compagnie : deux sections, un BRAV-M de renfort, un drone. Votre mission est de contenir les dégâts, de protéger les boutiques les plus exposées et d'interpeller les auteurs sur faits constatés, sans faire basculer le quartier dans la violence. Les pompiers et le SAMU sont à distance, à demander par radio.`,
+    `Section 1 fixe sur la place Vendôme et la rue de la Paix, section 2 mobile sur la rue Saint-Honoré. Le drone désigne les groupes, les BRAV-M interviennent sur ordre. Chaque feu, chaque blessé devient un incident que vous pouvez déléguer. Gardez les secours dans un couloir protégé.`,
+    `À la nuit, la lumière joue contre vous : le renseignement est moins fiable. N'engagez pas un groupe plus nombreux que le vôtre dans une rue étroite. Ne laissez pas un agent isolé à moins de cent mètres d'un pillage.`,
+  ],
+  type: 'emeute_nocturne', place: 'Rue Saint-Honoré', timeOfDay: 21.5, weather: 'couvert', windFrom: 240, windSpeed: 3,
+  crowd: crowd(500, '', 0.55, 0.75, 0.2, { black_bloc: 0.25, curieux: 0.25, fetards: 0.2, militants: 0.1, gilets_jaunes: 0.2 },
+    ['Rue de Rivoli', 'Rue Saint-Honoré', 'Place Vendôme', 'Rue de la Paix', 'Place de l\'Opéra'], 0.15),
+  forces: forces({ sections: 2, fourgons: 6, bravm: 3, drone: true, pompiers: 2, samu: 1 }),
+  intel: intel(
+    'Cinq cents personnes dispersées en groupes mobiles ; une cinquantaine de pilleurs possibles.',
+    'Une quarantaine d\'individus encagoulés ; le reste suit par curiosité.',
+    ['Place Vendôme', 'Rue de la Paix', 'Rue Saint-Honoré'],
+    ['Protéger d\'abord les bijouteries de la place Vendôme', 'Demander les pompiers avant le premier feu de façade', 'Garder les BRAV-M en réserve mobile']),
+  phases: [
+    ph('depart', 'Premières vitrines', 'Un groupe casse deux vitrines rue de Rivoli et disparaît sous les arcades.', T(240),
+      [['CENTRAL', 'MISTRAL ICI CENTRAL. Groupe de QUINZE individus, vitrines brisées, rue Saint-Honoré. PARLEZ.']],
+      ['Un rideau de fer est forcé à la barre']),
+    ph('pillage', 'Pillage en cours', 'Plusieurs boutiques sont attaquées en même temps ; les riverains appellent.', TENS(0.65),
+      [['MISTRAL 1', 'MISTRAL ICI MISTRAL UN. Pillage en cours, rue de la Paix. UN-CINQ individus. PARLEZ.'], ['FAUCON 1', 'MISTRAL ICI FAUCON UN. Prêts à intervenir sur objectif désigné. PARLEZ.']],
+      ['Feu de poubelle contre une devanture']),
+    ph('feux', 'Feux de rue', 'Poubelles et barricade de trottinettes brûlent ; la fumée noire gêne le drone.', FOULE('dispersion'),
+      [['ICARE', 'CENTRAL ICI ICARE. TROIS foyers actifs, fumée épaisse, visibilité réduite. PARLEZ.']],
+      ['Batteries de trottinettes embrasées, étincelles']),
+    ph('retour', 'Retour au calme', 'Les groupes se dispersent ; il reste à sécuriser les devantures.', FIN,
+      [['MISTRAL', 'CENTRAL ICI MISTRAL. Quartier sécurisé, DEUX interpellés. PARLEZ.']], []),
+  ],
+  objectives: [
+    ob('o1', 'Limiter les vitrines brisées à huit', 'limiter_degats', { max: 8 }),
+    ob('o2', 'Interpeller au moins quatre auteurs sur faits constatés', 'interpeller', { count: 4 }),
+    ob('o3', 'Traiter les trois feux de rue avant qu\'ils gagnent une façade', 'traiter_incidents', { target: 'feu', count: 3 }),
+    os('o4', 'Aucun agent isolé plus de trente secondes', 'zero_bavure'),
+  ],
+  failures: [fail('trop_de_blesses', 'Trop de blessés parmi vos agents.', 6), fail('site_envahi', 'Une bijouterie est entièrement pillée.')],
+  randomEvents: ['Passant pris au milieu d\'un groupe', 'Rideau forcé et alarme', 'Panne radio de soixante secondes', 'Un agent isolé appelle à l\'aide'],
+  unique: 'La nuit et les rues étroites du quartier du Palais-Royal rendent la manœuvre plus difficile que n\'importe quel affrontement de jour.',
+  difficulty: 4, chapter: 5, altRoles: ['journaliste', 'manifestant'], tags: ['nuit', 'pillage', 'miroir'],
+});
+
+/** Trois ponts à tenir en même temps. */
+export const CDT_05 = mission({
+  ...CDT,
+  id: 'cdt-05-trois-ponts',
+  title: 'Trois ponts',
+  pitch: 'Concorde, Alexandre III, Invalides : un cortège veut passer la Seine vers l\'Assemblée nationale, vous n\'avez de quoi tenir fermement que deux ponts.',
+  briefing: [
+    `Un cortège non déclaré annonce une marche sur l'Assemblée nationale, le jour d'un vote sensible. Le préfet a interdit tout rassemblement dans un périmètre de deux cents mètres autour du palais. Le cortège, d'environ deux mille personnes, descend les Champs-Élysées et pourra emprunter le pont de la Concorde, le pont Alexandre III ou le pont des Invalides.`,
+    `Vous commandez la compagnie : quatre sections, un canon à eau, un Centaure et un drone. Votre mission est d'interdire les trois ponts, de protéger le Palais Bourbon et de ne pas laisser un pont devenir un piège pour la foule. Un seul pont ouvert est une issue ; trois fermés sont un entonnoir.`,
+    `Deux sections sur le pont de la Concorde, une section au pont Alexandre III, une en réserve à l'esplanade des Invalides. Le canon à eau reste derrière la première ligne ; vous ne l'engagez qu'après sommations et si la ligne est menacée. Gardez en permanence un couloir libre vers le cours la Reine pour les secours.`,
+    `Les ponts font trente-six à quarante mètres de large : c'est étroit pour une foule de deux mille personnes. Ne provoquez pas de bousculade : une retraite doit toujours rester possible. Vous êtes autorité unique : la force est autorisée ou interdite par vous seul.`,
+  ],
+  type: 'barrage', place: 'Pont de la Concorde', timeOfDay: 16, weather: 'nuageux', windFrom: 260, windSpeed: 4,
+  crowd: crowd(2000, 'libertes', 0.4, 0.6, 0.08, { gilets_jaunes: 0.3, syndical: 0.25, etudiants: 0.15, black_bloc: 0.1, familles: 0.1, retraites: 0.1 },
+    ['Avenue des Champs-Élysées', 'Place de la Concorde', 'Cours la Reine', 'Pont Alexandre III', 'Pont de la Concorde'], 0.5),
+  forces: forces({ sections: 4, fourgons: 12, canonEau: 1, centaure: 1, drone: true, pompiers: 2, samu: 1 }),
+  intel: intel(
+    'Deux mille personnes sans organisateur ; elles se scinderont probablement en deux colonnes à la Concorde.',
+    'Une centaine de radicaux en tête, qui chercheront le pont de la Concorde.',
+    ['Pont de la Concorde', 'Pont Alexandre III', 'Cours la Reine'],
+    ['Fermer la circulation des deux rives avant l\'arrivée', 'Prépositionner le canon à eau au débouché du pont', 'Garder un couloir pour les secours']),
+  phases: [
+    ph('mise-en-place', 'Barrage des ponts', 'Les sections rejoignent les trois ponts ; véhicules en travers sur les têtes de pont.', T(300),
+      [['CENTRAL', 'MISTRAL ICI CENTRAL. Mission : INTERDIRE les ponts de la Concorde, Alexandre-III et des Invalides. FAITES L\'APERÇU.'], ['MISTRAL', 'CENTRAL ICI MISTRAL. APERÇU. Barrages en place. TERMINÉ.']], []),
+    ph('arrivee', 'La colonne descend les Champs-Élysées', 'Le cortège se scinde en deux colonnes devant la Concorde.', TENS(0.5),
+      [['ICARE', 'CENTRAL ICI ICARE. Tête à DEUX cents mètres du pont de la Concorde, QUATRE-ZÉRO-ZÉRO personnes devant la banderole. PARLEZ.']],
+      ['Une colonne contourne par le cours la Reine']),
+    ph('pression', 'Poussée sur le pont', 'La première colonne pousse sur la ligne ; la seconde cherche le pont Alexandre III.', FOULE('dispersion'),
+      [['MISTRAL 2', 'MISTRAL ICI MISTRAL DEUX. Poussée sur la ligne, jets de projectiles. Je demande vos ordres. PARLEZ.']],
+      ['Densité critique devant la ligne, plus de QUATRE personnes au mètre carré']),
+    ph('fin', 'Reflux', 'Les colonnes refluent vers les Champs-Élysées à la nuit.', FIN,
+      [['MISTRAL', 'CENTRAL ICI MISTRAL. Ponts tenus, aucun franchissement. PARLEZ.']], []),
+  ],
+  objectives: [
+    ob('o1', 'Interdire le pont de la Concorde jusqu\'à la fin de la mission', 'tenir_position', { place: 'Pont de la Concorde', seconds: 1200 }),
+    ob('o2', 'Interdire le pont Alexandre III', 'tenir_position', { place: 'Pont Alexandre III', seconds: 1200 }),
+    ob('o3', 'Empêcher toute bousculade grave sur un pont', 'limiter_blesses', { max: 5 }),
+    os('o4', 'Garder un couloir libre pour les secours sur le cours la Reine', 'proteger_site', { place: 'Cours la Reine' }),
+  ],
+  failures: [fail('ligne_enfoncee', 'Un pont est franchi et la foule atteint l\'Assemblée.'), fail('trop_de_blesses', 'Bousculade grave sur un pont.', 10)],
+  randomEvents: ['Retour de gaz par vent tournant', 'Panne radio de soixante secondes', 'Ordre contradictoire de la salle', 'Une ambulance demande le passage'],
+  unique: 'Trois ponts à tenir avec des forces pour deux : la Seine devient le principal outil, et le piège, du dispositif.',
+  difficulty: 4, chapter: 6, tags: ['ponts', 'assemblee', 'interdite'],
+});
+
+/** Encerclement et sortie contrôlée dans le quartier des Halles (miroirs : manifestant, street medic). */
+export const CDT_06 = mission({
+  ...CDT,
+  id: 'cdt-06-sortie-controlee',
+  title: 'Sortie contrôlée',
+  pitch: 'Soixante casseurs bouclés dans un îlot : les faire sortir un par un, sans que la nasse devienne un piège pour les innocents.',
+  briefing: [
+    `Dans l'après-midi, soixante individus ont dégradé des vitrines et jeté des projectiles sur vos sections, puis se sont repliés dans l'îlot compris entre la rue de Turbigo, la rue Saint-Denis et la rue de Rambuteau. Une centaine de manifestants paisibles se trouvent mêlés à eux, dont une poussette et un poste de soins improvisé dans un hall.`,
+    `Vous commandez la compagnie : quatre sections, un drone. Votre mission est de boucler l'îlot, d'ouvrir une sortie contrôlée où chaque personne est identifiée, de procéder aux interpellations sur faits et de lever le bouclage en moins de vingt minutes. Vous décidez seul : de l'encerclement à la levée.`,
+    `Deux sections sur les rues de Turbigo et de Rambuteau, une section à l'angle de la rue Saint-Denis, une en réserve. Annonce à la foule toutes les minutes. Le drone surveille le poste de soins du hall : n'y entrez que pour le sécuriser. Des interpellateurs se placent à la sortie.`,
+    `Une nasse mal faite peut tuer. Gardez toujours une issue visible, laissez passer les secours, respectez le temps maximal de vingt minutes. Chaque personne retenue doit entendre l'annonce, c'est la condition de la légalité.`,
+  ],
+  type: 'interpellation_ciblee', place: 'Rue de Turbigo', timeOfDay: 17, weather: 'couvert', windFrom: 220, windSpeed: 3,
+  crowd: crowd(180, 'hopital', 0.5, 0.55, 0.3, { soignants: 0.3, black_bloc: 0.3, familles: 0.15, curieux: 0.25 },
+    ['Rue de Turbigo', 'Rue Saint-Denis', 'Rue Rambuteau', 'Boulevard de Sébastopol'], 0.1),
+  forces: forces({ sections: 4, fourgons: 10, drone: true, pompiers: 1, samu: 1 }),
+  intel: intel(
+    'Un îlot clos de cent quatre-vingts personnes, dont soixante déterminées.',
+    'Soixante individus encagoulés, parmi lesquels quelques organisateurs d\'un « acte » non déclaré.',
+    ['Rue de Turbigo', 'Rue Rambuteau', 'Rue Saint-Denis'],
+    ['Placer les interpellateurs à la sortie', 'Prévenir le SAMU du poste de soins', 'Annoncer la sortie à chaque minute']),
+  phases: [
+    ph('bouclage', 'Bouclage de l\'îlot', 'Les sections ferment les quatre rues autour de l\'îlot.', T(180),
+      [['CENTRAL', 'MISTRAL ICI CENTRAL. Bouclage de l\'îlot, sortie contrôlée rue Rambuteau, annonce toutes les minutes. FAITES L\'APERÇU.']],
+      ['Un habitant se penche d\'une fenêtre et filme']),
+    ph('sortie', 'Sortie contrôlée', 'Les personnes sortent une à une ; les interpellateurs trient.', TENS(0.6),
+      [['MISTRAL 1', 'MISTRAL ICI MISTRAL UN. Premières sorties, aucun fait à constater. PARLEZ.'], ['ICARE', 'CENTRAL ICI ICARE. Groupe de DOUZE regroupé à l\'ouest de l\'îlot, tenue noire. PARLEZ.']],
+      ['Une poussette avec un enfant est repérée dans la nasse']),
+    ph('tension', 'Tentative de percée', 'Le bloc tente de forcer la ligne de la rue Saint-Denis.', FOULE('dispersion'),
+      [['MISTRAL 3', 'MISTRAL ICI MISTRAL TROIS. Tentative de percée, rue Saint-Denis, jets de projectiles. PARLEZ.']],
+      ['Jets de bouteilles depuis un toit']),
+    ph('levee', 'Levée du bouclage', 'Le dernier groupe sort ; le bouclage est levé.', FIN,
+      [['MISTRAL', 'CENTRAL ICI MISTRAL. Bouclage levé, DOUZE interpellés. PARLEZ.']], []),
+  ],
+  objectives: [
+    ob('o1', 'Interpeller au moins dix auteurs sur faits constatés', 'interpeller', { count: 10 }),
+    ob('o2', 'Lever le bouclage en moins de vingt minutes', 'duree', { seconds: 1200 }),
+    ob('o3', 'Garder une issue visible et annoncée pendant toute la durée', 'sommations_regulieres', { count: 20 }),
+    os('o4', 'Ne laisser personne blessé par la nasse', 'limiter_blesses', { max: 2 }),
+  ],
+  failures: [fail('bavure_grave', 'Une personne est blessée gravement dans la nasse.'), fail('temps', 'Bouclage tenu plus de vingt minutes.', 1200)],
+  randomEvents: ['Malaise d\'un manifestant dans la nasse', 'Un journaliste réclame la sortie', 'Le poste de soins est signalé à la radio', 'Un bloc tente de s\'échapper par les toits'],
+  unique: 'Un encerclement où chaque minute passe au compte rendu : la durée de la nasse devient une note.',
+  difficulty: 4, chapter: 6, altRoles: ['manifestant', 'street_medic'], tags: ['nasse', 'miroir'],
+});
+
+/** Visite officielle d'un chef d'État fictif. */
+export const CDT_07 = mission({
+  ...CDT,
+  id: 'cdt-07-cortege-officiel',
+  title: 'Cortège officiel',
+  pitch: 'Un chef d\'État étranger inventé traverse Paris en voiture, et un comité d\'opposants l\'attend sur le pont Alexandre III.',
+  briefing: [
+    `La République de Valdoria, pays fictif, envoie son président au « Sommet des Capitales ». Son cortège doit relier les Invalides à l'Élysée par le pont Alexandre III, les Champs-Élysées et la rue du Faubourg-Saint-Honoré. Le « Comité Valdoria Libre », opposant, a déclaré un rassemblement statique de deux cents personnes sur l'esplanade des Invalides.`,
+    `Vous commandez la compagnie : trois sections, un peloton de gendarmes mobiles, un Centaure, un drone. Votre mission est d'assurer le passage du cortège dans les temps, sans qu'aucun manifestant ne s'approche à moins de cent mètres du convoi, tout en laissant le rassemblement déclaré exercer son droit.`,
+    `Le cortège passe à 11 h 12 : coupez le pont Alexandre III et le cours la Reine à 10 h 45. Section 1 sur l'esplanade face au comité, section 2 sur le pont, section 3 avenue Winston-Churchill. Le Centaure garde le carrefour de la Concorde. Au passage, le comité hue : laissez faire. Aucune interpellation sans fait de violence.`,
+    `L'image publique est essentielle : un seul geste de trop, filmé, ferait la une et gênerait l'État invité. Interdisez la montée sur le pont, mais ne bloquez pas les piétons. Le passage du convoi ne tolère pas un retard de plus d'une minute.`,
+  ],
+  type: 'visite_officielle', place: 'Pont Alexandre III', timeOfDay: 10.5, weather: 'clair', windFrom: 300, windSpeed: 3,
+  crowd: crowd(200, 'libertes', 0.2, 0.3, 0.02, { militants: 0.4, familles: 0.15, curieux: 0.4, etudiants: 0.05 },
+    ['Esplanade des Invalides', 'Pont Alexandre III', 'Cours la Reine'], 0.4),
+  forces: forces({ sections: 3, fourgons: 8, pelotons: 1, centaure: 1, drone: true, pompiers: 1, samu: 1 }),
+  intel: intel(
+    'Deux cents opposants déclarés, quelques curieux ; ambiance bruyante, non violente.',
+    'Aucun signalement ; une poignée d\'isolés pourrait jeter un objet.',
+    ['Pont Alexandre III', 'Esplanade des Invalides', 'Avenue Winston Churchill'],
+    ['Couper les ponts et les quais à 10 h 45', 'Poster des agents sur chaque rue perpendiculaire', 'Garder la voie de secours libre']),
+  phases: [
+    ph('preparation', 'Verrouillage du parcours', 'Les rues perpendiculaires sont fermées ; le comité s\'installe.', T(300),
+      [['CENTRAL', 'MISTRAL ICI CENTRAL. Convoi officiel, passage prévu UN-UN heures UN-DEUX. Pont Alexandre-III coupé à UN-ZÉRO heures QUATRE-CINQ. FAITES L\'APERÇU.']], []),
+    ph('rassemblement', 'Le rassemblement hue', 'Le comité chante et déploie ses banderoles ; le convoi approche.', T(420),
+      [['LIAISON', 'MISTRAL ICI LIAISON. Les organisateurs s\'engagent à ne pas dépasser le terre-plein. PARLEZ.']],
+      ['Un opposant tente de franchir la grille']),
+    ph('convoi', 'Passage du convoi', 'Le cortège de huit véhicules passe à vitesse réduite.', FOULE('dispersion'),
+      [['CENTRAL', 'MISTRAL ICI CENTRAL. Convoi en vue, DEUX minutes. PARLEZ.']],
+      ['Jet d\'un œuf depuis le trottoir']),
+    ph('fin', 'Après le passage', 'Les rues sont rouvertes ; le comité se disperse.', FIN,
+      [['MISTRAL', 'CENTRAL ICI MISTRAL. Convoi passé, rues rouvertes. PARLEZ.']], []),
+  ],
+  objectives: [
+    ob('o1', 'Faire passer le convoi sans retard supérieur à une minute', 'escorter', { place: 'Pont Alexandre III' }),
+    ob('o2', 'Garder les opposants à plus de cent mètres du convoi', 'proteger_site', { place: 'Pont Alexandre III' }),
+    os('o3', 'Ne procéder à aucune interpellation sans fait de violence', 'zero_bavure'),
+    os('o4', 'Rouvrir les rues dans les cinq minutes qui suivent', 'duree', { seconds: 300 }),
+  ],
+  failures: [fail('bavure_grave', 'Un opposant est molesté devant les caméras.'), fail('personnalise', 'Le convoi est stoppé par un manifestant.')],
+  randomEvents: ['Un camion de livraison oublié sur la voie', 'Un journaliste franchit le cordon', 'Tentative de banderole sur le pont', 'Retard du convoi de deux minutes'],
+  unique: 'Une mission de protocole où le moindre geste est filmé et où la neutralité de l\'ordre public se mesure.',
+  difficulty: 3, chapter: 6, tags: ['visite', 'protocole'],
+});
+
+/** Une heure du matin : fête et foule sur le quai (miroir : secouriste). */
+export const CDT_08 = mission({
+  ...ADJ,
+  id: 'cdt-08-une-heure-du-matin',
+  title: 'Une heure du matin',
+  pitch: 'Fin de fête sur les quais de la Seine : deux mille fêtards, un pont, une nuit chaude et des secours qui doivent passer.',
+  briefing: [
+    `Fin de soirée de la Fête de la musique, quai de Conti et pont des Arts. Deux mille personnes restent sur les quais malgré la fermeture des débits. L'alcool, la chaleur et les haut-parleurs poussent la tension. Une bagarre éclate vers 1 h du matin, puis un groupe jette des bouteilles sur une patrouille.`,
+    `Vous commandez la demi-compagnie : deux sections, des BRAV-M, un drone. Votre mission est de vider les quais sans heurts, de garder libre l'accès des secours et d'éviter qu'un mouvement de foule sur le pont Neuf ne fasse des blessés.`,
+    `Section 1 sur le quai de Conti, section 2 sur le quai des Grands Augustins. Annonce au mégaphone toutes les dix minutes. Vous vous servez des escaliers des quais comme d'un entonnoir pour canaliser, jamais pour piéger. Les BRAV-M interviennent sur les bagarres. Les pompiers sont à demander dès les premiers malaises.`,
+    `Pas de lacrymogène sur une foule en fête sur des quais étroits : un mouvement de panique vers la Seine serait dramatique. Privilégiez la parole, la lumière et la présence.`,
+  ],
+  type: 'evenement_festif', place: 'Quai de Conti', timeOfDay: 1, weather: 'clair', windFrom: 180, windSpeed: 1,
+  crowd: crowd(2000, '', 0.3, 0.5, 0.03, { fetards: 0.7, etudiants: 0.15, curieux: 0.15 },
+    ['Quai de Conti', 'Pont Neuf', 'Quai des Grands Augustins', 'Quai Voltaire'], 0.2),
+  forces: forces({ sections: 2, fourgons: 6, bravm: 3, drone: true, pompiers: 2, samu: 2 }),
+  intel: intel(
+    'Deux mille fêtards, ambiance joyeuse devenant tendue après minuit ; beaucoup d\'alcool.',
+    'Aucun groupe organisé ; quelques individus alcoolisés cherchent la bagarre.',
+    ['Pont Neuf', 'Quai de Conti', 'Quai des Grands Augustins'],
+    ['Demander des secours dès la première heure', 'Garder les escaliers des quais ouverts', 'Annoncer la fermeture des quais']),
+  phases: [
+    ph('fete', 'Fin de soirée', 'La foule se disperse lentement ; la musique persiste.', T(300),
+      [['CENTRAL', 'MISTRAL ICI CENTRAL. Quais à vider avant DEUX heures. Pas de force sur une foule festive. FAITES L\'APERÇU.']],
+      ['Un fêtard grimpe sur le pont des Arts']),
+    ph('bagarre', 'Bagarre et jets', 'Une rixe éclate ; des bouteilles sont jetées sur une patrouille.', TENS(0.5),
+      [['FAUCON 1', 'MISTRAL ICI FAUCON UN. Rixe quai de Conti, QUINZE personnes. PARLEZ.']],
+      ['Malaise d\'une jeune femme au bord du quai']),
+    ph('densite', 'Compression sur le pont', 'Le pont Neuf se remplit ; la densité grimpe.', FOULE('dispersion'),
+      [['ICARE', 'CENTRAL ICI ICARE. Densité critique sur le pont Neuf, plus de QUATRE personnes au mètre carré. PARLEZ.']],
+      ['Mouvement de foule vers l\'escalier du quai']),
+    ph('fin', 'Évacuation des quais', 'Les derniers groupes quittent les quais.', FIN,
+      [['MISTRAL', 'CENTRAL ICI MISTRAL. Quais libres, aucun blessé grave. PARLEZ.']], []),
+  ],
+  objectives: [
+    ob('o1', 'Vider les quais sans emploi de la force', 'evacuer', { place: 'Quai de Conti' }),
+    ob('o2', 'Prévenir toute compression grave sur le pont Neuf', 'limiter_blesses', { place: 'Pont Neuf', max: 3 }),
+    os('o3', 'Traiter les malaises avec les secours en moins de quatre minutes', 'traiter_incidents', { target: 'malaise', count: 3 }),
+    os('o4', 'Faire respecter l\'annonce toutes les dix minutes', 'sommations_regulieres', { count: 6 }),
+  ],
+  failures: [fail('trop_de_blesses', 'Mouvement de foule grave sur le pont.', 8), fail('victime_non_secourue', 'Une victime n\'est pas secourue à temps.')],
+  randomEvents: ['Chute d\'un fêtard dans la Seine', 'Bagarre entre deux groupes', 'Un camion de livraison bloque l\'accès des secours', 'Panne de sonorisation'],
+  unique: 'Pas de revendication, seulement une foule joyeuse qui peut basculer : la prévention vaut mieux que la force.',
+  difficulty: 3, chapter: 5, altRoles: ['secouriste'], tags: ['fete', 'quais', 'miroir'],
+});
+
+/** La Seine monte : catastrophe naturelle sur les quais (miroir : secouriste). */
+export const CDT_09 = mission({
+  ...CDT,
+  id: 'cdt-09-la-seine-monte',
+  title: 'La Seine monte',
+  pitch: 'La crue noie les berges, mille curieux s\'agglutinent sur les ponts et des riverains attendent les secours.',
+  briefing: [
+    `La Seine a franchi la cote d'alerte. Les berges basses sont noyées, la voie Georges-Pompidou est fermée. Les curieux se pressent sur le pont de l'Alma, le pont d'Iéna et le quai d'Orsay. Une dizaine de riverains refusent d'évacuer des péniches amarrées.`,
+    `Vous commandez la compagnie, renforcée des pompiers de Paris. Votre mission est d'écarter les curieux des berges, d'ouvrir un couloir aux secours, d'évacuer les riverains récalcitrants et de garder les ponts ouverts aux véhicules de crue. Il n'y a pas d'ennemi : c'est un exercice de sang-froid.`,
+    `Section 1 sur le quai d'Orsay, section 2 sur le quai Branly, sections 3 et 4 sur les ponts. Les pompiers viennent par la rue de l'Université. Le Centaure sert de plateforme de franchissement. Annoncez l'évacuation toutes les cinq minutes et organisez la circulation à pied.`,
+    `L'eau monte de trois centimètres par minute : ne retardez pas une évacuation pour une négociation. Écartez les badauds avant qu'un enfant glisse. Aucune force : seulement des gestes et la voix.`,
+  ],
+  type: 'catastrophe', place: 'Quai d\'Orsay', timeOfDay: 9, weather: 'pluie', windFrom: 230, windSpeed: 7,
+  crowd: crowd(1000, '', 0.1, 0.15, 0, { curieux: 0.6, riverains: 0.25, familles: 0.15 },
+    ['Quai d\'Orsay', 'Pont de l\'Alma', 'Quai Branly', 'Pont d\'Iéna'], 0.2),
+  forces: forces({ sections: 4, fourgons: 10, centaure: 1, drone: true, pompiers: 6, samu: 2 }),
+  intel: intel(
+    'Mille curieux, riverains inquiets ; la crue gagne les berges basses.',
+    'Aucun radical ; risque de panique si l\'eau dépasse le quai.',
+    ['Quai d\'Orsay', 'Pont de l\'Alma', 'Quai Branly'],
+    ['Évacuer les péniches avant midi', 'Ouvrir un couloir aux secours sur le quai Branly', 'Écarter les curieux du bord de l\'eau']),
+  phases: [
+    ph('alerte', 'Alerte de crue', 'Les berges basses disparaissent ; les curieux approchent.', T(300),
+      [['CENTRAL', 'MISTRAL ICI CENTRAL. Crue de la Seine, évacuation des berges. Pas d\'ennemi, seulement de la foule. PARLEZ.']], []),
+    ph('evacuation', 'Évacuation des riverains', 'Les riverains des péniches refusent de partir.', TENS(0.3),
+      [['SANTÉ 1', 'MISTRAL ICI SANTÉ UN. Deux péniches à évacuer, quai Branly. PARLEZ.']],
+      ['Un chien tombe à l\'eau']),
+    ph('pic', 'Pic de la crue', 'L\'eau atteint le quai ; la foule se presse sur les ponts.', FOULE('dispersion'),
+      [['ICARE', 'CENTRAL ICI ICARE. Densité critique sur le pont de l\'Alma. PARLEZ.']],
+      ['Un enfant glisse sur la berge']),
+    ph('fin', 'Décrue', 'Le niveau stagne puis baisse ; les quais se vident.', FIN,
+      [['MISTRAL', 'CENTRAL ICI MISTRAL. Évacuation terminée. PARLEZ.']], []),
+  ],
+  objectives: [
+    ob('o1', 'Évacuer tous les riverains des berges basses', 'evacuer', { place: 'Quai Branly', target: 'riverain' }),
+    ob('o2', 'Écarter la foule du bord de l\'eau', 'disperser', { place: 'Quai d\'Orsay' }),
+    os('o3', 'Garder un couloir libre aux secours', 'proteger_site', { place: 'Rue de l\'Université' }),
+    os('o4', 'Ne déplorer aucun blessé grave', 'limiter_blesses', { max: 1 }),
+  ],
+  failures: [fail('victime_non_secourue', 'Un riverain est emporté par l\'eau.'), fail('trop_de_blesses', 'Trop de blessés.', 6)],
+  randomEvents: ['Un chien tombe à l\'eau', 'Panne radio de soixante secondes', 'Un badaud s\'obstine à photographier au bord du quai', 'Effondrement d\'un morceau de quai'],
+  unique: 'Il n\'y a pas d\'adversaire : la mission se joue entre l\'eau, la foule et le temps.',
+  difficulty: 2, chapter: 6, altRoles: ['secouriste'], tags: ['crue', 'catastrophe', 'miroir'],
+});
+
+/** Contre-manifestation : deux cortèges adverses à séparer. */
+export const CDT_10 = mission({
+  ...CDT,
+  id: 'cdt-10-double-front',
+  title: 'Double front',
+  pitch: 'Deux comités inventés défilent le même jour autour de l\'Opéra, l\'un pour, l\'autre contre le « Grand Axe » : être le mur qui ne penche d\'aucun côté.',
+  briefing: [
+    `Un projet d'urbanisme fictif, le « Grand Axe », divise la ville. Le comité « Oui au Grand Axe » défile depuis la rue Scribe ; le comité « Non au Grand Axe » arrive par la rue Auber. Les deux cortèges ont déclaré place de l'Opéra, par erreur ou par provocation. Six cents personnes de chaque côté, avec des franges qui ne souhaitent que l'affrontement.`,
+    `Vous commandez la compagnie : quatre sections, huit fourgons, un drone, un canon à eau. Votre mission est de maintenir une zone tampon de cent cinquante mètres entre les deux cortèges, de traiter chaque camp de la même façon et d'obtenir des dispersions décalées de vingt minutes.`,
+    `Section 1 rue Scribe, section 2 rue Auber, section 3 sur le boulevard des Capucines, section 4 en réserve. Chaque camp envoie une trentaine de personnes par les rues latérales pour provoquer l'autre : coupez-les. Utilisez la liaison avec les deux organisateurs. Le canon à eau reste en retrait : sa vue seule calme parfois.`,
+    `La neutralité est évaluée : l'écart d'emploi de la force entre les deux camps ne doit pas dépasser 20 %. Toute accusation de partialité, filmée, vous coûte la mission. Ne cédez pas aux cris d'un camp qui voudrait que vous chargiez l'autre.`,
+  ],
+  type: 'manifestation_declaree', place: 'Place de l\'Opéra', timeOfDay: 15.5, weather: 'nuageux', windFrom: 200, windSpeed: 3,
+  crowd: crowd(1200, 'logement', 0.35, 0.6, 0.08, { militants: 0.3, riverains: 0.25, familles: 0.15, black_bloc: 0.08, curieux: 0.22 },
+    ['Rue Scribe', 'Rue Auber', 'Place de l\'Opéra', 'Boulevard des Capucines'], 0.45),
+  forces: forces({ sections: 4, fourgons: 8, canonEau: 1, drone: true, pompiers: 1, samu: 1 }),
+  intel: intel(
+    'Douze cents personnes, six cents par camp ; ambiance tendue, jets de slogans.',
+    'Une centaine de radicaux dans chaque camp, en franges.',
+    ['Place de l\'Opéra', 'Rue Auber', 'Rue Halévy'],
+    ['Fermer la rue Halévy', 'Prévoir une dispersion décalée', 'Demander l\'appui du drone aux deux cortèges']),
+  phases: [
+    ph('arrivee', 'Arrivée des deux cortèges', 'Les cortèges se font face à cent mètres, chacun sous sa banderole.', T(300),
+      [['LIAISON', 'MISTRAL ICI LIAISON. Les deux comités acceptent de rester chacun de leur côté. PARLEZ.']], []),
+    ph('provocation', 'Jets croisés', 'Chaque camp envoie des groupes par les rues latérales ; des projectiles volent.', TENS(0.5),
+      [['MISTRAL 2', 'MISTRAL ICI MISTRAL DEUX. Jets croisés par-dessus la ligne. J\'attends vos ordres. PARLEZ.']],
+      ['Spectateurs sortant de l\'Opéra pris entre les deux foules']),
+    ph('dispersion', 'Dispersions décalées', 'Vous obtenez le départ du premier camp ; le second refuse d\'attendre.', FOULE('dispersion'),
+      [['CENTRAL', 'MISTRAL ICI CENTRAL. Attention à la partialité : la salle suit l\'équilibre de vos interventions. PARLEZ.']],
+      ['Un camp refuse la dispersion décalée']),
+    ph('fin', 'Retour au calme', 'La place se vide.', FIN, [['MISTRAL', 'CENTRAL ICI MISTRAL. Les deux camps sont partis. PARLEZ.']], []),
+  ],
+  objectives: [
+    ob('o1', 'Aucun contact entre les deux cortèges', 'tenir_position', { place: 'Place de l\'Opéra', seconds: 900 }),
+    ob('o2', 'Traiter les deux camps de façon symétrique (écart sous 20 %)', 'zero_bavure'),
+    os('o3', 'Interpeller dans les deux camps sur faits', 'interpeller', { count: 4 }),
+    os('o4', 'Aucune vitrine brisée', 'limiter_degats', { max: 0 }),
+  ],
+  failures: [fail('bavure_grave', 'Partialité manifeste, filmée.'), fail('ligne_enfoncee', 'Affrontement direct de plus de trente secondes.')],
+  randomEvents: ['Accusation de partialité filmée', 'Spectateurs de l\'Opéra pris entre deux foules', 'Un camp refuse la dispersion décalée', 'Panne radio de soixante secondes'],
+  unique: 'La neutralité devient une statistique mesurée et affichée au compte rendu.',
+  difficulty: 4, chapter: 6, tags: ['contre-manifestation', 'neutralite'],
+});
+
+/* ------------------------------------------------------------------ anciennes missions du commissaire */
+
+/** L'écharpe : constater, annoncer, sommer dans les formes (miroirs : manifestant radical, secouriste). */
+export const CDT_11 = mission({
+  ...CDT,
+  id: 'cdt-11-l-echarpe',
+  title: 'L\'écharpe',
+  pitch: 'Quatre cents personnes restent place de la République après l\'ordre de dispersion : votre écharpe tricolore et votre mégaphone vont servir.',
+  briefing: [
+    `La manifestation déclarée est terminée depuis une heure ; quatre cents personnes restent sur la place de la République, dont une trentaine de radicaux qui montent sur la statue et jettent des projectiles sur les fourgons. Les commerçants du boulevard du Temple baissent leurs rideaux.`,
+    `Vous commandez la compagnie et vous portez l'écharpe : vous êtes seul à constater l'attroupement, à annoncer, à sommer et à ordonner. Votre mission est de vider la place dans les formes de l'article R. 211-11, avec les trois annonces et sommations, avant tout emploi de la force.`,
+    `Section 1 et 2 face à la statue, section 3 sur le boulevard Voltaire, section 4 sur la rue du Temple. Vous montez sur le véhicule sonorisé, vous annoncez, vous laissez une issue ouverte vers la rue du Faubourg-du-Temple. Après la dernière sommation, vous réitérez avant tout emploi d'armes. Le compte rendu note l'heure de chaque annonce.`,
+    `Aucune force avant la dernière sommation, sauf violences directes contre vos agents. Quatre-vingts pour cent de la place doivent être vidés avant le premier emploi de la force. Les mots sont dans la loi : ne les inventez pas.`,
+  ],
+  type: 'manifestation_declaree', place: 'Place de la République', timeOfDay: 19, weather: 'nuageux', windFrom: 280, windSpeed: 3,
+  crowd: crowd(400, 'pouvoir_achat', 0.45, 0.5, 0.075, { syndical: 0.2, etudiants: 0.2, black_bloc: 0.1, curieux: 0.3, gilets_jaunes: 0.2 },
+    ['Place de la République'], 0.3),
+  forces: forces({ sections: 4, fourgons: 10, drone: true, pompiers: 1, samu: 1 }),
+  intel: intel(
+    'Quatre cents personnes sur la place, dont une trentaine de radicaux près de la statue.',
+    'Trente individus déterminés, masqués, avec des projectiles prélevés sur un chantier.',
+    ['Place de la République', 'Boulevard du Temple', 'Boulevard Voltaire'],
+    ['Faire retirer les barrières de chantier', 'Prévoir une issue ouverte', 'Tenir le journal horodaté des sommations']),
+  phases: [
+    ph('constat', 'Constat de l\'attroupement', 'Vous qualifiez l\'attroupement et préparez l\'annonce.', T(240),
+      [['CENTRAL', 'MISTRAL ICI CENTRAL. Qualifiez et décidez, vous êtes seul décideur. PARLEZ.']],
+      ['Un fumigène éclate devant la statue']),
+    ph('sommations', 'Annonce et sommations', 'Vous prononcez l\'annonce, la première puis la dernière sommation.', T(480),
+      [['MISTRAL', 'CENTRAL ICI MISTRAL. Première sommation faite à UNE-NEUF heures ZÉRO-QUATRE. Issue ouverte : rue du Faubourg-du-Temple. TERMINÉ.']],
+      ['Un groupe monte sur la statue']),
+    ph('dispersion', 'Dispersion', 'La place se vide par les issues ; les radicaux résistent.', FOULE('dispersion'),
+      [['MISTRAL 3', 'MISTRAL ICI MISTRAL TROIS. QUATRE-VINGTS pour cent de la place libérés. PARLEZ.']],
+      ['Poubelles enflammées au pied de la statue']),
+    ph('fin', 'Place libre', 'Les derniers irréductibles sont refoulés.', FIN,
+      [['MISTRAL', 'CENTRAL ICI MISTRAL. Fin d\'emploi de la force à UN-NEUF heures QUATRE-CINQ. PARLEZ.']], []),
+  ],
+  objectives: [
+    ob('o1', 'Prononcer l\'annonce puis les deux sommations dans les formes', 'sommations_regulieres', { count: 3 }),
+    ob('o2', 'Vider quatre-vingts pour cent de la place avant tout emploi de la force', 'disperser', { place: 'Place de la République' }),
+    os('o3', 'Laisser une issue ouverte pendant toute l\'opération', 'proteger_site', { place: 'Rue du Faubourg du Temple' }),
+    os('o4', 'Tenir le journal horodaté complet', 'personnalise', { target: 'journal_horodate' }),
+  ],
+  failures: [fail('bavure_grave', 'Force employée avant la dernière sommation : faute lourde.'), fail('revocation', 'Sommations omises : retrait du commandement.')],
+  randomEvents: ['Le mégaphone ne couvre pas toute la place', 'Un malaise dans la foule', 'Retour de gaz par vent tournant', 'Rumeur en ligne (tension +0,05)'],
+  unique: 'Le texte exact des sommations est la mission : l\'écharpe pèse autant que le bouclier.',
+  difficulty: 2, chapter: 7, altRoles: ['manifestant', 'secouriste'], tags: ['sommations', 'miroir', 'ex-commissaire'],
+});
+
+/** Dialogue d'abord : liaison avec les organisateurs. */
+export const CDT_12 = mission({
+  ...CDT,
+  id: 'cdt-12-dialogue-d-abord',
+  title: 'Dialogue d\'abord',
+  pitch: 'Un cortège de cinq mille personnes veut rallier l\'Hôtel de Ville sans autorisation : le meilleur ordre est celui qu\'on obtient en parlant.',
+  briefing: [
+    `Le « Collectif Lumière Pour Tous » proteste contre la hausse fictive des tarifs de l'énergie. Cinq mille personnes se sont réunies place du Châtelet et veulent rallier l'Hôtel de Ville par le quai. Le trajet n'est pas déclaré. Le service d'ordre du collectif a pris contact avec votre équipe de liaison.`,
+    `Vous commandez la compagnie. Votre mission est d'obtenir par le dialogue un changement de parcours, d'éviter tout recours à la force sur un cortège pacifique et de ramener la manifestation dans un cadre déclaré. Vous êtes seul décideur et pouvez accorder, refuser ou différer.`,
+    `La liaison négocie : quatre points de passage, une durée de vingt minutes, un arrêt du camion sono. Les sections restent en réserve rue de Rivoli, casques à la ceinture. Si un incident survient, n'utilisez la force qu'en dernier recours.`,
+    `Chaque ordre que vous refusez de donner à la salle, sans appui juridique, doit être motivé. Le renseignement vous presse d'agir : c'est à vous de décider si l'ordre public l'exige.`,
+  ],
+  type: 'manifestation_declaree', place: 'Place du Châtelet', timeOfDay: 16, weather: 'clair', windFrom: 250, windSpeed: 3,
+  crowd: crowd(1000, 'pouvoir_achat', 0.3, 0.4, 0.03, { syndical: 0.3, familles: 0.2, retraites: 0.15, gilets_jaunes: 0.2, etudiants: 0.15 },
+    ['Place du Châtelet', 'Quai de la Mégisserie', 'Quai de Gesvres', 'Place de l\'Hôtel de Ville'], 0.4),
+  forces: forces({ sections: 3, fourgons: 8, drone: true, pompiers: 1, samu: 1 }),
+  intel: intel(
+    'Cinq mille personnes déclarées, mille simulées ; ambiance sérieuse, quelques tensions autour du camion sono.',
+    'Aucun bloc identifié ; quelques opportunistes à surveiller.',
+    ['Place du Châtelet', 'Quai de Gesvres', 'Place de l\'Hôtel de Ville'],
+    ['Ouvrir la liaison dès l\'arrivée', 'Préparer un parcours de délestage', 'Garder les sections hors de vue']),
+  phases: [
+    ph('contact', 'Prise de contact', 'La liaison rencontre le service d\'ordre du collectif.', T(240),
+      [['LIAISON', 'MISTRAL ICI LIAISON. Contact établi, les organisateurs demandent le quai de Gesvres. PARLEZ.']], []),
+    ph('negociation', 'Négociation', 'Vous fixez les conditions : durée, arrêt, camion sono.', T(480),
+      [['CENTRAL', 'MISTRAL ICI CENTRAL. La salle demande un barrage. Décision à vous. PARLEZ.']],
+      ['Un groupe se détache du cortège']),
+    ph('marche', 'Marche encadrée', 'Le cortège s\'ébranle sur le parcours négocié.', TENS(0.45),
+      [['MISTRAL 1', 'MISTRAL ICI MISTRAL UN. Tête de cortège sur le quai de Gesvres, calme. PARLEZ.']],
+      ['Un camion sono refuse de s\'arrêter']),
+    ph('fin', 'Arrivée à l\'Hôtel de Ville', 'Le cortège se disperse.', FIN, [['MISTRAL', 'CENTRAL ICI MISTRAL. Cortège arrivé, dispersion calme. PARLEZ.']], []),
+  ],
+  objectives: [
+    ob('o1', 'Obtenir un parcours négocié par la liaison', 'prevention', { target: 'liaison', count: 1 }),
+    ob('o2', 'Éviter tout emploi de la force pendant toute la mission', 'zero_bavure'),
+    os('o3', 'Garder les sections hors de vue du cortège', 'personnalise', { target: 'discretion' }),
+    os('o4', 'Rouvrir le quai de la Mégisserie dans les trente minutes', 'duree', { seconds: 1800 }),
+  ],
+  failures: [fail('bavure_grave', 'Force employée sur un cortège pacifique.'), fail('personnalise', 'Le cortège est bloqué sans motif.')],
+  randomEvents: ['Un groupe se détache du cortège', 'Un camion sono refuse de s\'arrêter', 'La salle réclame un barrage', 'Une rumeur en ligne gonfle la tension'],
+  unique: 'Une mission où l\'on gagne par le téléphone : chaque minute de dialogue vaut mieux qu\'une minute de lacrymogène.',
+  difficulty: 2, chapter: 7, tags: ['liaison', 'desescalade'],
+});
+
+/** Autoriser ou attendre : manifestation déclarée qui dégénère (hôtel de ville). */
+export const CDT_13 = mission({
+  ...CDT,
+  id: 'cdt-13-autoriser-ou-attendre',
+  title: 'Autoriser ou attendre',
+  pitch: 'La tension monte sur le parvis de l\'Hôtel de Ville : décider vite sans décider trop tôt.',
+  briefing: [
+    `Un rassemblement déclaré de deux mille personnes, les « Blouses Claires », réclame des effectifs hospitaliers sur le parvis de l'Hôtel de Ville. Peu après 18 h, un groupe de casseurs se mêle à la foule, des bouteilles volent, les services de l'hôtel de ville baissent les grilles.`,
+    `Vous commandez la compagnie et assumez seul toute décision. Votre mission est de maintenir le rassemblement dans son cadre, de décider si et quand employer la force, et de protéger les soignants et les familles. La salle vous presse d'intervenir ; le terrain se calme par moments.`,
+    `Deux sections face au parvis, une sur la rue de Rivoli, une sur l'avenue Victoria. Le drone surveille les casseurs. Si la tension monte, vous annoncez ; si elle retombe, vous attendez. Chaque minute gagnée évite un affrontement. Chaque minute perdue peut coûter une vitrine ou un blessé.`,
+    `Vous n'avez à aucun moment l'obligation de réagir à un ordre venu de la salle : c'est votre responsabilité. Gardez toujours une issue vers la rue Saint-Martin. Ne chargez pas un cortège assis.`,
+  ],
+  type: 'manifestation_declaree', place: 'Place de l\'Hôtel de Ville', timeOfDay: 18, weather: 'couvert', windFrom: 260, windSpeed: 4,
+  crowd: crowd(1200, 'hopital', 0.35, 0.65, 0.07, { soignants: 0.5, familles: 0.15, syndical: 0.15, black_bloc: 0.07, curieux: 0.13 },
+    ['Place de l\'Hôtel de Ville', 'Rue de Rivoli', 'Avenue Victoria'], 0.4),
+  forces: forces({ sections: 4, fourgons: 10, drone: true, pompiers: 1, samu: 1 }),
+  intel: intel(
+    'Deux mille personnes, majorité de soignants en blouse ; ambiance revendicative.',
+    'Une quarantaine d\'individus en noir arrivent par la rue de Rivoli après 18 h.',
+    ['Place de l\'Hôtel de Ville', 'Rue de Rivoli', 'Avenue Victoria'],
+    ['Placer la réserve rue de Rivoli', 'Préparer l\'issue rue Saint-Martin', 'Garder le drone sur le groupe noir']),
+  phases: [
+    ph('rassemblement', 'Rassemblement calme', 'Les soignants chantent et déploient leurs banderoles.', T(300),
+      [['CENTRAL', 'MISTRAL ICI CENTRAL. Cortège déclaré, aucune autorisation d\'emploi de la force. Vous seul décidez. PARLEZ.']], []),
+    ph('arrivee', 'Arrivée du groupe noir', 'Quarante individus masqués se glissent dans la foule.', TENS(0.45),
+      [['ICARE', 'CENTRAL ICI ICARE. Groupe de QUARANTE, tenue noire, entre en tête. PARLEZ.']],
+      ['Premiers jets de bouteilles']),
+    ph('decision', 'Décider ou attendre', 'La salle presse ; le terrain oscille.', FOULE('dispersion'),
+      [['CENTRAL', 'MISTRAL ICI CENTRAL. La salle suggère d\'intervenir. Décision à vous. PARLEZ.']],
+      ['Vitrine d\'une agence brisée']),
+    ph('fin', 'Retour au calme', 'Le groupe noir part ; les soignants restent.', FIN, [['MISTRAL', 'CENTRAL ICI MISTRAL. Rassemblement terminé. PARLEZ.']], []),
+  ],
+  objectives: [
+    ob('o1', 'Maintenir le rassemblement sans emploi de la force sur les soignants', 'zero_bavure'),
+    ob('o2', 'Séparer le groupe noir des soignants', 'disperser', { place: 'Place de l\'Hôtel de Ville' }),
+    os('o3', 'Limiter les vitrines brisées à trois', 'limiter_degats', { max: 3 }),
+    os('o4', 'Ne laisser aucun blessé parmi les soignants', 'limiter_blesses', { max: 0 }),
+  ],
+  failures: [fail('bavure_grave', 'Force employée sur les soignants.'), fail('trop_de_blesses', 'Trop de blessés.', 8)],
+  randomEvents: ['La salle réclame d\'intervenir', 'Un malaise dans la foule', 'Un journaliste se plaint de l\'entrave', 'Averse soudaine (foule −20 %)'],
+  unique: 'La mission se joue sur le chronomètre de la décision : agir trop tôt ou trop tard, les deux coûtent.',
+  difficulty: 4, chapter: 7, tags: ['decision', 'hopital'],
+});
+
+/** Minuit sur le parvis : rassemblement spontané nocturne. */
+export const CDT_14 = mission({
+  ...CDT,
+  id: 'cdt-14-minuit-sur-le-parvis',
+  title: 'Minuit sur le parvis',
+  pitch: 'À minuit, trois cents « Veilleurs » s\'installent sur le parvis de Notre-Dame sans déclaration : un rassemblement qui peut rester calme ou non.',
+  briefing: [
+    `Les « Veilleurs de Minuit », rassemblements nocturnes non déclarés, se retrouvent sur le parvis de Notre-Dame après l'annonce d'une décision gouvernementale. Trois cents personnes, bougies à la main, chantent doucement. Un petit groupe encagoulé s'infiltre vers minuit.`,
+    `Vous commandez la compagnie. Votre mission est de garder le parvis ouvert, d'éviter tout incident près du monument et de décider seul s'il faut sommer ou laisser faire. Aucune interdiction n'est signée ; le droit de se rassembler pèse autant que l'ordre public.`,
+    `Deux sections à distance sur le quai de la Corse, deux sections dans la rue de la Cité. Le drone surveille les arrivées. Vous gardez les secours et les accès au parvis. Parlez-leur avant de les sommer : ce sont des veilleurs, pas des émeutiers.`,
+    `Les édifices voisins du parvis sont des sites sensibles : aucune dégradation ne sera tolérée. Un seul coup de trop sur un rassemblement silencieux serait filmé et diffusé dans l'heure.`,
+  ],
+  type: 'securisation', place: 'Parvis Notre-Dame - Place Jean-Paul II', timeOfDay: 23.5, weather: 'nuageux', windFrom: 200, windSpeed: 2,
+  crowd: crowd(300, 'libertes', 0.3, 0.45, 0.05, { militants: 0.4, etudiants: 0.2, curieux: 0.3, black_bloc: 0.1 },
+    ['Parvis Notre-Dame - Place Jean-Paul II', 'Rue de la Cité'], 0.15),
+  forces: forces({ sections: 4, fourgons: 8, drone: true, pompiers: 1, samu: 1 }),
+  intel: intel(
+    'Trois cents veilleurs, bougies et chants ; une quarantaine d\'éléments encagoulés possibles.',
+    'Un petit groupe de radicaux s\'insère après minuit.',
+    ['Parvis Notre-Dame - Place Jean-Paul II', 'Rue de la Cité', 'Pont au Change'],
+    ['Garder les secours accessibles', 'Ne pas encercler le parvis', 'Demander la liaison']),
+  phases: [
+    ph('veillee', 'Veillée calme', 'Les bougies s\'allument, les chants commencent.', T(300),
+      [['CENTRAL', 'MISTRAL ICI CENTRAL. Rassemblement non déclaré, pas d\'ordre d\'interdiction. Vous décidez. PARLEZ.']], []),
+    ph('infiltration', 'Infiltration', 'Un groupe encagoulé s\'insère dans la foule.', TENS(0.4),
+      [['ICARE', 'CENTRAL ICI ICARE. DEUX-ZÉRO individus encagoulés rejoignent la foule. PARLEZ.']],
+      ['Un feu de poubelle contre une grille']),
+    ph('decision', 'Décision', 'Les bougies s\'éteignent ; le groupe masqué monte vers le monument.', FOULE('dispersion'),
+      [['MISTRAL 1', 'MISTRAL ICI MISTRAL UN. Individus escaladent la grille du jardin. PARLEZ.']], []),
+    ph('fin', 'Dispersion', 'Le parvis se vide.', FIN, [['MISTRAL', 'CENTRAL ICI MISTRAL. Parvis libre. PARLEZ.']], []),
+  ],
+  objectives: [
+    ob('o1', 'Garder le parvis libre de dégradations', 'proteger_site', { place: 'Parvis Notre-Dame - Place Jean-Paul II' }),
+    ob('o2', 'Interpeller les auteurs de dégradations sur faits constatés', 'interpeller', { count: 3 }),
+    os('o3', 'Ne recourir à la force qu\'après sommation', 'sommations_regulieres', { count: 3 }),
+    os('o4', 'Laisser partir les veilleurs par la rue de la Cité', 'evacuer', { place: 'Rue de la Cité' }),
+  ],
+  failures: [fail('site_envahi', 'Le monument est dégradé.'), fail('bavure_grave', 'Force employée sur les veilleurs.')],
+  randomEvents: ['Un touriste filme avec un drone', 'Bougies renversées près d\'une grille', 'Un SDF dort sur le parvis', 'Panne radio de soixante secondes'],
+  unique: 'Un rassemblement silencieux où la moindre intervention se voit à des kilomètres : la nuit amplifie les gestes.',
+  difficulty: 4, chapter: 7, tags: ['nuit', 'veilleurs'],
+});
+
+/** Le périmètre : sécurisation de site pour une visite. */
+export const CDT_15 = mission({
+  ...CDT,
+  id: 'cdt-15-le-perimetre',
+  title: 'Le périmètre',
+  pitch: 'Un sommet à l\'Élysée, trois rues à fermer, un voisinage inquiet : tenir un périmètre sans que Paris étouffe.',
+  briefing: [
+    `Un sommet de chefs d'État se tient à l'Élysée. La rue du Faubourg-Saint-Honoré est fermée à la circulation. Un rassemblement déclaré de deux cents riverains inquiets se tient place Beauvau. Le renseignement signale un risque de dépassement par quelques individus.`,
+    `Vous commandez la compagnie. Votre mission est de tenir un périmètre de sécurité de deux cents mètres autour du palais et du ministère de l'Intérieur, de laisser vivre le quartier, de faire passer les riverains, et d'éviter tout incident.`,
+    `Section 1 rue du Faubourg-Saint-Honoré, section 2 place Beauvau, section 3 avenue Marigny, section 4 en réserve. Contrôles de pièce d'identité aux limites du périmètre. Vous laissez passer les riverains, vous bloquez les curieux. Le drone suit les arrivées par l'avenue Gabriel.`,
+    `Les contrôles doivent être courtois : un riverain bloqué sans motif, c'est un reportage. Ne bloquez pas l'accès aux services de secours du quartier. Aucune interpellation sans fait.`,
+  ],
+  type: 'securisation', place: 'Rue du Faubourg Saint-Honoré', timeOfDay: 10, weather: 'clair', windFrom: 270, windSpeed: 3,
+  crowd: crowd(300, 'libertes', 0.2, 0.35, 0.03, { riverains: 0.5, curieux: 0.3, militants: 0.2 },
+    ['Place Beauvau', 'Rue du Faubourg Saint-Honoré', 'Avenue de Marigny'], 0.3),
+  forces: forces({ sections: 4, fourgons: 8, drone: true, pompiers: 1, samu: 1 }),
+  intel: intel(
+    'Trois cents riverains et curieux ; ambiance ordinaire.',
+    'Quelques isolés peuvent forcer un contrôle.',
+    ['Place Beauvau', 'Rue du Faubourg Saint-Honoré', 'Avenue Gabriel'],
+    ['Placer des agents aux limites du périmètre', 'Prévoir un couloir de secours', 'Informer les riverains']),
+  phases: [
+    ph('installation', 'Installation du périmètre', 'Les barrières se posent ; les riverains sont informés.', T(300),
+      [['CENTRAL', 'MISTRAL ICI CENTRAL. Périmètre à tenir de DIX heures à DOUZE heures. FAITES L\'APERÇU.']], []),
+    ph('controles', 'Contrôles', 'Les riverains passent ; les curieux sont refoulés.', T(420),
+      [['MISTRAL 2', 'MISTRAL ICI MISTRAL DEUX. Contrôles en cours, rien à signaler. PARLEZ.']],
+      ['Un livreur sans autorisation tente de passer']),
+    ph('incident', 'Incident', 'Un groupe tente de franchir un barrage.', TENS(0.4),
+      [['ICARE', 'CENTRAL ICI ICARE. Groupe de DIX personnes avenue Marigny. PARLEZ.']],
+      ['Un scooter fonce vers un barrage']),
+    ph('fin', 'Levée du périmètre', 'Le sommet se termine ; le périmètre est levé.', FIN, [['MISTRAL', 'CENTRAL ICI MISTRAL. Périmètre levé. PARLEZ.']], []),
+  ],
+  objectives: [
+    ob('o1', 'Tenir le périmètre pendant toute la durée du sommet', 'proteger_site', { place: 'Rue du Faubourg Saint-Honoré', seconds: 1500 }),
+    ob('o2', 'Laisser passer les riverains munis de justificatif', 'prevention', { count: 20 }),
+    os('o3', 'Ne procéder à aucun contrôle abusif', 'zero_bavure'),
+    os('o4', 'Garder libre l\'accès des secours', 'proteger_site', { place: 'Rue de Surène' }),
+  ],
+  failures: [fail('site_envahi', 'Le périmètre est franchi.'), fail('bavure_grave', 'Un riverain est molesté.')],
+  randomEvents: ['Un livreur sans autorisation tente de passer', 'Un journaliste réclame l\'accès', 'Colis suspect (fausse alerte)', 'Un scooter fonce vers un barrage'],
+  unique: 'La mission de sécurisation par excellence : le calme est la réussite, et on la remarque à peine.',
+  difficulty: 2, chapter: 7, tags: ['perimetre', 'protocole'],
+});
+
+/** Tableau des missions du commandant, campagne « semaine de mobilisation » comprise. */
+export const COMMANDANT: MissionDef[] = [
+  CDT_01, CDT_02, CDT_03, CDT_04, CDT_05, CDT_06, CDT_07, CDT_08, CDT_09, CDT_10,
+  CDT_11, CDT_12, CDT_13, CDT_14, CDT_15,
+  ...SEMAINE,
+];

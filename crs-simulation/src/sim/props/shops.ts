@@ -496,10 +496,10 @@ export class Shops {
         }
       }
       this.shutterEvents(s);
-      if (stop) {
+      // (un abonné de shop:shutter a pu retirer la vitrine : on ne retire de la liste que ce qui y est encore)
+      if (stop && s.rolling) {
         s.rolling = false;
-        rolling[i] = rolling[rolling.length - 1]!;
-        rolling.pop();
+        swapRemove(rolling, s);
       }
     }
 

@@ -295,17 +295,22 @@ export function createLocalUi(): LocalUi {
     }
   }
 
-  function toggleHotkey(screens: readonly ScreenId[]): void {
+  /** Mêmes règles que le socle : « ordres » et « radio » ne font qu'ouvrir (leurs écrans se ferment eux-mêmes). */
+  function toggleHotkey(button: Button, screens: readonly ScreenId[]): void {
     const id = screens.find((s) => defs.has(s));
     if (!id) return;
+    if (button === 'orders' || button === 'radio') {
+      if (!modal() && !open.some((s) => s.id === id)) openScreen(id);
+      return;
+    }
     if (open.some((s) => s.id === id)) {
       closeScreen(id);
       return;
     }
-    const hotIds: ScreenId[] = [];
-    for (const k of HOTKEYS) for (const s of k.screens) hotIds.push(s);
-    if (open.some((s) => s.options.modal && hotIds.indexOf(s.id) < 0)) return;
-    for (let i = open.length - 1; i >= 0; i--) if (open[i]!.options.modal && hotIds.indexOf(open[i]!.id) >= 0) destroy(i);
+    // on ne passe pas par-dessus un menu ; l'autre carte, si elle est ouverte, est remplacée
+    const maps: ScreenId[] = ['carte', 'carte_tactique'];
+    if (open.some((s) => s.options.modal && maps.indexOf(s.id) < 0)) return;
+    for (let i = open.length - 1; i >= 0; i--) if (maps.indexOf(open[i]!.id) >= 0) destroy(i);
     openScreen(id);
   }
 
@@ -494,7 +499,7 @@ export function createLocalUi(): LocalUi {
       updateNav(dt, input);
       const phase = ctx.session.phase;
       if ((phase === 'playing' || phase === 'paused') && !backUsed) {
-        for (let i = 0; i < HOTKEYS.length; i++) if (input.pressed(HOTKEYS[i]!.button)) toggleHotkey(HOTKEYS[i]!.screens);
+        for (let i = 0; i < HOTKEYS.length; i++) if (input.pressed(HOTKEYS[i]!.button)) toggleHotkey(HOTKEYS[i]!.button, HOTKEYS[i]!.screens);
       }
       for (let i = 0; i < open.length; i++) {
         const s = open[i]!;

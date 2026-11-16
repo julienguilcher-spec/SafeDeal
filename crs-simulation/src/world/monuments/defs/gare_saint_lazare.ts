@@ -59,9 +59,10 @@ function build(site: MonumentSite, quality: QualityLevel) {
       const span = (F.half * 2 - 6) / 6, glass = new Geo(), gutters = new Geo();
       for (let k = 0; k < 6; k++) {
         const x = -F.half + 3 + (k + 0.5) * span;
-        const s = spanAt(ring, x);
-        if (!s) continue;
-        const z1 = Math.min(s[1], -F.depth + 3), z0 = s[0] + 4, len = z1 - z0;
+        // la verrière s'arrête là où ses deux rives quittent l'emprise
+        const s = spanAt(ring, x), sl = spanAt(ring, x - span / 2 + 3), sr = spanAt(ring, x + span / 2 - 3);
+        if (!s || !sl || !sr) continue;
+        const z1 = Math.min(s[1], sl[1], sr[1], -F.depth + 3), z0 = Math.max(s[0], sl[0], sr[0]) + 3, len = z1 - z0;
         if (len < 20) continue;
         glass.append(gableRoof(len, span - 1.2, H_VERRIERE - H_HALLE).rotateY(Math.PI / 2).translate(x, H_HALLE, (z0 + z1) / 2));
         glass.face3(x - span / 2 + 0.6, H_HALLE, z0, x, H_VERRIERE, z0, x + span / 2 - 0.6, H_HALLE, z0, 0, 0, span / 2, 7, span, 0);

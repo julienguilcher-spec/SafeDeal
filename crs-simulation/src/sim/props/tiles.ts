@@ -288,15 +288,21 @@ export class Tiles {
     return p;
   }
 
-  /** Emplacement convenable pour du mobilier de trottoir : sol piéton, libre, sans objet déjà là. */
-  private okSpot(x: number, z: number, r: number): boolean {
+  /**
+   * Emplacement convenable pour du mobilier d'ambiance : sol piéton (sauf `anySurface`), libre de tout
+   * mur dans le rayon `free`, et aucun objet à moins de `clear` du point (deux objets peuvent se toucher,
+   * comme une chaise et sa table, pas s'interpénétrer).
+   */
+  private okSpot(x: number, z: number, free: number, clear: number, anySurface = false): boolean {
     const world = this.m.k.ctx.world;
-    const surface = world.surfaceAt(x, z);
-    if (surface !== 'sidewalk' && surface !== 'plaza' && surface !== 'quay') return false;
-    if (!world.isFree(x, z, r)) return false;
+    if (!anySurface) {
+      const surface = world.surfaceAt(x, z);
+      if (surface !== 'sidewalk' && surface !== 'plaza' && surface !== 'quay') return false;
+    }
+    if (!world.isFree(x, z, free)) return false;
     const buf = this.buf;
-    const n = this.m.store.collectAround(x, z, r + 0.2, buf);
-    const r2 = (r + 0.1) * (r + 0.1);
+    const n = this.m.store.collectAround(x, z, clear + 0.2, buf);
+    const r2 = clear * clear;
     for (let i = 0; i < n; i++) {
       const q = buf[i]!;
       if (distSqPointObb(x, z, q.x, q.z, q.halfX, q.halfZ, q.heading) < r2) return false;
@@ -309,9 +315,13 @@ export class Tiles {
    * l'appelant d'après la carte (jamais d'après ce qui a pu être posé) : il désigne donc le même objet
    * à chaque rechargement de la tuile.
    */
-  private extra(rec: TileRec, job: Job, kind: PropKind, x: number, z: number, heading: number, serial: number): PropObj | null {
+  private extra(
+    rec: TileRec, job: Job, kind: PropKind, x: number, z: number, heading: number, serial: number, docked = false,
+  ): PropObj | null {
     const def = propDef(kind);
-    if (!this.okSpot(x, z, Math.max(def.halfX, def.halfZ))) return null;
+    const small = Math.min(def.halfX, def.halfZ);
+    // `docked` : objet accroché à un mobilier de la carte (vélo en station), où que soit le trottoir
+    if (!this.okSpot(x, z, docked ? small : Math.max(def.halfX, def.halfZ), small + 0.02, docked)) return null;
     job.extras++;
     return this.spawn(rec, kind, x, z, heading, serial);
   }
@@ -334,12 +344,12 @@ export class Tiles {
         if (!take) continue;
         const lx = -p.halfX + 0.4 + i * 0.75;
         const lz = p.halfZ + 0.75;
-        this.extra(rec, job, 'velo', p.x + lx * c + lz * s, p.z - lx * s + lz * c, p.heading + turn, base + i);
+        this.extra(rec, job, 'velo', p.x + lx * c + lz * s, p.z - lx * s + lz * c, p.heading + turn, base + i, true);
       }
     } else if (kind === 'arceau_velo') {
       const take = rng.chance(Math.min(0.8, 0.35 * density));
       const turn = rng.range(-0.15, 0.15);
-      if (take) this.extra(rec, job, 'velo', p.x + s * 0.35, p.z + c * 0.35, p.heading + Math.PI * 0.5 + turn, base);
+      if (take) this.extra(rec, job, 'velo', p.x + s * 0.35, p.z + c * 0.35, p.heading + Math.PI * 0.5 + turn, base, true);
     } else if (kind === 'table_terrasse') {
       // deux chaises face à face de part et d'autre de la table
       this.extra(rec, job, 'chaise', p.x + c * 0.62, p.z - s * 0.62, p.heading - Math.PI * 0.5, base);
@@ -385,12 +395,12 @@ export class Tiles {
     const turn = rng.range(-0.25, 0.25);
 
     if (shop.category === 'cafe_restaurant' && rTerrace < 0.85 * density && !this.hasNear('table_terrasse', shop.x + nx * 1.5, shop.z + nz * 1.5, half + 3)) {
-      const count = Math.max(1, Math.min(5, Math.floor(shop.width / 1.7)));
+      const count = Math.max(1, Math.min(5, Math.floor(shop.width / 1.9)));
       const rows = rRows < 0.4 ? 2 : 1;
       for (let row = 0; row < rows; row++) {
         for (let i = 0; i < count; i++) {
           const serial = base + (row * 5 + i) * 3;
-          const u = (i - (count - 1) * 0.5) * 1.7;
+          const u = (i - (count - 1) * 0.5) * 1.9;
           const d = 1.1 + row * 1.6;
           const x = shop.x + tx * u + nx * d;
           const z = shop.z + tz * u + nz * d;
@@ -452,7 +462,7 @@ export class Tiles {
     const pile = rng.chance(0.6);
     const turn = rng.range(-0.3, 0.3);
     const a0 = rng.next() * 6.283185307179586;
-    if (!found || !this.okSpot(spot.x, spot.z, 2.4)) return;
+    if (!found || !this.okSpot(spot.x, spot.z, 2.4, 2.4)) return;
     const c = Math.cos(h);
     const s = Math.sin(h);
     const x = spot.x;

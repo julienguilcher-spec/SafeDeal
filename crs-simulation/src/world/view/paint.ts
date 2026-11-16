@@ -668,9 +668,9 @@ export function paintCutoutAtlas(size: number): HTMLCanvasElement {
     g.beginPath();
     g.rect(pad, y0 + pad, cell - 2 * pad, cell - 2 * pad);
     g.clip();
-    g.fillStyle = 'rgb(44,42,40)';
+    g.fillStyle = 'rgb(86,82,76)';
     g.fillRect(0, y0, cell, cell);
-    g.strokeStyle = 'rgb(16,14,12)';
+    g.strokeStyle = 'rgb(30,27,24)';
     g.lineWidth = Math.max(1.5, cell / 60);
     for (let k = 0; k < 28; k++) {
       const a = (k / 28) * Math.PI * 2;
@@ -679,7 +679,7 @@ export function paintCutoutAtlas(size: number): HTMLCanvasElement {
       g.lineTo(cx + Math.cos(a) * r * 1.5, cy + Math.sin(a) * r * 1.5);
       g.stroke();
     }
-    g.strokeStyle = 'rgb(58,56,52)';
+    g.strokeStyle = 'rgb(112,106,98)';
     g.lineWidth = Math.max(2, cell / 40);
     for (const k of [0.36, 0.62, 0.9]) {
       g.beginPath();

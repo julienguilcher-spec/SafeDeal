@@ -307,6 +307,8 @@ export interface GlazingOpts {
   roughness?: number; metalness?: number;
   /** Part de vitres opaques (panneaux pleins) tirées au hasard, et leur teinte. */
   solid?: number; solidColor?: number;
+  /** Part des vitres éclairées la nuit (0,75 par défaut : bureaux ; ≈ 1 pour une nef ou une coupole éclairée d'un bloc). */
+  lit?: number;
 }
 
 /**
@@ -331,8 +333,8 @@ export function glazingMaterial(key: string, o: GlazingOpts): string {
         gr.addColorStop(0, 'rgba(255,255,255,0.16)'); gr.addColorStop(0.5, 'rgba(255,255,255,0)'); gr.addColorStop(1, 'rgba(0,0,0,0.10)');
         g.fillStyle = gr; g.fillRect(i * pw, j * ph, pw, ph);
       }
-      const lit = !solid && rnd() < 0.7;
-      e.fillStyle = solid ? 'rgb(18,16,12)' : lit ? `rgb(${200 + Math.round(rnd() * 55)},${170 + Math.round(rnd() * 50)},${110 + Math.round(rnd() * 50)})` : 'rgb(60,52,40)';
+      const lit = !solid && rnd() < (o.lit ?? 0.75);
+      e.fillStyle = solid ? 'rgb(18,16,12)' : lit ? `rgb(${205 + Math.round(rnd() * 50)},${178 + Math.round(rnd() * 42)},${122 + Math.round(rnd() * 40)})` : 'rgb(104,90,66)';
       e.fillRect(i * pw, j * ph, pw, ph);
     }
     const minor = Math.max(1, (o.minor ?? 0.012) * size), bar = Math.max(2, (o.bar ?? 0.04) * size);

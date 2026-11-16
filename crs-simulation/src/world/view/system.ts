@@ -16,7 +16,7 @@ import { SystemOrder } from '../../core/contracts';
 import { TILE_SIZE, decodeTile, sampleTerrain } from '../mapdata';
 import type { Landmark, Manifest, ManifestTile, Place, RawTile, RoadGraph, Terrain, Tile } from '../mapdata';
 import { WORLD_MAP2D_SERVICE, WORLD_VIEW_SERVICE } from './api';
-import type { FarTileProvider, WorldViewApi, WorldViewOptions, WorldViewStats } from './api';
+import type { FarTileProvider, TileBench, WorldViewApi, WorldViewOptions, WorldViewStats } from './api';
 import { disposeSharedBuildingResources, prepareSharedBuildingResources } from './buildings/index';
 import { BridgeProfile } from './decks';
 import { EdgeIndex } from './edgeindex';
@@ -113,6 +113,7 @@ export class WorldViewSystem implements GameSystem {
     pending: () => this.pending(),
     flush: (maxMs) => this.flush(maxMs ?? 1e9),
     whenIdle: () => this.whenIdle(),
+    benchTile: (tx, tz, runs) => this.benchTile(tx, tz, runs ?? 5),
   };
 
   constructor(options: WorldViewOptions = {}) {
@@ -130,7 +131,6 @@ export class WorldViewSystem implements GameSystem {
   init(ctx: GameContext): void {
     this.ctx = ctx;
     this.unsub.push(ctx.events.on('world:tile_loaded', () => { this.dirty = true; }));
-    this.unsub.push(ctx.events.on('world:tile_unloaded', (e) => { this.map2d.forgetTile(e.tx, e.tz); }));
     this.unsub.push(ctx.events.onAny('world:source', () => this.resetWorld()));
     this.unsub.push(ctx.events.on('settings:changed', (e) => { if (e.key === 'quality' || e.key === 'drawDistance') this.dirty = true; }));
   }
@@ -395,6 +395,7 @@ export class WorldViewSystem implements GameSystem {
       if (tile === null) continue;
       const view = new FarTile(city, tile);
       slot.far = view;
+      if (loaded === null) this.map2d.offerTile(tile);
       slot.fetched = null;
       if (!slot.painted && this.horizon) {
         // Le socle garde le souvenir des couleurs de la tuile (grille grossière, quelques millisecondes).
@@ -507,6 +508,49 @@ export class WorldViewSystem implements GameSystem {
   private whenIdle(): Promise<void> {
     if (this.pending() === 0) return Promise.resolve();
     return new Promise<void>((resolve) => this.idleWaiters.push(resolve));
+  }
+
+  private benchTile(tx: number, tz: number, runs: number): TileBench | null {
+    const city = this.city, data = this.data;
+    if (city === null || data === null) return null;
+    const tile = data.tile(tx, tz);
+    if (tile === null) return null;
+    const bench: CityContext = { ...city, buildings: false, renderer: null };
+    const best: number[] = [];
+    const labels: string[] = [];
+    let out: TileBench = { steps: 0, totalMs: 0, maxStepMs: 0, maxStepLabel: '', over4: 0, over8: 0, triangles: 0, drawCalls: 0, gpuBytes: 0 };
+    for (let run = 0; run < Math.max(1, runs); run++) {
+      const view = new DetailTile(bench, tile);
+      const work = view.build();
+      let k = 0, last = now();
+      for (;;) {
+        const r = work.next();
+        const t = now();
+        if (k >= best.length) {
+          best.push(t - last);
+          labels.push(view.phase);
+        } else if (t - last < best[k]) {
+          best[k] = t - last;
+        }
+        last = t;
+        k++;
+        if (r.done) break;
+      }
+      out = { ...out, triangles: view.stats.triangles, drawCalls: view.stats.drawCalls, gpuBytes: view.stats.gpuBytes };
+      view.dispose();
+    }
+    // La construction d'essai a déplacé la sélection des ponts : le travail en cours la rétablit à sa prochaine étape.
+    out.steps = best.length;
+    for (let k = 0; k < best.length; k++) {
+      out.totalMs += best[k];
+      if (best[k] > out.maxStepMs) {
+        out.maxStepMs = best[k];
+        out.maxStepLabel = labels[k];
+      }
+      if (best[k] > 4) out.over4++;
+      if (best[k] > 8) out.over8++;
+    }
+    return out;
   }
 
   private liftAt(x: number, z: number): number {

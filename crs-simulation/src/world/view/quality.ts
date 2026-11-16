@@ -57,12 +57,12 @@ export const CITY_QUALITY: Readonly<Record<QualityLevel, CityQuality>> = {
   },
   haut: {
     rasterSize: 2048, atlasSize: 512, anisotropy: 8, lambert: false, blend: true, detail: true, detailRadius: 340, fadeNear: 120, fadeFar: 230,
-    curbs: true, gutters: true, markings: true, grates: true, crownMain: 2, crownSide: 0, denseTrees: 600, trunkSides: 8, wind: true, leafCut: true,
+    curbs: true, gutters: true, markings: true, grates: true, crownMain: 2, crownSide: 1, denseTrees: 500, trunkSides: 8, wind: true, leafCut: true,
     treeShadows: true, farTrees: true, halos: true, budgetMs: 6, copingLand: 0.45,
   },
   ultra: {
     rasterSize: 2048, atlasSize: 512, anisotropy: 16, lambert: false, blend: true, detail: true, detailRadius: 460, fadeNear: 150, fadeFar: 300,
-    curbs: true, gutters: true, markings: true, grates: true, crownMain: 2, crownSide: 1, denseTrees: 900, trunkSides: 10, wind: true, leafCut: true,
+    curbs: true, gutters: true, markings: true, grates: true, crownMain: 2, crownSide: 1, denseTrees: 1000, trunkSides: 10, wind: true, leafCut: true,
     treeShadows: true, farTrees: true, halos: true, budgetMs: 8, copingLand: 0.45,
   },
 };

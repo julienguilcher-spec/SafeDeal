@@ -384,7 +384,8 @@ export function* rasterSteps(r: TileRaster, tile: Tile, graph: RoadGraph, edgeId
   for (let k = 0; k < edgeIds.length; k++) {
     const ed = graph.edges[edgeIds[k]];
     if (ed === undefined || ed.tunnel || ed.surface !== 'sett' || ed.pedestrianOnly) continue;
-    yield* paintPolylineSteps(r, ed.points, ed.width / 2 + 4, RULE_SETT, 0, cap);
+    // Élargi de 9 m : la largeur de l'arête est une estimation, et seule une chaussée peut être convertie.
+    yield* paintPolylineSteps(r, ed.points, ed.width / 2 + 9, RULE_SETT, 0, cap);
   }
 }
 
@@ -451,15 +452,17 @@ function buildRibbons(r: TileRaster, ed: RoadEdge): void {
 /**
  * Texture de couleurs d'une tuile vue de loin : `size` × `size` pixels RVBA (sRGB). Alpha = 0 sur
  * l'eau (le shader y met le reflet du ciel), 255 ailleurs. Chaque pixel prend la classe majoritaire
- * de quatre sondes. `palette` : couleur de chaque classe (par défaut CLASS_COLOR).
+ * de quatre sondes. `palette` : couleur de chaque classe (par défaut CLASS_COLOR). `rowFrom`, `rowTo` : lignes
+ * à calculer (pour étaler le travail).
  */
 export function bakeMacro(
-  r: TileRaster, size: number, out?: Uint8Array, palette: readonly (readonly [number, number, number])[] = CLASS_COLOR,
+  r: TileRaster, size: number, out?: Uint8Array, palette: readonly (readonly [number, number, number])[] = CLASS_COLOR, rowFrom = 0,
+  rowTo = size,
 ): Uint8Array {
   const px = out ?? new Uint8Array(size * size * 4);
   const n = r.n, codes = r.codes;
   const ratio = n / size;
-  for (let j = 0; j < size; j++) {
+  for (let j = Math.max(0, rowFrom), end = Math.min(size, rowTo); j < end; j++) {
     for (let i = 0; i < size; i++) {
       let cr = 0, cg = 0, cb = 0, water = 0;
       for (let s = 0; s < 4; s++) {

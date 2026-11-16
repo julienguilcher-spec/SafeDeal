@@ -27,7 +27,7 @@ export const GP = {
 } as const;
 
 const TRIM = 'pierre_lisse_claire', COPPER = 'bronze_vert', ZINC = 'zinc';
-const GLASS = glazingMaterial('verriere_grand_palais', { frame: 0xa9bfa6, glass: 0x9fb6b8, tile: [3, 3], panes: [4, 4], bar: 0.07, minor: 0.016, night: 1.5 });
+const GLASS = glazingMaterial('verriere_grand_palais', { frame: 0xa9bfa6, glass: 0x9fb6b8, tile: [3, 3], panes: [4, 4], bar: 0.07, minor: 0.016, night: 1.3, lit: 0.97 });
 const STEEL = plainMaterial('acier_reseda', 0xa9bfa6, { roughness: 0.55, metalness: 0.3, night: 0.9 });
 const STYLE: PalaceStyle = {
   ...PALACE_STYLES.neoclassique, id: 'grand_palais', bay: 5.6, stone: 0xe6dcc4,

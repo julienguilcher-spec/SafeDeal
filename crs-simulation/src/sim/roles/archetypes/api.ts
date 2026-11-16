@@ -34,6 +34,15 @@
  * company, section, group, variant, bloc, child, unmarked, sex, age et carry (codes CARRY : objet
  * porté en main imposé). Tout changement d'apparence remplace l'objet extras (le rendu détecte le
  * changement par référence).
+ *
+ * ── CLÉS DE SessionConfig.extra LUES AU DÉBUT D'UNE SESSION ──────────────────────────────────
+ *   cause        identifiant de la cause du jour (écrit par la page d'accueil) ; sinon tirée de la graine
+ *   composition  parts par famille visuelle (page d'accueil) : guide la famille d'un manifestant créé
+ *                sans précision ; sinon composition type de la cause
+ *   compagnie    numéro de la compagnie de CRS engagée ; sinon numéro fictif de 70 à 79 tiré de la graine
+ *
+ * Pont facultatif vers le rendu : si le service « peopleRender » existe et expose setHeldText(id, texte),
+ * le texte de la pancarte ou de la banderole d'un manifestant lui est transmis à chaque habillage.
  * ===================================================================================== */
 
 import type {
@@ -259,6 +268,8 @@ export interface CrowdSlot {
   child?: boolean;
   /** Variante (tiers du cortège : photographe, reporter d'images…). */
   variant?: VariantId;
+  /** Index global de l'organisation fictive du bloc (cortège syndical : un bloc par organisation, chasubles assorties). */
+  org?: number;
 }
 
 export type UnitType =

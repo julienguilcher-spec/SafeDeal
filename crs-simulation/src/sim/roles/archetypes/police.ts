@@ -10,10 +10,10 @@
 import type { HeadgearId, ItemId, OutfitId, PersonKind, PolicePoste, PoliceRank, Rng } from '@/core/contracts';
 import { RANK_STYLE, VARIANT } from './api';
 import type { BodySpec, Draft, Identity, KitTable } from './model';
-import { kitAdd, kitAddAll, kitRemove } from './model';
+import { clearCivilExtras, kitAdd, kitAddAll, kitRemove } from './model';
 import {
   BOOT_BLACK, BRAV_BLACK, BRAV_HELMET_DARK, BRAV_HELMET_LIGHT, CRS_BAND, CRS_HELMET, CRS_NAVY, GENDARME_DARK,
-  GENDARME_GOLD, GENDARME_HELMET, POLICE_ARMBAND, PROTECTION_BLACK, RANK_GOLD, RANK_SILVER, RANK_WHITE, SERVICE_NAVY,
+  GENDARME_GOLD, GENDARME_HELMET, MEDIC_RED, POLICE_ARMBAND, PROTECTION_BLACK, RANK_GOLD, RANK_SILVER, RANK_WHITE, SERVICE_NAVY,
   SUIT_DARK,
 } from './palette';
 
@@ -84,7 +84,11 @@ interface PoliceOutfit {
   /** Protections 0..1 en tenue complète. */
   armorHead: number;
   armorBody: number;
-  gloves: number;
+  /**
+   * Teintes de référence du casque et de ses bandes (bible §D). Le rendu des tenues officielles applique
+   * ses propres teintes réglementaires : ces valeurs ne sont écrites dans l'apparence que là où elles
+   * distinguent deux agents (opérateur de BRAV-M, calot du gendarme).
+   */
   helmetColor: number;
   bandColor: number;
   /** Tenue allégée (conducteur, opérateur d'engin) : tenue, coiffe, protections. */
@@ -95,47 +99,48 @@ interface PoliceOutfit {
   defaultPoste: PolicePoste | null;
 }
 
-const DUTY_BODY: BodySpec = { women: 0.12, ageMin: 21, ageMax: 54, agePeak: 31, fitMin: 1.0, fitMax: 1.1, vivid: 0 };
+/** Agents entraînés mais d'âges variés : condition physique d'un adulte en forme (la charge fait le reste). */
+const DUTY_BODY: BodySpec = { women: 0.12, ageMin: 21, ageMax: 54, agePeak: 31, fitMin: 0.97, fitMax: 1.06, vivid: 0 };
 
 export const POLICE_OUTFITS: Readonly<Record<PoliceKind, PoliceOutfit>> = {
   // casque sombre à deux bandes jaunes, tenue marine, protections noires, « POLICE » dans le dos
   crs: {
     label: 'CRS', outfit: 'crs_mo', headgear: 'casque_crs', top: CRS_NAVY, bottom: CRS_NAVY, shoes: BOOT_BLACK,
-    backText: 'POLICE', armorHead: 0.85, armorBody: 0.7, gloves: BOOT_BLACK, helmetColor: CRS_HELMET, bandColor: CRS_BAND,
+    backText: 'POLICE', armorHead: 0.85, armorBody: 0.7, helmetColor: CRS_HELMET, bandColor: CRS_BAND,
     lightOutfit: 'crs_service', lightHeadgear: 'calot', lightArmorBody: 0.3, body: DUTY_BODY, defaultPoste: 'bouclier',
   },
   // casque entièrement bleu, insignes or, « GENDARMERIE » dans le dos
   gendarme: {
     label: 'Gendarme mobile', outfit: 'gendarme_mo', headgear: 'casque_gendarme', top: GENDARME_DARK, bottom: GENDARME_DARK,
-    shoes: BOOT_BLACK, backText: 'GENDARMERIE', armorHead: 0.85, armorBody: 0.7, gloves: BOOT_BLACK,
+    shoes: BOOT_BLACK, backText: 'GENDARMERIE', armorHead: 0.85, armorBody: 0.7,
     helmetColor: GENDARME_HELMET, bandColor: 0, lightOutfit: 'gendarme_mo', lightHeadgear: 'calot', lightArmorBody: 0.3,
     body: DUTY_BODY, defaultPoste: 'bouclier',
   },
   // tout en noir, protections lourdes, casque de moto gardé à pied
   bravm: {
     label: 'BRAV-M', outfit: 'bravm', headgear: 'casque_moto', top: BRAV_BLACK, bottom: BRAV_BLACK, shoes: BOOT_BLACK,
-    backText: 'POLICE', armorHead: 0.8, armorBody: 0.55, gloves: BOOT_BLACK, helmetColor: BRAV_HELMET_DARK, bandColor: 0,
+    backText: 'POLICE', armorHead: 0.8, armorBody: 0.55, helmetColor: BRAV_HELMET_LIGHT, bandColor: 0,
     lightOutfit: 'bravm', lightHeadgear: 'casque_moto', lightArmorBody: 0.55,
-    body: { women: 0.08, ageMin: 24, ageMax: 48, agePeak: 31, fitMin: 1.03, fitMax: 1.12, vivid: 0 }, defaultPoste: 'passager_moto',
+    body: { women: 0.08, ageMin: 24, ageMax: 48, agePeak: 31, fitMin: 1.0, fitMax: 1.08, vivid: 0 }, defaultPoste: 'passager_moto',
   },
   // autorité civile : tenue de service marine ou costume sombre ; écharpe tricolore
   commissaire: {
     label: 'Commissaire', outfit: 'crs_service', headgear: 'casquette_police', top: SERVICE_NAVY, bottom: SERVICE_NAVY,
-    shoes: BOOT_BLACK, backText: 'POLICE', armorHead: 0.1, armorBody: 0.3, gloves: 0, helmetColor: SERVICE_NAVY, bandColor: 0,
+    shoes: BOOT_BLACK, backText: 'POLICE', armorHead: 0.1, armorBody: 0.3, helmetColor: SERVICE_NAVY, bandColor: 0,
     lightOutfit: 'commissaire', lightHeadgear: 'none', lightArmorBody: 0.3,
     body: { women: 0.34, ageMin: 29, ageMax: 59, agePeak: 42, fitMin: 0.95, fitMax: 1.05, vivid: 0 }, defaultPoste: 'autorite_civile',
   },
   // vêtements de ville ; brassard orange « POLICE » obligatoire
   policier_civil: {
     label: 'Policier en civil', outfit: 'police_civil', headgear: 'none', top: -1, bottom: -1, shoes: -1, backText: 'POLICE',
-    armorHead: 0, armorBody: 0.25, gloves: 0, helmetColor: 0, bandColor: 0, lightOutfit: 'police_civil', lightHeadgear: 'none',
-    lightArmorBody: 0.25, body: { women: 0.25, ageMin: 25, ageMax: 52, agePeak: 34, fitMin: 1.0, fitMax: 1.1, vivid: 0 },
+    armorHead: 0, armorBody: 0.25, helmetColor: 0, bandColor: 0, lightOutfit: 'police_civil', lightHeadgear: 'none',
+    lightArmorBody: 0.25, body: { women: 0.25, ageMin: 25, ageMax: 52, agePeak: 34, fitMin: 0.98, fitMax: 1.08, vivid: 0 },
     defaultPoste: null,
   },
   // tenue de service, calot ; posté près du véhicule de commandement
   telepilote: {
     label: 'Télépilote de drone', outfit: 'crs_service', headgear: 'calot', top: SERVICE_NAVY, bottom: SERVICE_NAVY,
-    shoes: BOOT_BLACK, backText: 'POLICE', armorHead: 0, armorBody: 0.2, gloves: 0, helmetColor: SERVICE_NAVY, bandColor: 0,
+    shoes: BOOT_BLACK, backText: 'POLICE', armorHead: 0, armorBody: 0.2, helmetColor: SERVICE_NAVY, bandColor: 0,
     lightOutfit: 'crs_service', lightHeadgear: 'calot', lightArmorBody: 0.2,
     body: { women: 0.28, ageMin: 25, ageMax: 50, agePeak: 33, fitMin: 0.97, fitMax: 1.06, vivid: 0 }, defaultPoste: 'telepilote',
   },
@@ -308,6 +313,7 @@ export function dressPolice(
 
   // ── tenue ──
   if (kind === 'policier_civil') {
+    // vêtements de ville de la personne, blouson, brassard orange
     d.outfit = 'police_civil';
     d.armband = POLICE_ARMBAND;
     // un policier en civil sur cinq garde un casque de moto sombre
@@ -319,12 +325,14 @@ export function dressPolice(
     e.sleeves = 1;
     delete e.shorts;
     delete e.skirt;
+    delete e.packColor;
   } else if (kind === 'commissaire') {
     // variante tirée d'après la graine si elle n'est pas imposée : une fois sur deux en civil
     const civil = variant === VARIANT.civil || (variant !== VARIANT.tenue && rng.next() < 0.5);
+    clearCivilExtras(e);
     if (civil) {
-      d.outfit = 'commissaire';
-      d.headgear = 'none';
+      d.outfit = o.lightOutfit;
+      d.headgear = o.lightHeadgear;
       d.top = SUIT_DARK;
       d.bottom = SUIT_DARK;
       d.armorHead = 0;
@@ -335,18 +343,12 @@ export function dressPolice(
       d.top = o.top;
       d.bottom = o.bottom;
       d.armorHead = o.armorHead;
-      e.helmetColor = o.helmetColor;
       e.variant = VARIANT.tenue;
     }
     d.shoes = BOOT_BLACK;
     d.armorBody = o.armorBody;
-    e.jacket = 1;
-    e.sleeves = 1;
-    delete e.shorts;
-    delete e.skirt;
-    delete e.hoodDown;
-    e.scarf = 0;
   } else {
+    clearCivilExtras(e);
     d.outfit = light ? o.lightOutfit : o.outfit;
     d.headgear = light ? o.lightHeadgear : o.headgear;
     d.top = o.top;
@@ -354,17 +356,10 @@ export function dressPolice(
     d.shoes = o.shoes;
     d.armorHead = light && o.lightHeadgear !== o.headgear ? 0 : o.armorHead;
     d.armorBody = light ? o.lightArmorBody : o.armorBody;
-    if (o.gloves && !light) e.gloves = o.gloves;
-    if (o.helmetColor) e.helmetColor = light && o.lightHeadgear === 'calot' ? o.top : o.helmetColor;
-    if (o.bandColor && !light) e.bandColor = o.bandColor;
     // BRAV-M : casque clair des motocyclistes pour le pilote, sombre pour l'opérateur (estimé)
-    if (kind === 'bravm') e.helmetColor = poste === 'pilote_moto' ? BRAV_HELMET_LIGHT : BRAV_HELMET_DARK;
-    e.jacket = d.outfit === 'crs_service' ? 1 : 0;
-    e.sleeves = 1;
-    delete e.shorts;
-    delete e.skirt;
-    delete e.hoodDown;
-    e.scarf = 0;
+    if (kind === 'bravm' && poste !== 'pilote_moto') e.helmetColor = BRAV_HELMET_DARK;
+    // gendarme sans casque : calot aux couleurs de la tenue
+    if (kind === 'gendarme' && light) e.helmetColor = o.top;
   }
   d.backText = o.backText;
   d.backpack = false;
@@ -405,7 +400,7 @@ export function dressPolice(
       kitAdd(d, 'trousse_secours', 10);
       kitAdd(d, 'serum_physiologique', 20);
       d.backpack = true;
-      e.packColor = 0x8a1418;
+      e.packColor = MEDIC_RED;
       e.camera_pieton = 1;
     } else if (variant === VARIANT.video) {
       kitAdd(d, 'telephone', 1);

@@ -29,6 +29,7 @@ const server = await startServer();
 const t0 = Date.now();
 const { browser, page, errors } = await openPage(`${server.url}harness/world.html?shot=1&quality=${quality}&place=concorde${extra}`, { width: 1280, height: 720 });
 let ok = true;
+let browser2 = null;
 const report = { quality, shots: {}, roundTrip: null, map: null };
 try {
   await waitFor(page, 'window.__ready === true || window.__error', 600000);
@@ -56,10 +57,29 @@ try {
     report.map = { ms };
     await page.evaluate(() => window.__map(null));
   }
+  if (!only || only.includes('mesure')) {
+    // coût de construction d'une tuile détaillée (hors immeubles), étape par étape
+    for (const vue of ['concorde', 'champs', 'marais']) {
+      await page.evaluate((v) => window.__goto(v, { heure: 12, meteo: 'clair' }), vue);
+      const b = await page.evaluate(() => window.__bench(5));
+      if (!b) continue;
+      report.bench = report.bench ?? {};
+      report.bench[vue] = b;
+      console.log(`construction (${vue}) : ${b.totalMs.toFixed(0)} ms en ${b.steps} étapes ; plus longue étape ${b.maxStepMs.toFixed(1)} ms (${b.maxStepLabel}) ; ${b.over4} étapes > 4 ms, ${b.over8} > 8 ms ; ${Math.round(b.triangles / 1000)} k triangles, ${b.drawCalls} appels, ${(b.gpuBytes / 1048576).toFixed(1)} Mo`);
+    }
+  }
   if (!only || only.includes('memoire')) {
-    // aller-retour : la mémoire de la carte graphique doit revenir à sa valeur de départ
-    await page.evaluate(() => window.__goto('concorde', { heure: 12, meteo: 'clair' }));
-    const trip = await page.evaluate(() => window.__roundTrip());
+    // Aller-retour : la mémoire de la carte graphique doit revenir à sa valeur de départ. Page à part, sans les
+    // monuments (un autre module, qui construit ses silhouettes peu à peu et fausserait le décompte).
+    await browser.close();
+    const second = await openPage(`${server.url}harness/world.html?shot=1&quality=${quality}&place=concorde&monuments=0${extra}`, { width: 1280, height: 720 });
+    browser2 = second.browser;
+    errors.push(...second.errors);
+    const page2 = second.page;
+    await waitFor(page2, 'window.__ready === true || window.__error', 600000);
+    await page2.evaluate(() => window.__goto('concorde', { heure: 12, meteo: 'clair' }));
+    const trip = await page2.evaluate(() => window.__roundTrip());
+    errors.push(...second.errors);
     report.roundTrip = trip;
     console.log(`aller-retour de ${trip.deplacement} m : géométries ${trip.avant.geometries} → ${trip.ailleurs.geometries} → ${trip.apres.geometries} ; textures ${trip.avant.textures} → ${trip.ailleurs.textures} → ${trip.apres.textures} ; tuiles [détaillées, lointaines] ${JSON.stringify(trip.tuilesAvant)} → ${JSON.stringify(trip.tuilesAilleurs)} → ${JSON.stringify(trip.tuilesApres)}`);
     if (Math.abs(trip.apres.geometries - trip.avant.geometries) > 2 || Math.abs(trip.apres.textures - trip.avant.textures) > 2) {
@@ -72,4 +92,5 @@ try {
   ok = false;
 }
 writeFileSync(path.join(OUT, `world-report-${quality}.json`), JSON.stringify(report, null, 1));
+if (browser2) await browser2.close().catch(() => {});
 await finish({ browser, server, errors, ok, label: 'world' });

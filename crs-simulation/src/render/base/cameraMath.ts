@@ -3,6 +3,9 @@
 
 import type { GameContext, Person, RayHit, Vehicle } from '@/core/contracts';
 
+/** Site maximal de la caméra (rad) : on ne bascule jamais au-delà de la verticale. */
+export const PITCH_LIMIT = 1.52;
+
 export interface CameraPose {
   x: number;
   y: number;
@@ -127,4 +130,51 @@ function blockedAt(ctx: GameContext, ay: number, by: number): number {
   const yAt = ay + (by - ay) * t;
   const top = ctx.world.heightAt(hit.x, hit.z) + (hit.height > 0 ? hit.height : 1e6);
   return yAt < top + 0.3 ? t : 1;
+}
+
+/** Point exprimé dans le repère du véhicule (x = droite, y = haut, z = avant) → monde, écrit dans la pose. */
+export function vehiclePoint(v: Vehicle, lx: number, ly: number, lz: number, out: CameraPose): void {
+  const s = Math.sin(v.heading);
+  const c = Math.cos(v.heading);
+  // avant = (sin h, cos h) ; droite = (-cos h, sin h)
+  out.x = v.x + -c * lx + s * lz;
+  out.z = v.z + s * lx + c * lz;
+  out.y = v.y + ly;
+}
+
+/**
+ * Orientation à bord : celle du joueur, plus une part du tangage et du roulis du véhicule
+ * (hypothèse : tangage positif = nez levé, roulis positif = penché à droite).
+ */
+export function vehicleTilt(v: Vehicle, yaw: number, pitch: number, out: CameraPose): void {
+  const rel = yaw - v.heading;
+  const c = Math.cos(rel);
+  const s = Math.sin(rel);
+  const k = 0.7;
+  const p = pitch + (v.pitch * c + v.roll * s) * k;
+  out.yaw = yaw;
+  out.pitch = p < -PITCH_LIMIT ? -PITCH_LIMIT : p > PITCH_LIMIT ? PITCH_LIMIT : p;
+  out.roll = (v.roll * c - v.pitch * s) * k;
+}
+
+/** Engin volant piloté : celui du joueur, sinon celui où il a un siège, sinon le drone le plus proche de lui. */
+export function findDrone(list: readonly Vehicle[], v: Vehicle | null, p: Person | null): Vehicle | null {
+  if (v && v.def.flying) return v;
+  let best: Vehicle | null = null;
+  let bestD = Infinity;
+  for (let i = 0; i < list.length; i++) {
+    const c = list[i]!;
+    if (!c.def.flying || c.dormant) continue;
+    if (p) {
+      for (let s = 0; s < c.seats.length; s++) if (c.seats[s] === p.id) return c;
+    }
+    const d = p ? (c.x - p.x) * (c.x - p.x) + (c.z - p.z) * (c.z - p.z) : 0;
+    // les drones avant les hélicoptères
+    const score = d + (c.kind === 'drone' ? 0 : 1e9);
+    if (score < bestD) {
+      bestD = score;
+      best = c;
+    }
+  }
+  return best;
 }

@@ -310,7 +310,7 @@ export function itemName(id: ItemId, defName?: string): string {
 }
 
 /** Objets dont la quantité n'a pas de sens à l'écran (un seul exemplaire, pas de munitions). */
-export function showsCount(id: ItemId, count: number, maxCount: number | undefined): boolean {
+export function showsCount(_id: ItemId, count: number, maxCount: number | undefined): boolean {
   if (maxCount !== undefined) return maxCount > 1;
   return count > 1;
 }

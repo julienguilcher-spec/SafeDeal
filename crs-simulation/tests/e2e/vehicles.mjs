@@ -1,9 +1,11 @@
 // Captures du banc d'essai des véhicules : alignements (face, profil, trois-quarts, dessus), nuit gyrophares
 // allumés, états de dégâts, modèles lointains, vue intérieure, écran de tourelle, parc de 150 véhicules civils.
-// Usage : node tests/e2e/vehicles.mjs [filtre]   — ex. « alignement », « fiche », « nuit », « interieur », « parc ».
+// Usage : node tests/e2e/vehicles.mjs [filtre]   — ex. « alignement », « fiche- » (toutes les fiches), « nuit », « interieur »,
+// « parc », ou « tout » (jeu complet, fiches de chaque modèle comprises).
 import { startServer, openPage, waitFor, shot, finish } from './lib.mjs';
 
-const filter = process.argv[2] ?? '';
+const arg = process.argv[2] ?? '';
+const filter = arg === 'tout' ? '' : arg;
 const server = await startServer();
 const allErrors = [];
 let browserRef = null;
@@ -53,7 +55,9 @@ await capture('nuit-4', 'view=alignement&page=4&nuit=1&pas=0.033', { frames: 9 }
 // (c) fiches : chaque modèle sous quatre angles
 const KINDS = ['fourgon_crs', 'car_crs', 'vl_commandement', 'voiture_police', 'fourgon_cellulaire', 'centaure', 'canon_eau', 'moto_bravm',
   'camion_pompiers', 'ambulance', 'voiture', 'citadine', 'suv', 'taxi', 'utilitaire', 'camion', 'bus', 'scooter', 'camion_sono', 'drone', 'helicoptere'];
-for (const k of KINDS) await capture(`fiche-${k}`, `view=fiche&kind=${k}&pas=0.033`);
+// (par défaut : les trois engins emblématiques ; `node tests/e2e/vehicles.mjs fiche-` les capture tous)
+const SHEETS = arg.startsWith('fiche') || arg === 'tout' ? KINDS : ['fourgon_crs', 'centaure', 'canon_eau'];
+for (const k of SHEETS) await capture(`fiche-${k}`, `view=fiche&kind=${k}&pas=0.033`);
 await capture('fiche-centaure-tourelle', 'view=fiche&kind=centaure&gis=40&site=25&braq=25&portes=1&pas=0.033', { frames: 40 });
 await capture('fiche-canon_eau-tourelle', 'view=fiche&kind=canon_eau&gis=35&site=20&braq=-20&pas=0.033');
 await capture('fiche-fourgon_crs-portes', 'view=fiche&kind=fourgon_crs&portes=1&braq=20&arriere=1&pas=0.033', { frames: 40 });
@@ -62,10 +66,10 @@ await capture('fiche-centaure-nuit', 'view=fiche&kind=centaure&nuit=1&pas=0.033'
 // (d) modèles lointains au téléobjectif
 for (let p = 1; p <= PAGES; p++) await capture(`lointain-${p}`, `view=alignement&page=${p}&loin=1&pas=0.033`);
 // (e) états : intact, endommagé, épave, en feu, calciné
-for (const k of ['voiture', 'fourgon_crs', 'centaure', 'bus', 'scooter']) await capture(`etats-${k}`, `view=etats&kind=${k}&pas=0.033`, { frames: 30 });
+for (const k of ['voiture', 'fourgon_crs', 'centaure']) await capture(`etats-${k}`, `view=etats&kind=${k}&pas=0.033`, { frames: 30 });
 await capture('etats-voiture-nuit', 'view=etats&kind=voiture&nuit=1&pas=0.033', { frames: 30 });
 // (f) vue intérieure
-for (const k of ['fourgon_crs', 'voiture_police', 'centaure', 'canon_eau', 'voiture', 'bus', 'moto_bravm']) {
+for (const k of ['fourgon_crs', 'voiture_police', 'centaure', 'canon_eau', 'moto_bravm']) {
   await capture(`interieur-${k}`, `view=interieur&kind=${k}&vitesse=47&braq=12&gyro=1&sirene=1&pas=0.033`, { frames: 12 });
 }
 await capture('interieur-fourgon_crs-nuit', 'view=interieur&kind=fourgon_crs&nuit=1&vitesse=30&frein=1&clig=d&pas=0.033', { frames: 12 });

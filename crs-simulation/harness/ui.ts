@@ -9,7 +9,7 @@
 //   &camera=tps|fps|drone|viewfinder  &gas=0..1  &hour=0..24  &touch=1 (surcouche tactile forcée)
 //   &view=0 (pas de ctx.view : effets d'écran de repli, pas de marqueurs)  &missions=1  &records=1  &extras=1
 //   &world=paris (vraies données de carte)  &hold=1 (chargement retenu)  &bench=1 (panneau ouvert)
-//   &subs=1 (sous-modules src/ui/maps et src/ui/command agrégés, s'ils existent)
+//   &subs=1 (sous-modules src/ui/maps et src/ui/command agrégés, s'ils existent)  &noinput=1 (sans module d'entrées)
 // API de test : window.__uiTest (voir en bas du fichier) ; window.__ready quand tout est en place.
 import * as THREE from 'three';
 import type {
@@ -559,7 +559,8 @@ const benchView: GameSystem = {
 
 // ───────────────────────────── démarrage ─────────────────────────────
 
-game.addModule(inputModule);
+// &noinput=1 : sans module d'entrées (services neutres) — l'interface lit alors le clavier elle-même
+if (!flag('noinput')) game.addModule(inputModule);
 if (params.get('world') === 'paris') game.addModule(() => createWorldQuerySystems({ source: 'paris', baseUrl: '../data/paris/' }));
 game.addSystem(benchSim);
 game.addSystem(benchView);
@@ -730,8 +731,8 @@ const api = {
   loading(progress: number, label?: string): void {
     ctx.events.emitAny('ui:loading', { progress, label });
   },
-  script(): InputScriptApi {
-    return ctx.require<InputScriptApi>('input.script');
+  script(): InputScriptApi | undefined {
+    return ctx.service<InputScriptApi>('input.script');
   },
   debug(): UiDebugApi {
     return ctx.require<UiDebugApi>('ui.debug');

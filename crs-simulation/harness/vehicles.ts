@@ -243,7 +243,7 @@ if (view === 'alignement') {
     world.add(wall);
   }
   setShadowArea(0, 0, Math.max(total, maxLen) / 2 + 4);
-  const span = cam === 'profil' ? maxLen + 2 : cam === 'dessus' ? Math.max(total, maxLen * 1.8) : total + 2;
+  const span = cam === 'profil' ? maxLen + 2 : cam === 'dessus' ? Math.max(total, maxLen * 1.8) : cam === 'face' ? total + 2 : Math.hypot(total, maxLen) * 0.78;
   camPreset(cam, 0, 0, span, maxH, cam === 'profil' ? total / 2 : 0, maxLen / 2);
 } else if (view === 'fiche' || view === 'etats') {
   const kind = params.get('kind') ?? 'fourgon_crs';
@@ -256,7 +256,7 @@ if (view === 'alignement') {
     if (params.get('clig')) v.indicator = params.get('clig') === 'g' ? -1 : 1;
     if (params.get('frein') === '1') v.braking = true;
     v.speed = num('vitesse', 0) / 3.6;
-    addHuman(-def.width / 2 - 0.75, -def.length / 2 + 0.6);
+    addHuman(-Math.max(def.width, 1.7) / 2 - 0.75, -def.length / 2 + 0.6);
     setShadowArea(0, 0, Math.max(def.length, 8) / 2 + 3);
     multiView = { v };
     if (night) {

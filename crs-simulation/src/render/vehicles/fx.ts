@@ -71,7 +71,7 @@ void main() {
 		f = clamp( f * 1.9, 0.0, 1.0 );
 		vec3 ramp = mix( vec3( 0.9, 0.12, 0.0 ), vec3( 1.0, 0.55, 0.06 ), smoothstep( 0.15, 0.55, f ) );
 		ramp = mix( ramp, vec3( 1.0, 0.92, 0.55 ), smoothstep( 0.6, 1.0, f ) );
-		col = ramp * f * vFx.a * 2.2;
+		col = ramp * f * vFx.a * 1.6;
 	} else {
 		// fumée : bouffée sombre aux contours déchiquetés
 		float t = vFx2.z, sd = vFx2.y;

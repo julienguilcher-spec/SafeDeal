@@ -67,6 +67,8 @@ background:var(--cm-panel);border:1px solid var(--cm-line);font-size:11px;font-w
 /* ── mini-carte ── */
 .cm-mini{position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:5px;pointer-events:none;width:max-content;max-width:240px}
 .cm-mini.is-off{display:none}
+.cm-mini.is-small{flex-direction:row;align-items:flex-start;max-width:290px}
+.cm-mini.is-small .cm-mini-info{max-width:150px;margin-top:2px}
 .cm-mini-disc{position:relative;width:var(--cm-mini,168px);height:var(--cm-mini,168px);flex:none;pointer-events:auto;cursor:pointer;border-radius:50%}
 .cm-mini-clip{position:absolute;inset:0;border-radius:50%;overflow:hidden;background:#0f1829;border:2px solid rgba(214,226,250,.72);
 box-shadow:0 0 0 1px rgba(5,10,20,.9),0 6px 18px rgba(0,0,0,.45);contain:strict}
@@ -81,9 +83,9 @@ color:var(--cm-red);font-size:9.5px;font-weight:800;line-height:13px;text-align:
 .cm-mini-gps.is-on{display:block}
 .cm-mini-gps i{position:absolute;left:-6px;top:-7px;border:6px solid transparent;border-bottom:10px solid var(--cm-cyan);border-top:0;filter:drop-shadow(0 0 1.5px #04101f)}
 .cm-mini-info{display:flex;flex-direction:column;gap:1px;padding:3px 8px 4px;border-radius:6px;background:rgba(9,16,31,.78);border:1px solid var(--cm-line);max-width:100%}
-.cm-mini-street{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.cm-mini-dist{font-size:11px;font-weight:600;color:var(--cm-cyan);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.cm-mini-dist:empty{display:none}
+.cm-mini-info.is-off{display:none}
+.cm-mini-street{font-size:10.5px;font-weight:600;color:var(--cm-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cm-mini-dist{font-size:12px;font-weight:800;color:var(--cm-cyan);white-space:nowrap}
 
 /* ── plan de Paris ── */
 .cm-plan{position:absolute;inset:0;overflow:hidden;background:#0f1829}

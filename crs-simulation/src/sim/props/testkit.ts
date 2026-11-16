@@ -119,7 +119,11 @@ export function createFakeWorld(): FakeWorld {
 
 // ───────────────────────────── dangers factices ─────────────────────────────
 
-export interface FakeFire { x: number; z: number; radius: number; intensity: number; sourceId: number }
+/** Nappe de feu factice ; `until` = instant où elle s'éteint d'elle-même (absent : permanente). */
+export interface FakeFire { x: number; z: number; radius: number; intensity: number; sourceId: number; until?: number }
+
+/** Durée d'une nappe factice après son dernier entretien (le vrai module : 18 à 36 s). */
+const FAKE_FIRE_SECONDS = 30;
 
 export interface FakeHazards extends HazardApi {
   fires: FakeFire[];
@@ -152,20 +156,30 @@ export function createFakeHazards(ctx: GameContext): FakeHazards {
     ignite(x, z, radius, intensity, sourceId) {
       h.ignites.push({ x, z, radius, intensity, sourceId, t: ctx.clock.now });
       if (!h.keepFires) return;
+      const now = ctx.clock.now;
+      const until = now + FAKE_FIRE_SECONDS;
+      // les nappes éteintes d'elles-mêmes sont retirées au passage
+      if (h.fires.some((f) => f.until !== undefined && f.until < now)) h.fires = h.fires.filter((f) => f.until === undefined || f.until >= now);
       for (const f of h.fires) {
         if (Math.hypot(f.x - x, f.z - z) < 0.6 * Math.max(f.radius, radius)) {
           f.intensity = Math.max(f.intensity, intensity);
           f.radius = Math.max(f.radius, radius);
+          if (f.until !== undefined) f.until = until;
           return;
         }
       }
-      h.fires.push({ x, z, radius, intensity, sourceId });
+      h.fires.push({ x, z, radius, intensity, sourceId, until });
     },
     fireAt(x, z) {
       let best = 0;
-      for (const f of h.fires) {
-        const d = Math.hypot(f.x - x, f.z - z);
-        if (d < f.radius && f.intensity > best) best = f.intensity;
+      const fires = h.fires;
+      const now = ctx.clock.now;
+      for (let i = 0; i < fires.length; i++) {
+        const f = fires[i]!;
+        if (f.until !== undefined && f.until < now) continue;
+        const dx = f.x - x;
+        const dz = f.z - z;
+        if (dx * dx + dz * dz < f.radius * f.radius && f.intensity > best) best = f.intensity;
       }
       return best;
     },
@@ -230,6 +244,10 @@ export interface PropsRigOptions {
   /** Systèmes supplémentaires (modules réels pour un essai d'intégration). */
   systems?: GameSystem[];
   session?: Partial<SessionConfig>;
+  /** Tenir le journal des événements (défaut : oui). À couper pour les mesures de performance. */
+  log?: boolean;
+  /** Appelé après le boot et avant le démarrage de la session (préparer des tuiles déjà « chargées »…). */
+  prepare?: (world: FakeWorld, ctx: GameContext) => void;
 }
 
 type Logged<K extends keyof GameEvents> = GameEvents[K] & { name: K };
@@ -280,11 +298,12 @@ export async function startProps(options: PropsRigOptions = {}): Promise<PropsRi
   const ctx = t.ctx;
   const log: Logged<keyof GameEvents>[] = [];
   await t.ready;
-  for (const name of LOGGED) {
+  for (const name of options.log === false ? [] : LOGGED) {
     ctx.events.on(name, (payload) => {
       log.push({ ...(payload as object), name } as Logged<keyof GameEvents>);
     });
   }
+  if (options.prepare) options.prepare(world, ctx);
   await t.start(options.session ?? {});
   const ext = ctx.require<PropsExtApi>(PROPS_EXT_SERVICE);
   return {

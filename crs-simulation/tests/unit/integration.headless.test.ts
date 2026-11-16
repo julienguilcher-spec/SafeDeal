@@ -6,10 +6,12 @@ import { createSystems as people } from '@/sim/people';
 import { createSystems as items } from '@/sim/items';
 import { createSystems as hazards } from '@/sim/hazards';
 import { createSystems as law } from '@/gameplay/law';
+import { createSystems as props } from '@/sim/props';
+import { createSystems as vehicles } from '@/sim/vehicles';
 
 describe('intégration headless', () => {
   it('fait tourner 60 s de simulation avec 120 personnes dans le quartier d\'essai', async () => {
-    const t = createTestContext({ seed: 7, modules: [world, people, items, hazards, law] });
+    const t = createTestContext({ seed: 7, modules: [world, people, items, hazards, law, props, vehicles] });
     await t.start({ mode: 'test', x: 0, z: 0 });
     const { ctx } = t;
     expect(ctx.world.ready).toBe(true);
@@ -35,6 +37,12 @@ describe('intégration headless', () => {
     const r1 = ctx.actions.use(man, { power: 0.8 });
     const r2 = ctx.actions.use(crs, { power: 0.7 });
     t.step(58);
+    // Décor et véhicules : le quartier d'essai a du mobilier et des vitrines ; un fourgon roule 10 s.
+    console.log('objets du décor:', ctx.props.list.length, '| vitrines:', ctx.props.shops.length, '| définitions de véhicules:', ctx.vehicles.defs.length);
+    expect(ctx.props.list.length).toBeGreaterThan(50);
+    expect(ctx.props.shops.length).toBeGreaterThan(20);
+    expect(ctx.vehicles.def('fourgon_crs')).toBeDefined();
+    expect(ctx.vehicles.def('centaure')).toBeDefined();
     let inRaster = 0;
     let blocked = 0;
     for (const p of ctx.people.list) {
