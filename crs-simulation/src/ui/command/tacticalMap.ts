@@ -607,7 +607,7 @@ export class TacticalMap {
     const call = rescue.request(kind, x, z, ctx.player.state.personId, incidentId !== 0 ? incidentId : undefined);
     const eta = Math.max(0, Math.round(call.eta));
     const label = kind === 'pompiers' ? 'Pompiers' : 'SAMU';
-    ctx.ui.notify(`${label} demandés — arrivée estimée dans ${Math.floor(eta / 60)} min ${eta % 60 < 10 ? '0' : ''}${eta % 60}`, 'ok', 4);
+    ctx.ui.notify(`${label} demandés — arrivée estimée dans ${Math.floor(eta / 60)}\u00a0min\u00a0${eta % 60 < 10 ? '0' : ''}${eta % 60}`, 'ok', 4);
     ctx.radio.say({
       channel: 'secours', from: core.callsign(), priority: 2, personId: ctx.player.state.personId,
       text: rescueRequest(core.callsign(), ctx.world.sectorName(x, z), kind),
@@ -688,7 +688,7 @@ export class TacticalMap {
         if (d.verb) {
           areaToOrder(d.ax, d.az, d.bx, d.bz, this.geom);
           drawNasse(g, view, this.geom.x, this.geom.z, this.geom.heading, this.geom.width, '#ffd60a', true);
-          this.text(g, `Nasse · rayon ${Math.round(this.geom.width / 2)} m`, d.sx0, d.sy0, '#ffe680');
+          this.text(g, `Nasse · rayon ${Math.round(this.geom.width / 2)}\u00a0m`, d.sx0, d.sy0, '#ffe680');
         } else {
           const r = Math.max(30, Math.hypot(d.bx - d.ax, d.bz - d.az));
           g.fillStyle = 'rgba(255,59,48,.12)';
@@ -700,7 +700,7 @@ export class TacticalMap {
           g.fill();
           g.stroke();
           g.setLineDash([]);
-          this.text(g, `Périmètre · rayon ${Math.round(r)} m`, d.sx0, d.sy0, '#ffb3ad');
+          this.text(g, `Périmètre · rayon ${Math.round(r)}\u00a0m`, d.sx0, d.sy0, '#ffb3ad');
         }
       } else if (d.verb) {
         if (d.verb.gesture === 'line') {
@@ -708,7 +708,7 @@ export class TacticalMap {
           if (this.geom.width >= MIN_LINE) {
             drawBarrageLine(g, view, this.geom.x, this.geom.z, this.geom.heading, this.geom.width, '#ffd60a', false, 3.5);
             view.worldToScreen(this.geom.x, this.geom.z, this.sp);
-            this.text(g, `${Math.round(this.geom.width)} m`, this.sp.x, this.sp.y + 16, '#ffe680');
+            this.text(g, `${Math.round(this.geom.width)}\u00a0m`, this.sp.x, this.sp.y + 16, '#ffe680');
           }
         } else {
           for (let i = 0; i < units.length; i++) {

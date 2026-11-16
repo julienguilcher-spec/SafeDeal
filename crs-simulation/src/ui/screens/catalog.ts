@@ -46,12 +46,12 @@ export const ROLES: readonly RoleInfo[] = [
     postes: ['chef_groupe', 'chef_section'], defaultPoste: 'chef_groupe', variantes: [],
   },
   {
-    id: 'commandant', name: 'Commandant', desc: 'Manœuvrez la compagnie sur la carte.', police: true,
+    id: 'commandant', name: 'Commandant', desc: 'Manœuvrez toute la compagnie.', police: true,
     ranks: ['capitaine', 'commandant'], defaultRank: 'commandant',
     postes: ['commandant_unite'], defaultPoste: 'commandant_unite', variantes: [],
   },
   {
-    id: 'commissaire', name: 'Commissaire', desc: 'Sommations, autorisation de la force.', police: true,
+    id: 'commissaire', name: 'Commissaire', desc: 'Sommez, autorisez la force.', police: true,
     ranks: ['commissaire'], defaultRank: 'commissaire',
     postes: ['autorite_civile'], defaultPoste: 'autorite_civile', variantes: [],
   },
@@ -92,7 +92,7 @@ export const ROLES: readonly RoleInfo[] = [
     ranks: [], defaultRank: null, postes: [], defaultPoste: null, variantes: [],
   },
   {
-    id: 'manifestant', name: 'Manifestant', desc: 'Défilez… ou choisissez de déraper.', police: false,
+    id: 'manifestant', name: 'Manifestant', desc: 'Défilez, scandez… ou dérapez.', police: false,
     ranks: [], defaultRank: null, postes: [], defaultPoste: null,
     variantes: [
       { id: 'pacifique', label: 'Pacifique', desc: 'Marcher, chanter, arriver, témoigner.' },

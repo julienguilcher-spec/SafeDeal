@@ -230,7 +230,7 @@ export class UnitsPanel {
         add('Ordre en cours', os.free ? 'Aucun (initiative)' : `${os.text} — ${arrived ? 'en place' : 'en cours'}`);
         if (u.total > 0 && u.valid / u.total < 0.6) {
           card.appendChild(kv);
-          card.appendChild(el('div', 'ct-note is-warn', 'Moins de 60 % d’agents valides\u00a0: relève conseillée.'));
+          card.appendChild(el('div', 'ct-note is-warn', 'Moins de 60\u00a0% d’agents valides\u00a0: relève conseillée.'));
         } else card.appendChild(kv);
       } else {
         add('Occupants', String(u.total));

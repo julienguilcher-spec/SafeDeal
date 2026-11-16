@@ -219,7 +219,7 @@ export class TrafficPanel {
       const key = c.moving * 1000 + c.stopped;
       if (key !== this.lastCount) {
         this.lastCount = key;
-        setText(this.count, `${list.length === 0 ? 'Aucune rue coupée. ' : ''}Trafic dans 300 m autour du centre de la carte\u00a0: ${c.moving} en circulation, ${c.stopped} à l’arrêt.`);
+        setText(this.count, `${list.length === 0 ? 'Aucune rue coupée. ' : ''}Trafic dans 300\u00a0m autour du centre de la carte\u00a0: ${c.moving} en circulation, ${c.stopped} à l’arrêt.`);
       }
     }
     if (metro) {

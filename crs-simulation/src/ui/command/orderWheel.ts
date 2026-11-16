@@ -122,7 +122,7 @@ export class OrderWheelScreen implements ScreenInstance {
     const key = core.kit ? core.kit.keyLabel('orders') : '';
     if (ctx.input.device === 'touch' || coarsePointer()) cap.textContent = 'Touchez un ordre — le centre annule';
     else if (ctx.input.device === 'gamepad') cap.textContent = 'Stick\u00a0: choisir · relâchez pour valider · B\u00a0: annuler';
-    else cap.textContent = `Dirigez la souris vers un ordre, relâchez ${key !== '' ? '« ' + key + ' »' : 'la touche'} pour valider · Échap\u00a0: annuler`;
+    else cap.textContent = `Dirigez la souris vers un ordre, relâchez ${key !== '' ? '«\u00a0' + key + '\u00a0»' : 'la touche'} pour valider · Échap\u00a0: annuler`;
     this.root.appendChild(cap);
     window.addEventListener('pointermove', this.onMove);
   }

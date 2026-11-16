@@ -82,7 +82,7 @@ export const MEANS_ADVICE: Readonly<Record<IncidentKind, string>> = {
   pillage: 'BRAV-M ou groupe d’intervention\u00a0: interpellation sur fait constaté.',
   barricade: 'Le Centaure pousse à la lame après vérification de l’obstacle\u00a0; à défaut, un groupe.',
   automobiliste_bloque: 'Un groupe dégage le véhicule et le fait sortir de la zone.',
-  secours_bloques: 'Ouvrir un couloir de 3,50 m et escorter les secours.',
+  secours_bloques: 'Ouvrir un couloir de 3,50\u00a0m et escorter les secours.',
   suspect: 'Binôme d’interpellation ou BRAV-M, sur fait constaté.',
 };
 

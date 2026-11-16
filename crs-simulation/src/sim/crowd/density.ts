@@ -105,7 +105,7 @@ export class DensityWatch {
       const tune = T.PROFILE[p.profile ?? 'pacifique'];
       p.fear = Math.min(1, p.fear + (d >= 4 ? 0.05 : 0.02) * hs * tune.fearK);
       if (b.nextThink > now + 0.3) b.nextThink = now + 0.3 * core.rngEmo.next();
-      if (d >= T.DENSITY_DANGER && p.posture !== 'down' && core.rngEmo.next() < T.CRUSH_PER_PERSON * hs * 10) this.crush(p);
+      if (d >= T.DENSITY_DANGER && p.posture !== 'down' && core.rngEmo.next() < T.CRUSH_PER_PERSON * hs) this.crush(p);
     }
     // zones retombées sous le seuil depuis 5 s : fin d'alerte
     const zones = this.zones.items;

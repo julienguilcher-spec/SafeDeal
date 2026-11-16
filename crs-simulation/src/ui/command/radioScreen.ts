@@ -148,7 +148,7 @@ export class RadioScreen implements ScreenInstance {
       const incidents = core.incidents;
       const call = rescue.request(kind, p.x, p.z, p.id, incidents && incidents.playerIncidentId !== 0 ? incidents.playerIncidentId : undefined);
       const eta = Math.max(0, Math.round(call.eta));
-      ctx.ui.notify(`${kind === 'pompiers' ? 'Pompiers' : 'SAMU'} demandés — arrivée estimée dans environ ${Math.max(1, Math.round(eta / 60))} min`, 'ok', 4);
+      ctx.ui.notify(`${kind === 'pompiers' ? 'Pompiers' : 'SAMU'} demandés — arrivée estimée dans environ ${Math.max(1, Math.round(eta / 60))}\u00a0min`, 'ok', 4);
     } else if (!rescue) ctx.ui.notify('Message transmis. Aucun service de secours n’est joignable pour cette mission.', 'warn', 4);
   }
 

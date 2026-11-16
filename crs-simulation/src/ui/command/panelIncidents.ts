@@ -160,7 +160,7 @@ export class IncidentsPanel {
           const call = rescue.request(means, inc.x, inc.z, ctx.player.state.personId, inc.id);
           called = true;
           const eta = Math.max(0, Math.round(call.eta));
-          ctx.ui.notify(`${MEANS_LABELS[means]} demandés pour «\u00a0${inc.label}\u00a0» — environ ${Math.max(1, Math.round(eta / 60))} min`, 'ok', 4);
+          ctx.ui.notify(`${MEANS_LABELS[means]} demandés pour «\u00a0${inc.label}\u00a0» — environ ${Math.max(1, Math.round(eta / 60))}\u00a0min`, 'ok', 4);
           ctx.radio.say({
             channel: 'secours', from: core.callsign(), priority: 2, personId: ctx.player.state.personId,
             text: rescueRequest(core.callsign(), ctx.world.sectorName(inc.x, inc.z), means),
