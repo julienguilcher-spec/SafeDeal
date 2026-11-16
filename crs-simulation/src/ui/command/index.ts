@@ -21,6 +21,7 @@ import { COMMAND_SERVICE } from './api';
 import { CommandCore } from './core';
 import { IncidentHud, UnitHud } from './hud';
 import { OrderWheelScreen, WHEEL_SCREEN } from './orderWheel';
+import { QuickActionsHud } from './quickActions';
 import { RADIO_SCREEN, RadioScreen } from './radioScreen';
 import { TacticalScreen } from './tacticalScreen';
 
@@ -32,6 +33,7 @@ export { TacticalScreen } from './tacticalScreen';
 export const COMMAND_SYSTEM_ID = 'ui:command';
 export const UNIT_WIDGET_ID = 'command.unit';
 export const INCIDENT_WIDGET_ID = 'command.incident';
+export const QUICK_WIDGET_ID = 'command.quick';
 
 export class CommandSystem implements GameSystem {
   readonly id = COMMAND_SYSTEM_ID;
@@ -90,6 +92,8 @@ export class CommandSystem implements GameSystem {
     kit.registerScreen(RADIO_SCREEN, (host) => new RadioScreen(core, host), { modal: true, pauses: false, hidesHud: false });
     kit.addHudWidget(UNIT_WIDGET_ID, 'top', (host) => new UnitHud(core, host));
     kit.addHudWidget(INCIDENT_WIDGET_ID, 'top', (host) => new IncidentHud(core, host));
+    // carte tactique et secours en un clic, à gauche sous la mini-carte
+    kit.addHudWidget(QUICK_WIDGET_ID, 'left', (host) => new QuickActionsHud(core, host));
   }
 
   frame(): void {
@@ -124,6 +128,7 @@ export class CommandSystem implements GameSystem {
     this.unsub.length = 0;
     this.kit?.removeHudWidget(UNIT_WIDGET_ID);
     this.kit?.removeHudWidget(INCIDENT_WIDGET_ID);
+    this.kit?.removeHudWidget(QUICK_WIDGET_ID);
     this.ownMaps?.dispose();
     void this.ctx;
   }

@@ -88,7 +88,13 @@ export class Minimap implements HudWidget {
     info.append(this.dist, this.street);
     this.root.append(this.disc, info);
     host.appendChild(this.root);
-    this.disc.addEventListener('click', () => ctx.ui.open('carte'));
+    // un clic sur la mini-carte ouvre la carte tactique à qui commande, le plan de Paris sinon
+    this.disc.addEventListener('click', () => {
+      const cmd = ctx.service<{ scope(): { level: string } }>('ui.command');
+      let commands = false;
+      try { commands = !!cmd && cmd.scope().level !== 'lecture'; } catch { commands = false; }
+      ctx.ui.open(commands ? 'carte_tactique' : 'carte');
+    });
 
     this.view.up = NORTH_UP;
     this.base = new BaseLayer(runtime.basemap, { margin: 0.55, labels: false, detail: 'mini', settle: 0.25 });
