@@ -6,7 +6,7 @@
  * Les sirènes, l'immobilisation (klaxon, demi-tour, incident) et la peur sont dans car-watch.ts.
  * ===================================================================================== */
 
-import type { RoadSample, Vehicle } from '@/core/contracts';
+import type { Person, RoadSample, Vehicle } from '@/core/contracts';
 import type { BlockCause } from './api';
 import type { CarBrain } from './car-brain';
 import { MODE_DONE, MODE_GO, MODE_HOLD, MODE_PARK, MODE_PULL, modeName } from './car-brain';
@@ -22,6 +22,7 @@ import { AP_DECEL, HARD_DECEL } from './tuning';
 export class CarThinker {
   readonly watcher: CarWatcher;
   private readonly near: Vehicle[] = [];
+  private readonly people: Person[] = [];
   private readonly rp: RoutePoint = { x: 0, z: 0, dx: 0, dz: 1 };
   private readonly road: RoadSample = makeRoadSample();
   private holdCause: BlockCause = '';
@@ -205,6 +206,10 @@ export class CarThinker {
           else b.waitBox = 0;
           if (inside || now < b.forceUntil) {
             k.boxes.occupy(cp.node, v.id, cp.inDx, cp.inDz, cp.outDx, cp.outDz, now);
+          } else if (dStop > (u * u) / (2 * HARD_DECEL) + 0.5 && this.pedestrianInExit(cp)) {
+            // il tourne et un piéton traverse la rue où il s'engage : il le laisse passer, à sa ligne
+            k.boxes.release(cp.node, v.id);
+            cp.cleared = false;
           } else if ((b.waitBox > 3 || this.boxStalled(b, cp)) && dStop > (u * u) / (2 * HARD_DECEL) + 1.5) {
             // (ou quelqu'un s'est immobilisé au milieu du carrefour : on ne le rejoint pas, on attend à la ligne)
             b.waitBox = 0;
@@ -263,7 +268,40 @@ export class CarThinker {
       return true;
     }
     if (!this.junctionFree(b, cp)) return false;
+    if (this.pedestrianInExit(cp)) {
+      this.holdCause = 'personne';
+      return false;
+    }
     return k.boxes.request(cp.node, v.id, cp.inDx, cp.inDz, cp.outDx, cp.outDz, now);
+  }
+
+  /**
+   * Un véhicule qui tourne cède le passage aux piétons qui traversent la rue où il s'engage : quelqu'un est-il sur
+   * la chaussée à l'embouchure de sortie (passage piéton) ? (Tout droit, le piéton est devant lui : le pilote
+   * automatique le voit et freine.)
+   */
+  private pedestrianInExit(cp: ControlPoint): boolean {
+    if (cp.inDx * cp.outDx + cp.inDz * cp.outDz > 0.85) return false;
+    const c = this.k.cache;
+    const nx = c.nodeX[cp.node]!;
+    const nz = c.nodeZ[cp.node]!;
+    const mid = cp.radius + 3;
+    const list = this.people;
+    const n = this.k.ctx.people.queryRadius(nx + cp.outDx * mid, nz + cp.outDz * mid, 7, list);
+    let found = false;
+    for (let i = 0; i < n && !found; i++) {
+      const p = list[i]!;
+      if (p.vehicleId !== 0 || p.dormant) continue;
+      const rx = p.x - nx;
+      const rz = p.z - nz;
+      const along = rx * cp.outDx + rz * cp.outDz;
+      const lat = rx * cp.outDz - rz * cp.outDx;
+      if (along < cp.radius - 3 || along > cp.radius + 7 || lat > 5 || lat < -5) continue;
+      const surf = this.k.ctx.world.surfaceAt(p.x, p.z);
+      found = surf === 'road' || surf === 'sett' || surf === 'bridge';
+    }
+    list.length = 0;
+    return found;
   }
 
   /** Un véhicule est-il au pas ou arrêté au milieu du carrefour ? */

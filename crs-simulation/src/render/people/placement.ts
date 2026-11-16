@@ -48,7 +48,7 @@ export class Placement {
       this.pitch = -v.pitch;
       this.roll = v.roll;
       this.posture = POSTURE_SEATED;
-      const moto = v.kind.indexOf('moto') >= 0 || v.kind === 'scooter';
+      const moto = v.kind.indexOf('moto') >= 0 || v.kind === 'scooter' || v.kind === 'velo';
       if (moto) this.upper = U_RIDE;
       else if (seat && seat.role === 'driver') this.upper = U_DRIVE;
       this.attached = true;

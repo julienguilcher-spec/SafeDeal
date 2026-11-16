@@ -1,9 +1,9 @@
-/* Deux-roues et aéronefs : moto de BRAV-M (trail routier), scooter, drone quadricoptère, hélicoptère. */
+/* Deux-roues et aéronefs : moto de BRAV-M (trail routier), scooter, vélo de ville, drone quadricoptère, hélicoptère. */
 
 import type { VehicleDef } from '@/core/contracts';
 import {
   LIGHT_BEACON_A, LIGHT_BEACON_B, LIGHT_HEAD, LIGHT_IND_L, LIGHT_IND_R, LIGHT_NONE, LIGHT_TAIL, PART_BIKE_WHEEL, PART_FORK,
-  PART_ROTOR, PART_ROTOR_X, SURF_DARK, SURF_FIXED, SURF_GLASS, SURF_LAMP, SURF_METAL,
+  PART_ROTOR, PART_ROTOR_X, PART_WHEEL, SURF_DARK, SURF_FIXED, SURF_GLASS, SURF_LAMP, SURF_METAL, SURF_RUBBER,
 } from '../geo';
 import type { Geo } from '../geo';
 import { COL, EDGE_SHOULDER, EDGE_SIDE, EDGE_TOP, decal, lamp, lampBox, patch, pipe, pitchPart, plate, shell, wheel } from '../kit';
@@ -223,6 +223,164 @@ export function buildScooter(g: Geo, far: boolean, def: VehicleDef): ModelMeta {
   meta.cockpit = 'bike';
   meta.beltY = barY; meta.hoodY = headY; meta.roofY = H; meta.cowlZ = apZ; meta.halfWidth = W / 2;
   meta.sag = r * 0.2;
+  return meta;
+}
+
+/**
+ * Roue de vélo (centrée) : pneu fin et jante en anneaux, moyeu, rayons — on voit au travers. `part` =
+ * PART_BIKE_WHEEL pour l'avant (braque avec la fourche), PART_WHEEL pour l'arrière.
+ */
+function veloWheel(g: Geo, far: boolean, z: number, r: number, part: number): void {
+  const w = 0.036;
+  g.push().translate(0, r, z);
+  g.part(part, 0, 0, 0, 1).light(LIGHT_NONE).tile(null);
+  const seg = far ? 8 : 22;
+  g.paint(COL.rubber, SURF_RUBBER);
+  g.lathe(0, 0, [-w / 2, r - 0.034, -w / 2, r - 0.01, -w / 4, r, w / 4, r, w / 2, r - 0.01, w / 2, r - 0.034, -w / 2, r - 0.034], seg);
+  if (!far) {
+    g.paint(0xb9bdc2, SURF_METAL);
+    g.lathe(0, 0, [-0.011, r - 0.056, -0.011, r - 0.034, 0.011, r - 0.034, 0.011, r - 0.056, -0.011, r - 0.056], seg);
+    g.lathe(0, 0, [-0.045, 0, -0.045, 0.022, 0.045, 0.022, 0.045, 0], 8);
+    // rayons croisés, alternativement depuis chaque flasque du moyeu
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * Math.PI * 2;
+      const x = (i & 1) === 0 ? 0.035 : -0.035;
+      g.tube(x, Math.sin(a) * 0.02, Math.cos(a) * 0.02, 0, Math.sin(a + 0.35) * (r - 0.05), Math.cos(a + 0.35) * (r - 0.05), 0.0022, 0.0022, 3, false, false);
+    }
+  }
+  g.pop();
+  g.noPart();
+}
+
+/**
+ * Vélo de ville : roues de 700 (r ≈ 0,34 m), cadre en tubes teinté par la couleur de l'instance, fourche et
+ * guidon droit (pièce PART_FORK : ils braquent), selle, pédalier, garde-boue, porte-bagages, éclairage avant et
+ * arrière (obligatoire en France). Cotes : celles de la définition (1,75 × 0,6 × 1,1 m).
+ */
+export function buildVelo(g: Geo, far: boolean, def: VehicleDef): ModelMeta {
+  const L = def.length, W = def.width, H = def.height;
+  const hl = L / 2, k = L / 1.75;
+  const meta = emptyMeta(def);
+  const r = 0.34 * k;
+  const zF = hl - r;
+  const zR = Math.max(-hl + r, zF - def.wheelbase);
+  const body = (): void => { g.body(); };
+  g.noPart().tile(null);
+  // roues fines (pneus de ville), la roue avant braque avec la fourche
+  veloWheel(g, far, zF, r, PART_BIKE_WHEEL);
+  veloWheel(g, far, zR, r, PART_WHEEL);
+
+  // ── points du cadre (repère Three local : +z avant, +y haut) ──
+  const bbY = 0.29 * k, bbZ = zR + 0.44 * k; // boîtier de pédalier
+  const seatY = 0.8 * k, seatZ = bbZ - 0.2 * k; // haut du tube de selle
+  const headTop = 0.82 * k, headBot = 0.6 * k;
+  const headZ = (y: number): number => zF + ((y - r) / FORK_AXIS_Y) * FORK_AXIS_Z;
+  const tR = far ? 0.03 : 0.018;
+  const seg = far ? 3 : 6;
+  body();
+  if (far) {
+    // cadre simplifié : deux pavés (tube diagonal, tube de selle) et la poutre supérieure
+    g.tube(0, headBot, headZ(headBot), 0, bbY, bbZ, tR, tR, seg, false, false);
+    g.tube(0, bbY, bbZ, 0, seatY, seatZ, tR, tR, seg, false, false);
+    g.tube(0, seatY - 0.05, seatZ, 0, headTop, headZ(headTop), tR, tR, seg, false, false);
+    g.tube(0, bbY, bbZ, 0, r, zR, tR, tR, seg, false, false);
+  } else {
+    // tube diagonal, tube de selle, tube supérieur (cadre « col de cygne » abaissé des vélos de ville)
+    g.tube(0, headBot, headZ(headBot), 0, bbY, bbZ, 0.022, 0.024, seg);
+    g.tube(0, bbY, bbZ, 0, seatY, seatZ, 0.017, 0.017, seg);
+    g.tube(0, headTop - 0.04, headZ(headTop - 0.04), 0, seatY - 0.12 * k, seatZ + 0.04, 0.016, 0.016, seg);
+    g.tube(0, headBot, headZ(headBot), 0, headTop, headZ(headTop), 0.024, 0.024, seg);
+    // haubans et bases jusqu'à l'axe arrière
+    g.mirror(() => {
+      g.tube(0.05, bbY, bbZ, 0.06, r, zR, 0.01, 0.01, 5);
+      g.tube(0.03, seatY - 0.04, seatZ - 0.01, 0.06, r, zR, 0.009, 0.009, 5);
+    });
+  }
+
+  // ── selle et tige de selle ──
+  const saddleY = 0.88 * k;
+  g.paint(0x8d9299, SURF_METAL);
+  g.tube(0, seatY, seatZ, 0, saddleY - 0.02, seatZ - 0.03, 0.013, 0.013, far ? 3 : 6, false, false);
+  g.paint(0x18191b, SURF_FIXED);
+  if (far) {
+    g.box(-0.08, 0.08, saddleY - 0.03, saddleY + 0.03, seatZ - 0.16, seatZ + 0.08);
+  } else {
+    g.hexa([
+      -0.09, saddleY - 0.03, seatZ - 0.17, 0.09, saddleY - 0.03, seatZ - 0.17, 0.025, saddleY - 0.02, seatZ + 0.1, -0.025, saddleY - 0.02, seatZ + 0.1,
+      -0.085, saddleY + 0.035, seatZ - 0.16, 0.085, saddleY + 0.035, seatZ - 0.16, 0.022, saddleY + 0.02, seatZ + 0.1, -0.022, saddleY + 0.02, seatZ + 0.1,
+    ]);
+  }
+
+  // ── pédalier : plateau, manivelles, pédales ──
+  if (!far) {
+    g.paint(0x9a9ea4, SURF_METAL);
+    g.push().translate(-0.06, bbY, bbZ);
+    g.lathe(0, 0, [-0.004, 0, -0.004, 0.1, 0.004, 0.1, 0.004, 0], 12);
+    g.pop();
+    g.paint(0x2a2c30, SURF_METAL);
+    g.tube(-0.075, bbY, bbZ, -0.075, bbY - 0.16, bbZ + 0.04, 0.012, 0.012, 4);
+    g.tube(0.075, bbY, bbZ, 0.075, bbY + 0.16, bbZ - 0.04, 0.012, 0.012, 4);
+    g.paint(0x18191b, SURF_FIXED);
+    g.box(-0.16, -0.08, bbY - 0.175, bbY - 0.15, bbZ - 0.01, bbZ + 0.09);
+    g.box(0.08, 0.16, bbY + 0.145, bbY + 0.17, bbZ - 0.09, bbZ + 0.01);
+    // chaîne (côté droit du vélo : x < 0 en repère Three)
+    g.paint(0x3a3c40, SURF_METAL);
+    g.tube(-0.06, bbY + 0.1, bbZ, -0.06, r + 0.04, zR, 0.006, 0.006, 3, false, false);
+    g.tube(-0.06, bbY - 0.1, bbZ, -0.06, r - 0.04, zR, 0.006, 0.006, 3, false, false);
+  }
+
+  // ── garde-boue, porte-bagages arrière, éclairage ──
+  g.paint(0x2b2d31, SURF_FIXED);
+  const guard = (z: number, a0: number, a1: number): void => {
+    const n = far ? 2 : 6;
+    const rr = r + 0.035;
+    for (let i = 0; i < n; i++) {
+      const t0 = a0 + ((a1 - a0) * i) / n, t1 = a0 + ((a1 - a0) * (i + 1)) / n;
+      const p = (t: number, rad: number): number[] => [z + Math.cos(t) * rad, r + Math.sin(t) * rad];
+      const q0 = p(t0, rr), q1 = p(t1, rr), q2 = p(t1, rr + 0.012), q3 = p(t0, rr + 0.012);
+      g.prism([q0[0]!, q0[1]!, q1[0]!, q1[1]!, q2[0]!, q2[1]!, q3[0]!, q3[1]!], -0.03, 0.03);
+    }
+  };
+  guard(zR, 0.35, 2.6);
+  if (!far) {
+    g.paint(0x8d9299, SURF_METAL);
+    const rackY = r + 0.06;
+    g.box(-0.07, 0.07, rackY + 0.32, rackY + 0.335, zR - 0.22, zR + 0.12);
+    g.mirror(() => { g.tube(0.065, rackY + 0.33, zR - 0.2, 0.06, r, zR, 0.006, 0.006, 4, false, false); });
+  }
+  lamp(g, 0, r + 0.42, zR - 0.2, [-1, 0, 0], [0, 1, 0], 0.06, 0.035, COL.redLens, LIGHT_TAIL);
+  meta.tail.push(0, r + 0.42, zR - 0.2);
+
+  // ── fourche, potence, guidon (braquent ensemble) ──
+  const barY = Math.max(H - 0.06, headTop + 0.18);
+  const barZ = headZ(headTop) - 0.06;
+  g.part(PART_FORK, 0, r, zF).light(LIGHT_NONE).tile(null);
+  g.paint(0x8f949b, SURF_METAL);
+  if (far) {
+    g.box(-0.03, 0.03, r, headTop, headZ(headTop) - 0.03, zF + 0.03, 1);
+    g.paint(COL.dark, SURF_DARK).box(-W / 2, W / 2, barY - 0.02, barY + 0.02, barZ - 0.03, barZ + 0.03);
+  } else {
+    g.mirror(() => { g.tube(0.045, r, zF, 0.03, headBot, headZ(headBot), 0.012, 0.014, 5, true, false); });
+    // potence et guidon cintré vers l'arrière (position droite du cycliste urbain)
+    g.tube(0, headTop, headZ(headTop), 0, barY, barZ, 0.014, 0.014, 6, false, true);
+    g.paint(COL.dark, SURF_DARK);
+    pipe(g, [-W / 2 + 0.11, barY, barZ - 0.07, -0.16, barY, barZ - 0.01, 0.16, barY, barZ - 0.01, W / 2 - 0.11, barY, barZ - 0.07], 0.011, 5);
+    g.paint(0x18191b, SURF_FIXED);
+    g.mirror(() => { g.tube(W / 2 - 0.11, barY, barZ - 0.07, W / 2 - 0.005, barY, barZ - 0.09, 0.016, 0.016, 6); });
+    // garde-boue avant
+    g.paint(0x2b2d31, SURF_FIXED);
+    guard(zF, 0.6, 2.2);
+  }
+  lamp(g, 0, headBot + 0.04, headZ(headBot + 0.04) + 0.07, [1, 0, 0], [0, 1, 0], 0.06, 0.05, COL.headLens, LIGHT_HEAD);
+  g.noPart();
+  meta.head.push(0, headBot + 0.04, headZ(headBot + 0.04) + 0.07);
+  body();
+
+  meta.wheelRadius = r;
+  meta.fire = [0, 0.45 * k, 0];
+  meta.cockpit = 'bike';
+  meta.beltY = barY; meta.hoodY = headTop; meta.roofY = H; meta.cowlZ = barZ; meta.halfWidth = W / 2;
+  meta.sag = r * 0.15;
   return meta;
 }
 

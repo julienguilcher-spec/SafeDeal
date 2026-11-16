@@ -69,6 +69,18 @@ export class CarBrain {
   // ── sirène ──
   pullUntil = 0;
   pullFor: EntityId = 0;
+  /** Sirène entendue (0 si aucune) et instant où le conducteur y réagit (délai de réaction, distraction). */
+  heardFor: EntityId = 0;
+  reactAt = 0;
+  /** Dernière fois qu'une sirène a été entendue (s) : passé quelques secondes sans elle, on l'oublie. */
+  heardAt = 0;
+  /** Rangé, la sirène passée : il repart à cet instant (il jette un œil dans le rétroviseur avant). */
+  resumeAt = -1;
+  // ── allure ──
+  /** Allure de croisière imposée au pilote automatique (m/s ; 0 = limite de la voie). Cyclistes : 4 à 6 m/s. */
+  cruise = 0;
+  /** Distance tenue entre son flanc droit et la bordure (m ; 0 = voie ordinaire). Cyclistes : au bord droit. */
+  kerb = 0;
   // ── stationnement ──
   parkUntil = 0;
   parkSlot = -1;

@@ -229,6 +229,17 @@ export interface DriveOptions {
   stopBefore?: number;
   /** Engin à lame : pousser objets et épaves au lieu de s'arrêter devant. */
   pushThrough?: boolean;
+  /**
+   * Rouler au bord droit de la chaussée : distance (m) entre le flanc droit et la bordure (cycliste). Par défaut,
+   * au milieu de la voie de droite.
+   */
+  kerb?: number;
+  /**
+   * Le véhicule roule déjà sur sa voie (circulation) : l'itinéraire part de l'axe de la rue à sa hauteur et le
+   * décalage de voie part de son écart réel à l'axe, au lieu de partir de sa position (ce qui le ferait dériver
+   * vers le trottoir jusqu'au carrefour suivant). Par défaut false.
+   */
+  inLane?: boolean;
 }
 
 export interface ConvoyOptions extends DriveOptions {

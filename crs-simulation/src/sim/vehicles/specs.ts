@@ -49,6 +49,7 @@ const H_FOURGON = handling(0.92, 7.5, 1.1, 0.55, 0.9, 11, 0.01, 0.008);
 const H_LOURD = handling(0.8, 6, 1.12, 0.45, 1.3, 10, 0.008, 0.006);
 const H_BLINDE = handling(0.78, 6, 1.12, 0.5, 1.45, 10, 0.007, 0.005);
 const H_MOTO = handling(1.05, 10, 1.15, 0.48, 0.6, 7.5, 0, 0.012, true);
+const H_VELO = handling(0.95, 9, 1.1, 0.42, 0.95, 6, 0, 0.01, true);
 
 // incendie (G.4) : voiture 120-240 s puis 900-1 500 s ; deux-roues 20-40 s puis 600-900 s
 const F_VOITURE = fire(25, 12, 120, 240, 900, 1500, 0.3, 6);
@@ -56,6 +57,8 @@ const F_FOURGON = fire(35, 16, 150, 270, 1000, 1500, 0.25, 6.5);
 const F_LOURD = fire(60, 30, 200, 360, 1200, 1800, 0.15, 8);
 const F_BLINDE = fire(250, 120, 300, 480, 1200, 1800, 0.02, 7);
 const F_DEUX_ROUES = fire(14, 8, 20, 40, 600, 900, 0.35, 3.5);
+// vélo : pneus et selle seulement, pas de réservoir
+const F_VELO = fire(10, 6, 10, 20, 120, 240, 0, 0);
 const F_DRONE = fire(4, 2, 5, 10, 30, 60, 0, 0);
 const F_HELICO = fire(60, 25, 60, 120, 600, 900, 0.5, 10);
 
@@ -104,6 +107,8 @@ const TABLE: Record<string, SpecInit> = {
   bus: { engine: LOURD(16), handling: H_LOURD, fire: F_LOURD, boardTime: 2.0 },
   scooter: { engine: engine(45, 1700, 8500, 1, 'ar', 0.9), handling: H_MOTO, fire: F_DEUX_ROUES, boardTime: 0.9 },
   camion_sono: { engine: LOURD(16), handling: H_LOURD, fire: F_LOURD, boardTime: 1.8 },
+  // vélo : le « moteur » est le cycliste (≈ 4 W/kg avec le vélo), sans boîte ni bruit ; il s'enfourche en 0,6 s
+  velo: { engine: engine(4, 0, 1, 1, 'ar', 0.05, true), handling: H_VELO, fire: F_VELO, boardTime: 0.6 },
   drone: {
     engine: engine(400, 3000, 9000, 1, '4x4', 0, true), handling: H_VOITURE, fire: F_DRONE, toughness: 6,
     flight: VOL_DRONE, jets: [null], launchers: [null],

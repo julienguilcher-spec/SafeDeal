@@ -52,6 +52,7 @@ function vehicleFireLabel(v: Vehicle, count: number): string {
   switch (v.kind) {
     case 'scooter':
     case 'moto_bravm':
+    case 'velo':
       return 'Deux-roues en feu';
     case 'bus':
       return 'Autobus en feu';

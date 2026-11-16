@@ -57,6 +57,15 @@ export class PedBrain {
   crossNode = -1;
   crossDx = 0;
   crossDz = 1;
+  /** Traversée hors passage (« traversée sauvage ») : créneau plus large exigé, renonce s'il ne vient pas. */
+  jaywalk = false;
+  // ── sirène ──
+  /** Une sirène arrive : il reste en retrait du bord du trottoir jusqu'à cet instant (s). */
+  sirenUntil = 0;
+  /** Point de retrait (un pas en arrière du bord du trottoir) ; backing : il y va. */
+  backing = false;
+  backX = 0;
+  backZ = 0;
   // ── temps ──
   thinkT = 0;
   tick = 0;

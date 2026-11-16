@@ -124,6 +124,7 @@ export class TrafficSystem implements GameSystem {
     k.hasFocus = false;
     k.dangers.reset();
     k.obstructions.reset();
+    k.sirens.reset();
     this.signals.reset();
     this.boxes.reset();
     this.cars.reset();

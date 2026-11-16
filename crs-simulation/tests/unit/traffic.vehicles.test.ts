@@ -140,6 +140,7 @@ describe('circulation : trafic d\'ambiance', () => {
     let hurt = 0;
     b.ctx.events.on('person:hurt', () => hurt++);
     let minCenter = Infinity;
+    let minSide = Infinity;
     let worstStop = 0;
     let moving = 0;
     let samples = 0;
@@ -186,18 +187,22 @@ describe('circulation : trafic d\'ambiance', () => {
         if (Math.abs(vx.speed) > 1) moving++;
         for (let y = x + 1; y < cars.length; y++) {
           const vy = cars[y]!.v;
-          minCenter = Math.min(minCenter, Math.hypot(vx.x - vy.x, vx.z - vy.z));
+          const d = Math.hypot(vx.x - vy.x, vx.z - vy.z);
+          // un deux-roues (vélo, scooter) roule légitimement à côté d'une voiture : on mesure alors l'écart des flancs
+          if (vx.def.width < 1.05 || vy.def.width < 1.05) minSide = Math.min(minSide, d - (vx.def.width + vy.def.width) * 0.5);
+          else minCenter = Math.min(minCenter, d);
         }
 
       }
     }
     const cpu = process.cpuUsage(cpu0);
     const s = b.api.stats;
-    console.log(`5 min d'ambiance : ${s.vehicles} véhicules (visé ${s.vehicleTarget}), ${s.pedestrians} piétons, ${s.spawned} apparitions, ${s.despawned} disparitions, accrochages ${crashes}, piétons heurtés ${hits}, feux rouges grillés ${redRunners}, distance minimale entre deux véhicules ${minCenter.toFixed(2)} m, plus long arrêt ${worstStop} s, en mouvement ${(100 * moving / samples).toFixed(0)} % du temps, ${((cpu.user + cpu.system) / 1000 / 9000).toFixed(3)} ms de processeur par pas (tous modules)`);
+    console.log(`5 min d'ambiance : ${s.vehicles} véhicules (visé ${s.vehicleTarget}), ${s.pedestrians} piétons, ${s.spawned} apparitions, ${s.despawned} disparitions, accrochages ${crashes}, piétons heurtés ${hits}, feux rouges grillés ${redRunners}, distance minimale entre deux véhicules ${minCenter.toFixed(2)} m (écart minimal avec un deux-roues ${minSide.toFixed(2)} m), plus long arrêt ${worstStop} s, en mouvement ${(100 * moving / samples).toFixed(0)} % du temps, ${((cpu.user + cpu.system) / 1000 / 9000).toFixed(3)} ms de processeur par pas (tous modules)`);
     expect(crashes).toBe(0);
     expect(hits).toBe(0);
     expect(hurt).toBe(0);
     expect(minCenter).toBeGreaterThan(2);
+    expect(minSide).toBeGreaterThan(0.1);
     expect(s.vehicleTarget).toBeGreaterThan(15);
     expect(s.vehicles).toBeGreaterThan(s.vehicleTarget * 0.7);
     expect(s.despawned).toBeGreaterThan(40); // le trafic traverse la zone et en sort
@@ -208,7 +213,7 @@ describe('circulation : trafic d\'ambiance', () => {
     const vehicleSpawns = spawnDist.filter((d) => d > 0);
     expect(Math.min(...vehicleSpawns)).toBeGreaterThan(b.api.tuning.spawnMin - 3);
     expect(kinds.size).toBeGreaterThan(3);
-    for (const k of kinds) expect(['voiture', 'citadine', 'suv', 'taxi', 'utilitaire', 'scooter', 'bus']).toContain(k);
+    for (const k of kinds) expect(['voiture', 'citadine', 'suv', 'taxi', 'utilitaire', 'scooter', 'bus', 'velo']).toContain(k);
   }, 300000);
 
   it('densité : heure, réglage du nombre de PNJ, options de session ; remise à zéro entre deux sessions', async () => {

@@ -24,10 +24,11 @@ import { E_ONEWAY, N_JUNCTION } from './graph';
 import type { Parking } from './parking';
 import type { ControlPoint, RoutePoint } from './route';
 import { CP_BOX } from './route';
-import type { TrafficKernel } from './shared';
+import type { Siren, TrafficKernel } from './shared';
 import { makeRoadSample } from './shared';
 import {
-  CAR_COLORS, CAR_THINK, CITY_SPEED, TRAFFIC_MIX, classWeight, hourFactor, weatherCarFactor,
+  CAR_COLORS, CAR_THINK, CITY_SPEED, PULL_KERB, SIREN_CLEARANCE, TRAFFIC_MIX, VELO_COLORS, VELO_KERB_MIN,
+  VELO_KERB_SPAN, VELO_SPEED_MIN, VELO_SPEED_SPAN, classWeight, hourFactor, sirenLane, veloFactor, weatherCarFactor,
 } from './tuning';
 
 const AUTOPILOT_SERVICE = 'vehicles.autopilot';
@@ -56,7 +57,8 @@ export class Cars {
   private readonly pt: EdgePoint = { x: 0, z: 0, dx: 0, dz: 1 };
   private readonly rp: RoutePoint = { x: 0, z: 0, dx: 0, dz: 1 };
   private readonly road: RoadSample = makeRoadSample();
-  private readonly opts: DriveOptions = {};
+  /** (la circulation roule toujours sur sa voie : itinéraire depuis l'axe, sans dérive vers le trottoir) */
+  private readonly opts: DriveOptions = { inLane: true };
 
   constructor(readonly k: TrafficKernel) {
     this.router = new CarRouter(k);
@@ -258,14 +260,19 @@ export class Cars {
       if (ctx.people.countIn(x, z, 6) > 0) continue;
       if (ctx.hazards.fireAt(x, z) > 0 || k.dangers.at(x, z) > 0.2) continue;
       // type de véhicule
+      const env = ctx.env.state;
+      const bikes = veloFactor(env.timeOfDay, env.weather);
       let total = 0;
-      for (let i = 0; i < TRAFFIC_MIX.length; i++) if (w >= TRAFFIC_MIX[i]!.minWidth) total += TRAFFIC_MIX[i]!.weight;
+      for (let i = 0; i < TRAFFIC_MIX.length; i++) {
+        const m = TRAFFIC_MIX[i]!;
+        if (w >= m.minWidth) total += m.kind === 'velo' ? m.weight * bikes : m.weight;
+      }
       let roll = rng.next() * total;
       let kind: VehicleKind = 'voiture';
       for (let i = 0; i < TRAFFIC_MIX.length; i++) {
         const m = TRAFFIC_MIX[i]!;
         if (w < m.minWidth) continue;
-        roll -= m.weight;
+        roll -= m.kind === 'velo' ? m.weight * bikes : m.weight;
         if (roll <= 0) {
           kind = m.kind;
           break;
@@ -280,7 +287,7 @@ export class Cars {
       const br = this.create(kind, x, z, Math.atan2(hx, hz), destX, destZ, true);
       if (!br) continue;
       if (clear) {
-        const u0 = Math.min(c.edgeSpeed[e]!, CITY_SPEED) * 0.6;
+        const u0 = Math.min(c.edgeSpeed[e]!, CITY_SPEED, br.cruise > 0 ? br.cruise : CITY_SPEED) * 0.6;
         br.v.vx = hx * u0;
         br.v.vz = hz * u0;
         br.v.speed = u0;
@@ -296,7 +303,8 @@ export class Cars {
     const ctx = k.ctx;
     if (!this.ap) this.services();
     if (!this.ap || !k.cache.ready) return null;
-    const color = kind === 'taxi' || kind === 'bus' ? undefined : CAR_COLORS[k.rng.int(0, CAR_COLORS.length)]!;
+    const palette = kind === 'velo' ? VELO_COLORS : CAR_COLORS;
+    const color = kind === 'taxi' || kind === 'bus' ? undefined : palette[k.rng.int(0, palette.length)]!;
     const v = ctx.vehicles.spawn(kind, x, z, heading, color === undefined ? undefined : { color });
     const driver = ctx.archetypes.spawn('conducteur', x, z, { heading });
     if (!ctx.vehicles.enter(driver, v, 'driver')) {
@@ -313,6 +321,11 @@ export class Cars {
     b.thinkT = k.rng.next() * CAR_THINK;
     b.patience = k.tuning.patience * (0.6 + k.rng.next() * 0.9);
     b.bornAt = ctx.clock.now;
+    if (kind === 'velo') {
+      // cycliste : allure de 15 à 22 km/h, au bord droit de la chaussée (hors du caniveau et des portières)
+      b.cruise = VELO_SPEED_MIN + k.rng.next() * VELO_SPEED_SPAN;
+      b.kerb = VELO_KERB_MIN + k.rng.next() * VELO_KERB_SPAN;
+    }
     b.closureStamp = k.closures.stamp;
     b.graphStamp = k.cache.stamp;
     v.engineOn = true;
@@ -386,7 +399,8 @@ export class Cars {
     o.urgence = b.passing;
     o.stopBefore = undefined;
     o.pushThrough = undefined;
-    o.speed = b.fleeing ? CITY_SPEED * 1.35 : undefined;
+    o.speed = b.cruise > 0 ? (b.fleeing ? b.cruise * 1.3 : b.cruise) : b.fleeing ? CITY_SPEED * 1.35 : undefined;
+    o.kerb = b.kerb > 0 ? b.kerb : undefined;
     b.mode = MODE_GO;
     b.holdCp = null;
     b.replanAt = -1;
@@ -434,36 +448,74 @@ export class Cars {
     // viendrait s'arrêter au milieu de la chaussée.
     const o = this.opts;
     o.urgence = false;
-    o.speed = undefined;
+    o.speed = b.cruise > 0 ? b.cruise : undefined;
+    o.kerb = b.kerb > 0 ? b.kerb : undefined;
     o.pushThrough = undefined;
     o.stopBefore = b.halfL + 0.6;
     if (!ap.driveTo(v, p.x - p.dz * AXIS_NUDGE, p.z + p.dx * AXIS_NUDGE, o)) ap.stop(v);
   }
 
-  /** « Range-toi » : s'arrête au bord droit de la chaussée pour laisser passer une sirène. */
-  pullOver(b: CarBrain, forId: EntityId, seconds: number): void {
+  /**
+   * « Range-toi » : se serre contre le bord droit de la chaussée et s'arrête, pour laisser passer une sirène.
+   * Il se range contre les véhicules garés s'il y en a, pas dessus. `mustFit` (sirène dans son sens) : il ne se
+   * range que si la sirène pourra ensuite passer entre lui et l'axe ; sinon rien n'est fait et l'on rend false
+   * (il continue jusqu'à un endroit plus large).
+   */
+  pullOver(b: CarBrain, siren: Siren, seconds: number, mustFit: boolean): boolean {
     const ap = this.ap;
-    if (!ap) return;
+    if (!ap) return false;
     const k = this.k;
+    const ctx = k.ctx;
     const r = b.route;
     const v = b.v;
     const u = Math.abs(v.speed);
     const p = this.rp;
-    r.sample(Math.min(r.total, r.s + Math.max(8, u * 1.6 + 6)), p);
+    const ahead = Math.max(8, u * 1.6 + 6);
+    r.sample(Math.min(r.total, r.s + ahead), p);
     const road = this.road;
-    let off = 0;
-    if (k.ctx.world.nearestRoad(p.x, p.z, road, 8)) off = road.width * 0.5 - b.halfW - 0.35;
+    if (!ctx.world.nearestRoad(p.x, p.z, road, 8)) return false;
+    let off = road.width * 0.5 - b.halfW - PULL_KERB;
+    // véhicules garés (ou abandonnés) le long du trottoir de droite, d'ici au point visé : on se serre contre eux
+    const list = this.near;
+    const n = ctx.vehicles.queryRadius(p.x - p.dx * ahead * 0.5, p.z - p.dz * ahead * 0.5, ahead * 0.5 + 8, list);
+    for (let i = 0; i < n; i++) {
+      const o = list[i]!;
+      if (o === v || o.def.flying || this.byVehicle.has(o.id) || Math.abs(o.speed) > 0.5) continue;
+      const rx = o.x - p.x;
+      const rz = o.z - p.z;
+      const along = rx * p.dx + rz * p.dz;
+      if (along < -(ahead + b.halfL + 3) || along > 6 + o.def.length * 0.5) continue;
+      const lat = -rx * p.dz + rz * p.dx; // positif à droite
+      const cross = Math.abs(Math.sin(o.heading) * p.dz - Math.cos(o.heading) * p.dx);
+      const half = 0.5 * (o.def.width * (1 - cross) + o.def.length * cross);
+      const inner = lat - half;
+      if (inner < 0.5) continue; // pas le long du trottoir de droite
+      const lim = inner - b.halfW - 0.3;
+      if (lim < off) off = lim;
+    }
+    if (mustFit) {
+      // la sirène roule à sirenLane() de l'axe, dans le même repère que moi : reste-t-il la place entre nous ?
+      const lane = sirenLane(road.width, road.oneway);
+      if (off - b.halfW < lane + siren.halfW + SIREN_CLEARANCE) return false;
+    }
+    list.length = 0;
     b.mode = MODE_PULL;
     b.holdCp = null;
-    b.pullFor = forId;
-    b.pullUntil = k.ctx.clock.now + seconds;
+    b.pullFor = siren.id;
+    b.pullUntil = ctx.clock.now + seconds;
+    b.resumeAt = -1;
     const o = this.opts;
     o.urgence = false;
-    o.speed = undefined;
+    // (un cycliste lève aussitôt le pied en serrant le trottoir)
+    o.speed = b.cruise > 0 ? b.cruise * 0.5 : undefined;
     o.pushThrough = undefined;
     o.stopBefore = undefined;
-    // droite du sens de marche = (−dz, dx)
-    if (off < 1.1 || !ap.driveTo(v, p.x - p.dz * off, p.z + p.dx * off, o)) ap.stop(v);
+    // Arrêt au point de la rue situé devant lui, serré contre la bordure : le pilote automatique compte l'écart
+    // à la bordure depuis l'axe réel de la rue (option kerb), sans déborder sur le trottoir. Point posé à 20 cm de
+    // l'axe : « un point de la rue », où il s'arrête sur sa voie (voir holdAt).
+    o.kerb = road.width * 0.5 - b.halfW - off;
+    if (off < 1.1 || !ap.driveTo(v, p.x - p.dz * AXIS_NUDGE, p.z + p.dx * AXIS_NUDGE, o)) ap.stop(v);
+    return true;
   }
 
   /** « Gare-toi » sur la place donnée. */

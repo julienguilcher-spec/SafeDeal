@@ -331,6 +331,7 @@ export class VehicleAudio implements EngineSoundService {
       const d2 = dx * dx + dz * dz;
       if (v.siren !== 0 && d2 < 460 * 460) this.syncSiren(v.id, sirenSound(v.kind, v.faction, v.siren), v);
       if (!v.engineOn || v.state === 'wrecked' || v.state === 'burnt') continue;
+      if (v.kind === 'velo') continue; // un vélo n'a pas de moteur
       const mine = pv !== null && pv.id === v.id;
       if (!mine && d2 > AUTO_RADIUS * AUTO_RADIUS) continue;
       const score = mine ? -1 : d2;

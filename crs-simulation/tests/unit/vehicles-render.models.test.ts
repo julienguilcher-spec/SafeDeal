@@ -8,7 +8,7 @@ import { REFERENCE_DEFS, referenceDef } from '@/render/vehicles/refdefs';
 const CONTRACT_KINDS = [
   'fourgon_crs', 'car_crs', 'vl_commandement', 'voiture_police', 'fourgon_cellulaire', 'centaure', 'canon_eau', 'moto_bravm',
   'camion_pompiers', 'ambulance', 'voiture', 'citadine', 'suv', 'taxi', 'utilitaire', 'camion', 'bus', 'scooter', 'camion_sono',
-  'drone', 'helicoptere',
+  'drone', 'helicoptere', 'velo',
 ];
 
 function bounds(pos: Float32Array, part: Float32Array | null, filter: (t: number) => boolean) {

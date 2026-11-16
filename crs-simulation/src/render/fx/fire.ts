@@ -183,7 +183,7 @@ export class FireRenderer {
         if (!(v.burning > 0.02) || v.dormant) continue;
         const s = this.touch(SRC_VEHICLE, v.id);
         if (!s) break;
-        s.mat = v.kind === 'scooter' || v.kind === 'moto_bravm' ? MAT_TYRE : MAT_VEHICLE;
+        s.mat = v.kind === 'scooter' || v.kind === 'moto_bravm' || v.kind === 'velo' ? MAT_TYRE : MAT_VEHICLE;
         s.entity = v;
         s.x = v.x; s.y = v.y; s.z = v.z;
         s.rx = v.def.width * 0.5; s.rz = v.def.length * 0.5; s.heading = v.heading; s.height = v.def.height;

@@ -495,7 +495,7 @@ export type VehicleKind = Open<
   | 'fourgon_crs' | 'car_crs' | 'vl_commandement' | 'voiture_police' | 'fourgon_cellulaire'
   | 'centaure' | 'canon_eau' | 'moto_bravm' | 'camion_pompiers' | 'ambulance'
   | 'voiture' | 'citadine' | 'suv' | 'taxi' | 'utilitaire' | 'camion' | 'bus' | 'scooter'
-  | 'camion_sono' | 'drone' | 'helicoptere'
+  | 'camion_sono' | 'drone' | 'helicoptere' | 'velo'
 >;
 
 export type SeatRole = 'driver' | 'gunner' | 'passenger';

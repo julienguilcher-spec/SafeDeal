@@ -24,6 +24,8 @@ export class ApState {
   axisUntil = 0;
   /** La destination est sur l'axe d'une rue : on s'y arrête sur sa voie, sans revenir au milieu de la chaussée. */
   endInLane = false;
+  /** L'itinéraire part de l'axe de la rue, à hauteur du véhicule (et non de sa position) : décalage plein dès le départ. */
+  fromAxis = false;
   /** Vitesse de croisière demandée (0 = limite de la voie). */
   cruise = 0;
   urgence = false;
@@ -71,6 +73,19 @@ export class ApState {
   laneT = 0;
   laneOffset = 0;
   laneWant = 0;
+  /** Distance tenue à la bordure de droite (m ; 0 = milieu de la voie) : cycliste. */
+  kerb = 0;
+  /** Demi-largeur de la chaussée (m) et sens unique, relus avec la voie. */
+  roadHalf = 4;
+  roadOneway = false;
+  // ── dépassement d'un deux-roues lent ──
+  /** Deux-roues dépassé (0 si aucun) et décalage à gauche en cours / voulu (m). */
+  passId: EntityId = 0;
+  passShift = 0;
+  passWant = 0;
+  passCheckT = 0;
+  /** Distance au prochain virage à gauche de l'itinéraire (m ; Infinity si aucun en vue). */
+  leftTurnAt = Infinity;
   roadLimit = 8.33;
   /** Abscisse du point d'arrêt devant une rue fermée (−1 si aucune). */
   closureS = -1;
@@ -92,6 +107,7 @@ export class ApState {
     this.stopBefore = 0;
     this.axisUntil = 0;
     this.endInLane = false;
+    this.fromAxis = false;
     this.cruise = 0;
     this.urgence = false;
     this.pushThrough = false;
@@ -118,6 +134,11 @@ export class ApState {
     this.laneT = 0;
     this.laneOffset = 0;
     this.laneWant = 0;
+    this.kerb = 0;
+    this.passId = 0;
+    this.passShift = 0;
+    this.passWant = 0;
+    this.leftTurnAt = Infinity;
     this.closureS = -1;
     this.closureT = 0;
     this.blockedFor = 0;

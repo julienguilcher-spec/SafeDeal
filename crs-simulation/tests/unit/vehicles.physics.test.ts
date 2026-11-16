@@ -58,7 +58,8 @@ const EXPECTED: Record<string, { accel: [number, number]; brake: [number, number
   camion_sono: { accel: [9, 15], brake: [11, 18] },
 };
 
-const GROUND: VehicleKind[] = VEHICLE_KINDS.filter((k) => k !== 'drone' && k !== 'helicoptere');
+// (le vélo n'atteint pas 50 km/h : il a son propre essai)
+const GROUND: VehicleKind[] = VEHICLE_KINDS.filter((k) => k !== 'drone' && k !== 'helicoptere' && k !== 'velo');
 
 describe('conduite : accélération et freinage', () => {
   it('donne un 0 → 50 km/h et une distance de freinage plausibles pour chaque type', async () => {
@@ -81,6 +82,20 @@ describe('conduite : accélération et freinage', () => {
       expect(v.heading).toBeCloseTo(0, 6);
     });
     console.log(lines.join('\n'));
+  });
+
+  it('un vélo atteint 20 km/h en quelques secondes et s\'arrête en quelques mètres', async () => {
+    const b = await createVehicleBench({ world: createFakeWorld({ surface: 'road' }) });
+    const v = b.spawn('velo', 0, 0, 0);
+    b.driver(v);
+    const t20 = accelerateTo(b, v, 20 * KMH);
+    const dist = brakeToStop(b, v);
+    console.log(`vélo : 0-20 km/h en ${t20.toFixed(1)} s, arrêt en ${dist.toFixed(1)} m`);
+    expect(t20).toBeGreaterThan(3);
+    expect(t20).toBeLessThan(9);
+    expect(dist).toBeGreaterThan(2.5);
+    expect(dist).toBeLessThan(7);
+    expect(Math.abs(v.x)).toBeLessThan(0.01);
   });
 
   it('une voiture va plus vite qu\'un blindé, qui va plus vite qu\'un engin lanceur d\'eau', async () => {

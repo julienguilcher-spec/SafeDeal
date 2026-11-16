@@ -129,6 +129,8 @@ function build(): VehicleDef[] {
     out.push(def('camion_sono', 'Camion sono', 'protest', 0xf2f2f2, { l: len, w, h: 3.2, mass: 7500, wb: 4.2, top: 90, accel: 1.5, brake: 6, steer: 0.6 },
       [side('driver', -0.6, 1.5, 2.6, w), side('passenger', 0.6, 1.5, 2.6, w), seat('passenger', 0, 1.6, -1.5, 0, -(len / 2 + 0.8))], []));
   }
+  out.push(def('velo', 'Vélo', 'civil', 0x1b1c1f, { l: 1.75, w: 0.6, h: 1.1, mass: 16, wb: 1.08, top: 40, accel: 1.4, brake: 4, steer: 0.7 },
+    [seat('driver', 0, 0.9, -0.3, -0.7, -0.2)], []));
   out.push(def('drone', 'Drone', 'police', 0x8a8f96, { l: 0.35, w: 0.28, h: 0.11, mass: 0.9, wb: 0.25, top: 54, accel: 6, brake: 6, steer: 0 },
     [], [turret('camera', 0, -0.04, 0.08, -PI, PI, -1.5708, 0.35, 0, 0)], { flying: true, beacons: false }));
   {

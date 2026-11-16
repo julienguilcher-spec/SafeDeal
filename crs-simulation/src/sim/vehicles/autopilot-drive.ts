@@ -4,7 +4,7 @@
  * Écrit Vehicle.cmd ; l'API et la tenue des itinéraires sont dans autopilot.ts.
  * ===================================================================================== */
 
-import type { RoadSample } from '@/core/contracts';
+import type { RoadSample, Vehicle } from '@/core/contracts';
 import { EXT } from '@/core/extensions';
 import type { TrafficControlApi } from '@/core/extensions';
 import { angleDiff, clamp } from '@/core/math';
@@ -21,11 +21,26 @@ export const DEFAULT_SPEED = 30 / 3.6;
 const CORNER_CUT = 5;
 const SCAN_PERIOD = 0.15;
 
+/**
+ * Position latérale d'un véhicule en intervention (m à droite de l'axe) : au milieu d'une rue à double sens, entre
+ * les deux files qui se serrent chacune à droite (un peu à droite de l'axe sur une large avenue) ; sur l'axe d'un
+ * sens unique. MÊME FORMULE que sim/traffic/tuning.ts (sirenLane) : les automobilistes s'en servent pour juger
+ * s'il y a la place de se ranger.
+ */
+export function urgentLane(width: number, oneway: boolean): number {
+  return oneway ? 0 : clamp(width * 0.25 - 2, 0, 3.2);
+}
+
 export class ApDriver {
   private readonly pt: PathPoint = { x: 0, z: 0, dx: 0, dz: 1 };
   private readonly road: RoadSample = {
     edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '', roadClass: 'residential', oneway: false,
   };
+
+  private readonly road2: RoadSample = {
+    edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '', roadClass: 'residential', oneway: false,
+  };
+  private readonly near: Vehicle[] = [];
 
   constructor(private readonly k: VehicleKernel, private readonly sensor: ApSensor) {}
 
@@ -77,8 +92,18 @@ export class ApDriver {
       const world = ctx.world;
       if (world.edgeCount > 0 && world.nearestRoad(v.x, v.z, this.road, 15)) {
         const limit = world.edge(this.road.edgeId).speedLimit;
+        const w = this.road.width;
         ap.roadLimit = limit > 1 ? limit : DEFAULT_SPEED;
-        ap.laneWant = this.road.oneway ? 0 : clamp(this.road.width * 0.25, 0, 3.2);
+        ap.roadHalf = w * 0.5;
+        ap.roadOneway = this.road.oneway;
+        // une intervention urgente roule entre les deux files, qui se serrent chacune à droite pour la laisser passer
+        ap.laneWant = ap.urgence ? urgentLane(w, this.road.oneway) : this.road.oneway ? 0 : clamp(w * 0.25, 0, 3.2);
+        // cycliste : au bord droit, à la distance voulue de la bordure ; à l'approche d'un tourne-à-gauche, il se
+        // place au milieu de sa voie (les voitures restent derrière lui au lieu de le doubler à droite du virage)
+        if (ap.kerb > 0 && ap.leftTurnAt > 32) {
+          const edge = w * 0.5 - rt.halfW - ap.kerb;
+          if (edge > ap.laneWant) ap.laneWant = edge;
+        }
       } else {
         ap.roadLimit = DEFAULT_SPEED;
         ap.laneWant = 0;
@@ -136,8 +161,13 @@ export class ApDriver {
       }
       // décalage sur la voie de droite : seulement là où l'itinéraire suit l'axe des rues, et fondu aux extrémités
       const toEnd = ap.endInLane && ap.axisUntil >= ap.total ? 8 : ap.axisUntil - sT;
-      const taper = clamp(Math.min(sT, toEnd) / 8, 0, 1);
-      const off = ap.mode === 'park' ? 0 : ap.laneOffset * taper;
+      const taper = clamp(Math.min(ap.fromAxis ? 8 : sT, toEnd) / 8, 0, 1);
+      let off = ap.mode === 'park' ? 0 : ap.laneOffset * taper;
+      // au bord de la chaussée (cycliste) : le décalage se compte depuis l'axe réel de la rue, pas depuis l'itinéraire
+      // (au départ d'un nouvel ordre, celui-ci part de la position du vélo, déjà au bord, et rejoint l'axe plus loin)
+      if (ap.kerb > 0 && ap.mode === 'drive') off = this.kerbOffset(ap, pt, taper, off);
+      // dépassement d'un deux-roues : décalage à gauche
+      if (ap.passShift > 0) off -= ap.passShift * taper;
       // droite du sens de marche = (−dz, dx)
       const tx = pt.x - pt.dz * off;
       const tz = pt.z + pt.dx * off;
@@ -194,6 +224,12 @@ export class ApDriver {
       }
     }
     v.indicator = turn > 0 && turnDist < 30 ? (turnSign as -1 | 1) : 0;
+    ap.leftTurnAt = turn > 0 && turnSign < 0 ? turnDist : Infinity;
+    // tourne à droite : priorité au cycliste qui roule à sa droite (pas de « crochet » au carrefour)
+    if (turn > 0 && turnSign > 0 && turnDist < 28 && ap.kerb === 0 && !ap.urgence && !ap.convoy && ap.mode === 'drive') {
+      const lim = this.yieldRightBike(rt);
+      if (lim < vt) vt = lim;
+    }
 
     // arrêt à destination (ou derrière le meneur)
     let goal = remaining;
@@ -260,6 +296,7 @@ export class ApDriver {
     } else if (ap.obsDist !== Infinity) {
       ap.obsDist -= (u - ap.obsSpeed) * dt; // entre deux relevés, l'écart évolue à la vitesse relative
     }
+    this.overtake(rt, ap, au, dt);
     let obstacle = false;
     // deux véhicules à l'arrêt l'un devant l'autre à un carrefour : priorité à droite (celui qui a l'autre sur sa
     // gauche passe, au pas) ; si personne ne bouge, le plus petit identifiant s'engage
@@ -388,6 +425,149 @@ export class ApDriver {
       }
     }
     ap.status.blockedFor = ap.blockedFor;
+  }
+
+  /** Décalage à droite de l'itinéraire qui place le point visé `pt` à ap.laneWant de l'axe réel de la rue. */
+  private kerbOffset(ap: ApState, pt: PathPoint, taper: number, fallback: number): number {
+    const road = this.road2;
+    if (!this.k.ctx.world.nearestRoad(pt.x, pt.z, road, 12)) return fallback;
+    // seulement dans l'axe de la rue (pas dans un carrefour, où la rue la plus proche peut être la transversale)
+    const align = Math.sin(road.heading) * pt.dx + Math.cos(road.heading) * pt.dz;
+    if (align < 0.92 && align > -0.92) return fallback;
+    const lp = (pt.x - road.x) * -pt.dz + (pt.z - road.z) * pt.dx;
+    return (ap.laneWant - lp) * taper;
+  }
+
+  /**
+   * Dépassement d'un deux-roues lent (cycliste) : on se décale à gauche pour le doubler en lui laissant 1 m,
+   * si la chaussée le permet et, quand il faut empiéter sur la voie d'en face, si personne n'arrive en face.
+   * Sinon on reste derrière lui à son allure (rue étroite, circulation en face), comme en vrai.
+   */
+  private overtake(rt: VehicleRt, ap: ApState, au: number, dt: number): void {
+    const v = rt.v;
+    const sn = Math.sin(v.heading);
+    const cs = Math.cos(v.heading);
+    if (ap.passId !== 0) {
+      // le deux-roues est-il derrière nous ?
+      const o = this.k.peek(ap.passId);
+      let done = true;
+      if (o && !o.v.dormant) {
+        const fwd = (o.v.x - v.x) * sn + (o.v.z - v.z) * cs;
+        done = fwd < -(rt.halfL + o.halfL + 1.5);
+        // pas encore à sa hauteur et quelqu'un arrive en face : on renonce et on reste derrière lui
+        ap.passCheckT -= dt;
+        if (!done && fwd > rt.halfL + o.halfL && !ap.roadOneway && ap.passCheckT <= 0) {
+          ap.passCheckT = 0.4;
+          if (!this.oncomingClear(rt, ap, o)) done = true;
+        }
+      }
+      if (done) {
+        ap.passId = 0;
+        ap.passWant = 0;
+      }
+    } else if (
+      !ap.urgence && !ap.convoy && ap.kerb === 0 && ap.mode === 'drive' && ap.obsReason === 'vehicule' && ap.obsId !== 0
+      && ap.obsDist < 18 && ap.total - ap.s > 35 && ap.obsLat < 0.4
+    ) {
+      const o = this.k.peek(ap.obsId);
+      if (o && o.v.kind === 'velo' && o.v.speed > 0.8 && o.v.speed < ap.roadLimit * 0.8 && o.v.speed < au + 1) {
+        // décalage à gauche nécessaire pour laisser 1 m entre nos flancs
+        const need = rt.halfW + o.halfW + 1.0 + ap.obsLat;
+        const left = ap.laneOffset - need - rt.halfW; // bord gauche une fois décalé (m à droite de l'axe)
+        // distance parcourue pendant le dépassement (le doubler et se rabattre avec 3 m d'avance), plus une marge :
+        // pas de carrefour d'ici là
+        const cruise = Math.min(ap.roadLimit, ap.cruise > 0 ? ap.cruise : ap.roadLimit);
+        const gain = Math.max(0.6, cruise - o.v.speed);
+        const span = ((ap.obsDist + rt.halfL * 2 + o.halfL * 2 + 6) / gain) * cruise + 20;
+        if (
+          need > 0 && left > -ap.roadHalf + 0.3 && span < 140 && !this.junctionNear(rt, ap, span)
+          && (ap.roadOneway || left > -0.1 || this.oncomingClear(rt, ap, o))
+        ) {
+          ap.passId = o.v.id;
+          ap.passWant = need;
+        }
+      }
+    }
+    const step = 1.5 * dt;
+    if (ap.passShift < ap.passWant) ap.passShift = Math.min(ap.passWant, ap.passShift + step);
+    else if (ap.passShift > ap.passWant) ap.passShift = Math.max(ap.passWant, ap.passShift - step);
+  }
+
+  /**
+   * Avant de tourner à droite : un deux-roues roule-t-il à ma droite, à ma hauteur ou juste devant ? Renvoie la
+   * vitesse permise (on le laisse prendre de l'avance, ou on reste derrière lui), Infinity sinon.
+   */
+  private yieldRightBike(rt: VehicleRt): number {
+    const v = rt.v;
+    const sn = Math.sin(v.heading);
+    const cs = Math.cos(v.heading);
+    const list = this.near;
+    const n = this.k.ctx.vehicles.queryRadius(v.x + sn * 3, v.z + cs * 3, rt.halfL + 10, list);
+    let lim = Infinity;
+    for (let i = 0; i < n; i++) {
+      const o = list[i]!;
+      if (o === v || o.kind !== 'velo' || o.dormant) continue;
+      if (Math.sin(o.heading) * sn + Math.cos(o.heading) * cs < 0.6) continue;
+      const rx = o.x - v.x;
+      const rz = o.z - v.z;
+      const fwd = rx * sn + rz * cs;
+      const right = -(rx * cs - rz * sn);
+      if (right < 0.2 || right > rt.halfW + 3.5 || fwd < -(rt.halfL + 4) || fwd > rt.halfL + 8) continue;
+      const os = o.speed > 0 ? o.speed : 0;
+      // à ma hauteur ou derrière : je le laisse passer devant ; devant moi : je reste derrière lui
+      const l = fwd < rt.halfL + 1 ? (os < 0.5 ? 0 : os * 0.6) : os;
+      if (l < lim) lim = l;
+    }
+    return lim;
+  }
+
+  /**
+   * Un carrefour (nœud d'au moins trois rues) est-il à moins de `dist` m devant (ou encore sous) le véhicule, ou
+   * l'itinéraire tourne-t-il d'ici là ? On ne double pas un cycliste à l'approche d'un carrefour : il peut tourner.
+   */
+  private junctionNear(rt: VehicleRt, ap: ApState, dist: number): boolean {
+    const v = rt.v;
+    for (let j = ap.seg + 1; j < ap.n - 1 && ap.cum[j]! < ap.s + dist; j++) {
+      const t = ap.turnAt(j);
+      if (t > 0.3 || t < -0.3) return true;
+    }
+    const world = this.k.ctx.world;
+    const road = this.road2;
+    if (world.edgeCount === 0 || !world.nearestRoad(v.x, v.z, road, 15)) return false;
+    const e = world.edge(road.edgeId);
+    const sn = Math.sin(v.heading);
+    const cs = Math.cos(v.heading);
+    for (let end = 0; end < 2; end++) {
+      const node = world.node(end === 0 ? e.a : e.b);
+      if (node.edges.length < 3) continue;
+      const fwd = (node.x - v.x) * sn + (node.z - v.z) * cs;
+      if (fwd > -8 && fwd < dist) return true;
+    }
+    return false;
+  }
+
+  /** Personne n'arrive en face (ni rien d'arrêté) sur la voie de gauche, sur la distance d'un dépassement. */
+  private oncomingClear(rt: VehicleRt, ap: ApState, bike: VehicleRt): boolean {
+    const v = rt.v;
+    const sn = Math.sin(v.heading);
+    const cs = Math.cos(v.heading);
+    const reach = 70;
+    const list = this.near;
+    const n = this.k.ctx.vehicles.queryRadius(v.x + sn * reach * 0.5, v.z + cs * reach * 0.5, reach * 0.5 + 4, list);
+    for (let i = 0; i < n; i++) {
+      const o = list[i]!;
+      if (o === v || o === bike.v || o.def.flying) continue;
+      const rx = o.x - v.x;
+      const rz = o.z - v.z;
+      const fwd = rx * sn + rz * cs;
+      if (fwd < -rt.halfL || fwd > reach) continue;
+      const lat = rx * cs - rz * sn; // positif à gauche
+      if (lat < 0.6 || lat > ap.roadHalf * 2) continue;
+      const toward = Math.sin(o.heading) * sn + Math.cos(o.heading) * cs;
+      // en face et roulant vers moi, ou arrêté sur la voie de gauche tout près
+      if ((toward < -0.5 && Math.abs(o.speed) > 0.3) || fwd < 30) return false;
+    }
+    return true;
   }
 
   /** Le point est-il sur une surface carrossable ? (un demi-tour ne monte pas sur le trottoir) */

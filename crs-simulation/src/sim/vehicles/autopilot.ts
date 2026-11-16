@@ -62,7 +62,7 @@ export class Autopilot implements AutopilotApi {
   // ───────────────────────────── itinéraires ─────────────────────────────
 
   /** Calcule l'itinéraire du véhicule jusqu'au point. false si aucun chemin. */
-  private plan(rt: VehicleRt, ap: ApState, x: number, z: number): boolean {
+  private plan(rt: VehicleRt, ap: ApState, x: number, z: number, axisStart = false): boolean {
     const v = rt.v;
     const world = this.k.ctx.world;
     const buf = this.scratch;
@@ -82,19 +82,37 @@ export class Autopilot implements AutopilotApi {
           count--;
         }
       }
+      let fromAxis = false;
       if (count >= 3) {
         const sx = buf[2]! - v.x;
         const sz = buf[3]! - v.z;
         if (sx * sx + sz * sz < 100) {
-          for (let i = 1; i < count - 1; i++) {
+          const hx = Math.sin(v.heading);
+          const hz = Math.cos(v.heading);
+          const fwd = sx * hx + sz * hz;
+          // (et l'itinéraire part dans son sens de marche : pas de demi-tour à faire)
+          const nx = buf[4]! - buf[2]!;
+          const nz = buf[5]! - buf[3]!;
+          const nl = Math.sqrt(nx * nx + nz * nz);
+          const ahead = nl > 1 && (nx * hx + nz * hz) / nl > 0.7;
+          // Accroche à côté du véhicule (il roule sur la chaussée, à moins de 4 m de l'axe, à sa hauteur) : l'itinéraire part de
+          // l'axe, et le décalage de voie partira de l'écart réel du véhicule à l'axe (voir driveTo). Parti de sa
+          // position, il ajouterait au contraire son décalage à celui qu'il a déjà et roulerait contre le trottoir
+          // jusqu'au carrefour suivant.
+          const from = axisStart && ahead && fwd > -3 && fwd < 3 && sx * sx + sz * sz < 16 ? 0 : 1;
+          fromAxis = from === 0;
+          for (let i = from; i < count - 1; i++) {
             buf[i * 2] = buf[i * 2 + 2]!;
             buf[i * 2 + 1] = buf[i * 2 + 3]!;
           }
           count--;
         }
       }
-      buf[0] = v.x;
-      buf[1] = v.z;
+      if (!fromAxis) {
+        buf[0] = v.x;
+        buf[1] = v.z;
+      }
+      ap.fromAxis = fromAxis;
     } else {
       // pas de réseau : tout droit si le point est proche et visible
       const dx = x - v.x;
@@ -121,7 +139,8 @@ export class Autopilot implements AutopilotApi {
     const rt = this.k.rt(v);
     const ap = this.state(rt);
     ap.resetRun();
-    if (!this.plan(rt, ap, x, z)) {
+    // (départ de l'axe : sur demande, pour un véhicule qui roule déjà sur sa voie — circulation civile)
+    if (!this.plan(rt, ap, x, z, options?.inLane === true)) {
       ap.mode = 'idle';
       rt.apActive = false;
       this.driver.setStatus(rt, ap, 'echec', 'sans_itineraire');
@@ -131,6 +150,19 @@ export class Autopilot implements AutopilotApi {
     ap.urgence = options?.urgence === true;
     ap.stopBefore = options?.stopBefore !== undefined && options.stopBefore > 0 ? options.stopBefore : 0;
     ap.pushThrough = options?.pushThrough === true;
+    ap.kerb = options?.kerb !== undefined && options.kerb > 0 ? options.kerb : 0;
+    if (ap.fromAxis && ap.n >= 2) {
+      // l'itinéraire part de l'axe : le décalage de voie part de l'écart réel du véhicule à cet axe (pas d'écart
+      // brusque vers le milieu de la chaussée à chaque nouvel ordre)
+      const p = ap.path;
+      const dx = p[2]! - p[0]!;
+      const dz = p[3]! - p[1]!;
+      const l = Math.sqrt(dx * dx + dz * dz);
+      if (l > 0.01) {
+        const lat = ((v.x - p[0]!) * -dz + (v.z - p[1]!) * dx) / l;
+        ap.laneOffset = lat > 6 ? 6 : lat < -6 ? -6 : lat;
+      }
+    }
     this.engage(rt, ap, 'drive');
     return true;
   }

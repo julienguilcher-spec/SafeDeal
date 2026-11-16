@@ -9,7 +9,7 @@ import { VAN_STYLES, buildVan } from './vans';
 import { buildCoach } from './coach';
 import { buildCamion, buildPompiers, buildSono } from './trucks';
 import { buildCanonEau, buildCentaure } from './special';
-import { buildDrone, buildHelico, buildMoto, buildScooter } from './light';
+import { buildDrone, buildHelico, buildMoto, buildScooter, buildVelo } from './light';
 import type { ModelBuilder, ModelMeta } from './types';
 
 export type { ModelMeta, CockpitKind } from './types';
@@ -34,6 +34,7 @@ const BUILDERS: Record<string, ModelBuilder> = {
   centaure: buildCentaure,
   moto_bravm: buildMoto,
   scooter: buildScooter,
+  velo: buildVelo,
   drone: buildDrone,
   helicoptere: buildHelico,
 };

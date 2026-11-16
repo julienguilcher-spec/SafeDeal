@@ -19,7 +19,7 @@ import {
 import { PedNav } from './ped-nav';
 import { PedReactor } from './ped-react';
 import type { PedAdopter, TrafficKernel } from './shared';
-import { PED_THINK, pedHourFactor, weatherPedFactor } from './tuning';
+import { JAYWALK_PATIENCE, PED_THINK, pedHourFactor, weatherPedFactor } from './tuning';
 
 /** Distance du point visé devant le piéton, le long de son trottoir (m). */
 const CARROT = 3.2;
@@ -367,15 +367,50 @@ export class Peds implements PedAdopter {
         break;
       }
       case S_WAIT:
-        this.stand(b, b.tx, b.tz);
         b.waited += PED_THINK;
+        if (k.ctx.clock.now < b.sirenUntil) {
+          // une sirène arrive : un pas en arrière du bord du trottoir, et l'on regarde passer le véhicule
+          if (!b.backing || this.moveTo(b, b.backX, b.backZ, 0.5, 0) < 0.15) {
+            b.backing = false;
+            this.stand(b, b.faceX, b.faceZ);
+          }
+          if (b.fear <= 0.4) this.react.mayCross(b); // (tient le retrait à jour tant qu'elle approche)
+          break;
+        }
+        if (b.jaywalk) {
+          if (b.waited > JAYWALK_PATIENCE) {
+            // pas de créneau : il renonce et reprend son chemin
+            b.jaywalk = false;
+            b.nextEdge = -1;
+            b.state = S_WALK;
+            break;
+          }
+          if (b.backing) {
+            // il s'avance jusqu'au bord du trottoir
+            if (this.moveTo(b, b.backX, b.backZ, 0.6, 0) < 0.2) b.backing = false;
+            break;
+          }
+          // il regarde d'un côté puis de l'autre avant de s'engager
+          const look = (Math.floor(b.waited * 1.1) & 1) === 0 ? 1 : -1;
+          this.stand(b, p.x + b.crossDx * look * 10 + (b.tx - p.x) * 0.3, p.z + b.crossDz * look * 10 + (b.tz - p.z) * 0.3);
+        } else {
+          this.stand(b, b.tx, b.tz);
+        }
         if (b.fear > 0.4 || this.react.mayCross(b)) {
           b.state = S_CROSS;
           b.timer = 30;
         }
         break;
       case S_CROSS: {
-        const hurry = b.fear > 0.4 ? 2 : b.waited > 12 ? 1 : 0;
+        let hurry: 0 | 1 | 2 = b.fear > 0.4 ? 2 : b.waited > 12 || b.jaywalk ? 1 : 0;
+        // une sirène arrive alors qu'il est sur la chaussée : il presse le pas, puis court
+        if (hurry < 2 && k.sirens.count > 0 && (b.tick & 1) === 0) {
+          const s = k.sirens.approaching(p.x, p.z, 90, 12, 30);
+          if (s) {
+            hurry = 2;
+            b.waited = 13; // (et il ne ralentit plus d'ici l'autre trottoir)
+          }
+        }
         const d = this.moveTo(b, b.tx, b.tz, 1, hurry);
         if (d < 0.9 || (b.timer -= PED_THINK) < 0) this.commit(b);
         break;
@@ -415,6 +450,8 @@ export class Peds implements PedAdopter {
     b.nextEdge = -1;
     b.waited = 0;
     b.crossNode = -1;
+    b.jaywalk = false;
+    b.backing = false;
     b.state = b.fear > 0.4 ? S_FLEE : b.fleeLeft > 0 ? S_LEAVE : S_WALK;
   }
 

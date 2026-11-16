@@ -9,13 +9,14 @@
 
 import type { Person, Prop, RayHit } from '@/core/contracts';
 import { makeRayHit } from '@/core/null-services';
-import type { ApState } from './autopilot-state';
+import type { ApState, PathPoint } from './autopilot-state';
 import type { VehicleKernel, VehicleRt } from './runtime';
 
 export class ApSensor {
   private readonly people: Person[] = [];
   private readonly props: Prop[] = [];
   private readonly hit: RayHit = makeRayHit();
+  private readonly mid: PathPoint = { x: 0, z: 0, dx: 0, dz: 1 };
 
   constructor(private readonly k: VehicleKernel) {}
 
@@ -68,6 +69,20 @@ export class ApSensor {
       if (d < best) {
         best = d;
         bestSpeed = p.vx * sn + p.vz * cs;
+        reason = 'personne';
+        isStatic = false;
+        blocker = null;
+      }
+    }
+
+    // ── personnes sur la trajectoire d'un virage (passage piéton de la rue où l'on tourne) ──
+    // Le couloir ci-dessus suit le braquage du moment : à l'entrée d'un virage, il regarde encore tout droit. On
+    // suit donc aussi l'itinéraire lui-même, décalé sur la voie, jusqu'à l'horizon.
+    if (dir > 0 && ap.mode !== 'park' && ap.n >= 3 && (this.turnsAhead(ap, horizon) || v.steerAngle > 0.08 || v.steerAngle < -0.08)) {
+      const pathBest = this.pathPeople(rt, ap, horizon, hw, u);
+      if (pathBest < best) {
+        best = pathBest;
+        bestSpeed = 0;
         reason = 'personne';
         isStatic = false;
         blocker = null;
@@ -178,11 +193,69 @@ export class ApSensor {
     }
 
     ap.obsDist = best;
+
     ap.obsSpeed = bestSpeed;
     ap.obsReason = reason;
     ap.obsStatic = isStatic;
     ap.obsId = blocker ? blocker.v.id : 0;
     ap.obsLat = blockerLat;
     ap.obsWaiting = blocker !== null && blocker.apActive && Math.abs(blocker.v.speed) < 0.3;
+  }
+
+  /** L'itinéraire tourne-t-il (plus de 0,4 rad) d'ici l'horizon ? */
+  private turnsAhead(ap: ApState, horizon: number): boolean {
+    let sum = 0;
+    for (let j = ap.seg > 0 ? ap.seg : 1; j < ap.n - 1 && ap.cum[j]! < ap.s + horizon; j++) {
+      sum += ap.turnAt(j);
+      if (sum > 0.4 || sum < -0.4) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Personnes (ou qui vont y entrer) sur la trace de l'itinéraire, décalée de ap.laneOffset, dans l'horizon :
+   * distance libre devant le pare-chocs (Infinity si personne).
+   */
+  private pathPeople(rt: VehicleRt, ap: ApState, horizon: number, hw: number, u: number): number {
+    const ctx = this.k.ctx;
+    const path = ap.path;
+    const mid = this.mid;
+    ap.sample(Math.min(ap.total, ap.s + horizon * 0.5), mid);
+    const n = ctx.people.queryRadius(mid.x, mid.z, horizon * 0.5 + hw + 3, this.people);
+    let best = Infinity;
+    const off = ap.laneOffset;
+    for (let i = 0; i < n; i++) {
+      const p = this.people[i]!;
+      if (p.vehicleId !== 0 || p.dormant) continue;
+      const margin = hw + p.radius + 0.15;
+      for (let j = ap.seg > 0 ? ap.seg - 1 : 0; j < ap.n - 1 && ap.cum[j]! < ap.s + horizon + rt.halfL; j++) {
+        const ax = path[j * 2]!;
+        const az = path[j * 2 + 1]!;
+        const dx = path[j * 2 + 2]! - ax;
+        const dz = path[j * 2 + 3]! - az;
+        const l = Math.sqrt(dx * dx + dz * dz);
+        if (l < 0.01) continue;
+        const ux = dx / l;
+        const uz = dz / l;
+        const rx = p.x - ax;
+        const rz = p.z - az;
+        const t = rx * ux + rz * uz;
+        if (t < -1 || t > l + 1) continue;
+        // écart à droite de la trace, moins le décalage de voie
+        const lat = rx * -uz + rz * ux - off;
+        let inside = lat > -margin && lat < margin;
+        const sAt = ap.cum[j]! + (t < 0 ? 0 : t > l ? l : t);
+        const d = sAt - ap.s - rt.halfL - p.radius;
+        if (d < -0.4 || d > horizon) continue;
+        if (!inside) {
+          const tt = Math.min(1.5, d / (u > 1 ? u : 1));
+          const lat2 = lat + (p.vx * -uz + p.vz * ux) * tt;
+          inside = (lat2 > -margin && lat2 < margin) || (lat < 0) !== (lat2 < 0);
+        }
+        if (inside && d < best) best = d;
+      }
+    }
+    this.people.length = 0;
+    return best;
   }
 }

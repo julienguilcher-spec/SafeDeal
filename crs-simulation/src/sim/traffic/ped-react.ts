@@ -12,15 +12,15 @@
 import type { EntityId, Person, Prop, Shop, Vehicle } from '@/core/contracts';
 import { EXT } from '@/core/extensions';
 import type { MetroApi } from '@/core/extensions';
-import type { EdgeHit } from './graph';
-import { makeEdgeHit } from './graph';
+import type { EdgeHit, EdgePoint } from './graph';
+import { E_PED, E_TUNNEL, makeEdgeHit } from './graph';
 import type { PedBrain } from './ped-brain';
 import {
   S_CORNER, S_CROSS, S_FLEE, S_IDLE, S_LEAVE, S_SHOP, S_SIT, S_WAIT, S_WALK, S_WATCH,
 } from './ped-brain';
 import type { Peds } from './peds';
 import type { TrafficKernel } from './shared';
-import { PED_THINK } from './tuning';
+import { JAYWALK_CHANCE, JAYWALK_HORIZON, JAYWALK_JUNCTION, JAYWALK_MAX_WIDTH, PED_THINK } from './tuning';
 
 export class PedReactor {
   /** Chaises de terrasse occupées. */
@@ -30,6 +30,7 @@ export class PedReactor {
   private readonly shops: Shop[] = [];
   private readonly props: Prop[] = [];
   private readonly hit: EdgeHit = makeEdgeHit();
+  private readonly ep: EdgePoint = { x: 0, z: 0, dx: 0, dz: 1 };
   readonly protest = (p: Person): boolean => p.faction === 'protest' && p.vehicleId === 0;
   private readonly chair = (p: Prop): boolean => p.kind === 'chaise' && !p.toppled && p.state === 'intact' && p.carriedBy === 0;
 
@@ -142,6 +143,27 @@ export class PedReactor {
           return;
         }
       }
+    }
+
+    // ── sirène : on tourne la tête, certains s'arrêtent pour la regarder passer ──
+    if (s === S_WALK && k.sirens.count > 0 && now >= b.calmUntil) {
+      const sr = k.sirens.approaching(p.x, p.z, 60, 14, 35);
+      if (sr) {
+        b.calmUntil = now + 20;
+        if (k.rng.chance(0.3)) {
+          b.state = S_IDLE;
+          b.timer = 2 + k.rng.next() * 3;
+          b.faceX = sr.x;
+          b.faceZ = sr.z;
+          return;
+        }
+      }
+    }
+
+    // ── traversée sauvage ──
+    if (s === S_WALK && b.fear < 0.05 && k.protestNear === 0 && k.rng.chance(JAYWALK_CHANCE)) {
+      this.jaywalk(b);
+      if (b.state !== S_WALK) return;
     }
 
     // ── vie ordinaire ──
@@ -371,9 +393,21 @@ export class PedReactor {
     const k = this.k;
     const ctx = k.ctx;
     const p = b.p;
-    if (b.waited > 25) return true; // il s'impose : les voitures s'arrêtent pour un piéton engagé
     const dx = b.tx - p.x;
     const dz = b.tz - p.z;
+    // une sirène arrive (dans la rue à traverser ou tout près) : personne ne s'engage, même au vert ; on recule
+    // d'un pas et on la regarde passer
+    if (k.sirens.count > 0) {
+      const s = k.sirens.approaching(p.x + dx * 0.5, p.z + dz * 0.5, 110, 14, 45);
+      if (s) {
+        this.yieldToSiren(b, s.x, s.z, dx, dz);
+        return false;
+      }
+    }
+    if (b.jaywalk) return this.gap(b, p.x + dx * 0.5, p.z + dz * 0.5, 50, JAYWALK_HORIZON);
+    // à bout de patience, il s'impose (les voitures s'arrêtent pour un piéton engagé), mais pas sous les roues
+    // d'un véhicule qui arrive : il lui faut encore un créneau de deux secondes et demie
+    if (b.waited > 25) return this.gap(b, p.x + dx * 0.5, p.z + dz * 0.5, 25, 2.5);
     const width = Math.sqrt(dx * dx + dz * dz);
     let signal = false;
     // un véhicule engagé dans le carrefour va passer par cette embouchure (il tourne, ou il arrive) : on attend
@@ -388,11 +422,14 @@ export class PedReactor {
       }
     }
     // créneau : aucun véhicule en mouvement qui arrive sur le passage dans les secondes qui viennent
-    const mx = p.x + dx * 0.5;
-    const mz = p.z + dz * 0.5;
+    return this.gap(b, p.x + dx * 0.5, p.z + dz * 0.5, 20, signal ? 2 : b.waited > 9 ? 2.2 : 4.5);
+  }
+
+  /** Aucun véhicule en mouvement n'arrive sur le point (mx, mz) dans les `horizon` s (recherche dans `reach` m). */
+  private gap(b: PedBrain, mx: number, mz: number, reach: number, horizon: number): boolean {
+    const ctx = this.k.ctx;
     const list = this.vehicles;
-    const n = ctx.vehicles.queryRadius(mx, mz, 20, list);
-    const horizon = signal ? 2 : b.waited > 9 ? 2.2 : 4.5;
+    const n = ctx.vehicles.queryRadius(mx, mz, reach, list);
     for (let i = 0; i < n; i++) {
       const v = list[i]!;
       const sp = Math.abs(v.speed);
@@ -408,6 +445,69 @@ export class PedReactor {
     }
     list.length = 0;
     return true;
+  }
+
+  /** Une sirène arrive : il reste au bord du trottoir, un pas en retrait, tourné vers elle. */
+  private yieldToSiren(b: PedBrain, sx: number, sz: number, dx: number, dz: number): void {
+    const p = b.p;
+    const now = this.k.ctx.clock.now;
+    if (now >= b.sirenUntil) {
+      // premier avertissement : un pas en arrière (à l'opposé de la chaussée), s'il y a du trottoir derrière lui
+      const l = Math.sqrt(dx * dx + dz * dz);
+      if (l > 0.1) {
+        const bx = p.x - (dx / l) * 1.1;
+        const bz = p.z - (dz / l) * 1.1;
+        b.backing = this.peds.walkable(bx, bz) && this.k.ctx.world.isFree(bx, bz, 0.3);
+        b.backX = bx;
+        b.backZ = bz;
+      }
+    }
+    b.sirenUntil = now + 2;
+    b.faceX = sx;
+    b.faceZ = sz;
+  }
+
+  /**
+   * Traversée sauvage : un passant qui longe une rue étroite décide de la traverser là où il est, loin des
+   * carrefours. Il s'arrête au bord du trottoir, regarde à gauche et à droite, attend un large créneau
+   * (mayCross) et renonce s'il ne vient pas. Rien de tel dans le gaz, la foule ou à l'approche d'une sirène.
+   */
+  private jaywalk(b: PedBrain): void {
+    const k = this.k;
+    const c = k.cache;
+    const p = b.p;
+    const e = b.edge;
+    if (e < 0 || e >= c.edgeCount || !c.isVehicle(e) || (c.edgeFlags[e]! & (E_PED | E_TUNNEL)) !== 0) return;
+    if (c.edgeSidewalk[e]! < 1 || c.edgeWidth[e]! > JAYWALK_MAX_WIDTH || k.closures.isClosed(e)) return;
+    const hit = this.hit;
+    c.project(e, p.x, p.z, hit);
+    const len = c.edgeLen[e]!;
+    if (hit.s < JAYWALK_JUNCTION || len - hit.s < JAYWALK_JUNCTION) return;
+    if (k.sirens.approaching(p.x, p.z, 130, 16, 60)) return;
+    // trottoir d'en face, un peu en biais vers l'avant (on traverse rarement à angle droit)
+    const sign = b.side * b.dir;
+    const ep = this.ep;
+    c.pointAt(e, hit.s + b.dir * (1 + k.rng.next() * 3), -sign * this.peds.lat(e, b.jitter), ep);
+    if (!this.peds.walkable(ep.x, ep.z)) return;
+    b.tx = ep.x;
+    b.tz = ep.z;
+    b.nextEdge = e;
+    b.nextDir = b.dir;
+    b.nextSide = -b.side;
+    b.crossNode = -1;
+    b.crossDx = hit.dx;
+    b.crossDz = hit.dz;
+    b.waited = 0;
+    b.jaywalk = true;
+    b.state = S_WAIT;
+    b.timer = 30;
+    // il s'arrête au bord du trottoir, pas contre la façade
+    c.pointAt(e, hit.s, sign * (c.edgeWidth[e]! * 0.5 + 0.45), ep);
+    if (this.peds.walkable(ep.x, ep.z)) {
+      b.backing = true; // (réutilise le point de retrait : il s'avance jusqu'au bord)
+      b.backX = ep.x;
+      b.backZ = ep.z;
+    }
   }
 
   // ───────────────────────────── terrasse ─────────────────────────────

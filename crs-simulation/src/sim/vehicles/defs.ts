@@ -315,6 +315,16 @@ function scooter(): VehicleDef {
     [seat('driver', 0, 0.78, 0, -0.8, 0), seat('passenger', 0, 0.8, -0.4, -0.8, -0.5)], []);
 }
 
+/**
+ * Vélo de ville : 1,75 × 0,6 × 1,1 m (guidon), 16 kg, empattement 1,08 m. Le cycliste fournit 150 à 250 W :
+ * 15 à 22 km/h en ville, 40 km/h au plus. Freins à patins : 4 m/s² (sol sec).
+ */
+function velo(): VehicleDef {
+  return def('velo', 'Vélo', 'civil', 0x1b1c1f,
+    { length: 1.75, width: 0.6, height: 1.1, mass: 16, wheelbase: 1.08, top: 40, reverse: 2, accel: 1.4, brake: 4.0, steer: 0.7 },
+    [seat('driver', 0, 0.9, -0.3, -0.7, -0.2)], []);
+}
+
 /** Camion sono du cortège : 7,0 × 2,3 × 3,2 m, 7,5 t, conducteur + animateur sur le plateau. */
 function camionSono(): VehicleDef {
   const w = 2.3;
@@ -355,13 +365,13 @@ export function createVehicleDefs(): VehicleDef[] {
   return [
     fourgonCrs(), carCrs(), vlCommandement(), voiturePolice(), fourgonCellulaire(), centaure(), canonEau(), motoBravm(),
     camionPompiers(), ambulance(), voiture(), citadine(), suv(), taxi(), utilitaire(), camion(), bus(), scooter(),
-    camionSono(), drone(), helicoptere(),
+    camionSono(), drone(), helicoptere(), velo(),
   ];
 }
 
-/** Les 21 types du contrat (pour les tests et les boucles). */
+/** Les 22 types du contrat (pour les tests et les boucles). */
 export const VEHICLE_KINDS: readonly VehicleKind[] = [
   'fourgon_crs', 'car_crs', 'vl_commandement', 'voiture_police', 'fourgon_cellulaire', 'centaure', 'canon_eau',
   'moto_bravm', 'camion_pompiers', 'ambulance', 'voiture', 'citadine', 'suv', 'taxi', 'utilitaire', 'camion', 'bus',
-  'scooter', 'camion_sono', 'drone', 'helicoptere',
+  'scooter', 'camion_sono', 'drone', 'helicoptere', 'velo',
 ];

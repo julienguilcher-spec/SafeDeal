@@ -16,24 +16,11 @@ import type { Cars } from './cars';
 import type { EdgeHit, EdgePoint } from './graph';
 import { E_ONEWAY, N_JUNCTION, N_SIGNAL, makeEdgeHit } from './graph';
 import type { RoutePoint } from './route';
-import type { TrafficKernel } from './shared';
-import { makeRoadSample } from './shared';
-
-/** Véhicule en intervention repéré (sirène en marche). */
-class Emergency {
-  id = 0;
-  x = 0;
-  z = 0;
-  dx = 0;
-  dz = 1;
-  speed = 0;
-}
-
-const MAX_EMERGENCIES = 8;
+import type { Siren, TrafficKernel } from './shared';
+import { MAX_SIRENS, makeRoadSample } from './shared';
+import { SIREN_DISTRACTED, SIREN_DISTRACTED_MIN, SIREN_DISTRACTED_SPAN, SIREN_REACT_MIN, SIREN_REACT_SPAN } from './tuning';
 
 export class CarWatcher {
-  private readonly emergencies: Emergency[] = [];
-  private emergencyCount = 0;
   private scanT = 0;
   private readonly near: Vehicle[] = [];
   private readonly people: Person[] = [];
@@ -44,11 +31,10 @@ export class CarWatcher {
   private readonly protest = (p: Person): boolean => p.faction === 'protest' && p.vehicleId === 0;
 
   constructor(private readonly k: TrafficKernel, private readonly cars: Cars) {
-    for (let i = 0; i < MAX_EMERGENCIES; i++) this.emergencies.push(new Emergency());
   }
 
   reset(): void {
-    this.emergencyCount = 0;
+    this.k.sirens.reset();
     this.scanT = 0;
   }
 
@@ -68,14 +54,15 @@ export class CarWatcher {
 
   private scanEmergencies(now: number): void {
     const k = this.k;
+    const sirens = k.sirens;
     const list = k.ctx.vehicles.list;
     let n = 0;
-    for (let i = 0; i < list.length && n < MAX_EMERGENCIES; i++) {
+    for (let i = 0; i < list.length && n < MAX_SIRENS; i++) {
       const v = list[i]!;
       if (v.siren === 0 || v.def.flying || v.dormant) continue;
       const sp = Math.abs(v.speed);
       if (sp < 0.5) continue;
-      const e = this.emergencies[n++]!;
+      const e = sirens.list[n++]!;
       e.id = v.id;
       e.x = v.x;
       e.z = v.z;
@@ -83,13 +70,14 @@ export class CarWatcher {
       e.dx = Math.sin(v.heading) * back;
       e.dz = Math.cos(v.heading) * back;
       e.speed = sp;
+      e.halfW = v.def.width * 0.5;
       this.preempt(e, now);
     }
-    this.emergencyCount = n;
+    sirens.count = n;
   }
 
   /** Réserve à la sirène les feux et les carrefours des 90 m devant elle, le long de la rue qu'elle suit. */
-  private preempt(em: Emergency, now: number): void {
+  private preempt(em: Siren, now: number): void {
     const k = this.k;
     const c = k.cache;
     if (!c.ready) return;
@@ -138,59 +126,112 @@ export class CarWatcher {
     }
   }
 
-  /** Réaction à une sirène proche. true si l'automobiliste vient de se ranger (ou reste rangé). */
+  /**
+   * Réaction à une sirène proche. true si l'automobiliste est rangé (ou le reste) pour la laisser passer.
+   *
+   * Il ne réagit pas à l'instant : 0,5 à 2 s pour la plupart, davantage pour un conducteur distrait. Devant
+   * elle, dans son sens, il se serre contre le bord droit et s'arrête si la chaussée laisse ensuite à la sirène
+   * de quoi passer entre lui et l'axe (ou l'autre file) ; sinon il continue jusqu'à un endroit plus large (une
+   * rue trop étroite ne permet pas de se ranger : on dégage devant elle). En face, il se serre à droite et
+   * s'arrête. Cyclistes et scooters font de même : ils se décalent au ras du trottoir et ralentissent.
+   */
   emergency(b: CarBrain, now: number): boolean {
     const v = b.v;
+    const sirens = this.k.sirens;
     if (b.mode === MODE_PULL) {
       let passed = now > b.pullUntil;
       if (!passed) {
         passed = true;
-        for (let i = 0; i < this.emergencyCount; i++) {
-          const e = this.emergencies[i]!;
+        for (let i = 0; i < sirens.count; i++) {
+          const e = sirens.list[i]!;
           if (e.id !== b.pullFor) continue;
           // encore derrière moi dans son sens de marche, ou encore en face
           const ahead = (v.x - e.x) * e.dx + (v.z - e.z) * e.dz;
           passed = ahead < -6;
         }
       }
-      if (!passed) return true;
+      if (!passed) {
+        b.resumeAt = -1;
+        return true;
+      }
+      // une deuxième sirène suit la première (colonne de police, renfort) : il reste rangé
+      const next = this.sirenFor(b);
+      if (next && next.id !== b.pullFor) {
+        b.pullFor = next.id;
+        b.pullUntil = now + 12;
+        b.resumeAt = -1;
+        return true;
+      }
+      // coup d'œil dans le rétroviseur avant de repartir
+      if (b.resumeAt < 0) b.resumeAt = now + 0.6 + this.k.rng.next() * 1.4;
+      if (now < b.resumeAt) return true;
+      b.resumeAt = -1;
       b.pullFor = 0;
+      b.heardFor = 0;
       if (!this.cars.go(b)) b.replanAt = now + 2;
       return false;
     }
-    // déjà arrêté à une ligne (feu, carrefour) : il y reste, sur sa voie, sans avancer dans le carrefour
-    if (this.emergencyCount === 0 || b.mode === MODE_PARK || b.mode === MODE_HOLD) return false;
+    // déjà arrêté (ou presque) à une ligne (feu, carrefour) : il y reste, sur sa voie, sans avancer dans le carrefour
+    // (le feu passe au vert pour la sirène : la file s'écoule devant elle) ; encore loin de sa ligne, il se range
+    if (sirens.count === 0 || b.mode === MODE_PARK || (b.mode === MODE_HOLD && this.atLine(b))) {
+      if (b.heardFor !== 0 && now - b.heardAt > 4) b.heardFor = 0;
+      return false;
+    }
+    const e = this.sirenFor(b);
+    if (!e) {
+      if (b.heardFor !== 0 && now - b.heardAt > 4) b.heardFor = 0;
+      return false;
+    }
+    b.heardAt = now;
+    if (b.heardFor !== e.id) {
+      // il l'entend : délai de réaction (distrait : téléphone, musique, vitres fermées)
+      const rng = this.k.rng;
+      b.heardFor = e.id;
+      b.reactAt = now + (rng.chance(SIREN_DISTRACTED)
+        ? SIREN_DISTRACTED_MIN + rng.next() * SIREN_DISTRACTED_SPAN
+        : SIREN_REACT_MIN + rng.next() * SIREN_REACT_SPAN);
+    }
+    if (now < b.reactAt) return false;
+    // jamais d'arrêt dans un carrefour ni entre sa ligne d'arrêt et lui : trop près, il continue (il s'arrêtera
+    // à la ligne si le feu ou la priorité le lui demandent)
+    const r = b.route;
+    if (r.cpNext < r.cpCount) {
+      const cp = r.cps[r.cpNext]!;
+      const need = Math.abs(v.speed) * 1.6 + 6 + b.halfL + 2;
+      if (r.s + need > cp.stopS && r.s - b.halfL < cp.nodeS + cp.radius + 2) return false;
+    }
+    const same = Math.sin(v.heading) * e.dx + Math.cos(v.heading) * e.dz >= 0.5;
+    return this.cars.pullOver(b, e, 12, same);
+  }
+
+  /** Tenu à une ligne d'arrêt et déjà à l'arrêt, ou à moins de 25 m de cette ligne (ou arrêté sans ligne). */
+  private atLine(b: CarBrain): boolean {
+    const cp = b.holdCp;
+    if (!cp || Math.abs(b.v.speed) < 1.5) return true;
+    return cp.stopS - (b.route.s + b.halfL) < 25;
+  }
+
+  /** Sirène qui arrive sur ce véhicule, dans sa rue (devant elle, dans son sens ou en face), ou null. */
+  private sirenFor(b: CarBrain): Siren | null {
+    const v = b.v;
+    const sirens = this.k.sirens;
     const hx = Math.sin(v.heading);
     const hz = Math.cos(v.heading);
-    for (let i = 0; i < this.emergencyCount; i++) {
-      const e = this.emergencies[i]!;
+    for (let i = 0; i < sirens.count; i++) {
+      const e = sirens.list[i]!;
       if (e.id === v.id || e.speed < 1.5) continue;
       const rx = v.x - e.x;
       const rz = v.z - e.z;
       const ahead = rx * e.dx + rz * e.dz;
-      if (ahead < 10 || ahead > 65) continue;
+      // (au-delà de 70 m on l'entend sans encore savoir d'où elle vient ; à moins de 4 m, elle est sur lui)
+      if (ahead < 4 || ahead > 70) continue;
       const lat = rx * e.dz - rz * e.dx;
       if (lat > 7 || lat < -7) continue; // pas dans sa rue
-      const same = hx * e.dx + hz * e.dz;
-      if (same > -0.5 && same < 0.5) continue; // rue transversale : les feux et le carrefour s'en chargent
-      // jamais d'arrêt dans un carrefour ni entre sa ligne d'arrêt et lui : trop près, il continue (il s'arrêtera
-      // à la ligne si le feu ou la priorité le lui demandent)
-      const r = b.route;
-      if (r.cpNext < r.cpCount) {
-        const cp = r.cps[r.cpNext]!;
-        const need = Math.abs(v.speed) * 1.6 + 6 + b.halfL + 2;
-        if (r.s + need > cp.stopS && r.s - b.halfL < cp.nodeS + cp.radius + 2) continue;
-      }
-      if (same >= 0.5) {
-        // même sens : il ne se range que si la chaussée laisse ensuite le passage ; sinon il dégage devant elle
-        const road = this.road;
-        if (!this.k.ctx.world.nearestRoad(v.x, v.z, road, 8)) continue;
-        if (road.width < (road.oneway ? 7 : 14)) continue;
-      }
-      this.cars.pullOver(b, e.id, 12);
-      return true;
+      const dot = hx * e.dx + hz * e.dz;
+      if (dot > -0.5 && dot < 0.5) continue; // rue transversale : les feux et le carrefour s'en chargent
+      return e;
     }
-    return false;
+    return null;
   }
 
   // ───────────────────────────── immobilisation, klaxon, peur ─────────────────────────────
