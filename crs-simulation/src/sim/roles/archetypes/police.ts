@@ -239,6 +239,21 @@ export function posteDef(poste: PolicePoste | null): PosteDef {
   return (poste && POSTE_DEFS[poste]) || NO_POSTE;
 }
 
+/** Dotation type d'un poste pour un corps donné (identifiants d'objets, dans l'ordre des emplacements). */
+export function policeKit(kind: PoliceKind, poste: PolicePoste | null): ItemId[] {
+  const table = kind === 'policier_civil' && !poste ? CIVIL_KIT : posteDef(poste).kit;
+  const out: ItemId[] = [];
+  for (let i = 0; i < table.length; i++) {
+    let id = table[i]![0];
+    if (kind === 'policier_civil') {
+      if (id === 'bouclier') continue;
+      if (id === 'tonfa') id = 'baton';
+    }
+    if (out.indexOf(id) < 0) out.push(id);
+  }
+  return out;
+}
+
 /** Poste par défaut d'un corps quand l'appelant n'en précise pas. */
 export function defaultPoste(kind: PoliceKind): PolicePoste | null {
   return POLICE_OUTFITS[kind].defaultPoste;

@@ -7,7 +7,7 @@
  * distinctif n'est obligatoire, un journaliste sans marquage existe) ; §13 (observateur).
  * ===================================================================================== */
 
-import type { PersonKind, Rng } from '@/core/contracts';
+import type { ItemId, PersonKind, Rng } from '@/core/contracts';
 import { VARIANT } from './api';
 import type { BodySpec, Draft, Identity } from './model';
 import { kitAdd } from './model';
@@ -229,4 +229,13 @@ export const TIERS_LABELS: Readonly<Record<TiersKind, string>> = {
   street_medic: 'Street medic',
   journaliste: 'Journaliste',
   observateur: 'Observateur',
+};
+
+/** Dotation type (pour l'interface : tout ce qu'un membre PEUT porter, selon sa variante). */
+export const TIERS_KITS: Readonly<Record<TiersKind, readonly ItemId[]>> = {
+  pompier: ['lance_incendie', 'extincteur', 'radio', 'lampe', 'trousse_secours', 'serum_physiologique', 'brancard'],
+  samu: ['trousse_secours', 'serum_physiologique', 'brancard', 'radio'],
+  street_medic: ['serum_physiologique', 'trousse_secours', 'telephone', 'masque_gaz'],
+  journaliste: ['appareil_photo', 'camera_tv', 'micro', 'telephone', 'masque_gaz'],
+  observateur: ['telephone', 'appareil_photo'],
 };

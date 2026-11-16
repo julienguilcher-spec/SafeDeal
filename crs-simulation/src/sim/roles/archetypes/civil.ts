@@ -7,7 +7,7 @@
  * à l'autorité habilitée à prononcer les sommations.
  * ===================================================================================== */
 
-import type { PersonKind, Rng } from '@/core/contracts';
+import type { ItemId, PersonKind, Rng } from '@/core/contracts';
 import { VARIANT } from './api';
 import type { BodySpec, Draft, Identity } from './model';
 import { kitAdd, pickOf } from './model';
@@ -110,3 +110,12 @@ export function dressCivil(d: Draft, id: Identity, kind: CivilKind, variant: num
       break;
   }
 }
+
+/** Dotation type (pour l'interface). */
+export const CIVIL_KITS: Readonly<Record<CivilKind, readonly ItemId[]>> = {
+  passant: ['telephone'],
+  touriste: ['telephone', 'appareil_photo'],
+  commercant: ['telephone'],
+  conducteur: ['telephone'],
+  vip: ['telephone'],
+};
