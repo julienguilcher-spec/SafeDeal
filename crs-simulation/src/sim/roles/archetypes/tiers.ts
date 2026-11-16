@@ -175,8 +175,7 @@ export function dressTiers(d: Draft, id: Identity, kind: TiersKind, variant: num
         e.bandColor = white ? PRESS_HELMET_BLACK : PRESS_HELMET_WHITE;
         e.jacket = 1;
         e.sleeves = 1;
-        e.goggles = maskRoll < 0.5 ? 1 : 0;
-        if (e.goggles === 0) delete e.goggles;
+        if (maskRoll < 0.5) e.goggles = 1;
       }
       if (v === VARIANT.photographe) {
         kitAdd(d, 'appareil_photo', 24);

@@ -37,6 +37,8 @@ export interface WorldViewStats {
   lastDetailMs: number;
   lastFarMs: number;
   maxStepMs: number;
+  /** Tuile et étape de cette plus longue étape (diagnostic). */
+  maxStepLabel: string;
   /** Plus long temps passé par les immeubles d'une tuile (étape indivisible du module voisin). */
   maxBuildingMs: number;
   /** Temps de construction dépensé pendant la dernière image (ms). */

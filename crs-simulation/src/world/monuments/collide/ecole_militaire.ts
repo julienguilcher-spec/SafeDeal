@@ -20,7 +20,7 @@ export const COURS: readonly number[][] = [
   [148.1, -16.3, 89.2, -16.4, 88.7, -79.8, 148.5, -80.3],
 ];
 /** Bâtiment principal (le « Château », sur le Champ-de-Mars) : bornes, hauteur des murs ; hauteur des ailes basses. */
-export const CHATEAU = { x0: -46.5, x1: 52.9, z0: 60.6, z1: 95, wallH: 16.6, cx: 3.1 } as const;
+export const CHATEAU = { x0: -45.5, x1: 51.9, z0: 64.4, z1: 95, wallH: 16.6, cx: 3.1 } as const;
 export const H_BAS = 9.8, H_FAITE = 24;
 
 export function colliders(site: MonumentSite): MonumentCollider[] {

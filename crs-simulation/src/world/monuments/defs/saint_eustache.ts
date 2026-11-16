@@ -124,7 +124,7 @@ function build(site: MonumentSite, quality: QualityLevel): Builder {
   stone.append(boxAt(-HF, 0, ZB, HF, L1 - 2.5, ZF - 3, { top: false }));
   stone.append(boxAt(-HF, L1 - 2.5, ZB, HF, L1, ZF, { bottom: true }));
   walls.append(rowWall(ATLAS, 'etage', -HF, ZF - 0.4, HF, ZF - 0.4, L1, L2 - 2.4, { bays: 3 }));
-  stone.append(boxAt(-HF, L1, ZB, HF, L2, ZF - 0.4, { top: true }));
+  stone.append(boxAt(-HF, L1, ZB, HF, L2, ZF - 0.7, { top: true }));
   const d1 = columnGeo({ order: 'dorique', height: L1 - 3.3, diameter: 1.2, mat: TRIM, flutes: 0, seg: lod > 0 ? 10 : 8 });
   const d2 = columnGeo({ order: 'ionique', height: L2 - L1 - 2.8, diameter: 1.05, mat: TRIM, flutes: 0, seg: lod > 0 ? 10 : 8 });
   for (const x of [-17, -15, -7.6, -5.6, 5.6, 7.6, 15, 17]) {

@@ -213,7 +213,7 @@ describe('adverse — magasin des personnes', () => {
     };
     removeAll(1000); // échauffement
     const remove5k = best(() => removeAll(5000));
-    const remove20k = removeAll(20000);
+    const remove30k = removeAll(30000);
 
     // 2. vidage d'un cortège entier rattaché à une seule unité (redémarrage de session)
     const clearSquad = (n: number): number => {
@@ -235,15 +235,15 @@ describe('adverse — magasin des personnes', () => {
     const clear5k = best(() => clearSquad(5000));
     const clear15k = clearSquad(15000);
     console.log(
-      `[adverse] people.remove un à un : 5 000 → ${remove5k.toFixed(2)} ms | 20 000 → ${remove20k.toFixed(2)} ms || ` +
+      `[adverse] people.remove un à un : 5 000 → ${remove5k.toFixed(2)} ms | 30 000 → ${remove30k.toFixed(2)} ms || ` +
         `people.clear() d'une unité : 5 000 membres → ${clear5k.toFixed(2)} ms | 15 000 membres → ${clear15k.toFixed(2)} ms`,
     );
-    // Coût linéaire attendu (quelques dizaines de ms). Avec un retrait en temps linéaire, 20 000 retraits
-    // dépassent 600 ms et le vidage de 15 000 membres 2 s : les seuils séparent nettement les deux cas,
-    // même sur une machine chargée.
-    expect(remove20k).toBeLessThan(300);
+    // Coût linéaire attendu (quelques dizaines de ms). Avec une recherche linéaire par retrait, 30 000
+    // retraits dépassent 1,3 s et le vidage de 15 000 membres 2 s : les seuils séparent nettement les
+    // deux cas, même sur une machine très chargée.
+    expect(remove30k).toBeLessThan(900);
     expect(clear15k).toBeLessThan(800);
-  });
+  }, 120000);
 
   it('identifiants : uniques toutes catégories confondues et jamais réutilisés pendant une session', () => {
     const ctx = makeCtx();

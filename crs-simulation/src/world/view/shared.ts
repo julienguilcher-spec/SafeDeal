@@ -24,6 +24,8 @@ export interface SharedResources {
   leafTexture: THREE.CanvasTexture;
   barkTexture: THREE.CanvasTexture;
   crownGeometry: THREE.BufferGeometry;
+  /** Houppier allégé (un seul volume) pour les tuiles très boisées. */
+  crownLightGeometry: THREE.BufferGeometry;
   crownFarGeometry: THREE.BufferGeometry;
   trunkGeometry: THREE.BufferGeometry;
   crown: THREE.Material;
@@ -113,6 +115,7 @@ export function createSharedResources(q: CityQuality, antialias: boolean): Share
   const haloTexture = canvasTexture(paintHaloTexture(64), 1, false, 'ville-halo');
 
   const crownGeometry = createCrownGeometry({ main: q.crownMain, side: q.crownSide, trunkSides: q.trunkSides });
+  const crownLightGeometry = createCrownGeometry({ main: 1, side: -1, trunkSides: 0 });
   const crownFarGeometry = createCrownGeometry({ main: 0, side: -1, trunkSides: 0 });
   const trunkGeometry = createTrunkGeometry(q.trunkSides);
   const haloGeometry = new THREE.PlaneGeometry(2, 2);
@@ -128,6 +131,7 @@ export function createSharedResources(q: CityQuality, antialias: boolean): Share
     leafTexture,
     barkTexture,
     crownGeometry,
+    crownLightGeometry,
     crownFarGeometry,
     trunkGeometry,
     crown: createCrownMaterial(leafTexture, { wind: q.wind, cut: q.leafCut }),
@@ -149,6 +153,7 @@ export function disposeSharedResources(s: SharedResources): void {
   s.leafTexture.dispose();
   s.barkTexture.dispose();
   s.crownGeometry.dispose();
+  s.crownLightGeometry.dispose();
   s.crownFarGeometry.dispose();
   s.trunkGeometry.dispose();
   s.crown.dispose();

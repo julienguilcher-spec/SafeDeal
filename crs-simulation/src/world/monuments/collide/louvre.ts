@@ -30,17 +30,17 @@ export const PASSAGES: readonly Passage[] = [
   // grands guichets du Carrousel (aile sud, trois arches dans l'axe du pont du Carrousel)
   { x: 142.6, z: 97.3, width: 34, length: 16.2, rot: A_SUD, height: 14.5, arches: 3, archWidth: 7.6, archHeight: 10.8 },
   // guichets de Rohan (aile nord, vers la rue de Rohan et l'avenue de l'Opéra)
-  { x: -133.3, z: 73.5, width: 30, length: 21.4, rot: A_NORD, height: 11, arches: 3, archWidth: 6, archHeight: 8.2 },
+  { x: -131.65, z: 73.55, width: 30, length: 24.6, rot: A_NORD, height: 11, arches: 3, archWidth: 6, archHeight: 8.2 },
   // passage Richelieu (piétons, de la rue de Rivoli à la cour Napoléon)
-  { x: -95.2, z: -38.2, width: 9, length: 80, rot: 1.49, height: 10, arches: 1, archWidth: 5.6, archHeight: 8 },
+  { x: -95.05, z: -38.2, width: 9, length: 82.8, rot: 1.49, height: 10, arches: 1, archWidth: 5.6, archHeight: 8 },
   // porte des Lions (aile sud) et guichet de l'aile nord
-  { x: 143.2, z: 232, width: 8, length: 22, rot: A_SUD, height: 9, arches: 1, archWidth: 4.6, archHeight: 7 },
-  { x: -140.4, z: 210.2, width: 8, length: 29.6, rot: A_NORD, height: 9, arches: 1, archWidth: 4.6, archHeight: 7 },
+  { x: 143.3, z: 232, width: 8, length: 21.9, rot: A_SUD, height: 9, arches: 1, archWidth: 4.6, archHeight: 7 },
+  { x: -140, z: 210.2, width: 8, length: 30.2, rot: A_NORD, height: 9, arches: 1, archWidth: 4.6, archHeight: 7 },
   // cour Carrée : pavillon de l'Horloge (ouest), colonnade (est), Marengo (nord), pavillon des Arts (sud)
-  { x: 0.6, z: -175.1, width: 12, length: 20, rot: A_CARREE, height: 11.5, arches: 1, archWidth: 5.6, archHeight: 9 },
-  { x: -2.4, z: -322.9, width: 12, length: 20, rot: A_CARREE, height: 11.5, arches: 1, archWidth: 5.6, archHeight: 9 },
-  { x: -73.4, z: -246.2, width: 12, length: 20.6, rot: Math.PI / 2 + A_CARREE, height: 11.5, arches: 1, archWidth: 5.6, archHeight: 9 },
-  { x: 77.3, z: -252.2, width: 12, length: 25.6, rot: Math.PI / 2 + A_CARREE, height: 11.5, arches: 1, archWidth: 5.6, archHeight: 9 },
+  { x: 0.53, z: -176.9, width: 12, length: 27.4, rot: A_CARREE, height: 11.5, arches: 1, archWidth: 5.6, archHeight: 9 },
+  { x: -2.33, z: -320.95, width: 12, length: 26.3, rot: A_CARREE, height: 11.5, arches: 1, archWidth: 5.6, archHeight: 9 },
+  { x: -70.95, z: -246.3, width: 12, length: 24.7, rot: Math.PI / 2 + A_CARREE, height: 11.5, arches: 1, archWidth: 5.6, archHeight: 9 },
+  { x: 74.65, z: -252.1, width: 12, length: 30.7, rot: Math.PI / 2 + A_CARREE, height: 11.5, arches: 1, archWidth: 5.6, archHeight: 9 },
 ];
 
 export function colliders(site: MonumentSite): MonumentCollider[] {

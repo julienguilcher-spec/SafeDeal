@@ -29,6 +29,66 @@ const num = (key: string, fallback: number): number => {
 };
 const DEG = Math.PI / 180;
 
+// ───────────────────────────── mode « moteur » ─────────────────────────────
+// ?moteur=1 : les deux modules sont branchés sur le VRAI moteur (src/core : Game, session, boucle),
+// chargé à la demande pour que le banc d'essai ordinaire n'en dépende pas. On y vérifie le cycle
+// réel provide → init → reset → update → frame, et que ctx.view est bien publié.
+if (params.get('moteur') === '1') {
+  const [{ Game }, { defaultSessionConfig }] = await Promise.all([import('@/core/game'), import('@/core/session')]);
+  const game = new Game({ seed: 4 });
+  game.addModule(createEnv);
+  game.addModule(createRenderBase);
+  await game.boot();
+  const gctx = game.ctx;
+  const gview = gctx.view;
+  if (!gview) throw new Error('moteur : ctx.view est nul après boot()');
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(2000, 2000), new THREE.MeshStandardMaterial({ color: 0x77787a, roughness: 0.9 }));
+  ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
+  gview.world.add(ground);
+  const blocks = new THREE.InstancedMesh(new THREE.BoxGeometry(14, 20, 18), new THREE.MeshStandardMaterial({ color: 0xd6cbb4, roughness: 0.9 }), 16);
+  const m4 = new THREE.Matrix4();
+  for (let i = 0; i < 16; i++) blocks.setMatrixAt(i, m4.makeTranslation(i % 2 === 0 ? -20 : 20, 10, -70 + Math.floor(i / 2) * 20));
+  blocks.castShadow = true;
+  blocks.receiveShadow = true;
+  gview.world.add(blocks);
+  const capsule = new THREE.Mesh(new THREE.CapsuleGeometry(0.26, 1.08, 4, 12), new THREE.MeshStandardMaterial({ color: 0x1a2240, roughness: 0.8 }));
+  capsule.castShadow = true;
+  gview.world.add(capsule);
+  game.run();
+  await gctx.session.start(defaultSessionConfig({ timeOfDay: 18.6, weather: 'nuageux', x: 0, z: 0, seed: 4, duration: 'standard' }));
+  const me = gctx.people.spawn({ kind: 'crs', x: 2, z: 10, heading: Math.PI });
+  gctx.player.possess(me.id, 'crs');
+  gctx.player.setCameraMode('tps');
+  gctx.player.state.camYaw = Math.PI;
+  gctx.player.state.camPitch = -0.08;
+  capsule.position.set(me.x, 0.8, me.z);
+  let seen = 0;
+  const tick = (): void => {
+    seen++;
+    const w = window as unknown as { __frames: number; __ready: boolean };
+    w.__frames = seen;
+    if (seen >= 4) w.__ready = true;
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+  (window as unknown as { __engine: unknown }).__engine = {
+    game,
+    report() {
+      const st = gctx.env.state;
+      return {
+        view: gctx.view !== null, phase: gctx.session.phase, weather: st.weather, timeOfDay: st.timeOfDay, clockScale: st.clockScale,
+        systems: game.perf.map((p) => ({ id: p.id, order: p.order, frameMs: p.avgFrameMs, updateMs: p.avgUpdateMs, errors: p.errors, disabled: p.disabled })),
+        mode: gctx.service<RenderCameraApi>('render.camera')?.mode,
+        stats: gctx.service<RenderBaseApi>('render.base')?.stats,
+        cam: [gview.camX, gview.camY, gview.camZ], quality: gview.quality, drawDistance: gview.drawDistance,
+      };
+    },
+  };
+  // la suite du fichier (contexte factice) ne s'exécute pas dans ce mode
+  await new Promise<never>(() => {});
+}
+
 // ───────────────────────────── contexte et modules ─────────────────────────────
 
 const { ctx, controls } = createFakeRenderContext({ seed: num('seed', 3) });

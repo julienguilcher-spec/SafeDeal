@@ -44,7 +44,7 @@ export const COURS: readonly number[][] = [
 /** Hauteur des murs à la corniche et du faîte des combles. */
 export const H_MUR = 17.2, H_FAITE = 23;
 /** Portail nord : passage voûté de l'esplanade à la cour d'honneur. */
-export const PORTAIL: Passage = { x: -2.4, z: 118.7, width: 9, length: 18.8, rot: 0, height: 9.2, arches: 1, archWidth: 4.8, archHeight: 7.4 };
+export const PORTAIL: Passage = { x: -2.4, z: 118.15, width: 9, length: 20.2, rot: 0, height: 9.2, arches: 1, archWidth: 4.8, archHeight: 7.4 };
 /** Cour d'honneur (au nu des galeries). */
 export const COUR_HONNEUR = { x0: -35, z0: 5.9, x1: 30.2, z1: 109.4 } as const;
 /** Église Saint-Louis (nef) et église du Dôme (plan carré, tambour, dôme) : relevé des bâtiments de la carte. */

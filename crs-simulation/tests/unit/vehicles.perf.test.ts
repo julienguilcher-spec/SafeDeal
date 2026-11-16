@@ -77,42 +77,59 @@ const PARKED: VehicleKind[] = ['voiture', 'citadine', 'suv', 'utilitaire', 'taxi
 
 describe('performances des véhicules', () => {
   it('150 véhicules en ville : 40 en circulation sous pilote automatique, 110 garés, 120 piétons', async () => {
-    const g = grid(5, 120);
-    const b = await createVehicleBench({ world: createFakeWorld({ nodes: g.nodes, edges: g.edges }) });
+    // boulevard circulaire à sens unique (carré de 240 m de côté) : la circulation ne se bloque pas d'elle-même
+    const corners: FakeRoadNode[] = [{ x: 0, z: 0 }, { x: 0, z: 240 }, { x: 240, z: 240 }, { x: 240, z: 0 }];
+    const ring: FakeRoadEdge[] = [0, 1, 2, 3].map((i) => ({ a: i, b: (i + 1) % 4, oneway: true, width: 8 }));
+    const b = await createVehicleBench({ world: createFakeWorld({ nodes: corners, edges: ring }) });
     expect(b.t.game.perf.some((p) => p.id === VEHICLES_SYSTEM_ID)).toBe(true);
     const rng = b.ctx.rng.fork('perf');
-    // véhicules garés le long des rues est-ouest, hors chaussée et hors carrefours
-    let parked = 0;
-    for (let i = 0; parked < 110; i++) {
-      const x = 14 + Math.floor(i / 5) * 9;
-      if (Math.abs(((x + 60) % 120) - 60) < 10) continue;
-      b.spawn(PARKED[parked % PARKED.length]!, x, (i % 5) * 120 + 6.6, Math.PI / 2);
-      parked++;
+    // véhicules garés à l'extérieur du boulevard, le long de ses quatre côtés
+    for (let i = 0; i < 110; i++) {
+      const side = i % 4;
+      const d = 15 + Math.floor(i / 4) * 7.6;
+      const kind = PARKED[i % PARKED.length]!;
+      if (side === 0) b.spawn(kind, -7.5, d, 0);
+      else if (side === 1) b.spawn(kind, d, 247.5, Math.PI / 2);
+      else if (side === 2) b.spawn(kind, 247.5, 240 - d, Math.PI);
+      else b.spawn(kind, 240 - d, -7.5, -Math.PI / 2);
     }
-    // circulation : chaque véhicule reçoit une nouvelle destination dès qu'il est arrivé
+    // circulation : chaque véhicule vise le carrefour suivant, puis le suivant…
     const moving: Vehicle[] = [];
-    const dispatch = (v: Vehicle): void => {
-      const n = g.nodes[rng.int(0, g.nodes.length)]!;
-      b.autopilot.driveTo(v, n.x, n.z + rng.range(20, 100) * (n.z > 240 ? -1 : 1), {});
-    };
+    const next: number[] = [];
     for (let i = 0; i < 40; i++) {
-      const v = b.spawn(i % 8 === 0 ? 'fourgon_crs' : i % 5 === 0 ? 'bus' : 'voiture', (i % 5) * 120 - 1.75, 15 + Math.floor(i / 5) * 55, 0);
+      const side = i % 4;
+      const d = 20 + Math.floor(i / 4) * 21;
+      const kind: VehicleKind = i % 8 === 0 ? 'fourgon_crs' : i % 5 === 0 ? 'bus' : 'voiture';
+      const v = side === 0 ? b.spawn(kind, 0, d, 0) : side === 1 ? b.spawn(kind, d, 240, Math.PI / 2)
+        : side === 2 ? b.spawn(kind, 240, 240 - d, Math.PI) : b.spawn(kind, 240 - d, 0, -Math.PI / 2);
       moving.push(v);
-      dispatch(v);
+      next.push((side + 1) % 4);
     }
-    // piétons sur les trottoirs des rues est-ouest, loin des carrefours
+    const dispatch = (k: number): void => {
+      // destination au milieu du côté suivant
+      const a = corners[next[k]!]!;
+      const c = corners[(next[k]! + 1) % 4]!;
+      b.autopilot.driveTo(moving[k]!, (a.x + c.x) / 2, (a.z + c.z) / 2);
+      next[k] = (next[k]! + 1) % 4;
+    };
+    for (let k = 0; k < moving.length; k++) dispatch(k);
+    // piétons sur le trottoir intérieur
     for (let i = 0; i < 120; i++) {
-      const x = 12 + ((i * 37) % 96) + Math.floor(rng.range(0, 4)) * 120;
-      b.person('passant', x, (i % 5) * 120 + (i % 2 === 0 ? 9 : -5));
+      const d = rng.range(15, 225);
+      const side = i % 4;
+      if (side === 0) b.person('passant', 7, d);
+      else if (side === 1) b.person('passant', d, 233);
+      else if (side === 2) b.person('passant', 233, d);
+      else b.person('passant', d, 7);
     }
     expect(b.ctx.vehicles.list.length).toBe(150);
     let arrivals = 0;
     const redispatch = (i: number): void => {
-      if (i % 30 !== 0) return;
-      for (const v of moving) {
-        const st = b.autopilot.status(v).state;
-        if (st === 'arrive') arrivals++;
-        if (st !== 'en_route' && st !== 'attente') dispatch(v);
+      if (i % 15 !== 0) return;
+      for (let k = 0; k < moving.length; k++) {
+        if (b.autopilot.status(moving[k]!).state !== 'arrive') continue;
+        arrivals++;
+        dispatch(k);
       }
     };
     measure(b, 600, redispatch); // mise en température
@@ -120,10 +137,11 @@ describe('performances des véhicules', () => {
     const cost = measure(b, 3000, redispatch);
     const awake = b.ctx.vehicles.list.filter((v) => !b.ext.dynamics(v).asleep).length;
     const rolling = moving.filter((v) => Math.abs(v.speed) > 0.5).length;
-    console.log('DBG ' + moving.map((v) => { const st = b.autopilot.status(v); return `${v.id}:${st.state}/${st.reason}@(${v.x.toFixed(0)},${v.z.toFixed(0)})h${v.heading.toFixed(1)}`; }).join(' '));
     console.log(`[perf] 150 véhicules en ville (${awake} éveillés, ${rolling} roulent, ${arrivals} trajets terminés) : ${cost.toFixed(3)} ms de processeur par pas (référence ${ref.toFixed(0)} ms)`);
-    expect(rolling).toBeGreaterThan(12);
-    expect(arrivals).toBeGreaterThan(10);
+    expect(rolling).toBeGreaterThan(25);
+    expect(awake).toBeLessThanOrEqual(42); // les véhicules garés dorment
+    expect(arrivals).toBeGreaterThan(40);
+    for (const v of b.ctx.vehicles.list) expect(v.health).toBe(100); // personne ne s'est accroché
     expect(cost).toBeLessThan(1.5);
   }, 60000);
 

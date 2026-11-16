@@ -334,6 +334,7 @@ export function createSettingsScreen(env: UiEnv): (host: HTMLElement, data: unkn
       tabs.step((e as CustomEvent<{ step: -1 | 1 }>).detail.step);
     };
     host.addEventListener('ui:tab', onTab);
+    const unlink = env.nav.linkTabsToPane(tabs.el, pane);
 
     return {
       update(): void {
@@ -348,6 +349,7 @@ export function createSettingsScreen(env: UiEnv): (host: HTMLElement, data: unkn
       dispose(): void {
         off();
         host.removeEventListener('ui:tab', onTab);
+        unlink();
         current?.dispose?.();
         wrap.remove();
       },

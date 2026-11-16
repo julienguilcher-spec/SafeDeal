@@ -10,6 +10,8 @@
  *   park     approche, alignement sur l'axe de la place, et marche arrière de reprise si l'arrivée
  *            n'est pas droite (stationnement en bataille, en épi, en file : parkRow) ;
  *   stop     freine et rend la main.
+ * Si l'itinéraire repart dans son dos, il fait demi-tour en plusieurs temps sans quitter la chaussée ; à un
+ * carrefour où deux véhicules pilotés se font face, la priorité à droite départage.
  * Il freine devant personnes, véhicules, objets et murs (voir autopilot-sense.ts), s'arrête devant
  * une rue fermée (service EXT.traffic s'il est branché) sauf en intervention urgente, où il passe au
  * pas, sirène et feux allumés. Il écrit Vehicle.cmd : la physique fait le reste.
@@ -483,6 +485,17 @@ export class Autopilot implements AutopilotApi {
       const sT = Math.min(ap.total, ap.s + look);
       const pt = this.pt;
       ap.sample(sT, pt);
+      // l'itinéraire repart dans mon dos : demi-tour en plusieurs temps plutôt qu'une grande boucle hors chaussée
+      const turnErr = angleDiff(v.heading, Math.atan2(pt.dx, pt.dz));
+      if (ap.uturn === 0 && au < 3 && (turnErr > 2 || turnErr < -2) && ap.total - ap.s > 6 && ap.mode !== 'follow') {
+        ap.uturn = 1;
+        ap.uturnDir = turnErr >= 0 ? 1 : -1;
+        ap.uturnMoves = 0;
+        ap.phaseT = 0;
+      }
+      if (ap.uturn !== 0) {
+        if (this.uTurn(rt, ap, turnErr, dt)) return;
+      }
       // décalage sur la voie de droite : seulement là où l'itinéraire suit l'axe des rues, et fondu aux extrémités
       const toEnd = ap.endInLane && ap.axisUntil >= ap.total ? 8 : ap.axisUntil - sT;
       const taper = clamp(Math.min(sT, toEnd) / 8, 0, 1);
@@ -603,13 +616,25 @@ export class Autopilot implements AutopilotApi {
       ap.obsDist -= (u - ap.obsSpeed) * dt; // entre deux relevés, l'écart évolue à la vitesse relative
     }
     let obstacle = false;
+    // deux véhicules à l'arrêt l'un devant l'autre à un carrefour : priorité à droite (celui qui a l'autre sur sa
+    // gauche passe, au pas) ; si personne ne bouge, le plus petit identifiant s'engage
+    let priority = false;
+    if (ap.obsReason === 'vehicule' && ap.obsWaiting && au < 0.3 && ap.obsDist !== Infinity) {
+      ap.yieldT += dt;
+      priority = ap.yieldT > 2 && (ap.obsLat > 1.2 || (ap.yieldT > 7 && v.id < ap.obsId));
+    } else if (ap.obsReason !== 'vehicule' || au > 1 || ap.obsDist === Infinity) {
+      ap.yieldT = 0;
+    } else {
+      priority = ap.yieldT > 2 && (ap.obsLat > 1.2 || (ap.yieldT > 7 && v.id < ap.obsId));
+    }
     if (ap.obsDist !== Infinity) {
       const follows = ap.mode === 'follow' && ap.obsReason === 'vehicule';
       // marge laissée devant l'obstacle ; en fin de stationnement, on s'approche à quelques décimètres
       const gap = ap.obsReason === 'personne' ? (ap.urgence ? 1.8 : 2.5)
         : finalLeg ? 0.6
-        : ap.obsReason === 'vehicule' ? (follows ? 1.5 : 2 + (ap.obsStatic ? 0.5 : 0.5 * au))
+        : ap.obsReason === 'vehicule' ? (follows ? 1.5 : priority ? 0.7 : 2 + (ap.obsStatic ? 0.5 : 0.5 * au))
         : ap.obsReason === 'mur' ? 1.2 : 2;
+      if (priority && vt > 2) vt = 2;
       const room = ap.obsDist - gap;
       const lead = ap.obsSpeed > 0 ? ap.obsSpeed : 0;
       const allowed = room > 0 ? lead + Math.sqrt(2 * (ap.urgence ? 4.5 : 3) * room) : 0;
@@ -718,6 +743,66 @@ export class Autopilot implements AutopilotApi {
       }
     }
     ap.status.blockedFor = ap.blockedFor;
+  }
+
+  /** Le point est-il sur une surface carrossable ? (un demi-tour ne monte pas sur le trottoir) */
+  private drivable(x: number, z: number): boolean {
+    const s = this.k.ctx.world.surfaceAt(x, z);
+    return s === 'road' || s === 'bridge' || s === 'sett' || s === 'plaza' || s === 'quay' || s === 'void';
+  }
+
+  /**
+   * Demi-tour en plusieurs temps : marche avant braquée à fond, puis marche arrière contre-braquée, jusqu'à
+   * se retrouver dans le sens de l'itinéraire. Retourne false quand la manœuvre est finie.
+   */
+  private uTurn(rt: VehicleRt, ap: ApState, err: number, dt: number): boolean {
+    const v = rt.v;
+    const cmd = v.cmd;
+    if ((err < 1 && err > -1) || ap.uturnMoves > 8) {
+      ap.uturn = 0;
+      ap.obsDist = Infinity;
+      return false;
+    }
+    ap.phaseT += dt;
+    const forward = ap.uturn === 1;
+    const dir = forward ? 1 : -1;
+    ap.scanT -= dt;
+    if (ap.scanT <= 0) {
+      ap.scanT = SCAN_PERIOD;
+      this.sensor.scan(rt, ap, 4, dir, Math.tan(-v.steerAngle) / v.def.wheelbase, 0.2);
+    }
+    // bord de chaussée devant le pare-chocs (ou derrière, en reculant)
+    const reach = rt.halfL + 0.8;
+    const ex = v.x + Math.sin(v.heading) * reach * dir;
+    const ez = v.z + Math.cos(v.heading) * reach * dir;
+    const blocked = ap.obsDist < 1.1 || !this.drivable(ex, ez) || ap.phaseT > (forward ? 7 : 5);
+    if (blocked && ap.phaseT > 0.6) {
+      ap.uturn = forward ? 2 : 1;
+      ap.uturnMoves++;
+      ap.phaseT = 0;
+      ap.obsDist = Infinity;
+      ap.scanT = 0;
+    }
+    // tourner à gauche (cap croissant) : volant à gauche en avançant, à droite en reculant
+    cmd.steer = -ap.uturnDir * dir;
+    cmd.handbrake = false;
+    cmd.horn = false;
+    const target = forward ? 2 : -1.5;
+    const e = target - v.speed;
+    if (blocked) {
+      cmd.throttle = 0;
+      cmd.brake = 1;
+    } else if (forward) {
+      cmd.throttle = e > 0 ? clamp(e * 0.8 + 0.1, 0, 1) : 0;
+      cmd.brake = e < -0.5 ? 0.4 : 0;
+    } else {
+      cmd.throttle = e < 0 ? clamp(e * 0.8 - 0.1, -1, 0) : 0;
+      cmd.brake = e > 0.5 ? 0.4 : 0;
+    }
+    v.indicator = ap.uturnDir > 0 ? -1 : 1;
+    ap.status.targetSpeed = target;
+    this.setStatus(rt, ap, 'manoeuvre', '');
+    return true;
   }
 
   /** Arrivée à destination ; pour un stationnement, contrôle de l'alignement et reprise éventuelle. */

@@ -103,6 +103,17 @@ async function drag(page, a, b, opts = {}) {
   await frames(page, 2);
 }
 const click = (page, id) => page.click(`[data-id="${id}"]`);
+/** Attend qu'un écran soit ouvert (ou fermé) ; false si ce n'est pas le cas après le délai. */
+const untilStack = (page, id, present = true, timeout = 15000) => page
+  .waitForFunction(([i, p]) => window.__cmd.ui.stack().includes(i) === p, [id, present], { timeout, polling: 50 })
+  .then(() => true, () => false);
+/** Appuie sur une touche et attend que l'écran correspondant s'ouvre ou se ferme. */
+async function key(page, code, id, present) {
+  await page.keyboard.press(code);
+  const ok = await untilStack(page, id, present);
+  await frames(page, 3);
+  return ok;
+}
 
 // ══════════════════════════════════ BUREAU : COMMANDANT ══════════════════════════════════
 async function bureau() {
@@ -136,9 +147,8 @@ async function bureau() {
   info.push(`mini-carte : 30 images de rotation → ${after.t - before.t} écritures de transformation, ${after.d - before.d} dessins du canevas`);
 
   // ── ouverture par la touche « carte tactique » ──
-  await page.keyboard.press('Tab');
-  await settle(page, 600);
-  check((await stack(page)).includes('carte_tactique'), 'la touche Tab ouvre la carte tactique');
+  check(await key(page, 'Tab', 'carte_tactique', true), 'la touche Tab ouvre la carte tactique');
+  await settle(page, 500);
   const t0 = await page.evaluate(() => window.__cmd.ctx.clock.now);
   await settle(page, 500);
   const t1 = await page.evaluate(() => window.__cmd.ctx.clock.now);
@@ -478,14 +488,12 @@ async function bureau() {
   // ── temps ralenti ──
   await click(page, 'tac-slow');
   check(await page.evaluate(() => window.__cmd.ctx.clock.timeScale === 0.25), 'temps ralenti : horloge à 0,25');
-  await page.keyboard.press('Tab');
-  await settle(page, 400);
-  check(!(await stack(page)).includes('carte_tactique'), 'Tab referme la carte tactique');
+  check(await key(page, 'Tab', 'carte_tactique', false), 'Tab referme la carte tactique');
   check(await page.evaluate(() => window.__cmd.ctx.clock.timeScale === 1), 'horloge rétablie à la fermeture');
 
   // ── exécution : l'ordre reste affiché jusqu'à l'arrivée, puis compte rendu ──
   await page.evaluate(() => { window.__cmd.scenario.aiEnabled = true; });
-  await page.keyboard.press('Tab');
+  await key(page, 'Tab', 'carte_tactique', true);
   await settle(page, 500);
   check(await page.evaluate((key) => window.__cmd.tactical().state.selection.has(key), I.groups[0][2]), 'réouverture : la sélection est retrouvée');
   await page.evaluate((key) => {
@@ -571,15 +579,14 @@ async function roles() {
     check(r.level === 'lecture' && r.palette === 'none' && r.force === true, `CRS : lecture seule, pas de palette d'ordres (${JSON.stringify(r)})`);
     check(r.units > 20 && r.crowd > 250, `CRS : il voit les unités (${r.units}) et la foule (${r.crowd})`);
     await shot(page, 'command-tactique-crs-lecture-1280x720');
-    await page.keyboard.press('Tab');
-    await settle(page, 300);
+    await key(page, 'Tab', 'carte_tactique', false);
     // roue d'ordres : message, aucun ordre possible
     await page.keyboard.down('KeyF');
-    await settle(page, 300);
+    await untilStack(page, 'roue_ordres', true);
+    await frames(page, 3);
     check(await page.evaluate(() => /Aucune unité/.test(document.querySelector('[data-id="order-wheel"]')?.textContent ?? '')), 'roue d\'ordres d\'un CRS : « aucune unité sous vos ordres »');
     await page.keyboard.up('KeyF');
-    await settle(page, 300);
-    check(!(await stack(page)).includes('roue_ordres'), 'la roue se referme au relâchement');
+    check(await untilStack(page, 'roue_ordres', false), 'la roue se referme au relâchement');
     await browser.close();
   }
   // journaliste et manifestant : jamais les positions de police
@@ -636,7 +643,8 @@ async function plan() {
   await settle(page, 400);
   check((await stack(page)).includes('carte'), 'la touche M ouvre le plan');
   const planBase = await page.evaluate(() => { const b = window.__cmd.ui.instance('carte').map.base; return { ms: b.maxMs, n: b.renders }; });
-  info.push(`plan 1280×720 : dessin complet du fond en ${planBase.ms.toFixed(0)} ms au plus (${planBase.n} dessins), puis recopie`);
+  const surf = await page.evaluate(() => { const s = window.__cmd.maps.fallback.surfaces; return { ms: s.lastMs, n: s.built }; });
+  info.push(`plan 1280×720 : dessin complet du fond en ${planBase.ms.toFixed(0)} ms au plus (${planBase.n} dessins), puis recopie ; ${surf.n} images d'occupation du sol, ${surf.ms.toFixed(1)} ms pour la dernière`);
   check(await page.evaluate(() => window.__cmd.ctx.session.phase === 'paused'), 'le plan met la simulation en pause');
   await shot(page, 'command-plan-1280x720');
   // zoom à la molette, déplacement au glisser
@@ -665,15 +673,14 @@ async function plan() {
   await settle(page, 400);
   const wp = await page.evaluate(() => window.__cmd.maps.waypoint);
   check(wp !== null && /Bastille/i.test(wp.label), `repère GPS posé (${wp && wp.label})`);
-  await page.keyboard.press('KeyM');
-  await settle(page, 1600);
-  check(!(await stack(page)).includes('carte') && await page.evaluate(() => window.__cmd.ctx.session.phase === 'playing'), 'M referme le plan, la simulation reprend');
+  check(await key(page, 'KeyM', 'carte', false) && await page.evaluate(() => window.__cmd.ctx.session.phase === 'playing'), 'M referme le plan, la simulation reprend');
+  await page.waitForFunction(() => window.__cmd.maps.route.length >= 4 && /m/.test(document.querySelector('.cm-mini-dist').textContent), null, { timeout: 15000 }).catch(() => {});
   const gps = await page.evaluate(() => ({ n: window.__cmd.maps.route.length, d: window.__cmd.maps.distance, src: window.__cmd.maps.target && window.__cmd.maps.target.source, text: document.querySelector('.cm-mini-dist').textContent }));
   check(gps.src === 'repere' && gps.n >= 4 && gps.d > 800, `itinéraire GPS calculé (${gps.n / 2} points, ${Math.round(gps.d)} m)`);
   check(/km|m/.test(gps.text) && /Bastille/i.test(gps.text), `distance et cible sous la mini-carte (${gps.text})`);
   await shot(page, 'command-hud-gps-1280x720');
   // repère par clic droit sur le plan
-  await page.keyboard.press('KeyM');
+  await key(page, 'KeyM', 'carte', true);
   await page.waitForFunction(() => { const m = window.__cmd.ui.instance('carte'); return !!m && m.map.draws > 0; }, null, { timeout: 20000 });
   await settle(page, 300);
   if (process.env.DEBUG_CMD) console.log('avant clic droit', JSON.stringify(await page.evaluate(() => ({ stack: window.__cmd.ui.stack(), el: document.elementFromPoint(820, 300).className, phase: window.__cmd.ctx.session.phase, v: (() => { const m = window.__cmd.ui.instance('carte'); return m ? { cx: m.map.view.cx, cz: m.map.view.cz, mpp: m.map.view.mpp } : null; })(), b: window.__cmd.ctx.world.bounds }))));
@@ -684,14 +691,13 @@ async function plan() {
   await click(page, 'plan-clear');
   await settle(page, 200);
   check(await page.evaluate(() => window.__cmd.maps.waypoint === null), 'repère supprimé');
-  await page.keyboard.press('KeyM');
-  await settle(page, 400);
+  await key(page, 'KeyM', 'carte', false);
 
   // ── roue d'ordres : touche maintenue, direction à la souris, relâchement ──
   const aim = await page.evaluate(() => { const s = window.__cmd.ctx.player.state; return { x: s.aimX, z: s.aimZ, yaw: s.camYaw }; });
   await page.keyboard.down('KeyF');
-  await settle(page, 400);
-  check((await stack(page)).includes('roue_ordres'), 'touche F maintenue : la roue d\'ordres s\'ouvre');
+  check(await untilStack(page, 'roue_ordres', true), 'touche F maintenue : la roue d\'ordres s\'ouvre');
+  await settle(page, 300);
   await shot(page, 'command-roue-1280x720');
   // secteur « En avant » : en haut de la roue
   await page.mouse.move(640, 360);
@@ -700,15 +706,29 @@ async function plan() {
   check(await page.evaluate(() => document.querySelector('.cw-title').textContent === 'En avant'), 'survol : secteur « En avant » surligné');
   await shot(page, 'command-roue-survol-1280x720');
   await page.keyboard.up('KeyF');
-  await settle(page, 400);
-  check(!(await stack(page)).includes('roue_ordres'), 'relâchement : la roue se ferme');
+  check(await untilStack(page, 'roue_ordres', false), 'relâchement : la roue se ferme');
   let o = await order(page, I.groups[1][0]);
   check(o.type === 'avancer' && o.issuedBy === I.player, `ordre « avancer » donné à son groupe (${o.type})`);
   near(o.x, aim.x, 0.5, 'roue : l\'ordre vise le point regardé (x)');
   near(o.z, aim.z, 0.5, 'roue : l\'ordre vise le point regardé (z)');
   // appui bref : la roue reste affichée ; un clic choisit
-  await page.keyboard.press('KeyF');
-  await settle(page, 500);
+  if (process.env.DEBUG_CMD) {
+    page.on('console', (m) => { if (m.text().startsWith('DBG')) console.log(m.text()); });
+    await page.evaluate(() => {
+      const b = window.__cmd; let n = 0;
+      const orig = b.ctx.ui.close.bind(b.ctx.ui);
+      b.ctx.ui.close = (id) => { console.log('DBG ui.close', id, new Error().stack.split('\n').slice(2, 5).join(' | ')); orig(id); };
+      const f = () => {
+        const inp = b.ctx.input;
+        const st = b.ui.stack();
+        if (st.length || inp.pressed('orders') || inp.pressed('ui_back') || inp.pressed('pause') || inp.pressed('ui_accept')) console.log('DBG', n, JSON.stringify(st), 'orders', inp.down('orders'), inp.pressed('orders'), 'back', inp.pressed('ui_back'), 'pause', inp.pressed('pause'), 'accept', inp.pressed('ui_accept'), 'phase', b.ctx.session.phase);
+        if (++n < 70) requestAnimationFrame(f);
+      };
+      requestAnimationFrame(f);
+    });
+  }
+  await key(page, 'KeyF', 'roue_ordres', true);
+  await settle(page, 600);
   check((await stack(page)).includes('roue_ordres'), 'appui bref : la roue reste affichée');
   const wedge = await page.evaluate(() => {
     const r = document.querySelector('.cw-svg').getBoundingClientRect();
@@ -717,14 +737,14 @@ async function plan() {
     return { x: cx + Math.cos(a) * 106 * k, y: cy + Math.sin(a) * 106 * k };
   });
   await page.mouse.click(wedge.x, wedge.y);
-  await settle(page, 400);
+  const closedAfterChoice = await untilStack(page, 'roue_ordres', false);
   o = await order(page, I.groups[1][0]);
   check(o.type === 'ligne', `clic sur « En ligne » : ordre transmis (${o.type})`);
   angleNear(o.heading, aim.yaw, 0.01, 'ligne de la roue : face au regard');
-  check(!(await stack(page)).includes('roue_ordres'), 'la roue se ferme après le choix');
+  check(closedAfterChoice, 'la roue se ferme après le choix');
   // ordre de force non autorisé : refus
-  await page.keyboard.press('KeyF');
-  await settle(page, 400);
+  await key(page, 'KeyF', 'roue_ordres', true);
+  await settle(page, 300);
   const w2 = await page.evaluate(() => {
     const r = document.querySelector('.cw-svg').getBoundingClientRect();
     const cx = r.left + r.width / 2, cy = r.top + r.height / 2, k = r.width / 320;
@@ -734,14 +754,11 @@ async function plan() {
   await page.mouse.click(w2.x, w2.y);
   await settle(page, 300);
   check((await order(page, I.groups[1][0])).type === 'ligne', 'secteur « Charge » indisponible (force non autorisée) : aucun ordre');
-  await page.keyboard.press('Escape');
-  await settle(page, 300);
-  check(!(await stack(page)).includes('roue_ordres'), 'Échap ferme la roue');
+  check(await key(page, 'Escape', 'roue_ordres', false), 'Échap ferme la roue');
 
   // ── radio ──
-  await page.keyboard.press('KeyT');
-  await settle(page, 500);
-  check((await stack(page)).includes('radio'), 'la touche T ouvre la radio');
+  check(await key(page, 'KeyT', 'radio', true), 'la touche T ouvre la radio');
+  await settle(page, 300);
   const n0 = await page.evaluate(() => window.__cmd.ctx.radio.log.length);
   await click(page, 'radio-cr');
   await settle(page, 300);
@@ -765,9 +782,7 @@ async function plan() {
   last = await page.evaluate(() => window.__cmd.ctx.radio.log.slice(-1)[0]);
   check(/renfort/.test(last.text), `demande de renfort (${last.text})`);
   await shot(page, 'command-radio-1280x720');
-  await page.keyboard.press('KeyT');
-  await settle(page, 300);
-  check(!(await stack(page)).includes('radio'), 'T referme la radio');
+  check(await key(page, 'KeyT', 'radio', false), 'T referme la radio');
   // mini-carte : zoom selon le déplacement
   await browser.close();
   {
@@ -1116,10 +1131,8 @@ async function degrade() {
     await settle(page, 200);
     check((await order(page, I.sections[0])).type === 'tenir', 'les ordres fonctionnent sans les services étendus');
     await shot(page, 'command-tactique-sans-services-1280x720');
-    await page.keyboard.press('Tab');
-    await settle(page, 300);
-    await page.keyboard.press('KeyT');
-    await settle(page, 300);
+    await key(page, 'Tab', 'carte_tactique', false);
+    await key(page, 'KeyT', 'radio', true);
     await click(page, 'radio-pompiers');
     await settle(page, 300);
     const nt = await notices(page);

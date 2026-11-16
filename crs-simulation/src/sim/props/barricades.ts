@@ -22,6 +22,7 @@ import type { EntityId, Person, RoadSample, Vec2 } from '@/core/contracts';
 import { clamp, distSqPointObb } from '@/core/math';
 import { BARRICADE_CLEARED_EVENT, BARRICADE_EXTENDED_EVENT } from './api';
 import type { BarricadeEvent, BarricadePart } from './api';
+import { propDef } from './defs';
 import type { Mod } from './mod';
 import { ACT_BURNING, ACT_MOVING, TENSION } from './shared';
 import type { PartRec, PropObj } from './shared';
@@ -396,6 +397,45 @@ export class Barricades {
     e.parts = b.parts !== null && b.slot >= 0 ? b.parts.length : 0;
     e.byId = byId;
     this.m.k.ctx.events.emitAny(name, e);
+  }
+
+  /**
+   * Barricade créée d'office (ctx.props.spawn('barricade', …), script de mission) : on lui donne une
+   * composition plausible de 5 m — conteneurs et corbeilles renversés, barrières, palettes — pour
+   * qu'elle brûle, se démonte et s'enfonce comme une barricade montée par la foule.
+   */
+  prefab(b: PropObj): void {
+    if (b.slot < 0 || b.parts !== null) return;
+    const k = this.m.k;
+    const kinds = ['conteneur', 'poubelle', 'barriere_vauban', 'palette', 'poubelle', 'barriere_chantier', 'conteneur', 'palette', 'poubelle'];
+    const parts: PartRec[] = [];
+    const halfX = 2.5;
+    let bulk = 0;
+    let fuel = 0;
+    for (let i = 0; i < kinds.length; i++) {
+      const def = propDef(kinds[i]!);
+      const lx = -halfX + 0.4 + ((halfX * 2 - 0.8) * i) / (kinds.length - 1);
+      const lying = def.topple !== 'none';
+      const part: PartRec = {
+        kind: def.kind, lx, lz: k.rng.range(-0.3, 0.3), heading: k.rng.range(-0.6, 0.6),
+        halfX: def.halfX, halfZ: lying ? def.height * 0.5 : def.halfZ, height: lying ? Math.max(0.15, 2 * Math.min(def.halfX, def.halfZ)) : def.height,
+        hp: def.hp, fuel: def.fuel, state: 'intact', toppled: lying, battery: false, bulk: def.bulk, movedBy: 0,
+      };
+      parts.push(part);
+      bulk += def.bulk;
+      fuel += def.fuel;
+    }
+    b.parts = parts;
+    b.bulk = bulk;
+    b.halfX = b.standHalfX = halfX;
+    b.halfZ = b.standHalfZ = 0.7;
+    b.height = b.standHeight = this.heightFor(bulk);
+    b.hp = b.maxHp = clamp(HP_BASE + HP_PER_BULK * bulk, 150, HP_MAX);
+    b.fuel = b.fuelMax = fuel;
+    b.movable = false;
+    b.blocksMove = true;
+    b.blocksSight = true;
+    this.m.store.reindex(b);
   }
 
   // ───────────────────────────── démontage ─────────────────────────────

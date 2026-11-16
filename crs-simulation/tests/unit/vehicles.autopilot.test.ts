@@ -281,6 +281,60 @@ describe('pilote automatique : personnes, véhicules, obstacles', () => {
   });
 });
 
+describe('pilote automatique : demi-tour et priorité', () => {
+  it('fait demi-tour en plusieurs temps sans quitter la chaussée quand la destination est dans son dos', async () => {
+    // rue de 9 m de large bordée de trottoirs ; le fourgon regarde vers +z, la destination est derrière lui
+    const world = createFakeWorld({
+      nodes: [{ x: 0, z: 0 }, { x: 0, z: 300 }],
+      edges: [{ a: 0, b: 1, width: 9 }],
+      surface: (x) => (Math.abs(x) <= 4.5 ? 'road' : 'sidewalk'),
+    });
+    const b = await createVehicleBench({ world });
+    const v = b.spawn('fourgon_crs', -2.2, 200, 0);
+    expect(b.autopilot.driveTo(v, 0, 60)).toBe(true);
+    let maxOut = 0;
+    let reversed = false;
+    let manoeuvre = false;
+    const t = runUntil(b, () => b.autopilot.status(v).state === 'arrive', 180, () => {
+      // débord du centre du véhicule au-delà du bord de chaussée
+      maxOut = Math.max(maxOut, Math.abs(v.x) - 4.5);
+      if (v.speed < -0.5) reversed = true;
+      if (b.autopilot.status(v).state === 'manoeuvre') manoeuvre = true;
+    });
+    console.log(`demi-tour d'un fourgon dans une rue de 9 m, puis 140 m : ${t.toFixed(0)} s ; centre au plus à ${maxOut.toFixed(2)} m du bord de chaussée`);
+    expect(t).toBeGreaterThan(0);
+    expect(manoeuvre).toBe(true);
+    expect(reversed).toBe(true); // 5,8 m de long dans 9 m de large : il faut manœuvrer
+    expect(maxOut).toBeLessThan(0.6); // le centre reste sur la chaussée (ou tout au bord)
+    expect(Math.abs(v.z - 60)).toBeLessThan(1.5);
+    expect(Math.cos(v.heading)).toBeLessThan(-0.95); // reparti vers −z
+    expect(v.x).toBeGreaterThan(0.5); // sur sa voie de droite dans ce sens
+    expect(v.health).toBe(100);
+  });
+
+  it('deux véhicules qui se présentent en même temps à un carrefour passent tous les deux, sans s\'accrocher', async () => {
+    // croix : rue nord-sud et rue est-ouest
+    const world = createFakeWorld({
+      nodes: [{ x: 0, z: -80 }, { x: 0, z: 0 }, { x: 0, z: 80 }, { x: -80, z: 0 }, { x: 80, z: 0 }],
+      edges: [{ a: 0, b: 1 }, { a: 1, b: 2 }, { a: 3, b: 1 }, { a: 1, b: 4 }],
+    });
+    const b = await createVehicleBench({ world });
+    const collisions: GameEvents['vehicle:collision'][] = [];
+    b.ctx.events.on('vehicle:collision', (e) => collisions.push(e));
+    const south = b.spawn('voiture', -1.75, -60, 0); // roule vers +z
+    const east = b.spawn('voiture', -60, 1.75, Math.PI / 2); // roule vers +x
+    b.autopilot.driveTo(south, 0, 70);
+    b.autopilot.driveTo(east, 70, 0);
+    const t = runUntil(b, () => b.autopilot.status(south).state === 'arrive' && b.autopilot.status(east).state === 'arrive', 120);
+    expect(t).toBeGreaterThan(0);
+    expect(south.z).toBeGreaterThan(65);
+    expect(east.x).toBeGreaterThan(65);
+    expect(collisions.length).toBe(0);
+    expect(south.health).toBe(100);
+    expect(east.health).toBe(100);
+  });
+});
+
 describe('pilote automatique : suivre, convoi, stationnement', () => {
   it('suit à 6 m une personne qui marche, s\'arrête quand elle s\'arrête, sans jamais la toucher', async () => {
     const b = await createVehicleBench({ world: town() });

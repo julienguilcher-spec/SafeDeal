@@ -72,16 +72,19 @@ export function sortJobs(jobs: BuildJob[]): BuildJob[] {
 export type SliceResult = 'done' | 'frame' | 'budget';
 
 /** Durées mesurées d'un travail : sa plus longue étape, la deuxième plus longue, le total (ms). */
-export interface SliceSpent { maxStepMs: number; secondStepMs: number; totalMs: number }
+export interface SliceSpent { maxStepMs: number; secondStepMs: number; totalMs: number; maxLabel: string; secondLabel: string }
 
 /**
  * Exécute des étapes du générateur jusqu'à épuisement du budget.
  *   'done'   : le travail est terminé ;
  *   'frame'  : une étape a demandé d'attendre l'image suivante (valeur 1) ;
  *   'budget' : le temps accordé est dépensé.
- * Au moins une étape est toujours exécutée. `spent` (facultatif) cumule les durées des étapes.
+ * Au moins une étape est toujours exécutée. `spent` (facultatif) cumule les durées des étapes ;
+ * `label` (facultatif) nomme l'étape qui vient de s'exécuter, pour savoir laquelle a été la plus longue.
  */
-export function runSlice(work: Generator<number, void, void>, budgetMs: number, now: () => number, spent?: SliceSpent): SliceResult {
+export function runSlice(
+  work: Generator<number, void, void>, budgetMs: number, now: () => number, spent?: SliceSpent, label?: () => string,
+): SliceResult {
   const start = now();
   let last = start;
   for (;;) {
@@ -89,11 +92,16 @@ export function runSlice(work: Generator<number, void, void>, budgetMs: number, 
     const t = now();
     if (spent) {
       const d = t - last;
+      // l'étape qui vient de s'exécuter a posé son nom en commençant
+      const before = label ? label() : '';
       if (d > spent.maxStepMs) {
         spent.secondStepMs = spent.maxStepMs;
+        spent.secondLabel = spent.maxLabel;
         spent.maxStepMs = d;
+        spent.maxLabel = before;
       } else if (d > spent.secondStepMs) {
         spent.secondStepMs = d;
+        spent.secondLabel = before;
       }
       spent.totalMs += d;
     }

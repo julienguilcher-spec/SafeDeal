@@ -1,7 +1,7 @@
 /* Obstacles du palais de l'Élysée : site sensible, entièrement clos. L'hôtel et ses ailes sont pleins (le portail de
  * la rue du Faubourg-Saint-Honoré est fermé par sa grille), et le jardin est ceint de murs jusqu'à la grille du Coq. */
 import type { MonumentCollider, MonumentSite } from '../types';
-import { collidersToLocal, orect, planOf, solid, type Passage } from '../x-palais-plan';
+import { collidersToLocal, orect, passageWindow, planOf, solid, type Passage } from '../x-palais-plan';
 
 /** Emprise de référence (repère du monument : murs alignés sur les axes, façade vers +z, origine au centre). */
 export const EMPRISE: readonly number[] = [
@@ -20,7 +20,7 @@ export const COURS: readonly number[][] = [
 ];
 export const H_MUR = 10.6, H_FAITE = 15;
 /** Portail d'honneur, rue du Faubourg-Saint-Honoré (fermé par une grille). */
-export const PORTAIL: Passage = { x: 2.9, z: 47.3, width: 9.4, length: 7.2, rot: -0.187, height: 9.4, arches: 1, archWidth: 4.2, archHeight: 7 };
+export const PORTAIL: Passage = { x: 3.26, z: 45.38, width: 9.4, length: 7, rot: -0.187, height: 9.4, arches: 1, archWidth: 4.2, archHeight: 7 };
 /** Clôture du jardin (du pavillon ouest à la grille du Coq, avenue Gabriel, puis retour à l'aile est). */
 export const CLOTURE_OUEST: readonly number[] = [-55.9, -25.4, -65.1, -199.7, -47.1, -202.2, -25.8, -223.1, -11.3, -224.4];
 export const CLOTURE_EST: readonly number[] = [-3.3, -223.2, 3.5, -222.2, 11.7, -219.6, 22.2, -211.7, 26, -203.6, 37.4, -197.1, 49.5, -29.4, 50.4, -18];
@@ -38,7 +38,7 @@ function wallColliders(path: readonly number[], h: number, out: MonumentCollider
 
 export function colliders(site: MonumentSite): MonumentCollider[] {
   const p = planOf(site, EMPRISE);
-  const out: MonumentCollider[] = [solid(p.ring, H_FAITE)];
+  const out: MonumentCollider[] = [solid(p.ring, H_FAITE), solid(passageWindow(PORTAIL, 0.4), 11)];
   wallColliders(CLOTURE_OUEST, 3.2, out);
   wallColliders(CLOTURE_EST, 3.2, out);
   out.push(solid(orect(GRILLE_COQ.x, GRILLE_COQ.z, GRILLE_COQ.width + 2.4, 1.0, GRILLE_COQ.rot), 6));

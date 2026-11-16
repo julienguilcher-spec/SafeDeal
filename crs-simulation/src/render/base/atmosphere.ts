@@ -310,7 +310,7 @@ export function computeAtmosphere(inp: AtmosphereInput, out: Atmosphere): Atmosp
 
   // ── lumière d'ambiance (hémisphère) ──
   // niveau : le ciel couvert devient la source principale ; la pluie et l'orage l'assombrissent
-  let level = lerp(0.14, 0.76, dayAmb) * (1 + 0.95 * cover * dayAmb) * (1 - 0.55 * thick * dayAmb);
+  let level = lerp(0.14, 0.95, dayAmb) * (1 + 0.7 * cover * dayAmb) * (1 - 0.55 * thick * dayAmb);
   level *= 1 - 0.12 * fog;
   // teinte : moyenne du ciel, ramenée à la luminance voulue
   const hs = out.hemiSky;

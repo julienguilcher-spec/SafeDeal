@@ -25,7 +25,7 @@ defineMaterial('pompidou_nuancier', () => {
 });
 const PAINT = 'pompidou_nuancier';
 const GLASS = glazingMaterial('pompidou_verre', {
-  frame: 0xe9e9e4, glass: 0x4f6470, tile: [6.4, 7], panes: [4, 2], bar: 0.05, minor: 0.014, night: 1.5, solid: 0.14, solidColor: 0x8d979c,
+  frame: 0xe9e9e4, glass: 0x607a88, tile: [6.4, 7], panes: [4, 2], bar: 0.05, minor: 0.014, night: 1.5, solid: 0.14, solidColor: 0x8d979c,
 });
 
 /** Affecte à toute une géométrie la teinte n° i du nuancier. */

@@ -45,6 +45,7 @@ export class OrderWheelScreen implements ScreenInstance {
   private readonly squad: Squad | null = null;
   private held: boolean;
   private age = 0;
+  private ticks = 0;
   private vx = 0;
   private vy = 0;
   private done = false;
@@ -203,6 +204,7 @@ export class OrderWheelScreen implements ScreenInstance {
   update(dt: number, input: InputState): void {
     if (this.done) return;
     this.age += dt;
+    this.ticks++;
     const wheel = this.wheel;
     if (!wheel) {
       // simple message : il disparaît quand la touche est relâchée (ou après un court délai)
@@ -228,9 +230,10 @@ export class OrderWheelScreen implements ScreenInstance {
     if (this.held && !input.down('orders')) {
       this.held = false;
       // touche relâchée : un secteur surligné est validé ; un appui bref laisse la roue affichée
+      // (bref = relâché dans les deux premières images, ou en moins d'un quart de seconde)
       if (wheel.highlighted >= 0) {
         if (!wheel.choose()) this.close();
-      } else if (this.age > TAP_SECONDS) this.close();
+      } else if (this.ticks > 2 && this.age > TAP_SECONDS) this.close();
     }
   }
 

@@ -41,7 +41,10 @@ function deckExtent(site: TileSite, x: number, z: number, rx: number, rz: number
   const stepLen = Math.max(0.5, r.cell);
   let d = 0;
   for (let s = stepLen; s <= 40; s += stepLen) {
-    if ((codeAt(r, x + rx * s, z + rz * s) & CODE_DECK) === 0) break;
+    const px = x + rx * s, pz = z + rz * s;
+    // hors de la tuile, la grille ne dit plus rien : on s'en tient à ce qui a été mesuré
+    if (!inTile(site, px, pz)) break;
+    if ((codeAt(r, px, pz) & CODE_DECK) === 0) break;
     d = s;
   }
   return Math.max(fallback, d);

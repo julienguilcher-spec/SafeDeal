@@ -109,7 +109,7 @@ const CSS = `
 .crs-fx .flash{background:#fff}
 .crs-fx .wet{background-size:420px 420px}
 .crs-fx .wet.b{background-size:660px 660px}
-.crs-fx .pain{background:radial-gradient(ellipse at center,rgba(120,0,0,0) 34%,rgba(150,6,0,.5) 74%,rgba(84,0,0,.92) 100%)}
+.crs-fx .pain{background:radial-gradient(ellipse at center,rgba(120,0,0,0) 24%,rgba(150,6,0,.26) 52%,rgba(150,6,0,.62) 76%,rgba(84,0,0,.95) 100%)}
 .crs-fx .visor{opacity:1;transform:translateY(-101%)}
 .crs-fx .visor>i{position:absolute;inset:0;display:block}
 .crs-fx .visor .tint{background:linear-gradient(180deg,rgba(120,140,160,.20) 0%,rgba(140,160,178,.075) 22%,rgba(150,168,184,.055) 100%)}
@@ -183,16 +183,16 @@ function dropsTexture(seed: number, count: number, maxR: number): string {
         g.translate(cx, cy);
         g.scale(1, sy);
         const body = g.createRadialGradient(0, 0, rad * 0.1, 0, 0, rad);
-        body.addColorStop(0, 'rgba(255,255,255,0.05)');
-        body.addColorStop(0.7, 'rgba(210,225,240,0.10)');
-        body.addColorStop(0.92, 'rgba(20,30,40,0.34)');
+        body.addColorStop(0, 'rgba(255,255,255,0.015)');
+        body.addColorStop(0.72, 'rgba(210,225,240,0.06)');
+        body.addColorStop(0.92, 'rgba(20,30,40,0.3)');
         body.addColorStop(1, 'rgba(20,30,40,0)');
         g.fillStyle = body;
         g.beginPath();
         g.arc(0, 0, rad, 0, Math.PI * 2);
         g.fill();
         const hl = g.createRadialGradient(-rad * 0.35, -rad * 0.4, 0, -rad * 0.35, -rad * 0.4, rad * 0.45);
-        hl.addColorStop(0, 'rgba(255,255,255,0.75)');
+        hl.addColorStop(0, 'rgba(255,255,255,0.5)');
         hl.addColorStop(1, 'rgba(255,255,255,0)');
         g.fillStyle = hl;
         g.beginPath();

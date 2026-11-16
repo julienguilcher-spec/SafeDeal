@@ -193,6 +193,8 @@ export class DetailTile {
   /** Surélévation du sol dessiné, en centimètres, par cellule de 1 m (512 × 512). */
   lift: Uint8Array | null = null;
   ready = false;
+  /** Étape en cours de la construction (diagnostic). */
+  phase = '';
   private readonly ctx: CityContext;
   private readonly tile: Tile;
   private geometries: THREE.BufferGeometry[] = [];
@@ -221,6 +223,7 @@ export class DetailTile {
     const edgeIds = ctx.edgeIndex.query(ox - 48, oz - 48, ox + TILE_SIZE + 48, oz + TILE_SIZE + 48);
     // 1. Grille de surfaces.
     const raster = createRaster(tile.tx, tile.tz, q.rasterSize);
+    this.phase = 'grille';
     for (const _ of rasterSteps(raster, tile, ctx.graph, edgeIds)) {
       void _;
       yield 0;
@@ -232,6 +235,7 @@ export class DetailTile {
     ctx.profile.focus(ox, oz, ox + TILE_SIZE, oz + TILE_SIZE);
     const site = makeSite(ctx, tile, raster, tin, edgeIds);
     yield 0;
+    this.phase = 'sol';
     // 3. Maillages du sol.
     const bufs = scratchBuffers();
     bufs.ground.reset();
@@ -246,13 +250,16 @@ export class DetailTile {
       // Une autre tuile a pu se construire entre-temps sur les mêmes ponts : on se recale.
       ctx.profile.focus(ox, oz, ox + TILE_SIZE, oz + TILE_SIZE);
     }
+    this.phase = 'barrières';
     buildBarriers(site, bufs.volumes, bufs.cutout);
     yield 0;
+    this.phase = 'ponts';
     buildBridges(site, bufs.volumes, tileWaterLevel(tile, ctx.waterLevel), ctx.skipBridge);
     yield 0;
     if (this.disposed) return;
     // 4. Textures de la tuile : grille des classes, couleurs lointaines ; surélévations pour les autres modules.
     const macroSize = 256;
+    this.phase = 'textures';
     const macroPixels = bakeMacro(raster, macroSize, undefined, ctx.shared.palette);
     yield 0;
     const lift = new Uint8Array(512 * 512);
@@ -278,6 +285,7 @@ export class DetailTile {
     }
     if (this.disposed) return;
     // 5. Géométries et maillages.
+    this.phase = 'géométries';
     const groundMaterial = createGroundMaterial(ctx.shared.atlas, { ids, macro, gridSize: raster.n, cutRaised: flushOverRaised(tile) }, { lambert: q.lambert, blend: q.blend, detail: q.detail });
     this.materials.push(groundMaterial);
     const add = (buf: MeshBuf, material: THREE.Material, name: string, cast: boolean, receive: boolean): THREE.Mesh | null => {
@@ -297,8 +305,10 @@ export class DetailTile {
     const cutout = add(bufs.cutout, ctx.shared.cutout, 'decoupes', false, true);
     yield 0;
     // 6. Arbres et halos.
+    this.phase = 'arbres';
     const groundAt = (x: number, z: number): number => surfaceY(site, x, z);
-    const trees = buildTreeMeshes(tile.trees, ox, oz, groundAt, ctx.shared.crownGeometry, ctx.shared.crown, ctx.shared.trunkGeometry, ctx.shared.trunk, ctx.seed + tile.tx * 131 + tile.tz * 17);
+    const crownGeometry = tile.trees.count > q.denseTrees ? ctx.shared.crownLightGeometry : ctx.shared.crownGeometry;
+    const trees = buildTreeMeshes(tile.trees, ox, oz, groundAt, crownGeometry, ctx.shared.crown, ctx.shared.trunkGeometry, ctx.shared.trunk, ctx.seed + tile.tx * 131 + tile.tz * 17);
     if (trees.crowns) {
       trees.crowns.castShadow = q.treeShadows;
       trees.crowns.receiveShadow = false;
@@ -318,6 +328,7 @@ export class DetailTile {
     }
     // 7. Mise en scène progressive : chaque maillage est envoyé à la carte graphique à sa première image.
     this.stats.gpuBytes = bytes;
+    this.phase = 'mise en scène';
     yield 1;
     for (const obj of [ground, volumes, water, cutout]) if (obj) this.show(obj);
     if (this.onGroundShown) this.onGroundShown();
@@ -328,6 +339,7 @@ export class DetailTile {
     yield 1;
     // 8. Immeubles : étape indivisible du module voisin, seule dans son image.
     if (ctx.buildings) {
+      this.phase = 'immeubles';
       const t0 = performance.now();
       this.buildings = buildTileBuildings(tile, { quality: ctx.quality, heightAt: (x, z) => sampleTerrain(terrain, x, z), skipLandmark: ctx.skipLandmark, seed: ctx.seed });
       this.stats.buildingMs = performance.now() - t0;
@@ -426,6 +438,7 @@ export class FarTile {
   readonly group: THREE.Group;
   readonly stats: TileViewStats = { triangles: 0, drawCalls: 0, gpuBytes: 0, buildingTriangles: 0, buildingDrawCalls: 0, buildMs: 0, maxStepMs: 0, buildingMs: 0 };
   ready = false;
+  phase = '';
   private readonly ctx: CityContext;
   private tile: Tile | null;
   private geometry: THREE.BufferGeometry | null = null;
@@ -449,8 +462,10 @@ export class FarTile {
     if (tile === null) return;
     const ox = tile.tx * TILE_SIZE, oz = tile.tz * TILE_SIZE;
     const edgeIds = ctx.edgeIndex.query(ox - 16, oz - 16, ox + TILE_SIZE + 16, oz + TILE_SIZE + 16);
+    this.phase = 'grille';
     const raster = rasterizeTile(createRaster(tile.tx, tile.tz, FAR_RASTER), tile, ctx.graph, edgeIds);
     yield 0;
+    this.phase = 'sol';
     const pixels = bakeMacro(raster, FAR_RASTER, undefined, ctx.shared.palette);
     const texture = macroTexture(pixels, FAR_RASTER, `ville-couleurs-loin-${tile.tx}_${tile.tz}`);
     this.texture = texture;
@@ -501,6 +516,7 @@ export class FarTile {
     yield 0;
     if (this.disposed) return;
     if (ctx.shared.quality.farTrees && tile.trees.count > 0) {
+      this.phase = 'arbres';
       const trees = buildTreeMeshes(tile.trees, ox, oz, (x, z) => sampleTerrain(terrain, x, z), ctx.shared.crownFarGeometry, ctx.shared.crownFar, null, null, ctx.seed + tile.tx * 131 + tile.tz * 17);
       if (trees.crowns) {
         trees.crowns.raycast = noRaycast;
@@ -512,6 +528,7 @@ export class FarTile {
       yield 0;
     }
     if (ctx.buildings) {
+      this.phase = 'immeubles';
       const t0 = performance.now();
       this.buildings = buildTileBuildingsFar(tile, { quality: ctx.quality, heightAt: (x, z) => sampleTerrain(terrain, x, z), skipLandmark: ctx.skipLandmark, seed: ctx.seed });
       this.stats.buildingMs = performance.now() - t0;

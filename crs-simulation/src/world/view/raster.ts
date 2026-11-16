@@ -402,7 +402,9 @@ export function rasterizeTile(r: TileRaster, tile: Tile, graph: RoadGraph, edgeI
  */
 function buildRibbons(r: TileRaster, ed: RoadEdge): void {
   const pts = ed.points;
-  const maxX = r.ox + TILE_SIZE, maxZ = r.oz + TILE_SIZE;
+  const half = halfDeckOf(ed);
+  // L'axe compte dès qu'il passe à moins d'une demi-largeur de la tuile : un pont posé sur une limite de tuile appartient aux deux.
+  const minX = r.ox - half, minZ = r.oz - half, maxX = r.ox + TILE_SIZE + half, maxZ = r.oz + TILE_SIZE + half;
   let inside = 0, covered = 0;
   for (let i = 2; i + 1 < pts.length; i += 2) {
     const ax = pts[i - 2], az = pts[i - 1], bx = pts[i], bz = pts[i + 1];
@@ -410,14 +412,13 @@ function buildRibbons(r: TileRaster, ed: RoadEdge): void {
     const steps = Math.max(1, Math.ceil(len / 4));
     for (let s = 0; s <= steps; s++) {
       const x = ax + ((bx - ax) * s) / steps, z = az + ((bz - az) * s) / steps;
-      if (x < r.ox || x >= maxX || z < r.oz || z >= maxZ) continue;
+      if (x < minX || x >= maxX || z < minZ || z >= maxZ) continue;
       inside++;
       if ((codeAt(r, x, z) & CODE_DECK) !== 0) covered++;
     }
   }
   if (inside === 0 || covered * 2 >= inside) return;
   const halfRoad = Math.max(1, ed.width / 2);
-  const half = halfDeckOf(ed);
   const sett = ed.surface === 'sett';
   const roadCls = ed.pedestrianOnly ? (sett ? CL_SETT : CL_PLAZA) : sett ? CL_SETT : CL_ASPHALT;
   for (let i = 2; i + 1 < pts.length; i += 2) {

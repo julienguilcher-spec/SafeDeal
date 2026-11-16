@@ -52,6 +52,13 @@ export class PlanScreen implements ScreenInstance {
     this.map.overlay.dots = true;
     this.map.view.minMpp = 0.25;
     this.map.view.maxMpp = 9;
+    // la carte prend le focus à l'ouverture (pas le champ de recherche : les touches du jeu restent actives,
+    // le clavier virtuel ne s'ouvre pas) ; en mode carte, les directions pilotent le curseur
+    this.map.canvas.tabIndex = 0;
+    this.map.canvas.dataset.autofocus = '';
+    this.map.canvas.dataset.id = 'plan-map';
+    this.map.canvas.classList.add('cm-focusable');
+    this.map.canvas.addEventListener('ui:nav', (e) => e.preventDefault());
 
     // bandeau : titre, recherche, résultats
     const top = el('div', 'cm-panel cm-plan-top');
@@ -78,6 +85,12 @@ export class PlanScreen implements ScreenInstance {
       if (e.key === 'Enter') {
         const first = this.results.querySelector('button');
         if (first) (first as HTMLButtonElement).click();
+        e.preventDefault();
+      } else if (e.key === 'Escape') {
+        // Échap quitte le champ (et efface la recherche) sans fermer le plan
+        this.input.value = '';
+        this.refreshResults();
+        this.map.canvas.focus({ preventScroll: true });
         e.preventDefault();
       }
       e.stopPropagation();
@@ -183,7 +196,7 @@ export class PlanScreen implements ScreenInstance {
     this.pick = { x: p.x, z: p.z, label: shortPlaceName(p.name) };
     this.results.textContent = '';
     this.input.value = shortPlaceName(p.name);
-    this.input.blur();
+    this.map.canvas.focus({ preventScroll: true });
     this.lastCard = -1;
     this.map.invalidate();
   }

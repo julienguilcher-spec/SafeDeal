@@ -74,7 +74,7 @@ function build(site: MonumentSite, quality: QualityLevel) {
 export const def: MonumentDef = {
   key: 'palais_bourbon',
   name: 'Palais Bourbon (Assemblée nationale)',
-  radius: 118,
+  radius: 135,
   height: 28.8,
   build,
   buildFar(site) {

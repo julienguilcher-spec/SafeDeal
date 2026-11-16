@@ -16,7 +16,10 @@ export interface ShopDef {
   /** Marchandise au départ 0..1 et nombre de charges de butin qu'elle représente. */
   stock: number;
   loads: number;
-  /** Résistance du vitrage (30 = verre courant : trois coups de marteau ; 60 = feuilleté). */
+  /**
+   * Résistance du vitrage, en points reçus par le verre (un coup de marteau en vaut 24, un pavé lancé ≈ 85) :
+   * 60 = verre courant, trois coups de marteau ou un pavé ; 130 à 150 = verre feuilleté, six coups ou deux pavés.
+   */
   glassHp: number;
   reinforced: boolean;
   /** Résistance du rideau de fer. */
@@ -39,27 +42,27 @@ function sd(
   nerve: number, opens: number, closes: number, fuelPerMeter: number, boardShare: number,
 ): ShopDef {
   return {
-    appeal, stock, loads, glassHp, reinforced: glassHp >= 50, shutterHp, shutterShare, nerve, opens, closes,
+    appeal, stock, loads, glassHp, reinforced: glassHp >= 100, shutterHp, shutterShare, nerve, opens, closes,
     fuelPerMeter, boardShare,
   };
 }
 
 const DEFS: Record<string, ShopDef> = {
   //                   attrait stock charges verre rideau part  nerf  ouv. ferm. feu/m planches
-  luxe: sd(0.95, 1.0, 40, 60, 600, 1.0, 0.22, 10, 19.5, 90, 0.5),
-  bijouterie: sd(0.92, 1.0, 24, 70, 700, 1.0, 0.2, 10, 19, 60, 0.45),
-  telephonie: sd(0.88, 1.0, 30, 30, 420, 1.0, 0.28, 9.5, 19.5, 80, 0.2),
-  banque: sd(0.8, 0.25, 6, 70, 700, 0.9, 0.2, 9, 17.5, 70, 0.6),
-  tabac_presse: sd(0.62, 0.9, 30, 30, 400, 0.95, 0.4, 7, 20, 100, 0.05),
-  mode: sd(0.6, 1.0, 50, 30, 420, 0.95, 0.3, 10, 19.5, 120, 0.15),
-  supermarche: sd(0.5, 1.0, 80, 30, 450, 0.95, 0.35, 8.5, 21, 110, 0.1),
-  alimentation: sd(0.4, 0.9, 40, 30, 380, 0.9, 0.42, 8, 21.5, 90, 0.02),
-  restauration_rapide: sd(0.38, 0.6, 16, 30, 400, 0.9, 0.36, 10.5, 23.5, 90, 0.1),
-  agence: sd(0.36, 0.3, 8, 30, 400, 0.85, 0.3, 9, 18.5, 80, 0.2),
-  pharmacie: sd(0.2, 0.8, 20, 30, 420, 0.95, 0.45, 8.5, 20, 80, 0.02),
-  hotel: sd(0.2, 0.3, 8, 40, 400, 0.1, 0.5, 0, 24, 100, 0.02),
-  cafe_restaurant: sd(0.15, 0.5, 14, 30, 380, 0.8, 0.5, 7, 25, 100, 0.02),
-  autre: sd(0.3, 0.6, 16, 30, 400, 0.85, 0.38, 9.5, 19, 90, 0.05),
+  luxe: sd(0.95, 1.0, 40, 120, 600, 1.0, 0.22, 10, 19.5, 90, 0.5),
+  bijouterie: sd(0.92, 1.0, 24, 130, 700, 1.0, 0.2, 10, 19, 60, 0.45),
+  telephonie: sd(0.88, 1.0, 30, 60, 420, 1.0, 0.28, 9.5, 19.5, 80, 0.2),
+  banque: sd(0.8, 0.25, 6, 130, 700, 0.9, 0.2, 9, 17.5, 70, 0.6),
+  tabac_presse: sd(0.62, 0.9, 30, 60, 400, 0.95, 0.4, 7, 20, 100, 0.05),
+  mode: sd(0.6, 1.0, 50, 60, 420, 0.95, 0.3, 10, 19.5, 120, 0.15),
+  supermarche: sd(0.5, 1.0, 80, 60, 450, 0.95, 0.35, 8.5, 21, 110, 0.1),
+  alimentation: sd(0.4, 0.9, 40, 60, 380, 0.9, 0.42, 8, 21.5, 90, 0.02),
+  restauration_rapide: sd(0.38, 0.6, 16, 60, 400, 0.9, 0.36, 10.5, 23.5, 90, 0.1),
+  agence: sd(0.36, 0.3, 8, 60, 400, 0.85, 0.3, 9, 18.5, 80, 0.2),
+  pharmacie: sd(0.2, 0.8, 20, 60, 420, 0.95, 0.45, 8.5, 20, 80, 0.02),
+  hotel: sd(0.2, 0.3, 8, 80, 400, 0.1, 0.5, 0, 24, 100, 0.02),
+  cafe_restaurant: sd(0.15, 0.5, 14, 60, 380, 0.8, 0.5, 7, 25, 100, 0.02),
+  autre: sd(0.3, 0.6, 16, 60, 400, 0.85, 0.38, 9.5, 19, 90, 0.05),
 };
 
 export function shopDef(category: ShopCategory): ShopDef {

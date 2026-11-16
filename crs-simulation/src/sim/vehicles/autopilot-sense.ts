@@ -41,6 +41,8 @@ export class ApSensor {
     let bestSpeed = 0;
     let reason: ApState['obsReason'] = '';
     let isStatic = false;
+    let blocker: VehicleRt | null = null;
+    let blockerLat = 0;
 
     // ── personnes ──
     const mid = horizon * 0.5;
@@ -68,6 +70,7 @@ export class ApSensor {
         bestSpeed = p.vx * sn + p.vz * cs;
         reason = 'personne';
         isStatic = false;
+        blocker = null;
       }
     }
 
@@ -132,6 +135,8 @@ export class ApSensor {
         bestSpeed = ov.vx * sn + ov.vz * cs;
         reason = 'vehicule';
         isStatic = wreck || o.dyn.asleep;
+        blocker = o;
+        blockerLat = rx * lx + rz * lz;
       }
     }
 
@@ -155,6 +160,7 @@ export class ApSensor {
         bestSpeed = 0;
         reason = 'obstacle';
         isStatic = true;
+        blocker = null;
       }
     }
 
@@ -167,6 +173,7 @@ export class ApSensor {
         bestSpeed = 0;
         reason = 'mur';
         isStatic = true;
+        blocker = null;
       }
     }
 
@@ -174,5 +181,8 @@ export class ApSensor {
     ap.obsSpeed = bestSpeed;
     ap.obsReason = reason;
     ap.obsStatic = isStatic;
+    ap.obsId = blocker ? blocker.v.id : 0;
+    ap.obsLat = blockerLat;
+    ap.obsWaiting = blocker !== null && blocker.apActive && Math.abs(blocker.v.speed) < 0.3;
   }
 }

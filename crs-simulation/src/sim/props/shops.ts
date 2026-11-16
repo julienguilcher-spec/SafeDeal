@@ -72,14 +72,15 @@ export class Shops {
     s.glass = s.glassMax = def.glassHp * rng.range(0.9, 1.15);
     s.fuel = s.fuelMax = def.fuelPerMeter * s.width * rng.range(0.8, 1.2);
     const boardRoll = rng.next();
+    // l'heure de la session en cours de chargement n'est pas encore appliquée à ctx.env : on lit la configuration
+    const cfg = ctx.session.config;
     if (init.shutter !== undefined) {
       s.shutter = clamp01(init.shutter);
       if (s.shutter > 0) s.hasShutter = true;
-    } else if (s.hasShutter && !shopOpenAt(def, ctx.env.state.timeOfDay)) {
+    } else if (s.hasShutter && !shopOpenAt(def, cfg ? cfg.timeOfDay : ctx.env.state.timeOfDay)) {
       s.shutter = 1; // boutique fermée à cette heure
     } else {
       // manifestation annoncée tendue : les enseignes exposées ont posé des panneaux de bois
-      const cfg = ctx.session.config;
       if (cfg && boardRoll < def.boardShare * clamp01(cfg.tension * 1.5)) {
         s.window = 'boarded';
         s.boards = s.boardsMax = BOARDS_HP;
@@ -323,6 +324,7 @@ export class Shops {
     }
     s.inFire = true;
     s.burning = 0.08;
+    s.peak = 0.08;
     s.heat = 1;
     s.igniterId = byId;
     s.suppress = 0;
@@ -343,8 +345,13 @@ export class Shops {
     return true;
   }
 
+  /**
+   * Agent extincteur nécessaire, d'après le développement atteint par le feu : 6 unités pour un départ
+   * de feu, 60 pour une boutique embrasée (qui reprend en outre de 0,8 unité par seconde : l'extincteur
+   * n'y suffit pas, le canon à eau en vient à bout en une demi-minute).
+   */
   private needOf(s: ShopObj): number {
-    return 10 + 50 * s.burning;
+    return 6 + 54 * s.peak;
   }
 
   extinguish(s: ShopObj, byId: EntityId, doused = true): void {
@@ -384,7 +391,8 @@ export class Shops {
       const tx = Math.cos(s.heading) * s.width * 0.5;
       const tz = -Math.sin(s.heading) * s.width * 0.5;
       if (distSqPointSegment(x, z, s.x - tx, s.z - tz, s.x + tx, s.z + tz) > reach * reach) continue;
-      const cover = Math.min(1, (2 * radius) / s.width);
+      // un départ de feu tient en un point de la devanture ; un feu développé occupe toute la façade
+      const cover = Math.min(1, (2 * radius) / Math.max(1, s.width * s.peak));
       s.suppress += amount * cover;
       s.dousedAt = now;
       if (s.suppress >= this.needOf(s)) {
@@ -500,16 +508,19 @@ export class Shops {
       const s = fires[i]!;
       const frac = s.fuelMax > 0 ? s.fuel / s.fuelMax : 0;
       let target = frac < 0.15 ? 0.2 + (0.8 * frac) / 0.15 : 1;
+      if (s.burning > s.peak) s.peak = s.burning;
       if (s.suppress > 0) {
         target *= 1 - 0.85 * Math.min(1, s.suppress / this.needOf(s));
-        if (now - s.dousedAt > 1) {
-          s.suppress -= s.burning * dt; // un feu développé reprend vite, un début de feu presque pas
-          if (s.suppress < 0) s.suppress = 0;
-        }
+        // un feu développé reprend sans cesse, même sous le jet ; un début de feu presque pas
+        s.suppress -= 0.8 * s.peak * dt;
+        if (s.suppress < 0) s.suppress = 0;
       }
       if (s.burning < target) {
-        s.burning += dt / SHOP_RISE;
-        if (s.burning > target) s.burning = target;
+        // sous le jet, les flammes sont rabattues : le feu ne gagne pas
+        if (now - s.dousedAt > 1.5) {
+          s.burning += dt / SHOP_RISE;
+          if (s.burning > target) s.burning = target;
+        }
       } else {
         s.burning -= dt * 0.4;
         if (s.burning < target) s.burning = target;

@@ -50,6 +50,7 @@ export class VehiclesSystem implements GameSystem {
   readonly lights = new LightSystem(this.kernel);
   private readonly unsub: (() => void)[] = [];
   private genericSpec: VehicleSpec | null = null;
+  private sweepT = 0;
 
   readonly api: VehicleApi = this.createApi();
   readonly ext: VehiclesExtApi = this.createExt();
@@ -81,6 +82,11 @@ export class VehiclesSystem implements GameSystem {
         if (!rt) return;
         this.flight.onRemoved(rt);
         k.drop(e.id);
+      }),
+      // un autre module (contrôleur du joueur) a déjà signalé ce changement de sirène : pas de doublon
+      ev.on('vehicle:siren', (e) => {
+        const rt = k.peek(e.id);
+        if (rt) rt.lastSiren = e.siren;
       }),
       ev.on('vehicle:entered', (e) => this.recount(e.vehicleId)),
       ev.on('vehicle:exited', (e) => this.recount(e.vehicleId)),
@@ -137,6 +143,16 @@ export class VehiclesSystem implements GameSystem {
     const k = this.kernel;
     const rts = k.rts;
     const env = k.ctx.env.state;
+
+    // une fois par seconde : aucune fiche ne doit survivre à son véhicule (retrait sans événement)
+    this.sweepT -= dt;
+    if (this.sweepT <= 0) {
+      this.sweepT = 1;
+      for (let i = rts.length - 1; i >= 0; i--) {
+        const rt = rts[i]!;
+        if (k.store.get(rt.v.id) !== rt.v) k.drop(rt.v.id);
+      }
+    }
 
     // commandes, conduite, vol
     for (let i = 0; i < rts.length; i++) {

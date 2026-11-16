@@ -23,3 +23,22 @@ Points à reprendre lors de l'assemblage, parce qu'ils ont été décidés aprè
 - Monuments : `prewarm()` à appeler pendant l'écran de chargement ; `camera.far` et brouillard doivent laisser voir la
   silhouette de la Tour Eiffel à plusieurs kilomètres.
 - Le cœur borne le temps réel par image à 0,1 s : les tests e2e de gameplay avancent avec `__CRS.step(secondes)`.
+
+## Consommation : option 1 retenue par le commanditaire
+- Les étapes **simples et vérifiables** (catalogue de missions rédigé, tables de données, textes de radio, écrans simples,
+  documentation) tournent sur un **modèle plus léger**.
+- Le **modèle haut de gamme** reste obligatoire pour : IA de foule, IA des unités, physique, rendu et tout ce qui se juge
+  à l'œil (monuments, écrans soignés), assemblage, revues.
+- Toute livraison du modèle léger est **relue par le modèle haut de gamme** ; si elle ne passe pas, l'étape est refaite
+  sur le modèle haut de gamme.
+- Ne s'applique qu'aux chantiers lancés après cette décision.
+
+## Carte (rapport de vérification du 16/11)
+- `RoadEdge.width` est la largeur ROULABLE (médiane 77 % de la chaussée réelle ; rue de Rivoli : 3 m pour 13,4 m ;
+  205 axes décentrés de plus de 3 m). Pour barrer une rue de façade à façade ou placer une ligne, lancer des rayons vers
+  les bâtiments (`world.raycast`) plutôt que se fier à `width + 2 × sidewalk`. À corriger dans le pipeline si le trafic ou
+  les formations en souffrent.
+- Places de la Concorde et de la Bastille dans leur état récent (moitié piétonne).
+- 59 nœuds `boundary` à l'intérieur de l'emprise = bouches de souterrains retirés (culs-de-sac pour le trafic).
+- Clé `hotel_crillon` : nom technique à renommer des deux côtés (carte et monuments) si on veut l'éviter.
+- Un bâtiment à `landmarkKey` sans définition de monument doit être extrudé normalement (repli).

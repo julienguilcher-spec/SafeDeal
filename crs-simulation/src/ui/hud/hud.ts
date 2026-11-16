@@ -145,7 +145,7 @@ export class Hud {
         ps.part.el.hidden = true;
         ps.part.hidden?.();
       }
-      for (const name of ['--ui-sub-bottom', '--ui-notice-top', '--ui-sub-max', '--ui-sub-shift']) this.styleRoot.style.removeProperty(name);
+      for (const name of ['--ui-sub-bottom', '--ui-notice-top', '--ui-sub-max', '--ui-sub-shift', '--ui-toast-max']) this.styleRoot.style.removeProperty(name);
       this.noticeTop = -1;
       this.subBottom = -1;
       this.lastTouch = '';
@@ -321,7 +321,10 @@ export class Hud {
     if (s.touch === 'none') {
       this.styleRoot.style.removeProperty('--ui-sub-max');
       this.styleRoot.style.removeProperty('--ui-sub-shift');
+      this.styleRoot.style.removeProperty('--ui-toast-max');
     } else {
+      // notifications : entre le panneau de situation et la rangée de boutons système (290 px à l'échelle 1)
+      this.styleRoot.style.setProperty('--ui-toast-max', Math.max(220, Math.round(s.width - 602 * scale)) + 'px');
       const [left, right] = TOUCH_SIDES[s.touch];
       this.styleRoot.style.setProperty('--ui-sub-max', Math.round(s.width - (left + right) * scale) + 'px');
       this.styleRoot.style.setProperty('--ui-sub-shift', Math.round(((left - right) * scale) / 2) + 'px');

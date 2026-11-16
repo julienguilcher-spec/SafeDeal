@@ -98,7 +98,7 @@ function build(site: MonumentSite, quality: QualityLevel) {
 export const def: MonumentDef = {
   key: 'louvre',
   name: 'Palais du Louvre',
-  radius: 380,
+  radius: 415,
   height: 44.3,
   build,
   buildFar(site) {

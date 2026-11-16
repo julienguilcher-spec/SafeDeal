@@ -83,7 +83,8 @@ export class Damage {
       return;
     }
 
-    if (p.state === 'burnt' && kind !== 'crush' && kind !== 'vehicle' && kind !== 'blast') return;
+    // une épave (cassée ou calcinée) ne peut plus rien perdre : on l'enlève (geste « dégager »), on ne la casse plus
+    if (p.state === 'broken' || p.state === 'burnt') return;
 
     // vitrage : il encaisse d'abord
     if (p.glass > 0 && !(def.glassHigh && kind === 'blunt')) {

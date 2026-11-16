@@ -55,6 +55,7 @@ export class FallbackBasemap implements Map2dService {
   private stamps = new Uint32Array(0);
   private stamp = 0;
   private ownRevision = 0;
+  private surfaceRevision = 0;
   private readonly byRank: number[][] = [];
   private readonly bridges: number[] = [];
   private readonly placer = new LabelPlacer();
@@ -71,7 +72,7 @@ export class FallbackBasemap implements Map2dService {
   }
 
   get revision(): number {
-    return this.ownRevision + this.surfaces.revision;
+    return this.ownRevision + this.surfaceRevision;
   }
 
   /** Le contenu a pu changer (tuile chargée) : les caches se redessinent. */
@@ -81,7 +82,12 @@ export class FallbackBasemap implements Map2dService {
 
   /** Construit, s'il y en a en attente, une image d'occupation du sol (à appeler de temps en temps). */
   pump(): boolean {
-    return this.surfaces.pump();
+    const built = this.surfaces.pump();
+    // les caches ne se redessinent qu'une fois la file vidée (ou toutes les quatre images construites)
+    if (this.surfaces.revision !== this.surfaceRevision && (!this.surfaces.pending || this.surfaces.revision - this.surfaceRevision >= 4)) {
+      this.surfaceRevision = this.surfaces.revision;
+    }
+    return built;
   }
 
   /** Forme tolérée par la page d'accueil : plan centré sur (x, z), `radius` mètres de part et d'autre. */

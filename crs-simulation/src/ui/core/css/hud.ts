@@ -278,7 +278,7 @@ export const CSS_HUD = `
 
 /* ── messages transitoires ── */
 .ui-toasts { position: absolute; left: 50%; top: calc(var(--ui-notice-top, 14px) + var(--ui-safe-t)); transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px;
-  width: max-content; max-width: min(520px, 62vw); pointer-events: none; }
+  width: max-content; max-width: var(--ui-toast-max, min(520px, 62vw)); pointer-events: none; }
 .ui-toast { display: flex; align-items: center; gap: 9px; padding: 7px 14px 7px 10px; border-radius: 8px; background: rgba(8, 13, 24, .9); border: 1px solid rgba(255, 255, 255, .14);
   border-left: 3px solid var(--ui-blue-hi); font-size: 13.5px; font-weight: 550; line-height: 1.3; box-shadow: 0 6px 18px rgba(0, 0, 0, .35); animation: ui-rise .18s ease-out;
   transition: opacity .2s, transform .2s; }
@@ -306,6 +306,5 @@ export const CSS_HUD = `
   .ui-toast { font-size: 12.5px; padding: 5px 12px 5px 8px; }
   /* écran bas : deux notifications visibles au plus, les plus récentes */
   .ui-toast:nth-last-child(n+3) { display: none; }
-  .ui-toasts { max-width: min(470px, 56vw); }
 }
 `;

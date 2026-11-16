@@ -243,8 +243,13 @@ export class Horizon {
     this.indexDirty = false;
   }
 
-  /** À chaque image : applique les changements en attente, accorde la silhouette à la lumière du jour. */
-  update(daylight: number): void {
+  /**
+   * À chaque image : applique les changements en attente, accorde la silhouette à la lumière du jour.
+   * `camHeight` : hauteur de la caméra au-dessus du sol ; vue d'avion, la silhouette (un décor de
+   * théâtre fait pour être vu du sol) est retirée.
+   */
+  update(daylight: number, camHeight: number): void {
+    this.skyline.visible = camHeight < 140;
     if (this.indexDirty) this.rebuildIndex();
     if (this.textureDirty) {
       this.texture.needsUpdate = true;

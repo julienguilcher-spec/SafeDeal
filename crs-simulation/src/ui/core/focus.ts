@@ -262,6 +262,25 @@ export class FocusNav {
     return true;
   }
 
+  /**
+   * Passe d'une colonne (ou d'un bandeau) d'onglets à son panneau : à poser sur le conteneur des onglets.
+   * « Droite » depuis une colonne verticale, « bas » depuis un bandeau horizontal, donne le focus au
+   * premier élément du panneau, quel que soit son alignement avec l'onglet de départ.
+   */
+  linkTabsToPane(tabs: HTMLElement, pane: HTMLElement): () => void {
+    const onNav = (e: Event): void => {
+      const dir = (e as CustomEvent<{ dir: NavDir }>).detail.dir;
+      const horizontal = getComputedStyle(tabs).flexDirection.startsWith('row');
+      if (dir !== (horizontal ? 'down' : 'right')) return;
+      const list = focusables(pane);
+      if (list.length === 0) return;
+      e.preventDefault();
+      this.focusElement(list[0]!);
+    };
+    tabs.addEventListener('ui:nav', onNav);
+    return () => tabs.removeEventListener('ui:nav', onNav);
+  }
+
   private focusElement(target: HTMLElement): boolean {
     target.focus({ preventScroll: true });
     if (typeof target.scrollIntoView === 'function') target.scrollIntoView({ block: 'nearest', inline: 'nearest' });

@@ -7,10 +7,11 @@
 
 import type { GameContext, SurfaceKind } from '@/core/contracts';
 
-/** Pas d'échantillonnage (m). */
-const STEP = 2;
+/** Pas d'échantillonnage (m) : 1 m sur ordinateur, 2 m en qualité basse ou sur écran tactile (mémoire). */
+const STEP_FINE = 1;
+const STEP_COARSE = 2;
 /** Nombre maximal d'images conservées. */
-const MAX_TILES = 64;
+const MAX_TILES = 40;
 
 /** Couleurs RGBA par nature de sol (alpha 0 : on laisse voir le fond). */
 const COLORS: Readonly<Record<SurfaceKind, readonly [number, number, number, number]>> = {
@@ -36,12 +37,19 @@ interface TileImage {
 export class SurfaceTiles {
   /** Incrémenté à chaque image construite. */
   revision = 0;
+  /** Durée de la dernière construction (ms) et nombre d'images construites : diagnostic. */
+  lastMs = 0;
+  built = 0;
   private readonly tiles = new Map<string, TileImage>();
   private readonly queue: string[] = [];
   private readonly queued = new Set<string>();
   private clock = 0;
+  private readonly step: number;
 
-  constructor(private readonly ctx: GameContext) {}
+  constructor(private readonly ctx: GameContext) {
+    const coarse = typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
+    this.step = coarse || ctx.settings.values.quality === 'bas' ? STEP_COARSE : STEP_FINE;
+  }
 
   /** Image de la tuile, ou null si elle n'est pas (encore) disponible : elle est alors mise en file. */
   get(tx: number, tz: number): HTMLCanvasElement | null {
@@ -86,8 +94,11 @@ export class SurfaceTiles {
       const tx = Number(key.slice(0, sep));
       const tz = Number(key.slice(sep + 1));
       if (!world.isLoaded((tx + 0.5) * size, (tz + 0.5) * size)) continue;
+      const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
       const canvas = this.build(tx, tz, size);
       if (!canvas) return false;
+      this.lastMs = (typeof performance !== 'undefined' ? performance.now() : 0) - t0;
+      this.built++;
       this.tiles.set(key, { canvas, used: ++this.clock });
       this.evict();
       this.revision++;
@@ -98,6 +109,7 @@ export class SurfaceTiles {
 
   private build(tx: number, tz: number, size: number): HTMLCanvasElement | null {
     if (typeof document === 'undefined') return null;
+    const STEP = this.step;
     const n = Math.max(1, Math.round(size / STEP));
     const canvas = document.createElement('canvas');
     canvas.width = n;

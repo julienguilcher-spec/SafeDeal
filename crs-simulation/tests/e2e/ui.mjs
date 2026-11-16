@@ -546,7 +546,7 @@ try {
     await tap(DOWN);
     check((await focused()) === 'role-centaure' || (await focused()) === 'role-gendarme_centaure', `croix bas : carte du dessous (focus : ${await focused()})`);
     await shot(page, 'ui-manette-roles-1280x720');
-    check(/changer de section/.test(await text(page, '.ui-sum__hint')), 'aide de navigation à la manette affichée');
+    check(/Start Lancer/.test(await text(page, '.ui-sum__hint')) && /LBRB Sections/.test(await text(page, '.ui-sum__hint')), `aide de navigation à la manette affichée (« ${await text(page, '.ui-sum__hint')} »)`);
     await tap(B);
     check((await focused()) === 'tab-role', 'B ramène le focus sur l’onglet de la section');
     // RB : section suivante, deux fois → « Lieu »

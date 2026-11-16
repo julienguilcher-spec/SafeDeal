@@ -17,7 +17,7 @@ import { TILE_SIZE, decodeTile, sampleTerrain } from '../mapdata';
 import type { Landmark, Manifest, ManifestTile, Place, RawTile, RoadGraph, Terrain, Tile } from '../mapdata';
 import { WORLD_MAP2D_SERVICE, WORLD_VIEW_SERVICE } from './api';
 import type { FarTileProvider, WorldViewApi, WorldViewOptions, WorldViewStats } from './api';
-import { disposeSharedBuildingResources } from './buildings/index';
+import { disposeSharedBuildingResources, prepareSharedBuildingResources } from './buildings/index';
 import { BridgeProfile } from './decks';
 import { EdgeIndex } from './edgeindex';
 import { releaseGroundScratch } from './ground';
@@ -106,7 +106,7 @@ export class WorldViewSystem implements GameSystem {
   private time = 0;
   private attached = false;
   private idleWaiters: (() => void)[] = [];
-  private readonly counters = { lastDetailMs: 0, lastFarMs: 0, maxStepMs: 0, maxBuildingMs: 0, lastFrameBuildMs: 0 };
+  private readonly counters = { lastDetailMs: 0, lastFarMs: 0, maxStepMs: 0, maxStepLabel: '', maxBuildingMs: 0, lastFrameBuildMs: 0 };
   private readonly api: WorldViewApi = {
     stats: () => this.stats(),
     liftAt: (x, z) => this.liftAt(x, z),
@@ -197,6 +197,8 @@ export class WorldViewSystem implements GameSystem {
       this.quality = view.quality;
       const antialias = view.renderer.getContextAttributes()?.antialias === true;
       this.shared = createSharedResources(cityQuality(this.quality), antialias);
+      // L'atlas des façades est peint ici, pendant le chargement, et non à la première tuile.
+      if (this.options.buildings !== false) prepareSharedBuildingResources(this.quality);
     }
     if (this.manifest !== data.manifest || this.graph !== data.roadGraph || this.city === null) {
       if (this.manifest !== null) this.resetWorld();
@@ -385,7 +387,7 @@ export class WorldViewSystem implements GameSystem {
         };
         slot.detail = view;
         this.root.add(view.group);
-        this.active = { slot, lod: 2, work: view.build(), view, spent: { maxStepMs: 0, secondStepMs: 0, totalMs: 0 } };
+        this.active = { slot, lod: 2, work: view.build(), view, spent: { maxStepMs: 0, secondStepMs: 0, totalMs: 0, maxLabel: '', secondLabel: '' } };
         return true;
       }
       if (slot.far !== null) continue;
@@ -401,7 +403,7 @@ export class WorldViewSystem implements GameSystem {
         slot.painted = true;
       }
       this.root.add(view.group);
-      this.active = { slot, lod: 1, work: view.build(), view, spent: { maxStepMs: 0, secondStepMs: 0, totalMs: 0 } };
+      this.active = { slot, lod: 1, work: view.build(), view, spent: { maxStepMs: 0, secondStepMs: 0, totalMs: 0, maxLabel: '', secondLabel: '' } };
       return true;
     }
     return false;
@@ -414,7 +416,8 @@ export class WorldViewSystem implements GameSystem {
       if (this.active === null && !this.startNext()) break;
       const act = this.active as ActiveJob;
       const left = budgetMs - (now() - t0);
-      const result = runSlice(act.work, Math.max(0, left), now, act.spent);
+      const view = act.view;
+      const result = runSlice(act.work, Math.max(0, left), now, act.spent, () => view.phase);
       if (result === 'done') {
         this.finish(act);
         this.active = null;
@@ -435,9 +438,13 @@ export class WorldViewSystem implements GameSystem {
     else c.lastFarMs = act.view.stats.buildMs;
     if (building > c.maxBuildingMs) c.maxBuildingMs = building;
     // La plus longue étape hors immeubles : celle des immeubles (indivisible, seule dans son image) est comptée à part.
-    const step = building > 0 && act.spent.maxStepMs >= building ? act.spent.secondStepMs : act.spent.maxStepMs;
+    const first = !(building > 0 && act.spent.maxLabel === 'immeubles');
+    const step = first ? act.spent.maxStepMs : act.spent.secondStepMs;
     act.view.stats.maxStepMs = step;
-    if (step > c.maxStepMs) c.maxStepMs = step;
+    if (step > c.maxStepMs) {
+      c.maxStepMs = step;
+      c.maxStepLabel = `${act.lod === 2 ? 'détail' : 'lointain'} ${act.slot.key} : ${first ? act.spent.maxLabel : act.spent.secondLabel}`;
+    }
     if (act.lod === 1 && this.horizon) this.horizon.setTileHidden(act.slot.tx, act.slot.tz, true);
     this.dirty = true;
   }
@@ -469,7 +476,7 @@ export class WorldViewSystem implements GameSystem {
       if (slot.detail) slot.detail.update(env, camX, camY, camZ);
       if (slot.far) slot.far.update(env, camX, camY, camZ);
     }
-    if (this.horizon) this.horizon.update(env.daylight);
+    if (this.horizon) this.horizon.update(env.daylight, camY - sampleTerrain((this.data as WorldDataLike).terrain, camX, camZ));
     if (this.idleWaiters.length > 0 && this.pending() === 0) {
       const waiters = this.idleWaiters;
       this.idleWaiters = [];
@@ -512,7 +519,7 @@ export class WorldViewSystem implements GameSystem {
       quality: this.quality, detailTiles: 0, farTiles: 0, queued: this.queue.length + (this.active ? 1 : 0), fetching: this.fetchCount,
       triangles: 0, drawCalls: 0, buildingTriangles: 0, buildingDrawCalls: 0, maxDetailDrawCalls: 0, tileGpuBytes: 0,
       sharedGpuBytes: this.shared ? this.shared.textureBytes * 1.33 : 0, lastDetailMs: this.counters.lastDetailMs, lastFarMs: this.counters.lastFarMs,
-      maxStepMs: this.counters.maxStepMs, maxBuildingMs: this.counters.maxBuildingMs, lastFrameBuildMs: this.counters.lastFrameBuildMs,
+      maxStepMs: this.counters.maxStepMs, maxStepLabel: this.counters.maxStepLabel, maxBuildingMs: this.counters.maxBuildingMs, lastFrameBuildMs: this.counters.lastFrameBuildMs,
       paintMs: this.shared ? this.shared.paintMs : 0,
     };
     for (const slot of this.slotList) {

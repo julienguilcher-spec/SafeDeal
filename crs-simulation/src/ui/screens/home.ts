@@ -215,8 +215,9 @@ export function createHome(env: UiEnv): (host: HTMLElement, data: unknown) => Sc
       clear(hint);
       hint.hidden = !pad;
       if (!pad) return;
-      if (start) hint.append(h('span', 'ui-key', start), ' aller à « Lancer »  ');
-      if (prev && next) hint.append(h('span', 'ui-key', prev), h('span', 'ui-key', next), ' changer de section');
+      if (start) hint.append(h('span', 'ui-key', start), ' Lancer');
+      if (start && prev && next) hint.append('\u2002·\u2002');
+      if (prev && next) hint.append(h('span', 'ui-key', prev), h('span', 'ui-key', next), ' Sections');
     };
     summary.append(sumHead, sumBody, actions);
 
@@ -377,6 +378,7 @@ export function createHome(env: UiEnv): (host: HTMLElement, data: unknown) => Sc
       tabs.step((e as CustomEvent<{ step: -1 | 1 }>).detail.step);
     };
     host.addEventListener('ui:tab', onTab);
+    const unlink = env.nav.linkTabsToPane(tabs.el, pane);
 
     return {
       update(_dt: number, input: InputState): void {
@@ -399,6 +401,7 @@ export function createHome(env: UiEnv): (host: HTMLElement, data: unknown) => Sc
       },
       dispose(): void {
         host.removeEventListener('ui:tab', onTab);
+        unlink();
         root.remove();
       },
     };

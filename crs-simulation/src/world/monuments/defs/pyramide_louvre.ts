@@ -54,7 +54,7 @@ function build(site: MonumentSite) {
 export const def: MonumentDef = {
   key: 'pyramide_louvre',
   name: 'Pyramide du Louvre',
-  radius: 56,
+  radius: 80,
   height: PYRAMIDE.height,
   build(site) { return build(site); },
   buildFar(site) {

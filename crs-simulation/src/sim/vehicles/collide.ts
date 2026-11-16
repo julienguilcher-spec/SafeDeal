@@ -25,6 +25,8 @@ import type { VehicleKernel, VehicleRt } from './runtime';
 export const PERSON_HIT_SPEED = 2.0;
 /** Délai avant qu'une même personne puisse être heurtée de nouveau (s). */
 const HIT_COOLDOWN = 2.5;
+/** Interpénétration en deçà de laquelle deux véhicules sont considérés comme simplement voisins (m). */
+const CONTACT_SLOP = 0.002;
 /** Rebond contre le décor et entre véhicules. */
 const RESTITUTION = 0.12;
 const WALL_FRICTION = 0.35;
@@ -342,6 +344,7 @@ export class Collisions implements WorldCollider {
         const dx = av.x - bv.x;
         if (dx * dx + dz * dz >= rr * rr || bv.dormant || bv.def.flying) continue;
         if (!obbVsObb(av.x, av.z, A.halfW, A.halfL, av.heading, bv.x, bv.z, B.halfW, B.halfL, bv.heading, c)) continue;
+        if (c.depth < CONTACT_SLOP) continue; // tôles qui se touchent à peine : pas un choc, on laisse dormir
         // le premier nommé est celui qui bouge (c'est lui qui signale le choc)
         if (awakeA) this.resolvePair(A, B, c);
         else {
@@ -370,12 +373,13 @@ export class Collisions implements WorldCollider {
     const IB = mB * B.gyr2;
     const nx = c.nx;
     const nz = c.nz;
-    // séparation, partagée selon les masses
+    // séparation, partagée selon les masses (un cheveu de plus : le contact ne se reproduit pas au pas suivant)
     const wA = mB / (mA + mB);
-    a.x += nx * c.depth * wA;
-    a.z += nz * c.depth * wA;
-    b.x -= nx * c.depth * (1 - wA);
-    b.z -= nz * c.depth * (1 - wA);
+    const sep = c.depth + CONTACT_SLOP;
+    a.x += nx * sep * wA;
+    a.z += nz * sep * wA;
+    b.x -= nx * sep * (1 - wA);
+    b.z -= nz * sep * (1 - wA);
 
     const rAx = c.x - a.x;
     const rAz = c.z - a.z;

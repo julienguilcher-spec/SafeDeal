@@ -4,21 +4,26 @@ const { browser, page, errors } = await openPage(server.url + 'harness/command.h
 await waitFor(page, 'window.__ready === true');
 await page.waitForTimeout(800);
 page.on('console', (m) => { if (m.text().startsWith('DBG')) console.log(m.text()); });
-await page.evaluate(() => {
-  const b = window.__cmd;
-  let n = 0;
+const log = () => page.evaluate(() => {
+  const b = window.__cmd; let n = 0;
   const f = () => {
-    const st = b.ui.stack();
-    const inp = b.ctx.input;
+    const st = b.ui.stack(); const inp = b.ctx.input;
     if (st.length || inp.down('orders') || inp.pressed('orders') || inp.released('orders')) {
       const inst = b.ui.instance('roue_ordres');
-      console.log('DBG', n, JSON.stringify(st), 'down', inp.down('orders'), 'pressed', inp.pressed('orders'), 'rel', inp.released('orders'), inst ? `held ${inst.held} age ${inst.age.toFixed(3)} hl ${inst.wheel && inst.wheel.highlighted}` : '');
+      console.log('DBG', n, JSON.stringify(st), 'down', inp.down('orders'), 'pressed', inp.pressed('orders'), inst ? `held ${inst.held} age ${inst.age.toFixed(3)} ticks ${inst.ticks} hl ${inst.wheel && inst.wheel.highlighted} hover ${inst.wheel && inst.wheel.hoverEnabled}` : '');
     }
-    if (++n < 120) requestAnimationFrame(f);
+    if (++n < 50) requestAnimationFrame(f);
   };
   requestAnimationFrame(f);
 });
-await page.mouse.move(640, 250);
+await page.keyboard.down('KeyF');
+await page.waitForTimeout(400);
+await page.mouse.move(640, 360);
+await page.mouse.move(640, 250, { steps: 4 });
+await page.waitForTimeout(200);
+await page.keyboard.up('KeyF');
+await page.waitForTimeout(400);
+await log();
 await page.keyboard.press('KeyF');
 await page.waitForTimeout(900);
 await finish({ browser, server, errors, label: 'dbg' });

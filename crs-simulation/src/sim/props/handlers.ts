@@ -40,10 +40,6 @@ function option(verb: InteractVerb): InteractionOption {
   return { verb, targetKind: 'prop', targetId: 0, label: '', priority: 0, duration: 0, x: 0, z: 0 };
 }
 
-function capitalize(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
 export function createHandlers(m: Mod): InteractionHandler[] {
   const k = m.k;
   const store = m.store;

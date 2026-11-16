@@ -4,7 +4,8 @@
 //
 //   node tests/e2e/render.mjs            tout
 //   node tests/e2e/render.mjs ambiances  seulement un groupe (ambiances | cameras | effets | qualite)
-import { startServer, openPage, waitFor, shot, finish } from './lib.mjs';
+import path from 'node:path';
+import { startServer, openPage, waitFor, shot, finish, OUT } from './lib.mjs';
 
 const only = process.argv[2] ?? '';
 const server = await startServer();
@@ -15,7 +16,7 @@ const failures = [];
 const check = (cond, message) => { if (!cond) failures.push(message); };
 
 /** Applique un réglage, laisse le rendu se stabiliser, capture, retourne les mesures. */
-async function view(name, setup, frames = 4) {
+async function view(name, setup, frames = 3) {
   await page.evaluate(async ([s, n]) => {
     window.__render.apply(s);
     await window.__render.settle(n);
@@ -53,10 +54,10 @@ if (!only || only === 'ambiances') {
   check(noon.stats.rainStreaks === 0, 'pas de pluie par temps clair');
   await view('02-midi-clair-sud', { ...STREET, t: 13.8, meteo: 'clair', yaw: 178, pos: [-3, 1.9, -50], pitch: 14 });
   await view('03-nuageux', { ...STREET, t: 15.5, meteo: 'nuageux' });
-  await view('04-fin-apres-midi-doree', { ...STREET, t: 19.9, meteo: 'clair' });
+  await view('04-fin-apres-midi-doree', { ...STREET, t: 20.3, meteo: 'nuageux', yaw: 176, pos: [1.5, 1.9, -62], pitch: 7 });
   const sunset = await view('05-coucher-de-soleil', { ...STREET, t: 20.8, meteo: 'nuageux', pitch: 7 });
   check(sunset.stats.sunElev > 0 && sunset.stats.sunElev < 5, 'soleil rasant attendu au coucher');
-  await view('06-coucher-clair', { ...STREET, t: 20.95, meteo: 'clair', pitch: 6 });
+  await view('06-coucher-clair', { ...STREET, t: 20.95, meteo: 'clair', pitch: 7 });
   const dusk = await view('07-crepuscule', { ...STREET, t: 21.55, meteo: 'clair', pitch: 8, feu: true });
   check(dusk.stats.streetLights === true, 'éclairage public allumé au crépuscule');
   const night = await view('08-nuit', { ...STREET, t: 23.5, meteo: 'clair', feu: true, gyro: true, pitch: 8 });
@@ -64,7 +65,8 @@ if (!only || only === 'ambiances') {
   check(night.stats.exposure > 1.3, 'nuit : exposition relevée');
   check(night.stats.lightsLit > 0, 'nuit : des lumières dynamiques allumées');
   check(night.stats.lightsLit <= night.stats.pointBudget + 3, 'le budget de lumières est respecté');
-  await view('09-nuit-lune', { ...STREET, t: 0.6, meteo: 'clair', yaw: 176, pos: [-3, 1.9, -60], pitch: 12, feu: false, gyro: false });
+  check(night.stats.lightsWanted > night.stats.pointBudget, 'plus de lumières demandées que le budget (candélabres)');
+  await view('09-nuit-lune', { cam: 'free', pos: [0, 30, 60], yaw: -150, pitch: 6, zoom: 2, t: 23.6, meteo: 'nuageux', feu: false, gyro: false });
   await view('10-nuit-couverte', { ...STREET, t: 23.5, meteo: 'couvert', feu: true, gyro: true });
   await view('11-couvert', { ...STREET, t: 15, meteo: 'couvert' });
   const rain = await view('12-pluie', { ...STREET, t: 16, meteo: 'pluie' });
@@ -76,15 +78,15 @@ if (!only || only === 'ambiances') {
   check(fog.stats.drawDistance < 150, 'distance d’affichage réduite dans le brouillard');
   check(fog.stats.visibility < noon.stats.visibility / 3, 'le brouillard réduit nettement la visibilité');
   await view('15-orage', { ...STREET, t: 18, meteo: 'orage' });
-  await view('16-orage-eclair', { ...STREET, t: 18, meteo: 'orage', eclair: 1 }, 1);
-  await view('17-orage-nuit', { ...STREET, t: 22.5, meteo: 'orage', feu: true, gyro: true });
+  await view('16-orage-eclair', { cam: 'free', pos: [0, 30, 60], yaw: 0, pitch: 8, zoom: 1, t: 18, meteo: 'orage', eclair: 0.9, feu: false, gyro: false });
+  await view('17-orage-nuit', { ...STREET, t: 22.5, meteo: 'orage', eclair: 0, feu: true, gyro: true });
   await view('18-aube', { ...STREET, t: 6.45, meteo: 'nuageux', yaw: 178, pos: [-3, 1.9, -50], pitch: 9 });
 }
 
 if (!only || only === 'cameras') {
   console.log('Caméras :');
   const base = { t: 16.5, meteo: 'nuageux', zoom: 1, yaw: 0, pitch: 0, joueur: [2.5, 26], feu: true, gyro: true, marche: false, fx: { gas: 0, wet: 0, pain: 0, visor: 0, flash: 0 } };
-  for (const [name, setup] of [
+  for (const [name, setup, frames] of [
     ['20-cam-fps', { cam: 'fps', pitch: -2 }],
     ['21-cam-tps', { cam: 'tps', pitch: -6 }],
     ['22-cam-tps-mur', { cam: 'tps', joueur: [11.6, 30], yaw: -80, pitch: -4 }],
@@ -93,20 +95,20 @@ if (!only || only === 'cameras') {
     ['25-cam-turret', { cam: 'turret', pitch: -8, yaw: 8 }],
     ['26-cam-drone', { cam: 'drone', pitch: -20 }],
     ['27-cam-tactical', { cam: 'tactical', zoom: 1.6 }],
-    ['28-cam-tactical-large', { cam: 'tactical', zoom: 0.5 }],
+    ['28-cam-tactical-large', { cam: 'tactical', zoom: 0.5 }, 30],
     ['29-cam-viewfinder', { cam: 'viewfinder', zoom: 4, yaw: 1, pitch: -1.5 }],
-    ['30-cam-free', { cam: 'free', pos: [-11, 14, 60], yaw: 12, pitch: -14 }],
+    ['30-cam-free', { cam: 'free', pos: [-11, 14, 60], yaw: 12, pitch: -14, zoom: 1 }],
   ]) {
-    const r = await view(name, { ...base, ...setup }, 6);
+    const r = await view(name, { ...base, ...setup }, frames ?? 4);
     const wanted = setup.cam;
     check(r.stats.mode === wanted, `${name} : mode ${r.stats.mode} au lieu de ${wanted}`);
   }
   const tps = await page.evaluate(() => window.__render.stats());
   check(tps.mode === 'free', 'dernier mode : free');
   // collision de la caméra d'épaule : dos au mur, le recul est réduit et la caméra reste hors de l'immeuble
-  const wall = await view('31-cam-tps-dos-au-mur', { ...base, cam: 'tps', joueur: [12.3, 30], yaw: -90, pitch: -3 }, 6);
+  const wall = await view('31-cam-tps-dos-au-mur', { ...base, cam: 'tps', joueur: [12.3, 30], yaw: -90, pitch: -3 }, 4);
   check(wall.stats.tpsDistance < 1.5, `dos au mur : recul ${wall.stats.tpsDistance.toFixed(2)} m, attendu < 1,5 m`);
-  const open = await view('32-cam-tps-degage', { ...base, cam: 'tps', joueur: [0, 30], yaw: 0, pitch: -3 }, 30);
+  const open = await view('32-cam-tps-degage', { ...base, cam: 'tps', joueur: [0, 30], yaw: 0, pitch: -3 }, 50);
   check(open.stats.tpsDistance > 3, `terrain dégagé : recul ${open.stats.tpsDistance.toFixed(2)} m, attendu > 3 m`);
 }
 
@@ -114,11 +116,11 @@ if (!only || only === 'effets') {
   console.log('Effets d’écran :');
   const base = { cam: 'fps', t: 16.5, meteo: 'nuageux', joueur: [2.5, 26], yaw: 0, pitch: -2, zoom: 1, feu: true, gyro: false };
   const none = { gas: 0, wet: 0, pain: 0, visor: 0, flash: 0 };
-  await view('40-fx-gaz', { ...base, fx: { ...none, gas: 0.75 } }, 40);
+  await view('40-fx-gaz', { ...base, fx: { ...none, gas: 0.75 } }, 30);
   await view('41-fx-flash', { ...base, fx: { ...none, flash: 0.85 } }, 3);
   await view('42-fx-gouttes', { ...base, meteo: 'pluie', fx: { ...none, wet: 0.8 } }, 20);
   await view('43-fx-douleur', { ...base, fx: { ...none, pain: 0.8 } }, 3);
-  await view('44-fx-visiere', { ...base, fx: { ...none, visor: 1 } }, 30);
+  await view('44-fx-visiere', { ...base, fx: { ...none, visor: 1 } }, 25);
   await view('45-fx-visiere-pluie', { ...base, meteo: 'pluie', fx: { ...none, visor: 1, wet: 0.6 } }, 20);
   await view('46-secousse', { ...base, fx: none, secousse: 1 }, 3);
 }
@@ -140,6 +142,26 @@ if (!only || only === 'qualite') {
   const highRain = await view('52-qualite-ultra-pluie', { ...base, quality: 'ultra', meteo: 'averse' }, 6);
   check(lowRain.stats.rainStreaks < highRain.stats.rainStreaks / 4, 'bien moins de traits de pluie en qualité basse');
   await page.evaluate(() => window.__render.apply({ quality: 'haut' }));
+}
+
+if (!only || only === 'moteur') {
+  // les deux modules branchés sur le vrai moteur (Game, session, boucle) : cycle de vie réel
+  console.log('Moteur réel :');
+  const engine = await openPage(server.url + 'harness/render.html?moteur=1&hud=0');
+  await waitFor(engine.page, 'window.__ready === true');
+  await engine.page.waitForTimeout(1500);
+  const report = await engine.page.evaluate(() => window.__engine.report());
+  await engine.page.screenshot({ path: path.join(OUT, 'render-60-moteur.png') });
+  const ids = report.systems.map((s) => s.id + ':' + s.order);
+  console.log('  systèmes : ' + ids.join(', ') + ' | mode ' + report.mode + ' | ' + report.stats.drawCalls + ' appels');
+  check(report.view === true, 'moteur : ctx.view publié');
+  check(report.phase === 'playing', 'moteur : session en cours');
+  check(report.weather === 'nuageux' && report.clockScale === 8, 'moteur : environnement réglé sur la configuration de session');
+  check(ids.includes('env:150') && ids.includes('render.base:1000') && ids.includes('render.present:1090'), 'moteur : systèmes attendus');
+  check(report.systems.every((s) => s.errors === 0 && !s.disabled), 'moteur : aucun système en erreur');
+  check(report.mode === 'tps' && report.stats.drawCalls > 0, 'moteur : caméra à la troisième personne et rendu actif');
+  errors.push(...engine.errors);
+  await engine.browser.close();
 }
 
 console.log(`durée : ${((Date.now() - t0) / 1000).toFixed(1)} s`);

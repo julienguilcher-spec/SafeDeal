@@ -915,6 +915,8 @@ export type OrderType = Open<
   | 'libre' | 'suivre' | 'tenir' | 'ligne' | 'colonne' | 'tortue' | 'avancer' | 'bond_offensif'
   | 'charge' | 'refoulement' | 'repli' | 'encercler' | 'disperser_gaz' | 'interpeller' | 'proteger'
   | 'embarquer' | 'debarquer' | 'degager_barricade' | 'escorter' | 'cesser'
+  // traitement d'un incident : éteindre un feu (targetId ou point), aller chercher un blessé ou un agent à terre
+  | 'eteindre' | 'secourir' | 'releve' | 'ravitailler' | 'couper_circulation' | 'filtrer'
 >;
 
 export interface SquadOrder {

@@ -66,7 +66,7 @@ function build(site: MonumentSite, quality: QualityLevel) {
 export const def: MonumentDef = {
   key: 'institut_de_france',
   name: 'Institut de France',
-  radius: 128,
+  radius: 172,
   height: COUPOLE.top,
   build,
   buildFar(site) {

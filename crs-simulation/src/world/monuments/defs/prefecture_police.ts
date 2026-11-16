@@ -23,7 +23,7 @@ function build(site: MonumentSite, quality: QualityLevel) {
   const low = quality === 'bas';
   b.with(pose(p.ox, 0, p.oz, p.rot), () => {
     addBody(b, p.ring, STYLE, { holes: [rectOf(COUR.x0, COUR.z0, COUR.x1, COUR.z1)], passages: [PORCHE], roofTol: 1.6, light: low });
-    for (const [x, z] of [[-45.2, 51.6], [45.6, 52.6], [-46.6, -52.4], [37.6, -49.2]]) pavilion(b, { x, z, w: 13.6, d: 13.6, style: STYLE, extra: 2.6, roof: 'pavillon', roofH: 6, topScale: 0.35, base: H_MUR, crest: 'plomb' });
+    for (const [x, z] of [[-34.6, 50.8], [45.6, 52.4], [-45.4, -52], [37.4, -49]]) pavilion(b, { x, z, w: 13.6, d: 13.6, style: STYLE, extra: 2.6, roof: 'pavillon', roofH: 6, topScale: 0.35, base: H_MUR, crest: 'plomb' });
     // pavillon central de la façade principale : portail, balcon à colonnes, drapeau
     pavilion(b, { x: 4, z: 53.6, w: 22, d: 10.4, style: STYLE, extra: 3.2, roof: 'pavillon', roofH: 5.5, topScale: 0.45, base: H_MUR, crest: 'plomb' });
     b.with(pose(4, 0, 58.7), () => {

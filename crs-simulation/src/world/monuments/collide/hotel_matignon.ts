@@ -1,6 +1,6 @@
 /* Obstacles de l'hôtel de Matignon (57 rue de Varenne) : site sensible, clos. Portail fermé, hôtel plein. */
 import type { MonumentCollider, MonumentSite } from '../types';
-import { collidersToLocal, planOf, solid, type Passage } from '../x-palais-plan';
+import { collidersToLocal, passageWindow, planOf, solid, type Passage } from '../x-palais-plan';
 
 /** Emprise de référence (repère du monument : murs alignés sur les axes, façade vers +z, origine au centre). */
 export const EMPRISE: readonly number[] = [
@@ -17,9 +17,9 @@ export const COURS: readonly number[][] = [
 ];
 export const H_MUR = 11.4, H_FAITE = 15;
 /** Portail de la rue de Varenne, au fond de son hémicycle (fermé). */
-export const PORTAIL: Passage = { x: -9.3, z: 26.1, width: 7.4, length: 1.8, rot: -0.03, height: 8.6, arches: 1, archWidth: 3.6, archHeight: 6.2 };
+export const PORTAIL: Passage = { x: -9.3, z: 25.85, width: 7.4, length: 3, rot: -0.03, height: 8.6, arches: 1, archWidth: 3.6, archHeight: 6.2 };
 
 export function colliders(site: MonumentSite): MonumentCollider[] {
   const p = planOf(site, EMPRISE);
-  return collidersToLocal(p, [solid(p.ring, H_FAITE)]);
+  return collidersToLocal(p, [solid(p.ring, H_FAITE), solid(passageWindow(PORTAIL, 0.4), 10)]);
 }

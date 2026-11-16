@@ -56,6 +56,17 @@ export class ApState {
   obsSpeed = 0;
   obsReason: AutopilotReason = '';
   obsStatic = false;
+  /** Véhicule qui barre le passage (0 sinon), sa position latérale (m, positive à ma gauche), et s'il attend lui aussi. */
+  obsId: EntityId = 0;
+  obsLat = 0;
+  obsWaiting = false;
+  /** Temps passé face à un véhicule lui-même à l'arrêt (s) : règle de priorité. */
+  yieldT = 0;
+  // ── demi-tour ──
+  /** 0 aucun, 1 marche avant braquée, 2 marche arrière contre-braquée. */
+  uturn = 0;
+  uturnDir = 1;
+  uturnMoves = 0;
   // ── voie ──
   laneT = 0;
   laneOffset = 0;
@@ -98,6 +109,12 @@ export class ApState {
     this.obsSpeed = 0;
     this.obsReason = '';
     this.obsStatic = false;
+    this.obsId = 0;
+    this.obsLat = 0;
+    this.obsWaiting = false;
+    this.yieldT = 0;
+    this.uturn = 0;
+    this.uturnMoves = 0;
     this.laneT = 0;
     this.laneOffset = 0;
     this.laneWant = 0;

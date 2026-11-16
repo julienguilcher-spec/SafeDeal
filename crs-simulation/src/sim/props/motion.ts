@@ -299,18 +299,30 @@ export class Motion {
           p.vz *= f;
           speed -= drop;
         }
-        const r = (p.halfX < p.halfZ ? p.halfX : p.halfZ) + 0.05;
+        // l'objet est vu comme une capsule le long de son grand côté : un disque, ou deux pour un objet allongé
+        const long = p.halfX >= p.halfZ;
+        const r = (long ? p.halfZ : p.halfX) + 0.05;
+        const e = (long ? p.halfX : p.halfZ) - r;
+        const ux = e > 0.1 ? (long ? Math.cos(p.heading) : Math.sin(p.heading)) * e : 0;
+        const uz = e > 0.1 ? (long ? -Math.sin(p.heading) : Math.cos(p.heading)) * e : 0;
+        const probes = e > 0.1 ? 2 : 1;
         // décor statique : l'objet s'arrête contre le mur
-        tmp.x = p.x;
-        tmp.z = p.z;
-        if (ctx.world.resolveCircle(tmp, r)) {
-          p.x = tmp.x;
-          p.z = tmp.z;
-          p.vx = 0;
-          p.vz = 0;
-          speed = 0;
+        for (let q = 0; q < probes; q++) {
+          const ox = probes === 1 ? 0 : q === 0 ? ux : -ux;
+          const oz = probes === 1 ? 0 : q === 0 ? uz : -uz;
+          tmp.x = p.x + ox;
+          tmp.z = p.z + oz;
+          if (ctx.world.resolveCircle(tmp, r)) {
+            p.x = tmp.x - ox;
+            p.z = tmp.z - oz;
+            p.vx = 0;
+            p.vz = 0;
+            speed = 0;
+          }
         }
-        if (speed > 0) speed = this.collide(p, r, speed);
+        for (let q = 0; q < probes && speed > 0; q++) {
+          speed = this.collide(p, r, probes === 1 ? 0 : q === 0 ? ux : -ux, probes === 1 ? 0 : q === 0 ? uz : -uz);
+        }
         const y = ctx.world.heightAt(p.x, p.z);
         p.y = Number.isFinite(y) ? y : 0;
         store.reindex(p);
@@ -329,17 +341,19 @@ export class Motion {
     this.updateBlades(dt);
   }
 
-  /** Chocs de l'objet qui glisse contre les autres objets solides. Retourne sa vitesse après les chocs. */
-  private collide(p: PropObj, r: number, speed: number): number {
+  /**
+   * Chocs de l'objet qui glisse contre les autres objets solides, pour un disque de rayon `r` décalé de
+   * (ox, oz) par rapport à son centre. Retourne sa vitesse après les chocs.
+   */
+  private collide(p: PropObj, r: number, ox: number, oz: number): number {
     const store = this.m.store;
     const near = this.near;
-    const n = store.collectAround(p.x, p.z, r + 0.05, near);
-    if (n <= 1) return speed;
+    const n = store.collectAround(p.x + ox, p.z + oz, r + 0.05, near);
     const tmp = this.tmp;
     for (let j = 0; j < n; j++) {
       const q = near[j]!;
       if (q === p || !q.blocksMove || q.dormant || q.carriedBy !== 0) continue;
-      if (!circleVsObb(p.x, p.z, r, q.x, q.z, q.halfX, q.halfZ, q.heading, tmp)) continue;
+      if (!circleVsObb(p.x + ox, p.z + oz, r, q.x, q.z, q.halfX, q.halfZ, q.heading, tmp)) continue;
       const l = Math.sqrt(tmp.x * tmp.x + tmp.z * tmp.z);
       p.x += tmp.x;
       p.z += tmp.z;

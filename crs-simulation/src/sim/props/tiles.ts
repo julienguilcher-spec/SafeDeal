@@ -77,7 +77,6 @@ export class Tiles {
   private readonly buf: PropObj[] = [];
   /** Tuile en cours de déchargement : ses retraits ne sont pas des enlèvements volontaires. */
   private unloading: TileRec | null = null;
-  private current: TileRec | null = null;
   private readonly rand = (): number => this.randRng.next();
   private randRng!: Rng;
 
@@ -95,7 +94,6 @@ export class Tiles {
   reset(forgetMemory: boolean): void {
     this.tiles.clear();
     this.queue.length = 0;
-    this.current = null;
     this.unloading = null;
     if (forgetMemory) this.memory.clear();
   }
@@ -222,7 +220,6 @@ export class Tiles {
     const world = m.k.ctx.world;
     const shopsInfo = world.shopsInTile(rec.tx, rec.tz);
     const furniture = world.furnitureInTile(rec.tx, rec.tz);
-    this.current = rec;
     this.randRng = job.rng;
     const density = m.k.tuning.ambientDensity;
 
@@ -267,7 +264,6 @@ export class Tiles {
       this.applyMemory(rec);
       rec.job = null;
     }
-    this.current = null;
     return budget;
   }
 

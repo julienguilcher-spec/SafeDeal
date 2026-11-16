@@ -228,6 +228,8 @@ export class ShopObj implements Shop {
   suppress = 0;
   dousedAt = -1e9;
   inFire = false;
+  /** Développement maximal atteint par le feu en cours (0..1). */
+  peak = 0;
   burnt = false;
   fireNext = 0;
   fireTicks = 0;
