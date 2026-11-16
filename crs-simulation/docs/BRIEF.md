@@ -9,9 +9,18 @@ Un jeu de simulation **ultra réaliste** de maintien de l'ordre à la française
 meilleur que les jeux « CRS simulation » existants. En priorité : **les manifestations**.
 
 - **Tous les rôles sont jouables** (et tous existent aussi en PNJ) :
-  CRS (du gardien de base au commandant de compagnie), autorité civile / commissaire (écharpe tricolore, mégaphone,
-  c'est elle qui fait les **sommations**), BRAV-M (binôme à moto), gendarme mobile (équipage du **Centaure**),
-  opérateur du canon à eau, **télépilote de drone**, **médecin** (street medic / secours), **journaliste**, **manifestant**.
+  CRS (du gardien de base au chef de groupe), **commandant** (voir ci-dessous), BRAV-M (binôme à moto), gendarme
+  mobile (équipage du **Centaure**), opérateur du canon à eau, **télépilote de drone**, **médecin** (street medic),
+  **pompier** / secouriste, **journaliste**, **manifestant**.
+- **Un seul chef : le commandant a tous les pouvoirs** (décision explicite du commanditaire). Le commandant d'unité et
+  l'autorité civile (commissaire) ne font **qu'une seule personne**, « un peu préfet de police » : il porte l'**écharpe
+  tricolore**, tient le **mégaphone**, prononce lui-même les **sommations**, décide de l'emploi de la force et commande
+  toute la compagnie et les moyens spéciaux. **Ses ordres s'appliquent immédiatement** : aucune demande d'autorisation,
+  aucun délai hiérarchique, aucun second personnage à convaincre. Il reste responsable de ses décisions (le compte rendu
+  et l'évaluation jugent ses choix). Techniquement : le rôle jouable `commandant` cumule le poste de commandement et la
+  qualité d'autorité habilitée (`look.sash = true`, mégaphone et fusée de sommation en dotation) ; le rôle `commissaire`
+  du contrat est un simple alias du même rôle et n'est pas proposé séparément dans l'interface. Quand le joueur incarne
+  un autre rôle, le commandant IA est lui aussi ce personnage unique.
 - **Modes** : Carrière (on progresse de grade en grade) ; **Mode libre** (on choisit son rôle, son grade — y compris
   commandant directement — et sa mission) ; Monde ouvert (patrouille libre) ; Éditeur de scénario (lieu, effectif,
   tension, météo, heure).
@@ -102,6 +111,28 @@ meilleur que les jeux « CRS simulation » existants. En priorité : **les manif
     par la rue après un délai réaliste, s'arrêtent à distance si la zone n'est pas sûre, et n'interviennent que si un
     itinéraire dégagé et une protection leur sont fournis. Le bon choix **dépend** : feu important ou blessé grave →
     secours ; petit feu, urgence ou zone trop hostile → moyens propres de l'unité.
+- **Améliorations retenues par le commanditaire** :
+  1. **Phase de préparation** avant la mission : note de renseignement (effectif attendu, part de radicaux, points
+     chauds, météo, parcours déclaré), puis mise en place du dispositif sur la carte avant l'arrivée de la foule.
+  2. **Mesures préventives** : retrait du mobilier urbain du parcours (poubelles, barrières, conteneurs), contrôles et
+     fouilles en amont, périmètre interdit. Tout projectile vient d'un objet réellement présent dans la rue : moins de
+     mobilier, moins de munitions pour les casseurs.
+  3. **Dialogue avec les organisateurs** : une équipe de liaison parle au service d'ordre du cortège (arrêt, changement
+     de parcours, isolement des violents) — voie de désescalade sans force.
+  4. **Signes avant-coureurs** à repérer à pied ou au drone : personnes qui se changent, se regroupent, dépavent,
+     déploient des parapluies ; les repérer à temps permet d'agir avant le passage à l'acte et rend les phases calmes utiles.
+  5. **Densité et mouvements de foule** : alerte de compression (≥ 4 personnes/m²), issues à garder ouvertes ; une nasse
+     mal faite ou une charge dans une rue étroite peut provoquer une bousculade grave.
+  6. **Fatigue et logistique des unités** : une section qui tient la ligne s'épuise et doit être relevée ; les grenades
+     s'épuisent et se réapprovisionnent aux fourgons.
+  7. **Compte rendu ligne à ligne et relecture sur carte** : en fin de mission, heure, lieu, acte, règle appliquée, points
+     gagnés ou perdus ; puis relecture de toute la manifestation vue du dessus (trajets des unités, tirs, tension).
+  8. **Missions miroirs** : la même manifestation rejouée dans un autre rôle (commandant, puis journaliste ou manifestant).
+  9. **Campagne sur plusieurs jours** (« semaine de mobilisation ») : fatigue, blessés, image publique et colère de la rue
+     se reportent d'un acte au suivant.
+  10. **École de formation** : quatre ateliers de trois minutes (tenir la ligne, porter le bouclier, écouter et prononcer
+      les sommations, premiers secours).
+  Écartée : la chaîne d'autorisation entre commandant et commissaire (remplacée par le commandant unique ci-dessus).
 - **Tout le matériel** : bouclier, tonfa / bâton de défense, gazeuse, grenades lacrymogènes à main et au lanceur
   (Cougar), grenades de désencerclement, LBD 40, extincteur, menottes, radio, mégaphone, arme de service
   (légitime défense uniquement). **Véhicules conduisibles** : fourgon CRS, car de transport, véhicule de commandement,
