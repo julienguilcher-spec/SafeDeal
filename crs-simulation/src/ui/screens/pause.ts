@@ -148,8 +148,8 @@ export function createPause(env: UiEnv): (host: HTMLElement) => ScreenInstance {
       if (ctx.input.device === 'kbm') {
         row('Pause', 'Échap');
         if (isPoliceRole(ctx.player.state.role)) {
-          row('Retour vidéo du drone', 'O');
-          row('Retour vidéo : taille / zoom', 'Maj + O / Alt + O');
+          // (une seule ligne : l'écran de pause doit tenir sur un téléphone en paysage)
+          row('Retour vidéo du drone · taille · zoom', 'O · Maj + O · Alt + O');
           row('Proposition de l’adjoint : accepter / plus tard', 'P / Maj + P');
         }
       }

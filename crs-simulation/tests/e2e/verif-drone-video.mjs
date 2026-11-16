@@ -67,8 +67,16 @@ try {
   check(big.rect && s.rect && big.rect.w > s.rect.w, 'un clic sur l’image agrandit la fenêtre', `${s.rect?.w} → ${big.rect?.w}`);
   await shot(page, 'drone-video-2-agrandie');
   if (big.rect) await page.screenshot({ path: 'tests/e2e/out/drone-video-2-zoom.png', clip: { x: big.rect.x, y: big.rect.y, width: big.rect.w, height: big.rect.h } });
+  // un deuxième clic : plein écran ; un troisième : retour à la petite fenêtre
   await page.locator('[data-id="drone-feed-video"]').click();
-  await sleep(500);
+  await sleep(1200);
+  const full = await feedState();
+  check(full.rect && big.rect && full.rect.w > big.rect.w && full.rect.w > W * 0.7, 'un deuxième clic passe en plein écran', `${big.rect?.w} → ${full.rect?.w}`);
+  await shot(page, 'drone-video-2b-plein-ecran');
+  await page.locator('[data-id="drone-feed-video"]').click();
+  await sleep(800);
+  const small = await feedState();
+  check(small.rect && s.rect && small.rect.w === s.rect.w, 'un troisième clic revient à la petite fenêtre', `${small.rect?.w}`);
   // par-dessus la carte tactique
   await page.locator('[data-id="quick-map"]').click();
   await sleep(2500);
