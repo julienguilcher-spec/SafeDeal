@@ -136,12 +136,19 @@ export const LOD_MAX_DT = 0.25;
 export const STAMINA_SPRINT_DRAIN = 4;
 /** Course (trot) : ≈ 2 min sans charge. */
 export const STAMINA_RUN_DRAIN = 0.8;
+/**
+ * Allure de course (fraction de la vitesse de course) en deçà de laquelle on ne s'essouffle pas : un pas très
+ * soutenu (≈ 55 % de la course) se récupère comme une marche ; au-delà, la dépense croît jusqu'à la pleine foulée.
+ */
+export const RUN_EFFORT_FROM = 0.55;
 /** Récupération : 2 s de course rendues par seconde d'arrêt (D06 §1.4) → 8 points/s ; moitié en marchant. */
 export const STAMINA_REST = 8;
 export const STAMINA_WALK = 4;
 /** Surcoût par kg d'équipement : 20 kg → sprint tenu 15 s (D03 §5.5). */
 export const STAMINA_LOAD_K = 0.033;
 export const STAMINA_LOAD_RECOVERY_K = 0.015;
+/** Part du surcoût de la charge qui s'applique à la course (trot) : le sprint la paie entière, le trot moitié. */
+export const STAMINA_LOAD_RUN_SHARE = 0.5;
 /** Masque à gaz : on respire à travers une cartouche. */
 export const MASK_DRAIN = 1.15;
 export const MASK_RECOVERY = 0.7;
@@ -302,8 +309,18 @@ export const CHARGE_TIME = 0.9;
 export const CHARGE_MIN_POWER = 0.2;
 /** En dessous de cette inclinaison du stick, on marche ; au-delà, on trottine. */
 export const STICK_WALK = 0.55;
-/** Joystick tactile poussé à fond : sprint. */
-export const TOUCH_SPRINT = 0.97;
+/** Manche (manette, joystick tactile) considéré comme poussé au bord. */
+export const STICK_FULL = 0.95;
+/**
+ * Course automatique : avance tenue à fond (touche d'avance, manche au bord) plus de RUN_HOLD_DELAY secondes, l'allure
+ * monte de la marche au trot puis à la course en RUN_RAMP secondes (un CRS en tenue : 1,3 → 2,9 → 4,5 m/s). Il faut
+ * avancer franchement (composante avant ≥ RUN_FORWARD) ; sous AUTO_RUN_EASE de souffle on se limite au trot, et
+ * essoufflé on repasse à la marche.
+ */
+export const RUN_HOLD_DELAY = 1.2;
+export const RUN_RAMP = 1.2;
+export const RUN_FORWARD = 0.6;
+export const AUTO_RUN_EASE = 40;
 /** Rafraîchissement de l'invite d'interaction et de la visée (s). */
 export const PROMPT_INTERVAL = 0.2;
 export const AIM_INTERVAL = 0.1;

@@ -210,11 +210,17 @@ export function thinkAgent(k: Kernel, a: Agent, interval: number): void {
     tx = a.postX;
     tz = a.postZ;
   }
-  // allure maximale pour rejoindre : la formation en marche impose la sienne ; la fatigue ralentit
+  // allure maximale pour rejoindre : la formation en marche impose la sienne (le retardataire court pour recoller) ;
+  // une mise en place se fait au trot, à la course sur un ordre urgent (appui, bouclage d'une nasse) ; la fatigue
+  // ralentit, et un agent à bout de souffle ne sprinte plus
   const tired = 1 - 0.3 * u.fatigue;
-  if (a.op !== null) a.vcap = (a.goalRun ? 3.6 : 1.6) * tired;
+  const trot = a.lim1 * 0.97;
+  if (a.op !== null) a.vcap = (a.goalRun ? T.SPEED_OP_RUN : T.SPEED_OP_WALK) * tired;
   else if (g && g.moving) a.vcap = g.speed * 1.4 + 0.3;
-  else a.vcap = T.SPEED_JOIN * tired;
+  else if ((tx - p.x) * (tx - p.x) + (tz - p.z) * (tz - p.z) < T.JOIN_NEAR * T.JOIN_NEAR) a.vcap = T.SPEED_ADJUST * tired;
+  else if (now < u.trotUntil || (u.phase === 'mise_en_place' && u.order !== null && u.order.type === 'encercler')) a.vcap = T.SPEED_JOIN_URGENT * tired;
+  else a.vcap = (trot > 1.2 && trot < T.SPEED_JOIN ? trot : T.SPEED_JOIN) * tired;
+  if (p.stamina < T.STAMINA_AGENT_EASE && trot > 1.2 && a.vcap > trot && !(a.op !== null && a.goalRun)) a.vcap = trot;
 
   // écran ou escorte : l'élément protégé se contourne, on ne le bouscule pas
   a.obR = 0;

@@ -152,7 +152,7 @@ describe('police — bond offensif, charge, repli, tortue', () => {
     expect(after.cz - before.cz).toBeLessThan(26);
     expect(worst).toBeLessThan(1);
     expect(turned).toBeLessThan(0.5);
-    expect(top).toBeLessThan(1.75); // recul au pas (0,9 m/s, rattrapage borné à 1,6), pas une fuite
+    expect(top).toBeLessThan(2.0); // recul au pas (1,1 m/s, rattrapage borné à 1,84), pas une fuite
     expect(after.error).toBeLessThan(0.5);
   });
 

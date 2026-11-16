@@ -5,9 +5,12 @@
  *   progress()    à chaque pas : marche du repère, suivi d'une cible, enchaînement des étapes
  *                 (mise en place → en place → mouvement → arrêt et réalignement → compte rendu).
  *
- * Allures et distances : docs/research/00-bible-realisme.md §E.8 (ligne au pas 1,2 m/s, bond
- * offensif au trot 2,3 m/s sur 15 à 25 m puis arrêt net et réalignement, charge à 4 m/s sur 30 à
+ * Allures et distances : docs/research/00-bible-realisme.md §E.8 (ligne au pas cadencé au contact,
+ * bond offensif au trot sur 15 à 25 m puis arrêt net et réalignement, charge à la course sur 30 à
  * 60 m, sifflet, repli au pas sur la ligne de départ, vague de refoulement par tronçons de 50 m).
+ * L'allure suit l'urgence (tuning.ts, mcore.ts : columnSpeed, lineSpeed) : pas soutenu en routine hors
+ * contact, trot vers un point éloigné, course sur un mouvement urgent ou une charge, repli plus vif sous
+ * la pression ; le souffle de l'unité ramène une course trop longue au trot.
  * Les ordres particuliers (encerclement, relève, barrages de rue, véhicules) sont dans special.ts.
  * ===================================================================================== */
 
@@ -17,9 +20,9 @@ import type { FormGroup, Unit } from './brain';
 import { F_BOX, F_COLUMN, F_HOLD, F_LINE, F_NONE, F_SCREEN, F_TORTUE } from './brain';
 import type { Kernel } from './kernel';
 import {
-  allSettled, commonRunSpeed, copyOrder, done, filesFor, formBox, formColumn, formHold, formLine, formScreen, formTortue,
-  formLate, gather, hasFormation, inPlace, isAligned, leaderOf, mainGroup, moveTo, personById, react, reform, report, setPhase,
-  setStep, stepColumn, stepFrame, stopGroup, unitCenter, vehicleById,
+  allSettled, columnSpeed, commonRunSpeed, commonTrotSpeed, copyOrder, done, filesFor, formBox, formColumn, formHold, formLine, formScreen,
+  formTortue, formLate, gather, hasFormation, inPlace, isAligned, leaderOf, lineSpeed, mainGroup, moveTo, personById, react, reform,
+  report, setPhase, setStep, staminaCap, stepColumn, stepFrame, stopGroup, underPressure, unitCenter, vehicleById,
 } from './mcore';
 import { appendPath, measure, placeGroup, settleSlots } from './place';
 import { ackBody, acknowledge, spell } from './radio';
@@ -120,9 +123,10 @@ export function startOrder(k: Kernel, u: Unit, o: SquadOrder): void {
       }
       const h = Math.abs(angleDiff(g.ah, order.heading)) < 1.2 ? order.heading : g.ah;
       const d = Math.sqrt((order.x - g.ax) * (order.x - g.ax) + (order.z - g.az) * (order.z - g.az));
+      const pressed = underPressure(k, u);
       if (d <= 140 && k.sight(g.ax, g.az, order.x, order.z)) {
-        // recul ordonné : le repère recule, les agents gardent la face tournée vers la foule
-        moveTo(g, order.x, order.z, h, k.tuning.repli);
+        // recul ordonné : le repère recule, les agents gardent la face tournée vers la foule (plus vivement sous la pression)
+        moveTo(g, order.x, order.z, h, pressed ? T.SPEED_REPLI_PRESSED : k.tuning.repli);
         setStep(k, u, 1);
         setPhase(k, u, 'mouvement');
       } else {
@@ -131,6 +135,8 @@ export function startOrder(k: Kernel, u: Unit, o: SquadOrder): void {
         m.gz = order.z;
         m.gh = h;
         m.deployWidth = order.width > 0 ? order.width : g.kind === F_LINE ? g.width : 0;
+        // repli lointain sous la pression : décrochage à la course
+        if (pressed) u.trotUntil = Math.max(u.trotUntil, k.now + d / T.SPEED_RUN + 15);
         startColumn(k, u, order.x, order.z, filesFor(0, u.formed));
       }
       break;
@@ -156,7 +162,8 @@ export function startOrder(k: Kernel, u: Unit, o: SquadOrder): void {
       col.followId = id;
       col.radius = tv ? tv.def.length * 0.5 + 4 : 2.6;
       col.moving = true;
-      col.speed = k.tuning.pace;
+      // la tête règle elle-même son allure sur la cible (followColumn) ; g.speed borne le rattrapage des agents
+      col.speed = commonTrotSpeed(u, k.tuning.trot);
       m.targetId = id;
       setStep(k, u, 1);
       setPhase(k, u, 'mouvement');
@@ -256,7 +263,7 @@ function startColumn(k: Kernel, u: Unit, x: number, z: number, files: number): v
     hz = k.v2.z;
   }
   const col = formColumn(k, u, hx, hz, x, z, files);
-  col.speed = k.now < u.trotUntil ? k.tuning.trot : k.tuning.pace;
+  col.speed = columnSpeed(k, u, col);
   setStep(k, u, 0);
   setPhase(k, u, 'mise_en_place');
 }
@@ -282,7 +289,7 @@ function startAdvance(k: Kernel, u: Unit, o: SquadOrder): void {
   // (plus vite, par les rues) et se redéploie en ligne à l'arrivée — comme une compagnie qui change de position
   if (d <= ADVANCE_IN_LINE && k.sight(g.ax, g.az, o.x, o.z)) {
     if (Math.abs(angleDiff(g.ah, o.heading)) > 0.9) refit(k, u, g, o.heading);
-    moveTo(g, o.x, o.z, o.heading, g.kind === F_TORTUE ? k.tuning.tortue : k.tuning.pace);
+    moveTo(g, o.x, o.z, o.heading, g.kind === F_TORTUE ? k.tuning.tortue : lineSpeed(k, u));
     setStep(k, u, 1);
     setPhase(k, u, 'mouvement');
   } else {
@@ -361,7 +368,7 @@ function launchLeg(k: Kernel, u: Unit, g: FormGroup): void {
   const type = u.order!.type;
   let leg = m.left;
   let speed: number;
-  if (type === 'bond_offensif') speed = Math.min(k.tuning.trot, commonRunSpeed(u, k.tuning.trot));
+  if (type === 'bond_offensif') speed = commonTrotSpeed(u, k.tuning.trot);
   else if (type === 'charge') speed = commonRunSpeed(u, k.tuning.charge);
   else {
     speed = k.tuning.pace;
@@ -389,7 +396,7 @@ function followColumn(k: Kernel, u: Unit, g: FormGroup, dt: number): void {
   if (cohesion > 1) cohesion = 1;
   else if (cohesion < 0.2) cohesion = 0.2;
   let want = (goal - g.s) * 1.4;
-  const max = k.tuning.trot * cohesion;
+  const max = commonTrotSpeed(u, k.tuning.trot) * cohesion;
   if (want > max) want = max;
   if (want < 0) want = 0;
   const dv = (want > g.v ? T.FRAME_ACCEL : T.FRAME_DECEL * 2) * dt;
@@ -452,6 +459,11 @@ export function progress(k: Kernel, u: Unit, dt: number): void {
       else followFrame(k, g);
     }
     if (g.moving && !(g.kind === F_COLUMN && g.followId !== 0)) {
+      // souffle : une colonne lancée à la course ou au trot ralentit quand l'unité s'épuise (deux fois par seconde)
+      if (g.kind === F_COLUMN && ((k.ctx.clock.tick + u.id) % 15) === 0) {
+        const cap = staminaCap(k, u);
+        if (g.speed > cap) g.speed = cap;
+      }
       if (g.kind === F_COLUMN ? stepColumn(g, dt) : stepFrame(g, dt)) {
         arrived = true;
         placeGroup(k, g);
@@ -496,12 +508,16 @@ export function progress(k: Kernel, u: Unit, dt: number): void {
     case 'repli':
       if (g.kind === F_COLUMN) {
         if (m.step === 0) {
-          // la colonne se forme, puis s'ébranle
-          if (g.errAll <= 0.9 || k.now - m.stepT > 10) {
+          // la colonne se forme, puis s'ébranle ; sur un mouvement urgent, elle part dès que le gros est en place
+          // (les derniers recollent en marchant, la tête modère son allure tant qu'ils sont loin)
+          const urgent = k.now < u.trotUntil;
+          const formed = urgent ? 2.0 : 0.9;
+          const wait = urgent ? 3 : 8;
+          if (g.errAll <= formed || k.now - m.stepT > wait) {
             measure(g);
-            if (g.errAll <= 0.9 || k.now - m.stepT > 10) {
+            if (g.errAll <= formed || k.now - m.stepT > wait) {
               g.moving = true;
-              g.speed = k.now < u.trotUntil ? k.tuning.trot : k.tuning.pace;
+              g.speed = columnSpeed(k, u, g);
               setStep(k, u, 1);
               setPhase(k, u, 'mouvement');
             }

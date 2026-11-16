@@ -94,8 +94,10 @@ describe('police — ligne de barrage', () => {
     console.log('progression de 40 m — durée', arrivedAt.toFixed(1), 's | pire écart à la droite en marche', worstLine.toFixed(3),
       'm | pire écart aux emplacements', worstSlot.toFixed(3), 'm | écart de vitesse dans le rang', worstSpeedSpread.toFixed(2),
       'm/s | à l\'arrivée', end.error.toFixed(3), 'm');
-    expect(arrivedAt).toBeGreaterThan(30); // au pas : 1,2 m/s
-    expect(arrivedAt).toBeLessThan(55);
+    // hors contact (aucune foule à 40 m) : pas soutenu à 1,9 m/s — l'ancien « pas cadencé » à 1,2 m/s (> 30 s) faisait
+    // marcher les agents à l'allure d'une promenade ; face à une foule, la ligne garde le pas cadencé
+    expect(arrivedAt).toBeGreaterThan(18);
+    expect(arrivedAt).toBeLessThan(40);
     expect(Math.abs((start.cz - end.cz) - 40)).toBeLessThan(0.6);
     // objectif : ≤ 1 m en marche, ≤ 0,5 m à l'arrêt
     expect(worstLine).toBeLessThan(1);

@@ -293,7 +293,7 @@ export class PoliceSystem implements GameSystem {
     // (trot) au lieu du pas cadencé — le joueur qui gère la manifestation veut voir ses unités y aller franchement
     if (o.issuedBy !== 0 && o.issuedBy === this.ctx.player.state.personId && PLAYER_RUSH_ORDERS.has(type)) {
       const d = Math.hypot(o.x - u.status.x, o.z - u.status.z);
-      if (d > PLAYER_RUSH_MIN) u.trotUntil = k.now + d / T.SPEED_TROT + 25;
+      if (d > PLAYER_RUSH_MIN) u.briskUntil = k.now + d / T.SPEED_TROT + 25;
     }
     // unité spéciale pilotée par le commandement (BRAV-M en selle, engins, drone) : elle exécute elle-même cet ordre
     if (k.orderHook !== null && k.orderHook(u, o)) {

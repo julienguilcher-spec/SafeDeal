@@ -8,7 +8,7 @@ import type { VehicleStore } from '@/core/stores';
 import { createTestContext } from '@/core/testing';
 import type { TestContext } from '@/core/testing';
 import { createSystems } from '@/sim/people';
-import type { PlayerControlApi } from '@/sim/people';
+import type { PeopleLocomotionApi, PlayerControlApi } from '@/sim/people';
 import { ScriptedInput, createFakeActions, createScriptedInputSystem, createWallWorld } from '@/sim/people/testkit';
 import type { FakeActions } from '@/sim/people/testkit';
 
@@ -142,19 +142,31 @@ describe('regard et déplacement', () => {
     const { me, input } = r;
     me.look.backpack = false;
     const speed = (): number => Math.hypot(me.vx, me.vz);
-    // clavier : la touche d'avance seule fait MARCHER — le souffle ne s'use pas (défaut de la recette : 100 → 0 en 78 s)
+    /** Lâche le déplacement un pas (remet à zéro la durée d'avance tenue), puis le reprend. */
+    const tap = (x: number, y: number): void => {
+      input.setMove(0, 0);
+      tick(r);
+      input.setMove(x, y);
+    };
+    // clavier : la touche d'avance seule fait d'abord MARCHER ; de brèves avances successives restent à la marche
+    // et le souffle se refait
     input.setMove(0, 1);
-    r.t.step(2);
+    r.t.step(1);
     expect(me.cmd.gait).toBe(0);
     expect(speed()).toBeCloseTo(me.speedWalk, 1);
     me.stamina = 60;
-    r.t.step(20);
+    for (let i = 0; i < 20; i++) {
+      tap(0, 1);
+      r.t.step(1);
+      expect(me.cmd.gait).toBe(0);
+    }
     expect(me.stamina).toBeGreaterThan(60);
     // bascule « marcher / trottiner » : petite foulée, qui tient jusqu'à la bascule suivante
     input.press('jog');
     tick(r);
     input.release('jog');
-    r.t.step(2);
+    tap(0, 1);
+    r.t.step(1.2);
     expect(me.cmd.gait).toBe(1);
     expect(speed()).toBeCloseTo(me.speedRun, 1);
     input.press('sprint');
@@ -162,34 +174,116 @@ describe('regard et déplacement', () => {
     expect(me.cmd.gait).toBe(2);
     expect(speed()).toBeCloseTo(me.speedSprint, 1);
     input.release('sprint');
-    input.press('secondary'); // on vise : au pas
+    input.press('secondary'); // on vise : au pas, même en tenant l'avance
     r.t.step(2);
     expect(me.cmd.gait).toBe(0);
     expect(speed()).toBeCloseTo(me.speedWalk, 1);
     input.release('secondary');
     // seconde bascule : retour à la marche
+    tap(0, 1);
     r.t.step(1);
     expect(me.cmd.gait).toBe(1);
     input.press('jog');
     tick(r);
     input.release('jog');
+    tap(0, 1);
     r.t.step(1);
     expect(me.cmd.gait).toBe(0);
-    // manette : stick à moitié = marche lente
+    // manette : stick à moitié = marche lente, même tenu longtemps
     input.device = 'gamepad';
     input.setMove(0, 0.3);
-    r.t.step(2);
+    r.t.step(4);
     expect(me.cmd.gait).toBe(0);
     expect(speed()).toBeCloseTo(me.speedWalk * (0.3 / 0.55), 1);
-    // tactile : joystick poussé à fond = sprint
+    // tactile : joystick poussé à fond = petite foulée, puis course quand on le tient au bord plus de 1,2 s
     input.device = 'touch';
-    input.setMove(0, 1);
+    tap(0, 1);
     me.stamina = 100;
-    r.t.step(2);
+    r.t.step(0.8);
+    expect(me.cmd.gait).toBe(1);
+    r.t.step(2.5);
     expect(me.cmd.gait).toBe(2);
+    expect(speed()).toBeCloseTo(me.speedSprint, 1);
     input.setMove(0, 0.8);
     tick(r);
     expect(me.cmd.gait).toBe(1);
+  });
+
+  it('avance tenue (Z, W, flèche haut) : marche, puis trot, puis course en tenue ; le souffle borne la course ; relâcher ramène à la marche', async () => {
+    const r = await setup('crs');
+    const { me, input, actions } = r;
+    // CRS en tenue complète : casque, protections, bouclier, bâton, gazeuse, masque
+    me.armorHead = 1;
+    me.armorBody = 1;
+    actions.give(me, 'bouclier', 1);
+    actions.give(me, 'baton', 1);
+    actions.give(me, 'gazeuse', 1);
+    actions.give(me, 'masque_gaz', 1);
+    r.t.step(1);
+    const loco = r.ctx.require<PeopleLocomotionApi>('people.locomotion');
+    const kit = loco.loadOf(me);
+    const lim = [loco.speedLimit(me, 0), loco.speedLimit(me, 1), loco.speedLimit(me, 2)];
+    const speed = (): number => Math.hypot(me.vx, me.vz);
+    const at: number[] = [];
+    input.setMove(0, 1);
+    for (const t of [0.5, 0.5, 0.5, 0.5, 1, 1]) {
+      r.t.step(t);
+      at.push(speed());
+    }
+    console.log('avance tenue — charge', kit.toFixed(1), 'kg | limites marche/trot/course', lim.map((v) => v.toFixed(2)).join(' / '),
+      'm/s | vitesse à 0,5 / 1 / 1,5 / 2 / 3 / 4 s :', at.map((v) => v.toFixed(2)).join(' / '));
+    expect(kit).toBeGreaterThan(18);
+    // réaliste en tenue : marche ≈ 1,3 m/s, trot ≈ 2,9 m/s, course ≈ 4,5 m/s (plus lent qu'un civil sans charge)
+    expect(lim[0]).toBeGreaterThan(1.1);
+    expect(lim[0]).toBeLessThan(1.45);
+    expect(lim[1]).toBeGreaterThan(2.6);
+    expect(lim[1]).toBeLessThan(3.3);
+    expect(lim[2]).toBeGreaterThan(4.2);
+    expect(lim[2]).toBeLessThan(5.5);
+    expect(lim[2]).toBeLessThan(me.speedSprint);
+    // la première seconde : on marche
+    expect(at[1]).toBeLessThan(lim[0] + 0.1);
+    // à 1,5 s on accélère déjà (trot), à 4 s on court
+    expect(at[2]).toBeGreaterThan(lim[0] + 0.15);
+    expect(at[5]).toBeGreaterThan(lim[2] - 0.2);
+    expect(me.cmd.gait).toBe(2);
+    // la course use le souffle ; à bout de souffle on repasse au trot, puis essoufflé à la marche
+    const s0 = me.stamina;
+    r.t.step(3);
+    expect(me.stamina).toBeLessThan(s0 - 10);
+    me.stamina = 18;
+    r.t.step(0.5);
+    expect(me.cmd.gait).toBe(1);
+    expect(speed()).toBeLessThan(lim[1] + 0.1);
+    let walked = false;
+    for (let i = 0; i < 120 && !walked; i++) {
+      r.t.step(0.5);
+      walked = loco.isWinded(me) && me.cmd.gait === 0;
+    }
+    expect(walked).toBe(true);
+    r.t.step(2);
+    expect(speed()).toBeLessThan(lim[0] + 0.1);
+    // relâcher puis reprendre : on repart au pas
+    me.stamina = 100;
+    r.t.step(0.1);
+    input.setMove(0, 0);
+    r.t.step(1);
+    input.setMove(0, 1);
+    r.t.step(1);
+    expect(me.cmd.gait).toBe(0);
+    // reculer ou se déplacer de côté ne déclenche jamais la course
+    input.setMove(1, 0);
+    r.t.step(4);
+    expect(me.cmd.gait).toBe(0);
+    input.setMove(0, -1);
+    r.t.step(4);
+    expect(me.cmd.gait).toBe(0);
+    // Maj reste un sprint immédiat
+    input.setMove(0, 1);
+    input.press('sprint');
+    r.t.step(0.5);
+    expect(me.cmd.gait).toBe(2);
+    input.release('sprint');
   });
 
   it('accroupi (bascule) et saut', async () => {

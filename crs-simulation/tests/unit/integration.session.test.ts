@@ -329,9 +329,10 @@ describe('intégration : mise en place de session', () => {
     const walked = Math.hypot(me.x - x0, me.z - z0);
     const along = (me.x - x0) * Math.sin(s.heading) + (me.z - z0) * Math.cos(s.heading);
     console.log(`marche : ${walked.toFixed(1)} m en 4 s, dont ${along.toFixed(1)} m dans l'axe du regard`);
-    // au clavier, la touche d'avance fait marcher (≈ 1,3 m/s) : la petite foulée se demande par une bascule
-    expect(walked).toBeGreaterThan(2);
-    expect(walked).toBeLessThan(8);
+    // au clavier, la touche d'avance fait d'abord marcher (≈ 1,3 m/s) ; tenue plus de 1,2 s, l'allure monte au trot puis
+    // à la course (≈ 4,3 m/s en tenue) : ≈ 9-10 m en 4 s (au pas seul, c'était ≈ 5 m)
+    expect(walked).toBeGreaterThan(7);
+    expect(walked).toBeLessThan(14);
     expect(along).toBeGreaterThan(walked * 0.9);
 
     // gaz : une nappe au-dessus du joueur → exposition, sans masque

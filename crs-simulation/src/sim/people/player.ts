@@ -2,7 +2,8 @@
  * Contrôleur du joueur (ordre CONTROL) — publie ctx.player et le service « player.control ».
  *
  * À chaque pas : regard (camYaw / camPitch), puis selon la situation :
- *   - à pied : déplacement relatif à la caméra, allures, accroupi, saut, objets (molette, 1 à 9,
+ *   - à pied : déplacement relatif à la caméra, allures (marche ; avance tenue à fond plus de 1,2 s : on
+ *     passe au trot puis à la course, selon le souffle ; Maj : sprint immédiat), accroupi, saut, objets (molette, 1 à 9,
  *     action principale avec charge du lancer, action secondaire maintenue), masque et visière ;
  *   - à bord : conduite, ou tourelle depuis une place de tireur (player-vehicle.ts) ;
  *   - engin télépiloté : les commandes pilotent l'engin, le personnage reste immobile ;
@@ -29,6 +30,7 @@ import { ItemControl } from './player-items';
 import { VehicleControl } from './player-vehicle';
 import type { PeopleShared } from './shared';
 import { HOLD_DRAG, HOLD_OTHER } from './shared';
+import { speedLimit, speedOut } from './loco-speed';
 import * as T from './tuning';
 
 function defaultState(): PlayerState {
@@ -58,6 +60,11 @@ export class PlayerController implements GameSystem {
   private crouch = false;
   /** Allure au clavier : false = marche (par défaut), true = petite foulée (bascule par le bouton « jog »). */
   private jog = false;
+  /** Durée (s) depuis laquelle l'avance est tenue à fond (touche d'avance, manche poussé au bord) : course automatique. */
+  private pushT = 0;
+  /** Allure et norme de commande retenues par autoRun(). */
+  private autoGait: 0 | 1 | 2 = 0;
+  private autoScale = 1;
   private promptT = 0;
   private aimT = 0;
   private footCamera: CameraMode = 'tps';
@@ -136,6 +143,7 @@ export class PlayerController implements GameSystem {
     this.turret = -1;
     this.crouch = false;
     this.jog = false;
+    this.pushT = 0;
     this.promptT = 0;
     this.aimT = 0;
     this.items.reset();
@@ -447,9 +455,15 @@ export class PlayerController implements GameSystem {
       if (this.crouch) this.crouch = false; // on se relève d'abord
       else cmd.jump = true;
     }
-    const sprint = input.down('sprint') || (input.device === 'touch' && mag >= T.TOUCH_SPRINT);
+    const sprint = input.down('sprint');
     // Au clavier la touche d'avance est tout ou rien : on MARCHE par défaut (le souffle se refait) et une touche
     // bascule vers la petite foulée. À la manette et au doigt, c'est l'inclinaison du manche qui choisit.
+    // Avance tenue à fond (Z / W / flèche haut, manche au bord) plus de RUN_HOLD_DELAY : l'allure monte d'elle-même
+    // vers le trot puis la course (voir autoRun) ; relâcher la touche ramène à la marche.
+    const slow = this.items.altSent || this.crouch;
+    const full = input.device === 'kbm' ? mag > 0.5 : mag >= T.STICK_FULL;
+    if (full && iy >= T.RUN_FORWARD * mag && !slow) this.pushT += dt;
+    else this.pushT = 0;
     if (input.pressed('jog')) {
       this.jog = !this.jog;
       ctx.ui.notify(this.jog ? 'Allure : petite foulée' : 'Allure : marche', 'info', 2);
@@ -480,6 +494,10 @@ export class PlayerController implements GameSystem {
         gait = 1;
         scale = 0.6 + 0.4 * (mag - T.STICK_WALK) / (1 - T.STICK_WALK);
       }
+      if (gait !== 2 && this.pushT > T.RUN_HOLD_DELAY && this.autoRun(p, gait)) {
+        gait = this.autoGait;
+        scale = this.autoScale;
+      }
       const sy = Math.sin(st.camYaw);
       const cy = Math.cos(st.camYaw);
       const k = scale / mag;
@@ -498,6 +516,42 @@ export class PlayerController implements GameSystem {
 
     // le corps suit le déplacement, sauf en vue subjective, en visant, en lançant, ou en tirant un blessé
     cmd.faceMove = st.cameraMode !== 'fps' && !this.items.facingAim && !dragging;
+  }
+
+  /**
+   * Course automatique : avance tenue à fond depuis pushT secondes. Le niveau d'allure (0 marche, 1 trot, 2 course)
+   * monte en RUN_RAMP secondes après RUN_HOLD_DELAY, sans redescendre sous l'allure de base `base` ; il est borné par
+   * le souffle (moins de AUTO_RUN_EASE : trot seulement ; essoufflé : marche) — la charge portée, le bouclier, les
+   * blessures sont déjà dans les limites de la locomotion. Écrit autoGait / autoScale (retourne false : rien à changer).
+   */
+  private autoRun(p: Person, base: 0 | 1): boolean {
+    const e = this.shared.of(p);
+    let level = ((this.pushT - T.RUN_HOLD_DELAY) * 2) / T.RUN_RAMP;
+    let cap = 2;
+    if (e.winded) cap = 0;
+    else if (p.stamina < T.AUTO_RUN_EASE) {
+      cap = 1 + (p.stamina - T.AUTO_RUN_EASE * 0.5) / (T.AUTO_RUN_EASE * 0.5);
+      if (cap < 1) cap = 1;
+    }
+    if (level > cap) level = cap;
+    if (!(level > base)) return false;
+    const shared = this.shared;
+    speedLimit(shared, p, e, 0);
+    const walk = speedOut.limit;
+    speedLimit(shared, p, e, 1);
+    const jog = speedOut.limit;
+    if (level <= 1) {
+      const v = walk + (jog - walk) * level;
+      this.autoGait = 1;
+      this.autoScale = jog > 0.05 ? (v < jog ? v / jog : 1) : 1;
+    } else {
+      speedLimit(shared, p, e, 2);
+      const run = speedOut.limit;
+      const v = jog + (run - jog) * (level - 1);
+      this.autoGait = 2;
+      this.autoScale = run > 0.05 ? (v < run ? v / run : 1) : 1;
+    }
+    return true;
   }
 
   private carryingCasualty(p: Person): boolean {

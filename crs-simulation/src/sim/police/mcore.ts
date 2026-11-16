@@ -448,13 +448,84 @@ export function hasFormation(u: Unit): boolean {
 
 /** Vitesse commune que tout le premier rang peut tenir à l'allure de course (m/s). */
 export function commonRunSpeed(u: Unit, wanted: number): number {
+  return commonSpeed(u, wanted, 2, 0.94);
+}
+
+/**
+ * Vitesse commune que tout le rang peut tenir au trot (m/s) : sous la vitesse de course de chacun (avec sa
+ * charge, son souffle), pour que personne ne doive sprinter pour garder sa place.
+ */
+export function commonTrotSpeed(u: Unit, wanted: number): number {
+  return commonSpeed(u, wanted, 1, 0.95);
+}
+
+function commonSpeed(u: Unit, wanted: number, gait: 1 | 2, margin: number): number {
   let lim = wanted;
   const agents = u.agents;
   for (let i = 0; i < agents.length; i++) {
     const a = agents[i];
     if (!a.able || !a.hasSlot || a.op !== null) continue;
-    const l = a.lim2 * 0.9;
+    const l = (gait === 2 ? a.lim2 : a.lim1) * margin;
     if (l < lim && l > 1) lim = l;
   }
   return lim;
+}
+
+/** Souffle moyen (0..100) des agents valides de l'unité, à pied et dans le rang. */
+export function unitStamina(u: Unit): number {
+  let s = 0;
+  let n = 0;
+  const agents = u.agents;
+  for (let i = 0; i < agents.length; i++) {
+    const a = agents[i];
+    if (!a.able || a.crew || a.op !== null || a.p.vehicleId !== 0) continue;
+    s += a.p.stamina;
+    n++;
+  }
+  return n > 0 ? s / n : 100;
+}
+
+/**
+ * Allure maximale que le souffle de l'unité permet encore (m/s) : à bout de souffle, une unité lancée à la
+ * course repasse au trot, puis au pas soutenu (Infinity : pas de limite).
+ */
+export function staminaCap(k: Kernel, u: Unit): number {
+  const s = unitStamina(u);
+  if (s >= T.STAMINA_UNIT_EASE) return Infinity;
+  if (s >= T.STAMINA_UNIT_SPENT) return commonTrotSpeed(u, k.tuning.trot);
+  return k.tuning.march;
+}
+
+/**
+ * Allure d'une colonne (m/s) selon l'urgence et le trajet : course sur un mouvement urgent (appui d'une unité
+ * prise à partie : u.trotUntil), trot vers un point éloigné ou sur ordre pressant du joueur (u.briskUntil),
+ * pas soutenu sur un trajet court. Bornée par ce que le rang peut tenir et par son souffle.
+ */
+export function columnSpeed(k: Kernel, u: Unit, g: FormGroup): number {
+  const tu = k.tuning;
+  const left = g.total - g.s;
+  let v: number;
+  if (k.now < u.trotUntil) v = commonRunSpeed(u, tu.run);
+  else if (k.now < u.briskUntil || left > T.TROT_FROM) v = commonTrotSpeed(u, tu.trot);
+  else v = tu.march;
+  const cap = staminaCap(k, u);
+  return v < cap ? v : cap;
+}
+
+/**
+ * Allure d'une ligne (ou d'un bloc aligné) qui se porte en avant d'un bloc : pas cadencé face à une foule
+ * proche, pas soutenu hors contact, trot sur un mouvement urgent.
+ */
+export function lineSpeed(k: Kernel, u: Unit): number {
+  const tu = k.tuning;
+  if (k.now < u.trotUntil) return commonTrotSpeed(u, tu.trot);
+  const s = u.sense;
+  if (s.crowd > 0 || s.violent > 0 || k.now - s.lastIncomingAt < 8) return tu.pace;
+  return tu.march;
+}
+
+/** L'unité est-elle sous la pression de la foule (violences, contact, projectiles ou blessé récents) ? */
+export function underPressure(k: Kernel, u: Unit): boolean {
+  const s = u.sense;
+  return s.violent > 0 || s.contact > 0 || k.now - s.lastIncomingAt < 8 || k.now - s.hurtAt < 8;
 }

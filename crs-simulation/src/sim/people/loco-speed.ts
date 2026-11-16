@@ -106,9 +106,11 @@ export function updateStamina(shared: PeopleShared, p: Person, e: PersonExtra): 
   const gasf = p.gas > 0.2 ? (p.gas < 1 ? p.gas : 1) : 0;
   const load = e.load < T.LOAD_MAX ? e.load : T.LOAD_MAX;
   let rate: number;
-  if (gait >= 1 && r > 0.35) {
-    let drain = gait === 2 ? T.STAMINA_SPRINT_DRAIN * r * r : T.STAMINA_RUN_DRAIN * r;
-    drain *= 1 + load * T.STAMINA_LOAD_K;
+  // course : l'effort croît de 0 (pas très soutenu, à peine plus vite que la marche) à 1 (pleine foulée) ; un pas
+  // rapide de 1,9 m/s en tenue ne doit pas essouffler comme un footing
+  if (gait === 2 ? r > 0.35 : gait === 1 && r > T.RUN_EFFORT_FROM) {
+    let drain = gait === 2 ? T.STAMINA_SPRINT_DRAIN * r * r : T.STAMINA_RUN_DRAIN * (r - T.RUN_EFFORT_FROM) / (1 - T.RUN_EFFORT_FROM);
+    drain *= 1 + load * T.STAMINA_LOAD_K * (gait === 2 ? 1 : T.STAMINA_LOAD_RUN_SHARE);
     if (mask) drain *= T.MASK_DRAIN;
     if (gasf > 0) drain *= 1 + T.GAS_STAMINA * gasf;
     rate = -drain;

@@ -13,7 +13,7 @@ import type { UiEnv } from '../core/kit';
 import { sortObjectives } from '../hud/objectives';
 
 const KEY_ROWS: readonly { label: string; button: Button }[] = [
-  { label: 'Courir (tenir)', button: 'sprint' },
+  { label: 'Sprint (tenir) · avance tenue : course', button: 'sprint' },
   { label: 'Marcher / trottiner', button: 'jog' },
   { label: 'Interagir', button: 'interact' },
   { label: 'Action principale', button: 'primary' },

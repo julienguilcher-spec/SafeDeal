@@ -355,9 +355,14 @@ export interface PoliceTuning {
   shieldSpacing: number;
   /** Distance du second rang (m). */
   secondRank: number;
-  /** Allures (m/s) : pas cadencé, trot (bond offensif), charge, tortue, repli face à la foule. */
+  /**
+   * Allures (m/s) : pas cadencé (au contact), pas soutenu (routine hors contact), trot (colonne vers un point
+   * éloigné, bond offensif), course (mouvement urgent), charge, tortue, repli face à la foule.
+   */
   pace: number;
+  march: number;
   trot: number;
+  run: number;
   charge: number;
   tortue: number;
   repli: number;

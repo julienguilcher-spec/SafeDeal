@@ -46,14 +46,47 @@ export const FILTER_DOOR = 2.0;
 
 // ───────────────────────────── allures et délais ─────────────────────────────
 
-/** Pas cadencé, trot du bond offensif, charge (§E.8, §F.3), tortue, recul face à la foule (m/s). */
+/**
+ * Allures (m/s), choisies selon l'URGENCE de l'ordre (bible §E.8, §F.3 ; vitesses de personnes équipées : un
+ * porteur de bouclier en tenue complète ≈ 25 kg marche à 1,3 m/s, trotte à 2,9 m/s, court à 4,5 m/s) :
+ *   pas cadencé   ligne au contact de la foule, refoulement, retour de charge (doctrine : « au pas ») ;
+ *   pas soutenu   déplacement de routine hors contact (ligne qui se porte en avant, colonne sur un trajet court) ;
+ *   trot          « pas de gymnastique » : colonne vers un point éloigné, bond offensif ;
+ *   course        mouvement urgent (appui d'une unité prise à partie, bouclage d'une nasse) ; charge ;
+ *   tortue (carapace accroupie sous les boucliers : volontairement lente), repli face à la foule (recul : la
+ *   locomotion ralentit la marche arrière), repli sous la pression.
+ * Le trot et la course sont bornés par ce que tout le rang peut tenir (mcore.ts : commonTrotSpeed, commonRunSpeed),
+ * et une unité à bout de souffle repasse au trot puis au pas soutenu (mcore.ts : staminaCap).
+ */
 export const SPEED_PACE = 1.2;
-export const SPEED_TROT = 2.3;
-export const SPEED_CHARGE = 4.0;
+export const SPEED_MARCH = 1.9;
+export const SPEED_TROT = 2.9;
+export const SPEED_RUN = 4.3;
+export const SPEED_CHARGE = 4.5;
 export const SPEED_TORTUE = 0.6;
-export const SPEED_REPLI = 0.9;
-/** Mise en place : allure maximale d'un agent qui rejoint son emplacement (m/s). */
-export const SPEED_JOIN = 2.6;
+export const SPEED_REPLI = 1.1;
+export const SPEED_REPLI_PRESSED = 1.6;
+/** Trajet restant (m) au-delà duquel une colonne se porte au trot plutôt qu'au pas soutenu. */
+export const TROT_FROM = 60;
+/**
+ * Mise en place : allure maximale d'un agent qui rejoint son emplacement (m/s) — au trot (borné à sa vitesse de
+ * course), à la course sur un ordre urgent ; à moins de JOIN_NEAR mètres de sa place, simple rajustement.
+ */
+export const SPEED_JOIN = 3.0;
+export const SPEED_JOIN_URGENT = 4.3;
+export const SPEED_ADJUST = 2.6;
+export const JOIN_NEAR = 6;
+/** Agent détaché pour une tâche (interpellation, secours) : au pas soutenu, ou en courant vers son but. */
+export const SPEED_OP_WALK = 2.0;
+export const SPEED_OP_RUN = 4.4;
+/**
+ * Souffle (person.stamina, 0..100) : en dessous de UNIT_EASE en moyenne, une unité lancée à la course repasse au
+ * trot, en dessous de UNIT_SPENT au pas soutenu ; en dessous de AGENT_EASE, un agent ne sprinte plus pour
+ * rattraper sa place (il trotte).
+ */
+export const STAMINA_UNIT_EASE = 50;
+export const STAMINA_UNIT_SPENT = 15;
+export const STAMINA_AGENT_EASE = 25;
 /** Accélération et freinage du repère d'une formation (m/s²) : départ franc, « arrêt net » (§E.8 : arrêt en 1 s). */
 export const FRAME_ACCEL = 1.6;
 export const FRAME_DECEL = 3.2;
@@ -196,7 +229,9 @@ export function defaultTuning(): PoliceTuning {
     shieldSpacing: SHIELD_SPACING,
     secondRank: RANK2_BACK,
     pace: SPEED_PACE,
+    march: SPEED_MARCH,
     trot: SPEED_TROT,
+    run: SPEED_RUN,
     charge: SPEED_CHARGE,
     tortue: SPEED_TORTUE,
     repli: SPEED_REPLI,
