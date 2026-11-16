@@ -193,6 +193,41 @@ export interface RenderCameraApi {
   project(x: number, y: number, z: number, out: { x: number; y: number }): boolean;
 }
 
+// ───────────────────────────── vue annexe (retour vidéo) ─────────────────────────────
+
+/** ctx.service<RenderAuxApi>('render.aux') : seconde vue de la scène, copiée dans un canevas 2D (retour vidéo du drone). */
+export const RENDER_AUX_SERVICE = 'render.aux';
+
+/**
+ * Seconde vue de la même scène, dessinée à faible cadence AVANT l'image principale dans un coin du tampon, puis
+ * recopiée dans un canevas 2D de l'interface (aucune lecture GPU → CPU, aucune seconde scène). Le demandeur règle la
+ * pose et l'optique de `camera` ; la vue n'est dessinée que si `active` est vrai et que `target` est dans la page.
+ * Les modules de rendu qui éliminent eux-mêmes ce qui sort du champ de la caméra principale (personnages,
+ * véhicules) gardent aussi, tant que la vue est active, ce qui est dans le champ de cette caméra jusqu'à `range`.
+ * Pendant la passe annexe, `rendering` vaut true : un module dont des objets suivent la caméra principale (bras à
+ * la première personne) les retire de la passe avec un crochet (addPassHook).
+ */
+export interface RenderAuxApi {
+  /** Caméra de la vue annexe (pose, focale, plans de coupe : au demandeur). Son rapport largeur / hauteur suit la cible. */
+  readonly camera: THREE.PerspectiveCamera;
+  /** Vue demandée. */
+  active: boolean;
+  /** Canevas 2D de destination (null : rien n'est dessiné). Sa taille en pixels fixe la définition de la vue. */
+  target: HTMLCanvasElement | null;
+  /** Images par seconde visées (1 – 30 ; défaut 12). */
+  fps: number;
+  /** Portée utile (m) pour les modules qui éliminent hors champ. */
+  range: number;
+  /** Vrai pendant la passe annexe seulement. */
+  readonly rendering: boolean;
+  /** Images annexes dessinées depuis le lancement. */
+  readonly frames: number;
+  /** Demande une image à la prochaine présentation, sans attendre la cadence. */
+  requestFrame(): void;
+  /** Crochet appelé juste avant et juste après chaque passe annexe ; retourne de quoi le retirer. */
+  addPassHook(before: () => void, after: () => void): () => void;
+}
+
 // ───────────────────────────── diagnostic ─────────────────────────────
 
 export interface RenderStats {

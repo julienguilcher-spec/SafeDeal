@@ -4,6 +4,7 @@
 
 import * as THREE from 'three';
 import type { GameContext, Person, PersonLook, QualityLevel, Vec3, ViewApi } from '@/core/contracts';
+import type { RenderAuxApi } from '@/render/base/api';
 import { BONE_CHEST, BONE_COUNT, BONE_HAND_L, BONE_HAND_R, BONE_HEAD, BONE_STRIDE, REF_HEIGHT } from './skeleton';
 import { hash32, srgbToLinear } from './mathx';
 import { PeopleAnimator, createAnimSample, sampleFromPerson, type AnimSample } from './animator';
@@ -34,6 +35,8 @@ const FP_SLOT = 0;
 /** Service de la ville en 3D ('world.view') : seule la surélévation du sol dessiné nous intéresse ici. */
 const GROUND_LIFT_SERVICE = 'world.view';
 interface GroundLift { liftAt(x: number, z: number): number }
+/** Vue annexe du rendu de base (retour vidéo du drone) : service facultatif. */
+const RENDER_AUX_KEY = 'render.aux';
 
 export class PeopleRenderer {
   readonly stats: PeopleRenderStats = { near: 0, mid: 0, far: 0, items: 0, posed: 0, cpuMs: 0, cpuMsAvg: 0, drawCalls: 0 };
@@ -102,6 +105,14 @@ export class PeopleRenderer {
   private originX = 0;
   private originZ = 0;
   private readonly planes = new Float64Array(24);
+  // vue annexe (retour vidéo du drone) : ce qui est dans son champ est dessiné aussi
+  private readonly auxPlanes = new Float64Array(24);
+  private readonly auxM4 = new THREE.Matrix4();
+  private aux: RenderAuxApi | null = null;
+  private auxUnhook: (() => void) | null = null;
+  /** Bras à la première personne dessinés cette image (dernière instance du niveau proche) et couche de leur objet tenu. */
+  private fpDrawn = false;
+  private fpItemLayer: ItemLayer | null = null;
   private readonly sample: AnimSample = createAnimSample();
   private readonly m4 = new THREE.Matrix4();
   private readonly inv = new THREE.Matrix4();
@@ -422,6 +433,26 @@ export class PeopleRenderer {
       const pl = this.frustum.planes[i];
       planes[i * 4] = pl.normal.x; planes[i * 4 + 1] = pl.normal.y; planes[i * 4 + 2] = pl.normal.z; planes[i * 4 + 3] = pl.constant;
     }
+    // vue annexe active : son champ (quatre plans latéraux), sa position et sa portée
+    const aux = this.auxView();
+    let auxOn = false, auxX = 0, auxY = 0, auxZ = 0, auxR2 = 0;
+    if (aux && aux.active && aux.target) {
+      const ac = aux.camera;
+      ac.updateMatrixWorld();
+      const ae = ac.matrixWorld.elements;
+      auxX = ae[12]; auxY = ae[13]; auxZ = ae[14];
+      auxR2 = aux.range * aux.range;
+      this.auxM4.copy(ac.matrixWorld).invert();
+      this.auxM4.premultiply(ac.projectionMatrix);
+      this.frustum.setFromProjectionMatrix(this.auxM4);
+      const ap = this.auxPlanes;
+      for (let i = 0; i < 6; i++) {
+        const pl = this.frustum.planes[i];
+        ap[i * 4] = pl.normal.x; ap[i * 4 + 1] = pl.normal.y; ap[i * 4 + 2] = pl.normal.z; ap[i * 4 + 3] = pl.constant;
+      }
+      auxOn = true;
+    }
+    const auxPlanes = this.auxPlanes;
     const ox = Math.round(camX / 64) * 64, oz = Math.round(camZ / 64) * 64;
     this.originX = ox; this.originZ = oz;
     this.group.position.set(ox, 0, oz);
@@ -477,14 +508,25 @@ export class PeopleRenderer {
       const dx = x - camX, dy = y + 0.9 - camY, dz = z - camZ;
       const d2 = dx * dx + dy * dy + dz * dz;
       const isFp = id === fpId;
+      let auxOnly = false;
       if (!isFp) {
-        if (d2 > maxD2) continue;
         const cy = y + 0.9;
         const rad = d2 < 900 ? 3.2 : 2.4;
-        if (planes[0] * x + planes[1] * cy + planes[2] * z + planes[3] < -rad
+        if (d2 > maxD2
+          || planes[0] * x + planes[1] * cy + planes[2] * z + planes[3] < -rad
           || planes[4] * x + planes[5] * cy + planes[6] * z + planes[7] < -rad
           || planes[8] * x + planes[9] * cy + planes[10] * z + planes[11] < -rad
-          || planes[12] * x + planes[13] * cy + planes[14] * z + planes[15] < -rad) continue;
+          || planes[12] * x + planes[13] * cy + planes[14] * z + planes[15] < -rad) {
+          // hors du champ principal : gardé seulement s'il est dans celui de la vue annexe (au niveau lointain)
+          if (!auxOn) continue;
+          const ex = x - auxX, ey = cy - auxY, ez = z - auxZ;
+          if (ex * ex + ey * ey + ez * ez > auxR2
+            || auxPlanes[0] * x + auxPlanes[1] * cy + auxPlanes[2] * z + auxPlanes[3] < -2.4
+            || auxPlanes[4] * x + auxPlanes[5] * cy + auxPlanes[6] * z + auxPlanes[7] < -2.4
+            || auxPlanes[8] * x + auxPlanes[9] * cy + auxPlanes[10] * z + auxPlanes[11] < -2.4
+            || auxPlanes[12] * x + auxPlanes[13] * cy + auxPlanes[14] * z + auxPlanes[15] < -2.4) continue;
+          auxOnly = true;
+        }
       }
       const fresh = this.seen[slot] !== frameNo - 1;
       this.seen[slot] = frameNo;
@@ -492,6 +534,7 @@ export class PeopleRenderer {
       // niveau de détail avec hystérésis
       let lod: number;
       if (force >= 0) lod = force;
+      else if (auxOnly) lod = 2;
       else {
         const dist = Math.sqrt(d2);
         const prev = fresh ? 2 : this.lodOf[slot];
@@ -576,6 +619,8 @@ export class PeopleRenderer {
     }
 
     // bras à la première personne (emplacement réservé, os en espace caméra)
+    this.fpDrawn = false;
+    this.fpItemLayer = null;
     if (fpPerson && fpSlot >= 0) this.frameFp(fpPerson, fpSlot, now);
     else this.fpLookSlot = -1;
 
@@ -603,6 +648,31 @@ export class PeopleRenderer {
     st.cpuMsAvg = st.cpuMsAvg === 0 ? st.cpuMs : st.cpuMsAvg * 0.95 + st.cpuMs * 0.05;
   }
 
+  /**
+   * Service de vue annexe (lu une fois) ; à la première lecture, un crochet retire de la passe annexe les bras à la
+   * première personne, dessinés en espace caméra : ils flotteraient devant l'objectif du drone. Ce sont les dernières
+   * instances de leurs couches (frameFp passe après la boucle).
+   */
+  private auxView(): RenderAuxApi | null {
+    if (this.aux) return this.aux;
+    const aux = this.ctx.service<RenderAuxApi>(RENDER_AUX_KEY);
+    if (!aux || typeof aux.addPassHook !== 'function' || !aux.camera) return null;
+    this.aux = aux;
+    this.auxUnhook = aux.addPassHook(() => {
+      if (!this.fpDrawn) return;
+      const L = this.lods[0];
+      if (L && L.count > 0) L.geo.instanceCount = L.count - 1;
+      const it = this.fpItemLayer;
+      if (it && it.count > 0) it.geo.instanceCount = it.count - 1;
+    }, () => {
+      const L = this.lods[0];
+      if (L) L.geo.instanceCount = L.count;
+      const it = this.fpItemLayer;
+      if (it) it.geo.instanceCount = it.count;
+    });
+    return aux;
+  }
+
   private frameFp(p: Person, bodySlot: number, now: number): void {
     const pose = this.poseData;
     const model = this.modelById[this.modelOf[bodySlot]];
@@ -620,8 +690,11 @@ export class PeopleRenderer {
     this.fpRig.update(sample, now, this.animator.phaseOf(bodySlot), this.animator.speedOf(bodySlot), pose, r + 8);
     const L = this.lods[0];
     L.slots[L.count++] = FP_SLOT;
+    this.fpDrawn = true;
     if (model) {
-      this.pushItem(this.items[model.family], FP_SLOT, model.id, this.itemCell[bodySlot], this.itemCol[bodySlot * 3], this.itemCol[bodySlot * 3 + 1], this.itemCol[bodySlot * 3 + 2]);
+      const layer = this.items[model.family];
+      this.pushItem(layer, FP_SLOT, model.id, this.itemCell[bodySlot], this.itemCol[bodySlot * 3], this.itemCol[bodySlot * 3 + 1], this.itemCol[bodySlot * 3 + 2]);
+      this.fpItemLayer = layer;
     }
     // la visière baissée du joueur relève de l'effet d'écran (ViewApi.setScreenEffect), pas de ce module
   }
@@ -637,6 +710,9 @@ export class PeopleRenderer {
   dispose(): void {
     for (const u of this.unsub) u();
     this.unsub.length = 0;
+    if (this.auxUnhook) this.auxUnhook();
+    this.auxUnhook = null;
+    this.aux = null;
     this.view.world.remove(this.group);
     for (const l of this.lods) l.geo.dispose();
     for (const l of this.items) { l.geo.dispose(); (l.mesh.material as THREE.Material).dispose(); }

@@ -10,12 +10,13 @@ import type { ModuleFactory } from '@/core/contracts';
 import { RenderBaseSystem, RenderPresentSystem } from './system';
 
 export type {
-  DynamicLight, DynamicLightInit, RenderBaseApi, RenderCameraApi, RenderClearAirApi, RenderLightsApi, RenderStats, RenderUniformsApi,
+  DynamicLight, DynamicLightInit, RenderAuxApi, RenderBaseApi, RenderCameraApi, RenderClearAirApi, RenderLightsApi, RenderStats, RenderUniformsApi,
   SharedUniforms, TacticalView, WetOptions,
 } from './api';
 export {
-  RENDER_BASE_SERVICE, RENDER_CAMERA_SERVICE, RENDER_CLEAR_AIR_SERVICE, RENDER_LIGHTS_SERVICE, RENDER_UNIFORMS_SERVICE,
+  RENDER_AUX_SERVICE, RENDER_BASE_SERVICE, RENDER_CAMERA_SERVICE, RENDER_CLEAR_AIR_SERVICE, RENDER_LIGHTS_SERVICE, RENDER_UNIFORMS_SERVICE,
 } from './api';
+export { AuxView } from './auxView';
 export { CLEAR_AIR_VISIBILITY, ClearAir } from './clearAir';
 export { QUALITY_LEVELS, QUALITY_PRESETS, presetFor } from './quality';
 export type { QualityPreset } from './quality';

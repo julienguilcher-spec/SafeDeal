@@ -4,7 +4,7 @@
 
 import * as THREE from 'three';
 import type { GameContext, QualityLevel, Unsubscribe, Vec3, Vehicle, VehicleDef, ViewApi } from '@/core/contracts';
-import type { DynamicLight, RenderLightsApi } from '@/render/base/api';
+import type { DynamicLight, RenderAuxApi, RenderLightsApi } from '@/render/base/api';
 import type { VehiclesExtApi } from '@/sim/vehicles/api';
 import type { VehiclesRenderStats } from './api';
 import { RENDER_LIGHTS_KEY, VEHICLES_EXT_KEY } from './api';
@@ -17,7 +17,7 @@ import {
   SRGB_TO_LINEAR, advanceWheelAngle, composeVehicleMatrix, pack2, pack4, steerToThree, transformPoint,
   turretPitchToThree, turretYawToThree, vehiclePointToWorld,
 } from './frame';
-import { LOD_HIDDEN, LOD_NEAR, VEHICLE_QUALITY, adaptNearScale, chooseLod } from './lod';
+import { LOD_FAR, LOD_HIDDEN, LOD_NEAR, VEHICLE_QUALITY, adaptNearScale, chooseLod } from './lod';
 import type { VehicleLod, VehicleQuality } from './lod';
 import { createVehicleMaterial, createVehicleUniforms } from './material';
 import type { VehicleUniforms } from './material';
@@ -75,6 +75,9 @@ export class VehiclesRenderer {
   private readonly states = new Map<number, VState>();
   private readonly unsubs: Unsubscribe[] = [];
   private readonly frustum = new THREE.Frustum();
+  /** Champ de la vue annexe (retour vidéo du drone) : ce qui y est visible est dessiné aussi. */
+  private readonly auxFrustum = new THREE.Frustum();
+  private readonly auxMatrix = new THREE.Matrix4();
   private readonly projScreen = new THREE.Matrix4();
   private readonly sphere = new THREE.Sphere();
   private readonly tmp: Vec3 = { x: 0, y: 0, z: 0 };
@@ -298,6 +301,19 @@ export class VehiclesRenderer {
     const cx = view.camX, cy = view.camY, cz = view.camZ;
     this.projScreen.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
     this.frustum.setFromProjectionMatrix(this.projScreen);
+    // vue annexe active (service facultatif du rendu de base)
+    const aux = ctx.service<RenderAuxApi>('render.aux');
+    const auxOn = !!aux && aux.active && !!aux.target && !!aux.camera;
+    let auxX = 0, auxY = 0, auxZ = 0, auxR2 = 0;
+    if (auxOn) {
+      const ac = aux!.camera;
+      ac.updateMatrixWorld();
+      this.auxMatrix.copy(ac.matrixWorld).invert().premultiply(ac.projectionMatrix);
+      this.auxFrustum.setFromProjectionMatrix(this.auxMatrix);
+      const ae = ac.matrixWorld.elements;
+      auxX = ae[12]!; auxY = ae[13]!; auxZ = ae[14]!;
+      auxR2 = aux!.range * aux!.range;
+    }
     const entries = this.entryList;
     for (let i = 0; i < entries.length; i++) {
       const e = entries[i]!;
@@ -362,16 +378,24 @@ export class VehiclesRenderer {
       const indOn = v.indicator !== 0 && !dead && indicatorOn(blink);
       const fire = state === 'burning' ? v.burning * (0.75 + 0.25 * Math.sin(blink * 17 + st.seed * 40) * Math.sin(blink * 7.3)) : 0;
 
-      if (lod === LOD_HIDDEN) {
-        nHidden++;
-      } else if (!hideExterior) {
-        this.sphere.center.set(v.x, v.y + def.height * 0.5, v.z);
-        this.sphere.radius = def.length * 0.62 + (meta.rotor ? 5.5 : 2.5);
-        if (!this.frustum.intersectsSphere(this.sphere)) {
+      // hors du champ principal (ou trop loin) : dessiné quand même, en lointain, s'il est dans celui de la vue annexe
+      this.sphere.center.set(v.x, v.y + def.height * 0.5, v.z);
+      this.sphere.radius = def.length * 0.62 + (meta.rotor ? 5.5 : 2.5);
+      let drawLod = lod;
+      let shown = lod !== LOD_HIDDEN && this.frustum.intersectsSphere(this.sphere);
+      if (!shown && auxOn) {
+        const ex = v.x - auxX, ey = v.y - auxY, ez = v.z - auxZ;
+        if (ex * ex + ey * ey + ez * ez <= auxR2 && this.auxFrustum.intersectsSphere(this.sphere)) {
+          shown = true;
+          drawLod = LOD_FAR;
+        }
+      }
+      if (!hideExterior) {
+        if (!shown) {
           nHidden++;
         } else {
           let pool: InstancePool;
-          if (lod === LOD_NEAR) { pool = st.entry.near ?? this.buildNear(st.entry); nNear++; } else { pool = st.entry.far!; nFar++; }
+          if (drawLod === LOD_NEAR) { pool = st.entry.near ?? this.buildNear(st.entry); nNear++; } else { pool = st.entry.far!; nFar++; }
           const k = pool.next();
           composeVehicleMatrix(pool.matrix, k * 16, v.x, v.y, v.z, v.heading, v.pitch, v.roll);
           const o = k * 4;
@@ -382,7 +406,7 @@ export class VehiclesRenderer {
           pool.anim[o] = st.wheel;
           pool.anim[o + 1] = steerToThree(v.steerAngle);
           pool.anim[o + 2] = st.rotor;
-          pool.anim[o + 3] = (lod === LOD_NEAR ? this.plates.slot(v.id, v.plate) : 0) + st.seed;
+          pool.anim[o + 3] = (drawLod === LOD_NEAR ? this.plates.slot(v.id, v.plate) : 0) + st.seed;
           const ty = v.turretYaw, tp = v.turretPitch;
           pool.turret[o] = ty.length > 0 ? turretYawToThree(ty[0]!) : 0;
           pool.turret[o + 1] = tp.length > 0 ? turretPitchToThree(tp[0]!) : 0;

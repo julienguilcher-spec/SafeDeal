@@ -9,6 +9,7 @@ import type { GameContext, QualityLevel, ViewApi } from '@/core/contracts';
 import type { EnvExtApi } from '@/env/api';
 import type { RenderBaseApi, RenderStats } from './api';
 import { bodiesFromEnvState, computeAtmosphere, createAtmosphere, fogDensityFor, visibilityFor } from './atmosphere';
+import { AuxView } from './auxView';
 import { ClearAir } from './clearAir';
 import type { Atmosphere, AtmosphereInput } from './atmosphere';
 import { CameraRig } from './cameraRig';
@@ -38,6 +39,8 @@ export class RenderView implements ViewApi, RenderBaseApi {
   readonly shared = new SharedUniformsHub();
   /** Voile d'air clair des monuments (insensible à la distance d'affichage). */
   readonly clearAir = new ClearAir();
+  /** Vue annexe (retour vidéo du drone) : dessinée avant l'image principale, à faible cadence. */
+  readonly aux = new AuxView();
   readonly stats: RenderStats = {
     drawCalls: 0, triangles: 0, prepareMs: 0, renderMs: 0, width: 0, height: 0, pixelRatio: 1,
     lightsWanted: 0, lightsLit: 0, rainStreaks: 0,
@@ -342,6 +345,8 @@ export class RenderView implements ViewApi, RenderBaseApi {
     st.lightsWanted = this.lights.wantedCount;
     st.lightsLit = this.lights.litCount;
     if (this.paused || this.contextLost) return;
+    // vue annexe d'abord : elle occupe un coin du tampon que l'image principale efface ensuite
+    if (this.aux.active) this.aux.draw(this.renderer, this.scene);
     this.renderer.render(this.scene, this.camera);
     const info = this.renderer.info.render;
     st.drawCalls = info.calls;
@@ -355,6 +360,7 @@ export class RenderView implements ViewApi, RenderBaseApi {
     window.removeEventListener('resize', this.onWindowResize);
     if (this.resizeObserver) this.resizeObserver.disconnect();
     this.overlay?.dispose();
+    this.aux.dispose();
     this.lights.dispose();
     this.rain.dispose();
     this.sky.dispose();

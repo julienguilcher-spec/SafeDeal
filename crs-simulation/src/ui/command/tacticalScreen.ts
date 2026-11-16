@@ -2,10 +2,14 @@
  * Écran « carte_tactique » : la carte de commandement. Non bloquant pour la simulation (le temps
  * continue, avec une option « temps ralenti »). Assemble la carte interactive, l'arborescence des
  * unités, les onglets Ordres / Incidents / Circulation / Journal, et les outils de la carte.
+ * « Vue drone » (bandeau) ouvre le retour vidéo du drone par-dessus la carte (service 'ui.drone') ; sélectionner
+ * l'équipe drone, dans l'arborescence ou sur la carte, ouvre le retour vidéo de son appareil.
  * ===================================================================================== */
 
 import type { CrowdPhase, InputState } from '@/core/contracts';
 import type { ScreenInstance } from '@/core/extensions';
+import type { DroneFeedApi } from '../drone/api';
+import { DRONE_FEED_SERVICE } from '../drone/api';
 import { button, el, icon, setClass, setText } from '../maps/icons';
 import type { IconName } from '../maps/icons';
 import { MapCanvas } from '../maps/mapCanvas';
@@ -74,6 +78,9 @@ export class TacticalScreen implements ScreenInstance {
   private readonly clock: HTMLElement;
   private readonly crowd: HTMLElement;
   private readonly slowBtn: HTMLButtonElement;
+  private readonly droneBtn: HTMLButtonElement;
+  /** Unité seule sélectionnée à la dernière vérification (ouverture du retour vidéo à la sélection d'une équipe drone). */
+  private lastSolo = -1;
   private readonly hint: HTMLDivElement;
   private readonly hintTitle: HTMLElement;
   private readonly hintText: HTMLElement;
@@ -128,7 +135,9 @@ export class TacticalScreen implements ScreenInstance {
     const close = button('Fermer', () => ctx.ui.close('carte_tactique'), { icon: 'close', className: 'is-small', id: 'tac-close' });
     const key = core.kit ? core.kit.keyLabel('tactical') : '';
     if (key !== '' && !coarsePointer()) close.appendChild(el('span', 'cm-kbd', key));
-    actions.append(this.slowBtn, close);
+    this.droneBtn = button('Vue drone', () => this.toggleDrone(), { icon: 'drone', className: 'is-small', id: 'tac-drone', title: 'Retour vidéo du drone (O)' });
+    this.droneBtn.style.display = 'none';
+    actions.append(this.droneBtn, this.slowBtn, close);
     top.append(brand, status, actions);
 
     // ── corps ──
@@ -321,6 +330,40 @@ export class TacticalScreen implements ScreenInstance {
     }
   }
 
+  private droneFeed(): DroneFeedApi | undefined {
+    const f = this.core.ctx.service<DroneFeedApi>(DRONE_FEED_SERVICE);
+    return f && typeof f.toggle === 'function' ? f : undefined;
+  }
+
+  private toggleDrone(): void {
+    const feed = this.droneFeed();
+    if (!feed) return;
+    feed.toggle();
+    setClass(this.droneBtn, 'is-on', feed.open);
+  }
+
+  /** Bouton « Vue drone » (s'il y a un drone engagé) ; une équipe drone sélectionnée seule : son retour vidéo s'ouvre. */
+  private refreshDrone(): void {
+    const feed = this.droneFeed();
+    const engaged = !!feed && this.core.maps.scene.vis.police && feed.engaged();
+    const display = engaged ? '' : 'none';
+    if (this.droneBtn.style.display !== display) this.droneBtn.style.display = display;
+    setClass(this.droneBtn, 'is-on', engaged && feed!.open);
+    const sel = this.state.selection;
+    let solo = 0;
+    if (sel.size === 1) for (const k of sel) solo = k;
+    if (solo === this.lastSolo) return;
+    // à l'ouverture, la sélection retrouvée n'ouvre rien : seul un nouveau choix du joueur compte
+    const first = this.lastSolo < 0;
+    this.lastSolo = solo;
+    if (first || !engaged || solo === 0) return;
+    const u = this.core.maps.scene.unitModel.get(solo);
+    if (u && u.symbol === 'drone' && u.squadId !== 0) {
+      feed!.showSquad(u.squadId);
+      setClass(this.droneBtn, 'is-on', feed!.open);
+    }
+  }
+
   private toggleSlow(): void {
     const clock = this.core.ctx.clock;
     if (!this.slow) {
@@ -470,6 +513,7 @@ export class TacticalScreen implements ScreenInstance {
       else if (st.tab === 'circulation') this.traffic.refresh();
       else if (st.tab === 'journal') this.journal.refresh();
       this.refreshHint();
+      this.refreshDrone();
       const o = this.map.overlay;
       o.hoverKey = st.dropKey !== 0 ? st.dropKey : st.hoverKey;
       o.focusIncident = st.focusIncident;
