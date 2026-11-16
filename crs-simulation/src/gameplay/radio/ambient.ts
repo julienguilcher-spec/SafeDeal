@@ -9,11 +9,10 @@
  * L'anti-répétition de la file et le tirage « jamais deux fois la même variante de suite » font le reste.
  * ===================================================================================== */
 
-import { pointOnPolyline } from '@/core/math';
 import type { CrowdPhase, GameContext, RadioChannel, Rng, Squad, WeatherKind } from '@/core/contracts';
 import type { TrafficControlApi } from '@/core/extensions';
 import { EXT } from '@/core/extensions';
-import { cardinalFr } from '@/core/math';
+import { cardinalFr, pointOnPolyline } from '@/core/math';
 import { weightedIndex } from '@/core/rng';
 import type { PhraseParams, RadioPhrases } from './api';
 
