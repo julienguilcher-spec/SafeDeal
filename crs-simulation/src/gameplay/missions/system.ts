@@ -24,6 +24,7 @@ import { sessionDurationSeconds } from '@/core/session';
 import { MISSIONS, missionById } from './catalog';
 import { missionConfig } from './config';
 import { conclude, evaluate, isPreserve } from './objectives';
+import { PhaseAleas } from './aleas';
 import type { EvalEnv, ObjectiveRun } from './objectives';
 import { MissionTracker } from './tracker';
 
@@ -83,6 +84,8 @@ function gradeOf(score: number): string {
 }
 
 export class MissionSystem implements GameSystem {
+  /** Aléas imposés par les phases de la mission. */
+  private readonly aleas = new PhaseAleas();
   readonly id = 'missions';
   readonly order = SystemOrder.RULES + 60;
 
@@ -145,6 +148,7 @@ export class MissionSystem implements GameSystem {
   }
 
   private clear(): void {
+    this.aleas.reset();
     this.tracker?.reset();
     this.def = null;
     this.pending = false;
@@ -203,6 +207,8 @@ export class MissionSystem implements GameSystem {
     const ph = def.phases[i];
     if (!ph) return;
     ctx.ui.banner(ph.title, ph.text, 7);
+    // aléas imposés par la phase : joués au fil de la phase (voir aleas.ts)
+    this.aleas.schedule(ph.events, ctx.clock.now);
     for (const line of ph.radio) {
       // indicatif en capitales = procédure radio ; sinon voix (rue, rédaction, ami) sur le canal public
       const radio = /^[A-ZÀ-ÖØ-Þ0-9 '\-]+$/.test(line.from) && line.from !== 'VOUS';
@@ -245,6 +251,7 @@ export class MissionSystem implements GameSystem {
       this.begin();
     }
     if (!this.started) return;
+    this.aleas.update(ctx);
     const env = this.env!;
     env.elapsed = this.elapsed();
     env.dt = dt;

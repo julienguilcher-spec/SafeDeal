@@ -521,3 +521,12 @@ un téléphone lancé en portrait trouve désormais la session EN PAUSE (c'étai
 - Vérifié : `tests/unit/integration.journee.test.ts` (journée complète, deux interventions) ;
   `tests/e2e/verif-journee.mjs` (caserne, colonne dans le navigateur).
 - Limite : une seule manifestation à la fois (le module de foule ne gère qu'un cortège).
+
+## Compte rendu et aléas des missions (16/11)
+- « Ligne enfoncée » mesurée (tenir la position submergée par des individus violents plus de 25 s).
+- `missions/custom.ts` : 22 des 163 objectifs « personnalisés » mesurés (cuve, engins, motos, distance aux lignes,
+  agents isolés, drone, emploi de la force, coups portés, grenades, rang) ; les autres jugés sur l'issue.
+- `missions/aleas.ts` : les 785 aléas des phases sont joués (étalés dans la phase, annoncés par la SALLE) et
+  traduits par familles en effets : averse, vent et retour de gaz, départ de feu, tension localisée (jets, casse),
+  incident « blessé », SAMU demandant le passage ; les autres annoncés seulement.
+- Commandant : panneau des propositions de l'adjoint (accepter / plus tard) — elles n'étaient dites qu'à la radio.
