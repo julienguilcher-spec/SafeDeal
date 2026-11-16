@@ -303,7 +303,7 @@ export function buildRoads(ctx) {
   const b = BOUNDS, edge = SOURCE_MARGIN - 4;
   const live = edges.filter((ed) => ed.alive);
   const widthStats = { source: 0, lanes: 0, classDefault: 0, clampedToLanes: 0, narrowedToFacades: 0 };
-  const swStats = { facades: 0, polygons: 0, classDefault: 0, bridge: 0, none: 0 };
+  const swStats = { facades: 0, polygons: 0, polygonsInsteadOfFarFacades: 0, classDefault: 0, bridge: 0, none: 0 };
   const out = [];
   for (const ed of live) {
     const p = ed.p;
@@ -365,6 +365,12 @@ export function buildRoads(ctx) {
           sidewalk = clamp(sidewalk, 0, 25);
           if (sidewalk < 0.3) sidewalk = 0;
           swStats.facades++;
+          if (sidewalk > 12) {
+            // Façades lointaines (avenue bordée de jardins, grande place) : si le plan de voirie montre un
+            // trottoir nettement plus étroit que l'espace jusqu'aux façades, c'est lui qui compte.
+            const measured = measureSidewalk(pts, length, width, ctx.onSidewalk);
+            if (measured > 0 && measured < 0.6 * sidewalk) { sidewalk = measured; swStats.facades--; swStats.polygonsInsteadOfFarFacades++; }
+          }
         }
       } else if (!pedestrianOnly) {
         // Aucune façade (jardin, quai, grande place) : largeur réelle des trottoirs du plan de voirie.
