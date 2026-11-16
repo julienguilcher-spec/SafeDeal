@@ -149,6 +149,60 @@ describe('rendu de base — réserve de lumières dynamiques', () => {
     pool.flash(0, 0, 0, 0xffffff, 0, 10, 1);
     pool.flash(0, 0, 0, 0xffffff, 10, 10, 0);
     expect(pool.count).toBe(0);
+    // changement de session : les éclats en cours s'éteignent, les lumières des modules restent à leurs propriétaires
+    const kept = pool.point({ x: 1, intensity: 20, range: 10 });
+    pool.flash(5, 1, 0, 0xfff0c0, 500, 40, 2);
+    expect(pool.count).toBe(2);
+    pool.clearFlashes();
+    expect(pool.count).toBe(1);
+    pool.update(1 / 60, 0, 1.7, 0);
+    expect(kept.shown).toBeGreaterThan(0);
+  });
+
+  it('pulse : lumière « à l’image », à redemander à chaque image, sans fondu', () => {
+    const scene = new THREE.Scene();
+    const pool = new LightPool(scene, 2, 0);
+    // image 1 : deux éclats demandés (gyrophare, véhicule en feu)
+    pool.pulse(4, 3, 0, 0x1e5bff, 30, 26);
+    pool.pulse(-6, 2.2, 1, 0xff7a1c, 50, 22);
+    expect(pool.count).toBe(2);
+    pool.update(1 / 60, 0, 1.7, 0);
+    let on = realLights(scene).points.filter((l) => l.intensity > 0);
+    expect(on.length).toBe(2);
+    expect(on.map((l) => l.intensity).sort((a, b) => a - b)).toEqual([30, 50]);   // pleine intensité d'emblée
+    expect(on.some((l) => l.color.getHex() === 0x1e5bff && l.position.x === 4 && l.distance === 26)).toBe(true);
+    // image 2 : un seul redemandé, ailleurs ; l'autre s'éteint aussitôt
+    pool.pulse(5, 3, 0, 0x1e5bff, 30, 26);
+    pool.update(1 / 60, 0, 1.7, 0);
+    on = realLights(scene).points.filter((l) => l.intensity > 0);
+    expect(on.length).toBe(1);
+    expect(on[0]!.position.x).toBe(5);
+    // image 3 : rien redemandé
+    pool.update(1 / 60, 0, 1.7, 0);
+    expect(lit(realLights(scene).points)).toBe(0);
+    expect(pool.count).toBe(0);
+    expect(pool.wantedCount).toBe(0);
+    // les éclats concourent pour le budget avec les lumières permanentes
+    const fire = pool.point({ x: 1, y: 1, z: 0, intensity: 150, range: 20 });
+    const lamp = pool.point({ x: -1, y: 1, z: 0, intensity: 80, range: 20 });
+    for (let i = 0; i < 20; i++) {
+      pool.pulse(300, 3, 0, 0x1e5bff, 20, 26);     // loin et faible : pas retenu
+      pool.update(1 / 60, 0, 1.7, 0);
+    }
+    expect(fire.shown).toBe(1);
+    expect(lamp.shown).toBe(1);
+    expect(pool.litCount).toBe(2);
+    expect(pool.wantedCount).toBe(3);
+    // demandes absurdes ou trop nombreuses : ignorées sans erreur
+    pool.pulse(0, 0, 0, 0xffffff, 0, 10);
+    pool.pulse(0, 0, 0, 0xffffff, 10, -1);
+    for (let i = 0; i < 200; i++) pool.pulse(i, 2, 0, 0xffffff, 10, 10);
+    pool.update(1 / 60, 0, 1.7, 0);
+    expect(pool.count).toBeLessThanOrEqual(2 + 48);
+    expect(realLights(scene).points.length).toBe(2);
+    pool.clear();
+    pool.update(1 / 60, 0, 1.7, 0);
+    expect(lit(realLights(scene).points)).toBe(0);
   });
 
   it('changement de budget (qualité) et remise à zéro', () => {

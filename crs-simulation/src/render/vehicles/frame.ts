@@ -119,14 +119,24 @@ export function seatWorldPosition(v: VehiclePose, seat: SeatDef, out: Vec3): Vec
   return vehiclePointToWorld(v, seat.x, seat.y, seat.z, out);
 }
 
-/** Hauteur des yeux d'un occupant assis au-dessus de l'assise (m) : même hypothèse que l'habitacle. */
-export const EYE_ABOVE_SEAT = 0.72;
-/** Avancée des yeux par rapport au point d'assise (m). */
-export const EYE_AHEAD_OF_SEAT = 0.06;
+/**
+ * Hauteur des yeux d'un occupant assis au-dessus de l'assise (m) : même valeur que la caméra intérieure du rendu
+ * de base (0,68 m pour 1,75 m), sans décalage vers l'avant. L'habitacle est bâti autour de ce point.
+ */
+export const EYE_ABOVE_SEAT = 0.68;
+export const EYE_AHEAD_OF_SEAT = 0;
+/** Garde sous le pavillon : l'œil ne monte jamais à moins de 14 cm de la hauteur hors tout. */
+export const EYE_ROOF_CLEARANCE = 0.14;
 
-/** Point de vue du conducteur ou d'un passager (monde) : sert à placer la caméra intérieure. */
-export function seatEyeWorld(v: VehiclePose, seat: SeatDef, out: Vec3): Vec3 {
-  return vehiclePointToWorld(v, seat.x, seat.y + EYE_ABOVE_SEAT, seat.z + EYE_AHEAD_OF_SEAT, out);
+/** Hauteur de l'œil (repère véhicule) pour une assise à la hauteur `seatY` dans un véhicule de hauteur `height`. */
+export function seatEyeHeight(seatY: number, height: number): number {
+  const top = Math.max(seatY + 0.3, height - EYE_ROOF_CLEARANCE);
+  return Math.min(seatY + EYE_ABOVE_SEAT, top);
+}
+
+/** Point de vue du conducteur ou d'un passager (monde) : celui de la caméra intérieure. */
+export function seatEyeWorld(v: VehiclePose, seat: SeatDef, out: Vec3, height = Infinity): Vec3 {
+  return vehiclePointToWorld(v, seat.x, seatEyeHeight(seat.y, height), seat.z + EYE_AHEAD_OF_SEAT, out);
 }
 
 /**
@@ -155,12 +165,10 @@ export interface TurretCarrier extends VehiclePose {
   def: { turrets: readonly TurretDef[] };
 }
 
-/** Hauteur du tourillon du lance-grenades au-dessus du pivot de tourelle (même valeur que le modèle). */
-export const LAUNCHER_TRUNNION = 0.42;
-
 /**
- * Bouche du canon d'une tourelle (monde) et direction de tir (unitaire), assiette comprise. La longueur du
- * canon dépend de l'équipement : lance du canon à eau 1,02 m, berceau du lance-grenades 0,36 m.
+ * Bouche du canon d'une tourelle (monde) et direction de tir (unitaire), assiette comprise. TurretDef (x, y, z) est
+ * le TOURILLON : le point autour duquel le canon se lève et la tourelle tourne. La longueur du canon dépend de
+ * l'équipement : lance du canon à eau 1,02 m, berceau du lance-grenades 0,36 m.
  */
 export function turretMuzzleWorld(v: TurretCarrier, turret: number, outPos: Vec3, outDir: Vec3): boolean {
   const td = v.def.turrets[turret];
@@ -168,8 +176,7 @@ export function turretMuzzleWorld(v: TurretCarrier, turret: number, outPos: Vec3
   const yaw = v.turretYaw[turret] ?? 0, pitch = v.turretPitch[turret] ?? 0;
   turretDirWorld(v, yaw, pitch, outDir);
   const reach = td.kind === 'canon_eau' ? 1.02 : td.kind === 'lance_grenades' ? 0.36 : 0.2;
-  const lift = td.kind === 'lance_grenades' ? LAUNCHER_TRUNNION : 0;
-  vehiclePointToWorld(v, td.x, td.y + lift, td.z, outPos);
+  vehiclePointToWorld(v, td.x, td.y, td.z, outPos);
   outPos.x += outDir.x * reach;
   outPos.y += outDir.y * reach;
   outPos.z += outDir.z * reach;

@@ -13,8 +13,9 @@ import type { QualityLevel, Vec3, Vehicle, VehicleState, ViewApi } from '@/core/
 import { Game } from '@/core/game';
 import { getCore } from '@/core/context';
 import { defaultSessionConfig } from '@/core/session';
+import type { DynamicLight, DynamicLightInit, RenderLightsApi } from '@/render/base/api';
 import { CIVIL_COLORS, REFERENCE_DEFS, createSystems } from '@/render/vehicles/index';
-import type { RenderLightsApi, VehiclesRenderApi } from '@/render/vehicles/index';
+import type { VehiclesRenderApi } from '@/render/vehicles/index';
 
 const params = new URLSearchParams(location.search);
 const view = params.get('view') ?? 'alignement';
@@ -124,19 +125,69 @@ ctx.view = viewApi;
 getCore(ctx).stores.vehicles.registerDefs(REFERENCE_DEFS);
 ctx.settings.set('shadows', quality !== 'bas');
 
-// service facultatif d'éclairage dynamique : quatre lumières ponctuelles réutilisées (éclairs sur les façades)
-const pulseLights: THREE.PointLight[] = [];
-let pulseUsed = 0;
+// Service facultatif 'render.lights', dans une version minimale conforme à l'interface du rendu de base : des
+// lumières « virtuelles » réglées par le module, dont les plus proches de la caméra reçoivent une vraie lumière
+// (4 ponctuelles et 1 projecteur, en nombre fixe pour ne jamais recompiler les matériaux).
+interface VirtualLight extends DynamicLight { alive: boolean }
+const virtualLights: VirtualLight[] = [];
+const realPoints: THREE.PointLight[] = [];
+const realSpot = new THREE.SpotLight(0xffffff, 0, 60, 0.5, 0.6, 1.4);
+let lightsLit = 0;
+/** Lumières « à l'image » (pulse) : redemandées à chaque frame() par le module. */
+const pulses: { x: number; y: number; z: number; color: number; intensity: number; range: number }[] = [];
+for (let i = 0; i < 24; i++) pulses.push({ x: 0, y: 0, z: 0, color: 0, intensity: 0, range: 0 });
+let pulseCount = 0;
+const camPos = new THREE.Vector3();
 if (params.get('eclairs') !== '0') {
-  for (let i = 0; i < 4; i++) { const l = new THREE.PointLight(0x1e5bff, 0, 30, 1.6); pulseLights.push(l); scene.add(l); }
+  for (let i = 0; i < 4; i++) { const l = new THREE.PointLight(0x1e5bff, 0, 20, 1.6); realPoints.push(l); scene.add(l); }
+  scene.add(realSpot, realSpot.target);
+  const make = (kind: 'point' | 'spot', init?: DynamicLightInit): DynamicLight => {
+    const l: VirtualLight = {
+      x: 0, y: 0, z: 0, color: 0xffffff, intensity: 0, range: 10, priority: 0, enabled: true, flicker: 0,
+      dirX: 0, dirY: -1, dirZ: 0, angle: 0.5, penumbra: 0.4, kind, shown: 1, alive: true,
+      release() { l.alive = false; const i = virtualLights.indexOf(l); if (i >= 0) virtualLights.splice(i, 1); },
+      ...init,
+    };
+    virtualLights.push(l);
+    return l;
+  };
   const lights: RenderLightsApi = {
+    pointBudget: 4, spotBudget: 1,
+    get count() { return virtualLights.length; },
+    point: (init) => make('point', init),
+    spot: (init) => make('spot', init),
+    flash() { /* sans objet dans le banc d'essai */ },
     pulse(x, y, z, color, intensity, radius) {
-      if (pulseUsed >= pulseLights.length) return;
-      const l = pulseLights[pulseUsed++]!;
-      l.position.set(x, y, z); l.color.setHex(color); l.intensity = intensity; l.distance = radius;
+      if (pulseCount >= pulses.length) return;
+      const l = pulses[pulseCount++]!;
+      l.x = x; l.y = y; l.z = z; l.color = color; l.intensity = intensity; l.range = radius;
     },
   };
   ctx.provide('render.lights', lights);
+}
+/** Attribue les vraies lumières aux demandes les plus proches de la caméra (projecteur, puis lumières à l'image). */
+function applyLights(): void {
+  for (const l of realPoints) l.intensity = 0;
+  realSpot.intensity = 0;
+  lightsLit = 0;
+  for (const l of virtualLights) {
+    if (l.kind !== 'spot' || !l.enabled || !(l.intensity > 0)) continue;
+    realSpot.position.set(l.x, l.y, l.z);
+    realSpot.target.position.set(l.x + l.dirX, l.y + l.dirY, l.z + l.dirZ);
+    realSpot.target.updateMatrixWorld();
+    realSpot.color.setHex(l.color); realSpot.intensity = l.intensity * 6; realSpot.distance = l.range; realSpot.angle = l.angle; realSpot.penumbra = l.penumbra;
+    lightsLit++;
+    break;
+  }
+  const asked = pulses.slice(0, pulseCount);
+  camPos.copy(camera.position);
+  const d2 = (l: { x: number; y: number; z: number }): number => (l.x - camPos.x) ** 2 + (l.y - camPos.y) ** 2 + (l.z - camPos.z) ** 2;
+  asked.sort((a, b) => d2(a) - d2(b));
+  for (let i = 0; i < asked.length && i < realPoints.length; i++) {
+    const l = asked[i]!, r = realPoints[i]!;
+    r.position.set(l.x, l.y, l.z); r.color.setHex(l.color); r.intensity = l.intensity; r.distance = l.range;
+    lightsLit++;
+  }
 }
 
 game.addModule(createSystems);
@@ -312,6 +363,7 @@ if (view === 'alignement') {
     camera.near = 0.05;
     camera.updateProjectionMatrix();
     frameHook = () => {
+      // même point de vue que la caméra intérieure du rendu de base : 0,68 m au-dessus de l'assise
       api.seatEye(v, p.seat, eye);
       camera.position.set(eye.x, eye.y, eye.z);
       const yaw = v.heading + num('regard', 0) * -DEG, pitch = num('hausse', -6) * DEG;
@@ -325,10 +377,15 @@ if (view === 'alignement') {
     for (let i = 0; i < v.turretYaw.length; i++) { v.turretYaw[i] = num('gis', 20) * DEG; v.turretPitch[i] = num('site', 12) * DEG; }
     camera.fov = 38;
     camera.updateProjectionMatrix();
+    const tdef = v.def.turrets[0];
     frameHook = () => {
-      if (!api.turretMuzzle(v, 0, eye, dir)) return;
-      camera.position.set(eye.x - dir.x * 0.2, eye.y + 0.45, eye.z - dir.z * 0.2);
-      camera.lookAt(eye.x + dir.x * 30, eye.y + 0.45 + dir.y * 30, eye.z + dir.z * 30);
+      if (!tdef || !api.turretMuzzle(v, 0, eye, dir)) return;
+      // même placement que la caméra de tourelle du rendu de base : 0,32 m au-dessus du tourillon, 0,28 m en avant
+      const c = Math.cos(v.heading), sn = Math.sin(v.heading);
+      const px = v.x + sn * tdef.z - c * tdef.x, pz = v.z + c * tdef.z + sn * tdef.x, py = v.y + tdef.y + 0.32;
+      const hd = Math.hypot(dir.x, dir.z) || 1;
+      camera.position.set(px + (dir.x / hd) * 0.28, py, pz + (dir.z / hd) * 0.28);
+      camera.lookAt(camera.position.x + dir.x * 30, py + dir.y * 30, camera.position.z + dir.z * 30);
     };
   }
   addLabel(def.name, 0, -100, 0);
@@ -417,10 +474,10 @@ function loop(): void {
   last = nowMs;
   clockT += dt;
   if (frameHook) frameHook(dt, clockT);
-  pulseUsed = 0;
-  for (const l of pulseLights) l.intensity = 0;
   camera.updateMatrixWorld();
+  pulseCount = 0;
   game.frame(dt);
+  applyLights();
   cpu.push(api.stats.cpuMs);
   if (cpu.length > 240) cpu.shift();
   renderer.info.reset();
@@ -449,7 +506,7 @@ function loop(): void {
   info.frames = frames; info.calls = renderer.info.render.calls; info.triangles = renderer.info.render.triangles;
   info.moduleCalls = s.drawCalls; info.moduleTriangles = s.triangles; info.near = s.near; info.far = s.far; info.hidden = s.hidden;
   info.fx = s.fx; info.models = s.models; info.cpuMedian = med; info.cpuMax = sorted[sorted.length - 1] ?? 0; info.cpuMin = sorted[0] ?? 0;
-  info.vehicles = ctx.vehicles.list.length; info.pulses = pulseUsed;
+  info.vehicles = ctx.vehicles.list.length; info.pulses = pulseCount; info.lightsLit = lightsLit;
   if (frames % 5 === 0) {
     hud.textContent = `vue : ${view}${night ? ' (nuit)' : ''}${far ? ' (modèles lointains)' : ''} — qualité ${quality}\n`
       + `véhicules : ${ctx.vehicles.list.length} (${s.near} détaillés, ${s.far} lointains, ${s.hidden} masqués)\n`

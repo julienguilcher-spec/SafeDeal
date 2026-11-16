@@ -16,6 +16,8 @@ import { classify } from './formation';
 import type { Kernel } from './kernel';
 import { isAble } from './kernel';
 
+const fresh: Unit[] = [];
+
 function isPoliceSquad(s: Squad): boolean {
   return s.faction === 'police';
 }
@@ -52,6 +54,7 @@ export function syncTree(k: Kernel, force: boolean): boolean {
       u = createUnit(s);
       s.brain = u;
       u.thinkAt = k.now + ((s.id * 0.137) % 0.4);
+      fresh.push(u);
     }
     u.children.length = 0;
     u.parent = null;
@@ -67,6 +70,9 @@ export function syncTree(k: Kernel, force: boolean): boolean {
       parent.children.push(u);
     }
   }
+  // une unité nouvelle manœuvre avec son échelon supérieur tant qu'elle n'a pas reçu d'ordre propre
+  for (let i = 0; i < fresh.length; i++) fresh[i].isRoot = fresh[i].parent === null;
+  fresh.length = 0;
   // membres directs
   for (let i = 0; i < units.length; i++) {
     const u = units[i];

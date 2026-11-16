@@ -16,6 +16,8 @@ export class Nav {
   private exitsAt = -1e9;
   private exitsX = 0;
   private exitsZ = 0;
+  /** Les issues ne sont jamais renumérotées : celles d'un calcul précédent restent valables pour qui s'y rend. */
+  private fresh = 0;
   private queue: CrowdBrain[] = [];
   private head = 0;
   private readonly cache = new Map<number, number[] | null>();
@@ -130,7 +132,7 @@ export class Nav {
     this.exitsX = cx;
     this.exitsZ = cz;
     const exits = this.exits;
-    exits.length = 0;
+    this.fresh = exits.length;
     for (const s of core.metro.stations) {
       if (!s.open) continue;
       for (let e = 0; e + 1 < s.entrances.length; e += 2) {
@@ -158,20 +160,17 @@ export class Nav {
       if (len > d * 2.6 + 60) continue;
       exits.push({ index: exits.length, kind: 'rue', x: px, z: pz, stationId: 0, open: true });
     }
-    if (exits.length === 0) exits.push({ index: 0, kind: 'rue', x: cx + T.LEAVE_STREET_DIST, z: cz, stationId: 0, open: true });
-    // les groupes repartiront avec des issues recalculées
-    for (const g of core.groups) {
-      g.exit = -1;
-      g.path = null;
-    }
+    if (exits.length === this.fresh) exits.push({ index: exits.length, kind: 'rue', x: cx + T.LEAVE_STREET_DIST, z: cz, stationId: 0, open: true });
   }
 
   /** Issue retenue par une personne : la moitié gagne une bouche de métro à moins de 300 m (bible F.2). */
   chooseExit(p: Person, b: CrowdBrain): number {
     const core = this.core;
-    if (this.exitsDirty || core.now - this.exitsAt > 90 * core.timeScale || Math.hypot(p.x - this.exitsX, p.z - this.exitsZ) > 320) {
+    const stale = core.now - this.exitsAt > 90 * core.timeScale || Math.hypot(p.x - this.exitsX, p.z - this.exitsZ) > 320;
+    if (this.exits.length === 0 || ((this.exitsDirty || stale) && core.now - this.exitsAt > 4)) {
       const c = core.director;
-      this.rebuildExits(c.present > 0 && Math.hypot(p.x - c.centerX, p.z - c.centerZ) < 250 ? c.centerX : p.x, c.present > 0 && Math.hypot(p.x - c.centerX, p.z - c.centerZ) < 250 ? c.centerZ : p.z);
+      const nearCrowd = c.present > 0 && Math.hypot(p.x - c.centerX, p.z - c.centerZ) < 250;
+      this.rebuildExits(nearCrowd ? c.centerX : p.x, nearCrowd ? c.centerZ : p.z);
     }
     const g = b.group >= 0 ? core.groups[b.group] : undefined;
     if (g && g.exit >= 0 && g.exit < this.exits.length && this.exits[g.exit]!.open) return g.exit;
@@ -180,7 +179,7 @@ export class Nav {
     let best = -1;
     let bestScore = -Infinity;
     const wantMetro = rng.next() < T.LEAVE_METRO_SHARE;
-    for (let i = 0; i < exits.length; i++) {
+    for (let i = this.fresh; i < exits.length; i++) {
       const e = exits[i]!;
       if (!e.open) continue;
       const d = Math.hypot(e.x - p.x, e.z - p.z);

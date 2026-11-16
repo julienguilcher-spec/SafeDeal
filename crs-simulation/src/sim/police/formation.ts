@@ -340,8 +340,9 @@ export function buildTortue(k: Kernel, g: FormGroup, agents: readonly Agent[], n
   resetGroup(g, F_TORTUE, x, z, h);
   const nf = cFront.length;
   const others = cSecond.length + cThird.length + cRear.length;
-  // premier rang : assez large pour abriter tout le monde sur deux à trois rangs de profondeur
-  let first = nf <= 3 ? nf : Math.max(3, Math.ceil(nf * 0.6));
+  // premier rang : assez large pour que le bloc soit à peu près carré (tout le monde abrité derrière)
+  let first = Math.round(Math.sqrt((n * T.TORTUE_RANK) / T.TORTUE_SPACING));
+  if (first < 2) first = 2;
   if (first > nf) first = nf;
   probeStreet(k, x, z, h, T.STREET_PROBE);
   const room = Math.min(probe.left, probe.right) * 2 - 2 * T.WALL_MARGIN;
@@ -445,7 +446,13 @@ export function buildScreen(k: Kernel, g: FormGroup, agents: readonly Agent[], n
   let r = Math.max(radius, T.SCREEN_RADIUS_MIN);
   // anneau complet si les boucliers tiennent le tour à moins de 1,3 fois l'intervalle visé
   let arc = nf > 0 ? (nf * target) / r : 0;
-  const full = arc >= Math.PI * 2 / 1.3;
+  let full = arc >= Math.PI * 2 / 1.3;
+  if (full) {
+    // l'anneau doit pouvoir abriter tous les autres agents derrière la cible
+    const need = 1.5 + Math.ceil((cSecond.length + cThird.length + cRear.length) / 4) * 0.9 + 1.4;
+    if (r < need && (nf * target) / need >= Math.PI * 2 / 1.3) r = need;
+    else if (r < need) full = false;
+  }
   if (full) arc = Math.PI * 2;
   else if (arc > Math.PI * 1.2) {
     // presque un tour : on resserre le rayon pour fermer l'écran sur le côté menacé
@@ -465,19 +472,25 @@ export function buildScreen(k: Kernel, g: FormGroup, agents: readonly Agent[], n
     setSlot(a, g, -r * Math.sin(phi), r * Math.cos(phi), phi, 0);
     g.front.push(a);
   }
-  // second rang : même éventail, 1,6 m en retrait vers le centre
+  // les autres : en bloc du côté abrité de la cible (à l'opposé de la menace), par rangs de quatre
   const n2 = cSecond.length;
+  const rx = -Math.cos(h);
+  const rz = Math.sin(h);
+  for (let i = 0; i < n2; i++) cSecond[i].lat = (cSecond[i].p.x - x) * rx + (cSecond[i].p.z - z) * rz;
   cSecond.sort(byLat);
-  const r2 = Math.max(1.2, r - 1.6);
-  const arc2 = full ? Math.PI * 2 : Math.min(arc, Math.PI * 1.2);
+  const perRow = 4;
+  const rows = Math.ceil(n2 / perRow);
   for (let i = 0; i < n2; i++) {
-    const phi = -arc2 / 2 + (arc2 * (i + 0.5)) / n2;
-    setSlot(cSecond[i], g, -r2 * Math.sin(phi), r2 * Math.cos(phi), phi, 2);
+    const row = Math.floor(i / perRow);
+    const m = Math.min(perRow, n2 - row * perRow);
+    setSlot(cSecond[i], g, (i - row * perRow - (m - 1) / 2) * 0.85, -(1.5 + row * 0.9), 0, 2);
   }
-  // chefs : près de la cible, côté abrité
+  // chefs : derrière le bloc
+  const back = 1.5 + rows * 0.9 + 0.2;
+  const chiefs = cThird.length + cRear.length;
   let j = 0;
-  for (let i = 0; i < cThird.length; i++, j++) setSlot(cThird[i], g, (j - 0.5) * 1.2, -Math.min(1.5, r2 * 0.5), 0, 3);
-  for (let i = 0; i < cRear.length; i++, j++) setSlot(cRear[i], g, (j - 0.5) * 1.2, -Math.min(2.4, r2 * 0.8), 0, 4);
+  for (let i = 0; i < cThird.length; i++, j++) setSlot(cThird[i], g, (j - (chiefs - 1) / 2) * 1.1, -back, 0, 3);
+  for (let i = 0; i < cRear.length; i++, j++) setSlot(cRear[i], g, (j - (chiefs - 1) / 2) * 1.1, -back, 0, 4);
   g.width = 2 * r;
   g.radius = r;
   g.spacing = nf > 0 ? (arc * r) / nf : target;

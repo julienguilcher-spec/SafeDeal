@@ -4,8 +4,11 @@
  * Chapitre 0 : l'école (quatre ateliers de trois minutes). Chapitres 1 à 8 : la montée en grade
  * jusqu'au commandant, puis la semaine de mobilisation. Chapitres 9 à 12 : détachements facultatifs.
  * Chapitre 13 : « regards croisés », les rôles civils, ouverts quand la mission miroir est terminée.
- * Le rôle de commissaire n'existe plus : le commandant cumule commandement et autorité habilitée.
+ * Le rôle de commissaire n'existe plus : le commandant cumule commandement et autorité habilitée (BRIEF §1).
+ * Au chapitre 5, le capitaine tient déjà ce rôle unique à l'échelle d'une demi-compagnie détachée.
  * Notes : A = 4, B = 3, C = 2, D = 1, E = 0.
+ * « unlocks » liste ce qui est obtenu À LA FIN du chapitre : le grade débloqué est donc celui du chapitre suivant.
+ * Effectifs de la bible de réalisme : groupe de 6, section de 16, demi-compagnie de 32, compagnie de 70 à pied.
  * ===================================================================================== */
 
 import type { CareerChapter } from '../../../core/missions-schema';
@@ -66,40 +69,40 @@ export const CAREER_CHAPTERS: CareerChapter[] = [
     requirement: 'Cinq missions, moyenne B ; deux habilitations sur quatre (lanceur, LBD, extincteur, interpellation).',
     requiredMissions: 5,
     requiredAverage: 3,
-    unlocks: ['Habilitations : lanceur de grenades de 56 mm, LBD 40, extincteur, interpellation', 'Grenade de désencerclement', 'Détachements : BRAV-M et engin lanceur d\'eau'],
+    unlocks: ['Grade de brigadier-chef', 'Habilitations : lanceur de grenades de 56 mm, lanceur de balles de défense, extincteur, interpellation', 'Grenade de désencerclement', 'Détachements : BRAV-M et engin lanceur d\'eau'],
   },
   {
     index: 3,
-    title: 'Sept sous mes ordres',
+    title: 'Six, dont moi',
     rank: 'brigadier_chef',
-    description: 'Brigadier-chef, vous commandez un groupe de sept : bond offensif, pillage, escorte, évacuation, guet-apens, prévention, derby, angle de rue, sang-froid.',
+    description: 'Brigadier-chef, vous commandez un groupe de six, vous compris : bond offensif, pillage, escorte, évacuation, guet-apens, prévention, derby, angle de rue, sang-froid.',
     missions: ids(CG_01, CG_02, CG_03, CG_04, CG_05, CG_06, CG_07, CG_08, CG_09, CG_10),
     requirement: 'Six missions, moyenne B ; aucun agent laissé isolé.',
     requiredMissions: 6,
     requiredAverage: 3,
-    unlocks: ['Grade de brigadier-chef', 'Ordres à son groupe depuis la carte tactique', 'Paramètres avancés de l\'éditeur de scénario', 'Détachements : télépilote et Centaure'],
+    unlocks: ['Grade de major', 'Ordres à sa section depuis la carte tactique', 'Paramètres avancés de l\'éditeur de scénario', 'Détachements : télépilote et Centaure'],
   },
   {
     index: 4,
     title: 'La section',
     rank: 'major',
-    description: 'Major, vous commandez une section de seize : réarticuler trois groupes sous pression et remettre des procédures justes.',
+    description: 'Major, vous commandez une section de seize agents en trois groupes : la réarticuler sous pression et remettre des procédures d\'interpellation justes.',
     missions: ids(CG_11, CG_12),
     requirement: 'Deux missions, moyenne B.',
     requiredMissions: 2,
     requiredAverage: 3,
-    unlocks: ['Grade de major', 'Ordres à sa section depuis la carte tactique', 'Véhicule : car de transport'],
+    unlocks: ['Grade de capitaine', 'Écharpe tricolore, mégaphone et fusée de sommation', 'Ordres à une demi-compagnie depuis la carte tactique', 'Véhicule : car de transport'],
   },
   {
     index: 5,
     title: 'L\'adjoint',
     rank: 'capitaine',
-    description: 'Capitaine, vous commandez une demi-compagnie ; vous portez déjà l\'écharpe et le mégaphone et décidez seul, mais le commandant fixe l\'intention.',
+    description: 'Capitaine, vous commandez seul une demi-compagnie détachée, soit deux sections. Sur votre secteur vous êtes le chef unique : vous portez l\'écharpe, vous tenez le mégaphone, vous sommez et vous décidez.',
     missions: ids(CDT_01, CDT_04, CDT_08),
-    requirement: 'Trois missions, moyenne A ; examen de dix questions sur le cadre légal.',
+    requirement: 'Trois missions, moyenne B, sans aucune faute sur les sommations.',
     requiredMissions: 3,
-    requiredAverage: 4,
-    unlocks: ['Grade de capitaine', 'Écharpe tricolore et mégaphone', 'Ordres à sa demi-compagnie depuis la carte tactique'],
+    requiredAverage: 3,
+    unlocks: ['Grade de commandant', 'Commandement de la compagnie complète : quatre sections et les moyens spéciaux'],
   },
   {
     index: 6,
@@ -110,13 +113,13 @@ export const CAREER_CHAPTERS: CareerChapter[] = [
     requirement: 'Cinq missions, moyenne B ; image publique à 50 ou plus.',
     requiredMissions: 5,
     requiredAverage: 3,
-    unlocks: ['Grade de commandant', 'Carte tactique complète', 'Drone d\'appui', 'Véhicule : véhicule de commandement'],
+    unlocks: ['Carte tactique complète', 'Drone d\'appui', 'Véhicule : véhicule de commandement', 'Chapitre 7 « L\'écharpe »'],
   },
   {
     index: 7,
     title: 'L\'écharpe',
     rank: 'commandant',
-    description: 'Les missions de l\'ancien « commissaire », désormais celles du commandant : constater, annoncer, sommer, dialoguer, décider, tenir un périmètre.',
+    description: 'Cinq missions où la décision pèse plus que la manœuvre : constater l\'attroupement, annoncer, sommer, dialoguer avec les organisateurs, choisir d\'attendre, tenir un périmètre.',
     missions: ids(CDT_11, CDT_12, CDT_13, CDT_14, CDT_15),
     requirement: 'Quatre missions, moyenne B.',
     requiredMissions: 4,
@@ -125,7 +128,7 @@ export const CAREER_CHAPTERS: CareerChapter[] = [
   },
   {
     index: 8,
-    title: 'La grande journée',
+    title: 'La semaine de mobilisation',
     rank: 'commandant',
     description: 'Une semaine de mobilisation en six actes : fatigue, blessés, image publique et colère de la rue se reportent d\'un jour au suivant. Fin de la carrière.',
     missions: ids(SEMAINE_1, SEMAINE_2, SEMAINE_3, SEMAINE_4, SEMAINE_5, SEMAINE_6),
@@ -171,7 +174,7 @@ export const CAREER_CHAPTERS: CareerChapter[] = [
     index: 12,
     title: 'Détachement : Centaure',
     rank: 'brigadier_chef',
-    description: 'Détachement auprès de la gendarmerie mobile (licence de jeu) : pilote, opérateur et chef d\'engin du Centaure.',
+    description: 'Détachement auprès d\'un escadron de gendarmerie mobile : pilote, opérateur et chef d\'engin du Centaure. Dans la réalité, c\'est un autre corps : le jeu prend ici une liberté pour vous faire monter à bord.',
     missions: ids(...CENTAURE),
     requirement: 'Cinq missions, moyenne B.',
     requiredMissions: 5,

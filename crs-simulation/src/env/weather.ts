@@ -118,7 +118,9 @@ export class WeatherMachine {
   private flashEchoes = 0;
   private flashGap = 0.1;
   private dwell = 0;
-  private lastStrike: StrikeInfo | null = null;
+  /** Dernier éclair (objet réutilisé) et drapeau « pas encore lu ». */
+  private readonly strikeInfo: StrikeInfo = { dirX: 1, dirZ: 0, distance: 1000, intensity: 0 };
+  private strikePending = false;
   /** Écart couverture / cible au début de la transition, pour mesurer l'avancement. */
   private span = 0;
 
@@ -134,7 +136,7 @@ export class WeatherMachine {
     this.storm = kind === 'orage' ? 1 : 0;
     this.flashAge = 99;
     this.flashPower = 0;
-    this.lastStrike = null;
+    this.strikePending = false;
     // vent dominant d'ouest à sud-ouest : il souffle vers l'est / nord-est, avec une dispersion par session
     const a = (-25 + (rand() * 2 - 1) * 55) * (Math.PI / 180); // angle du vecteur vent par rapport à l'est, vers le nord
     this.dirX = Math.cos(a);
@@ -209,27 +211,26 @@ export class WeatherMachine {
   /** Déclenche un éclair maintenant. */
   strike(intensity = 1): StrikeInfo {
     const a = this.rand() * Math.PI * 2;
-    const info: StrikeInfo = {
-      dirX: Math.cos(a),
-      dirZ: Math.sin(a),
-      distance: 500 + this.rand() * 3500,
-      intensity: clamp(intensity, 0.1, 1),
-    };
+    const info = this.strikeInfo;
+    info.dirX = Math.cos(a);
+    info.dirZ = Math.sin(a);
+    info.distance = 500 + this.rand() * 3500;
+    info.intensity = clamp(intensity, 0.1, 1);
     this.flashAge = 0;
     this.flashPower = info.intensity;
     this.flashEchoes = Math.floor(this.rand() * 3);  // 0 à 2 répliques
     this.flashGap = 0.07 + this.rand() * 0.08;
     this.v.lightningX = info.dirX;
     this.v.lightningZ = info.dirZ;
-    this.lastStrike = info;
+    this.strikePending = true;
     return info;
   }
 
-  /** Éclair survenu pendant le dernier update (lu une fois, puis effacé). */
+  /** Éclair survenu pendant le dernier update (lu une fois, puis effacé). L'objet renvoyé est réutilisé. */
   takeStrike(): StrikeInfo | null {
-    const s = this.lastStrike;
-    this.lastStrike = null;
-    return s;
+    if (!this.strikePending) return null;
+    this.strikePending = false;
+    return this.strikeInfo;
   }
 
   /**

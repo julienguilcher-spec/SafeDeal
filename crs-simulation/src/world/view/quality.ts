@@ -46,13 +46,13 @@ export interface CityQuality {
 
 export const CITY_QUALITY: Readonly<Record<QualityLevel, CityQuality>> = {
   bas: {
-    rasterSize: 512, atlasSize: 256, anisotropy: 2, lambert: true, blend: false, detail: false, detailRadius: 170, fadeNear: 60, fadeFar: 120,
+    rasterSize: 512, atlasSize: 256, anisotropy: 2, lambert: true, blend: true, detail: false, detailRadius: 170, fadeNear: 60, fadeFar: 120,
     curbs: true, gutters: false, markings: true, grates: false, crownMain: 1, crownSide: -1, denseTrees: 300, trunkSides: 5, wind: false, leafCut: false,
     treeShadows: false, farTrees: false, halos: false, budgetMs: 3, copingLand: 1.0,
   },
   moyen: {
     rasterSize: 1024, atlasSize: 512, anisotropy: 4, lambert: false, blend: true, detail: false, detailRadius: 260, fadeNear: 90, fadeFar: 170,
-    curbs: true, gutters: true, markings: true, grates: true, crownMain: 1, crownSide: 0, denseTrees: 450, trunkSides: 6, wind: false, leafCut: true,
+    curbs: true, gutters: true, markings: true, grates: true, crownMain: 2, crownSide: 0, denseTrees: 450, trunkSides: 6, wind: false, leafCut: true,
     treeShadows: true, farTrees: true, halos: true, budgetMs: 5, copingLand: 0.6,
   },
   haut: {

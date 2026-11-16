@@ -6,222 +6,261 @@ import type { PhraseDef } from './define';
 const man = group('Manœuvres');
 const arr = group('Interpellations');
 const inc = group('Incidents');
-const sec = group('Secours');
+const sec = group('Secours', { canal: 'secours' });
 
 export const PHRASES_MANOEUVRES_INCIDENTS: readonly PhraseDef[] = [
   // ── manœuvres ──
   man('gaz_main', { de: 'commandant', a: 'cible' }, [
-    'Lacrymogènes à main sur le carrefour, secteur {lieu}. Sur mon ordre.',
-    'Jets de grenades lacrymogènes à main, secteur {lieu}. Vent de {direction}, attention au retour.',
-    'Gaz à main autorisé sur le groupe en tête, secteur {lieu}. Tir dans la foule interdit, objectif désigné.',
+    'Lacrymogènes à main sur le secteur {lieu}, sur mon ordre.',
+    'Grenades lacrymogènes à main, secteur {lieu}. Vous lancez sur mon ordre.',
+    'Lacrymogènes lancés à la main, secteur {lieu}. Attendez mon ordre.',
   ]),
   man('gaz_lanceur', { de: 'commandant', a: 'cible' }, [
-    'Lanceurs, tir courbe sur le secteur {lieu}, portée {distance} mètres. Sur mon ordre.',
-    'Tir de grenades au lanceur, secteur {lieu}, tir courbe à {distance} mètres. Attendez mon ordre.',
-    'Lanceurs en position, objectif secteur {lieu}. Tir courbe, pas de tir tendu, distance : {distance} mètres.',
+    'Lanceurs, {distance} mètres, tir courbe, secteur {lieu}. Sur mon ordre.',
+    'Grenades au lanceur sur le secteur {lieu}, tir courbe à {distance} mètres. Attendez mon ordre.',
+    'Lanceurs en position, objectif secteur {lieu}, {distance} mètres. Tir courbe, tir tendu interdit, sur mon ordre.',
   ]),
   man('gaz_suspendu', {}, [
-    'Tirs de gaz suspendus, secteur {lieu}. Le vent rabat les nuages vers la ligne.',
-    'Arrêt des tirs de lacrymogènes, secteur {lieu}. Dotation conservée et masques en place.',
-    'Je cesse les tirs de gaz, secteur {lieu}. L\'objectif est atteint, la foule s\'éloigne.',
+    'Tirs de lacrymogènes suspendus, secteur {lieu}.',
+    'Arrêt des tirs de lacrymogènes, secteur {lieu}. Je garde les lanceurs en position.',
+    'Je cesse les tirs de gaz, secteur {lieu}.',
   ]),
   man('bond_offensif', { de: 'commandant', a: 'cible' }, [
-    'Bond offensif, {distance} mètres en avant, puis halte et réalignement.',
-    'Bond offensif sur {distance} mètres, secteur {lieu}. Arrêt net, ligne reformée, pas de contact recherché.',
-    'En avant sur {distance} mètres, secteur {lieu}. Halte puis réalignement dès l\'arrêt.',
+    'Bond offensif, {distance} mètres, en avant, puis halte et réalignement.',
+    'Bond offensif de {distance} mètres, secteur {lieu}. Arrêt net, réalignement, sans rechercher le contact.',
+    'En avant pour un bond de {distance} mètres, secteur {lieu}. Halte, puis réalignement de la ligne.',
   ]),
   man('bond_realigne', {}, [
     'Bond effectué, secteur {lieu}. Ligne réalignée, boucliers jointifs.',
-    'Réalignement terminé, secteur {lieu}. Nouvelle position tenue face {direction}.',
-    'Halte et réalignement faits, secteur {lieu}. Prêt pour le prochain bond.',
+    'Bond terminé, secteur {lieu}. Halte et réalignement faits.',
+    'Halte et réalignement faits, secteur {lieu}. Ligne reformée après le bond.',
   ]),
   man('charge', { de: 'commandant', a: 'cible', prio: 2 }, [
-    'Chargez jusqu\'au secteur {lieu}, arrêt au sifflet. Distance : {distance} mètres.',
-    'Charge sur {distance} mètres, secteur {lieu}. Course puis arrêt au coup de sifflet, repli au pas.',
-    'Charge autorisée vers le secteur {lieu}. À l\'arrêt, reformez la ligne immédiatement.',
+    'Chargez sur {distance} mètres, secteur {lieu}. Arrêt au sifflet, repli au pas sur la ligne de départ.',
+    'Charge de {distance} mètres, secteur {lieu}. Arrêt au coup de sifflet, puis repli au pas.',
+    'Charge, secteur {lieu}, {distance} mètres. Vous vous arrêtez au sifflet et vous revenez au pas sur la ligne de départ.',
   ]),
   man('charge_arretee', {}, [
     'Charge terminée, secteur {lieu}. Arrêt au sifflet, repli au pas sur la ligne de départ.',
     'Arrêt de la charge au sifflet, secteur {lieu}. Les agents se reforment, aucune poursuite.',
-    'Charge stoppée, secteur {lieu}. Ligne reformée, la foule est repoussée de {distance} mètres.',
+    'Charge arrêtée au sifflet, secteur {lieu}. Ligne reformée, pas de poursuite au-delà.',
   ]),
   man('repli', { de: 'commandant', a: 'cible', fin: 'termine' }, [
-    'Rompez le contact, repli par échelons sur la ligne des véhicules.',
+    'Rompez le contact, repli par échelons sur le secteur {lieu}.',
     'Repli sur le secteur {lieu}, par échelons. Un groupe couvre pendant que l\'autre recule.',
-    'Repli ordonné vers le secteur {lieu}, au pas et en ordre. Ne tournez pas le dos à la foule.',
+    'Repli par échelons vers le secteur {lieu}, au pas et en ordre, face à la foule.',
   ]),
   man('repli_effectue', {}, [
-    'Repli effectué, secteur {lieu}. Dispositif reformé, effectif au complet.',
-    'Rupture du contact réussie, secteur {lieu}. Nouvelle ligne tenue à {distance} mètres.',
-    'Repli terminé sur le secteur {lieu}. Aucun agent resté en arrière.',
+    'Repli effectué, secteur {lieu}. Dispositif reformé.',
+    'Contact rompu, secteur {lieu}. Nouvelle ligne en place.',
+    'Repli terminé, secteur {lieu}. Unité regroupée, ligne reformée.',
   ]),
   man('encerclement_ordre', { de: 'commandant', a: 'cible' }, [
-    'Bouclage de l\'îlot, secteur {lieu}. Sortie contrôlée, annonce aux personnes retenues toutes les minutes.',
-    'Encerclez le groupe, secteur {lieu}. Une issue contrôlée doit rester ouverte, priorité aux femmes et aux enfants.',
-    'Nasse sur le secteur {lieu}. Fermez les débouchés, contrôle des identités à la sortie.',
+    'Encerclez le groupe violent, secteur {lieu}. Un point de sortie contrôlé reste ouvert, information des personnes retenues toutes les minutes.',
+    'Bouclage de l\'îlot, secteur {lieu}, pour faire cesser les violences. Sortie contrôlée ouverte, annonce aux personnes retenues toutes les minutes.',
+    'Encerclement du groupe à l\'origine des violences, secteur {lieu}. Point de sortie contrôlé, durée strictement nécessaire, annonce chaque minute.',
   ]),
   man('encerclement_en_place', {}, [
-    'Encerclement en place, secteur {lieu}. Une issue contrôlée côté {direction}, densité surveillée.',
-    'Nasse en place, secteur {lieu}. Personnes retenues : {nombre}, contrôle à la sortie.',
-    'Bouclage effectué, secteur {lieu}. Effectif encerclé : {nombre}, issue contrôlée ouverte.',
+    'Encerclement en place, secteur {lieu}. Nombre de personnes retenues : {nombre}. Point de sortie contrôlé ouvert.',
+    'Bouclage effectué, secteur {lieu}. Nombre de personnes retenues : {nombre}. Sortie contrôlée tenue par mes agents.',
+    'Nasse en place, secteur {lieu}. Nombre de personnes à l\'intérieur : {nombre}. Point de sortie contrôlé ouvert.',
+  ]),
+  man('encerclement_leve', {}, [
+    'Encerclement levé, secteur {lieu}. Les personnes retenues sortent par le point contrôlé.',
+    'Levée du bouclage, secteur {lieu}. Les personnes retenues quittent les lieux par la sortie contrôlée.',
+    'Fin de l\'encerclement, secteur {lieu}. Sortie des personnes retenues en cours.',
   ]),
   man('refoulement', { de: 'commandant', a: 'cible' }, [
-    'Refoulement, axe {direction}, limite : {limite}, par bonds de cinquante mètres. Issue libre devant la foule.',
-    'Refoulez la foule jusqu\'au secteur {lieu}. Ligne au pas, arrêt de dix secondes entre deux tronçons.',
-    'Refoulement progressif vers {direction}, secteur {lieu}. Toujours une issue ouverte devant les manifestants.',
+    'Refoulement par bonds de cinquante mètres, limite : {limite}. Issue libre devant la foule.',
+    'Refoulez la foule au pas, par tronçons de cinquante mètres, limite : {limite}. Une issue reste libre devant elle.',
+    'Vague de refoulement, limite : {limite}. Ligne au pas, arrêt entre deux bonds, issue toujours libre devant les manifestants.',
+  ]),
+  man('refoulement_effectue', {}, [
+    'Refoulement effectué, secteur {lieu}. Limite atteinte, je tiens la ligne.',
+    'Limite de refoulement atteinte, secteur {lieu}. Ligne arrêtée et réalignée.',
+    'Refoulement terminé, secteur {lieu}. Je m\'arrête sur la limite fixée.',
   ]),
   man('tortue', {}, [
-    'Tortue formée, secteur {lieu}. Boucliers de face et au-dessus des têtes, plus aucun tir possible.',
-    'Passage en tortue, secteur {lieu}. Jets nourris, la ligne avance à très faible allure.',
-    'Formation en tortue, secteur {lieu}. Je protège les agents contre les projectiles et le feu.',
+    'Tortue formée, secteur {lieu}. Boucliers de face et au-dessus des têtes.',
+    'Passage en tortue, secteur {lieu}. Boucliers de face et au-dessus des têtes, jets nourris.',
+    'Formation en tortue, secteur {lieu}. Les agents sont couverts, plus aucun tir possible de mon côté.',
   ]),
   man('ligne_formee', {}, [
     'Ligne formée, secteur {lieu}, face {direction}. Boucliers jointifs, deuxième rang en place.',
-    'Mise en ligne terminée, secteur {lieu}. Lanceurs et chefs de groupe derrière les boucliers.',
-    'Ligne de barrage constituée face {direction}, secteur {lieu}. Prêt à tenir.',
+    'Mise en ligne terminée, secteur {lieu}, face {direction}. Deuxième rang derrière les boucliers.',
+    'Ligne de barrage constituée, secteur {lieu}, face {direction}. Prêt à tenir.',
   ]),
   man('dispersion_en_cours', {}, [
-    'Dispersion en cours, secteur {lieu}. La foule reflue vers {direction}, je maintiens la pression.',
-    'La foule se disperse, secteur {lieu}. Départ par les rues latérales, effectif restant : {nombre}.',
-    'Dispersion engagée, secteur {lieu}. Je laisse une issue libre vers {direction}.',
-    'Les manifestants quittent la place, secteur {lieu}. Dispersion progressive, effectif restant : {nombre}.',
+    'Dispersion en cours, secteur {lieu}. Volume restant : {nombre}.',
+    'La foule se disperse, secteur {lieu}. Volume restant : {nombre}.',
+    'Dispersion engagée, secteur {lieu}. Volume restant : {nombre}, l\'issue reste libre.',
+    'Les manifestants quittent les lieux, secteur {lieu}. Volume restant : {nombre}.',
   ]),
-  man('dispersion_effectuee', { fin: 'parlez' }, [
-    'Dispersion effective, chaussée libre, secteur {lieu}. Fin de l\'emploi de la force à {heure}.',
-    'Plus personne sur le secteur {lieu}. Dispersion terminée à {heure}, dispositif maintenu.',
-    'Place dégagée, secteur {lieu}. Dispersion effective à {heure}, je reconnais les abords.',
+  man('dispersion_effectuee', {}, [
+    'Dispersion effective à {heure}, secteur {lieu}. Chaussée libre.',
+    'Dispersion terminée à {heure}, secteur {lieu}. Plus personne sur la chaussée.',
+    'Chaussée libre, secteur {lieu}. Dispersion effective à {heure}.',
   ]),
 
-  // ── interpellations ──
+  // ── interpellations (toujours sur un fait constaté, bible H.1) ──
   arr('interpellation_ordre', { de: 'commandant', a: 'cible' }, [
-    'Interpellez sur fait constaté : l\'individu désigné, secteur {lieu}. Objectif désigné par le drone.',
-    'Interpellation sur le secteur {lieu}, sur fait constaté. Pas d\'initiative hors cible désignée.',
-    'Ciblez l\'auteur des jets, secteur {lieu}. Interpellation sur fait constaté, binôme de protection.',
+    'Interpellez l\'individu désigné, secteur {lieu}, sur fait constaté. Signalement : {signalement}.',
+    'Interpellation sur fait constaté, secteur {lieu}. Signalement de l\'objectif : {signalement}. Aucune autre cible.',
+    'Objectif désigné pour interpellation, secteur {lieu}, sur fait constaté. Signalement : {signalement}.',
   ]),
   arr('interpellation_en_cours', {}, [
-    'Interpellation en cours, secteur {lieu}. Un individu maîtrisé, menottage en cours.',
-    'Je procède à une interpellation, secteur {lieu}. Auteur de jets sur les agents, protection du binôme.',
-    'Interpellation engagée, secteur {lieu}. L\'individu résiste, je le maîtrise.',
+    'Interpellation en cours, secteur {lieu}. Le groupe d\'interpellation est sorti de la ligne.',
+    'Je procède à une interpellation, secteur {lieu}. Groupe d\'interpellation engagé, la ligne couvre.',
+    'Interpellation engagée, secteur {lieu}. Saisie de l\'individu désigné en cours.',
   ]),
   arr('interpellation_effectuee', {}, [
-    'Interpellé : un individu pour jet de projectile sur agents, à {heure}. Fait filmé, conduit au point de regroupement.',
-    'Interpellation effectuée à {heure}, secteur {lieu}. Individus interpellés : {nombre}, état de santé vérifié.',
-    'Interpellation terminée, secteur {lieu}. Un individu menotté et palpé, direction le véhicule.',
-    'Individu interpellé à {heure}, secteur {lieu}. Il est conduit au point de regroupement pour remise à l\'officier de police judiciaire.',
+    'Un interpellé pour {motif}, à {heure}, secteur {lieu}. Il est conduit au point de regroupement.',
+    'Interpellation effectuée à {heure}, secteur {lieu}. Motif : {motif}. L\'individu est conduit au point de regroupement.',
+    'Individu interpellé à {heure}, secteur {lieu}, pour {motif}. Conduite au point de regroupement, pour remise à l\'officier de police judiciaire.',
   ]),
   arr('interpelle_conduit', {}, [
     'Un interpellé est conduit au point de regroupement, secteur {lieu}. Escorte de deux agents.',
-    'Transfert de l\'interpellé vers le fourgon, secteur {lieu}. Il est fouillé et surveillé.',
-    'Personne interpellée escortée vers le point de remise, secteur {lieu}. Aucune difficulté.',
+    'Interpellé en cours de transfert vers le point de regroupement, secteur {lieu}. Deux agents l\'escortent.',
+    'Personne interpellée escortée par deux agents vers le point de regroupement, secteur {lieu}.',
   ]),
   arr('remise_interpelle', {}, [
-    'Remise des interpellés à l\'officier de police judiciaire, à {heure}. Individus remis : {nombre}.',
-    'Interpellés remis au point de regroupement, à {heure}. Effectif remis : {nombre}, procédure transmise.',
-    'Remise effectuée à l\'officier de police judiciaire, à {heure}. Individus : {nombre}, état de santé noté.',
+    'Remise à l\'officier de police judiciaire effectuée à {heure}. Nombre d\'interpellés remis : {nombre}. Fiches transmises.',
+    'Interpellés remis au point de regroupement à {heure}. Nombre : {nombre}. Fiches d\'interpellation transmises.',
+    'Remise effectuée à {heure}, avec les fiches d\'interpellation. Nombre d\'interpellés remis à l\'officier de police judiciaire : {nombre}.',
   ]),
 
-  // ── incidents ──
-  inc('incident_feu', { prio: 2, canal: 'commandement' }, [
-    'URGENT. Feu signalé, secteur {lieu}. Nature : {type}. Je demande une unité pour l\'éteindre.',
-    'URGENT. Début d\'incendie, secteur {lieu}. Nature : {type}. Risque de propagation.',
-    'URGENT. Feu en cours, secteur {lieu}. Nature : {type}. Extinction nécessaire avant l\'extension.',
+  // ── incidents : signalement, délégation, compte rendu ──
+  inc('incident_feu', { prio: 2 }, [
+    'URGENT. Feu signalé, secteur {lieu}. Nature : {type}. Je demande un moyen d\'extinction.',
+    'URGENT. Feu en cours, secteur {lieu}. Nature : {type}. Extinction à prévoir avant propagation.',
     'URGENT. Foyer repéré, secteur {lieu}. Nature : {type}. Je demande les moyens d\'extinction.',
+    'URGENT. Départ de feu, secteur {lieu}. Nature : {type}. Moyen d\'extinction à désigner.',
   ]),
-  inc('incident_blesse', { prio: 2, canal: 'commandement' }, [
-    'URGENT. Blessé à aller chercher, secteur {lieu}. Gravité : {gravite}. Besoin d\'une équipe pour l\'extraire.',
-    'URGENT. Personne blessée à secourir, secteur {lieu}. Gravité : {gravite}. Voie d\'accès à sécuriser.',
-    'URGENT. Blessé signalé, secteur {lieu}. Gravité : {gravite}. Équipe de secours à désigner.',
+  inc('incident_feu_reprise', { prio: 2 }, [
+    'URGENT. Reprise de feu, secteur {lieu}. Une batterie s\'est rallumée, il faut de l\'eau en quantité.',
+    'URGENT. Le feu reprend, secteur {lieu}. Batterie de vélo ou de trottinette rallumée, l\'extincteur ne suffit pas.',
+    'URGENT. Foyer rallumé, secteur {lieu}. Feu de batterie, je demande le canon à eau ou les pompiers.',
   ]),
-  inc('incident_pillage', { prio: 2, canal: 'commandement' }, [
-    'Pillage en cours, secteur {lieu}. Boutique visée, effectif : {nombre}. Je demande une unité mobile.',
-    'Pillage signalé, secteur {lieu}. Effectif : {nombre}, boutique forcée. Intervention nécessaire.',
-    'Des individus pillent un magasin, secteur {lieu}. Effectif : {nombre}. Unité à désigner.',
+  inc('incident_blesse', { prio: 2 }, [
+    'URGENT. Blessé à aller chercher, secteur {lieu}. Gravité : {gravite}. Équipe à désigner pour l\'extraire.',
+    'URGENT. Personne blessée à secourir, secteur {lieu}. Gravité : {gravite}. Il faut une équipe pour l\'extraire.',
+    'URGENT. Blessé signalé, secteur {lieu}. Gravité : {gravite}. Je demande une équipe d\'extraction.',
   ]),
-  inc('incident_barricade', { canal: 'commandement' }, [
+  inc('incident_pillage', { prio: 2 }, [
+    'Pillage en cours, secteur {lieu}. Commerce forcé, effectif du groupe : {nombre}. Unité à désigner.',
+    'Pillage signalé, secteur {lieu}. Vitrine brisée et marchandise emportée, effectif du groupe : {nombre}.',
+    'Un commerce est pillé, secteur {lieu}. Effectif du groupe : {nombre}. Je demande une unité pour intervenir.',
+  ]),
+  inc('incident_barricade', {}, [
     'Barricade signalée, secteur {lieu}. Matériaux : {objet}. Obstacle à dégager.',
-    'Barricade en travers de la voie, secteur {lieu}. Matériaux : {objet}. Besoin d\'un engin pour la dégager.',
-    'Barricade enflammée, secteur {lieu}. Matériaux : {objet}. Extinction puis dégagement à prévoir.',
+    'Barricade en travers de la voie, secteur {lieu}. Matériaux : {objet}. Moyen de dégagement à désigner.',
+    'Barricade dressée sur la chaussée, secteur {lieu}. Matériaux : {objet}. Elle bloque le passage des unités.',
   ]),
-  inc('incident_automobiliste', { canal: 'commandement' }, [
-    'Automobiliste bloqué au milieu de la foule, secteur {lieu}. Il est pris à partie, besoin d\'une escorte.',
-    'Véhicule civil coincé, secteur {lieu}. Occupants menacés, besoin d\'un dégagement.',
-    'Conducteur en difficulté, secteur {lieu}. Voiture encerclée, je demande une unité de protection.',
+  inc('incident_automobiliste', {}, [
+    'Automobiliste bloqué dans la foule, secteur {lieu}. Je demande une unité pour le dégager.',
+    'Véhicule civil immobilisé au milieu de la foule, secteur {lieu}. Occupants à bord, dégagement à prévoir.',
+    'Conducteur bloqué par la foule, secteur {lieu}. Il ne peut ni avancer ni reculer, unité à désigner.',
   ]),
-  inc('incident_secours_bloques', { prio: 2, canal: 'commandement' }, [
-    'URGENT. Secours empêchés d\'avancer, secteur {lieu}. Voie obstruée, il faut ouvrir un couloir.',
-    'URGENT. Le véhicule de secours est bloqué, secteur {lieu}. Besoin d\'une escorte pour dégager l\'accès.',
-    'URGENT. Secours coincés dans la foule, secteur {lieu}. Je demande un dégagement de la chaussée.',
+  inc('incident_secours_bloques', { prio: 2 }, [
+    'URGENT. Secours empêchés d\'avancer, secteur {lieu}. Il faut leur ouvrir un couloir.',
+    'URGENT. Véhicule de secours bloqué, secteur {lieu}. Je demande une unité pour dégager l\'accès.',
+    'URGENT. Les secours ne passent plus, secteur {lieu}. Couloir à ouvrir et à tenir.',
   ]),
-  inc('incident_delegue', { de: 'commandant', a: 'cible', canal: 'unite' }, [
-    'Je vous confie l\'incident, secteur {lieu} : {type}. Vous y allez, vous rendez compte.',
-    'Prenez en charge l\'incident du secteur {lieu}. Nature : {type}. Compte rendu dès que c\'est traité.',
-    'Incident délégué à votre unité, secteur {lieu}. Nature : {type}. Urgence : {niveau}.',
-    '{cible}, traitez l\'incident, secteur {lieu}. Nature : {type}. Rendez compte à l\'achèvement.',
+  inc('incident_suspect', {}, [
+    'Individu suspect signalé, secteur {lieu}. Signalement : {signalement}. Unité à désigner pour le contrôler.',
+    'Comportement suspect, secteur {lieu}. Signalement de l\'individu : {signalement}. Contrôle à prévoir.',
+    'Je signale un individu à contrôler, secteur {lieu}. Signalement : {signalement}.',
   ]),
-  inc('incident_accuse', { a: 'commandant', canal: 'unite', fin: 'termine' }, [
-    'Aperçu, je prends l\'incident, secteur {lieu}.',
-    'Reçu, j\'y vais. Incident du secteur {lieu}, je rends compte.',
-    'Aperçu, mon unité se rend sur l\'incident, secteur {lieu}. Arrivée dans {duree} minutes.',
+  inc('incident_delegue', { de: 'commandant', a: 'cible' }, [
+    'Je vous confie un incident, secteur {lieu}. Nature : {type}. Vous y allez et vous rendez compte.',
+    'Prenez en charge l\'incident du secteur {lieu}. Nature : {type}. Compte rendu dès qu\'il est traité.',
+    'Incident pour votre unité, secteur {lieu}. Nature : {type}. Rendez compte à l\'achèvement.',
+    'Traitez l\'incident du secteur {lieu}. Nature : {type}. Vous rendez compte à la fin.',
   ]),
-  inc('incident_traite', { a: 'commandant', canal: 'unite' }, [
-    'Incident traité, secteur {lieu}. Nature : {type}. Retour à ma position.',
-    'Incident réglé, secteur {lieu}. Nature : {type}. Je reprends ma mission.',
-    'Intervention terminée, secteur {lieu}. Nature : {type}. Rien à signaler de plus.',
-    'C\'est fait, secteur {lieu}. Nature : {type}. Je me remets à disposition.',
+  inc('incident_accuse', { a: 'commandant', fin: 'termine', reponse: true }, [
+    'APERÇU, je prends l\'incident.',
+    'REÇU, je me porte sur l\'incident et je rends compte.',
+    'APERÇU. Mon unité se rend sur l\'incident.',
   ]),
-  inc('incident_aggrave', { de: 'central', a: 'unite', prio: 2, canal: 'commandement' }, [
-    'URGENT. L\'incident du secteur {lieu} s\'aggrave : {type}. Il faut agir sans attendre.',
-    'URGENT. Situation qui empire, secteur {lieu}. Nature : {type}. Personne n\'est encore intervenu.',
-    'URGENT. Incident non traité, secteur {lieu}. Nature : {type}. Gravité en hausse, désignez un moyen.',
+  inc('incident_traite', { a: 'commandant' }, [
+    'Incident traité, secteur {lieu}. Nature : {type}. Je reprends ma mission.',
+    'Incident réglé, secteur {lieu}. Nature : {type}. Je me remets à votre disposition.',
+    'Intervention terminée, secteur {lieu}. Nature : {type}. Incident clos.',
+    'Compte rendu d\'incident, secteur {lieu}. Nature : {type}. Traité, rien d\'autre à signaler.',
   ]),
-  inc('incident_echec', { de: 'central', a: 'unite', canal: 'commandement' }, [
-    'L\'incident du secteur {lieu} n\'a pas pu être traité. Nature : {type}. Il est abandonné.',
-    'Incident perdu, secteur {lieu}. Nature : {type}. Les dégâts sont constatés.',
-    'Échec du traitement de l\'incident, secteur {lieu}. Nature : {type}. Je note la perte.',
+  inc('incident_aggrave', { de: 'central', a: 'commandant', prio: 2 }, [
+    'URGENT. L\'incident du secteur {lieu} s\'aggrave. Nature : {type}. Aucun moyen n\'est encore engagé.',
+    'URGENT. Incident non traité, secteur {lieu}. Nature : {type}. La situation empire, désignez un moyen.',
+    'URGENT. Aggravation de l\'incident, secteur {lieu}. Nature : {type}. Il faut y engager un moyen sans attendre.',
+  ]),
+  inc('incident_echec', { de: 'central', a: 'commandant' }, [
+    'Incident clos sans traitement, secteur {lieu}. Nature : {type}. Je le porte au compte rendu.',
+    'L\'incident du secteur {lieu} n\'a pas été traité à temps. Nature : {type}. Il figurera au compte rendu.',
+    'Incident non traité, secteur {lieu}. Nature : {type}. Trop tard pour intervenir, mention au compte rendu.',
+  ]),
+  inc('ordre_eteindre', { de: 'commandant', a: 'cible' }, [
+    'Éteignez le feu, secteur {lieu}. Nature : {type}. Porte-extincteur sous la protection des boucliers.',
+    'Feu à éteindre, secteur {lieu}. Nature : {type}. Envoyez votre porte-extincteur, couvert par les boucliers.',
+    'Extinction à votre charge, secteur {lieu}. Nature : {type}. Porte-extincteur en avant, boucliers en protection.',
+  ]),
+  inc('ordre_secourir', { de: 'commandant', a: 'cible', prio: 2 }, [
+    'Allez chercher le blessé, secteur {lieu}. Deux boucliers couvrent, deux agents le ramènent derrière la ligne.',
+    'Blessé à extraire, secteur {lieu}. Envoyez un groupe : boucliers en protection, évacuation derrière la ligne.',
+    'Extraction du blessé, secteur {lieu}. Un groupe y va sous la protection des boucliers et le ramène à l\'abri.',
   ]),
 
-  // ── secours ──
-  sec('secours_demande_pompiers', { prio: 2, canal: 'secours' }, [
-    'URGENT. Je demande les pompiers, secteur {lieu}. Nature : {type}. Accès par {voie}.',
-    'URGENT. Demande de sapeurs-pompiers, secteur {lieu}. Nature : {type}. Je sécurise l\'accès.',
-    'URGENT. Pompiers demandés sur le secteur {lieu}. Nature : {type}. Voie conseillée : {voie}.',
-    'URGENT. Appel des pompiers, secteur {lieu}. Nature : {type}. Mon unité se tient à leur disposition.',
+  // ── secours : pompiers et SAMU s'appellent par radio et n'entrent que sous protection ──
+  sec('secours_demande_pompiers', { prio: 2 }, [
+    'URGENT. Demande sapeurs-pompiers, secteur {lieu}. Nature : {type}. Accès : {acces}. Je sécurise.',
+    'URGENT. Je demande les pompiers, secteur {lieu}. Nature : {type}. Accès : {acces}. Je sécurise.',
+    'URGENT. Pompiers demandés, secteur {lieu}. Nature : {type}. Accès conseillé : {acces}. Mon unité sécurise.',
+    'URGENT. Appel aux sapeurs-pompiers, secteur {lieu}. Nature : {type}. Accès : {acces}. Protection assurée par mon unité.',
   ]),
-  sec('secours_demande_samu', { prio: 2, canal: 'secours' }, [
-    'URGENT. Je demande SANTÉ sur place, secteur {lieu}. Blessé : {gravite}. Je sécurise.',
-    'URGENT. Demande du SAMU, secteur {lieu}. Blessé : {gravite}. Accès par {voie}.',
-    'URGENT. Médecin demandé, secteur {lieu}. Blessé : {gravite}. L\'équipe peut approcher par {voie}.',
-    'URGENT. Secours médicaux demandés, secteur {lieu}. Blessé : {gravite}. Couloir en cours de dégagement.',
+  sec('secours_demande_samu', { prio: 2 }, [
+    'URGENT. Demande SANTÉ sur place, secteur {lieu}. Gravité : {gravite}. Accès : {acces}. Je sécurise.',
+    'URGENT. Je demande le SAMU, secteur {lieu}. Gravité : {gravite}. Accès : {acces}. Je sécurise.',
+    'URGENT. Secours médicaux demandés, secteur {lieu}. Gravité : {gravite}. Accès : {acces}. Je protège la victime.',
+    'URGENT. Équipe médicale demandée, secteur {lieu}. Gravité : {gravite}. Accès : {acces}. Mon unité sécurise.',
   ]),
-  sec('secours_en_route', { de: 'central', a: 'unite', canal: 'secours', fin: 'termine' }, [
-    'Les secours sont en route vers le secteur {lieu}. Arrivée dans {duree} minutes.',
-    '{cible} part pour le secteur {lieu}. Délai estimé : {duree} minutes, prévoyez l\'accès.',
-    'Secours engagés, secteur {lieu}. Ils arrivent par {voie}, dans {duree} minutes.',
+  sec('secours_en_route', { de: 'central', a: 'unite', fin: 'termine', reponse: true }, [
+    'Secours en route vers le secteur {lieu}. Délai : {duree} minutes. Préparez l\'accès.',
+    'Les secours sont partis pour le secteur {lieu}. Délai estimé : {duree} minutes, préparez l\'accès.',
+    'Secours engagés sur le secteur {lieu}. Arrivée dans {duree} minutes, tenez un accès dégagé.',
   ]),
-  sec('secours_attente_securisation', { de: 'samu', a: 'unite', canal: 'secours', prio: 2 }, [
-    'Nous sommes à la limite de la zone, secteur {lieu}. Nous attendons la sécurisation avant d\'avancer.',
-    'En attente de sécurisation, secteur {lieu}. Nous ne progressons pas sans protection ni itinéraire dégagé.',
-    'Zone non sûre, secteur {lieu}. Les secours restent à distance, demande d\'escorte et de couloir.',
-    'Secours à l\'arrêt, secteur {lieu}. Besoin d\'un accès protégé pour intervenir.',
+  sec('secours_attente_securisation', { de: 'samu', a: 'unite', prio: 2 }, [
+    'Nous sommes arrêtés à la limite de la zone, secteur {lieu}. Nous attendons la sécurisation avant d\'avancer.',
+    'En attente de sécurisation, secteur {lieu}. Nous n\'avançons pas sans protection ni itinéraire dégagé.',
+    'Zone non sûre, secteur {lieu}. Les secours restent à distance : demande d\'escorte et de couloir.',
+    'Secours à l\'arrêt, secteur {lieu}. Il nous faut un accès protégé pour intervenir.',
   ]),
-  sec('secours_itineraire_libre', { a: 'samu', canal: 'secours', fin: 'termine' }, [
-    'Couloir pour SANTÉ, axe {voie}, largeur de trois mètres cinquante, zone sécurisée. Vous pouvez avancer.',
-    'Itinéraire dégagé, secteur {lieu}. Axe {voie}, vous pouvez avancer, mes agents vous couvrent.',
-    'Accès sécurisé jusqu\'au secteur {lieu}. Vous progressez, ma ligne protège les côtés.',
+  sec('ordre_proteger_secours', { de: 'commandant', a: 'cible', prio: 2, canal: 'unite' }, [
+    'Protégez les secours, secteur {lieu}. Ouvrez un couloir de trois mètres cinquante et tenez-le.',
+    'Escortez les secours jusqu\'au secteur {lieu}. Couloir de trois mètres cinquante, boucliers de part et d\'autre.',
+    'Couloir pour les secours, secteur {lieu}, largeur trois mètres cinquante. Vous le tenez jusqu\'à leur départ.',
   ]),
-  sec('secours_sur_place', { de: 'samu', a: 'unite', canal: 'secours', fin: 'termine' }, [
+  sec('secours_itineraire_libre', { a: 'samu', fin: 'termine' }, [
+    'Couloir ouvert pour vous, largeur trois mètres cinquante. Accès : {acces}. Zone sécurisée, vous pouvez avancer.',
+    'Itinéraire dégagé. Accès : {acces}. Couloir de trois mètres cinquante tenu par mes agents, vous pouvez avancer.',
+    'Accès sécurisé : {acces}. Avancez par le couloir, mes agents vous couvrent des deux côtés.',
+  ]),
+  sec('secours_sur_place', { de: 'samu', fin: 'termine' }, [
     'Secours sur place, secteur {lieu}. Prise en charge en cours.',
-    'Équipe arrivée sur le secteur {lieu}. Nous commençons les soins.',
-    'Sur place, secteur {lieu}. Évaluation de la victime en cours.',
+    'Équipe arrivée, secteur {lieu}. Nous commençons l\'intervention.',
+    'Sur place, secteur {lieu}. Intervention en cours.',
   ]),
-  sec('secours_evacuation', { de: 'samu', a: 'central', canal: 'secours' }, [
+  sec('secours_evacuation', { de: 'samu' }, [
     'Victime prise en charge, évacuation en cours depuis le secteur {lieu}. Gravité : {gravite}.',
-    'Évacuation engagée, secteur {lieu}. Une victime transportée, gravité : {gravite}.',
-    'Départ du véhicule de secours, secteur {lieu}. Une victime à bord, gravité : {gravite}.',
+    'Évacuation engagée, secteur {lieu}. Une victime transportée. Gravité : {gravite}.',
+    'Départ du secteur {lieu} avec une victime à bord. Gravité : {gravite}.',
   ]),
-  sec('secours_termine', { de: 'samu', a: 'central', canal: 'secours', fin: 'termine' }, [
-    'Intervention terminée, secteur {lieu}. Les secours quittent la zone.',
-    'Fin de l\'intervention de secours, secteur {lieu}. Libre pour une autre mission.',
-    'Secours terminés, secteur {lieu}. Nous regagnons le point de rassemblement.',
+  sec('pompiers_feu_eteint', { de: 'pompiers' }, [
+    'Feu éteint, secteur {lieu}. Nature : {type}. Nous surveillons les points chauds.',
+    'Extinction terminée, secteur {lieu}. Nature : {type}. Surveillance des points chauds en cours.',
+    'Foyer éteint à la lance, secteur {lieu}. Nature : {type}. Nous restons le temps de noyer les braises.',
+  ]),
+  sec('secours_termine', { de: 'samu', fin: 'termine' }, [
+    'Intervention terminée, secteur {lieu}. Nous quittons la zone.',
+    'Fin de l\'intervention, secteur {lieu}. Disponibles pour une autre mission.',
+    'Intervention de secours terminée, secteur {lieu}. Nous regagnons le point de rassemblement des victimes.',
   ]),
 ];

@@ -313,6 +313,8 @@ export interface FormationInfo {
   /** Écart maximal et quadratique moyen des agents du premier rang à leur emplacement (m). */
   slotErrorMax: number;
   slotErrorRms: number;
+  /** Écart maximal de TOUS les agents du bloc à leur emplacement (m) : cohésion d'une colonne. */
+  slotErrorAll: number;
   /** Écart maximal du premier rang à la droite ajustée sur ses agents (m) : rectitude réelle de la ligne. */
   lineError: number;
   /** La formation se déplace. */
@@ -335,8 +337,11 @@ export interface ExitInfo {
 }
 
 export interface PoliceFormationApi {
-  /** Géométrie et alignement mesuré de la formation dirigée par cette unité (objet réutilisé), ou null. */
-  of(squadId: number): FormationInfo | null;
+  /**
+   * Géométrie et alignement mesuré de la formation dirigée par cette unité (objet réutilisé), ou null.
+   * `block` : numéro du bloc pour un dispositif à plusieurs blocs (encerclement : un par issue tenue).
+   */
+  of(squadId: number, block?: number): FormationInfo | null;
   /** Issues du dernier encerclement mené par cette unité (tableau réutilisé). */
   exits(squadId: number): readonly ExitInfo[];
 }

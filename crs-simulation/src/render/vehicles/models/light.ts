@@ -6,7 +6,7 @@ import {
   PART_ROTOR, PART_ROTOR_X, SURF_DARK, SURF_FIXED, SURF_GLASS, SURF_LAMP, SURF_METAL,
 } from '../geo';
 import type { Geo } from '../geo';
-import { COL, EDGE_SHOULDER, EDGE_SIDE, EDGE_TOP, decal, lamp, lampBox, patch, pipe, plate, shell, wheel } from '../kit';
+import { COL, EDGE_SHOULDER, EDGE_SIDE, EDGE_TOP, decal, lamp, lampBox, patch, pipe, pitchPart, plate, shell, wheel } from '../kit';
 import type { Station } from '../kit';
 import { tile } from '../atlas-layout';
 import { emptyMeta } from './types';
@@ -260,12 +260,16 @@ export function buildDrone(g: Geo, far: boolean, def: VehicleDef): ModelMeta {
     }
   }
   // nacelle caméra sous le nez, feux
+  let cam = -1;
+  for (let t = 0; t < def.turrets.length; t++) if (def.turrets[t]!.kind === 'camera') { cam = t; break; }
+  g.part(pitchPart(cam < 0 ? 9 : cam), 0, H * 0.2, hl * 0.5);
   g.paint(0x18191c, SURF_FIXED);
   if (far) g.cube(0, H * 0.2, hl * 0.5, hw * 0.24, H * 0.3, hw * 0.24);
   else {
     g.ball(0, H * 0.2, hl * 0.5, H * 0.17, 8, 2);
     g.paint(0xffffff, SURF_FIXED).tile(tile('optique')).panel(0, H * 0.2, hl * 0.5 + H * 0.175, [1, 0, 0], [0, 1, 0], H * 0.24, H * 0.24).tile(null);
   }
+  g.noPart();
   lampBox(g, -hw * 0.2, hw * 0.2, y1 - H * 0.2, y1 - H * 0.1, hl * 0.6, hl * 0.62, 0xe8ffe8, LIGHT_HEAD);
   lampBox(g, -hw * 0.2, hw * 0.2, y1 - H * 0.2, y1 - H * 0.1, -hl * 0.57, -hl * 0.55, COL.redLens, LIGHT_TAIL);
   lampBox(g, -hw * 0.06, hw * 0.06, y1, y1 + H * 0.06, -hl * 0.1, hl * 0.02, COL.blueLens, LIGHT_BEACON_A);
@@ -380,9 +384,16 @@ export function buildHelico(g: Geo, far: boolean, def: VehicleDef): ModelMeta {
     }
   });
   // ── caméra gyrostabilisée, projecteur, feux, marquage ──
+  // boule optronique : à l'emplacement de la tourelle 'camera' de la définition, orientable
+  let cam = -1;
+  for (let t = 0; t < def.turrets.length; t++) if (def.turrets[t]!.kind === 'camera') { cam = t; break; }
+  const cdef = cam >= 0 ? def.turrets[cam]! : null;
+  const bx = cdef ? -cdef.x : cw * 0.55, by = cdef ? Math.max(0.24 * k, cdef.y) : belly - 0.05, bz = cdef ? Math.min(zNose - 0.6 * k, cdef.z) : zNose - 1.0 * k;
   if (!far) {
-    g.paint(0x18191c, SURF_FIXED).ball(cw * 0.55, belly - 0.05, zNose - 1.0 * k, 0.2 * k, 10, 3);
-    g.paint(0xffffff, SURF_FIXED).tile(tile('optique')).panel(cw * 0.55, belly - 0.05, zNose - 1.0 * k + 0.202 * k, [1, 0, 0], [0, 1, 0], 0.2 * k, 0.2 * k).tile(null);
+    g.part(pitchPart(cam < 0 ? 9 : cam), bx, by, bz);
+    g.paint(0x18191c, SURF_FIXED).ball(bx, by, bz, 0.2 * k, 10, 3);
+    g.paint(0xffffff, SURF_FIXED).tile(tile('optique')).panel(bx, by, bz + 0.202 * k, [1, 0, 0], [0, 1, 0], 0.2 * k, 0.2 * k).tile(null);
+    g.noPart();
     g.paint(COL.plastic, SURF_FIXED).tube(-cw * 0.6, belly - 0.02, zNose - 1.4 * k, -cw * 0.6, belly - 0.02, zNose - 1.1 * k, 0.16 * k, 0.18 * k, 10, true, false);
     g.paint(COL.headLens, SURF_LAMP).light(LIGHT_HEAD).tube(-cw * 0.6, belly - 0.02, zNose - 1.1 * k, -cw * 0.6, belly - 0.02, zNose - 1.095 * k, 0.18 * k, 0.18 * k, 10, false, true);
     g.light(LIGHT_NONE);

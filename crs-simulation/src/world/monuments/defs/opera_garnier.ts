@@ -1,5 +1,6 @@
 /* Opéra Garnier (Charles Garnier, 1861-1875).
- * Cotes réelles : façade principale haute de 32,12 m ; comble de la scène à 55,97 m ; lyre d'Apollon vers 60 m ;
+ * Cotes réelles : façade principale haute de 32,12 m ; comble de la scène à 55,97 m ; le groupe d'Apollon (7,5 m) porte
+ * sa lyre vers 64 m ;
  * emprise de la carte 101 × 148,8 m (façade sud de 57 m, corps de 67 m, pavillons latéraux à rotonde, cage de
  * scène, bâtiment de l'administration au nord). Façade : perron, sept arcades, loggia à seize colonnes
  * corinthiennes jumelées devant des baies à colonnettes de marbre et bustes dorés, attique, deux groupes dorés
@@ -156,14 +157,14 @@ function build(site: MonumentSite, quality: QualityLevel): Builder {
   for (const s of [-1, 1]) for (let k = 0; k < 6; k++) stone.append(box(1.6, STAGE_WALL - WALL - 1.2, 0.5).translate(s * (4 + k * 4.2), WALL, sz1 + 0.25));
   // Apollon élevant sa lyre, la Poésie et la Musique ; Pégases aux angles du pignon
   b.with(pose(0, STAGE_TOP, sz1 - 0.3), () => {
-    b.add(TRIM, box(4.2, 1.2, 2.2));
-    const g = new Geo(), ap = figureGeo({ height: 6.2, lod, armR: { e: 2.9, a: 0.25 }, armL: { e: 2.9, a: 0.25 }, robe: false });
-    g.append(ap.body.translate(0, 1.2, 0));
-    for (const t of [-1, 1]) g.append(figureGeo({ height: 3.2, lod: 0, robe: true, seated: true }).body.rotateY(t * 0.6).translate(t * 1.4, 1.2, 0.3));
+    b.add(TRIM, box(4.2, 0.9, 2.2));
+    const g = new Geo(), ap = figureGeo({ height: 5.2, lod, armR: { e: 2.9, a: 0.25 }, armL: { e: 2.9, a: 0.25 }, robe: false });
+    g.append(ap.body.translate(0, 0.9, 0));
+    for (const t of [-1, 1]) g.append(figureGeo({ height: 3.0, lod: 0, robe: true, seated: true }).body.rotateY(t * 0.6).translate(t * 1.4, 0.9, 0.3));
     b.add('bronze', g);
     const lyre = new Geo();
-    lyre.append(box(0.22, 2.3, 0.22).translate(-0.75, 7.6, 0.2)).append(box(0.22, 2.3, 0.22).translate(0.75, 7.6, 0.2));
-    lyre.append(box(1.9, 0.22, 0.22).translate(0, 9.7, 0.2)).append(box(1.4, 0.3, 0.3).translate(0, 7.4, 0.2));
+    lyre.append(box(0.2, 1.9, 0.2).translate(-0.65, 6.2, 0.2)).append(box(0.2, 1.9, 0.2).translate(0.65, 6.2, 0.2));
+    lyre.append(box(1.7, 0.2, 0.2).translate(0, 7.9, 0.2)).append(box(1.2, 0.28, 0.28).translate(0, 6.05, 0.2));
     b.add(GOLD, lyre);
   });
   for (const s of [-1, 1]) {
@@ -215,7 +216,7 @@ export const def: MonumentDef = {
   key: 'opera_garnier',
   name: 'Opéra Garnier',
   radius: 92,
-  height: 60,
+  height: 64,
   build(site, quality) { return build(site, quality).build('opera_garnier'); },
   buildFar(site) {
     const b = new Builder();

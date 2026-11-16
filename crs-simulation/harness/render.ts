@@ -102,7 +102,8 @@ controls.config = {
   volatility: 0, duration: 'temps_reel', seed: num('seed', 3), extra: { clockScale: num('horloge', 0) },
 };
 
-const systems: GameSystem[] = [...createEnv(), ...createRenderBase()].sort((a, b) => a.order - b.order);
+// ?env=neutre : sans le module d'environnement (le rendu se replie sur l'état neutre du contrat)
+const systems: GameSystem[] = [...(params.get('env') === 'neutre' ? [] : createEnv()), ...createRenderBase()].sort((a, b) => a.order - b.order);
 for (const s of systems) s.provide?.(ctx);
 for (const s of systems) void s.init?.(ctx);
 for (const s of systems) s.reset?.();
@@ -113,7 +114,9 @@ const lights = ctx.require<RenderLightsApi>('render.lights');
 const shared = ctx.require<RenderUniformsApi>('render.uniforms');
 const rig = ctx.require<RenderCameraApi>('render.camera');
 const base = ctx.require<RenderBaseApi>('render.base');
-const envExt = ctx.require<EnvExtApi>('env.ext');
+const envExt: EnvExtApi = ctx.service<EnvExtApi>('env.ext') ?? ({
+  sky: {}, strike(): void {}, setWetness(): void {}, timeLabel: () => `${ctx.env.state.timeOfDay} h`,
+} as unknown as EnvExtApi);
 
 // ───────────────────────────── repère de la rue ─────────────────────────────
 // La rue est tournée pour pointer vers le couchant du 1er mai (azimut 293°) : le soleil se couche
@@ -482,7 +485,6 @@ const vanMesh = new THREE.Group();
 const vanExterior = new THREE.Group();
 const vanInterior = new THREE.Group();
 const droneMesh = new THREE.Group();
-let beacon: DynamicLight | null = null;
 let fireLight: DynamicLight | null = null;
 let fireMat: THREE.MeshStandardMaterial | null = null;
 const beaconMat = new THREE.MeshStandardMaterial({ color: 0x1030a0, emissive: new THREE.Color(0x2a6bff), emissiveIntensity: 0 });
@@ -545,7 +547,6 @@ function addActors(): void {
   vanMesh.add(vanExterior, vanInterior, wheels);
   vanMesh.traverse((o) => { o.castShadow = true; o.receiveShadow = true; });
   view!.world.add(vanMesh);
-  beacon = lights.point({ color: 0x2a6bff, intensity: 0, range: 24, priority: 0.5 });
 
   // drone
   const dbody = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.12, 0.4), new THREE.MeshStandardMaterial({ color: 0x202226, roughness: 0.5 }));
@@ -589,6 +590,8 @@ interface Setup {
   posture?: 'stand' | 'crouch';
   eclair?: number;
   secousse?: number;
+  /** Efface d'un coup les effets d'écran encore visibles. */
+  net?: boolean;
 }
 
 let fireOn: boolean | null = params.has('feu') ? params.get('feu') !== '0' : null;
@@ -627,6 +630,7 @@ function apply(s: Setup): void {
     rig.cut();
   }
   if (s.fx) Object.assign(fxLevels, s.fx);
+  if (s.net) base.clearScreenEffects();
   if (s.feu !== undefined) fireOn = s.feu;
   if (s.gyro !== undefined) beaconOn = s.gyro;
   if (s.marche !== undefined) walking = s.marche;
@@ -698,7 +702,10 @@ let simTime = 0;
 let legendClock = 0;
 const waiters: { at: number; done: () => void }[] = [];
 
+let disposed = false;
+
 function loop(tms: number): void {
+  if (disposed) return;
   requestAnimationFrame(loop);
   let dt = last < 0 ? 0 : (tms - last) / 1000;
   last = tms;
@@ -746,14 +753,9 @@ function loop(tms: number): void {
   const beaconActive = beaconOn ?? env.isNight;
   const blink = beaconActive && Math.floor(simTime * 4) % 2 === 0 ? 1 : 0;
   beaconMat.emissiveIntensity = blink * 6;
-  if (beacon) {
-    const def = van.def;
-    const s = Math.sin(van.heading);
-    const c = Math.cos(van.heading);
-    beacon.x = van.x + s * 1.4;
-    beacon.y = van.y + def.height + 0.5;
-    beacon.z = van.z + c * 1.4;
-    beacon.intensity = blink * 16;
+  if (blink > 0) {
+    // lumière « à l'image », redemandée tant que l'éclat dure (comme le fait le rendu des véhicules)
+    lights.pulse(van.x + Math.sin(van.heading) * 1.4, van.y + van.def.height + 0.5, van.z + Math.cos(van.heading) * 1.4, 0x2a6bff, 16, 24);
   }
   const fireActive = fireOn ?? env.isNight;
   if (fireLight) fireLight.intensity = fireActive ? 45 : 0;
@@ -815,6 +817,12 @@ function loop(tms: number): void {
       fog: view!.scene.fog ? { color: (view!.scene.fog as THREE.FogExp2).color.getHex(), density: (view!.scene.fog as THREE.FogExp2).density } : null,
       programs: view!.renderer.info.programs?.length ?? 0,
     };
+  },
+  /** Libère tout (vérification de dispose) : retourne ce qu'il reste dans la page. */
+  dispose() {
+    disposed = true;
+    for (const s of systems.slice().reverse()) s.dispose?.();
+    return { view: ctx.view !== null, canvases: document.querySelectorAll('canvas').length, overlays: document.querySelectorAll('.crs-fx').length };
   },
   ctx, controls, view, rig,
 };

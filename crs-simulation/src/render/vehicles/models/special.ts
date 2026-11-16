@@ -4,11 +4,13 @@
 
 import type { VehicleDef } from '@/core/contracts';
 import {
-  LIGHT_BEACON_A, LIGHT_BEACON_B, LIGHT_BRAKE, LIGHT_HEAD, LIGHT_IND_L, LIGHT_IND_R, LIGHT_NONE, LIGHT_TAIL, PART_BARREL0,
-  PART_BARREL1, PART_DOOR, PART_TURRET0, PART_TURRET1, SURF_DARK, SURF_FIXED, SURF_GLASS, SURF_LAMP, SURF_METAL,
+  LIGHT_BEACON_A, LIGHT_BEACON_B, LIGHT_BRAKE, LIGHT_HEAD, LIGHT_IND_L, LIGHT_IND_R, LIGHT_NONE, LIGHT_TAIL, PART_DOOR,
+  SURF_DARK, SURF_FIXED, SURF_GLASS, SURF_LAMP, SURF_METAL,
 } from '../geo';
 import type { Geo } from '../geo';
-import { COL, EDGE_SIDE, antenna, beacon, decal, grilleOver, lamp, patch, pipe, plate, shell, wheel } from '../kit';
+import {
+  COL, EDGE_SIDE, antenna, beacon, decal, grilleOver, lamp, patch, pipe, pitchPart, plate, shell, waterCannon, wheel, yawPart,
+} from '../kit';
 import type { Station } from '../kit';
 import { tile } from '../atlas-layout';
 import { truckBase } from './trucks';
@@ -19,16 +21,28 @@ import type { ModelMeta } from './types';
 
 export function buildCanonEau(g: Geo, far: boolean, def: VehicleDef): ModelMeta {
   const H = def.height;
-  // positions des canons : celles du contrat si elles existent, sinon deux canons de toit à l'avant de la citerne
-  const turrets = def.turrets.filter((t) => t.kind === 'canon_eau');
-  const tp: [number, number, number][] = turrets.length
-    ? turrets.slice(0, 2).map((t) => [-t.x, t.y, t.z])
-    : [[0.62, H - 0.5, def.length / 2 - 2.9], [-0.62, H - 0.5, def.length / 2 - 2.9]];
-  const cabTop = Math.min(2.95, H - 0.75);
-  const a = truckBase(g, far, def, { cabLen: 2.35, cabTop, rearAxles: 2, wheelR: 0.52, grilles: true, frontInset: 0.26, bumperColor: 0x2a2c30, lightbar: true });
+  const hlen = def.length / 2;
+  // tourillons des canons : ceux du contrat s'ils existent (indice de tourelle conservé pour l'animation),
+  // sinon deux canons sur le toit de la cabine
+  const tp: [number, number, number, number][] = [];
+  for (let i = 0; i < def.turrets.length && tp.length < 2; i++) {
+    const t = def.turrets[i]!;
+    if (t.kind === 'canon_eau') tp.push([-t.x, t.y, t.z, i]);
+  }
+  if (tp.length === 0) tp.push([0.75, H - 0.17, hlen - 1.85, 0], [-0.75, H - 0.17, hlen - 1.85, 1]);
+  const cabLen = 2.35, inset = 0.26;
+  const zCabGuess = hlen - 0.07 - inset - cabLen;
+  const onCab = tp.some((p) => p[2] > zCabGuess);
+  const cabTop = Math.min(3.05, H - 0.67);
+  const a = truckBase(g, far, def, {
+    cabLen, cabTop, rearAxles: 2, wheelR: 0.52, grilles: true, frontInset: inset, bumperColor: 0x2a2c30, lightbar: true,
+    lightbarBack: onCab ? 0.42 : undefined,
+  });
   const { hl, hw, zCab, yDeck, meta } = a;
   const white = (): void => { g.body(); };
-  const tankTop = Math.min(H - 0.55, Math.min(...tp.map((p) => p[1])) - 0.12);
+  let minOnTank = Infinity;
+  for (const p of tp) if (p[2] <= zCab && p[1] < minOnTank) minOnTank = p[1];
+  const tankTop = Math.min(H - 0.55, minOnTank - 0.12);
   const z1 = zCab - 0.08;
 
   // ── citerne : caisse à pans coupés ──
@@ -101,45 +115,8 @@ export function buildCanonEau(g: Geo, far: boolean, def: VehicleDef): ModelMeta 
     g.paint(0x26282c, SURF_FIXED).box(-hw * 0.88, hw * 0.88, gcB - 0.06, gcB + 0.3, bz - 0.1, bz - 0.04);
   }
 
-  // ── canons à eau ──
-  for (let i = 0; i < tp.length; i++) {
-    const [tx, ty, tz] = tp[i]!;
-    const yawPart = i === 0 ? PART_TURRET0 : PART_TURRET1;
-    const pitchPart = i === 0 ? PART_BARREL0 : PART_BARREL1;
-    if (far) {
-      // au loin : un bloc pour la tourelle, un tube pour la lance
-      g.part(yawPart, tx, ty, tz);
-      g.paint(0x2c2f34, SURF_METAL).box(tx - 0.16, tx + 0.16, tankTop, ty + 0.1, tz - 0.16, tz + 0.16, 1);
-      g.part(pitchPart, tx, ty, tz);
-      g.paint(0xc8ccd1, SURF_METAL).tube(tx, ty, tz - 0.2, tx, ty, tz + 1.0, 0.075, 0.05, 4, false, true);
-      g.noPart();
-      continue;
-    }
-    // socle fixe
-    g.noPart().paint(0x3a3d42, SURF_METAL);
-    g.tube(tx, tankTop, tz, tx, ty - 0.2, tz, 0.2, 0.17, 10, false, true);
-    // tourelle (gisement) : fût, berceau, écran et caméra
-    g.part(yawPart, tx, ty, tz);
-    g.paint(0x2c2f34, SURF_METAL).tube(tx, ty - 0.2, tz, tx, ty - 0.02, tz, 0.14, 0.12, 10, false, true);
-    g.box(tx - 0.17, tx - 0.11, ty - 0.1, ty + 0.16, tz - 0.1, tz + 0.1);
-    g.box(tx + 0.11, tx + 0.17, ty - 0.1, ty + 0.16, tz - 0.1, tz + 0.1);
-    g.paint(COL.plastic, SURF_FIXED).cube(tx + 0.25, ty + 0.1, tz + 0.02, 0.12, 0.12, 0.2);
-    g.paint(0xffffff, SURF_FIXED).tile(tile('optique')).panel(tx + 0.25, ty + 0.1, tz + 0.124, [1, 0, 0], [0, 1, 0], 0.1, 0.1).tile(null);
-    // canon (site) : lance et buse, tourillon sur l'axe de gisement
-    g.part(pitchPart, tx, ty, tz);
-    g.paint(0xc8ccd1, SURF_METAL);
-    const seg = 10;
-    g.tube(tx, ty, tz - 0.22, tx, ty, tz + 0.75, 0.075, 0.062, seg, true, false);
-    g.paint(0x2a2c30, SURF_METAL).tube(tx, ty, tz + 0.75, tx, ty, tz + 1.02, 0.062, 0.04, seg, false, true);
-    {
-      g.tube(tx, ty, tz + 0.7, tx, ty, tz + 0.78, 0.085, 0.085, seg);
-      // projecteur solidaire du canon
-      g.paint(COL.plastic, SURF_FIXED).tube(tx, ty + 0.17, tz + 0.05, tx, ty + 0.17, tz + 0.22, 0.07, 0.08, 8, true, false);
-      g.paint(COL.headLens, SURF_LAMP).light(LIGHT_HEAD).tube(tx, ty + 0.17, tz + 0.22, tx, ty + 0.17, tz + 0.225, 0.08, 0.08, 8, false, true);
-      g.light(LIGHT_NONE);
-    }
-    g.noPart();
-  }
+  // ── canons à eau : socle sur le toit de la cabine ou sur la citerne, selon leur position ──
+  for (const [tx, ty, tz, index] of tp) waterCannon(g, far, tx, ty, tz, tz > zCab ? a.cabTop : tankTop, index);
 
   // mât de caméras périphériques à l'arrière du toit : c'est lui qui donne la hauteur hors tout
   g.noPart().paint(0x2a2f38, SURF_METAL);
@@ -171,18 +148,30 @@ export function buildCentaure(g: Geo, far: boolean, def: VehicleDef): ModelMeta 
   const r = 0.66, ww = 0.44;
   const blue = (): void => { g.body(); };
   const blueDark = (): void => { g.body(0.72); };
-  // tourelleau : position du contrat si elle existe ; la caisse culmine à 3,0 m (ou sous le tourelleau)
-  const tdef = def.turrets.find((t) => t.kind === 'lance_grenades');
-  const hullTop = Math.min(H - 0.78, tdef ? tdef.y : 3.0);
-  const tur: [number, number, number] = tdef ? [-tdef.x, Math.max(tdef.y, hullTop), tdef.z] : [0, hullTop, -0.3];
+  // tourelleau : TurretDef donne le TOURILLON du lance-grenades (son indice de tourelle pilote l'animation) ;
+  // la caisse culmine à 3,05 m au plus, ou 30 cm sous le tourillon
+  let launcherIndex = -1, cameraIndex = -1;
+  for (let i = 0; i < def.turrets.length; i++) {
+    if (def.turrets[i]!.kind === 'lance_grenades' && launcherIndex < 0) launcherIndex = i;
+    if (def.turrets[i]!.kind === 'camera' && cameraIndex < 0) cameraIndex = i;
+  }
+  const tdef = launcherIndex >= 0 ? def.turrets[launcherIndex]! : null;
+  const cdef = cameraIndex >= 0 ? def.turrets[cameraIndex]! : null;
+  const trunY = tdef ? tdef.y : H - 0.47;
+  const hullTop = Math.min(3.05, H - 0.6, trunY - 0.3);
+  const tur: [number, number, number] = tdef ? [-tdef.x, trunY, tdef.z] : [0, trunY, -0.2];
   const over = L - def.wheelbase;
   const zF = hl - Math.min(over * 0.42, 1.75), zR = zF - def.wheelbase;
   const yFloor = r * 2 + 0.06;      // dessous de la caisse haute, au-dessus des roues
   const zNose = hl - 0.42;          // la lame occupe les 40 derniers centimètres
-  const zCowl = zNose - 1.45;       // pied de pare-brise
-  const zRoofF = zCowl - 0.5;       // haut de pare-brise
+  // la cabine se cale sur le siège du conducteur : pied de pare-brise 0,78 m devant lui, capot sous son regard
+  let drvZ = hl - 2.7, drvY = yFloor + 0.4;
+  for (const sd of def.seats) if (sd.role === 'driver') { drvZ = sd.z; drvY = sd.y; break; }
+  const eyeY = Math.min(drvY + 0.68, hullTop - 0.2);
+  const zCowl = Math.min(zNose - 0.55, Math.max(zNose - 1.6, drvZ + 0.78));   // pied de pare-brise
+  const zRoofF = zCowl - 0.45;                                                // haut de pare-brise
   const zRear = -hl + 0.16;
-  const yHood = yFloor + 0.62;
+  const yHood = Math.min(yFloor + 0.62, Math.max(yFloor + 0.3, eyeY - 0.5));
 
   // ── caisse basse (entre les roues) ──
   g.noPart().tile(null);
@@ -388,59 +377,65 @@ export function buildCentaure(g: Geo, far: boolean, def: VehicleDef): ModelMeta 
     }
   });
 
-  // ── toit : tourelleau lance-grenades téléopéré ──
+  // ── toit : tourelleau lance-grenades téléopéré (tourillon à trunY, berceaux de part et d'autre) ──
   const [tx, ty, tz] = tur;
+  const li = launcherIndex < 0 ? 0 : launcherIndex;
   g.noPart().paint(0x232830, SURF_METAL);
-  g.tube(tx, hullTop, tz, tx, ty + 0.06, tz, 0.42, 0.4, far ? 6 : 14, false, true);
-  g.part(PART_TURRET0, tx, ty, tz);
+  g.tube(tx, hullTop, tz, tx, hullTop + 0.08, tz, 0.42, 0.4, far ? 6 : 14, false, true);
+  g.part(yawPart(li), tx, ty, tz);
   blueDark();
-  const topY = H - 0.1;
-  const trunY = ty + 0.42;
+  const bodyTop = Math.min(H - 0.26, ty + 0.2);
+  const topY = Math.min(H - 0.1, bodyTop + 0.16);
   if (far) {
-    g.box(tx - 0.3, tx + 0.3, ty + 0.06, topY - 0.1, tz - 0.3, tz + 0.3, 1);
+    g.box(tx - 0.3, tx + 0.3, hullTop + 0.08, bodyTop, tz - 0.3, tz + 0.3, 1);
   } else {
     const from = g.mark();
     g.hexa([
-      tx - 0.32, ty + 0.06, tz - 0.36, tx + 0.32, ty + 0.06, tz - 0.36, tx + 0.32, ty + 0.06, tz + 0.34, tx - 0.32, ty + 0.06, tz + 0.34,
-      tx - 0.24, topY - 0.1, tz - 0.3, tx + 0.24, topY - 0.1, tz - 0.3, tx + 0.24, topY - 0.1, tz + 0.2, tx - 0.24, topY - 0.1, tz + 0.2,
+      tx - 0.32, hullTop + 0.08, tz - 0.36, tx + 0.32, hullTop + 0.08, tz - 0.36, tx + 0.32, hullTop + 0.08, tz + 0.34, tx - 0.32, hullTop + 0.08, tz + 0.34,
+      tx - 0.24, bodyTop, tz - 0.3, tx + 0.24, bodyTop, tz - 0.3, tx + 0.24, bodyTop, tz + 0.2, tx - 0.24, bodyTop, tz + 0.2,
     ], 1);
     g.smooth(from, 30);
     // bloc optronique (caméra jour / thermique) au sommet
-    g.paint(COL.plastic, SURF_FIXED).cube(tx - 0.02, topY - 0.02, tz + 0.02, 0.3, 0.16, 0.3);
+    g.paint(COL.plastic, SURF_FIXED).box(tx - 0.17, tx + 0.13, bodyTop, topY, tz - 0.13, tz + 0.17);
     g.paint(0xffffff, SURF_FIXED).tile(tile('optique'));
-    g.panel(tx - 0.09, topY - 0.02, tz + 0.172, [1, 0, 0], [0, 1, 0], 0.12, 0.12);
-    g.panel(tx + 0.07, topY - 0.02, tz + 0.172, [1, 0, 0], [0, 1, 0], 0.1, 0.1);
+    g.panel(tx - 0.09, (bodyTop + topY) / 2, tz + 0.172, [1, 0, 0], [0, 1, 0], 0.12, 0.12);
+    g.panel(tx + 0.06, (bodyTop + topY) / 2, tz + 0.172, [1, 0, 0], [0, 1, 0], 0.1, 0.1);
     g.tile(null);
   }
-  // berceaux multi-tubes de part et d'autre (site commun, tourillon sur l'axe)
-  g.part(PART_BARREL0, tx, trunY, tz);
+  // berceaux multi-tubes de part et d'autre (site commun, tourillon sur l'axe de gisement)
+  g.part(pitchPart(li), tx, ty, tz);
   for (const s of [1, -1]) {
     const cx = tx + 0.56 * s;
     g.paint(0x1d2128, SURF_METAL);
-    g.cube(cx, trunY, tz + 0.08, 0.44, 0.4, 0.56);
+    g.cube(cx, ty, tz + 0.08, 0.44, 0.4, 0.56);
     if (!far) {
       // face avant : 15 tubes par berceau, 30 au total
       g.paint(0xffffff, SURF_FIXED).tile(tile('tubes'));
-      g.panel(cx, trunY, tz + 0.365, [1, 0, 0], [0, 1, 0], 0.42, 0.38);
+      g.panel(cx, ty, tz + 0.365, [1, 0, 0], [0, 1, 0], 0.42, 0.38);
       g.tile(null);
-      g.paint(0x1d2128, SURF_METAL).tube(tx + 0.3 * s, trunY, tz, cx - 0.2 * s, trunY, tz, 0.07, 0.07, 6, false, false);
+      g.paint(0x1d2128, SURF_METAL).tube(tx + 0.3 * s, ty, tz, cx - 0.2 * s, ty, tz, 0.07, 0.07, 6, false, false);
     }
   }
   g.noPart();
 
-  // ── toit : mât de caméras, antennes, gyrophares, trappes ──
-  const mx = -hw * 0.42, mz = zRear + 0.7;
+  // ── toit : mât de caméras (tourelle 'camera' de la définition : sa tête suit gisement et site), antennes, trappes ──
+  const mx = cdef ? -cdef.x : -hw * 0.42, mz = cdef ? cdef.z : zRear + 0.7;
+  const headY = (cdef ? Math.max(hullTop + 0.4, cdef.y) : H) - 0.13;
   g.paint(0x2a2f38, SURF_METAL);
-  g.tube(mx, hullTop, mz, mx, H - 0.24, mz, 0.06, 0.045, far ? 4 : 8, false, false);
+  g.tube(mx, hullTop, mz, mx, headY - 0.1, mz, 0.06, 0.045, far ? 4 : 8, false, false);
+  g.part(pitchPart(cameraIndex < 0 ? 9 : cameraIndex), mx, headY, mz);
   g.paint(COL.plastic, SURF_FIXED);
-  if (far) g.cube(mx, H - 0.12, mz, 0.24, 0.24, 0.24);
+  if (far) g.cube(mx, headY, mz, 0.24, 0.24, 0.24);
   else {
-    g.ball(mx, H - 0.13, mz, 0.13, 10, 3);
+    g.ball(mx, headY, mz, 0.13, 10, 3);
     g.paint(0xffffff, SURF_FIXED).tile(tile('optique'));
-    g.panel(mx, H - 0.13, mz + 0.132, [1, 0, 0], [0, 1, 0], 0.13, 0.13);
-    g.panel(mx + 0.132, H - 0.13, mz, [0, 0, -1], [0, 1, 0], 0.13, 0.13);
-    g.panel(mx - 0.132, H - 0.13, mz, [0, 0, 1], [0, 1, 0], 0.13, 0.13);
+    g.panel(mx, headY, mz + 0.132, [1, 0, 0], [0, 1, 0], 0.13, 0.13);
+    g.panel(mx + 0.132, headY, mz, [0, 0, -1], [0, 1, 0], 0.11, 0.11);
+    g.panel(mx - 0.132, headY, mz, [0, 0, 1], [0, 1, 0], 0.11, 0.11);
     g.tile(null);
+  }
+  g.noPart();
+  if (!far) {
     antenna(g, false, hw * 0.5, hullTop, zRear + 0.5, 0.75, 0.3);
     antenna(g, false, hw * 0.3, hullTop, zRear + 0.9, 0.7, 0.3);
     // trappes et haut-parleur
@@ -461,7 +456,7 @@ export function buildCentaure(g: Geo, far: boolean, def: VehicleDef): ModelMeta 
   meta.wheelRadius = r;
   meta.fire = [0, yHood + 0.2, zNose - 0.7, 0, hullTop * 0.8, -0.5];
   meta.cockpit = 'armored';
-  meta.beltY = wsY0; meta.hoodY = yHood + 0.12; meta.roofY = hullTop; meta.cowlZ = zCowl; meta.halfWidth = hw;
+  meta.beltY = yHood + 0.12; meta.hoodY = yHood + 0.1; meta.roofY = hullTop; meta.cowlZ = zCowl; meta.halfWidth = hw;
   meta.grille = true;
   meta.sag = r * 0.12;
   return meta;

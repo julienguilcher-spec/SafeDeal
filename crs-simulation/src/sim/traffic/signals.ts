@@ -17,8 +17,8 @@
 import { hash2 } from '@/core/rng';
 import type { TrafficTuning } from './api';
 import type { EdgePoint, RoadCache } from './graph';
-import { N_JUNCTION } from './graph';
-import { CLUSTER_REACH } from './tuning';
+import { N_JUNCTION, N_SIGNAL } from './graph';
+import { CLUSTER_REACH, SIGNAL_REACH } from './tuning';
 
 export const GREEN = 0;
 export const AMBER = 1;
@@ -43,6 +43,7 @@ export class SignalCtrl {
 
 export class Signals {
   private readonly ctrls = new Map<number, SignalCtrl>();
+  private readonly crossing = new Map<number, SignalCtrl | null>();
   private readonly stack: number[] = [];
   private readonly members: number[] = [];
   private readonly dir: EdgePoint = { x: 0, z: 0, dx: 0, dz: 1 };
@@ -51,6 +52,7 @@ export class Signals {
 
   reset(): void {
     this.ctrls.clear();
+    this.crossing.clear();
   }
 
   /** Ensemble de feux du carrefour (créé à la première demande, partagé par les carrefours voisins). */
@@ -128,6 +130,62 @@ export class Signals {
     ctrl.offset = (hash2(node, 104729) % 1000) / 1000 * 60;
     this.ctrls.set(node, ctrl);
     return ctrl;
+  }
+
+  /**
+   * Ensemble de feux qui protège un passage piéton à ce nœud, ou null s'il n'y en a pas : le carrefour
+   * lui-même s'il a des feux (sur le nœud ou sur ses approches), le carrefour que commande une ligne de
+   * feu posée sur l'approche, ou le feu isolé d'un passage en pleine rue.
+   */
+  crossingCtrl(node: number): SignalCtrl | null {
+    const cached = this.crossing.get(node);
+    if (cached !== undefined) return cached;
+    const c = this.cache;
+    const flags = c.nodeFlags[node]!;
+    let found: SignalCtrl | null = null;
+    if ((flags & N_JUNCTION) !== 0) {
+      if ((flags & N_SIGNAL) !== 0 || this.lineNear(node, true) >= 0) found = this.ctrlOf(node);
+    } else if ((flags & N_SIGNAL) !== 0) {
+      const j = this.lineNear(node, false);
+      found = j >= 0 ? this.ctrlOf(j) : this.midblockCtrl(node);
+    }
+    this.crossing.set(node, found);
+    return found;
+  }
+
+  /**
+   * Parcourt les chaussées qui partent du nœud, à travers les nœuds de degré 2, sur SIGNAL_REACH mètres.
+   * `wantLine` : cherche une ligne de feu (nœud de degré ≤ 2 marqué feu) et retourne son nœud ;
+   * sinon cherche un carrefour et retourne son nœud. −1 si rien.
+   */
+  private lineNear(node: number, wantLine: boolean): number {
+    const c = this.cache;
+    for (let k = c.adjStart[node]!; k < c.adjStart[node + 1]!; k++) {
+      let e = c.adjEdge[k]!;
+      if (!c.isVehicle(e)) continue;
+      let at = node;
+      let dist = 0;
+      for (let guard = 0; guard < 16; guard++) {
+        dist += c.edgeLen[e]!;
+        at = c.other(e, at);
+        if (dist > SIGNAL_REACH) break;
+        const f = c.nodeFlags[at]!;
+        if ((f & N_JUNCTION) !== 0) {
+          if (!wantLine) return at;
+          break;
+        }
+        if (wantLine && (f & N_SIGNAL) !== 0) return at;
+        if (c.nodeDeg[at] !== 2) break;
+        let next = -1;
+        for (let j = c.adjStart[at]!; j < c.adjStart[at + 1]!; j++) {
+          const e2 = c.adjEdge[j]!;
+          if (e2 !== e && c.isVehicle(e2)) next = e2;
+        }
+        if (next < 0) break;
+        e = next;
+      }
+    }
+    return -1;
   }
 
   /** Ensemble de feux déjà connu pour ce nœud (sans le créer). */

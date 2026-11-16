@@ -142,12 +142,12 @@ export function formHold(k: Kernel, u: Unit): FormGroup {
  * Colonne vers (tx, tz) par les rues. La tête part de (hx, hz) ; l'itinéraire vient du monde (ligne droite
  * à défaut). Retourne le bloc ; la colonne se forme d'abord sur place (g.moving reste false).
  */
-export function formColumn(k: Kernel, u: Unit, hx: number, hz: number, tx: number, tz: number, files: number): FormGroup {
+export function formColumn(k: Kernel, u: Unit, hx: number, hz: number, tx: number, tz: number, files: number, straight = false): FormGroup {
   const n = gather(k, u);
   clearSlots(u);
   const g = mainGroup(u);
   const path = k.pathTmp;
-  if (!k.ctx.world.findPath(hx, hz, tx, tz, 'foot', path) || path.length < 4) {
+  if (straight || !k.ctx.world.findPath(hx, hz, tx, tz, 'foot', path) || path.length < 4) {
     path.length = 0;
     path.push(hx, hz, tx, tz);
   }

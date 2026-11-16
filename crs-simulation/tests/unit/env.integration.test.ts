@@ -83,3 +83,51 @@ describe('env + rendu de base — intégration au moteur', () => {
     expect(ids).toEqual(['render.base:1000', 'render.present:1090']);
   });
 });
+
+describe('rendu de base — repli sur l’environnement neutre du moteur (module env absent)', () => {
+  it('déduit soleil et lune de l’état du contrat, sans rupture sur 24 h', async () => {
+    const { bodiesFromEnvState, computeAtmosphere, createAtmosphere } = await import('@/render/base/atmosphere');
+    const t = createTestContext({ seed: 1 });
+    await t.ready;
+    const env = t.ctx.env;
+    const inp = {
+      sunX: 0, sunY: 1, sunZ: 0, sunElevDeg: 60, moonX: 0, moonY: -1, moonZ: 0, moonElevDeg: -60, moonPhase: 1,
+      clouds: 0.1, fog: 0, rain: 0, lightning: 0, streetLights: 0,
+    };
+    const atm = createAtmosphere();
+    let prevDirect = -1;
+    let prevAmbient = -1;
+    let maxDirectStep = 0;
+    let maxAmbientStep = 0;
+    for (let h = 0; h <= 24; h += 1 / 60) {
+      env.setTime(h);
+      bodiesFromEnvState(env.state, inp);
+      inp.streetLights = env.state.streetLights ? 1 : 0;
+      computeAtmosphere(inp, atm);
+      // le soleil est sous l'horizon la nuit, au-dessus en plein jour
+      if (env.state.isNight) expect(inp.sunElevDeg).toBeLessThan(0);
+      if (env.state.daylight > 0.999) expect(inp.sunElevDeg).toBeGreaterThan(5);
+      expect(Number.isFinite(atm.lightIntensity + atm.exposure + atm.hemiSky[0]! + atm.fogColor[2]!)).toBe(true);
+      expect(Math.hypot(inp.sunX, inp.sunY, inp.sunZ)).toBeCloseTo(1, 3);
+      const ambient = atm.hemiSky[1]!;
+      if (prevDirect >= 0) {
+        maxDirectStep = Math.max(maxDirectStep, Math.abs(atm.lightIntensity - prevDirect));
+        maxAmbientStep = Math.max(maxAmbientStep, Math.abs(ambient - prevAmbient));
+      }
+      prevDirect = atm.lightIntensity;
+      prevAmbient = ambient;
+    }
+    // d'une minute à l'autre, la lumière ne saute pas (allumage des candélabres compris)
+    expect(maxDirectStep).toBeLessThan(0.35);
+    expect(maxAmbientStep).toBeLessThan(0.2);
+    // midi : plein soleil ; minuit : lune
+    env.setTime(12);
+    bodiesFromEnvState(env.state, inp);
+    expect(computeAtmosphere(inp, atm).lightIntensity).toBeGreaterThan(2.5);
+    expect(atm.lightIsMoon).toBe(false);
+    env.setTime(0);
+    bodiesFromEnvState(env.state, inp);
+    expect(computeAtmosphere(inp, atm).lightIsMoon).toBe(true);
+    expect(atm.night).toBe(1);
+  });
+});

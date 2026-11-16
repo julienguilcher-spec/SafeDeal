@@ -71,6 +71,25 @@ export function steer(k: Kernel, a: Agent, tx: number, tz: number, tvx: number, 
     dx += a.avoidX;
     dz += a.avoidZ;
   }
+  if (direct && a.obR > 0) {
+    // l'élément protégé est sur le trajet : on vise la tangente, du côté où l'on se trouve déjà
+    const ox = a.obX - p.x;
+    const oz = a.obZ - p.z;
+    const dl = Math.sqrt(dx * dx + dz * dz);
+    if (dl > 0.3) {
+      const along = (ox * dx + oz * dz) / dl;
+      const cross = (ox * dz - oz * dx) / dl;
+      if (along > 0 && along < dl && Math.abs(cross) < a.obR) {
+        const side = cross > 0 ? 1 : -1;
+        const wx = a.obX - (dz / dl) * side * (a.obR + 0.35);
+        const wz = a.obZ + (dx / dl) * side * (a.obR + 0.35);
+        dx = wx - p.x;
+        dz = wz - p.z;
+        tvx = 0;
+        tvz = 0;
+      }
+    }
+  }
   const d2 = dx * dx + dz * dz;
   const still = tvx === 0 && tvz === 0;
   cmd.crouch = a.crouch;
@@ -210,12 +229,15 @@ export function navigate(k: Kernel, a: Agent, tx: number, tz: number, interval: 
     a.stuckT += interval;
     if (a.stuckT >= T.STUCK_TIME) {
       a.stuckT = 0;
-      // pas de côté, d'un côté puis de l'autre
+      // pas de côté : du même côté trois fois de suite (le temps de longer l'obstacle), puis de l'autre
       const d = Math.sqrt(d2);
-      const side = ((k.ctx.clock.tick >> 5) + p.id) & 1 ? 1 : -1;
-      a.sideX = (-dz / d) * side * 1.4;
-      a.sideZ = (dx / d) * side * 1.4;
-      a.sideUntil = k.now + 0.9;
+      if (k.now - a.sideUntil > 8) a.sideCount = 0;
+      const first = p.id & 1 ? 1 : -1;
+      const side = Math.floor(a.sideCount / 3) & 1 ? -first : first;
+      a.sideCount++;
+      a.sideX = (-dz / d) * side * 1.6;
+      a.sideZ = (dx / d) * side * 1.6;
+      a.sideUntil = k.now + 1.3;
       if (a.pathN === 0 && d2 > 9 && k.now - a.pathAt >= T.REPATH_INTERVAL) {
         a.pathAt = k.now;
         if (world.findPath(p.x, p.z, tx, tz, 'foot', a.path) && a.path.length >= 6) {

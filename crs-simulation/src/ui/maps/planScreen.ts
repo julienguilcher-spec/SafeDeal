@@ -35,7 +35,7 @@ export class PlanScreen implements ScreenInstance {
   private readonly w = { x: 0, z: 0 };
 
   constructor(
-    private readonly ctx: GameContext, private readonly kit: UiKit, private readonly runtime: MapsRuntime, host: HTMLElement,
+    private readonly ctx: GameContext, kit: UiKit, private readonly runtime: MapsRuntime, host: HTMLElement,
     data: unknown,
   ) {
     ensureMapsStyle();

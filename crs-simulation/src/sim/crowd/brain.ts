@@ -157,6 +157,10 @@ export interface CrowdBrain {
   timer: number;
   /** Fin de la réaction à une interpellation (huer, filmer). */
   gawkUntil: number;
+  /** Flanc choisi pour contourner le cortège en rejoignant sa place (±1, 0 : pas encore choisi). */
+  side: number;
+  /** Abscisse où l'on attend son rang au bord du parcours (NaN : on n'attend pas). */
+  waitS: number;
 }
 
 export function isCrowdBrain(v: unknown): v is CrowdBrain {
@@ -179,6 +183,6 @@ export function createBrain(p: Person, index: number, now: number, r1: number, r
     watchId: 0, watchX: 0, watchZ: 0, watchUntil: -1, act: A.NONE, actUntil: 0,
     stuckX: p.x, stuckZ: p.z, stuckSince: now, origin: p.profile, nextRad: now + 4 + r3 * 10, radAt: -1e9,
     calmSince: now, density: 0, gasSince: -1, controller: null, data: null,
-    dir: NaN, anchorX: p.x, anchorZ: p.z, stuck: 0, seenCharge: -1, seenArrest: -1, hand: -2, timer: 0, gawkUntil: -1,
+    dir: NaN, anchorX: p.x, anchorZ: p.z, stuck: 0, seenCharge: -1, seenArrest: -1, hand: -2, timer: 0, gawkUntil: -1, side: 0, waitS: NaN,
   };
 }

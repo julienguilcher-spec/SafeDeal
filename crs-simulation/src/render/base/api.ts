@@ -23,6 +23,8 @@ export const RENDER_BASE_SERVICE = 'render.base';
  * (position, couleur, intensité…). À chaque image, la réserve attribue ses quelques vraies
  * lumières aux plus importantes pour la caméra, avec un fondu : on peut donc en créer beaucoup
  * plus que le budget (un feu par poubelle, un gyrophare par véhicule).
+ * Une lumière vit jusqu'à son release() : la réserve ne la reprend jamais d'elle-même, pas même
+ * entre deux sessions — à son propriétaire de la rendre (dans son reset() ou quand l'objet disparaît).
  */
 export interface DynamicLight {
   /** Position (repère monde, m). */
@@ -73,8 +75,12 @@ export interface RenderLightsApi {
   spot(init?: DynamicLightInit): DynamicLight;
   /** Éclat bref qui s'éteint tout seul (explosion, flash de grenade, tir). */
   flash(x: number, y: number, z: number, color: number, intensity: number, range: number, seconds: number): void;
-  /** Rend toutes les lumières (changement de session). */
-  clear(): void;
+  /**
+   * Lumière ponctuelle « à l'image » : valable pour l'image en cours seulement, à redemander à chaque
+   * frame() tant qu'elle doit rester allumée (éclat de gyrophare, lueur d'un véhicule en feu). Pas de
+   * fondu ; elle concourt pour le budget comme les autres. À appeler depuis frame(), avant le rendu.
+   */
+  pulse(x: number, y: number, z: number, color: number, intensity: number, radius: number): void;
 }
 
 // ───────────────────────────── uniformes partagés ─────────────────────────────
@@ -140,9 +146,16 @@ export interface TacticalView {
   /** Point du sol au centre de la vue. */
   x: number;
   z: number;
-  /** Hauteur de la caméra au-dessus du sol (m) — déduite de PlayerState.zoom. */
+  /** Hauteur de la caméra au-dessus du sol (m) : 150 m / (PlayerState.zoom × zoom), bornée de 30 à 700 m. */
   readonly height: number;
-  /** Le rig déplace lui-même la vue avec les axes de déplacement de ctx.input (défaut true). */
+  /** Zoom propre à la vue tactique (0,2 – 5 ; 1 par défaut), multiplié par PlayerState.zoom. */
+  zoom: number;
+  /**
+   * Le rig pilote lui-même la vue avec ctx.input (défaut true) : axes de déplacement pour la déplacer
+   * (plus vite avec « sprint »), boutons zoom_in / zoom_out pour l'altitude. Inactif quand un écran
+   * modal est ouvert. Le module qui passe en vue tactique doit couper les commandes du personnage
+   * (PlayerState.controlEnabled = false), sinon celui-ci marche pendant qu'on déplace la vue.
+   */
   inputPan: boolean;
   /** Recentre la vue sur un point. */
   setCenter(x: number, z: number): void;
@@ -164,6 +177,8 @@ export interface RenderCameraApi {
   vehicleAutoCenter: boolean;
   /** Balancement de la tête à la marche en vue subjective, 0..1 (défaut 1). */
   headBob: number;
+  /** En vue subjective, appliquer la réduction de champ du masque / de la visière ('player.control'.fovScale ; défaut true). */
+  gearFov: boolean;
   /** Distance réelle caméra–pivot en vue à la troisième personne (après collision). */
   readonly tpsDistance: number;
   /** Coupe franche : annule les lissages (téléportation, changement de personnage). */
@@ -214,6 +229,8 @@ export interface RenderBaseApi {
    * l'environnement courant : à appeler après un saut d'heure ou de météo (éditeur, banc d'essai).
    */
   snap(): void;
+  /** Efface d'un coup tous les effets d'écran (changement de personnage, retour au menu). */
+  clearScreenEffects(): void;
   /** Force un rendu immédiat (capture d'écran, miniature). */
   renderNow(): void;
 }

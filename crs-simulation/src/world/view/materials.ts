@@ -223,7 +223,7 @@ if (gWetK > 0.001) {
   if (!gVertical && gHard > 0.5) {
     float gPn = cNoise(vGWorld.xz / 6.5) * 0.65 + cNoise(vGWorld.xz / 1.9) * 0.35;
     float gLevel = 0.83 - 0.15 * gWetK;
-    gPuddle = smoothstep(gLevel, gLevel + 0.05, gPn - (gH - 0.5) * 0.14) * smoothstep(0.3, 0.6, gWetK);
+    gPuddle = smoothstep(gLevel, gLevel + 0.08, gPn - (gH - 0.5) * 0.07) * smoothstep(0.3, 0.6, gWetK);
     // Les pavés gardent leurs têtes hors de l'eau.
     if (abs(gCls - ${CL_SETT}.0) < 0.5) gPuddle *= 1.0 - smoothstep(0.55, 0.8, gH);
     gAlb *= 1.0 - 0.45 * gPuddle;
@@ -245,7 +245,7 @@ if (gWetGloss > 0.001) {
   float gFres = 0.02 + 0.98 * pow(1.0 - gNdv, 5.0);
   // Gouttes de pluie : frémissement des flaques.
   float gRip = 1.0 + 0.3 * uWet.y * (cNoise(vGWorld.xz * 7.0 + uTime * 4.0) - 0.5);
-  totalEmissiveRadiance += uSky * (gFres * (0.1 * gWetGloss + 0.62 * gPuddle) + 0.03 * gPuddle) * gRip;
+  totalEmissiveRadiance += uSky * (gFres * (0.1 * gWetGloss + 0.55 * gPuddle) + 0.03 * gPuddle) * gRip;
 }
 `;
 

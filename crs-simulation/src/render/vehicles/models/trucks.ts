@@ -8,7 +8,7 @@ import {
 } from '../geo';
 import type { Geo } from '../geo';
 import {
-  COL, arch, beacon, bumper, cabin, decal, door, grille, lamp, lightbar, pipe, plate, shell, sideMirror, wheel,
+  COL, arch, beacon, bumper, cabin, decal, door, grille, lamp, lightbar, pipe, plate, shell, sideMirror, waterCannon, wheel,
 } from '../kit';
 import type { CabinSpec, Station } from '../kit';
 import { tile } from '../atlas-layout';
@@ -33,6 +33,8 @@ export interface TruckBaseOptions {
   cabColor?: number;
   bumperColor?: number;
   lightbar?: boolean;
+  /** Recul de la rampe lumineuse par rapport à la face avant de la cabine (défaut : milieu du toit). */
+  lightbarBack?: number;
 }
 
 export interface TruckAnchors {
@@ -54,8 +56,11 @@ export function truckBase(g: Geo, far: boolean, def: VehicleDef, o: TruckBaseOpt
   const yDeck = r * 2 + 0.1;
   const zf = hl - 0.07 - (o.frontInset ?? 0);   // face avant de la cabine
   const zCab = zf - o.cabLen;
-  const yBelt = yDeck + 0.5;
   const cabTop = o.cabTop;
+  // la ceinture de cabine suit la hauteur d'assise du conducteur (poste de conduite haut des poids lourds)
+  let driverY = yDeck + 0.62;
+  for (const s of def.seats) if (s.role === 'driver') { driverY = s.y; break; }
+  const yBelt = Math.min(cabTop - 0.75, Math.max(yDeck + 0.4, driverY - 0.12));
   const meta = emptyMeta(def);
   const cabStyle = (): void => { if (o.cabColor !== undefined) g.paint(o.cabColor, SURF_FIXED); else g.body(); };
   const over = L - def.wheelbase;
@@ -160,7 +165,7 @@ export function truckBase(g: Geo, far: boolean, def: VehicleDef, o: TruckBaseOpt
   });
 
   if (o.lightbar) {
-    const by = cabTop + (far ? 0 : 0.03), bz = zf - o.cabLen * 0.5;
+    const by = cabTop + (far ? 0 : 0.03), bz = zf - (o.lightbarBack ?? o.cabLen * 0.5);
     lightbar(g, far, by, bz, Math.min(1.5, W * 0.62));
     meta.beaconA.push(0.45, by + 0.08, bz);
     meta.beaconB.push(-0.45, by + 0.08, bz);
@@ -255,6 +260,12 @@ export function buildPompiers(g: Geo, far: boolean, def: VehicleDef): ModelMeta 
     // dévidoir et tuyaux d'aspiration côté gauche
     g.paint(0x2a2c30, SURF_FIXED).tube(hw - 0.35, top + 0.1, -hl + 0.2, hw - 0.35, top + 0.1, z1 - 0.2, 0.09, 0.09, 8);
     g.paint(COL.fireYellow, SURF_FIXED).box(-hw * 0.96, hw * 0.96, a.yBelt - 0.18, a.yBelt - 0.1, a.zFront + 0.004, a.zFront + 0.012);
+  }
+  // lance de toit orientable (tourelle 'canon_eau' de la définition, s'il y en a une)
+  for (let i = 0; i < def.turrets.length && i < 2; i++) {
+    const t = def.turrets[i]!;
+    if (t.kind !== 'canon_eau') continue;
+    waterCannon(g, far, -t.x, t.y, t.z, t.z > zCab ? cabTop : top, i);
   }
   beacon(g, far, hw - 0.25, top, -hl + 0.25, LIGHT_BEACON_A, 0.085);
   beacon(g, far, -(hw - 0.25), top, -hl + 0.25, LIGHT_BEACON_B, 0.085);

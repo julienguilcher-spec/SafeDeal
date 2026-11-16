@@ -37,6 +37,39 @@ export function typo(s: string): string {
     .replace(/'/g, '’');
 }
 
+/* ------------------------------------------------------------------ voix et radio */
+
+/**
+ * Indicatifs radio des forces de l'ordre et des secours (bible de réalisme, E.5 ; tous fictifs).
+ * Une ligne dont l'émetteur est un indicatif est un message RADIO et suit la procédure
+ * « APPELÉ ICI APPELANT. Corps du message. PARLEZ / TERMINÉ ». Tout autre émetteur (AMI, RÉDACTION,
+ * HAUT-PARLEUR, MONITEUR, VOUS…) est une VOIX entendue sur place ou au téléphone : français courant,
+ * sans procédure radio. Un manifestant, un journaliste ou un médecin bénévole n'ont pas de poste radio.
+ */
+const INDICATIF = /^(CENTRAL|LIAISON|ICARE|(MISTRAL|TRAMONTANE|SIROCCO|ZÉPHYR)( [1-4]( (ALFA|BRAVO|CHARLIE))?)?|ÉPERVIER( [1-4])?|FAUCON [1-3]|NEPTUNE 1|CENTAURE 1|SANTÉ [1-9]|SAPEUR [1-9])$/;
+
+const CHIFFRES = ['ZÉRO', 'UN', 'DEUX', 'TROIS', 'QUATRE', 'CINQ', 'SIX', 'SEPT', 'HUIT', 'NEUF'] as const;
+
+/** Vrai si l'émetteur est un indicatif radio (police, gendarmerie, secours), faux si c'est une voix. */
+export function isRadioCallsign(from: string): boolean {
+  return INDICATIF.test(from);
+}
+
+/** Forme parlée d'un indicatif : « MISTRAL 2 BRAVO » se dit « MISTRAL DEUX BRAVO ». */
+export function spokenCallsign(from: string): string {
+  return from.replace(/\d/g, (d) => CHIFFRES[Number(d)] ?? d);
+}
+
+/**
+ * Texte réglementaire de l'annonce et des sommations (article R. 211-11 du code de la sécurité intérieure,
+ * version du 5 mai 2021 ; bible A.1). À reproduire mot pour mot : ne jamais les paraphraser dans une mission.
+ */
+export const SOMMATIONS = {
+  annonce: 'Attention ! Attention ! Vous participez à un attroupement. Obéissance à la loi. Vous devez vous disperser et quitter les lieux.',
+  premiere: 'Première sommation : nous allons faire usage de la force. Quittez immédiatement les lieux.',
+  derniere: 'Dernière sommation : nous allons faire usage de la force. Quittez immédiatement les lieux.',
+} as const;
+
 /* ------------------------------------------------------------------ déclencheurs de phase */
 
 /** Passage à la phase suivante après un délai (secondes de jeu). */
@@ -52,7 +85,10 @@ export const FIN: PhaseTrigger = { kind: 'fin' };
 
 /* ------------------------------------------------------------------ éléments */
 
-/** Phase : titre, texte, condition de passage, messages radio [émetteur, texte], aléas imposés. */
+/**
+ * Phase : titre, texte, condition de passage, messages [émetteur, texte], aléas imposés.
+ * L'émetteur est soit un indicatif radio (message en procédure radio), soit une voix (voir isRadioCallsign).
+ */
 export function ph(
   id: string, title: string, text: string, until: PhaseTrigger, radio: Array<[string, string]>, events: string[] = [],
 ): MissionPhase {

@@ -15,9 +15,11 @@ export type ScreenEffect = 'gas' | 'flash' | 'wet' | 'pain' | 'visor';
 export const SCREEN_EFFECTS: readonly ScreenEffect[] = ['gas', 'flash', 'wet', 'pain', 'visor'];
 
 /**
- * Niveaux des effets. « gas », « wet » et « visor » sont des NIVEAUX : la valeur affichée rejoint
- * en douceur la dernière valeur demandée et y reste. « flash » et « pain » sont des IMPULSIONS :
- * la valeur monte aussitôt puis retombe toute seule ; rappeler setScreenEffect les entretient.
+ * Niveaux des effets. « gas », « wet », « visor » et « pain » sont des NIVEAUX : la valeur affichée
+ * rejoint la dernière valeur demandée et y reste (c'est ainsi que le HUD les pilote, image après
+ * image). La douleur monte d'un coup et s'estompe en douceur. « flash » est une IMPULSION : la valeur
+ * monte aussitôt puis retombe toute seule ; rappeler setScreenEffect l'entretient — un appel isolé ne
+ * peut donc pas laisser l'écran blanc.
  */
 export class ScreenFxState {
   /** Valeurs affichées 0..1, dans l'ordre de SCREEN_EFFECTS. */
@@ -34,11 +36,13 @@ export class ScreenFxState {
     const i = SCREEN_EFFECTS.indexOf(effect);
     if (i < 0 || !Number.isFinite(amount)) return;
     const a = clamp01(amount);
-    if (effect === 'flash' || effect === 'pain') {
+    if (effect === 'flash') {
       if (a > this.value[i]!) this.value[i] = a;
       this.target[i] = 0;
     } else {
       this.target[i] = a;
+      // la douleur frappe d'un coup
+      if (effect === 'pain' && a > this.value[i]!) this.value[i] = a;
     }
   }
 
@@ -70,13 +74,13 @@ export class ScreenFxState {
     v[1] = v[1]! > 0.6 ? v[1]! - dt * 0.55 : v[1]! * Math.exp(-dt * 1.9);
     // gouttes : arrivent vite, sèchent lentement
     v[2] = v[2]! + (t[2]! - v[2]!) * damp(t[2]! > v[2]! ? 6 : 0.8, dt);
-    // douleur : s'estompe en une seconde environ
-    v[3] = v[3]! * Math.exp(-dt * 1.6);
+    // douleur : tenue au niveau demandé ; au-delà, elle s'estompe en une seconde environ
+    v[3] = Math.max(t[3]!, v[3]! * Math.exp(-dt * 1.6));
     // visière : bascule en un quart de seconde
     v[4] = v[4]! + (t[4]! - v[4]!) * damp(11, dt);
     for (let i = 0; i < 5; i++) {
       if (v[i]! < 0.002 && t[i]! === 0) v[i] = 0;
-      else if (Math.abs(v[i]! - t[i]!) < 0.002 && i !== 1 && i !== 3) v[i] = t[i]!;
+      else if (Math.abs(v[i]! - t[i]!) < 0.002 && i !== 1) v[i] = t[i]!;
     }
     // clignements réflexes : d'autant plus fréquents que le gaz est fort
     const gas = v[0]!;

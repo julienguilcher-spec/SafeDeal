@@ -10,27 +10,16 @@ import type { Incident, MetroStation, RescueKind, RoadClosure } from '@/core/ext
 import type { PointerInfo } from '../maps/gestures';
 import type { MapCanvas } from '../maps/mapCanvas';
 import { INCIDENT_RADIUS } from '../maps/overlay';
-import { createShown, drawBarrageLine, drawNasse, drawOrderArrow, drawTargetMark, visibleUnits } from '../maps/overlay-units';
-import type { MapTransform } from '../maps/transform';
+import { createShown, visibleUnits } from '../maps/overlay-units';
 import type { MapUnit } from '../maps/units';
 import type { CommandCore } from './core';
-import { INCIDENT_KIND_LABELS, meansOfSymbol } from './incidents';
 import { MIN_LINE, areaToOrder, lineToOrder, pointHeading, slotsAlongLine, splitLine, spreadPoint, verbOf } from './orders';
 import type { OrderGeom, OrderVerb } from './orders';
-import { radioFrame, rescueRequest } from './phrases';
+import { FieldActions } from './tacticalActions';
+import { drawTacticalPreview } from './tacticalPreview';
+import type { Drag } from './tacticalPreview';
 import { IDLE } from './tacticalState';
 import type { TacticalState } from './tacticalState';
-
-interface Drag {
-  kind: 'order' | 'box' | 'area' | 'incident';
-  verb: OrderVerb | null;
-  incidentId: number;
-  /** Départ et position courante : monde et écran. */
-  ax: number; az: number; bx: number; bz: number;
-  sx0: number; sy0: number; sx: number; sy: number;
-  /** Tracé au bouton secondaire : ligne directe sans passer par la palette. */
-  quick: boolean;
-}
 
 export interface MapPick {
   unit: MapUnit | null;
@@ -41,7 +30,6 @@ export interface MapPick {
 
 /** Espacement entre unités envoyées sur un même point (m). */
 const POINT_SPACING = 10;
-const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
 
 export class TacticalMap {
   drag: Drag | null = null;
@@ -54,6 +42,7 @@ export class TacticalMap {
   /** Élément de carte touché hors unité (station, fermeture) : l'écran ouvre la bulle correspondante. */
   onPickEntity: ((pick: MapPick, x: number, y: number) => void) | null = null;
 
+  private readonly actions: FieldActions;
   private readonly w = { x: 0, z: 0 };
   private readonly w2 = { x: 0, z: 0 };
   private readonly sp = { x: 0, y: 0 };
@@ -66,6 +55,7 @@ export class TacticalMap {
   private readonly shown = createShown();
 
   constructor(private readonly core: CommandCore, private readonly map: MapCanvas, private readonly state: TacticalState) {
+    this.actions = new FieldActions(core, state, () => this.selectedUnits());
     map.handlers = {
       onHover: (x, y) => this.hover(x, y),
       onTap: (x, y, info) => this.tap(x, y, info),
@@ -74,7 +64,7 @@ export class TacticalMap {
       onDragStart: (x, y, info) => this.dragStart(x, y, info),
       onDragMove: (x, y) => this.dragMove(x, y),
       onDragEnd: (x, y, _info, cancelled) => this.dragEnd(x, y, cancelled),
-      drawExtras: (g, view) => this.drawExtras(g, view),
+      drawExtras: (g, view) => drawTacticalPreview(g, view, this, core, state),
     };
   }
 
@@ -553,215 +543,35 @@ export class TacticalMap {
     }
   }
 
-  // ───────────────────────────── circulation, secours, incidents ─────────────────────────────
+  // ───────────────────────────── circulation, secours, incidents (tacticalActions.ts) ─────────────────────────────
 
   closeRoad(x: number, z: number): void {
-    const core = this.core;
-    const traffic = core.traffic;
-    if (!traffic || !core.scope().canTraffic) return;
-    const units = this.selectedUnits();
-    const holder = units.length === 1 ? units[0]! : null;
-    const c = traffic.closeRoad(x, z, core.ctx.player.state.personId, holder ? holder.squadId : 0);
-    if (!c) {
-      core.ctx.ui.notify('Aucune rue à fermer à cet endroit.', 'warn', 3);
-      return;
-    }
-    const name = this.closureName(c);
-    core.ctx.ui.notify(`Circulation coupée\u00a0: ${name}${holder ? ` — barrage tenu par ${holder.name}` : ''}`, 'ok', 3.5);
-    core.ctx.radio.say({
-      channel: 'commandement', from: core.callsign(), priority: 1, personId: core.ctx.player.state.personId,
-      text: radioFrame('CENTRAL', core.callsign(), `Circulation coupée, ${name}${holder ? `, barrage tenu par ${holder.name}` : ''}`, false),
-    });
-    this.state.focusClosure = c.id;
-    this.state.touch();
+    this.actions.closeRoad(x, z);
   }
 
   closeArea(x: number, z: number, radius: number): void {
-    const core = this.core;
-    const traffic = core.traffic;
-    if (!traffic || !core.scope().canTraffic) return;
-    const list = traffic.closeArea(x, z, radius, core.ctx.player.state.personId);
-    const sector = core.ctx.world.sectorName(x, z);
-    if (list.length === 0) core.ctx.ui.notify('Aucune rue n’entre dans ce périmètre.', 'warn', 3);
-    else {
-      core.ctx.ui.notify(`Périmètre fermé\u00a0: ${list.length} accès coupés autour de ${sector || 'ce point'}`, 'ok', 3.5);
-      core.ctx.radio.say({
-        channel: 'commandement', from: core.callsign(), priority: 1, personId: core.ctx.player.state.personId,
-        text: radioFrame('CENTRAL', core.callsign(), `Périmètre de circulation fermé${sector ? `, ${sector}` : ''}, rayon ${Math.round(radius)} mètres`, false),
-      });
-    }
-    this.state.setMode(IDLE);
+    this.actions.closeArea(x, z, radius);
   }
 
   closureName(c: RoadClosure): string {
-    const e = this.core.ctx.world.edge(c.edgeId);
-    if (e && e.name) return e.name;
-    return this.core.ctx.world.sectorName(c.x, c.z) || 'voie sans nom';
+    return this.actions.closureName(c);
   }
 
   callRescue(kind: RescueKind, x: number, z: number, incidentId: number): void {
-    const core = this.core;
-    const rescue = core.rescue;
-    if (!rescue || !core.scope().canDelegate) return;
-    const ctx = core.ctx;
-    const call = rescue.request(kind, x, z, ctx.player.state.personId, incidentId !== 0 ? incidentId : undefined);
-    const eta = Math.max(0, Math.round(call.eta));
-    const label = kind === 'pompiers' ? 'Pompiers' : 'SAMU';
-    ctx.ui.notify(`${label} demandés — arrivée estimée dans ${Math.floor(eta / 60)}\u00a0min\u00a0${eta % 60 < 10 ? '0' : ''}${eta % 60}`, 'ok', 4);
-    ctx.radio.say({
-      channel: 'secours', from: core.callsign(), priority: 2, personId: ctx.player.state.personId,
-      text: rescueRequest(core.callsign(), ctx.world.sectorName(x, z), kind),
-    });
-    this.state.setTab('incidents');
+    this.actions.callRescue(kind, x, z, incidentId);
   }
 
   /** L'unité peut-elle recevoir un incident de la part du joueur ? */
   canReceive(u: MapUnit): boolean {
-    const sc = this.core.scope();
-    if (!sc.canDelegate) return false;
-    if (u.squadId === 0) return false;
-    if (u.faction === 'rescue') return sc.level === 'tout';
-    return this.core.canCommand(u.squadId);
+    return this.actions.canReceive(u);
   }
 
   /** Délègue un incident à une unité (glisser-déposer, bouton « Confier à la sélection »). */
   assignToUnit(incidentId: number, u: MapUnit): boolean {
-    const core = this.core;
-    const api = core.incidents;
-    const inc = api?.get(incidentId);
-    if (!api || !inc) return false;
-    const means = meansOfSymbol(u.symbol);
-    const ok = api.assign(incidentId, means, u.squadId);
-    const ctx = core.ctx;
-    if (!ok) {
-      ctx.ui.notify(`${u.name} ne peut pas traiter «\u00a0${INCIDENT_KIND_LABELS[inc.kind] ?? inc.label}\u00a0».`, 'warn', 4);
-      ctx.audio.play('ui_alerte');
-      return false;
-    }
-    ctx.ui.notify(`${inc.label} — confié à ${u.name}`, 'ok', 3);
-    ctx.radio.say({
-      channel: 'commandement', from: core.callsign(), priority: inc.urgency >= 3 ? 2 : 1, personId: ctx.player.state.personId,
-      text: radioFrame(u.name, core.callsign(), `${inc.label}. Vous en êtes chargé, rendez compte`, true),
-    });
-    this.state.touch();
-    return true;
-  }
-
-  // ───────────────────────────── aperçus ─────────────────────────────
-
-  private text(g: CanvasRenderingContext2D, s: string, x: number, y: number, color: string): void {
-    g.font = `700 11px ${FONT}`;
-    g.textAlign = 'center';
-    g.textBaseline = 'middle';
-    g.lineWidth = 3.5;
-    g.lineJoin = 'round';
-    g.strokeStyle = '#0b1322';
-    g.strokeText(s, x, y);
-    g.fillStyle = color;
-    g.fillText(s, x, y);
-  }
-
-  private drawExtras(g: CanvasRenderingContext2D, view: MapTransform): void {
-    const st = this.state;
-    const d = this.drag;
-    const mode = st.mode;
-    const units = mode.kind === 'order' || (d && d.kind === 'order') ? this.selectedUnits() : EMPTY_UNITS;
-    if (d) {
-      if (d.kind === 'box') {
-        g.fillStyle = 'rgba(88,166,255,.14)';
-        g.strokeStyle = '#9cc4ff';
-        g.lineWidth = 1.5;
-        g.setLineDash([5, 4]);
-        g.fillRect(d.sx0, d.sy0, d.sx - d.sx0, d.sy - d.sy0);
-        g.strokeRect(d.sx0, d.sy0, d.sx - d.sx0, d.sy - d.sy0);
-        g.setLineDash([]);
-      } else if (d.kind === 'incident') {
-        g.strokeStyle = '#ffffff';
-        g.lineWidth = 2;
-        g.setLineDash([6, 5]);
-        g.beginPath();
-        g.moveTo(d.sx0, d.sy0);
-        g.lineTo(d.sx, d.sy);
-        g.stroke();
-        g.setLineDash([]);
-      } else if (d.kind === 'area') {
-        if (d.verb) {
-          areaToOrder(d.ax, d.az, d.bx, d.bz, this.geom);
-          drawNasse(g, view, this.geom.x, this.geom.z, this.geom.heading, this.geom.width, '#ffd60a', true);
-          this.text(g, `Nasse · rayon ${Math.round(this.geom.width / 2)}\u00a0m`, d.sx0, d.sy0, '#ffe680');
-        } else {
-          const r = Math.max(30, Math.hypot(d.bx - d.ax, d.bz - d.az));
-          g.fillStyle = 'rgba(255,59,48,.12)';
-          g.strokeStyle = '#ff6a5f';
-          g.lineWidth = 2;
-          g.setLineDash([7, 5]);
-          g.beginPath();
-          g.arc(d.sx0, d.sy0, r / view.mpp, 0, Math.PI * 2);
-          g.fill();
-          g.stroke();
-          g.setLineDash([]);
-          this.text(g, `Périmètre · rayon ${Math.round(r)}\u00a0m`, d.sx0, d.sy0, '#ffb3ad');
-        }
-      } else if (d.verb) {
-        if (d.verb.gesture === 'line') {
-          lineToOrder(d.ax, d.az, d.bx, d.bz, this.geom);
-          if (this.geom.width >= MIN_LINE) {
-            drawBarrageLine(g, view, this.geom.x, this.geom.z, this.geom.heading, this.geom.width, '#ffd60a', false, 3.5);
-            view.worldToScreen(this.geom.x, this.geom.z, this.sp);
-            this.text(g, `${Math.round(this.geom.width)}\u00a0m`, this.sp.x, this.sp.y + 16, '#ffe680');
-          }
-        } else {
-          for (let i = 0; i < units.length; i++) {
-            view.worldToScreen(units[i]!.x, units[i]!.z, this.sp);
-            drawOrderArrow(g, this.sp.x, this.sp.y, d.sx0, d.sy0, '#ffd60a', true);
-          }
-          drawTargetMark(g, d.sx0, d.sy0, '#ffd60a', 7);
-          if (Math.hypot(d.sx - d.sx0, d.sy - d.sy0) > 14) drawOrderArrow(g, d.sx0, d.sy0, d.sx, d.sy, '#ffffff', false);
-        }
-      }
-      return;
-    }
-    if (this.hoverX < 0) return;
-    if (mode.kind === 'order' && mode.verb.gesture !== 'immediate') {
-      for (let i = 0; i < units.length; i++) {
-        view.worldToScreen(units[i]!.x, units[i]!.z, this.sp);
-        drawOrderArrow(g, this.sp.x, this.sp.y, this.hoverX, this.hoverY, 'rgba(255,214,10,.75)', true);
-      }
-      drawTargetMark(g, this.hoverX, this.hoverY, '#ffd60a', 7);
-    } else if (mode.kind === 'close_road' && this.hoverRoad) {
-      const e = this.core.ctx.world.edge(this.hoverRoad.edgeId);
-      if (e && e.points && e.points.length >= 4) {
-        g.lineCap = 'round';
-        g.lineJoin = 'round';
-        g.beginPath();
-        for (let i = 0; i + 1 < e.points.length; i += 2) {
-          view.worldToScreen(e.points[i]!, e.points[i + 1]!, this.sp);
-          if (i === 0) g.moveTo(this.sp.x, this.sp.y);
-          else g.lineTo(this.sp.x, this.sp.y);
-        }
-        g.lineWidth = Math.max(5, e.width / view.mpp + 2);
-        g.strokeStyle = 'rgba(255,59,48,.45)';
-        g.stroke();
-      }
-      view.worldToScreen(this.hoverRoad.x, this.hoverRoad.z, this.sp);
-      drawTargetMark(g, this.sp.x, this.sp.y, '#ff6a5f', 7);
-      this.text(g, this.hoverRoad.name || 'Voie sans nom', this.sp.x, this.sp.y - 20, '#ffb3ad');
-    } else if (mode.kind === 'close_area') {
-      g.strokeStyle = '#ff6a5f';
-      g.lineWidth = 1.6;
-      g.setLineDash([6, 5]);
-      g.beginPath();
-      g.arc(this.hoverX, this.hoverY, 100 / view.mpp, 0, Math.PI * 2);
-      g.stroke();
-      g.setLineDash([]);
-    } else if (mode.kind === 'rescue') {
-      drawTargetMark(g, this.hoverX, this.hoverY, mode.rescue === 'pompiers' ? '#ff6259' : '#ffffff', 10);
-      this.text(g, mode.rescue === 'pompiers' ? 'POMPIERS ICI' : 'SAMU ICI', this.hoverX, this.hoverY - 24, '#ffffff');
-    }
+    return this.actions.assignToUnit(incidentId, u);
   }
 }
 
-const EMPTY_UNITS: MapUnit[] = [];
 
 /** Ordres pour lesquels plusieurs unités envoyées au même point se rangent côte à côte. */
 const SPREAD_TYPES: ReadonlySet<OrderType> = new Set<OrderType>([

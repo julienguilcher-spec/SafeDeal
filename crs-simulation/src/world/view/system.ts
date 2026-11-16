@@ -133,6 +133,28 @@ export class WorldViewSystem implements GameSystem {
     this.unsub.push(ctx.events.on('world:tile_loaded', () => { this.dirty = true; }));
     this.unsub.push(ctx.events.onAny('world:source', () => this.resetWorld()));
     this.unsub.push(ctx.events.on('settings:changed', (e) => { if (e.key === 'quality' || e.key === 'drawDistance') this.dirty = true; }));
+    // Si le rendu de base est déjà là, les textures partagées sont peintes dès maintenant (pendant le démarrage)
+    // plutôt qu'à la première image.
+    if (ctx.view !== null) {
+      try {
+        this.ensureShared(ctx.view.quality, ctx.view.renderer);
+      } catch (err) {
+        console.error('[world:view] préparation des textures impossible', err);
+      }
+    }
+  }
+
+  /** Crée les ressources partagées de la qualité demandée (libère celles d'une autre qualité). */
+  private ensureShared(quality: QualityLevel, renderer: THREE.WebGLRenderer): void {
+    if (this.shared !== null && quality === this.quality) return;
+    // Changement de qualité : tout est reconstruit avec les nouvelles ressources.
+    this.resetWorld();
+    this.disposeShared();
+    this.quality = quality;
+    const antialias = renderer.getContextAttributes()?.antialias === true;
+    this.shared = createSharedResources(cityQuality(quality), antialias);
+    // L'atlas des façades est peint ici lui aussi, et non à la première tuile.
+    if (this.options.buildings !== false) prepareSharedBuildingResources(quality);
   }
 
   reset(): void {
@@ -190,16 +212,9 @@ export class WorldViewSystem implements GameSystem {
     }
     const data = this.currentData();
     if (data === null || data.manifest.tiles.length === 0 && data.roadGraph.edges.length === 0) return false;
-    if (view.quality !== this.quality || this.shared === null) {
-      // Changement de qualité : tout est reconstruit avec les nouvelles ressources.
-      this.resetWorld();
-      this.disposeShared();
-      this.quality = view.quality;
-      const antialias = view.renderer.getContextAttributes()?.antialias === true;
-      this.shared = createSharedResources(cityQuality(this.quality), antialias);
-      // L'atlas des façades est peint ici, pendant le chargement, et non à la première tuile.
-      if (this.options.buildings !== false) prepareSharedBuildingResources(this.quality);
-    }
+    this.ensureShared(view.quality, view.renderer);
+    const shared = this.shared;
+    if (shared === null) return false;
     if (this.manifest !== data.manifest || this.graph !== data.roadGraph || this.city === null) {
       if (this.manifest !== null) this.resetWorld();
       this.data = data;
@@ -208,7 +223,7 @@ export class WorldViewSystem implements GameSystem {
       const terrain = data.terrain;
       const monuments = (): MonumentsLike | undefined => ctx.service<MonumentsLike>('world.monuments') ?? ctx.service<MonumentsLike>('monuments');
       this.city = {
-        shared: this.shared,
+        shared,
         quality: this.quality,
         renderer: view.renderer,
         graph: data.roadGraph,
@@ -242,7 +257,7 @@ export class WorldViewSystem implements GameSystem {
       }
       this.dirty = true;
     }
-    const q = this.shared.quality;
+    const q = shared.quality;
     cityUniforms.uFade.value.set(q.fadeNear, q.fadeFar);
     return true;
   }

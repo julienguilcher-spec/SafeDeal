@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { PlayableRole } from '@/core/contracts';
 import type { MissionDef, MissionType, ObjectiveKind } from '@/core/missions-schema';
 import { CAREER_CHAPTERS, CAMPAIGN_SEMAINE } from '@/gameplay/missions/catalog/career';
-import { CAUSES, FAMILIES } from '@/gameplay/missions/catalog/dsl';
+import { CAUSES, FAMILIES, SOMMATIONS, isRadioCallsign, spokenCallsign } from '@/gameplay/missions/catalog/dsl';
 import { MISSIONS, mirrorsOf, missionById, missionsFor } from '@/gameplay/missions/catalog';
 
 const ROLES_JOUABLES: PlayableRole[] = [
@@ -25,6 +25,25 @@ const KINDS: ObjectiveKind[] = [
 ];
 
 const PHASES_FOULE = ['aucune', 'rassemblement', 'depart', 'cortege', 'tension', 'affrontement', 'dispersion'];
+
+/** Durée de jeu de chaque préréglage, en secondes (BRIEF : 10 / 25 / 45 min / temps réel). */
+const DUREE_S: Record<string, number> = { courte: 600, standard: 1500, longue: 2700, temps_reel: 7200 };
+
+/** Champs chiffrés ou localisés qu'un objectif doit porter pour être mesurable par le cadre de mission. */
+const CHAMPS_REQUIS: Partial<Record<ObjectiveKind, Array<Array<'place' | 'target' | 'count' | 'seconds' | 'max'>>>> = {
+  tenir_position: [['seconds']], proteger_site: [['place', 'target']], disperser: [['place', 'target']], interpeller: [['count']],
+  limiter_blesses: [['max']], limiter_degats: [['max']], couper_circulation: [['place', 'count']],
+  degager_barricade: [['count', 'place']], escorter: [['place', 'target']], evacuer: [['count', 'place']],
+  reperer_signaux: [['count']], guider_unite: [['target', 'place', 'count']], traiter_incidents: [['count']], releve: [['count']],
+  prevention: [['target', 'count']], eteindre: [['count']], secourir: [['count']], soigner: [['count']],
+  photographier: [['count']], filmer: [['count']], publier: [['count']], rester_dans_cortege: [['seconds', 'max']],
+  atteindre: [['place']], duree: [['seconds']], personnalise: [['target']],
+};
+
+/** Texte sans espaces insécables ni apostrophes courbes, pour les contrôles. */
+function brut(s: string): string {
+  return s.replace(/[\u00a0\u202f]/g, ' ').replace(/’/g, '\'');
+}
 
 function textes(m: MissionDef): string[] {
   return [
@@ -170,11 +189,27 @@ describe('catalogue de missions : champs remplis et dans leurs bornes', () => {
       idsPhases.add(p.id);
       expect(p.title.length).toBeGreaterThan(2);
       expect(p.text.length).toBeGreaterThan(14);
+      expect(p.id, `identifiant de phase ${p.id}`).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/);
       expect(p.radio.length, `radio de ${p.id}`).toBeGreaterThanOrEqual(1);
       for (const r of p.radio) {
         expect(r.from.length).toBeGreaterThan(1);
-        expect(r.text, `radio « ${r.text} »`).toMatch(/\bICI\b/);
-        expect(r.text, `radio « ${r.text} »`).toMatch(/(PARLEZ|TERMINÉ|APERÇU|COLLATIONNEZ)\.$/);
+        expect(r.from, 'émetteur en capitales').toBe(r.from.toUpperCase());
+        expect(r.from, 'le personnage incarné parle sous « VOUS », jamais sous « JOUEUR »').not.toBe('JOUEUR');
+        const t = brut(r.text);
+        if (isRadioCallsign(r.from)) {
+          // message radio : « APPELÉ ICI APPELANT. Corps. PARLEZ. », et l'appelant est bien l'émetteur déclaré
+          const ici = /^(.+?) ICI ([^.,]+)[.,] /.exec(t);
+          expect(ici, `radio « ${t} »`).not.toBeNull();
+          expect(ici?.[2], `émetteur de « ${t} »`).toBe(spokenCallsign(r.from));
+          expect(ici?.[1], `l'appelé ne peut pas être l'appelant : « ${t} »`).not.toBe(ici?.[2]);
+          expect(t, `radio « ${t} »`).toMatch(/(PARLEZ|TERMINÉ|APERÇU|COLLATIONNEZ)\.$/);
+          // chiffres dits un par un (bible E.6) : pas de dizaine en toutes lettres capitales
+          expect(t, `nombre à épeler chiffre par chiffre : « ${t} »`).not.toMatch(/\b(DIX|ONZE|DOUZE|TREIZE|QUATORZE|QUINZE|SEIZE|VINGT|TRENTE|QUARANTE|CINQUANTE|SOIXANTE|QUATRE-VINGTS?)\b(?! MILLE)/);
+        } else {
+          // voix (ami, rédaction, haut-parleur, moniteur…) : français courant, sans procédure radio
+          expect(t, `voix « ${t} »`).not.toMatch(/\bICI\b|\bPARLEZ\b|\bTERMINÉ\b|\bCOLLATIONNEZ\b/);
+          expect(t.length).toBeGreaterThan(5);
+        }
       }
       if (i < m.phases.length - 1) {
         expect(p.until.kind).not.toBe('fin');
@@ -189,6 +224,14 @@ describe('catalogue de missions : champs remplis et dans leurs bornes', () => {
         expect(p.until.kind).toBe('fin');
       }
     });
+    // déroulé : les phases minutées tiennent dans la durée, un seuil de tension n'est pas déjà franchi au départ
+    const minutees = m.phases.reduce((s, p) => s + (p.until.kind === 'temps' ? p.until.seconds : 0), 0);
+    expect(minutees, 'somme des phases minutées').toBeLessThanOrEqual(0.85 * DUREE_S[m.duration]);
+    for (const p of m.phases) {
+      if (p.until.kind === 'tension') expect(p.until.above, `seuil de tension de ${p.id}`).toBeGreaterThan(m.crowd.tension);
+    }
+    // moyens : un fourgon par groupe, donc trois par section (bible C et E.1)
+    if (f.sections > 0) expect(f.fourgons, 'fourgons = 3 × sections').toBe(3 * f.sections);
     // objectifs
     const principaux = m.objectives.filter((o) => !o.secondary);
     const secondaires = m.objectives.filter((o) => o.secondary);
@@ -198,15 +241,25 @@ describe('catalogue de missions : champs remplis et dans leurs bornes', () => {
     for (const o of m.objectives) {
       expect(KINDS).toContain(o.kind);
       expect(o.text.length).toBeGreaterThan(10);
+      expect(o.id).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/);
       if (o.count !== undefined) expect(o.count).toBeGreaterThan(0);
       if (o.seconds !== undefined) expect(o.seconds).toBeGreaterThan(0);
       if (o.max !== undefined) expect(o.max).toBeGreaterThanOrEqual(0);
+      if (o.target !== undefined) expect(o.target, `cible de ${o.id}`).toMatch(/^[a-z0-9_]+$/);
+      // mesurabilité : chaque type d'objectif porte le champ qui permet de le vérifier
+      for (const auChoix of CHAMPS_REQUIS[o.kind] ?? []) {
+        expect(auChoix.some((k) => o[k] !== undefined), `${o.id} (${o.kind}) : il manque ${auChoix.join(' ou ')}`).toBe(true);
+      }
     }
     // échecs
     expect(m.failures.length).toBeGreaterThanOrEqual(1);
+    const civil = ['journaliste', 'manifestant', 'street_medic'].includes(m.role);
     for (const e of m.failures) {
       expect(e.text.length).toBeGreaterThan(10);
       if (e.value !== undefined) expect(e.value).toBeGreaterThan(0);
+      if (e.kind === 'trop_de_blesses' || e.kind === 'temps') expect(e.value, `seuil de l'échec ${e.kind}`).toBeDefined();
+      // « interpellé » est l'échec de celui qui peut l'être : jamais d'un policier, d'un gendarme ou d'un pompier
+      if (e.kind === 'interpelle') expect(civil, 'échec « interpelle » réservé aux rôles civils').toBe(true);
     }
     // cohérence des familles de rôle
     if (m.type === 'formation') expect(m.crowd.tension).toBeLessThan(0.5);
@@ -222,6 +275,98 @@ describe('catalogue de missions : typographie française', () => {
         expect(t, `${m.id} : apostrophe droite`).not.toMatch(/'/);
         expect(t, `${m.id} : guillemets anglais`).not.toMatch(/["“”]/);
       }
+    }
+  });
+});
+
+describe('catalogue de missions : réalisme, cadre légal et vocabulaire', () => {
+  it('les sommations citées sont le texte réglementaire, mot pour mot (R. 211-11, version de 2021)', () => {
+    const exact = { annonce: brut(SOMMATIONS.annonce), premiere: brut(SOMMATIONS.premiere), derniere: brut(SOMMATIONS.derniere) };
+    for (const m of MISSIONS) {
+      for (const t of textes(m).map(brut)) {
+        if (t.includes('Vous participez à un attroupement')) expect(t, m.id).toContain(exact.annonce);
+        if (t.includes('Première sommation :')) expect(t, m.id).toContain(exact.premiere);
+        if (t.includes('Dernière sommation :')) expect(t, m.id).toContain(exact.derniere);
+        // formules d'avant le 5 mai 2021 : à ne jamais employer
+        expect(t, `${m.id} : formule périmée`).not.toMatch(/Obéissance à la loi\. Dispersez-vous|on va faire usage de la force/);
+      }
+    }
+  });
+
+  it('le commandant est le chef unique : ni commissaire, ni autorité civile, ni autorisation à demander', () => {
+    for (const m of MISSIONS) {
+      for (const t of textes(m).map(brut)) {
+        expect(t, m.id).not.toMatch(/commissaire|autorité civile|AUTORITÉ (UN|DEUX|TROIS)\b/i);
+        expect(t, m.id).not.toMatch(/demande[rz]? l'autorisation|attend(re|ez) l'autorisation|autorisation de la salle/i);
+      }
+      for (const p of m.phases) for (const r of p.radio) expect(r.from, m.id).not.toMatch(/^AUTORITÉ/);
+      // la salle renseigne et fixe la mission ; elle n'autorise pas la force à la place du commandant
+      for (const p of m.phases) {
+        for (const r of p.radio) {
+          if (r.from === 'CENTRAL') expect(brut(r.text), `${m.id} : la force est autorisée par le commandant`).not.toMatch(/force autorisé|armes autorisé/);
+        }
+      }
+    }
+  });
+
+  it('une manifestation est déclarée, jamais « autorisée »', () => {
+    for (const m of MISSIONS) {
+      for (const t of textes(m).map(brut)) {
+        expect(t, m.id).not.toMatch(/(manifestation|cortège|rassemblement|marche) autorisée?\b/i);
+      }
+    }
+  });
+
+  it('effectifs de la bible : groupe de 6, section de 16, demi-compagnie de 32, compagnie de 70', () => {
+    for (const m of MISSIONS) {
+      for (const t of textes(m).map(brut)) {
+        expect(t, m.id).not.toMatch(/section de dix-huit|dix-huit agents|groupe de sept|sept agents|trente-six agents|soixante-dix-huit/i);
+      }
+    }
+  });
+
+  it('jamais moins de deux sections face à une foule en maintien de l\'ordre', () => {
+    for (const m of MISSIONS) {
+      const f = m.forces;
+      const c = m.crowd;
+      if (f.sections === 0 || ['formation', 'securisation', 'catastrophe'].includes(m.type)) continue;
+      if ((c.size >= 200 && c.tension >= 0.3) || c.size >= 600) expect(f.sections, m.id).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it('aucun mot d\'atelier dans les textes affichés (ni « joueur », ni « fictif », ni « simulé », ni réglage chiffré)', () => {
+    for (const m of MISSIONS) {
+      for (const t of textes(m).map(brut)) {
+        expect(t, `${m.id} : « ${t.slice(0, 80)} »`).not.toMatch(/\bjoueurs?\b|\bfictifs?\b|\bfictives?\b|\bsimulée?s?\b|\bPNJ\b|heures de jeu|\(tension|\(foule|gameplay/i);
+      }
+    }
+  });
+
+  it('aucun nom de modèle commercial pour le matériel', () => {
+    for (const m of MISSIONS) {
+      for (const t of textes(m).map(brut)) expect(t, m.id).not.toMatch(/\bcougar\b|\bflash-?ball\b|\btaser\b|\btonfa\b/i);
+    }
+  });
+
+  it('titres, accroches et phrases « unique » ne sont jamais répétés d\'une mission à l\'autre', () => {
+    for (const champ of ['title', 'pitch', 'unique'] as const) {
+      const vus = new Map<string, string>();
+      for (const m of MISSIONS) {
+        const cle = brut(m[champ]).toLowerCase();
+        expect(vus.get(cle), `${champ} identique : ${m.id}`).toBeUndefined();
+        vus.set(cle, m.id);
+      }
+    }
+  });
+
+  it('une mission miroir ne recopie ni le briefing ni les objectifs de sa base', () => {
+    for (const m of MISSIONS.filter((x) => x.mirrorOf !== '')) {
+      const base = missionById(m.mirrorOf);
+      if (!base) continue;
+      expect(m.briefing, m.id).not.toBe(base.briefing);
+      expect(m.pitch, m.id).not.toBe(base.pitch);
+      const communs = m.objectives.filter((o) => base.objectives.some((b) => b.text === o.text));
+      expect(communs.length, `${m.id} : objectifs recopiés`).toBeLessThanOrEqual(1);
     }
   });
 });

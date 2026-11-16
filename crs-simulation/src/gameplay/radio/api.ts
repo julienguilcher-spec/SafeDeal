@@ -34,6 +34,8 @@ export interface PhraseInfo {
   readonly channel: RadioChannel;
   readonly priority: 0 | 1 | 2;
   readonly end: PhraseEnd;
+  /** Réponse à un appel : la formule d'appel se réduit à « ICI APPELANT. ». */
+  readonly reply: boolean;
   /** Nombre de variantes. */
   readonly variants: number;
   /** Paramètres reconnus dans les variantes (tous facultatifs : une valeur par défaut existe). */
@@ -45,13 +47,22 @@ export interface SayOptions {
   channel?: RadioChannel;
   /** Remplace la priorité par défaut (0 ambiance, 1 normal, 2 urgent). */
   priority?: 0 | 1 | 2;
-  /** Remplace l'indicatif de l'émetteur (texte déjà au format « MISTRAL 2 »). */
+  /**
+   * Impose l'indicatif de l'émetteur (texte au format « MISTRAL 2 »), quel que soit le rôle prévu par la phrase :
+   * permet par exemple aux pompiers (« SAPEUR 1 ») de dire une phrase écrite pour le SAMU.
+   */
   from?: string;
+  /** Destinataire : unité (ou son identifiant) dont l'indicatif remplace celui prévu, ou indicatif déjà écrit. */
+  to?: Squad | number | string;
   /** Personne qui parle (animation, position, voix). */
   personId?: EntityId;
-  /** Unité qui parle : fournit l'indicatif (paramètre « unite » par défaut) et le lieu si « at » est absent. */
+  /**
+   * Unité qui parle quand la phrase est dite par une unité : fournit l'indicatif, le lieu ({lieu}, si « at » est absent)
+   * et la direction de face ({direction}). Pour une phrase dite par un autre rôle (commandant, salle, secours…),
+   * c'est l'unité concernée : elle ne fournit que le lieu, et l'indicatif du destinataire quand il est « unite ».
+   */
   squad?: Squad | number;
-  /** Position d'où l'on parle : sert à nommer le secteur ({lieu}) quand il n'est pas fourni. */
+  /** Position dont on parle : sert à nommer le secteur ({lieu}, {voie}) quand il n'est pas fourni. Prime sur l'unité. */
   at?: { x: number; z: number };
   /** Impose la variante (indice) au lieu du tirage. */
   variant?: number;
@@ -78,7 +89,10 @@ export interface CallsignBook {
   readonly central: string;
   /** Nom de la compagnie (vent) : « MISTRAL » par défaut, modifiable par session.config.extra.compagnie. */
   readonly company: string;
-  /** Le commandant unique (commandement et autorité habilitée) : « MISTRAL 0 ». */
+  /**
+   * Le commandant unique (commandement et autorité habilitée) : il parle sous l'indicatif de sa compagnie,
+   * « MISTRAL » (bible E.5 et E.7 : « MISTRAL DEUX ICI MISTRAL »).
+   */
   readonly commandant: string;
   /** Indicatif d'une unité (ou, à défaut, de la personne). */
   callsign(who: Squad | Person | number): string;

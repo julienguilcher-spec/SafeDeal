@@ -16,6 +16,8 @@ import { hash01, noise1 } from './util';
 const FADE_RATE = 7;
 /** Une lumière déjà allumée garde un avantage, pour éviter les permutations incessantes. */
 const KEEP_BONUS = 1.3;
+/** Nombre maximal de lumières « à l'image » (pulse) par image. */
+const MAX_PULSES = 48;
 
 class VirtualLight implements DynamicLight {
   x = 0;
@@ -42,6 +44,8 @@ class VirtualLight implements DynamicLight {
   life = 0;
   lifeTotal = 0;
   baseIntensity = 0;
+  /** Lumière « à l'image » (pulse) : allumée et éteinte sans fondu, redemandée à chaque image. */
+  instant = false;
   readonly seed: number;
 
   constructor(readonly kind: 'point' | 'spot', private readonly pool: LightPool, id: number) {
@@ -67,6 +71,10 @@ export class LightPool implements RenderLightsApi {
   private readonly tmpColor = new THREE.Color();
   private nextId = 1;
   private time = 0;
+  /** Lumières « à l'image » : la n-ième demande d'une image réutilise la n-ième lumière. */
+  private readonly pulses: VirtualLight[] = [];
+  private pulseCount = 0;
+  private pulseActive = 0;
   /** Lumières virtuelles actives et vraies lumières allumées à la dernière image. */
   wantedCount = 0;
   litCount = 0;
@@ -86,7 +94,8 @@ export class LightPool implements RenderLightsApi {
   }
 
   get count(): number {
-    return this.virtuals.length;
+    // les lumières « à l'image » au repos ne comptent pas
+    return this.virtuals.length - (this.pulses.length - Math.max(this.pulseCount, this.pulseActive));
   }
 
   /** Change le nombre de vraies lumières (changement de qualité : recompile les matériaux une fois). */
@@ -176,7 +185,29 @@ export class LightPool implements RenderLightsApi {
     v.shown = 1;
   }
 
+  pulse(x: number, y: number, z: number, color: number, intensity: number, radius: number): void {
+    if (!(intensity > 0) || !(radius > 0) || this.pulseCount >= MAX_PULSES) return;
+    let v = this.pulses[this.pulseCount];
+    if (!v) {
+      v = new VirtualLight('point', this, this.nextId++);
+      v.instant = true;
+      this.pulses.push(v);
+      this.virtuals.push(v);
+    }
+    this.pulseCount++;
+    v.x = x; v.y = y; v.z = z;
+    v.color = color;
+    v.intensity = intensity;
+    v.range = radius;
+    v.enabled = true;
+  }
+
   release(v: VirtualLight): void {
+    if (v.instant) {
+      // une lumière « à l'image » appartient à la réserve : on l'éteint seulement
+      v.enabled = false;
+      return;
+    }
     if (!v.alive) return;
     v.alive = false;
     v.enabled = false;
@@ -198,14 +229,29 @@ export class LightPool implements RenderLightsApi {
     this.free.push(v);
   }
 
+  /** Rend toutes les lumières (libération du module, tests). */
   clear(): void {
     for (let i = this.virtuals.length - 1; i >= 0; i--) this.release(this.virtuals[i]!);
+    this.pulseCount = 0;
+    this.pulseActive = 0;
+  }
+
+  /** Éteint les éclats brefs en cours (changement de session) ; les lumières des modules restent à leurs propriétaires. */
+  clearFlashes(): void {
+    for (let i = this.virtuals.length - 1; i >= 0; i--) {
+      const v = this.virtuals[i]!;
+      if (v.lifeTotal > 0) this.release(v);
+    }
   }
 
   /** Attribue les vraies lumières pour cette image. `camX/Y/Z` : position de la caméra. */
   update(dt: number, camX: number, camY: number, camZ: number): void {
     this.time = (this.time + dt) % 3600;
     const list = this.virtuals;
+    // lumières « à l'image » : celles qui n'ont pas été redemandées depuis la dernière image s'éteignent
+    for (let i = this.pulseCount; i < this.pulses.length; i++) this.pulses[i]!.enabled = false;
+    this.pulseActive = this.pulseCount;
+    this.pulseCount = 0;
     // éclats brefs : extinction progressive puis retour à la réserve
     for (let i = list.length - 1; i >= 0; i--) {
       const v = list[i]!;
@@ -263,9 +309,9 @@ export class LightPool implements RenderLightsApi {
       const o = slot.owner;
       if (!o) continue;
       if (o.wanted) {
-        o.shown = Math.min(1, o.shown + step);
+        o.shown = o.instant ? 1 : Math.min(1, o.shown + step);
       } else {
-        o.shown -= step;
+        o.shown = o.instant ? 0 : o.shown - step;
         if (o.shown <= 0) {
           o.shown = 0;
           o.slot = -1;
@@ -282,7 +328,8 @@ export class LightPool implements RenderLightsApi {
         if (!slots[s]!.owner) {
           slots[s]!.owner = v;
           v.slot = s;
-          if (v.lifeTotal <= 0) v.shown = Math.min(1, step);
+          if (v.instant) v.shown = 1;
+          else if (v.lifeTotal <= 0) v.shown = Math.min(1, step);
           break;
         }
       }

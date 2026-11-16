@@ -93,6 +93,10 @@ export class CrowdCore {
   private readonly registry = new Map<string, BehaviorController[]>();
   private readonly merged = new Map<string, BehaviorController[]>();
 
+  /** Mesure par sous-système (ms cumulées) : perception, cortège, itinéraires, comportement, voix, émotions, densité, directeur. */
+  profiling = false;
+  readonly prof = new Float64Array(8);
+
   // ── objets de travail ──
   readonly rp: RoutePoint = { x: 0, z: 0, tx: 0, tz: 1, center: 0, half: 8, stretch: 1 };
   readonly slot: SlotSample = { x: 0, z: 0, tx: 0, tz: 1, v: 0 };
@@ -209,8 +213,7 @@ export class CrowdCore {
     for (const s of f.sections) s.squadId = ctx.squads.create('cortege', 'protest', s.label).id;
     for (let g = 0; g < plan.groups.length; g++) {
       const pg = plan.groups[g]!;
-      const slot = this.entrySlot[pg.members[0]!]!;
-      const section = f.sectionOf(slot);
+      const section = f.entrySection[pg.members[0]!] ?? -1;
       this.groups.push({
         id: g, kind: pg.kind, squadId: 0, members: [], profile: pg.profile, family: pg.family, section,
         docility: this.rngSetup.next(), leaveAt: Infinity, exit: -1, path: null,
@@ -247,7 +250,9 @@ export class CrowdCore {
       parties[j] = tmp;
     }
     const wish = Number(this.extra['crowd.present']);
-    const share = Number.isFinite(wish) ? Math.min(1, Math.max(0, wish)) : T.PRESENT_AT_START;
+    // mission courte : le rassemblement dure peu, davantage de monde est déjà là
+    const share = Number.isFinite(wish) && this.extra['crowd.present'] !== undefined ? Math.min(1, Math.max(0, wish))
+      : T.PRESENT_AT_START + 0.3 * Math.max(0, 1 - this.timeScale);
     let presentLeft = Math.round(n * share) - special.length;
     let lateLeft = this.isStatic ? 0 : Math.round(n * T.REINFORCE_SHARE * (share >= 1 ? 0 : 1));
     const present: number[] = special.slice();
@@ -260,7 +265,7 @@ export class CrowdCore {
         continue;
       }
       // renforts : de préférence le cortège de tête et la queue, qui grossissent en route
-      const sec = f.sections[f.sectionOf(this.entrySlot[party[0]!]!)];
+      const sec = f.sections[f.entrySection[party[0]!] ?? -1];
       const loose = sec !== undefined && sec.kind !== 'carre' && sec.kind !== 'bloc';
       if (lateLeft > 0 && (loose || rng.chance(0.25))) {
         lateLeft -= party.length;
@@ -332,11 +337,16 @@ export class CrowdCore {
       this.spawning = false;
     }
     const b = this.addMember(p, (e.banner ? F.BANNER : 0) | (e.child ? F.CHILD : 0) | (entry === this.formation.guideEntry ? F.GUIDE : 0));
-    b.slot = this.entrySlot[entry]!;
+    const section = this.formation.entrySection[entry] ?? -1;
+    // une fois le cortège parti, on ne remonte plus jusqu'à son bloc : on prend place en queue
+    const late = this.director.base !== 'rassemblement' && this.director.base !== 'aucune';
+    b.slot = this.entrySlot[entry]! >= 0 ? this.entrySlot[entry]!
+      : section < 0 ? -1 : late ? this.formation.allocTail(this.rngArrive) : this.formation.takeSlot(section, this.rngArrive);
+    if (late) b.flags |= F.LATE;
     this.entryPerson[entry] = p.id;
     p.fear = 0;
     p.anger = Math.min(0.6, this.tension0 * 0.35 * (0.6 + this.rngThink.next() * 0.8));
-    const sec = this.formation.sections[this.formation.sectionOf(b.slot)];
+    const sec = this.formation.sections[section];
     if (e.group >= 0) {
       const g = this.groups[e.group]!;
       if (g.squadId === 0) g.squadId = this.ctx.squads.create('affinite', 'protest', this.groupName(g), sec ? sec.squadId : 0).id;
@@ -368,11 +378,18 @@ export class CrowdCore {
 
   /** Personne déjà sur place au début : à sa place dans le cortège en formation. */
   private spawnAtSlot(entry: number): void {
+    // l'emplacement est réservé avant de créer la personne : elle apparaît à sa place
+    const section = this.formation.entrySection[entry] ?? -1;
+    if (this.entrySlot[entry]! < 0 && section >= 0) this.entrySlot[entry] = this.formation.takeSlot(section, this.rngArrive);
     const slot = this.entrySlot[entry]!;
     let x = this.rallyX;
     let z = this.rallyZ;
     let h = 0;
-    if (slot >= 0) {
+    if (entry === this.formation.driverEntry && this.formation.sonoPose(this.slot)) {
+      // le conducteur attend à la portière de son camion
+      x = this.slot.x - this.slot.tz * 1.9 + this.slot.tx * 2;
+      z = this.slot.z + this.slot.tx * 1.9 + this.slot.tz * 2;
+    } else if (slot >= 0) {
       this.formation.sample(slot, this.slot);
       x = this.slot.x;
       z = this.slot.z;
@@ -405,9 +422,11 @@ export class CrowdCore {
     b.state = S.ARRIVE;
     b.speed = T.WALK_MAX * b.pace;
     if (b.slot >= 0) {
-      this.formation.sample(b.slot, this.slot);
-      b.tx = this.slot.x;
-      b.tz = this.slot.z;
+      // on vise l'arrière de son rang, par le passage du flanc (voir Behavior.approach)
+      const f = this.formation;
+      f.flankPoint(f.slotS(b.slot) - 1.25, b.sway >= 0 ? 1 : -1, this.v2);
+      b.tx = this.v2.x;
+      b.tz = this.v2.z;
       // itinéraire partagé par ceux qui sortent de la même bouche vers le même bloc
       const key = (stationId > 0 ? stationId * 4096 : 2048 + (Math.round(x / 8) & 255) * 4096) + this.formation.slotBlock[b.slot]!;
       b.path = this.nav.shared(key, x, z, b.tx, b.tz);

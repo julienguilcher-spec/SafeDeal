@@ -48,6 +48,11 @@ export class Formation implements FormationView {
   /** Décalage personnel le long de l'axe et en travers (m). */
   slotJx = new Float32Array(0);
   slotJz = new Float32Array(0);
+  /**
+   * Décalage vers l'arrière quand le cortège s'étire (m par unité d'étirement au-delà de 1) : dans une rue
+   * étroite, les voisins d'un même rang se décalent en quinconce au lieu de se serrer épaule contre épaule.
+   */
+  slotStag = new Float32Array(0);
   // ── chaîne de blocs ──
   blockCount = 0;
   S = new Float64Array(0);
@@ -91,6 +96,13 @@ export class Formation implements FormationView {
   private nextRowB = 0;
   private tailLat = 0;
   private queueSection = -1;
+  /** Par tronçon : emplacements libres, de l'avant vers l'arrière, et prochain à attribuer. */
+  private pools: number[][] = [];
+  private poolNext: number[] = [];
+  /** Places prises dans le passage de chaque flanc, par bloc (gauche, droite). */
+  private flankUsed = new Uint8Array(0);
+  /** Tronçon de chaque entrée du plan (−1 : hors cortège). */
+  entrySection: Int16Array = new Int16Array(0);
 
   get headS(): number {
     return this.blockCount > 0 ? this.S[0]! : 0;
@@ -170,13 +182,20 @@ export class Formation implements FormationView {
     this.pendingHalt = 0;
     this.pendingHoldBlock = -1;
     this.queueSection = -1;
+    this.pools = [];
+    this.poolNext = [];
+    this.entrySection = new Int16Array(0);
+    this.tailLat = 0;
   }
 
   // ───────────────────────────── construction ─────────────────────────────
 
   /**
-   * Répartit les personnes du plan dans le cortège. Retourne l'emplacement de chaque entrée (−1 pour
-   * celles qui n'ont pas de place : pilleurs, qui n'arrivent qu'à la dispersion).
+   * Dessine le cortège pour les personnes du plan. Les postes fixes (service d'ordre, porteurs de
+   * banderole, guide du camion) reçoivent leur emplacement tout de suite : c'est le tableau retourné
+   * (−1 pour les autres). Les marcheurs ordinaires reçoivent seulement un tronçon (entrySection) : ils
+   * prendront à leur arrivée la première place libre de ce tronçon, de l'avant vers l'arrière — une
+   * place est ainsi toujours accessible par l'arrière du bloc, sans traverser les rangs déjà formés.
    */
   build(plan: Plan, corridor: Corridor, cause: CrowdCause, wantSono: boolean, rng: Rng): Int32Array {
     this.reset();
@@ -184,6 +203,9 @@ export class Formation implements FormationView {
     const entries = plan.entries;
     const n = entries.length;
     const slotOf = new Int32Array(n).fill(-1);
+    const sectionOfEntry = new Int16Array(n).fill(-1);
+    this.entrySection = sectionOfEntry;
+    let current = -1;
     const W = corridor.refWidth;
     this.halfUse = W * 0.5 * 1.1;
     const cap = n + Math.ceil(n * 0.3) + 96;
@@ -192,6 +214,9 @@ export class Formation implements FormationView {
     this.slotLat = new Float32Array(cap);
     this.slotJx = new Float32Array(cap);
     this.slotJz = new Float32Array(cap);
+    this.slotStag = new Float32Array(cap);
+    let column = 0;
+    let pitch = 1;
     const B = new Float32Array(cap); // distance nominale derrière le front de tête
 
     // ── tri des personnes par tronçon ──
@@ -244,12 +269,27 @@ export class Formation implements FormationView {
       this.slotLat[s] = lat;
       this.slotJx[s] = jitter(spread);
       this.slotJz[s] = jitter(spread);
+      this.slotStag[s] = ((column++ * 0.618) % 1) * pitch;
       slotOf[entry] = s;
+      sectionOfEntry[entry] = current;
+    };
+    /** Place libre du tronçon courant, attribuée plus tard au premier arrivant. */
+    const free = (entry: number, b: number, lat: number, spread: number): void => {
+      const s = slot++;
+      B[s] = b;
+      this.slotLat[s] = lat;
+      this.slotJx[s] = jitter(spread);
+      this.slotJz[s] = jitter(spread);
+      this.slotStag[s] = ((column++ * 0.618) % 1) * pitch;
+      sectionOfEntry[entry] = current;
+      this.pools[current]!.push(s);
     };
     /** Rangs réguliers ; `flank` : service d'ordre posé sur les côtés tous les 3,5 m ; `clear` : couloir du camion. */
     const rows = (list: readonly number[], density: number, flank: number[] | null, clearFrom: number, clearTo: number): void => {
       const d = 1 / Math.sqrt(density);
-      const edge = flank ? 0.92 : 0.96;
+      pitch = d;
+      // les rangs n'occupent que 80 % de la largeur : il reste un passage le long de chaque flanc
+      const edge = 0.8;
       let nextFlank = back;
       let i = 0;
       while (i < list.length) {
@@ -269,19 +309,24 @@ export class Formation implements FormationView {
           } else {
             lat = (-1 + (2 * (j + 0.5)) / count) * edge * (count < perRow ? Math.max(0.35, count / perRow) : 1);
           }
-          place(list[i + j]!, back + jitter(d * 0.25), lat + jitter(0.3 * d) / (W * 0.5), 0.3);
+          free(list[i + j]!, back + jitter(d * 0.25), lat + jitter(0.3 * d) / (W * 0.5), 0.3);
         }
         i += count;
         if (flank && flank.length > 0 && back >= nextFlank) {
-          place(flank.pop()!, back, -0.985, 0.1);
-          if (flank.length > 0) place(flank.pop()!, back, 0.985, 0.1);
+          place(flank.pop()!, back, -0.9, 0.1);
+          if (flank.length > 0) place(flank.pop()!, back, 0.9, 0.1);
           nextFlank = back + 3.5;
         }
         back += d;
       }
     };
     const sections: { kind: SectionKind; family: CrowdFamily; from: number; to: number; size: number }[] = [];
-    const open = (kind: SectionKind, family: CrowdFamily): number => sections.push({ kind, family, from: back, to: back, size: 0 }) - 1;
+    const open = (kind: SectionKind, family: CrowdFamily): number => {
+      current = sections.push({ kind, family, from: back, to: back, size: 0 }) - 1;
+      this.pools.push([]);
+      this.poolNext.push(0);
+      return current;
+    };
     const close = (index: number, size: number, gap: number): void => {
       sections[index]!.to = back;
       sections[index]!.size = size;
@@ -312,7 +357,7 @@ export class Formation implements FormationView {
         const per = Math.ceil(frontSo.length / lines);
         for (let l = 0, i = 0; l < lines; l++) {
           const count = Math.min(per, frontSo.length - i);
-          for (let j = 0; j < count; j++) place(frontSo[i + j]!, back, (-1 + (2 * (j + 0.5)) / count) * 0.94, 0.12);
+          for (let j = 0; j < count; j++) place(frontSo[i + j]!, back, (-1 + (2 * (j + 0.5)) / count) * 0.85, 0.12);
           i += count;
           back += 0.9;
         }
@@ -376,7 +421,7 @@ export class Formation implements FormationView {
       rows(members, organisedBloc ? T.DENSITY_BLOC : T.DENSITY_DIVERS, flank, clearFrom, clearTo);
       if (clearTo > back) back = clearTo;
       // service d'ordre non placé : il ferme le bloc
-      while (flank.length > 0) place(flank.pop()!, back, flank.length % 2 === 0 ? -0.9 : 0.9, 0.1);
+      while (flank.length > 0) place(flank.pop()!, back, flank.length % 2 === 0 ? -0.86 : 0.86, 0.1);
       close(s, list.length, 4);
     }
     // service d'ordre restant (aucun bloc organisé) : derrière le carré
@@ -402,6 +447,7 @@ export class Formation implements FormationView {
     this.extra = new Float32Array(blocks);
     this.hold = new Float64Array(blocks).fill(-1);
     this.stretch = new Float32Array(blocks).fill(1);
+    this.flankUsed = new Uint8Array(blocks * 2);
     this.blockCount = Math.max(1, Math.ceil((back + 0.01) / T.BLOCK_LEN));
     for (let s = 0; s < slot; s++) {
       const b = Math.min(this.blockCount - 1, Math.max(0, Math.floor(B[s]! / T.BLOCK_LEN)));
@@ -451,6 +497,68 @@ export class Formation implements FormationView {
     this.V[0] = 0;
   }
 
+  /** Première place libre d'un tronçon (de l'avant vers l'arrière) ; en queue de cortège s'il est complet. */
+  takeSlot(section: number, rng: Rng): number {
+    const pool = this.pools[section];
+    if (pool && this.poolNext[section]! < pool.length) return pool[this.poolNext[section]!++]!;
+    return this.allocTail(rng);
+  }
+
+  /**
+   * Place dans le passage du flanc, à hauteur de l'abscisse `s` : pour qui rejoint le cortège en marche
+   * depuis le bord du parcours. Six personnes par flanc et par bloc ; −1 si le cortège n'est pas là.
+   */
+  allocFlank(s: number, side: number, rng: Rng): number {
+    if (this.slotCount >= this.slotBlock.length || this.blockCount === 0) return -1;
+    if (s > this.S[0]! || s < this.tailS) return -1;
+    let k = 0;
+    while (k + 1 < this.blockCount && this.S[k + 1]! >= s) k++;
+    const col = side > 0 ? 1 : 0;
+    for (let tries = 0; tries < 4 && k < this.blockCount; tries++, k++) {
+      const used = this.flankUsed[k * 2 + col]!;
+      if (used >= 6) continue;
+      this.flankUsed[k * 2 + col] = used + 1;
+      const slot = this.slotCount++;
+      this.slotBlock[slot] = k;
+      this.slotBack[slot] = 0.3 + used * 0.8;
+      this.slotLat[slot] = (side > 0 ? 1 : -1) * 0.94;
+      this.slotJx[slot] = (rng.next() - 0.5) * 0.2;
+      this.slotJz[slot] = (rng.next() - 0.5) * 0.2;
+      this.slotStag[slot] = 0;
+      return slot;
+    }
+    return -1;
+  }
+
+  /** Virage du parcours autour de l'abscisse s : positif s'il tourne à droite du sens de marche, nul en ligne droite. */
+  turnAt(s: number): number {
+    const rp = this.rp;
+    this.corridor.at(s - 8, rp);
+    const ax = rp.tx;
+    const az = rp.tz;
+    this.corridor.at(s + 8, rp);
+    return (rp.tx - ax) * -az + (rp.tz - az) * ax;
+  }
+
+  /** Abscisse d'un emplacement le long du parcours (m). */
+  slotS(slot: number): number {
+    const b = this.slotBlock[slot]!;
+    const st = this.stretch[b]!;
+    return this.S[b]! - this.slotBack[slot]! * st - this.slotStag[slot]! * (st - 1);
+  }
+
+  /**
+   * Point d'approche d'un emplacement : dans le passage du flanc (`side` = ±1), à l'abscisse `s`.
+   * C'est par là qu'on contourne les rangs formés pour gagner l'arrière de son bloc.
+   */
+  flankPoint(s: number, side: number, out: Vec2): void {
+    const rp = this.rp;
+    this.corridor.at(s, rp);
+    const lateral = rp.center + side * Math.max(0.3, rp.half - 0.35);
+    out.x = rp.x - rp.tz * lateral;
+    out.z = rp.z + rp.tx * lateral;
+  }
+
   /** Section d'un emplacement. */
   sectionOf(slot: number): number {
     if (slot < 0 || slot >= this.slotCount) return -1;
@@ -489,6 +597,7 @@ export class Formation implements FormationView {
     this.slotLat[s] = (-1 + (2 * (this.tailLat + 0.5)) / perRow) * 0.9;
     this.slotJx[s] = (rng.next() - 0.5) * 0.4;
     this.slotJz[s] = (rng.next() - 0.5) * 0.4;
+    this.slotStag[s] = ((this.tailLat * 0.618) % 1) * d;
     this.tailLat++;
     if (this.queueSection >= 0) this.sections[this.queueSection]!.size++;
     return s;
@@ -499,7 +608,8 @@ export class Formation implements FormationView {
   /** Position courante d'un emplacement. */
   sample(slot: number, out: SlotSample): void {
     const b = this.slotBlock[slot]!;
-    const s = this.S[b]! - this.slotBack[slot]! * this.stretch[b]!;
+    const st = this.stretch[b]!;
+    const s = this.S[b]! - this.slotBack[slot]! * st - this.slotStag[slot]! * (st - 1);
     const rp = this.rp;
     this.corridor.at(s, rp);
     const half = rp.half < this.halfUse ? rp.half : this.halfUse;

@@ -453,6 +453,13 @@ export function progress(k: Kernel, u: Unit, dt: number): void {
         settleSlots(k, g);
       }
     }
+    // la porte ouverte pour un binôme se referme : le rang reprend ses intervalles
+    if (g.doorW > 0 && k.now >= g.doorUntil) {
+      g.doorW = 0;
+      g.dirty = true;
+      placeGroup(k, g);
+      if (!g.moving) settleSlots(k, g);
+    }
     if (g.dirty) placeGroup(k, g);
     // mesure de l'alignement : à chaque pas en marche, cinq fois par seconde à l'arrêt
     if (g.moving || ((k.ctx.clock.tick + u.id) % 6) === 0) measure(g);

@@ -224,6 +224,7 @@ export class Metro implements MetroApi {
       s.nextWaveAt = core.now + 5;
     }
     this.emit(open ? 'ouverture' : 'fermeture', s, 0, 0);
+    if (!open) core.nav.closeStationExits(s.id);
     core.nav.exitsDirty = true;
     if (core.active) {
       core.ctx.radio.say({
@@ -306,7 +307,7 @@ export class Metro implements MetroApi {
         } else this.foot.push({ due: rng.range(T.CLOSURE_DELAY_MIN, T.CLOSURE_DELAY_MAX * 1.5) * K + rng.next() * window, party, station: 0 });
         footN++;
       } else {
-        this.foot.push({ due: rng.next() * window, party, station: 0 });
+        this.foot.push({ due: rng.next() * window * 0.7, party, station: 0 });
       }
     }
     // vagues : de quoi faire sortir tout le monde pendant le rassemblement

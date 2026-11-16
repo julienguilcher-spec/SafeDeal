@@ -10,6 +10,7 @@ export class Tactical implements TacticalView {
   x = 0;
   z = 0;
   height = TACTICAL_HEIGHT;
+  zoom = 1;
   inputPan = true;
   /** Position lissée réellement affichée. */
   sx = 0;

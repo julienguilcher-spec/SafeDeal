@@ -1,5 +1,5 @@
 /* Église de la Madeleine (Vignon puis Huvé, 1807-1842) : temple périptère octostyle, sans clocher ni fenêtres.
- * Cotes réelles : 108 × 43 m, 30 m de haut ; 52 colonnes corinthiennes de 19,5 m (8 en façade, 8 au chevet,
+ * Cotes réelles : 108 × 43 m, 30 m de haut (le modèle fait 31,4 m, soubassement et corniche du fronton compris) ; 52 colonnes corinthiennes de 19,5 m (8 en façade, 8 au chevet,
  * 18 entre les angles sur chaque flanc) ; haut soubassement avec un emmarchement de 28 marches au sud et un autre au
  * nord ; fronton sud sculpté (Le Jugement dernier, Lemaire) ; portes de bronze de Triqueti ; niches à statues de
  * saints sur les murs de la cella. L'emprise réelle de la carte (43,3 × 128,5 m) comprend les deux emmarchements.
@@ -18,7 +18,7 @@ export const MAD = {
   /** Demi-largeur du soubassement, demi-longueur du temple (hors emmarchements), recul des emmarchements. */
   HW: 21.65, HL: 54, RUN: 10.2,
   /** Soubassement, colonnes, entablement, flèche du fronton. */
-  PODIUM: 3.6, COL: 19.5, ENT: 3.9, RISE: 4.6,
+  PODIUM: 3.4, COL: 19.5, ENT: 3.6, RISE: 4.2,
   /** Diamètre des colonnes et retrait de leur axe par rapport au bord du soubassement. */
   DIA: 2.0, INSET: 1.6,
 } as const;

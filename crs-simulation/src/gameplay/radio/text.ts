@@ -34,14 +34,18 @@ export function spokenCallsign(callsign: string): string {
   return callsign.toUpperCase().replace(/\d+/g, (run) => spokenDigits(run));
 }
 
-/** Heure de la journée (0..24 décimal) dite à la radio : « UNE-SEPT heures ZÉRO-QUATRE ». */
+/**
+ * Heure de la journée (0..24 décimal) dite à la radio : « UNE-SEPT heures ZÉRO-QUATRE ».
+ * Devant « heures », le chiffre 1 s'accorde au féminin : « DEUX-UNE heures » (vingt et une heures).
+ */
 export function spokenTime(hours: number): string {
-  const total = Math.floor((((hours % 24) + 24) % 24) * 60 + 1e-6);
+  const safe = Number.isFinite(hours) ? hours : 0;
+  const total = Math.floor((((safe % 24) + 24) % 24) * 60 + 1e-6);
   const h = Math.floor(total / 60) % 24;
   const m = total % 60;
   const hh = String(h).padStart(2, '0');
   const mm = String(m).padStart(2, '0');
-  const hourWords = hh[0] === '1' ? `UNE-${spokenDigits(hh[1]!)}` : spokenDigits(hh);
+  const hourWords = spokenDigits(hh).replace(/\bUN\b/g, 'UNE');
   return `${hourWords} heures ${spokenDigits(mm)}`;
 }
 
@@ -66,16 +70,28 @@ export function placeholdersOf(template: string): string[] {
   return out;
 }
 
-/** Noms pluriels que l'on accorde au singulier derrière « UN » ou « UNE » (« UN mètres » → « UN mètre »). */
-const PLURAL_AFTER_ONE = new Set([
-  'mètres', 'personnes', 'agents', 'manifestants', 'individus', 'blessés', 'interpellés', 'fourgons',
-  'sections', 'groupes', 'véhicules', 'minutes', 'litres', 'grenades', 'tirs', 'salves', 'journalistes',
-  'motos', 'binômes', 'barricades', 'projectiles', 'feux', 'stations', 'issues', 'équipes',
+/**
+ * Noms que l'on accorde derrière « UN » ou « UNE » : singulier et genre (« UN mètres » → « UN mètre »,
+ * « UN minutes » → « UNE minute »). Clé = pluriel écrit dans les gabarits, valeur = [singulier, féminin].
+ */
+const NOUNS_AFTER_ONE: ReadonlyMap<string, readonly [string, boolean]> = new Map<string, readonly [string, boolean]>([
+  ['mètres', ['mètre', false]], ['agents', ['agent', false]], ['manifestants', ['manifestant', false]],
+  ['individus', ['individu', false]], ['blessés', ['blessé', false]], ['interpellés', ['interpellé', false]],
+  ['fourgons', ['fourgon', false]], ['groupes', ['groupe', false]], ['véhicules', ['véhicule', false]],
+  ['litres', ['litre', false]], ['tirs', ['tir', false]], ['journalistes', ['journaliste', false]],
+  ['binômes', ['binôme', false]], ['projectiles', ['projectile', false]], ['points', ['point', false]],
+  ['foyers', ['foyer', false]], ['feux', ['feu', false]],
+  ['personnes', ['personne', true]], ['sections', ['section', true]], ['minutes', ['minute', true]],
+  ['grenades', ['grenade', true]], ['salves', ['salve', true]], ['motos', ['moto', true]],
+  ['barricades', ['barricade', true]], ['stations', ['station', true]], ['issues', ['issue', true]],
+  ['équipes', ['équipe', true]], ['victimes', ['victime', true]],
 ]);
 
 function fixOne(text: string): string {
-  return text.replace(/(^|[^\p{L}-])(UNE?) ([\p{L}]+s)(?![\p{L}])/gu, (all, pre: string, one: string, noun: string) =>
-    PLURAL_AFTER_ONE.has(noun) ? `${pre}${one} ${noun.slice(0, -1)}` : all);
+  return text.replace(/(^|[^\p{L}-])(UNE?) ([\p{L}]+)(?![\p{L}-])/gu, (all, pre: string, _one: string, noun: string) => {
+    const entry = NOUNS_AFTER_ONE.get(noun);
+    return entry ? `${pre}${entry[1] ? 'UNE' : 'UN'} ${entry[0]}` : all;
+  });
 }
 
 /**

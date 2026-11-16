@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import type { SeatDef, TurretDef } from '@/core/contracts';
 import { vehicleToWorldX, vehicleToWorldZ } from '@/core/math';
 import {
-  EYE_ABOVE_SEAT, advanceWheelAngle, composeVehicleMatrix, pack2, pack4, rotateAboutX, rotateAboutY, seatEyeWorld,
+  EYE_ABOVE_SEAT, advanceWheelAngle, composeVehicleMatrix, pack2, pack4, rotateAboutX, rotateAboutY, seatEyeHeight, seatEyeWorld,
   seatToThreeLocal, seatWorldPosition, steerToThree, steeringWheelAngle, transformPoint, turretDirVehicle, turretDirWorld,
   turretMuzzleWorld, turretPitchToThree, turretToThreeLocal, turretYawToThree, vehiclePointToWorld, SRGB_TO_LINEAR,
 } from '@/render/vehicles/frame';
@@ -83,9 +83,15 @@ describe('repère véhicule → monde', () => {
     expect(leftSide.y).toBeGreaterThan(0.05);
   });
 
-  it('l\'œil d\'un occupant est au-dessus de l\'assise', () => {
+  it('l\'œil d\'un occupant est au-dessus de l\'assise, sous le pavillon', () => {
     const e = seatEyeWorld(pose(1.1, 0, 0, 3, 2, 1), seat(-0.4, 0.95, 1.3), v3());
     expect(e.y).toBeCloseTo(2 + 0.95 + EYE_ABOVE_SEAT);
+    // même règle que la caméra intérieure du rendu de base : jamais à moins de 14 cm de la hauteur hors tout
+    expect(seatEyeHeight(0.5, 1.47)).toBeCloseTo(0.5 + EYE_ABOVE_SEAT);
+    expect(seatEyeHeight(1.0, 1.5)).toBeCloseTo(1.5 - 0.14);
+    expect(seatEyeHeight(1.4, 1.5)).toBeCloseTo(1.7);       // au moins 30 cm au-dessus de l'assise
+    const low = seatEyeWorld(pose(0), seat(0, 1.0, 0), v3(), 1.5);
+    expect(low.y).toBeCloseTo(1.36);
   });
 });
 

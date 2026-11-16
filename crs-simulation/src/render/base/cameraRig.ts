@@ -6,27 +6,43 @@
  *   - camYaw : cap ABSOLU dans le monde (rad), avant = (sin yaw, cos yaw) — comme Person.aimYaw ;
  *   - camPitch : site (rad), positif = regard vers le haut ;
  *   - zoom : zoom optique, 1 = champ normal (réglage « fov ») ; en vue tactique, il règle l'altitude.
+ * Services facultatifs consultés s'ils sont branchés : 'player.control' (engin télépiloté, réduction du
+ * champ par le masque ou la visière) et 'vehiclesRender' (point de vue exact d'un occupant).
  * Le calcul produit une pose (position + angles + champ), indépendante de Three.js, puis
  * l'applique à la caméra. Aucune allocation par image.
  * ===================================================================================== */
 
 import type * as THREE from 'three';
-import type { CameraMode, GameContext, Person, Vehicle } from '@/core/contracts';
+import type { CameraMode, GameContext, Person, Vec3, Vehicle } from '@/core/contracts';
 import type { RenderCameraApi } from './api';
 import {
   PITCH_LIMIT, cameraSweep, copyPose, createPose, eyeHeight, findDrone, seatIndexOf, seatedEyeOffset, shoulderPivotHeight,
   turretIndexOf, vehiclePoint, vehicleTilt, zoomedFov,
 } from './cameraMath';
 import type { CameraPose } from './cameraMath';
+import { VehicleFollow } from './cameraFollow';
 import { TACTICAL_HEIGHT, TACTICAL_PITCH, Tactical } from './cameraTactical';
-import { TAU, clamp, damp, lerp, lerpAngle, noise1, wrapAngle } from './util';
+import { TAU, clamp, damp, lerp, lerpAngle, noise1 } from './util';
 
 /** Durée du fondu entre deux modes (s). */
 const BLEND_TIME = 0.24;
-/** Drone : pour camPitch = 0, la nacelle regarde déjà vers le bas. */
-const DRONE_TILT = 0.6;
+/** Drone : la nacelle ne se relève guère au-dessus de l'horizon. */
+const DRONE_PITCH_MAX = 0.2;
 /** Téléobjectif : champ vertical pour un zoom de 1 (≈ 70 mm). */
 const VIEWFINDER_FOV = 34;
+
+/** Ce que le rig attend du service facultatif 'vehiclesRender' (rendu des véhicules). */
+interface SeatEyeProvider {
+  seatEye(v: Vehicle, seat: number, out: Vec3): boolean;
+}
+
+/** Ce que le rig attend du service facultatif 'player.control' (contrôleur du joueur). */
+interface PlayerControlHints {
+  /** Engin télépiloté (0 = aucun). */
+  readonly remoteVehicleId?: number;
+  /** Facteur de champ de vision dû au masque ou à la visière (1 = normal). */
+  readonly fovScale?: number;
+}
 
 export class CameraRig implements RenderCameraApi {
   readonly pose: CameraPose = createPose();
@@ -34,6 +50,7 @@ export class CameraRig implements RenderCameraApi {
   readonly free = { x: 0, y: 30, z: 0 };
   vehicleYawFollow = true;
   vehicleAutoCenter = true;
+  gearFov = true;
   headBob = 1;
   mode: CameraMode = 'tps';
   tpsDistance = 3.3;
@@ -50,10 +67,7 @@ export class CameraRig implements RenderCameraApi {
   /** Cycle de marche pour le balancement de la tête. */
   private bobPhase = 0;
   private bobAmount = 0;
-  /** Suivi du véhicule. */
-  private vehId = 0;
-  private vehHeading = 0;
-  private idleLook = 0;
+  private readonly follow = new VehicleFollow();
   /** Distance lissée de la caméra de poursuite. */
   private chaseDistance = 8;
   /** Secousses. */
@@ -63,6 +77,10 @@ export class CameraRig implements RenderCameraApi {
   private time = 0;
   /** Vue d'attente (aucun personnage incarné). */
   private idleAngle = 0;
+  private readonly eye: Vec3 = { x: 0, y: 0, z: 0 };
+  /** Réduction du champ par l'équipement (lissée) et dernier zoom vu (vue tactique). */
+  private gearScale = 1;
+  private lastZoom = 1;
   private freePlaced = false;
 
   constructor(private readonly ctx: GameContext, private readonly camera: THREE.PerspectiveCamera) {
@@ -110,7 +128,7 @@ export class CameraRig implements RenderCameraApi {
     this.fresh = true;
     this.shakeLeft = 0;
     this.tactical.fresh = true;
-    this.vehId = 0;
+    this.follow.reset();
     this.lastPersonId = 0;
   }
 
@@ -120,8 +138,12 @@ export class CameraRig implements RenderCameraApi {
     const ps = ctx.player.state;
     this.time = (this.time + dt) % 3600;
     const person = this.person();
-    const vehicle = this.vehicle(person);
+    const hints = ctx.service<PlayerControlHints>('player.control');
+    const vehicle = this.vehicle(person, hints);
     const mode = this.resolveMode(ps.cameraMode, person, vehicle);
+    // masque à gaz, visière : le champ de la vue subjective se resserre, en douceur
+    const scale = this.gearFov && hints && typeof hints.fovScale === 'number' && hints.fovScale > 0.3 && hints.fovScale <= 1 ? hints.fovScale : 1;
+    this.gearScale = this.fresh ? scale : this.gearScale + (scale - this.gearScale) * damp(6, dt);
     const t = this.target;
     t.roll = 0;
 
@@ -132,13 +154,13 @@ export class CameraRig implements RenderCameraApi {
       this.lastPersonId = personId;
     }
 
-    this.followVehicle(mode, vehicle, dt);
+    this.follow.update(ctx, mode, vehicle, dt, this.vehicleYawFollow, this.vehicleAutoCenter);
     const yaw = ps.camYaw;
     const pitch = clamp(ps.camPitch, -PITCH_LIMIT, PITCH_LIMIT);
     const zoom = ps.zoom > 0.05 ? ps.zoom : 1;
 
     switch (mode) {
-      case 'fps': this.poseFps(person, yaw, pitch, zoom, baseFov, dt, true, false); break;
+      case 'fps': this.poseFps(person, yaw, pitch, zoom, baseFov * this.gearScale, dt, true, false); break;
       case 'viewfinder': this.poseFps(person, yaw, pitch, zoom, VIEWFINDER_FOV, dt, false, true); break;
       case 'tps': this.poseTps(person, yaw, pitch, zoom, baseFov, dt); break;
       case 'vehicle_ext': this.poseChase(vehicle, yaw, pitch, zoom, baseFov, dt); break;
@@ -323,8 +345,16 @@ export class CameraRig implements RenderCameraApi {
       const s = def.seats[seat]!;
       sx = s.x; sy = s.y; sz = s.z;
     }
-    const eyeY = Math.min(sy + seatedEyeOffset(p), Math.max(sy + 0.3, def.height - 0.14));
-    vehiclePoint(v, sx, eyeY, sz, t);
+    // si le rendu des véhicules est branché, il connaît le point de vue exact de l'occupant (habitacle modélisé)
+    const eyes = this.ctx.service<SeatEyeProvider>('vehiclesRender');
+    if (seat >= 0 && eyes && typeof eyes.seatEye === 'function' && eyes.seatEye(v, seat, this.eye)) {
+      t.x = this.eye.x;
+      t.y = this.eye.y;
+      t.z = this.eye.z;
+    } else {
+      const eyeY = Math.min(sy + seatedEyeOffset(p), Math.max(sy + 0.3, def.height - 0.14));
+      vehiclePoint(v, sx, eyeY, sz, t);
+    }
     vehicleTilt(v, yaw, pitch, t);
     t.fov = zoomedFov(fov, zoom);
     t.near = 0.1;
@@ -371,7 +401,8 @@ export class CameraRig implements RenderCameraApi {
     }
     t.y = Math.max(t.y, this.ctx.world.heightAt(t.x, t.z) + 0.5);
     t.yaw = yaw;
-    t.pitch = clamp(pitch - DRONE_TILT, -1.553, 0.3);
+    // le regard est celui du joueur (le contrôleur l'incline vers le bas à la prise en main de l'engin)
+    t.pitch = clamp(pitch, -PITCH_LIMIT, DRONE_PITCH_MAX);
     t.fov = zoomedFov(fov * 0.9, zoom);
     t.near = 0.5;
   }
@@ -389,14 +420,20 @@ export class CameraRig implements RenderCameraApi {
       }
       tac.sx = tac.x;
       tac.sz = tac.z;
-      tac.sh = clamp(TACTICAL_HEIGHT / zoom, 25, 600);
+      tac.sh = clamp(TACTICAL_HEIGHT / (zoom * tac.zoom), 30, 700);
       tac.fresh = false;
+      this.lastZoom = zoom;
     }
-    tac.height = clamp(TACTICAL_HEIGHT / zoom, 25, 600);
     const sinY = Math.sin(yaw);
     const cosY = Math.cos(yaw);
     if (tac.inputPan && !ctx.ui.modal) {
       const input = ctx.input;
+      // zoom : si personne d'autre ne fait varier PlayerState.zoom, le rig lit lui-même les touches de zoom
+      if (zoom === this.lastZoom) {
+        if (input.down('zoom_in')) tac.zoom *= Math.exp(1.4 * dt);
+        if (input.down('zoom_out')) tac.zoom *= Math.exp(-1.4 * dt);
+        tac.zoom = clamp(tac.zoom, 0.2, 5);
+      }
       const mx = input.moveX;
       const my = input.moveY;
       if (mx !== 0 || my !== 0) {
@@ -406,6 +443,8 @@ export class CameraRig implements RenderCameraApi {
         tac.z += (cosY * my + sinY * mx) * speed;
       }
     }
+    this.lastZoom = zoom;
+    tac.height = clamp(TACTICAL_HEIGHT / (zoom * tac.zoom), 30, 700);
     const b = ctx.world.bounds;
     if (b && b.maxX > b.minX && Number.isFinite(b.minX) && Number.isFinite(b.maxX)) {
       tac.x = clamp(tac.x, b.minX, b.maxX);
@@ -489,8 +528,14 @@ export class CameraRig implements RenderCameraApi {
     return id ? ctx.people.get(id) ?? null : null;
   }
 
-  private vehicle(p: Person | null): Vehicle | null {
+  /** Véhicule concerné par la caméra : l'engin télépiloté s'il y en a un, sinon celui où se trouve le joueur. */
+  private vehicle(p: Person | null, hints: PlayerControlHints | undefined): Vehicle | null {
     const ctx = this.ctx;
+    const remoteId = hints && typeof hints.remoteVehicleId === 'number' ? hints.remoteVehicleId : 0;
+    if (remoteId) {
+      const remote = ctx.vehicles.get(remoteId);
+      if (remote) return remote;
+    }
     const v = ctx.player.vehicle();
     if (v) return v;
     return p && p.vehicleId ? ctx.vehicles.get(p.vehicleId) ?? null : null;
@@ -506,41 +551,6 @@ export class CameraRig implements RenderCameraApi {
       case 'vehicle_ext': return v ? 'vehicle_ext' : 'tps';
       case 'turret': return v ? 'turret' : 'fps';
       default: return mode;
-    }
-  }
-
-  /**
-   * En véhicule, la caméra tourne avec lui : on reporte sa rotation sur PlayerState.camYaw (le
-   * contrôleur continue d'y ajouter le mouvement de la souris). En vue extérieure, quand le joueur
-   * ne regarde plus autour, la caméra revient doucement derrière le véhicule.
-   */
-  private followVehicle(mode: CameraMode, v: Vehicle | null, dt: number): void {
-    const inVehicle = !!v && (mode === 'vehicle_ext' || mode === 'vehicle_int' || mode === 'turret');
-    if (!inVehicle || !v) {
-      this.vehId = 0;
-      return;
-    }
-    const ps = this.ctx.player.state;
-    if (this.vehId !== v.id) {
-      this.vehId = v.id;
-      this.vehHeading = v.heading;
-      this.idleLook = 0;
-      return;
-    }
-    const turn = wrapAngle(v.heading - this.vehHeading);
-    this.vehHeading = v.heading;
-    if (this.vehicleYawFollow && turn !== 0 && Math.abs(turn) < 1) ps.camYaw = wrapAngle(ps.camYaw + turn);
-    if (mode !== 'vehicle_ext' || !this.vehicleAutoCenter) return;
-    const input = this.ctx.input;
-    if (input.lookX !== 0 || input.lookY !== 0) this.idleLook = 0;
-    else this.idleLook += dt;
-    if (this.idleLook > 1.4 && Math.abs(v.speed) > 1.5) {
-      // derrière le véhicule en marche avant, devant lui en marche arrière soutenue
-      const goal = v.speed < -2 ? v.heading + Math.PI : v.heading;
-      const diff = wrapAngle(goal - ps.camYaw);
-      const rate = Math.min(1, (this.idleLook - 1.4) * 0.8) * 2.2;
-      ps.camYaw = wrapAngle(ps.camYaw + diff * damp(rate, dt));
-      ps.camPitch += (0 - ps.camPitch) * damp(rate * 0.6, dt);
     }
   }
 

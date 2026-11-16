@@ -4,8 +4,10 @@
 
 import * as THREE from 'three';
 import type { GameContext, QualityLevel, Unsubscribe, Vec3, Vehicle, VehicleDef, ViewApi } from '@/core/contracts';
-import type { RenderLightsApi, VehiclesRenderStats } from './api';
-import { RENDER_LIGHTS_KEY } from './api';
+import type { DynamicLight, RenderLightsApi } from '@/render/base/api';
+import type { VehiclesExtApi } from '@/sim/vehicles/api';
+import type { VehiclesRenderStats } from './api';
+import { RENDER_LIGHTS_KEY, VEHICLES_EXT_KEY } from './api';
 import { PlateAtlas, createAtlasTexture } from './atlas';
 import { beaconLevel, beaconPatternFor, beaconPhaseFor, indicatorOn } from './beacons';
 import type { BeaconPattern } from './beacons';
@@ -50,6 +52,8 @@ interface VState {
   colorHex: number;
   r: number; g: number; b: number;
   stamp: number;
+  /** Porte (0..3, ou −1) associée à chaque siège, d'après son point de sortie. */
+  seatDoor: Int8Array | null;
 }
 
 const BLUE_R = SRGB_TO_LINEAR[0x1e]!, BLUE_G = SRGB_TO_LINEAR[0x5b]!, BLUE_B = SRGB_TO_LINEAR[0xff]!;
@@ -75,7 +79,10 @@ export class VehiclesRenderer {
   private readonly sphere = new THREE.Sphere();
   private readonly tmp: Vec3 = { x: 0, y: 0, z: 0 };
   private readonly tmp2: Vec3 = { x: 0, y: 0, z: 0 };
-  private readonly headlamp: THREE.SpotLight | null = null;
+  private readonly extDoor = new Float32Array(4);
+  /** Projecteur des phares du véhicule du joueur (lumière dynamique du rendu de base). */
+  private headSpot: DynamicLight | null = null;
+  private ext: VehiclesExtApi | null = null;
   private quality: QualityLevel;
   private q: VehicleQuality;
   private nearScale = 1;
@@ -101,14 +108,6 @@ export class VehiclesRenderer {
     view.world.add(this.group);
     this.cockpit = new Cockpit(this.material, this.group);
     this.turretView = new TurretView(view.scene);
-    if (this.q.playerHeadlamp) {
-      // projecteur réel des phares du véhicule du joueur : toujours présent (intensité nulle quand il est
-      // éteint) pour ne pas faire recompiler les shaders de la scène à chaque allumage
-      const lamp = new THREE.SpotLight(0xfff1d6, 0, 55, 0.55, 0.6, 1.4);
-      lamp.castShadow = false;
-      this.group.add(lamp, lamp.target);
-      this.headlamp = lamp;
-    }
     this.lastNow = ctx.clock.now;
     this.unsubs.push(ctx.events.on('vehicle:removed', (e) => this.forget(e.id)));
     this.unsubs.push(ctx.events.on('vehicle:entered', (e) => this.onSeat(e.vehicleId, e.personId, e.seat)));
@@ -152,12 +151,13 @@ export class VehiclesRenderer {
         entry: this.entryFor(v.kind, v.def), def: v.def, lod: LOD_HIDDEN, wheel: 0, rotor: 0,
         door: new Float32Array(4), doorTimer: new Float32Array(4), doorHold: new Uint8Array(4), doorsActive: false,
         phase: beaconPhaseFor(v.id), pattern: beaconPatternFor(v.kind), char: v.state === 'burnt' ? 1 : 0,
-        seed: beaconPhaseFor(v.id * 7 + 3) * 0.98 + 0.01, colorHex: -1, r: 1, g: 1, b: 1, stamp: 0,
+        seed: beaconPhaseFor(v.id * 7 + 3) * 0.98 + 0.01, colorHex: -1, r: 1, g: 1, b: 1, stamp: 0, seatDoor: null,
       };
       this.states.set(v.id, st);
     } else if (st.def !== v.def) {
       st.def = v.def;
       st.entry = this.entryFor(v.kind, v.def);
+      st.seatDoor = null;
     }
     if (st.colorHex !== v.color) {
       st.colorHex = v.color;
@@ -171,6 +171,20 @@ export class VehiclesRenderer {
   private forget(id: number): void {
     this.states.delete(id);
     this.plates.release(id);
+  }
+
+  /** Rend le projecteur des phares au rendu de base (fin de session, reconstruction). */
+  private releaseLights(): void {
+    if (this.headSpot) { this.headSpot.release(); this.headSpot = null; }
+  }
+
+  /** Porte associée à chaque siège : la plus proche de son point de sortie. */
+  private seatDoors(st: VState, v: Vehicle): Int8Array {
+    const seats = v.def.seats;
+    const map = new Int8Array(seats.length);
+    for (let i = 0; i < seats.length; i++) map[i] = this.nearestDoor(st.entry.meta, -seats[i]!.exitX, seats[i]!.exitZ);
+    st.seatDoor = map;
+    return map;
   }
 
   // ── portes ─────────────────────────────────────────────────────────────────────────
@@ -188,6 +202,8 @@ export class VehiclesRenderer {
   }
 
   private onSeat(vehicleId: number, personId: number, seat: number): void {
+    // la simulation des véhicules publie l'ouverture réelle des portes : dans ce cas on la suit, sans doublon
+    if (this.ext) return;
     const v = this.ctx.vehicles.get(vehicleId);
     if (!v) return;
     const st = this.stateOf(v);
@@ -235,6 +251,7 @@ export class VehiclesRenderer {
   }
 
   invalidate(): void {
+    this.releaseLights();
     for (const e of this.entryList) { e.near?.dispose(); e.far?.dispose(); }
     this.entries.clear();
     this.entryList.length = 0;
@@ -245,6 +262,7 @@ export class VehiclesRenderer {
   }
 
   reset(): void {
+    this.releaseLights();
     this.states.clear();
     this.plates.clear();
     this.nearScale = 1;
@@ -288,9 +306,12 @@ export class VehiclesRenderer {
     }
     const fx = this.fx;
     fx.begin(cam);
-    this.lightsApi = ctx.service<RenderLightsApi>(RENDER_LIGHTS_KEY) ?? null;
-    if (this.lightsApi && typeof this.lightsApi.pulse !== 'function') this.lightsApi = null;
+    // services facultatifs : lumières dynamiques du rendu de base, ouverture des portes de la simulation
+    const lights = ctx.service<RenderLightsApi>(RENDER_LIGHTS_KEY);
+    this.lightsApi = lights && typeof lights.pulse === 'function' && typeof lights.spot === 'function' ? lights : null;
     this.pulses = 0;
+    const ext = ctx.service<VehiclesExtApi>(VEHICLES_EXT_KEY);
+    this.ext = ext && typeof ext.doorOpen === 'function' ? ext : null;
 
     const player = ctx.player;
     const mode = player.state.cameraMode;
@@ -320,6 +341,7 @@ export class VehiclesRenderer {
         if (st.rotor > 6283.185) st.rotor -= 6283.185;
       }
       if (st.doorsActive) this.animateDoors(st, simDt > 0 ? simDt : dtReal > 0.05 ? 0.05 : dtReal);
+      if (this.ext && lod === LOD_NEAR && dist < 60 && meta.doors.length > 0) this.readDoors(st, v);
       const state = v.state;
       if (state === 'burnt') st.char = st.char + (1 - st.char) * Math.min(1, simDt * 1.5 + (st.char > 0.999 ? 1 : 0));
       else if (state === 'burning') st.char = Math.min(0.82, st.char + simDt * (0.006 + 0.02 * v.burning));
@@ -379,8 +401,16 @@ export class VehiclesRenderer {
       }
 
       // effets lumineux
+      const inside = pv === v && mode === 'vehicle_int';
       if (dist < q.glow && (bA > 0 || bB > 0 || head > 0 || brake > 0 || indOn || state === 'burning')) {
-        this.emitFx(v, st, meta, dist, night, bA, bB, head, brake, fire, pv === v && mode === 'vehicle_int');
+        this.emitFx(v, st, meta, dist, night, bA, bB, head, brake, fire, inside);
+      }
+      // éclairs bleus sur les façades proches, lueur d'incendie : lumières « à l'image » du rendu de base, qui
+      // attribue ses quelques vraies lumières aux plus importantes pour la caméra
+      const burning = state === 'burning' && v.burning > 0.02;
+      const beacon = bA > bB ? bA : bB;
+      if (this.lightsApi && this.pulses < MAX_PULSES && dist < 130 && (burning || (beacon > 0 && meta.beaconA.length > 0))) {
+        this.pulseLight(v, meta, burning, beacon, fire, inside);
       }
     }
 
@@ -397,7 +427,7 @@ export class VehiclesRenderer {
     if (cockpitFor && cs && mode === 'vehicle_int') this.cockpit.update(cockpitFor, cs.entry.meta, cs.r, cs.g, cs.b, blink, night);
     else this.cockpit.update(null, null, 1, 1, 1, blink, night);
     this.turretView.update(mode === 'turret' ? cockpitFor : null, ctx, view, blink);
-    this.updateHeadlamp(pv ?? player.vehicle(), night);
+    this.updateHeadlamp(pv ?? player.vehicle());
     fx.end();
 
     // ménage périodique des états orphelins (véhicules retirés sans événement)
@@ -421,7 +451,7 @@ export class VehiclesRenderer {
     s.cpuMsAvg = s.cpuMsAvg === 0 ? s.cpuMs : s.cpuMsAvg * 0.95 + s.cpuMs * 0.05;
   }
 
-  /** Éclats, halos au sol, faisceaux, flammes d'un véhicule ; éclairs transmis à 'render.lights' dans la limite du budget. */
+  /** Éclats, halos au sol, faisceaux, flammes et fumée d'un véhicule. */
   private emitFx(v: Vehicle, st: VState, meta: ModelMeta, dist: number, night: number, bA: number, bB: number, head: number, brake: number, fire: number, inside: boolean): void {
     const fx = this.fx;
     const tmp = this.tmp;
@@ -457,20 +487,13 @@ export class VehiclesRenderer {
         const bz = meta.beaconA[2]!;
         fx.ground(FX_POOL, v.x + fwdX * bz, gy, v.z + fwdZ * bz, fwdX, fwdZ, 15, 15, BLUE_R, BLUE_G, BLUE_B, beacon * night * 0.34);
       }
-      if (head > 0 && meta.head.length > 0) {
-        fx.ground(FX_BEAM, v.x + fwdX * (hl + 9.5), gy, v.z + fwdZ * (hl + 9.5), fwdX, fwdZ, 13, 20, 1.0, 0.92, 0.76, night * 0.22);
+      if (head > 0 && meta.head.length > 0 && dist < 110) {
+        // faisceau discret : dans un embouteillage, des dizaines de faisceaux se superposent
+        fx.ground(FX_BEAM, v.x + fwdX * (hl + 9.5), gy, v.z + fwdZ * (hl + 9.5), fwdX, fwdZ, 13, 20, 1.0, 0.92, 0.76, night * 0.13);
       }
       if (brake > 0 && meta.tail.length > 0) {
         fx.ground(FX_POOL, v.x - fwdX * (hl + 1.2), gy, v.z - fwdZ * (hl + 1.2), fwdX, fwdZ, 3.5, 3.5, 1.0, 0.05, 0.03, night * 0.3);
       }
-    }
-    // éclairs bleus sur les façades et les personnes proches, via le service facultatif
-    const api = this.lightsApi;
-    // (pas pour le véhicule du joueur en vue intérieure : une lumière ponctuelle sans ombre inonderait l'habitacle)
-    if (api && !inside && beacon > 0 && this.pulses < this.q.maxPulses && dist < 90 && meta.beaconA.length > 0) {
-      transformPoint(m, 0, 0, meta.beaconA[1]! + 1.2, meta.beaconA[2]!, tmp);
-      api.pulse(tmp.x, tmp.y, tmp.z, 0x1e5bff, beacon * (14 + 34 * night), 26);
-      this.pulses++;
     }
     if (v.state === 'burning') {
       const b = v.burning;
@@ -490,27 +513,71 @@ export class VehiclesRenderer {
         }
         if (night > 0.2) fx.ground(FX_POOL, v.x, v.y + 0.05, v.z, fwdX, fwdZ, 9, 9, 1.0, 0.42, 0.1, night * 0.5 * (0.6 + 0.4 * fire));
       }
-      if (api && this.pulses < this.q.maxPulses && dist < 90) {
-        api.pulse(v.x, v.y + 2.2, v.z, 0xff7a1c, (24 + 50 * night) * (0.5 + 0.5 * fire), 22);
-        this.pulses++;
-      }
     }
   }
 
-  private updateHeadlamp(v: Vehicle | null, night: number): void {
-    const lamp = this.headlamp;
-    if (!lamp) return;
-    if (!v || !v.headlights || night < 0.15 || v.state === 'burnt' || v.state === 'wrecked') { lamp.intensity = 0; return; }
+  /** Gyrophare ou incendie : lumière ponctuelle valable pour l'image (intensités accordées à l'exposition du rendu de base). */
+  private pulseLight(v: Vehicle, meta: ModelMeta, burning: boolean, beacon: number, fire: number, inside: boolean): void {
+    composeVehicleMatrix(MAT, 0, v.x, v.y, v.z, v.heading, v.pitch, v.roll);
+    const tmp = this.tmp;
+    this.pulses++;
+    if (burning) {
+      transformPoint(MAT, 0, 0, v.def.height * 0.7 + 0.6, 0, tmp);
+      this.lightsApi!.pulse(tmp.x, tmp.y, tmp.z, 0xff7a1c, 150 * v.burning * (0.7 + 0.3 * fire), 24);
+      return;
+    }
+    // au-dessus de la rampe ; pour le véhicule du joueur en vue intérieure, plus haut et atténuée (une lumière
+    // ponctuelle n'est pas arrêtée par le pavillon : elle inonderait l'habitacle)
+    transformPoint(MAT, 0, 0, meta.beaconA[1]! + (inside ? 2.2 : 0.7), meta.beaconA[2]!, tmp);
+    this.lightsApi!.pulse(tmp.x, tmp.y, tmp.z, 0x1e5bff, (inside ? 6 : 18) * beacon, 20);
+  }
+
+  /** Ouverture des portes publiée par la simulation ('vehicles.ext') : la plus ouverte des portes de chaque siège. */
+  private readDoors(st: VState, v: Vehicle): void {
+    const map = st.seatDoor ?? this.seatDoors(st, v);
+    const o = this.extDoor;
+    o[0] = 0; o[1] = 0; o[2] = 0; o[3] = 0;
+    const n = map.length < 16 ? map.length : 16;
+    let any = false;
+    for (let i = 0; i < n; i++) {
+      const d = map[i]!;
+      if (d < 0) continue;
+      const open = this.ext!.doorOpen(v, i);
+      if (open > o[d]!) { o[d] = open; any = true; }
+    }
+    if (!any && !st.doorsActive) return;
+    for (let d = 0; d < 4; d++) {
+      // une porte tenue ouverte par l'API du rendu le reste
+      const held = st.doorHold[d] === 1 || st.doorTimer[d]! > 0.35 ? 1 : 0;
+      st.door[d] = o[d]! > held ? o[d]! : held > 0 ? Math.max(st.door[d]!, o[d]!) : o[d]!;
+    }
+    st.doorsActive = any || st.doorHold[0] === 1 || st.doorHold[1] === 1 || st.doorHold[2] === 1 || st.doorHold[3] === 1
+      || st.doorTimer[0]! > 0 || st.doorTimer[1]! > 0 || st.doorTimer[2]! > 0 || st.doorTimer[3]! > 0;
+  }
+
+  /** Phares du véhicule du joueur : un vrai projecteur, demandé au rendu de base (sinon simples optiques émissives). */
+  private updateHeadlamp(v: Vehicle | null): void {
+    const api = this.lightsApi;
+    if (!api || !this.q.playerHeadlamp) {
+      if (this.headSpot) this.headSpot.enabled = false;
+      return;
+    }
+    if (!v || !v.headlights || v.state === 'burnt' || v.state === 'wrecked' || v.state === 'burning') {
+      if (this.headSpot) this.headSpot.enabled = false;
+      return;
+    }
+    let l = this.headSpot;
+    if (!l) { l = api.spot({ color: 0xfff1d6, intensity: 150, range: 60, angle: 0.52, penumbra: 0.6, priority: 1 }); this.headSpot = l; }
     const hl = v.def.length * 0.5;
-    vehiclePointToWorld(v, 0, Math.min(1.2, v.def.height * 0.45), hl, this.tmp);
-    vehiclePointToWorld(v, 0, 0, hl + 22, this.tmp2);
-    lamp.position.set(this.tmp.x, this.tmp.y, this.tmp.z);
-    lamp.target.position.set(this.tmp2.x, this.tmp2.y, this.tmp2.z);
-    lamp.target.updateMatrixWorld();
-    lamp.intensity = 420 * night;
+    vehiclePointToWorld(v, 0, Math.min(1.1, v.def.height * 0.45), hl + 0.1, this.tmp);
+    vehiclePointToWorld(v, 0, 0, hl + 24, this.tmp2);
+    l.enabled = true;
+    l.x = this.tmp.x; l.y = this.tmp.y; l.z = this.tmp.z;
+    l.dirX = this.tmp2.x - this.tmp.x; l.dirY = this.tmp2.y - this.tmp.y; l.dirZ = this.tmp2.z - this.tmp.z;
   }
 
   dispose(): void {
+    this.releaseLights();
     for (const u of this.unsubs) u();
     this.unsubs.length = 0;
     for (const e of this.entryList) { e.near?.dispose(); e.far?.dispose(); }
@@ -524,5 +591,7 @@ export class VehiclesRenderer {
   }
 }
 
-/** Tampon de matrice réutilisé par emitFx(). */
+/** Tampon de matrice réutilisé par emitFx() et pulseLight(). */
 const MAT = new Float32Array(16);
+/** Nombre maximal de lumières « à l'image » demandées par image (les plus proches d'abord dans l'ordre de la liste). */
+const MAX_PULSES = 24;

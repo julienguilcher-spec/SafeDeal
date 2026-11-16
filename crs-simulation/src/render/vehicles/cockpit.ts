@@ -13,7 +13,7 @@ import * as THREE from 'three';
 import type { Vehicle, VehicleDef } from '@/core/contracts';
 import { tile } from './atlas-layout';
 import { Dashboard } from './dashboard';
-import { EYE_ABOVE_SEAT, EYE_AHEAD_OF_SEAT, composeVehicleMatrix, pack2, steerToThree, steeringWheelAngle } from './frame';
+import { EYE_AHEAD_OF_SEAT, composeVehicleMatrix, pack2, seatEyeHeight, steerToThree, steeringWheelAngle } from './frame';
 import { Geo, LIGHT_BEACON_A, LIGHT_NONE, LIGHT_SIGN, PART_STEERING, SURF_DARK, SURF_FIXED, SURF_LAMP } from './geo';
 import { COL, grilleOver } from './kit';
 import { modelKey } from './models/index';
@@ -37,7 +37,7 @@ export function driverPoint(def: VehicleDef, meta: ModelMeta): { x: number; y: n
 export function buildCockpit(g: Geo, def: VehicleDef, meta: ModelMeta): GaugePlacement {
   const kind = meta.cockpit;
   const d = driverPoint(def, meta);
-  const eyeY = d.y + EYE_ABOVE_SEAT, eyeZ = d.z + EYE_AHEAD_OF_SEAT;
+  const eyeY = seatEyeHeight(d.y, def.height), eyeZ = d.z + EYE_AHEAD_OF_SEAT;
   if (kind === 'bike') {
     // combiné posé derrière la bulle, incliné vers le pilote
     return { x: 0, y: meta.hoodY + 0.045, z: meta.cowlZ - 0.14, tilt: 0.85, w: 0.2, h: 0.1 };

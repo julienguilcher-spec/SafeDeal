@@ -13,12 +13,17 @@
  *   - steerAngle > 0 = roues braquées à droite ; turretYaw > 0 = tourelle tournée vers la droite ;
  *     turretPitch > 0 = canon levé.
  *   - speed > 0 en marche avant : les roues tournent de speed / rayon.
- *   - SeatDef.y = hauteur de l'assise ; l'œil d'un occupant est 0,72 m au-dessus (seatEye()).
+ *   - SeatDef.y = hauteur de l'assise ; l'œil d'un occupant est 0,68 m au-dessus, comme la caméra intérieure du
+ *     rendu de base (seatEye()). L'habitacle de la vue intérieure est bâti autour de ce point.
  *   - Le modèle est bâti aux cotes de Vehicle.def (longueur, largeur hors rétroviseurs, hauteur) ; la caisse est
  *     centrée sur (x, z), essieu avant à environ 43 % du porte-à-faux total derrière le pare-chocs.
  *
- * Portes : le contrat ne décrit pas l'état des portes. Le rendu ouvre brièvement la porte la plus proche du
- * siège sur 'vehicle:entered' et 'vehicle:exited' ; setDoor() permet de tenir une porte ouverte (débarquement).
+ * Portes : le contrat ne décrit pas l'état des portes. Le rendu suit doorOpen() du service 'vehicles.ext' quand il
+ * existe (porte la plus proche du point de sortie de chaque siège) ; sinon il ouvre brièvement la porte sur
+ * 'vehicle:entered' et 'vehicle:exited'. setDoor() permet de tenir une porte ouverte (débarquement).
+ *
+ * Tourelles : TurretDef (x, y, z) est le TOURILLON (axe de gisement, hauteur de l'axe de site). L'indice de la
+ * tourelle dans VehicleDef.turrets choisit turretYaw[i] / turretPitch[i] ; seules les deux premières sont animées.
  */
 
 import type { EntityId, Vec3, Vehicle } from '@/core/contracts';
@@ -26,19 +31,17 @@ import type { EntityId, Vec3, Vehicle } from '@/core/contracts';
 /** Clé du service publié par le module. */
 export const VEHICLES_RENDER_KEY = 'vehiclesRender';
 
-/** Clé du service FACULTATIF d'éclairage dynamique consommé par le module (voir RenderLightsApi). */
-export const RENDER_LIGHTS_KEY = 'render.lights';
-
 /**
- * Service facultatif attendu sous la clé 'render.lights' (fourni par le rendu de base s'il le souhaite) :
- * lumières ponctuelles éphémères, redemandées à chaque image. Le module y envoie les éclairs bleus des
- * gyrophares les plus proches et la lueur des véhicules en feu, dans la limite d'un budget par qualité.
- * S'il est absent, les feux restent de simples surfaces émissives accompagnées de halos.
+ * Services FACULTATIFS consommés (le module fonctionne sans eux) :
+ *   - 'render.lights' (RenderLightsApi de src/render/base/api.ts) : pulse() à chaque image pour les éclats de
+ *     gyrophare (18 cd, portée 20 m) et la lueur des véhicules en feu (150 cd), dans la limite de 24 demandes par
+ *     image ; spot() pour le projecteur des phares du véhicule du joueur. Sans ce service : optiques émissives et
+ *     halos seulement.
+ *   - 'vehicles.ext' (VehiclesExtApi de src/sim/vehicles/api.ts) : doorOpen(v, siège) pilote l'ouverture des portes.
+ *     Sans ce service : ouverture brève sur 'vehicle:entered' / 'vehicle:exited'.
  */
-export interface RenderLightsApi {
-  /** Lumière ponctuelle valable pour l'image courante. Couleur 0xRRGGBB, intensité en candelas, portée en mètres. */
-  pulse(x: number, y: number, z: number, color: number, intensity: number, radius: number): void;
-}
+export const RENDER_LIGHTS_KEY = 'render.lights';
+export const VEHICLES_EXT_KEY = 'vehicles.ext';
 
 export interface VehiclesRenderStats {
   /** Véhicules affichés en détail, en lointain, et non affichés (trop loin ou hors champ). */

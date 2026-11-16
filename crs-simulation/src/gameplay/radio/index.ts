@@ -4,7 +4,7 @@
  * Publie :
  *   ctx.radio          RadioApi du contrat : say() avec files d'attente par canal, anti-répétition, voix stable
  *                      par émetteur, journal horodaté, événement 'radio:message' et sous-titre (priorité ≥ 1)
- *   'radio.phrases'    RadioPhrases : plus de cent situations, 3 à 5 variantes chacune (voir PHRASES.md)
+ *   'radio.phrases'    RadioPhrases : près de deux cents situations, 3 à 5 variantes chacune (voir PHRASES.md)
  *   'radio.callsigns'  CallsignBook : indicatifs fictifs cohérents avec la bible (section E)
  *   'radio.control'    RadioControl : ambiance, sous-titres, statistiques et état des files
  *
@@ -21,8 +21,25 @@ import { createCallsigns } from './callsigns';
 import { createPhraseLibrary } from './phrase-lib';
 import { RadioQueue } from './queue';
 
-/** Nombre maximal de messages conservés dans le journal. */
-const LOG_MAX = 500;
+/**
+ * Nombre maximal de messages conservés dans le journal. Le journal est la pièce relue au compte rendu : quand il est
+ * plein, on en retire d'abord l'ambiance la plus ancienne, et les messages opérationnels en dernier recours.
+ */
+const LOG_MAX = 2000;
+
+/** Fait de la place dans un journal plein : ambiance ancienne d'abord, puis le quart le plus ancien. */
+export function trimLog(log: (RadioMessage & { t: number })[], max: number): void {
+  if (log.length < max) return;
+  const half = log.length >> 1;
+  let kept = 0;
+  for (let i = 0; i < log.length; i++) {
+    const m = log[i]!;
+    if (i < half && m.priority === 0) continue;
+    log[kept++] = m;
+  }
+  log.length = kept;
+  if (log.length >= max) log.splice(0, max >> 2);
+}
 /** Durée d'affichage du sous-titre au-delà de la durée estimée du message (s). */
 const SUBTITLE_EXTRA = 1.5;
 
@@ -46,7 +63,7 @@ export const createSystems: ModuleFactory = (): GameSystem[] => {
 
       const q = new RadioQueue((msg, now, duration) => {
         const out: RadioMessage = msg.voice === undefined ? { ...msg, voice: calls.voiceOf(msg.from) } : msg;
-        if (log.length >= LOG_MAX) log.splice(0, LOG_MAX >> 1);
+        trimLog(log, LOG_MAX);
         log.push({ ...out, t: now });
         ctx.events.emit('radio:message', { msg: out, t: now });
         if (control.subtitles && out.priority >= 1) ctx.ui.subtitle(out.from, out.text, duration + SUBTITLE_EXTRA);
@@ -75,7 +92,7 @@ export const createSystems: ModuleFactory = (): GameSystem[] => {
         },
       });
 
-      ambient = new RadioAmbient(ctx, phrases, calls, rng, (channel: RadioChannel) => q.pending(channel));
+      ambient = new RadioAmbient(ctx, phrases, rng, (channel: RadioChannel) => q.pending(channel));
 
       const stats: RadioStats = {
         get broadcast(): number {

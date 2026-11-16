@@ -71,6 +71,33 @@ describe('rendu de base — rig de caméra', () => {
     expect(t.camera.position.y).toBeLessThan(1.15);
   });
 
+  it('fps : le masque à gaz ou la visière resserrent le champ (service player.control), en douceur', () => {
+    const t = setup();
+    t.set('fps');
+    t.frame(1 / 60, 5);
+    expect(t.camera.fov).toBeCloseTo(70, 3);
+    const hints = { remoteVehicleId: 0, fovScale: 0.7 };
+    t.ctx.provide('player.control', hints);
+    t.frame();
+    expect(t.camera.fov).toBeLessThan(70);
+    expect(t.camera.fov).toBeGreaterThan(66);      // pas de saut
+    t.frame(1 / 60, 120);
+    expect(t.camera.fov).toBeCloseTo(49, 0);
+    // la vue extérieure n'est pas concernée
+    t.set('tps');
+    t.frame(1 / 60, 60);
+    expect(t.camera.fov).toBeCloseTo(70 * 0.88, 1);
+    // option coupée, valeur aberrante : champ normal
+    t.set('fps');
+    t.rig.gearFov = false;
+    t.frame(1 / 60, 120);
+    expect(t.camera.fov).toBeCloseTo(70, 1);
+    t.rig.gearFov = true;
+    hints.fovScale = -3;
+    t.frame(1 / 60, 120);
+    expect(t.camera.fov).toBeCloseTo(70, 1);
+  });
+
   it('fps : léger balancement à la marche, nul à l’arrêt', () => {
     const t = setup();
     t.set('fps');
@@ -224,6 +251,35 @@ describe('rendu de base — rig de caméra', () => {
     expect(t.rig.mode).toBe('fps');
   });
 
+  it('véhicule intérieur : si le rendu des véhicules est branché, son point de vue d’occupant fait foi', () => {
+    const t = setup();
+    const van = t.controls.addVehicle(makeVehicleDef(), 0, 0, 0);
+    t.controls.possess(t.player, van, 0);
+    const asked: number[] = [];
+    t.ctx.provide('vehiclesRender', {
+      seatEye(v: { x: number; y: number; z: number }, seat: number, out: { x: number; y: number; z: number }): boolean {
+        asked.push(seat);
+        if (seat !== 0) return false;
+        out.x = v.x + 0.44;
+        out.y = v.y + 1.77;
+        out.z = v.z + 1.61;
+        return true;
+      },
+    });
+    t.set('vehicle_int', 0, 0);
+    t.frame();
+    expect(asked).toEqual([0]);
+    expect(t.camera.position.x).toBeCloseTo(0.44, 5);
+    expect(t.camera.position.y).toBeCloseTo(1.77, 5);
+    expect(t.camera.position.z).toBeCloseTo(1.61, 5);
+    // siège inconnu du service : repli sur le calcul du rig
+    t.controls.possess(t.player, van, 1);
+    t.rig.cut();
+    t.frame();
+    expect(t.camera.position.y).toBeGreaterThan(1.6);
+    expect(t.camera.position.x).toBeLessThan(0);    // siège de droite : x monde négatif quand le véhicule regarde +z
+  });
+
   it('tourelle : la caméra est sur l’affût du tireur', () => {
     const t = setup();
     const def = makeVehicleDef();
@@ -242,22 +298,36 @@ describe('rendu de base — rig de caméra', () => {
   it('drone : à la position de l’engin volant, regard plongeant', () => {
     const t = setup();
     const drone = t.controls.addVehicle(makeVehicleDef({ kind: 'drone', flying: true, seats: [], turrets: [], height: 0.2 }), 12, -7, 0, 60);
-    t.set('drone', 0, 0);
+    // le contrôleur incline le regard à la prise en main de l'engin (camPitch = -0,5)
+    t.set('drone', 0, -0.5);
     t.frame();
     expect(t.rig.mode).toBe('drone');
     expect(t.camera.position.x).toBeCloseTo(12, 3);
     expect(t.camera.position.z).toBeCloseTo(-7, 3);
     expect(t.camera.position.y).toBeGreaterThan(59);
-    expect(t.forward().y).toBeLessThan(-0.5);     // camPitch = 0 ⇒ déjà ≈ 35° sous l'horizon
-    // jamais plus haut que légèrement au-dessus de l'horizon, jamais au-delà de la verticale
+    expect(t.forward().y).toBeCloseTo(Math.sin(-0.5), 4);   // regard plongeant, exactement celui du joueur
+    // la nacelle ne se relève guère au-dessus de l'horizon et ne dépasse pas la verticale
     t.set('drone', 0, 1.4);
     t.frame();
-    expect(t.forward().y).toBeLessThan(0.31);
-    t.set('drone', 0, -1.5);
+    expect(t.forward().y).toBeLessThan(0.21);
+    t.set('drone', 0, -1.57);
     t.rig.cut();
     t.frame();
     expect(t.forward().y).toBeGreaterThan(-1.0001);
     expect(t.forward().y).toBeLessThan(-0.99);
+    // plusieurs engins en vol : celui que le joueur télépilote ('player.control'), pas le plus proche
+    const second = t.controls.addVehicle(makeVehicleDef({ kind: 'drone', flying: true, seats: [], turrets: [], height: 0.2 }), 1, 1, 0, 30);
+    t.set('drone', 0, -0.5);
+    t.rig.cut();
+    t.frame();
+    expect(t.camera.position.y).toBeLessThan(31);           // le plus proche du joueur, faute de mieux
+    t.ctx.provide('player.control', { remoteVehicleId: drone.id, fovScale: 1 });
+    t.rig.cut();
+    t.frame();
+    expect(t.camera.position.x).toBeCloseTo(12, 3);
+    expect(t.camera.position.y).toBeGreaterThan(59);
+    t.ctx.provide('player.control', { remoteVehicleId: 0, fovScale: 1 });
+    expect(second.def.flying).toBe(true);
     // sans engin volant : point de vue stationnaire au-dessus du joueur
     t.controls.vehicles.length = 0;
     expect(drone.def.flying).toBe(true);
@@ -288,7 +358,22 @@ describe('rendu de base — rig de caméra', () => {
     expect(t.camera.position.y).toBeCloseTo(50, 0);
     t.set('tactical', 0, 0, 0.01);
     t.frame(1 / 60, 200);
-    expect(t.camera.position.y).toBeLessThanOrEqual(601);
+    expect(t.camera.position.y).toBeLessThanOrEqual(701);
+    // zoom propre au rig : touches zoom_in / zoom_out quand personne ne fait varier PlayerState.zoom
+    t.set('tactical', 0, 0, 1);
+    t.frame(1 / 60, 200);
+    expect(t.rig.tactical.height).toBeCloseTo(150, 3);
+    t.controls.input.down.add('zoom_out');
+    t.frame(1 / 60, 60);
+    t.controls.input.down.clear();
+    expect(t.rig.tactical.zoom).toBeLessThan(0.3);
+    expect(t.rig.tactical.height).toBeGreaterThan(500);
+    t.controls.input.down.add('zoom_in');
+    t.frame(1 / 60, 600);
+    t.controls.input.down.clear();
+    expect(t.rig.tactical.zoom).toBe(5);
+    expect(t.rig.tactical.height).toBeCloseTo(30, 3);
+    t.rig.tactical.zoom = 1;
     // déplacement par les axes de ctx.input : « avant » = vers le haut de l'écran = +z ici
     t.set('tactical', 0, 0, 1);
     t.frame(1 / 60, 200);

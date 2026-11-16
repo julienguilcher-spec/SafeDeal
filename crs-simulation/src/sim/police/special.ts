@@ -358,7 +358,14 @@ export function progressEncircle(k: Kernel, u: Unit, relayout: boolean): void {
     return;
   }
   if (u.phase !== 'mise_en_place') return;
-  if (!(allSettled(u, 0.45) || k.now - u.phaseT > 75)) return;
+  // en place quand chaque issue est barrée (premiers rangs alignés) : les chefs peuvent encore rejoindre leur poste
+  let barred = k.now - u.phaseT > 3;
+  for (let i = 0; i < u.groups.length && barred; i++) {
+    const g = u.groups[i];
+    if (g.kind !== F_NONE && (g.moving || g.errMax > 0.45)) barred = false;
+  }
+  if (!barred && k.now - u.phaseT < 150) return;
+  allSettled(u, 0.45);
   let held = 0;
   let open = -1;
   for (let i = 0; i < u.exits.length; i++) {

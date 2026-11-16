@@ -17,6 +17,7 @@ import {
 import type { CalendarDate, SkyBodies } from './astro';
 import { DEG, clamp, clamp01, smoothstep } from './mathx';
 import { WeatherMachine, isWeatherKind } from './weather';
+import type { DryingInputs } from './weather';
 
 /** L'environnement se met à jour avant les contrôleurs : le vent du pas courant est connu de tous. */
 export const ENV_ORDER = SystemOrder.INPUT + 50;
@@ -68,6 +69,8 @@ export class EnvSystem implements GameSystem, EnvApi, EnvExtApi {
   private centerX = 0;
   private centerZ = 0;
   private readonly strikeEvent: LightningStrike = { x: 0, z: 0, distance: 0, intensity: 0 };
+  /** Paramètres de séchage du sol, réutilisés à chaque pas (aucune allocation dans update). */
+  private readonly drying: DryingInputs = { sun: 0 };
 
   constructor() {
     // état cohérent dès la construction (menu, bancs d'essai sans session)
@@ -144,8 +147,8 @@ export class EnvSystem implements GameSystem, EnvApi, EnvExtApi {
       st.timeOfDay = h;
     }
     // météo, sol, vent, éclairs
-    const sun = clamp01(Math.sin(Math.max(0, this.sky.sunElevation)) * 1.6);
-    const switched = this.machine.update(dt, { sun });
+    this.drying.sun = clamp01(Math.sin(Math.max(0, this.sky.sunElevation)) * 1.6);
+    const switched = this.machine.update(dt, this.drying);
     this.refresh();
     const ctx = this.ctx;
     if (!ctx) return;

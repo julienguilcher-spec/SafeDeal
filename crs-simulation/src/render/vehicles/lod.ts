@@ -21,19 +21,17 @@ export interface VehicleQuality {
   maxFx: number;
   /** Les modèles détaillés projettent une ombre. */
   shadows: boolean;
-  /** Éclairs bleus transmis au service facultatif 'render.lights' (nombre maximal par image). */
-  maxPulses: number;
-  /** Projecteur réel pour les phares du véhicule du joueur. */
+  /** Projecteur réel pour les phares du véhicule du joueur (demandé au service facultatif 'render.lights'). */
   playerHeadlamp: boolean;
   /** Côté de l'atlas de marquages (px). */
   atlasSize: number;
 }
 
 export const VEHICLE_QUALITY: Readonly<Record<QualityLevel, VehicleQuality>> = {
-  bas: { near: 22, far: 220, maxNear: 8, glow: 120, maxFx: 256, shadows: false, maxPulses: 2, playerHeadlamp: false, atlasSize: 1024 },
-  moyen: { near: 36, far: 340, maxNear: 16, glow: 200, maxFx: 512, shadows: true, maxPulses: 3, playerHeadlamp: true, atlasSize: 2048 },
-  haut: { near: 55, far: 460, maxNear: 28, glow: 280, maxFx: 768, shadows: true, maxPulses: 4, playerHeadlamp: true, atlasSize: 2048 },
-  ultra: { near: 80, far: 600, maxNear: 48, glow: 360, maxFx: 1024, shadows: true, maxPulses: 6, playerHeadlamp: true, atlasSize: 2048 },
+  bas: { near: 22, far: 220, maxNear: 8, glow: 120, maxFx: 256, shadows: false, playerHeadlamp: false, atlasSize: 1024 },
+  moyen: { near: 36, far: 340, maxNear: 16, glow: 200, maxFx: 512, shadows: true, playerHeadlamp: true, atlasSize: 2048 },
+  haut: { near: 55, far: 460, maxNear: 28, glow: 280, maxFx: 768, shadows: true, playerHeadlamp: true, atlasSize: 2048 },
+  ultra: { near: 80, far: 600, maxNear: 48, glow: 360, maxFx: 1024, shadows: true, playerHeadlamp: true, atlasSize: 2048 },
 };
 
 /** Marge d'hystérésis : il faut s'éloigner de 12 % au-delà du seuil pour perdre le détail (évite le battement). */

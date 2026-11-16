@@ -163,6 +163,12 @@ export class Closures implements TrafficControlApi {
 
   // ───────────────────────────── fermeture ─────────────────────────────
 
+  /** Ferme une rue, barrières déjà en place et sans compte rendu radio (option de départ d'une session). */
+  closeRoadInstant(x: number, z: number): RoadClosure | null {
+    const rec = this.closeAt(x, z, 0, 0, true);
+    return rec ? rec.closure : null;
+  }
+
   /** Ferme un périmètre ; `instant` : barrières déjà en place (option de départ), sans compte rendu radio. */
   closeAreaWith(x: number, z: number, radius: number, byId: EntityId, instant: boolean): RoadClosure[] {
     const out: RoadClosure[] = [];
@@ -174,6 +180,7 @@ export class Closures implements TrafficControlApi {
     const r2 = radius * radius;
     const areaId = this.nextArea++;
     const pt = this.pt;
+    const before = this.nextId;
     this.quiet = true;
     for (let i = 0; i < n; i++) {
       const node = nodes[i]!;
@@ -206,7 +213,7 @@ export class Closures implements TrafficControlApi {
         c.pointAt(e, (lo + hi) * 0.5, 0, pt);
         const rec = this.closeAt(pt.x, pt.z, byId, 0, instant);
         if (!rec) continue;
-        if (rec.areaId === 0 || rec.areaId === areaId) {
+        if (rec.closure.id >= before) {
           rec.areaId = areaId;
           rec.areaX = x;
           rec.areaZ = z;
@@ -216,7 +223,8 @@ export class Closures implements TrafficControlApi {
       }
     }
     this.quiet = false;
-    if (out.length > 0 && !instant) {
+    // compte rendu seulement si ce périmètre a réellement fermé quelque chose de nouveau
+    if (this.nextId > before && !instant) {
       const place = this.ctx.world.sectorName(x, z);
       this.radioPerimeter(place, out.length, x, z);
     }

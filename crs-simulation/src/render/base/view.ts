@@ -5,10 +5,10 @@
  * ===================================================================================== */
 
 import * as THREE from 'three';
-import type { EnvState, GameContext, QualityLevel, ViewApi } from '@/core/contracts';
+import type { GameContext, QualityLevel, ViewApi } from '@/core/contracts';
 import type { EnvExtApi } from '@/env/api';
 import type { RenderBaseApi, RenderStats } from './api';
-import { computeAtmosphere, createAtmosphere, fogDensityFor, visibilityFor } from './atmosphere';
+import { bodiesFromEnvState, computeAtmosphere, createAtmosphere, fogDensityFor, visibilityFor } from './atmosphere';
 import type { Atmosphere, AtmosphereInput } from './atmosphere';
 import { CameraRig } from './cameraRig';
 import { Lighting } from './lighting';
@@ -207,6 +207,11 @@ export class RenderView implements ViewApi, RenderBaseApi {
     this.nightLevel = -1;
   }
 
+  clearScreenEffects(): void {
+    this.fx.reset();
+    if (this.overlay) this.overlay.apply(this.fx);
+  }
+
   renderNow(): void {
     this.prepare(0);
     this.present(0);
@@ -214,11 +219,11 @@ export class RenderView implements ViewApi, RenderBaseApi {
 
   // ───────────────────────────── cycle ─────────────────────────────
 
-  /** Remise à zéro de session : coupe de caméra, effets d'écran et lumières rendus. */
+  /** Remise à zéro de session : coupe de caméra, effets d'écran effacés, éclats lumineux éteints. */
   reset(): void {
     this.rig.reset();
     this.fx.reset();
-    this.lights.clear();
+    this.lights.clearFlashes();
     this.cloudX = 0;
     this.cloudZ = 0;
     // l'état lissé repart de la valeur exacte du nouvel environnement
@@ -256,7 +261,7 @@ export class RenderView implements ViewApi, RenderBaseApi {
       this.cloudX = sky.cloudX;
       this.cloudZ = sky.cloudZ;
     } else {
-      this.deriveBodies(env, inp);
+      bodiesFromEnvState(env, inp);
       this.cloudX += env.windX * dt * 2.2;
       this.cloudZ += env.windZ * dt * 2.2;
     }
@@ -299,8 +304,8 @@ export class RenderView implements ViewApi, RenderBaseApi {
       this.cloudX, this.cloudZ, lightning, lightningX, lightningZ);
     this.rain.update(dt, env.rain, env.windX, env.windZ, cam.x, cam.y, cam.z, atm.dayLevel * 0.85 + 0.15 * this.streetLevel + lightning);
 
-    // ── lumières dynamiques, effets d'écran ──
-    this.lights.update(dt, cam.x, cam.y, cam.z);
+    // ── effets d'écran (les lumières dynamiques sont attribuées dans present(), une fois que tous les
+    //    modules de rendu ont fait leurs demandes pour cette image) ──
     this.fx.update(dt);
     if (this.overlay) this.overlay.apply(this.fx);
 
@@ -320,18 +325,20 @@ export class RenderView implements ViewApi, RenderBaseApi {
     u.uSkyColor.value.setRGB(atm.skyReflect[0]!, atm.skyReflect[1]!, atm.skyReflect[2]!);
 
     const st = this.stats;
-    st.lightsWanted = this.lights.wantedCount;
-    st.lightsLit = this.lights.litCount;
     st.rainStreaks = this.rain.drawn;
     st.prepareMs += (now() - t0 - st.prepareMs) * EMA;
   }
 
-  /** Dessine l'image. */
-  present(_dt: number): void {
-    if (this.paused || this.contextLost) return;
+  /** Attribue les lumières dynamiques demandées pour cette image, puis dessine. */
+  present(dt: number): void {
     const t0 = now();
-    this.renderer.render(this.scene, this.camera);
+    const cam = this.camera.position;
+    this.lights.update(dt, cam.x, cam.y, cam.z);
     const st = this.stats;
+    st.lightsWanted = this.lights.wantedCount;
+    st.lightsLit = this.lights.litCount;
+    if (this.paused || this.contextLost) return;
+    this.renderer.render(this.scene, this.camera);
     const info = this.renderer.info.render;
     st.drawCalls = info.calls;
     st.triangles = info.triangles;
@@ -393,32 +400,4 @@ export class RenderView implements ViewApi, RenderBaseApi {
     st.height = Math.floor(h * pr);
     st.pixelRatio = pr;
   }
-
-  /**
-   * Sans le service étendu de l'environnement (module absent : service neutre), on déduit le vrai
-   * soleil et la lune de l'état du contrat : la nuit, la direction publiée est celle de la lune et
-   * le soleil est supposé à l'opposé, sous l'horizon.
-   */
-  private deriveBodies(env: EnvState, inp: AtmosphereInput): void {
-    const y = clamp(env.sunY, -1, 1);
-    if (env.isNight) {
-      inp.moonX = env.sunX; inp.moonY = y; inp.moonZ = env.sunZ;
-      inp.moonElevDeg = Math.asin(y) / DEG;
-      inp.sunX = -env.sunX; inp.sunY = -y; inp.sunZ = -env.sunZ;
-      inp.sunElevDeg = Math.min(-4.5, -Math.asin(y) / DEG);
-    } else {
-      inp.sunX = env.sunX; inp.sunY = y; inp.sunZ = env.sunZ;
-      // près de l'horizon la direction publiée est relevée : on se fie alors à la lumière du jour
-      const elev = Math.asin(y) / DEG;
-      inp.sunElevDeg = elev < 4 ? -7 + 16 * inverseSmoothstep(clamp01(env.daylight)) : elev;
-      inp.moonX = -env.sunX; inp.moonY = -y; inp.moonZ = -env.sunZ;
-      inp.moonElevDeg = -elev;
-    }
-    inp.moonPhase = 1;
-  }
-}
-
-/** Réciproque de smoothstep sur [0, 1]. */
-function inverseSmoothstep(v: number): number {
-  return 0.5 - Math.sin(Math.asin(1 - 2 * v) / 3);
 }

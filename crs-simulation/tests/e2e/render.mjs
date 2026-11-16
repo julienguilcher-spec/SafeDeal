@@ -3,11 +3,12 @@
 // tests/e2e/out/render-*.png et vérifie quelques invariants (mode appliqué, ombres, brouillard, budgets).
 //
 //   node tests/e2e/render.mjs            tout
-//   node tests/e2e/render.mjs ambiances  seulement un groupe (ambiances | cameras | effets | qualite)
+//   node tests/e2e/render.mjs ambiances,cameras   seulement certains groupes (ambiances | cameras | effets | qualite | moteur)
 import path from 'node:path';
 import { startServer, openPage, waitFor, finish, OUT } from './lib.mjs';
 
-const only = process.argv[2] ?? '';
+const groups = (process.argv[2] ?? '').split(',').filter(Boolean);
+const wanted = (group) => groups.length === 0 || groups.includes(group);
 const server = await startServer();
 const t0 = Date.now();
 // 960 × 540 : le WebGL logiciel est lent, et la machine de test est souvent partagée
@@ -53,7 +54,7 @@ async function view(name, setup, frames = 3) {
 const STREET = { cam: 'free', pos: [3.2, 1.9, 46], yaw: -3, pitch: 9, zoom: 1, feu: false, gyro: false, fx: { gas: 0, wet: 0, pain: 0, visor: 0, flash: 0 } };
 const reset = { ...STREET, meteo: 'clair', t: 14 };
 
-if (!only || only === 'ambiances') {
+if (wanted('ambiances')) {
   console.log('Ambiances :');
   const noon = await view('01-midi-clair', { ...STREET, t: 13.8, meteo: 'clair' });
   check(noon.stats.shadows === true, 'les ombres devraient être actives en qualité haute');
@@ -93,7 +94,7 @@ if (!only || only === 'ambiances') {
   await view('18-aube', { ...STREET, t: 6.45, meteo: 'nuageux', yaw: 178, pos: [-3, 1.9, -50], pitch: 9 });
 }
 
-if (!only || only === 'cameras') {
+if (wanted('cameras')) {
   console.log('Caméras :');
   const base = { t: 16.5, meteo: 'nuageux', zoom: 1, yaw: 0, pitch: 0, joueur: [2.5, 26], feu: true, gyro: true, marche: false, fx: { gas: 0, wet: 0, pain: 0, visor: 0, flash: 0 } };
   for (const [name, setup, frames] of [
@@ -103,7 +104,7 @@ if (!only || only === 'cameras') {
     ['23-cam-vehicle-ext', { cam: 'vehicle_ext' }],
     ['24-cam-vehicle-int', { cam: 'vehicle_int', pitch: -3 }],
     ['25-cam-turret', { cam: 'turret', pitch: -8, yaw: 8 }],
-    ['26-cam-drone', { cam: 'drone', pitch: -20 }],
+    ['26-cam-drone', { cam: 'drone', pitch: -42 }],
     ['27-cam-tactical', { cam: 'tactical', zoom: 1.6 }],
     ['28-cam-tactical-large', { cam: 'tactical', zoom: 0.5 }, 30],
     ['29-cam-viewfinder', { cam: 'viewfinder', zoom: 4, yaw: 1, pitch: -1.5 }],
@@ -116,7 +117,7 @@ if (!only || only === 'cameras') {
   const tps = await page.evaluate(() => window.__render.stats());
   check(tps.mode === 'free', 'dernier mode : free');
   const tac = await view('33-cam-tactical-haute', { ...base, cam: 'tactical', zoom: 0.3 }, 40);
-  check(tac.stats.cam[1] > 400, 'vue tactique : zoom arrière ⇒ caméra très haute');
+  check(tac.stats.cam[1] > 450, 'vue tactique : zoom arrière ⇒ caméra très haute');
   check(tac.stats.drawDistance >= tac.stats.cam[1] * 1.5, 'vue tactique : le sol sous la caméra reste dans la distance d’affichage');
   // collision de la caméra d'épaule : dos au mur, le recul est réduit et la caméra reste hors de l'immeuble
   const wall = await view('31-cam-tps-dos-au-mur', { ...base, cam: 'tps', joueur: [12.3, 30], yaw: -90, pitch: -3 }, 4);
@@ -125,22 +126,22 @@ if (!only || only === 'cameras') {
   check(open.stats.tpsDistance > 3, `terrain dégagé : recul ${open.stats.tpsDistance.toFixed(2)} m, attendu > 3 m`);
 }
 
-if (!only || only === 'effets') {
+if (wanted('effets')) {
   console.log('Effets d’écran :');
   const base = { cam: 'fps', t: 16.5, meteo: 'nuageux', joueur: [2.5, 26], yaw: 0, pitch: -2, zoom: 1, feu: true, gyro: false };
   const none = { gas: 0, wet: 0, pain: 0, visor: 0, flash: 0 };
   await view('40-fx-gaz', { ...base, fx: { ...none, gas: 0.75 } }, 30);
   await view('41-fx-flash', { ...base, fx: { ...none, flash: 0.85 } }, 3);
   await view('42-fx-gouttes', { ...base, meteo: 'pluie', fx: { ...none, wet: 0.8 } }, 20);
-  await view('43-fx-douleur', { ...base, fx: { ...none, pain: 0.8 } }, 3);
-  await view('44-fx-visiere', { ...base, fx: { ...none, visor: 1 } }, 25);
+  await view('43-fx-douleur', { ...base, net: true, fx: { ...none, pain: 0.8 } }, 3);
+  await view('44-fx-visiere', { ...base, net: true, fx: { ...none, visor: 1 } }, 25);
   await view('45-fx-visiere-pluie', { ...base, meteo: 'pluie', fx: { ...none, visor: 1, wet: 0.6 } }, 20);
-  await view('46-secousse', { ...base, fx: none, secousse: 1 }, 3);
+  await view('46-secousse', { ...base, net: true, fx: none, secousse: 1 }, 3);
 }
 
-if (!only || only === 'qualite') {
+if (wanted('qualite')) {
   console.log('Préréglages de qualité :');
-  const base = { ...reset, t: 17.5, meteo: 'nuageux', feu: true, gyro: true };
+  const base = { ...reset, t: 17.5, meteo: 'nuageux', feu: true, gyro: true, net: true };
   const results = {};
   for (const q of ['bas', 'moyen', 'haut', 'ultra']) {
     const r = await view('50-qualite-' + q, { ...base, quality: q }, 8);
@@ -169,7 +170,7 @@ if (!only || only === 'qualite') {
   await phone.browser.close();
 }
 
-if (!only || only === 'moteur') {
+if (wanted('moteur')) {
   // les deux modules branchés sur le vrai moteur (Game, session, boucle) : cycle de vie réel
   console.log('Moteur réel :');
   const engine = await openPage(server.url + 'harness/render.html?moteur=1&hud=0', SIZE);
@@ -188,6 +189,10 @@ if (!only || only === 'moteur') {
   errors.push(...engine.errors);
   await engine.browser.close();
 }
+
+// libération : dispose() retire le canevas et les surcouches, ctx.view redevient nul
+const left = await page.evaluate(() => window.__render.dispose());
+check(left.view === false && left.canvases === 0 && left.overlays === 0, `dispose() laisse des restes : ${JSON.stringify(left)}`);
 
 console.log(`durée : ${((Date.now() - t0) / 1000).toFixed(1)} s`);
 for (const f of failures) console.error('  ÉCHEC : ' + f);

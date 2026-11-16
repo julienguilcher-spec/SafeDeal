@@ -13,8 +13,8 @@ import type { VehiclesRenderApi, VehiclesRenderStats } from './api';
 import { seatEyeWorld, turretMuzzleWorld } from './frame';
 import { VehiclesRenderer } from './renderer';
 
-export type { RenderLightsApi, VehiclesRenderApi, VehiclesRenderStats } from './api';
-export { RENDER_LIGHTS_KEY, VEHICLES_RENDER_KEY } from './api';
+export type { VehiclesRenderApi, VehiclesRenderStats } from './api';
+export { RENDER_LIGHTS_KEY, VEHICLES_EXT_KEY, VEHICLES_RENDER_KEY } from './api';
 export { REFERENCE_DEFS, referenceDef, CIVIL_COLORS } from './refdefs';
 export { VehiclesRenderer } from './renderer';
 
@@ -97,7 +97,7 @@ class VehiclesRenderSystem implements GameSystem, VehiclesRenderApi {
   seatEye(v: Vehicle, seat: number, out: Vec3): boolean {
     const sd = v.def.seats[seat];
     if (!sd) return false;
-    seatEyeWorld(v, sd, out);
+    seatEyeWorld(v, sd, out, v.def.height);
     return true;
   }
 

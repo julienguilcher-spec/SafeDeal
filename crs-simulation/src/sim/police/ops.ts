@@ -153,6 +153,36 @@ function dist(a: Person, x: number, z: number): number {
   return Math.sqrt((a.x - x) * (a.x - x) + (a.z - z) * (a.z - z));
 }
 
+/**
+ * Point où se présenter près d'un véhicule : son flanc gauche, son flanc droit ou son arrière, au plus près
+ * de la personne (écrit dans k.v2). On n'a jamais à contourner la caisse.
+ */
+function approachPoint(k: Kernel, v: Vehicle, from: Person): void {
+  const fx = Math.sin(v.heading);
+  const fz = Math.cos(v.heading);
+  const rx = -fz;
+  const rz = fx;
+  const side = v.def.width * 0.5 + 1.15;
+  const back = v.def.length * 0.5 + 1.3;
+  const world = k.ctx.world;
+  let best = Infinity;
+  let bx = v.x - fx * back;
+  let bz = v.z - fz * back;
+  for (let i = 0; i < 3; i++) {
+    const x = i === 0 ? v.x - fx * back : v.x + rx * (i === 1 ? side : -side);
+    const z = i === 0 ? v.z - fz * back : v.z + rz * (i === 1 ? side : -side);
+    if (!world.isFree(x, z, 0.3)) continue;
+    const d = (x - from.x) * (x - from.x) + (z - from.z) * (z - from.z);
+    if (d < best) {
+      best = d;
+      bx = x;
+      bz = z;
+    }
+  }
+  k.v2.x = bx;
+  k.v2.z = bz;
+}
+
 // ───────────────────────────── interpellation ─────────────────────────────
 
 /** Lance l'interpellation d'une personne par le binôme le plus proche. null si personne n'est disponible. */
@@ -205,10 +235,9 @@ function findHandover(k: Kernel, op: Op, from: Person): void {
   if (best) {
     op.destId = best.id;
     op.count = 1;
-    // on se présente à l'arrière du véhicule
-    const reach = best.def.length * 0.5 + 1.5;
-    op.destX = best.x - Math.sin(best.heading) * reach;
-    op.destZ = best.z - Math.cos(best.heading) * reach;
+    approachPoint(k, best, from);
+    op.destX = k.v2.x;
+    op.destZ = k.v2.z;
     return;
   }
   const service = k.handover();
@@ -409,9 +438,14 @@ function updateArrest(k: Kernel, op: Op): void {
           findHandover(k, op, p);
           break;
         }
-        const reach = v.def.length * 0.5 + 1.5;
-        gx = op.destX = v.x - Math.sin(v.heading) * reach;
-        gz = op.destZ = v.z - Math.cos(v.heading) * reach;
+        // le point d'approche est fixé une fois pour toutes tant que le véhicule ne bouge pas
+        if ((op.destX - v.x) * (op.destX - v.x) + (op.destZ - v.z) * (op.destZ - v.z) > 36) {
+          approachPoint(k, v, p);
+          op.destX = k.v2.x;
+          op.destZ = k.v2.z;
+        }
+        gx = op.destX;
+        gz = op.destZ;
       }
       setGoal(lead, gx, gz);
       if (second) setGoal(second, p.x - Math.sin(p.heading) * 1.1, p.z - Math.cos(p.heading) * 1.1);
@@ -456,13 +490,14 @@ function finishArrest(k: Kernel, op: Op, target: Person, handed: boolean): void 
   const root = op.root;
   root.arrests++;
   if (owner !== root) owner.arrests++;
-  const o = k.ctx.law.worstOffense(target);
-  const fact = o ? (o.type === 'jet_projectile' ? 'jet de projectile sur agents' : o.type === 'violence_agent' ? 'violences sur agent'
-    : o.type === 'incendie' ? 'incendie volontaire' : o.type === 'degradation' ? 'dégradations' : o.type === 'pillage' ? 'vol en réunion' : 'fait constaté') : 'fait constaté';
-  const body = 'UN interpellé pour ' + fact + (o && o.filmed ? ', fait filmé' : '') + (handed
-    ? (op.count === 1 ? '. Remis au véhicule' : '. Remis à l’officier de police judiciaire au point de regroupement')
-    : '. Gardé derrière la ligne, demande un véhicule pour la remise');
-  report(k, owner, body);
+  // la remise elle-même est annoncée par le module de droit (heure, qualification) ; l'unité ne rend compte
+  // à la radio que si l'interpellé reste gardé derrière la ligne, faute de véhicule ou de point de regroupement
+  if (!handed) {
+    const o = k.ctx.law.worstOffense(target);
+    const fact = o ? (o.type === 'jet_projectile' ? 'jet de projectile sur agents' : o.type === 'violence_agent' ? 'violences sur agent'
+      : o.type === 'incendie' ? 'incendie volontaire' : o.type === 'degradation' ? 'dégradations' : o.type === 'pillage' ? 'vol en réunion' : 'fait constaté') : 'fait constaté';
+    report(k, owner, 'UN interpellé pour ' + fact + (o && o.filmed ? ', fait filmé' : '') + '. Gardé derrière la ligne, demande un véhicule pour la remise');
+  }
   if (root.squad.morale < 1) root.squad.morale = Math.min(1, root.squad.morale + 0.03);
   k.emit(ARREST_EVENT, { squadId: owner.id, targetId: target.id, byId: op.lead ? op.lead.p.id : 0, stage: handed ? 'remise' : 'garde' });
   finish(k, op, true, '');
@@ -828,9 +863,13 @@ function updateResupply(k: Kernel, op: Op): void {
     return;
   }
   const p = a.p;
-  const reach = v.def.length * 0.5 + 1.3;
-  const gx = v.x - Math.sin(v.heading) * reach;
-  const gz = v.z - Math.cos(v.heading) * reach;
+  if (op.destX === 0 && op.destZ === 0) {
+    approachPoint(k, v, p);
+    op.destX = k.v2.x;
+    op.destZ = k.v2.z;
+  }
+  const gx = op.destX;
+  const gz = op.destZ;
   if (op.stage === 0) {
     setGoal(a, gx, gz);
     if (dist(p, gx, gz) < 1.5) {
@@ -898,7 +937,12 @@ function updateClear(k: Kernel, op: Op): void {
   const ctx = k.ctx;
   const now = k.now;
   const prop = ctx.props.get(op.targetId);
-  if (!clearable(prop) || (!prop.blocksMove && prop.kind !== 'barricade')) {
+  if (!clearable(prop)) {
+    finish(k, op, true, '');
+    return;
+  }
+  // objet redressé ou remis en état : plus rien à dégager
+  if (op.count > 0 && prop.kind !== 'barricade' && prop.kind !== 'debris' && !prop.toppled && prop.state !== 'broken' && prop.state !== 'burnt') {
     finish(k, op, true, '');
     return;
   }

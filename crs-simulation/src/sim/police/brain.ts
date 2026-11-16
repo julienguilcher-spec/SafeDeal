@@ -103,6 +103,7 @@ export interface Agent {
   sideX: number;
   sideZ: number;
   sideUntil: number;
+  sideCount: number;
   /** Instant à partir duquel l'agent exécute l'ordre reçu (délai de réaction). */
   reactAt: number;
   thinkAt: number;
@@ -118,6 +119,10 @@ export interface Agent {
   avoidX: number;
   avoidZ: number;
   avoidUntil: number;
+  /** Obstacle à contourner en rejoignant l'emplacement (personne ou véhicule protégé) : centre et rayon (0 : aucun). */
+  obX: number;
+  obZ: number;
+  obR: number;
   /** Décalage de désordre propre à l'agent (unité bousculée). */
   jx: number;
   jz: number;
@@ -359,8 +364,11 @@ export interface Unit {
   order: SquadOrder | null;
   /** Ordre de tâche en cours (copie), ou null. */
   task: SquadOrder | null;
-  /** Dernier ordre connu dans le magasin (objet de Squad.order) : restauré à la fin d'une tâche. */
+  /** Dernier ordre connu dans le magasin (objet de Squad.order). */
   storeOrder: SquadOrder | null;
+  /** Pendant une tâche : ordre du magasin à rétablir à la fin, et ordre posé entre-temps. */
+  restoreOrder: SquadOrder | null;
+  placedOrder: SquadOrder | null;
   phase: UnitPhase;
   phaseT: number;
   man: Maneuver;
@@ -427,9 +435,9 @@ export function createAgent(p: Person, seed: number): Agent {
     tag: AGENT_TAG, p, home: null, root: null, group: null, baseCls: CLS_SECOND, cls: CLS_SECOND, shield: false,
     lx: 0, lf: 0, lh: 0, rank: 0, hasSlot: false, sx: p.x, sz: p.z, sh: p.heading, svx: 0, svz: 0, key: 0, lat: 0,
     vcap: 2.6, lim0: p.speedWalk, lim1: p.speedRun, lim2: p.speedSprint, limAt: -1, face: p.heading,
-    path: [], pathN: 0, pathI: 0, pathAt: -100, stuckT: 0, lastX: p.x, lastZ: p.z, sideX: 0, sideZ: 0, sideUntil: 0,
+    path: [], pathN: 0, pathI: 0, pathAt: -100, stuckT: 0, lastX: p.x, lastZ: p.z, sideX: 0, sideZ: 0, sideUntil: 0, sideCount: 0,
     reactAt: 0, thinkAt: 0,
-    alertUntil: 0, highGuard: false, crouch: false, maskAt: 0, maskOffAt: 0, avoidX: 0, avoidZ: 0, avoidUntil: 0, jx: 0, jz: 0,
+    alertUntil: 0, highGuard: false, crouch: false, maskAt: 0, maskOffAt: 0, avoidX: 0, avoidZ: 0, avoidUntil: 0, obX: 0, obZ: 0, obR: 0, jx: 0, jz: 0,
     op: null, opRole: 0, goalX: p.x, goalZ: p.z, goalRun: false, hold: false,
     act: ACT_NONE, actItem: '', actMeans: '', actT: 0, actUntil: 0, actTx: 0, actTy: 0, actTz: 0, actTarget: 0,
     actRestore: '', actPower: 1, actDone: false, contactAt: 0, postX: 0, postZ: 0, postUntil: 0,
@@ -472,12 +480,12 @@ export function createUnit(squad: Squad): Unit {
     x: 0, z: 0, heading: 0, arrests: 0, rootId: squad.id,
   };
   const info: FormationInfo = {
-    formation: 'aucune', x: 0, z: 0, heading: 0, width: 0, spacing: 0, front: [], slotErrorMax: 0, slotErrorRms: 0,
+    formation: 'aucune', x: 0, z: 0, heading: 0, width: 0, spacing: 0, front: [], slotErrorMax: 0, slotErrorRms: 0, slotErrorAll: 0,
     lineError: 0, moving: false, blocks: 0,
   };
   const u: Unit = {
     tag: UNIT_TAG, squad, id: squad.id, parent: null, children: [], isRoot: true, lead: null as unknown as Unit, joinedTo: null, extraVehicles: [], memberSig: 0, seq: 0, sortLat: 0, accLat: 0, accN: 0,
-    own: [], agents: [], groups: [], order: null, task: null, storeOrder: null, phase: 'repos', phaseT: 0, man: createManeuver(), pending: null,
+    own: [], agents: [], groups: [], order: null, task: null, storeOrder: squad.order, restoreOrder: null, placedOrder: null, phase: 'repos', phaseT: 0, man: createManeuver(), pending: null,
     ackAt: 0, ackText: '', reported: true,
     sense: createSense(), thinkAt: 0, warnedAt: -100, volleyAt: 0, masksAt: 0, lbdAt: 0, attackReportAt: -100, windReportAt: -100,
     duckUntil: 0, shieldsUntil: 0,

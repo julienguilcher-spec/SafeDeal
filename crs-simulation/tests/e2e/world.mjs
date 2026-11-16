@@ -35,7 +35,8 @@ try {
   await waitFor(page, 'window.__ready === true || window.__error', 600000);
   const error = await page.evaluate(() => window.__error ?? null);
   if (error) throw new Error(error);
-  console.log(`[world] prêt en ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+  const first = await page.evaluate(() => window.__stats());
+  console.log(`[world] prêt en ${((Date.now() - t0) / 1000).toFixed(1)} s — carte « ${first.source} », textures partagées peintes en ${first.paintMs.toFixed(0)} ms (${(first.sharedGpuBytes / 1048576).toFixed(1)} Mo sur la carte graphique)`);
   for (const [name, vue, heure, meteo] of SHOTS) {
     if (only && !only.includes(name)) continue;
     const t1 = Date.now();

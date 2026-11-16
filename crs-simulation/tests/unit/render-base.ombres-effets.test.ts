@@ -175,18 +175,24 @@ describe('rendu de base — effets d’écran', () => {
     expect(s.get('flash')).toBeCloseTo(0.9, 6);
   });
 
-  it('douleur : impulsion qui s’estompe ; entretenue si on la rappelle à chaque image', () => {
+  it('douleur : frappe d’un coup, se tient au niveau demandé, s’estompe en douceur quand on la relâche', () => {
     const s = new ScreenFxState();
     s.set('pain', 0.8);
-    run(s, 0.2);
-    expect(s.get('pain')).toBeGreaterThan(0.5);
-    run(s, 4);
+    expect(s.get('pain')).toBeCloseTo(0.8, 6);       // immédiat
+    run(s, 5);
+    expect(s.get('pain')).toBeCloseTo(0.8, 6);       // niveau tenu (blessure grave : vignette persistante)
+    // le HUD abaisse le niveau : la vignette décroît sans à-coup jusqu'au nouveau niveau
+    s.set('pain', 0.3);
+    s.update(1 / 60);
+    expect(s.get('pain')).toBeGreaterThan(0.75);
+    run(s, 3);
+    expect(s.get('pain')).toBeCloseTo(0.3, 6);
+    s.set('pain', 0);
+    run(s, 0.3);
+    expect(s.get('pain')).toBeGreaterThan(0.1);
+    run(s, 5);
     expect(s.get('pain')).toBe(0);
-    for (let i = 0; i < 120; i++) {
-      s.set('pain', 0.6);
-      s.update(1 / 60);
-    }
-    expect(s.get('pain')).toBeGreaterThan(0.55);
+    expect(s.idle).toBe(true);
   });
 
   it('gouttes et visière : niveaux tenus tant qu’on ne les change pas', () => {

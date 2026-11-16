@@ -18,6 +18,11 @@ export interface CrowdTest extends TestContext {
   run(seconds: number): void;
   /** Temps moyen passé dans les deux systèmes de la foule, par pas (ms), depuis le dernier appel. */
   costPerStep(): number;
+  /**
+   * Coût par pas (ms) sur la meilleure fenêtre de `window` pas consécutifs depuis le dernier appel, et médiane
+   * de toutes les fenêtres : sur une machine chargée, seule la meilleure fenêtre mesure le code.
+   */
+  bestCost(window?: number): { best: number; median: number; steps: number };
 }
 
 export interface CrowdTestOptions {
@@ -32,6 +37,8 @@ export function createCrowdTest(options: CrowdTestOptions = {}): CrowdTest {
   const crowd = createCrowdSystems();
   let acc = 0;
   let steps = 0;
+  let cur = 0;
+  const samples: number[] = [];
   // enveloppes de mesure : temps passé dans update() des deux systèmes
   const timed = crowd.systems.map((s): GameSystem => ({
     id: s.id,
@@ -42,8 +49,12 @@ export function createCrowdTest(options: CrowdTestOptions = {}): CrowdTest {
     update: (dt: number) => {
       const t = performance.now();
       s.update!(dt);
-      acc += performance.now() - t;
-      if (s === crowd.systems[0]) steps++;
+      const d = performance.now() - t;
+      acc += d;
+      if (s === crowd.systems[0]) {
+        steps++;
+        cur = d;
+      } else if (samples.length < 200000) samples.push(cur + d);
     },
   }));
   const t = createTestContext({ seed: options.seed ?? 1, modules: options.modules, systems: [...(options.systems ?? []), ...timed] });
@@ -60,6 +71,19 @@ export function createCrowdTest(options: CrowdTestOptions = {}): CrowdTest {
     },
     run(seconds: number): void {
       t.step(seconds, 0.05);
+    },
+    bestCost(window = 30): { best: number; median: number; steps: number } {
+      const sums: number[] = [];
+      for (let i = 0; i + window <= samples.length; i += window) {
+        let sum = 0;
+        for (let k = 0; k < window; k++) sum += samples[i + k]!;
+        sums.push(sum / window);
+      }
+      const n = samples.length;
+      samples.length = 0;
+      if (sums.length === 0) return { best: 0, median: 0, steps: n };
+      sums.sort((a, b) => a - b);
+      return { best: sums[0]!, median: sums[sums.length >> 1]!, steps: n };
     },
     costPerStep(): number {
       const v = steps > 0 ? acc / steps : 0;

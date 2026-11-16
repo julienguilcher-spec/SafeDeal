@@ -173,7 +173,7 @@ function deploy(k: Kernel, b: Build, layout: 'colonne' | 'ligne' | 'embarque'): 
   const fz = Math.cos(b.heading);
   const g = layout === 'ligne'
     ? formLine(k, u, b.x, b.z, b.heading, 0)
-    : formColumn(k, u, b.x, b.z, b.x + fx * 4, b.z + fz * 4, 3);
+    : formColumn(k, u, b.x, b.z, b.x + fx * 4, b.z + fz * 4, 3, true);
   // à la création seulement : chacun est posé directement à sa place
   for (let i = 0; i < g.agents.length; i++) {
     const a = g.agents[i];

@@ -2,8 +2,10 @@
  * Radio — indicatifs (tous fictifs, docs/research/00-bible-realisme.md E.5).
  *
  *   salle de commandement   CENTRAL
- *   commandant (unique)     MISTRAL 0           (commandement et autorité habilitée, un seul chef)
- *   compagnie               MISTRAL             (nom de vent : MISTRAL, TRAMONTANE, SIROCCO, ZÉPHYR)
+ *   compagnie et commandant MISTRAL             (nom de vent : MISTRAL, TRAMONTANE, SIROCCO, ZÉPHYR)
+ *                                               Le commandant est le chef unique : commandement ET autorité
+ *                                               habilitée. Il parle sous l'indicatif de sa compagnie, comme dans
+ *                                               les messages de la bible (« MISTRAL DEUX ICI MISTRAL »).
  *   sections                MISTRAL 1 … n
  *   groupes                 MISTRAL 2 ALFA / BRAVO / CHARLIE
  *   escadron, pelotons      ÉPERVIER, ÉPERVIER 1 … 4
@@ -12,7 +14,12 @@
  *   canon à eau             NEPTUNE 1
  *   drone                   ICARE
  *   liaison                 LIAISON
- *   pompiers, SAMU          SAPEUR 1, SANTÉ 1
+ *   SAMU, secouristes       SANTÉ 1
+ *   sapeurs-pompiers        SAPEUR 1            (ajout du jeu : la bible ne prévoit que « SANTÉ » pour les secours)
+ *
+ * Squad.name est, d'après le contrat, l'indicatif radio de l'unité : un nom déjà écrit dans ce plan d'indicatifs
+ * (« Tramontane 2 », « ÉPERVIER 3 », « Mistral 1 Alfa ») est repris tel quel, en capitales. Les autres unités
+ * reçoivent un indicatif d'après leur nature et leur rang de création.
  * ===================================================================================== */
 
 import type { GameContext, Person, Squad } from '@/core/contracts';
@@ -22,7 +29,10 @@ import { spokenCallsign } from './text';
 
 export const CENTRAL = 'CENTRAL';
 export const DEFAULT_COMPANY = 'MISTRAL';
-const GROUP_LETTERS = ['ALFA', 'BRAVO', 'CHARLIE', 'DELTA', 'ÉCHO', 'FOX'] as const;
+/** Alphabet radio (ALFA, BRAVO, CHARLIE…) pour les groupes d'une section. */
+const GROUP_LETTERS = ['ALFA', 'BRAVO', 'CHARLIE', 'DELTA', 'ECHO', 'FOXTROT'] as const;
+/** Compagnies de CRS du plan d'indicatifs (noms de vents). */
+export const COMPANY_NAMES = ['MISTRAL', 'TRAMONTANE', 'SIROCCO', 'ZÉPHYR'] as const;
 /** Nombre de voix de synthèse distinctes proposées par le module audio. */
 export const VOICE_COUNT = 6;
 
@@ -92,11 +102,34 @@ export function createCallsigns(ctx: GameContext): CallsignBook {
     return null;
   }
 
+  /**
+   * Nom d'unité déjà écrit dans le plan d'indicatifs : compagnie (celle de la session ou un autre nom de vent),
+   * éventuellement suivie d'un numéro de section et d'une lettre de groupe ; escadron et ses pelotons.
+   * Retourne l'indicatif en capitales avec ses accents, ou null.
+   */
+  function planned(squad: Squad): string | null {
+    const raw = squad.name.trim().replace(/\s+/g, ' ');
+    if (!raw) return null;
+    const m = /^(\p{L}+)(?: (\d{1,2}))?(?: (\p{L}+))?$/u.exec(raw);
+    if (!m) return null;
+    const word = fold(m[1]!);
+    const names: string[] = [company(), ...COMPANY_NAMES, 'ÉPERVIER'];
+    const base = names.find((n) => fold(n) === word);
+    if (!base) return null;
+    let out = base;
+    if (m[2]) out += ` ${Number(m[2])}`;
+    if (m[3]) {
+      const letter = GROUP_LETTERS.find((l) => l === fold(m[3]!) || (l === 'ALFA' && fold(m[3]!) === 'ALPHA'));
+      if (!letter || !m[2]) return null;
+      out += ` ${letter}`;
+    }
+    return out;
+  }
+
   function ofSquad(squad: Squad): string {
     const co = company();
-    const f = fold(squad.name);
-    // un nom déjà au format « MISTRAL 2 » ou « MISTRAL 2 BRAVO » est conservé tel quel
-    if (squad.name.trim() && f.startsWith(fold(co)) && /\d/.test(f)) return squad.name.trim().toUpperCase();
+    const kept = planned(squad);
+    if (kept) return kept;
     const named = byName(squad);
     if (named) return named;
     if (squad.faction === 'protest') return squad.name.trim() ? squad.name.trim().toUpperCase() : 'CORTÈGE';
@@ -130,8 +163,11 @@ export function createCallsigns(ctx: GameContext): CallsignBook {
 
   function ofPerson(person: Person): string {
     const co = company();
+    // le chef unique (commandant d'unité, autorité habilitée, alias « commissaire ») : indicatif de sa compagnie
     if (person.poste === 'commandant_unite' || person.poste === 'autorite_civile' || person.kind === 'commissaire') {
-      return `${co} 0`;
+      const own = person.squadId > 0 ? ctx.squads.get(person.squadId) : undefined;
+      if (own && own.kind === 'compagnie') return ofSquad(own);
+      return co;
     }
     if (person.squadId > 0) {
       const squad = ctx.squads.get(person.squadId);
@@ -174,7 +210,7 @@ export function createCallsigns(ctx: GameContext): CallsignBook {
       return company();
     },
     get commandant(): string {
-      return `${company()} 0`;
+      return company();
     },
     callsign(who: Squad | Person | number): string {
       if (typeof who === 'number') {

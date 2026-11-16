@@ -15,7 +15,7 @@
  * ===================================================================================== */
 
 import type { CrowdPhase, CrowdStats, DirectorApi, EntityId, Person } from '@/core/contracts';
-import { F } from './brain';
+import { F, S } from './brain';
 import type { CrowdBrain } from './brain';
 import type { CrowdCore } from './core';
 import { SparseGrid } from './grid';
@@ -445,6 +445,17 @@ export class Director implements DirectorApi {
       case 'rassemblement':
         if (now >= this.departAt) {
           this.setBase('depart');
+          // ceux qui sont encore loin de leur bloc ne le rattraperont pas : ils fermeront la marche
+          for (let i = 0; i < core.brains.length; i++) {
+            const b = core.brains[i]!;
+            if (b.state !== S.ARRIVE || b.slot < 0 || (b.flags & (F.BANNER | F.GUIDE)) !== 0) continue;
+            f.sample(b.slot, core.slot);
+            if (Math.hypot(core.slot.x - b.person.x, core.slot.z - b.person.z) > 30) {
+              b.slot = f.allocTail(core.rngArrive);
+              b.flags |= F.LATE;
+              b.path = null;
+            }
+          }
           const pos = core.v2;
           core.sono.position(pos);
           core.voices.announce('depart', DEPART_TEXT, pos.x, pos.z);

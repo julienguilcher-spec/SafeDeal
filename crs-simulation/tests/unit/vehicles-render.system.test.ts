@@ -7,6 +7,7 @@ import { createTestContext } from '@/core/testing';
 import { REFERENCE_DEFS, VEHICLES_RENDER_KEY, createSystems } from '@/render/vehicles/index';
 import type { VehiclesRenderApi } from '@/render/vehicles/index';
 import { driverPoint } from '@/render/vehicles/cockpit';
+import { seatEyeHeight } from '@/render/vehicles/frame';
 import { buildModel } from '@/render/vehicles/models/index';
 import { TILE_PX, ATLAS_W, ATLAS_H, tile } from '@/render/vehicles/atlas-layout';
 
@@ -40,7 +41,8 @@ describe('système de rendu des véhicules (headless)', () => {
     // conducteur à gauche : au cap 0 (vers +z), la gauche est à l'est (+x)
     expect(api.seatEye(v, 0, eye)).toBe(true);
     expect(eye.x).toBeGreaterThan(0.2);
-    expect(eye.y).toBeGreaterThan(2.3);
+    expect(eye.y).toBeGreaterThan(2.1);
+    expect(eye.y).toBeLessThan(3.0);
     expect(api.seatEye(v, 99, eye)).toBe(false);
     v.turretYaw[0] = Math.PI / 2;
     expect(api.turretMuzzle(v, 0, eye, dir)).toBe(true);
@@ -55,9 +57,10 @@ describe('système de rendu des véhicules (headless)', () => {
       if (meta.cockpit === 'none' || meta.cockpit === 'bike') continue;
       const d = driverPoint(def, meta);
       expect(d.x, def.kind).toBeGreaterThan(0);                       // +x Three = gauche du véhicule
-      expect(d.y + 0.72, def.kind).toBeLessThan(meta.roofY - 0.05);    // les yeux sous le pavillon
-      expect(d.y + 0.72, def.kind).toBeGreaterThan(meta.beltY + 0.1);  // et au-dessus de la planche de bord
-      expect(d.z, def.kind).toBeLessThan(meta.cowlZ - 0.3);            // derrière le pare-brise
+      const eye = seatEyeHeight(d.y, def.height);
+      expect(eye, def.kind).toBeLessThan(meta.roofY - 0.05);           // les yeux sous le pavillon
+      expect(eye, def.kind).toBeGreaterThan(meta.beltY + 0.1);         // et au-dessus de la planche de bord
+      expect(d.z, def.kind).toBeLessThan(meta.cowlZ - 0.3);            // derrière le pied de pare-brise
     }
   });
 

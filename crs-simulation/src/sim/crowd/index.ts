@@ -51,6 +51,29 @@ class CrowdControlSystem implements GameSystem {
     core.now = this.ctx.clock.now;
     core.metro.update(dt);
     if (!core.active) return;
+    if (core.profiling) {
+      // mesure par sous-système (essais de performance) : ms cumulées dans core.prof
+      const prof = core.prof;
+      let t = performance.now();
+      const lap = (k: number): void => {
+        const n = performance.now();
+        prof[k] = prof[k]! + n - t;
+        t = n;
+      };
+      core.adoptPending();
+      core.sense.update();
+      lap(0);
+      core.formation.update(this.ctx, dt, core.now, core.timeScale);
+      core.sono.update();
+      lap(1);
+      core.nav.process();
+      lap(2);
+      core.behavior.update(dt);
+      lap(3);
+      core.voices.update();
+      lap(4);
+      return;
+    }
     core.adoptPending();
     core.sense.update();
     core.formation.update(this.ctx, dt, core.now, core.timeScale);
@@ -77,6 +100,20 @@ class CrowdDirectorSystem implements GameSystem {
     const core = this.core;
     if (!core.active) return;
     core.now = this.ctx.clock.now;
+    if (core.profiling) {
+      const prof = core.prof;
+      let t = performance.now();
+      core.emotions.update();
+      prof[5] = prof[5]! + performance.now() - t;
+      t = performance.now();
+      core.density.update();
+      prof[6] = prof[6]! + performance.now() - t;
+      t = performance.now();
+      core.director.update(dt);
+      core.aleas.update();
+      prof[7] = prof[7]! + performance.now() - t;
+      return;
+    }
     core.emotions.update();
     core.density.update();
     core.director.update(dt);

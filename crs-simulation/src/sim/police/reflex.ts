@@ -14,7 +14,7 @@
 
 import type { Person } from '@/core/contracts';
 import type { Agent, FormGroup, Unit } from './brain';
-import { ACT_NONE, CLS_FRONT, F_COLUMN, F_HOLD, F_TORTUE, OP_RESCUE, ROLE_COVER, ROLE_LEAD } from './brain';
+import { ACT_NONE, CLS_FRONT, F_BOX, F_COLUMN, F_HOLD, F_SCREEN, F_TORTUE, OP_RESCUE, ROLE_COVER, ROLE_LEAD } from './brain';
 import { beginAct, lawful, recentViolence } from './force';
 import type { Kernel } from './kernel';
 import { navigate, refreshLimits } from './steer';
@@ -47,7 +47,7 @@ function posture(k: Kernel, a: Agent, u: Unit, g: FormGroup | null): void {
   if (!a.shield || p.carrying !== 0 || (a.op !== null && a.opRole === ROLE_LEAD)) return;
   const front = a.cls === CLS_FRONT || a.opRole === ROLE_COVER;
   const want = tortue || duck || now < a.alertUntil || now < u.shieldsUntil
-    || (front && (u.sense.contact > 0 || pushing(u)));
+    || (front && (u.sense.contact > 0 || (pushing(u) && u.order !== null && u.order.type !== 'charge')));
   if (a.act !== ACT_NONE) return;
   if (want && k.held(p) !== 'bouclier') k.ctx.actions.selectById(p, 'bouclier');
   if (p.alt !== want && k.held(p) === 'bouclier') k.ctx.actions.setAlt(p, want);
@@ -204,8 +204,24 @@ export function thinkAgent(k: Kernel, a: Agent, interval: number): void {
   // allure maximale pour rejoindre : la formation en marche impose la sienne ; la fatigue ralentit
   const tired = 1 - 0.3 * u.fatigue;
   if (a.op !== null) a.vcap = (a.goalRun ? 3.6 : 1.6) * tired;
-  else if (g && g.moving) a.vcap = Math.max(g.speed * 1.45, 1.6);
+  else if (g && g.moving) a.vcap = g.speed * 1.4 + 0.3;
   else a.vcap = T.SPEED_JOIN * tired;
+
+  // écran ou escorte : l'élément protégé se contourne, on ne le bouscule pas
+  a.obR = 0;
+  if (g && g.followId !== 0 && (g.kind === F_SCREEN || g.kind === F_BOX) && a.op === null) {
+    const tv = k.ctx.vehicles.get(g.followId);
+    const tp = tv ? undefined : k.ctx.people.get(g.followId);
+    if (tv) {
+      a.obX = tv.x;
+      a.obZ = tv.z;
+      a.obR = Math.hypot(tv.def.length, tv.def.width) * 0.5 + 0.7;
+    } else if (tp) {
+      a.obX = tp.x;
+      a.obZ = tp.z;
+      a.obR = 1.0;
+    }
+  }
 
   posture(k, a, u, g);
   mask(k, a, u);

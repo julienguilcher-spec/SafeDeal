@@ -5,7 +5,7 @@
  * ===================================================================================== */
 
 import type { CrowdPhase, InputState } from '@/core/contracts';
-import type { MetroStation, RoadClosure, ScreenInstance } from '@/core/extensions';
+import type { ScreenInstance } from '@/core/extensions';
 import { button, el, icon, setClass, setText } from '../maps/icons';
 import type { IconName } from '../maps/icons';
 import { MapCanvas } from '../maps/mapCanvas';
@@ -23,7 +23,7 @@ import { UnitsPanel } from './panelUnits';
 import { RadioLogView } from './radioLog';
 import { ensureCommandStyle } from './style';
 import { TacticalMap } from './tacticalMap';
-import type { MapPick } from './tacticalMap';
+import { MapPopover } from './tacticalPop';
 import { IDLE, TacticalState } from './tacticalState';
 import { RadialMenu } from './wheel';
 import type { WheelItem } from './wheel';
@@ -83,7 +83,7 @@ export class TacticalScreen implements ScreenInstance {
   private readonly toolBox: HTMLButtonElement;
   private readonly unitsBtn: HTMLButtonElement;
   private readonly layersBox: HTMLDivElement;
-  private readonly pop: HTMLDivElement;
+  private readonly pop: MapPopover;
   private readonly quickBox: HTMLDivElement;
   private readonly scale: ScaleBar;
   private readonly rose: WindRose;
@@ -92,10 +92,6 @@ export class TacticalScreen implements ScreenInstance {
   private quickX = 0;
   private quickZ = 0;
   private quickHeld = false;
-  private popStation: MetroStation | null = null;
-  private popClosure: RoadClosure | null = null;
-  private popT = '';
-  private popSig = '';
   private compact = false;
   private slow = false;
   private savedScale = 1;
@@ -103,7 +99,6 @@ export class TacticalScreen implements ScreenInstance {
   private lastStatus = -1;
   private zone = 0;
   private readonly w = { x: 0, z: 0 };
-  private readonly sp = { x: 0, y: 0 };
   private readonly onResize = (): void => this.layout();
 
   constructor(private readonly core: CommandCore, host: HTMLElement, data: unknown) {
@@ -153,7 +148,7 @@ export class TacticalScreen implements ScreenInstance {
     };
     this.tmap = new TacticalMap(core, this.map, st);
     this.tmap.onQuickMenu = (x, y) => this.openQuick(x, y);
-    this.tmap.onPickEntity = (pick) => this.openPop(pick);
+    this.tmap.onPickEntity = (pick) => this.pop.open(pick.station, pick.station ? null : pick.closure);
     // en mode carte, les directions pilotent le curseur : la navigation au focus ne s'en mêle pas
     this.map.canvas.addEventListener('ui:nav', (e) => e.preventDefault());
     // menu radial ouvert par un appui long : glisser vers un secteur le surligne, relâcher le choisit
@@ -201,12 +196,11 @@ export class TacticalScreen implements ScreenInstance {
       this.layersBox.appendChild(b);
     }
     const layersBtn = button('', () => this.layersBox.classList.toggle('is-on'), { icon: 'layers', className: 'is-icon', title: 'Couches de la carte', id: 'tac-layers' });
-    this.pop = el('div', 'cm-panel ct-pop');
     this.quickBox = el('div', 'ct-quick');
     this.scale = new ScaleBar(mapwrap);
     this.rose = new WindRose(mapwrap, 'ct-wind');
     mapControls(mapwrap, this.map, core.maps, [layersBtn]);
-    mapwrap.append(this.hint, tools, this.layersBox, this.pop, this.quickBox);
+    mapwrap.append(this.hint, tools, this.layersBox, this.quickBox);
 
     // ── panneau de gauche ──
     this.units = new UnitsPanel(core, st, this.map, this.tmap, body);
@@ -242,6 +236,7 @@ export class TacticalScreen implements ScreenInstance {
     this.traffic = new TrafficPanel(core, st, this.map, this.tmap, panes);
     this.journal = new RadioLogView(core, panes);
     this.panes = [this.orders.root, this.incidents.root, this.traffic.root, this.journal.root];
+    this.pop = new MapPopover(core, this.map, this.tmap, this.traffic, mapwrap);
     this.rightEl.append(tabs, panes);
     body.append(mapwrap, this.rightEl);
     this.root.append(top, body);
@@ -388,68 +383,6 @@ export class TacticalScreen implements ScreenInstance {
     this.quickBox.classList.remove('is-on');
   }
 
-  // ───────────────────────────── bulle d'une station ou d'une fermeture ─────────────────────────────
-
-  private openPop(pick: MapPick): void {
-    this.popStation = pick.station;
-    this.popClosure = pick.station ? null : pick.closure;
-    this.popSig = '';
-    this.refreshPop();
-  }
-
-  private refreshPop(): void {
-    const s = this.popStation;
-    const c = this.popClosure;
-    const pop = this.pop;
-    if (!s && !c) {
-      setClass(pop, 'is-on', false);
-      return;
-    }
-    const sc = this.core.scope();
-    const sig = s ? `s${s.id}:${s.open}:${s.filtered}:${sc.level}` : `c${c!.id}:${sc.level}`;
-    if (sig !== this.popSig) {
-      this.popSig = sig;
-      pop.textContent = '';
-      if (s) {
-        pop.appendChild(el('b', undefined, `Station ${s.name}`));
-        pop.appendChild(el('small', undefined, !s.open ? `Fermée — ${Math.round(s.arrived)} personnes sorties avant la fermeture.`
-          : `${s.filtered ? 'Sortie filtrée. ' : ''}${Math.round(s.inflow)} arrivées par minute, ${Math.round(s.arrived)} personnes sorties.`));
-        const row = el('div', 'ct-btnrow');
-        if (sc.canMetro) row.appendChild(button(s.open ? 'Fermer la station' : 'Rouvrir', () => this.traffic.setOpen(s, !s.open), { className: 'is-small' + (s.open ? ' is-danger' : ' is-primary'), id: 'pop-metro-open' }));
-        if (sc.level !== 'lecture' && s.open) row.appendChild(button(s.filtered ? 'Lever le filtrage' : 'Filtrer la sortie', () => this.traffic.setFiltered(s, !s.filtered), { className: 'is-small', id: 'pop-metro-filter' }));
-        if (row.childElementCount > 0) pop.appendChild(row);
-      } else if (c) {
-        const squad = c.squadId !== 0 ? this.core.ctx.squads.get(c.squadId) : undefined;
-        pop.appendChild(el('b', undefined, this.tmap.closureName(c)));
-        pop.appendChild(el('small', undefined, squad ? `Circulation coupée, barrage tenu par ${squad.name}.` : 'Circulation coupée, barrières seules.'));
-        if (sc.canTraffic) {
-          pop.appendChild(button('Rouvrir à la circulation', () => {
-            this.traffic.reopen(c);
-            this.popClosure = null;
-            this.refreshPop();
-          }, { className: 'is-small is-primary', id: 'pop-reopen' }));
-        }
-      }
-      setClass(pop, 'is-on', true);
-    }
-    // une fermeture rouverte ailleurs fait disparaître sa bulle
-    if (c && this.core.traffic && this.core.traffic.closures.indexOf(c) < 0) {
-      this.popClosure = null;
-      setClass(pop, 'is-on', false);
-      return;
-    }
-    const x = s ? s.x : c!.x;
-    const z = s ? s.z : c!.z;
-    this.map.view.worldToScreen(x, z, this.sp);
-    const px = Math.min(this.map.view.width - 260, Math.max(8, this.sp.x + 16));
-    const py = Math.min(this.map.view.height - 130, Math.max(8, this.sp.y + 14));
-    const t = `translate3d(${Math.round(px)}px,${Math.round(py)}px,0)`;
-    if (t !== this.popT) {
-      this.popT = t;
-      pop.style.transform = t;
-    }
-  }
-
   // ───────────────────────────── rafraîchissement ─────────────────────────────
 
   private refreshHint(): void {
@@ -592,7 +525,7 @@ export class TacticalScreen implements ScreenInstance {
     this.map.frame(dt);
     this.scale.update(this.map.view.mpp);
     this.refresh(false);
-    if (this.popStation || this.popClosure) this.refreshPop();
+    if (this.pop.active) this.pop.refresh();
   }
 
   back(): boolean {
@@ -604,13 +537,11 @@ export class TacticalScreen implements ScreenInstance {
       this.layersBox.classList.remove('is-on');
       return true;
     }
-    if (this.popStation || this.popClosure) {
-      this.popStation = null;
-      this.popClosure = null;
+    if (this.pop.active) {
+      this.pop.close();
       this.state.focusStation = 0;
       this.state.focusClosure = 0;
       this.state.touch();
-      this.refreshPop();
       return true;
     }
     if (this.tmap.drag) {

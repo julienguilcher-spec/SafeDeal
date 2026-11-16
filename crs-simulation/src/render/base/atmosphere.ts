@@ -7,7 +7,8 @@
  * plein soleil. Le tone mapping filmique du renderer se charge de la restitution.
  * ===================================================================================== */
 
-import { DEG, clamp01, lerp, luminance, smoothstep } from './util';
+import type { EnvState } from '@/core/contracts';
+import { DEG, clamp, clamp01, lerp, luminance, smoothstep } from './util';
 
 export interface AtmosphereInput {
   /** Direction réelle vers le soleil (unitaire, peut pointer sous l'horizon) et sa hauteur en degrés. */
@@ -406,4 +407,34 @@ export function toneMapAces(r: number, g: number, b: number, exposure: number, o
   out[0] = clamp01(1.60475 * ir - 0.53108 * ig - 0.07367 * ib);
   out[1] = clamp01(-0.10208 * ir + 1.10813 * ig - 0.00605 * ib);
   out[2] = clamp01(-0.00327 * ir - 0.07276 * ig + 1.07602 * ib);
+}
+
+/** Réciproque de smoothstep sur [0, 1]. */
+function inverseSmoothstep(v: number): number {
+  return 0.5 - Math.sin(Math.asin(1 - 2 * v) / 3);
+}
+
+/**
+ * Sans le service étendu de l'environnement (module absent : environnement neutre), déduit le vrai
+ * soleil et la lune du seul état du contrat : la nuit, la direction publiée est celle de la lune et
+ * le soleil est supposé à l'opposé, sous l'horizon ; près de l'horizon, où la direction publiée est
+ * relevée, on se fie à la lumière du jour pour retrouver la hauteur du soleil.
+ */
+export function bodiesFromEnvState(env: EnvState, inp: AtmosphereInput): void {
+  const y = clamp(env.sunY, -1, 1);
+  const elev = Math.asin(y) / DEG;
+  // hauteur du soleil d'après la lumière du jour (crépuscule de -7° à +9°)
+  const twilight = -7 + 16 * inverseSmoothstep(clamp01(env.daylight));
+  if (env.isNight) {
+    inp.moonX = env.sunX; inp.moonY = y; inp.moonZ = env.sunZ;
+    inp.moonElevDeg = elev;
+    inp.sunX = -env.sunX; inp.sunY = -y; inp.sunZ = -env.sunZ;
+    inp.sunElevDeg = env.daylight > 0.001 ? Math.min(twilight, -0.5) : Math.min(-7, -elev);
+  } else {
+    inp.sunX = env.sunX; inp.sunY = y; inp.sunZ = env.sunZ;
+    inp.sunElevDeg = env.daylight < 0.999 ? Math.min(Math.max(elev, 0), Math.max(twilight, -2.9)) : elev;
+    inp.moonX = -env.sunX; inp.moonY = -y; inp.moonZ = -env.sunZ;
+    inp.moonElevDeg = -elev;
+  }
+  inp.moonPhase = 1;
 }

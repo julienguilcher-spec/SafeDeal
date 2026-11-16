@@ -3,8 +3,9 @@
  * Même repère que kit.ts : +z vers l'avant, +y vers le haut, +x vers la GAUCHE du véhicule. */
 
 import {
-  Geo, LIGHT_BEACON_A, LIGHT_BEACON_B, LIGHT_NONE, PART_WHEEL, PART_WHEEL_STEER, SURF_DARK, SURF_FIXED, SURF_GLASS,
-  SURF_LAMP, SURF_METAL, SURF_PLATE, SURF_RUBBER,
+  Geo, LIGHT_BEACON_A, LIGHT_BEACON_B, LIGHT_HEAD, LIGHT_NONE, PART_BARREL0, PART_BARREL1, PART_NONE, PART_TURRET0,
+  PART_TURRET1, PART_WHEEL, PART_WHEEL_STEER, SURF_DARK, SURF_FIXED, SURF_GLASS, SURF_LAMP, SURF_METAL, SURF_PLATE,
+  SURF_RUBBER,
 } from './geo';
 import { tile, tileAspect } from './atlas-layout';
 import type { TileName } from './atlas-layout';
@@ -242,3 +243,52 @@ export function pipe(g: Geo, pts: readonly number[], r: number, seg = 6): void {
   }
 }
 
+/** Pièce « gisement » de la tourelle d'indice `index` (0 ou 1 ; au-delà, la pièce reste fixe). */
+export function yawPart(index: number): number {
+  return index === 0 ? PART_TURRET0 : index === 1 ? PART_TURRET1 : PART_NONE;
+}
+
+/** Pièce « site + gisement » (canon) de la tourelle d'indice `index`. */
+export function pitchPart(index: number): number {
+  return index === 0 ? PART_BARREL0 : index === 1 ? PART_BARREL1 : PART_NONE;
+}
+
+/**
+ * Canon à eau orientable : socle fixe posé sur la surface `baseY`, fût tournant (gisement), lance et buse
+ * (site), projecteur solidaire. (tx, ty, tz) = tourillon, c'est-à-dire la position TurretDef dans le repère
+ * Three local ; `index` = indice de la tourelle dans la définition (animation par le shader).
+ */
+export function waterCannon(g: Geo, far: boolean, tx: number, ty: number, tz: number, baseY: number, index: number): void {
+  const yaw = yawPart(index), pitch = pitchPart(index);
+  g.tile(null).light(LIGHT_NONE);
+  if (far) {
+    // au loin : un bloc pour la tourelle, un tube pour la lance
+    g.part(yaw, tx, ty, tz);
+    g.paint(0x2c2f34, SURF_METAL).box(tx - 0.16, tx + 0.16, Math.min(baseY, ty - 0.2), ty + 0.1, tz - 0.16, tz + 0.16, 1);
+    g.part(pitch, tx, ty, tz);
+    g.paint(0xc8ccd1, SURF_METAL).tube(tx, ty, tz - 0.2, tx, ty, tz + 1.0, 0.075, 0.05, 4, false, true);
+    g.noPart();
+    return;
+  }
+  // socle fixe
+  g.noPart().paint(0x3a3d42, SURF_METAL);
+  if (ty - 0.2 > baseY + 0.01) g.tube(tx, baseY, tz, tx, ty - 0.2, tz, 0.2, 0.17, 10, false, true);
+  // tourelle (gisement) : fût, flasques du berceau, caméra de visée
+  g.part(yaw, tx, ty, tz);
+  g.paint(0x2c2f34, SURF_METAL).tube(tx, Math.max(baseY, ty - 0.2), tz, tx, ty - 0.02, tz, 0.14, 0.12, 10, false, true);
+  g.box(tx - 0.17, tx - 0.11, ty - 0.1, ty + 0.16, tz - 0.1, tz + 0.1);
+  g.box(tx + 0.11, tx + 0.17, ty - 0.1, ty + 0.16, tz - 0.1, tz + 0.1);
+  g.paint(COL.plastic, SURF_FIXED).cube(tx + 0.25, ty + 0.1, tz + 0.02, 0.12, 0.12, 0.2);
+  g.paint(0xffffff, SURF_FIXED).tile(tile('optique')).panel(tx + 0.25, ty + 0.1, tz + 0.124, [1, 0, 0], [0, 1, 0], 0.1, 0.1).tile(null);
+  // canon (site) : lance et buse, tourillon sur l'axe de gisement
+  g.part(pitch, tx, ty, tz);
+  g.paint(0xc8ccd1, SURF_METAL);
+  g.tube(tx, ty, tz - 0.22, tx, ty, tz + 0.75, 0.075, 0.062, 10, true, false);
+  g.paint(0x2a2c30, SURF_METAL).tube(tx, ty, tz + 0.75, tx, ty, tz + 1.02, 0.062, 0.04, 10, false, true);
+  g.tube(tx, ty, tz + 0.7, tx, ty, tz + 0.78, 0.085, 0.085, 10);
+  // projecteur solidaire du canon
+  g.paint(COL.plastic, SURF_FIXED).tube(tx, ty + 0.17, tz + 0.05, tx, ty + 0.17, tz + 0.22, 0.07, 0.08, 8, true, false);
+  g.paint(COL.headLens, SURF_LAMP).light(LIGHT_HEAD).tube(tx, ty + 0.17, tz + 0.22, tx, ty + 0.17, tz + 0.225, 0.08, 0.08, 8, false, true);
+  g.light(LIGHT_NONE);
+  g.noPart();
+}

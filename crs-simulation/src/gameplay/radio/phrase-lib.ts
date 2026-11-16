@@ -1,13 +1,15 @@
 /* =====================================================================================
  * Radio — bibliothèque de phrases : registre des situations et composition des messages.
  *
- * Message = « APPELÉ ICI APPELANT. corps. PARLEZ. » (ou « TERMINÉ. »), d'après la procédure radiotéléphonique
- * de docs/research/00-bible-realisme.md (E.6). Les nombres passés en paramètres sont dits chiffre par chiffre.
+ * Message = « APPELÉ ICI APPELANT. corps. PARLEZ. » (ou « TERMINÉ. »), réponse = « ICI APPELANT. corps. TERMINÉ. »,
+ * d'après la procédure radiotéléphonique de docs/research/00-bible-realisme.md (E.6 et E.7).
+ * Les nombres passés en paramètres sont dits chiffre par chiffre.
  * ===================================================================================== */
 
-import type { GameContext, RadioMessage, Rng, Squad } from '@/core/contracts';
+import type { GameContext, RadioChannel, RadioMessage, Rng, Squad } from '@/core/contracts';
+import { cardinalFr } from '@/core/math';
 import type { CallsignBook, PhraseInfo, PhraseParam, PhraseParams, PhraseRole, RadioPhrases, SayOptions } from './api';
-import { DYNAMIC_PARAMS, PARAM_DEFAULTS, UNIT_PARAMS } from './phrases/defaults';
+import { PARAM_DEFAULTS, UNIT_PARAMS } from './phrases/defaults';
 import type { PhraseDef } from './phrases/define';
 import { PHRASES_MISE_EN_PLACE } from './phrases/a-mise-en-place';
 import { PHRASES_VIOLENCES_FORCE } from './phrases/b-violences-force';
@@ -25,6 +27,15 @@ export const ALL_PHRASES: readonly PhraseDef[] = [
 
 const BY_KEY: ReadonlyMap<string, PhraseDef> = new Map(ALL_PHRASES.map((d) => [d.key, d] as const));
 
+/** Appel collectif : ordre sans destinataire nommé, message de la salle à tous. */
+export const ALL_UNITS = 'TOUTES UNITÉS';
+
+/** Ordres dont le cap est celui de la formation : la direction de face de l'unité se lit dans l'ordre reçu. */
+const FACING_ORDERS: ReadonlySet<string> = new Set([
+  'tenir', 'ligne', 'tortue', 'avancer', 'bond_offensif', 'charge', 'refoulement', 'proteger', 'filtrer',
+  'couper_circulation',
+]);
+
 /** Paramètres reconnus dans les variantes d'une définition. */
 export function paramsOf(def: PhraseDef): string[] {
   const out: string[] = [];
@@ -41,20 +52,25 @@ export function infoOf(def: PhraseDef): PhraseInfo {
     channel: def.channel,
     priority: def.priority,
     end: def.end,
+    reply: def.reply,
     variants: def.variants.length,
     params: paramsOf(def),
   };
 }
 
-/** Environnement de composition : indicatifs, heure, lieu et unité courante. */
+/** Environnement de composition : indicatifs, heure et unité courante. */
 export interface ComposeEnv {
   readonly company: string;
   readonly commandant: string;
   readonly central: string;
   /** Heure de la journée (0..24) pour {heure} quand il n'est pas fourni. */
   readonly hour: number;
-  /** Indicatif de l'émetteur quand le rôle est « unite ». */
+  /** Indicatif de l'unité : émetteur quand le rôle « unite » parle, destinataire quand on s'adresse à lui. */
   readonly unitCallsign: string;
+  /** Indicatif imposé à l'émetteur (options.from), quel que soit son rôle. */
+  readonly fromOverride?: string;
+  /** Indicatif imposé au destinataire (options.to). */
+  readonly toOverride?: string;
   special(kind: 'canon' | 'centaure' | 'drone' | 'bravm' | 'samu' | 'pompiers' | 'liaison'): string;
 }
 
@@ -66,16 +82,28 @@ function roleCallsign(role: PhraseRole, params: PhraseParams, env: ComposeEnv): 
     case 'unite':
       return env.unitCallsign;
     case 'cible':
-      return given('cible') || env.company;
+      return given('cible') || ALL_UNITS;
     case 'commandant':
       return env.commandant;
     case 'tous':
-      return 'TOUTES UNITÉS';
+      return ALL_UNITS;
     case 'presse':
       return 'PRESSE';
     default:
       return given(role) || env.special(role);
   }
+}
+
+/** Les deux correspondants d'un message : indicatifs écrits (« MISTRAL 2 »), jamais identiques. */
+export function correspondents(def: PhraseDef, params: PhraseParams, env: ComposeEnv): { from: string; to: string } {
+  const from = (env.fromOverride || roleCallsign(def.from, params, env)).toUpperCase();
+  let to = (env.toOverride || roleCallsign(def.to, params, env)).toUpperCase();
+  if (to === from) {
+    // on ne s'appelle pas soi-même : le chef qui parle rend compte à la salle ; son ordre sans destinataire, ou
+    // adressé à sa propre unité, vaut pour toutes ses unités
+    to = def.to === 'cible' || def.to === 'unite' || from === env.central.toUpperCase() ? ALL_UNITS : env.central.toUpperCase();
+  }
+  return { from, to };
 }
 
 function paramValue(name: string, params: PhraseParams, env: ComposeEnv): string {
@@ -86,10 +114,15 @@ function paramValue(name: string, params: PhraseParams, env: ComposeEnv): string
     return text || spokenTime(env.hour);
   }
   if (name === 'unite') return spokenCallsign(env.unitCallsign);
-  if (name === 'cible') return spokenCallsign(paramToText(raw) || env.company);
   const text = paramToText(raw);
   if (text) return UNIT_PARAMS.has(name) ? spokenCallsign(text) : text;
+  if (name === 'cible') return ALL_UNITS;
   return PARAM_DEFAULTS[name] ?? '';
+}
+
+/** Capitale au début de chaque phrase du corps (une valeur par défaut peut ouvrir une phrase). */
+function capitalizeSentences(text: string): string {
+  return capitalize(text).replace(/([.!?]\s+)(\p{Ll})/gu, (_all, sep: string, letter: string) => sep + letter.toUpperCase());
 }
 
 /** Compose le texte complet d'une variante (formule d'appel, corps, formule de fin), typographie française appliquée. */
@@ -97,11 +130,11 @@ export function compose(def: PhraseDef, variant: number, params: PhraseParams, e
   const n = def.variants.length;
   const template = def.variants[((variant % n) + n) % n]!;
   const body = template.replace(/\{([a-z_]+)\}/g, (_all, name: string) => paramValue(name, params, env));
-  const from = spokenCallsign(roleCallsign(def.from, params, env));
-  const to = spokenCallsign(roleCallsign(def.to, params, env));
-  const head = from === to ? '' : `${to} ICI ${from}. `;
+  const who = correspondents(def, params, env);
+  const from = spokenCallsign(who.from);
+  const head = def.reply ? `ICI ${from}. ` : `${spokenCallsign(who.to)} ICI ${from}. `;
   const end = def.end === 'parlez' ? ' PARLEZ.' : def.end === 'termine' ? ' TERMINÉ.' : '';
-  let text = capitalize(body.trim());
+  let text = capitalizeSentences(body.trim());
   if (end && !/[.!?]$/.test(text)) text += '.';
   return typo(`${head}${text}${end}`.replace(/\{[^}]*\}|[{}]/g, ''));
 }
@@ -125,12 +158,16 @@ export function createPhraseLibrary(deps: PhraseLibraryDeps): RadioPhrases {
     return typeof s === 'number' ? ctx.squads.get(s) : s;
   }
 
-  /** Position d'où l'on parle, pour nommer le secteur : option, chef de l'unité, personne, joueur. */
+  /** Position dont on parle, pour nommer le secteur : option, chef de l'unité, personne qui parle. */
   function positionOf(options: SayOptions | undefined, squad: Squad | undefined): { x: number; z: number } | null {
     if (options?.at) return options.at;
     if (squad) {
       const leader = ctx.people.get(squad.leaderId);
       if (leader) return leader;
+      for (let i = 0; i < squad.members.length; i++) {
+        const member = ctx.people.get(squad.members[i]!);
+        if (member) return member;
+      }
     }
     if (options?.personId) {
       const p = ctx.people.get(options.personId);
@@ -139,31 +176,67 @@ export function createPhraseLibrary(deps: PhraseLibraryDeps): RadioPhrases {
     return null;
   }
 
+  /** Nom du secteur sans son préfixe (« place de la Concorde ») ; vide si le monde ne sait pas le nommer. */
   function sectorLabel(at: { x: number; z: number }): string {
-    const name = ctx.world.sectorName(at.x, at.z);
-    return name.replace(/^secteur\s+/i, '').trim();
+    const name = ctx.world.sectorName(at.x, at.z).replace(/^secteur\s+/i, '').trim();
+    return /^inconnu$/i.test(name) ? '' : name;
   }
 
-  function envFor(options: SayOptions | undefined, params: PhraseParams): { env: ComposeEnv; params: PhraseParams } {
+  /** Direction de face de l'unité qui parle : cap de sa formation si elle en tient une, sinon cap de son chef. */
+  function facingOf(squad: Squad): string {
+    if (FACING_ORDERS.has(squad.order.type)) return cardinalFr(squad.order.heading);
+    const leader = ctx.people.get(squad.leaderId);
+    return leader ? cardinalFr(leader.heading) : '';
+  }
+
+  function absent(params: PhraseParams, name: string): boolean {
+    return paramToText(params[name]) === '';
+  }
+
+  function targetCallsign(to: SayOptions['to']): string {
+    if (to === undefined) return '';
+    if (typeof to === 'string') return to.trim();
+    return calls.callsign(to);
+  }
+
+  function envFor(def: PhraseDef, options: SayOptions | undefined, params: PhraseParams): { env: ComposeEnv; params: PhraseParams } {
     const squad = squadOf(options);
-    const given = paramToText(params['unite']);
-    let unit = options?.from ?? '';
-    if (!unit) unit = given || (squad ? calls.callsign(squad) : '') || (options?.personId ? calls.callsign(ctx.people.get(options.personId) ?? 0) : '');
-    if (!unit) unit = calls.company;
-    let merged = params;
-    if (params['lieu'] === undefined || params['lieu'] === null || paramToText(params['lieu']) === '') {
-      const at = positionOf(options, squad);
-      if (at) merged = { ...params, lieu: sectorLabel(at) };
+    const speaks = def.from === 'unite';
+    // indicatif de l'unité : imposé, fourni en paramètre, celui de l'unité, celui de la personne qui parle, la compagnie
+    let unit = speaks ? (options?.from ?? '').trim() : '';
+    if (!unit) unit = paramToText(params['unite']) || (squad ? calls.callsign(squad) : '');
+    if (!unit && speaks && options?.personId) {
+      const person = ctx.people.get(options.personId);
+      if (person) unit = calls.callsign(person);
     }
+    if (!unit) unit = calls.company;
+
+    const added: Record<string, PhraseParam> = {};
+    const at = positionOf(options, squad);
+    const sector = at ? sectorLabel(at) : '';
+    if (sector && absent(params, 'lieu')) added['lieu'] = sector;
+    if (absent(params, 'voie')) {
+      const street = paramToText(params['lieu']) || sector;
+      if (street) added['voie'] = street;
+    }
+    if (speaks && squad && absent(params, 'direction')) {
+      const facing = facingOf(squad);
+      if (facing) added['direction'] = facing;
+    }
+
+    const from = (options?.from ?? '').trim();
+    const to = targetCallsign(options?.to);
     const env: ComposeEnv = {
       company: calls.company,
       commandant: calls.commandant,
       central: calls.central,
       hour: ctx.env.state.timeOfDay,
       unitCallsign: unit,
+      ...(from ? { fromOverride: from } : {}),
+      ...(to ? { toOverride: to } : {}),
       special: (k) => calls.special(k),
     };
-    return { env, params: merged };
+    return { env, params: Object.keys(added).length > 0 ? { ...params, ...added } : params };
   }
 
   function pick(def: PhraseDef, forced: number | undefined): number {
@@ -192,30 +265,34 @@ export function createPhraseLibrary(deps: PhraseLibraryDeps): RadioPhrases {
     text(key, params = {}, variant = 0) {
       const def = BY_KEY.get(key);
       if (!def) return '';
-      const e = envFor(undefined, params);
+      const e = envFor(def, undefined, params);
       return compose(def, variant, e.params, e.env);
     },
     variants(key, params = {}) {
       const def = BY_KEY.get(key);
       if (!def) return [];
-      const e = envFor(undefined, params);
+      const e = envFor(def, undefined, params);
       return def.variants.map((_v, i) => compose(def, i, e.params, e.env));
     },
     say(key, params = {}, options) {
       const def = BY_KEY.get(key);
       if (!def) return false;
-      const e = envFor(options, params);
+      const e = envFor(def, options, params);
       const text = compose(def, pick(def, options?.variant), e.params, e.env);
-      const from = def.from === 'unite' ? e.env.unitCallsign : roleCallsign(def.from, e.params, e.env);
+      const who = correspondents(def, e.params, e.env);
+      // un échange avec la salle passe par le canal de commandement, même quand la phrase est prévue pour la compagnie
+      const central = calls.central.toUpperCase();
+      const channel: RadioChannel = options?.channel
+        ?? (def.channel === 'unite' && (who.from === central || who.to === central) ? 'commandement' : def.channel);
       const msg: RadioMessage = {
-        channel: options?.channel ?? def.channel,
-        from: from.toUpperCase(),
+        channel,
+        from: who.from,
         text,
         priority: options?.priority ?? def.priority,
-        voice: calls.voiceOf(from),
+        voice: calls.voiceOf(who.from),
       };
       if (options?.personId !== undefined) msg.personId = options.personId;
-      else {
+      else if (def.from === 'unite') {
         const squad = squadOf(options);
         if (squad && squad.leaderId > 0) msg.personId = squad.leaderId;
       }

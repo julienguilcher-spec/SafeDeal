@@ -64,3 +64,15 @@ Points à reprendre lors de l'assemblage, parce qu'ils ont été décidés aprè
   `config.extra` (circulation ouverte ou coupée au départ) décident du cas.
 - Les fermetures du joueur servent au périmètre (rues adjacentes, accès, itinéraires de secours).
 - Véhicules en stationnement conservés dans les rues adjacentes.
+
+## Interface (relevé sur captures du 16/11)
+- Carte tactique (`command-socle-tactique-1280x720.png`) : les NOMS DE LIEUX sont dessinés en lettres géantes par-dessus
+  la carte (taille exprimée en mètres au lieu de pixels, ou mauvais facteur d'échelle). À corriger dans le dessin de
+  carte 2D (`src/ui/maps` — repli — et/ou service `world.map2d`) : taille de police bornée en pixels, filtrage par
+  importance selon le zoom, pas de recouvrement.
+- Page d'accueil : retirer la tuile « Commissaire » (commandant unique) ; ajouter le choix du poste du commandant
+  (terrain + véhicule de commandement, ou salle de commandement).
+- `main.ts` : le panneau de diagnostic (affiché quand `ctx.view` est nul) recouvrirait la page d'accueil — le retirer dès
+  que le module d'interface est branché.
+- L'interface applique elle-même vent, coupure de circulation et fermeture de stations au démarrage (rayon 350 m) : à
+  déplacer vers le cadre de mission quand il existera, pour éviter un double traitement.
