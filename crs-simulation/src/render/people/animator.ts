@@ -259,11 +259,15 @@ export class PeopleAnimator {
           let cf = 1, cs = 0;
           if (sp > 0.05) { cf = (vx * sh + vz * ch) / sp; cs = (vx * ch - vz * sh) / sp; }
           const stride = strideLength(sp / sm.scale, cf, cs) * sm.scale;
-          let ph = this.phase[slot] + Math.sqrt(dx * dx + dz * dz) / stride;
+          // rotation sur place : les pieds décrivent un petit arc autour du pivot, ce qui fait aussi avancer le cycle
+          const dh = wrapPi(h - this.lastHeading[slot]);
+          let ph = this.phase[slot] + (Math.sqrt(dx * dx + dz * dz) + (dh < 0 ? -dh : dh) * 0.14) / stride;
           ph -= Math.floor(ph);
           this.phase[slot] = ph;
         }
-        this.turnRate[slot] = wrapPi(h - this.lastHeading[slot]) / dt;
+        // vitesse de rotation lissée (sert au piétinement quand le corps pivote sans avancer)
+        const tr = wrapPi(h - this.lastHeading[slot]) / dt;
+        this.turnRate[slot] += (tr - this.turnRate[slot]) * (1 - Math.exp(-dt / 0.15));
       }
     }
     this.velX[slot] = vx;

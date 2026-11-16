@@ -135,7 +135,10 @@ function locomotion(inp: PoseInput, P: Float64Array, crouch: number): void {
   const pMax = lerp(0.85, 1.05, run) * fwdness * w * (1 - 0.5 * crouch);
   const pStrike = lerp(0.3, 0.06, run) * fwdness * w * (1 - crouch);
   const x0 = 0.5 * (travel - rollX(pMax)) + lerp(0.02, -0.10, run) * w;
-  const bump = (lerp(0.05, 0.22, run) + 0.16 * sprint) * w * (1 - 0.3 * crouch);
+  // piétinement quand le corps pivote sur place : les pieds se soulèvent sans avancer
+  const turn = inp.turnRate < 0 ? -inp.turnRate : inp.turnRate;
+  const shuffle = 0.55 * smoothstep(0.5, 2.2, turn) * (1 - w);
+  const bump = (lerp(0.05, 0.22, run) + 0.16 * sprint) * (w + shuffle) * (1 - 0.3 * crouch);
 
   // bassin : hauteur de base, abaissement au double appui (marche) ou à mi-appui (course)
   const pelvisBase = -0.006 - 0.30 * crouch - 0.03 * limp * (1 - crouch) + inp.pelvisDY;
