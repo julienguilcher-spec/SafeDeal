@@ -88,7 +88,8 @@ void main() {
 	float led = step( length( r ), 0.018 );
 	col += mix( vec3( 1.0, 0.25, 0.15 ), vec3( 0.3, 1.0, 0.4 ), uReady ) * led;
 	// bandeau de texte en bas
-	vec2 tu = vec2( ( p.x / ( uAspect * 0.9 ) ) * 0.5 + 0.5, ( p.y + 0.94 ) / 0.17 );
+	// bandeau calé à gauche, aux proportions du canvas (1024 × 96) pour ne pas étirer les caractères
+	vec2 tu = vec2( ( p.x + uAspect * 0.9 ) / ( 0.15 * 1024.0 / 96.0 ), ( p.y + 0.93 ) / 0.15 );
 	if ( tu.x > 0.0 && tu.x < 1.0 && tu.y > 0.0 && tu.y < 1.0 ) {
 		vec4 tx = texture2D( uText, tu );
 		col += ink * tx.a;
