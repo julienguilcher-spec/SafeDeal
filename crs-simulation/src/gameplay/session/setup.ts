@@ -430,7 +430,8 @@ export class SessionSetupSystem implements GameSystem {
     let index = 0;
     const special = (make: (x: number, z: number, heading: number) => PoliceUnitHandleLike | undefined, radius: number, what: string, rearLane = 0): void => {
       // (pour des machines à ranger en file : d'abord avec toute la bande libre derrière, sinon avec la moitié)
-      if (!supportSpot(ctx, stand, index, radius, taken, spot, rearLane) && !(rearLane > 0 && supportSpot(ctx, stand, index, radius, taken, spot, rearLane * 0.6))) {
+      if (!supportSpot(ctx, stand, index, radius, taken, spot, rearLane) && !(rearLane > 0 && supportSpot(ctx, stand, index, radius, taken, spot, rearLane * 0.6))
+        && !(rearLane > 0 && supportSpot(ctx, stand, index, radius, taken, spot, rearLane * 0.3))) {
         index++;
         console.warn(`[session] pas de place pour ${what} près de l'unité : moyen non engagé`);
         return;
@@ -445,14 +446,16 @@ export class SessionSetupSystem implements GameSystem {
       }
     };
     const parentId = company.squad.id;
-    if (typeof units.createEquipage === 'function') {
-      for (let i = 0; i < means.canon_eau; i++) special((x, z, heading) => units.createEquipage!('canon_eau', { x, z, heading, parentId }), 5.5, 'l’engin lanceur d’eau');
-      for (let i = 0; i < means.centaure; i++) special((x, z, heading) => units.createEquipage!('centaure', { x, z, heading, parentId }), 4.5, 'le Centaure');
-    }
+    // les BRAV-M d'abord : leurs motos se garent en file et demandent une longue bande libre, que les engins
+    // (jusqu'à dix Centaures et dix canons à eau) occuperaient sinon
     if (typeof units.createBravm === 'function') {
       for (let i = 0; i < means.bravm; i++) {
         special((x, z, heading) => units.createBravm!(6, { x, z, heading, vehicles: true, mounted: false, callsign: means.bravm > 1 ? `FAUCON ${i + 1}` : undefined }), 3, 'la BRAV-M', 44);
       }
+    }
+    if (typeof units.createEquipage === 'function') {
+      for (let i = 0; i < means.canon_eau; i++) special((x, z, heading) => units.createEquipage!('canon_eau', { x, z, heading, parentId }), 5.5, 'l’engin lanceur d’eau');
+      for (let i = 0; i < means.centaure; i++) special((x, z, heading) => units.createEquipage!('centaure', { x, z, heading, parentId }), 4.5, 'le Centaure');
     }
     const command = ctx.service<PoliceCommandLike>('police.command');
     if (command && typeof command.createDroneTeam === 'function') {

@@ -66,7 +66,7 @@ export function meansOf(config: SessionConfig): RequestedMeans | null {
     const v = Number(m[key]);
     return Number.isFinite(v) ? Math.max(0, Math.min(hi, Math.round(v))) : 0;
   };
-  return { sections: n('sections', 8), fourgons: n('fourgons', 24), centaure: n('centaure', 2), canon_eau: n('canon_eau', 2), bravm: n('bravm', 3), drone: n('drone', 2) };
+  return { sections: n('sections', 16), fourgons: n('fourgons', 48), centaure: n('centaure', 10), canon_eau: n('canon_eau', 10), bravm: n('bravm', 8), drone: n('drone', 4) };
 }
 
 function posteOf(config: SessionConfig): PolicePoste | null {

@@ -369,6 +369,30 @@ export function forceRatio(draft: Pick<ScenarioDraft, 'moyens' | 'crowdSize'>): 
   return { agents, per100: draft.crowdSize > 0 ? (agents / draft.crowdSize) * 100 : 0 };
 }
 
+/**
+ * Moyens recommandés pour une manifestation : d'après l'affluence, la propension à dégénérer et la part de black bloc
+ * (ordre de grandeur parisien : 3 à 10 agents pour 100 manifestants, davantage d'engins quand la casse est probable).
+ * Bornés par MEANS_LIMITS ; la case « secours sur appel » est conservée.
+ */
+export function recommendedMeans(d: Pick<ScenarioDraft, 'crowdSize' | 'volatility' | 'composition' | 'moyens'>): ScenarioMeans {
+  const crowd = Math.max(0, d.crowdSize);
+  const vol = clamp(d.volatility, 0, 1);
+  const bloc = compositionShares(d.composition).black_bloc;
+  const lim = (key: keyof typeof MEANS_LIMITS, v: number): number => clamp(Math.round(v), MEANS_LIMITS[key][0], MEANS_LIMITS[key][1]);
+  const sections = lim('sections', Math.max(2, Math.ceil(crowd / 220 + vol * 3 + bloc * 20)));
+  return {
+    sections,
+    fourgons: lim('fourgons', sections * 3),
+    canon_eau: lim('canon_eau', crowd >= 800 ? Math.max(1, crowd / 1500 + vol * 2 + bloc * 10) : vol > 0.6 ? 1 : 0),
+    centaure: lim('centaure', bloc >= 0.05 && crowd >= 1500 ? Math.max(1, crowd / 2500 + bloc * 15) : 0),
+    bravm: lim('bravm', crowd >= 300 ? Math.max(1, crowd / 1200 + vol * 2 + bloc * 12) : 0),
+    drone: lim('drone', crowd >= 500 ? crowd / 2000 + 1 : 0),
+    pompiers: lim('pompiers', 1 + crowd / 2000 + vol * 2),
+    samu: lim('samu', 1 + crowd / 2500 + vol),
+    secours_sur_appel: d.moyens.secours_sur_appel,
+  };
+}
+
 /** Effectif réellement simulé d'après la densité de foule des paramètres. */
 export function simulatedCrowd(crowdSize: number, crowdScale: number): number {
   return Math.max(1, Math.round(crowdSize * (Number.isFinite(crowdScale) && crowdScale > 0 ? crowdScale : 1)));

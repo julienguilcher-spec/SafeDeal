@@ -287,14 +287,14 @@ export const CROWD_MAX = 5000;
 
 /** Bornes des moyens engagés. */
 export const MEANS_LIMITS = {
-  sections: [0, 8],
-  fourgons: [0, 24],
-  centaure: [0, 2],
-  canon_eau: [0, 2],
-  bravm: [0, 3],
-  drone: [0, 2],
-  pompiers: [0, 3],
-  samu: [0, 2],
+  sections: [0, 16],
+  fourgons: [0, 48],
+  centaure: [0, 10],
+  canon_eau: [0, 10],
+  bravm: [0, 8],
+  drone: [0, 4],
+  pompiers: [0, 10],
+  samu: [0, 10],
 } as const;
 
 export const MEANS_LABELS: Readonly<Record<keyof typeof MEANS_LIMITS, { label: string; unit: string; hint: string }>> = {
@@ -303,7 +303,7 @@ export const MEANS_LABELS: Readonly<Record<keyof typeof MEANS_LIMITS, { label: s
   centaure: { label: 'Centaure', unit: 'blindé', hint: 'Blindé de la gendarmerie : lame et lance-grenades. Engagement rare.' },
   canon_eau: { label: 'Canon à eau', unit: 'engin', hint: 'Tient à distance après les sommations ; éteint les feux.' },
   bravm: { label: 'BRAV-M', unit: 'groupe', hint: 'Groupes de 6 motos, 12 agents : interpellations rapides.' },
-  drone: { label: 'Drone', unit: 'drone', hint: 'Deux appareils au plus, sous arrêté préfectoral.' },
+  drone: { label: 'Drone', unit: 'drone', hint: 'Quatre appareils au plus, sous arrêté préfectoral.' },
   pompiers: { label: 'Sapeurs-pompiers', unit: 'engin', hint: 'Fourgon d’incendie et secours à victime.' },
   samu: { label: 'SAMU', unit: 'équipe', hint: 'Équipe médicale et ambulance.' },
 };

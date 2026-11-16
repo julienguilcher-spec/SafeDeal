@@ -67,7 +67,7 @@ describe('ui/scénario — « Surprends-moi »', () => {
         expect(d.moyens[key]).toBeGreaterThanOrEqual(MEANS_LIMITS[key][0]);
         expect(d.moyens[key]).toBeLessThanOrEqual(MEANS_LIMITS[key][1]);
       }
-      expect(d.moyens.fourgons).toBe(Math.min(24, d.moyens.sections * 3));
+      expect(d.moyens.fourgons).toBe(Math.min(48, d.moyens.sections * 3));
       if (d.moyens.sections > 2 && d.moyens.sections < 8) {
         const r = forceRatio(d).per100;
         expect(r).toBeGreaterThan(1.5);

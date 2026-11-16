@@ -371,8 +371,10 @@ export function supportSpot(
     return true;
   };
   // un côté puis l'autre, de plus en plus loin ; puis plus en retrait
-  for (let back = 8; back <= 56; back += 12) {
-    for (let step = 0; step < 8; step++) {
+  // (jusqu'à une trentaine d'engins : dix Centaures, dix canons à eau, huit BRAV-M, drones — un grand dispositif
+  // s'étale sur plusieurs rues autour de la compagnie)
+  for (let back = 8; back <= 236; back += 12) {
+    for (let step = 0; step < 18; step++) {
       const side = ((step + index) % 2 === 0 ? 1 : -1) * (12 + Math.floor(step / 2) * 9);
       if (tryAt(back, side)) return true;
     }

@@ -153,7 +153,7 @@ describe('ui/scénario — assainissement', () => {
     expect(d.derapage).toBe('hasard');
     const low = sanitizeDraft({ ...defaultDraft(), crowdSize: 3, moyens: { ...defaultDraft().moyens, drone: 9, sections: -4 } });
     expect(low.crowdSize).toBe(50);
-    expect(low.moyens.drone).toBe(2);
+    expect(low.moyens.drone).toBe(4);
     expect(low.moyens.sections).toBe(0);
   });
 

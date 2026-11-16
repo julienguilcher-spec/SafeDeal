@@ -13,8 +13,8 @@ import {
 } from './catalog';
 import type { HomeModel } from './home';
 import {
-  buildSessionConfig, compositionShares, defaultDraft, draftFromConfig, forceRatio, identityLabel, simulatedCrowd, suggestName,
-  tensionLabel, volatilityLabel,
+  buildSessionConfig, compositionShares, defaultDraft, draftFromConfig, forceRatio, identityLabel, recommendedMeans, simulatedCrowd,
+  suggestName, tensionLabel, volatilityLabel,
 } from './scenario';
 import { MAX_NAME_LENGTH } from './scenarios-store';
 
@@ -238,7 +238,15 @@ export function buildMoyens(model: HomeModel): HTMLElement {
   });
   paintRatio();
   ratioEl.style.margin = '12px 0 4px';
-  root.append(grid, ratioEl, onCall.el);
+  // moyens proportionnés à la manifestation (affluence, propension à dégénérer, black bloc)
+  const adapt = widgets.button('Adapter à l’affluence', () => {
+    model.update({ moyens: recommendedMeans(model.draft) });
+    model.rebuild();
+  }, 'secondary', 'sliders');
+  adapt.dataset.id = 'moyens-adapter';
+  const adaptRow = el('div', 'ui-inline', adapt);
+  adaptRow.style.margin = '0 0 12px';
+  root.append(adaptRow, grid, ratioEl, onCall.el);
   return root;
 }
 
