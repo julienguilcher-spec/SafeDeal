@@ -22,8 +22,14 @@ import type { Mod } from './mod';
 import { tileKey } from './shared';
 import type { PropObj, ShopObj } from './shared';
 
-/** Premier numéro d'ordre des objets d'ambiance (les objets de la carte gardent leur index). */
-const EXTRA_SERIAL = 100000;
+/**
+ * Numéros d'ordre dans une tuile : les objets de la carte gardent leur index ; les objets d'ambiance
+ * reçoivent un numéro déduit de l'élément de carte qui les fait naître.
+ */
+const COMPANION_SERIAL = 1_000_000;
+const SHOP_SERIAL = 20_000_000;
+const SHOP_BLOCK = 48;
+const SITE_SERIAL = 900_000_000;
 /** Nombre maximal d'objets d'ambiance par tuile. */
 const MAX_EXTRAS = 320;
 
@@ -58,7 +64,6 @@ interface TileRec {
   props: PropObj[];
   shops: ShopObj[];
   removed: Set<number>;
-  serial: number;
   job: Job | null;
   /** La tuile avait du contenu cartographique. */
   filled: boolean;
@@ -102,7 +107,7 @@ export class Tiles {
     if (this.tiles.has(key)) return;
     const k = this.m.k;
     const rec: TileRec = {
-      key, tx, tz, props: [], shops: [], removed: new Set(), serial: EXTRA_SERIAL, filled: false,
+      key, tx, tz, props: [], shops: [], removed: new Set(), filled: false,
       job: { stage: 0, index: 0, rng: k.ctx.rng.fork(`props:tuile:${tx}:${tz}`), extras: 0 },
     };
     this.tiles.set(key, rec);
@@ -253,7 +258,7 @@ export class Tiles {
     if (job.stage === 3 && budget > 0) {
       if (rec.filled && density > 0) {
         const sites = Math.round(density * job.rng.int(1, 4));
-        for (let i = 0; i < sites && job.extras < MAX_EXTRAS; i++) this.addWorksite(rec, job);
+        for (let i = 0; i < sites && job.extras < MAX_EXTRAS; i++) this.addWorksite(rec, job, i);
         budget -= sites;
       }
       this.next(job);
@@ -303,9 +308,12 @@ export class Tiles {
     return true;
   }
 
-  /** Objet d'ambiance, posé seulement si l'emplacement convient. Le numéro d'ordre est consommé dans tous les cas. */
-  private extra(rec: TileRec, job: Job, kind: PropKind, x: number, z: number, heading: number): PropObj | null {
-    const serial = rec.serial++;
+  /**
+   * Objet d'ambiance, posé seulement si l'emplacement convient. Son numéro d'ordre est fixé par
+   * l'appelant d'après la carte (jamais d'après ce qui a pu être posé) : il désigne donc le même objet
+   * à chaque rechargement de la tuile.
+   */
+  private extra(rec: TileRec, job: Job, kind: PropKind, x: number, z: number, heading: number, serial: number): PropObj | null {
     const def = propDef(kind);
     if (!this.okSpot(x, z, Math.max(def.halfX, def.halfZ))) return null;
     job.extras++;
@@ -320,24 +328,26 @@ export class Tiles {
     const rng = job.rng;
     const c = Math.cos(p.heading);
     const s = Math.sin(p.heading);
+    const base = COMPANION_SERIAL + info.index * 10;
     if (kind === 'station_velo') {
       // vélos en libre-service accrochés aux bornes
-      const slots = Math.floor((p.halfX * 2) / 0.75);
+      const slots = Math.min(9, Math.floor((p.halfX * 2) / 0.75));
       for (let i = 0; i < slots; i++) {
         const take = rng.chance(Math.min(0.9, 0.55 * density));
+        const turn = rng.range(-0.06, 0.06);
+        if (!take) continue;
         const lx = -p.halfX + 0.4 + i * 0.75;
         const lz = p.halfZ + 0.75;
-        if (take) this.extra(rec, job, 'velo', p.x + lx * c + lz * s, p.z - lx * s + lz * c, p.heading + rng.range(-0.06, 0.06));
-        else rec.serial++;
+        this.extra(rec, job, 'velo', p.x + lx * c + lz * s, p.z - lx * s + lz * c, p.heading + turn, base + i);
       }
     } else if (kind === 'arceau_velo') {
-      if (rng.chance(Math.min(0.8, 0.35 * density))) {
-        this.extra(rec, job, 'velo', p.x + s * 0.35, p.z + c * 0.35, p.heading + Math.PI * 0.5 + rng.range(-0.15, 0.15));
-      } else rec.serial++;
+      const take = rng.chance(Math.min(0.8, 0.35 * density));
+      const turn = rng.range(-0.15, 0.15);
+      if (take) this.extra(rec, job, 'velo', p.x + s * 0.35, p.z + c * 0.35, p.heading + Math.PI * 0.5 + turn, base);
     } else if (kind === 'table_terrasse') {
       // deux chaises face à face de part et d'autre de la table
-      this.extra(rec, job, 'chaise', p.x + c * 0.62, p.z - s * 0.62, p.heading - Math.PI * 0.5);
-      this.extra(rec, job, 'chaise', p.x - c * 0.62, p.z + s * 0.62, p.heading + Math.PI * 0.5);
+      this.extra(rec, job, 'chaise', p.x + c * 0.62, p.z - s * 0.62, p.heading - Math.PI * 0.5, base);
+      this.extra(rec, job, 'chaise', p.x - c * 0.62, p.z + s * 0.62, p.heading + Math.PI * 0.5, base + 1);
     }
   }
 
@@ -365,107 +375,101 @@ export class Tiles {
     const tx = Math.cos(h);
     const tz = -Math.sin(h);
     const half = shop.width * 0.5;
-    // tirages faits dans un ordre fixe, que les emplacements conviennent ou non
+    const base = SHOP_SERIAL + shop.serial * SHOP_BLOCK;
+    // tous les tirages sont faits d'avance, dans un ordre fixe, que les emplacements conviennent ou non
     const rTerrace = rng.next();
+    const rRows = rng.next();
     const rBin = rng.next();
     const rBacs = rng.next();
+    const nBacs = 1 + Math.floor(rng.next() * 3);
     const rScoot = rng.next();
+    const nScoot = 1 + Math.floor(rng.next() * 3);
     const rBike = rng.next();
     const rPal = rng.next();
+    const turn = rng.range(-0.25, 0.25);
 
     if (shop.category === 'cafe_restaurant' && rTerrace < 0.85 * density && !this.hasNear('table_terrasse', shop.x + nx * 1.5, shop.z + nz * 1.5, half + 3)) {
       const count = Math.max(1, Math.min(5, Math.floor(shop.width / 1.7)));
-      const rows = rng.chance(0.4) ? 2 : 1;
+      const rows = rRows < 0.4 ? 2 : 1;
       for (let row = 0; row < rows; row++) {
         for (let i = 0; i < count; i++) {
+          const serial = base + (row * 5 + i) * 3;
           const u = (i - (count - 1) * 0.5) * 1.7;
           const d = 1.1 + row * 1.6;
           const x = shop.x + tx * u + nx * d;
           const z = shop.z + tz * u + nz * d;
-          const table = this.extra(rec, job, 'table_terrasse', x, z, h + rng.range(-0.2, 0.2));
-          if (table === null) {
-            rec.serial += 2;
-            continue;
-          }
-          this.extra(rec, job, 'chaise', x + tx * 0.62, z + tz * 0.62, h - Math.PI * 0.5 + rng.range(-0.3, 0.3));
-          this.extra(rec, job, 'chaise', x - tx * 0.62, z - tz * 0.62, h + Math.PI * 0.5 + rng.range(-0.3, 0.3));
+          const skew = ((i * 7 + row * 3) % 5) * 0.08 - 0.16;
+          if (this.extra(rec, job, 'table_terrasse', x, z, h + skew, serial) === null) continue;
+          this.extra(rec, job, 'chaise', x + tx * 0.62, z + tz * 0.62, h - Math.PI * 0.5 + skew * 2, serial + 1);
+          this.extra(rec, job, 'chaise', x - tx * 0.62, z - tz * 0.62, h + Math.PI * 0.5 - skew * 2, serial + 2);
         }
       }
     }
 
     if (rBin < 0.22 * density) {
       const u = half + 0.8;
-      let x = shop.x + tx * u + nx * 2.4;
-      let z = shop.z + tz * u + nz * 2.4;
-      if (!this.hasNear('poubelle', x, z, 14)) {
-        if (this.extra(rec, job, 'poubelle', x, z, h) === null) {
-          x = shop.x + tx * u + nx * 1.0;
-          z = shop.z + tz * u + nz * 1.0;
-          this.extra(rec, job, 'poubelle', x, z, h);
-        } else rec.serial++;
+      const x = shop.x + tx * u + nx * 2.4;
+      const z = shop.z + tz * u + nz * 2.4;
+      if (!this.hasNear('poubelle', x, z, 14) && this.extra(rec, job, 'poubelle', x, z, h, base + 30) === null) {
+        // trottoir étroit : contre la façade
+        this.extra(rec, job, 'poubelle', shop.x + tx * u + nx * 1.0, shop.z + tz * u + nz * 1.0, h, base + 31);
       }
     }
 
     if (rBacs < 0.1 * density) {
       // bacs roulants sortis, alignés contre la façade à côté de la vitrine
-      const count = 1 + Math.floor(rng.next() * 3);
-      for (let j = 0; j < count; j++) {
+      for (let j = 0; j < nBacs; j++) {
         const u = -(half + 0.9 + j * 1.4);
-        this.extra(rec, job, 'conteneur', shop.x + tx * u + nx * 0.55, shop.z + tz * u + nz * 0.55, h + rng.range(-0.08, 0.08));
+        this.extra(rec, job, 'conteneur', shop.x + tx * u + nx * 0.55, shop.z + tz * u + nz * 0.55, h + turn * 0.3, base + 32 + j);
       }
     }
 
     if (rScoot < 0.12 * density) {
-      const count = 1 + Math.floor(rng.next() * 3);
-      for (let j = 0; j < count; j++) {
+      for (let j = 0; j < nScoot; j++) {
         const u = half * 0.4 + j * 0.6;
-        this.extra(rec, job, 'trottinette', shop.x + tx * u + nx * 2.2, shop.z + tz * u + nz * 2.2, h + Math.PI * 0.5 + rng.range(-0.25, 0.25));
+        this.extra(rec, job, 'trottinette', shop.x + tx * u + nx * 2.2, shop.z + tz * u + nz * 2.2, h + Math.PI * 0.5 + turn * (1 - j * 0.6), base + 35 + j);
       }
     }
 
     if (rBike < 0.07 * density) {
       const u = -half * 0.5;
-      this.extra(rec, job, 'velo', shop.x + tx * u + nx * 2.0, shop.z + tz * u + nz * 2.0, h + Math.PI * 0.5 + rng.range(-0.3, 0.3));
+      this.extra(rec, job, 'velo', shop.x + tx * u + nx * 2.0, shop.z + tz * u + nz * 2.0, h + Math.PI * 0.5 - turn, base + 38);
     }
 
     if ((shop.category === 'supermarche' || shop.category === 'alimentation') && rPal < 0.35 * density) {
       const u = half + 1.3;
-      const x = shop.x + tx * u + nx * 0.9;
-      const z = shop.z + tz * u + nz * 0.9;
-      this.extra(rec, job, 'palette', x, z, h + rng.range(-0.2, 0.2));
+      this.extra(rec, job, 'palette', shop.x + tx * u + nx * 0.9, shop.z + tz * u + nz * 0.9, h + turn, base + 39);
     }
   }
 
   /** Petit chantier de voirie : grilles autour d'une fouille, palettes, cônes, tas de pavés. */
-  private addWorksite(rec: TileRec, job: Job): void {
+  private addWorksite(rec: TileRec, job: Job, site: number): void {
     const rng = job.rng;
     const world = this.m.k.ctx.world;
     const ts = world.tileSize;
     const spot = this.spot;
     const cx = (rec.tx + 0.5) * ts;
     const cz = (rec.tz + 0.5) * ts;
-    const first = rec.serial;
+    const base = SITE_SERIAL + site * 8;
     const found = world.randomFreePoint(cx, cz, ts * 0.45, 'sidewalk', this.rand, spot);
     const h = rng.next() * Math.PI;
     const pile = rng.chance(0.6);
-    const cones = 2 + Math.floor(rng.next() * 2);
-    if (found && this.okSpot(spot.x, spot.z, 2.4)) {
-      const c = Math.cos(h);
-      const s = Math.sin(h);
-      const x = spot.x;
-      const z = spot.z;
-      // rectangle de 3,6 × 2,2 m : deux grilles sur les longs côtés, le reste ouvert vers le trottoir
-      this.extra(rec, job, 'barriere_chantier', x + s * 1.1, z + c * 1.1, h);
-      this.extra(rec, job, 'barriere_chantier', x - s * 1.1, z - c * 1.1, h);
-      this.extra(rec, job, 'palette', x + c * 0.7, z - s * 0.7, h + rng.range(-0.3, 0.3));
-      if (pile) this.extra(rec, job, 'pile_paves', x - c * 0.8, z + s * 0.8, h);
-      for (let i = 0; i < cones; i++) {
-        const a = rng.next() * 6.283185307179586;
-        this.extra(rec, job, 'cone', x + Math.cos(a) * 2.6, z + Math.sin(a) * 2.6, a);
-      }
+    const turn = rng.range(-0.3, 0.3);
+    const a0 = rng.next() * 6.283185307179586;
+    if (!found || !this.okSpot(spot.x, spot.z, 2.4)) return;
+    const c = Math.cos(h);
+    const s = Math.sin(h);
+    const x = spot.x;
+    const z = spot.z;
+    // deux grilles de 3,5 m de part et d'autre de la fouille, le reste ouvert vers le trottoir
+    this.extra(rec, job, 'barriere_chantier', x + s * 1.1, z + c * 1.1, h, base);
+    this.extra(rec, job, 'barriere_chantier', x - s * 1.1, z - c * 1.1, h, base + 1);
+    this.extra(rec, job, 'palette', x + c * 0.7, z - s * 0.7, h + turn, base + 2);
+    if (pile) this.extra(rec, job, 'pile_paves', x - c * 0.8, z + s * 0.8, h, base + 3);
+    for (let i = 0; i < 3; i++) {
+      const a = a0 + i * 2.1;
+      this.extra(rec, job, 'cone', x + Math.cos(a) * 2.6, z + Math.sin(a) * 2.6, a, base + 4 + i);
     }
-    // numéros d'ordre réservés, que le chantier ait été posé ou non
-    rec.serial = first + 8;
   }
 
   // ───────────────────────────── mémoire ─────────────────────────────
