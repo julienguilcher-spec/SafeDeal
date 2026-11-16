@@ -37,6 +37,10 @@ const ESCORT_THINK = 8;
 /** Arrêté par des personnes depuis : on dégage (s), on cherche un autre itinéraire (s). */
 const CLEAR_AFTER = 2.5;
 const REROUTE_AFTER = 12;
+/** Arrêté par un véhicule depuis : on le fait se ranger (s). */
+const VEHICLE_AFTER = 5;
+/** Arrêté par une voiture civile immobile depuis : elle est poussée ou dégagée (s). */
+const CIVIL_AFTER = 10;
 
 interface Blocked {
   since: number;
@@ -55,6 +59,8 @@ export class EnginsSystem implements GameSystem {
   /** Véhicule blindé → groupe qui l'escorte. */
   private readonly escorts = new Map<EntityId, number>();
   private readonly target = new Map<EntityId, { x: number; z: number }>();
+  /** Engin escorté à l'arrêt depuis (s). */
+  private readonly stillSince = new Map<EntityId, number>();
 
   init(ctx: GameContext): void {
     this.ctx = ctx;
@@ -66,6 +72,7 @@ export class EnginsSystem implements GameSystem {
     this.blocked.clear();
     this.escorts.clear();
     this.target.clear();
+    this.stillSince.clear();
   }
 
   update(_dt: number): void {
@@ -75,6 +82,7 @@ export class EnginsSystem implements GameSystem {
     if (now >= this.nextThink) {
       this.nextThink = now + THINK;
       this.clearWay(now);
+      this.escortsMove(now);
     }
     if (now >= this.nextEscort) {
       this.nextEscort = now + ESCORT_THINK;
@@ -94,8 +102,12 @@ export class EnginsSystem implements GameSystem {
       if (v.faction !== 'police' || v.def.flying || v.seats[0] === 0) continue;
       const st = ap.status(v);
       if (st.mode !== 'drive' && st.mode !== 'follow') { this.blocked.delete(v.id); continue; }
-      const byPeople = (st.state === 'attente' || st.state === 'bloque') && (st.reason === 'personne' || st.reason === '');
       const stopped = Math.abs(v.speed) < 0.4;
+      if ((st.state === 'attente' || st.state === 'bloque') && st.reason === 'vehicule' && stopped && st.blockedFor > VEHICLE_AFTER) {
+        this.clearVehicle(v, ap, st.blockedFor);
+        continue;
+      }
+      const byPeople = (st.state === 'attente' || st.state === 'bloque') && (st.reason === 'personne' || st.reason === '');
       if (!byPeople || !stopped || st.blockedFor < CLEAR_AFTER) {
         if (Math.abs(v.speed) > 1.5) this.blocked.delete(v.id);
         continue;
@@ -121,6 +133,44 @@ export class EnginsSystem implements GameSystem {
           ap.driveTo(v, t.x, t.z, { urgence: true, pushThrough: v.def.canPush === true });
           b.rerouted = true;
         }
+      }
+    }
+  }
+
+  /**
+   * Arrêté par un autre véhicule (parking de la compagnie, voiture garée) : un engin de police à l'arrêt avec son
+   * chauffeur se range (avance de quelques mètres et dégage le passage) ; sinon, nouvel itinéraire (le Centaure pousse).
+   */
+  private clearVehicle(v: Vehicle, ap: Autopilot, blockedFor: number): void {
+    const ctx = this.ctx!;
+    const o = obstacleOf(ap, v);
+    const ov = o !== 0 ? ctx.vehicles.get(o) : undefined;
+    if (ov && ov.faction === 'police' && Math.abs(ov.speed) < 0.3 && ov.seats[0] !== 0) {
+      const driver = ctx.people.get(ov.seats[0]!);
+      const ost = ap.status(ov);
+      if (driver && !driver.isPlayer && ost.mode !== 'drive' && ost.mode !== 'follow' && ost.mode !== 'convoy') {
+        // se ranger : quelques mètres de côté et en avant, hors de la trajectoire de l'engin
+        const fx = Math.sin(v.heading), fz = Math.cos(v.heading);
+        const side = (ov.x - v.x) * fz - (ov.z - v.z) * fx >= 0 ? 1 : -1;
+        const tx = ov.x + fz * side * 9 + fx * 14, tz = ov.z - fx * side * 9 + fz * 14;
+        if (ap.driveTo(ov, tx, tz, { speed: 3, stopBefore: 1 })) return;
+      }
+    }
+    if (ov && ov.faction !== 'police' && Math.abs(ov.speed) < 0.3 && blockedFor > CIVIL_AFTER) {
+      // voiture garée en travers (ou abandonnée) : le Centaure la pousse à la lame, sinon elle est dégagée
+      const driver = ov.seats[0] !== 0 ? ctx.people.get(ov.seats[0]!) : undefined;
+      if (!driver || !driver.isPlayer) {
+        if (v.def.canPush) ctx.events.emit('sfx', { id: 'tole', x: ov.x, y: ov.y + 0.5, z: ov.z, volume: 1 });
+        ctx.vehicles.remove(ov.id);
+        return;
+      }
+    }
+    const b = this.blocked.get(v.id);
+    if (blockedFor > REROUTE_AFTER && (!b || !b.rerouted)) {
+      const t = this.destinationOf(v, ap);
+      if (t && ap.status(v).mode === 'drive') {
+        ap.driveTo(v, t.x, t.z, { urgence: true, pushThrough: v.def.canPush === true });
+        this.blocked.set(v.id, { since: this.ctx!.clock.now, rerouted: true, hornAt: 0 });
       }
     }
   }
@@ -156,7 +206,7 @@ export class EnginsSystem implements GameSystem {
       const cur = this.escorts.get(v.id);
       if (cur !== undefined) {
         const s = ctx.squads.get(cur);
-        if (s && s.members.length > 0 && s.order.type === 'proteger' && s.order.targetId === v.id) continue;
+        if (s && s.members.length > 0 && (s.order.type === 'proteger' || s.order.type === 'suivre') && s.order.targetId === v.id) continue;
         this.escorts.delete(v.id);
         used.delete(cur);
       }
@@ -168,6 +218,33 @@ export class EnginsSystem implements GameSystem {
       this.escorts.set(v.id, g.id);
       used.add(g.id);
       ctx.radio.say({ channel: 'unite', from: g.name, priority: 0, text: `ICI ${g.name.toUpperCase()}. Je me place en protection de l’engin. TERMINÉ.` });
+    }
+  }
+
+  /**
+   * Escorte d'un engin qui roule : elle le suit (derrière, en colonne) au lieu de rester en écran autour de lui —
+   * sinon les hommes postés devant le capot l'arrêtent. À l'arrêt depuis quelques secondes : écran de protection.
+   */
+  private escortsMove(now: number): void {
+    const ctx = this.ctx!;
+    const ap = ctx.service<Autopilot>('vehicles.autopilot');
+    for (const [vid, gid] of this.escorts) {
+      const v = ctx.vehicles.get(vid);
+      const g = ctx.squads.get(gid);
+      if (!v || !g || g.order.targetId !== vid) continue;
+      const st = ap ? ap.status(v) : null;
+      const driving = Math.abs(v.speed) > 0.8 || (!!st && (st.mode === 'drive' || st.mode === 'follow' || st.mode === 'convoy') && st.state !== 'arrive');
+      if (driving) {
+        this.stillSince.delete(vid);
+        if (g.order.type !== 'suivre') ctx.squads.issue(g.id, { type: 'suivre', targetId: vid, x: v.x, z: v.z, heading: v.heading, width: 0, issuedBy: g.leaderId });
+      } else if (g.order.type === 'suivre') {
+        const since = this.stillSince.get(vid) ?? now;
+        this.stillSince.set(vid, since);
+        if (now - since > 4) {
+          this.stillSince.delete(vid);
+          ctx.squads.issue(g.id, { type: 'proteger', targetId: vid, x: v.x, z: v.z, heading: v.heading, width: 0, issuedBy: g.leaderId });
+        }
+      }
     }
   }
 
@@ -196,5 +273,16 @@ export class EnginsSystem implements GameSystem {
       if (d < bd) { bd = d; best = s; }
     }
     return best;
+  }
+}
+
+/** Véhicule qui arrête `v` (état interne du pilote automatique), 0 si inconnu. */
+function obstacleOf(ap: unknown, v: Vehicle): number {
+  try {
+    const rt = (ap as { k?: { rt?(v: Vehicle): { ap?: { obsId?: number; obsReason?: string } | null } } }).k?.rt?.(v);
+    const st = rt && rt.ap;
+    return st && st.obsReason === 'vehicule' && typeof st.obsId === 'number' ? st.obsId : 0;
+  } catch {
+    return 0;
   }
 }
