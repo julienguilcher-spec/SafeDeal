@@ -20,6 +20,11 @@ import { recentOffender } from './picture';
 import { SpecialUnit, locate } from './special';
 import { received, refused, report, spell } from './texts';
 
+/** Au-delà, un ordre à pied commence par un trajet à moto (m) ; arrêt avant le point (m). */
+const RIDE_BEYOND = 60;
+const RIDE_STANDOFF = 15;
+/** À pied, au-delà de cette distance (plus de trois minutes de marche), on remonte en selle (m). */
+const WALK_LIMIT = 250;
 /** Distance à laquelle les opérateurs s'arrêtent avant l'objectif pour constater (m). */
 const WATCH_DISTANCE = 12;
 /** Rayon de recherche de l'auteur d'un fait autour du point désigné (m). */
@@ -134,6 +139,29 @@ export class BravmUnit extends SpecialUnit {
       this.order = null;
       this.status.order = '';
       this.setStage('repos');
+      return true;
+    }
+    const far = this.farPoint(o);
+    if (mounted && this.motos.length > 0 && far > RIDE_BEYOND && this.pilots() > 0) {
+      // point éloigné : la colonne s'y rend à moto, pied à terre sur place, puis la manœuvre est exécutée
+      this.after = this.copy(o);
+      this.order = this.copy(o);
+      this.status.order = type;
+      this.tx = o.x;
+      this.tz = o.z;
+      this.say(received(this.squad.name, 'en colonne à moto vers le point, pied à terre sur place'));
+      this.ride(o.x, o.z, RIDE_STANDOFF);
+      return true;
+    }
+    if (!mounted && !busyOnFoot && this.motos.length > 0 && this.pilots() > 0 && this.footOperators() > 0 && far > WALK_LIMIT) {
+      // trop loin pour y aller à pied (plus de trois minutes de marche) : retour aux machines d'abord
+      this.after = this.copy(o);
+      this.order = this.copy(o);
+      this.status.order = type;
+      this.tx = o.x;
+      this.tz = o.z;
+      this.say(received(this.squad.name, 'trop loin à pied, on remonte en selle'));
+      this.backToMotos();
       return true;
     }
     if (mounted && this.motos.length > 0) {
@@ -310,7 +338,7 @@ export class BravmUnit extends SpecialUnit {
     const stopped = Math.abs(lead.speed) < 0.4;
     if ((st.state === 'arrive' || st.mode === 'idle' || d < 6) && stopped) {
       this.arrived();
-    } else if (st.state === 'echec' || (st.state === 'bloque' && st.blockedFor > 12) || this.sinceStage() > 240) {
+    } else if (st.state === 'echec' || (st.state === 'bloque' && st.blockedFor > 12) || (st.state === 'attente' && st.blockedFor > 40) || this.sinceStage() > 240) {
       // route coupée ou foule en travers : on termine à pied, sans forcer le passage
       this.stopMotos();
       this.arrived();
@@ -509,7 +537,37 @@ export class BravmUnit extends SpecialUnit {
       this.ride(o.x, o.z, 0);
       return;
     }
+    if (this.after && this.mountedOperators() > 0) {
+      // en selle pour un point éloigné : on y va à moto
+      this.ride(this.after.x, this.after.z, RIDE_STANDOFF);
+      return;
+    }
+    if (this.after) {
+      // personne n'a pu remonter : la manœuvre se fait à pied
+      const a = this.after;
+      this.after = null;
+      this.order = null;
+      this.status.order = '';
+      this.setStage('a_pied');
+      this.internal({ type: a.type, x: a.x, z: a.z, heading: a.heading, width: a.width, targetId: a.targetId, maxForce: a.maxForce, issuedBy: a.issuedBy });
+      return;
+    }
     this.complete(true, '');
+  }
+
+  /** Distance de l'unité au point de l'ordre (0 si l'ordre n'a pas de point). */
+  private farPoint(o: SquadOrder): number {
+    if (!Number.isFinite(o.x) || !Number.isFinite(o.z) || (o.x === 0 && o.z === 0)) return 0;
+    const ref = this.motos[0] ?? this.people[0];
+    if (!ref) return 0;
+    let fx = ref.x;
+    let fz = ref.z;
+    const p = this.people[0];
+    if (p && this.mountedOperators() === 0) {
+      fx = p.x;
+      fz = p.z;
+    }
+    return Math.hypot(o.x - fx, o.z - fz);
   }
 
   private complete(ok: boolean, reason: string): void {

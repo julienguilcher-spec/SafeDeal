@@ -180,6 +180,36 @@ describe('BRAV-M', () => {
   }, 300000);
 });
 
+describe('BRAV-M — déplacement lointain', () => {
+  it('se rend à moto au point d\'un ordre à pied éloigné, puis met pied à terre et l\'exécute', async () => {
+    const t = await startCommand(MODULES, { mode: 'test', x: 300, z: 0 }, { seed: 7, dt: 1 / 30 });
+    const { ctx } = t;
+    const bravm = t.units.createBravm(4, { x: 300, z: -110, heading: 0, mounted: true });
+    const motos = bravm.vehicles;
+    const operators = bravm.people.filter((p) => p.poste !== 'pilote_moto');
+    const tx = 300, tz = 110;
+    t.step(1);
+    ctx.squads.issue(bravm.squad.id, { type: 'tenir', x: tx, z: tz, heading: 0, width: 10 });
+    let maxSpeed = 0;
+    const st: string[] = [];
+    let last = '';
+    t.run(150, 1, () => {
+      const ss = t.api.special(bravm.squad.id)?.stage ?? '?';
+      if (ss !== last) { last = ss; st.push(ss + '@' + ctx.clock.now.toFixed(0)); }
+      for (const m of motos) maxSpeed = Math.max(maxSpeed, Math.abs(m.speed));
+      return false;
+    });
+    const lead = motos[0]!;
+    const motoDist = Math.hypot(lead.x - tx, lead.z - tz);
+    const opDist = operators.map((p) => Math.hypot(p.x - tx, p.z - tz)).sort((a, b) => a - b);
+    console.log('BRAV-M lointain : moto à', motoDist.toFixed(0), 'm, vitesse max', maxSpeed.toFixed(1), 'm/s, opérateurs', opDist.map((d) => d.toFixed(0)).join(' '), '| ordre', bravm.squad.order.type, '| étapes', st.join(' '), '| à pied', operators.filter((p) => p.vehicleId === 0).length);
+    expect(maxSpeed).toBeGreaterThan(5);
+    expect(motoDist).toBeLessThan(60);
+    expect(opDist[Math.floor(opDist.length / 2)]!).toBeLessThan(45);
+    expect(operators.filter((p) => p.vehicleId === 0).length).toBeGreaterThanOrEqual(3);
+  }, 300000);
+});
+
 describe('Centaure', () => {
   it('avance avec les gendarmes à pied derrière lui', async () => {
     const t = await startCommand(MODULES, { mode: 'test', x: 0, z: 200 }, { seed: 8, dt: 1 / 30 });
