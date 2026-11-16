@@ -132,6 +132,8 @@ export class CommandCore implements CommandApi {
       const s = squads[i]!;
       if (!this.canCommand(s.id)) continue;
       const g = geoms ? geoms[geoms.length === 1 ? 0 : i] : undefined;
+      // un nouvel ordre annule celui qui attendait le débarquement d'une colonne précédente (motorize le repose au besoin)
+      this.afterConvoy.delete(s.id);
       // voiture de patrouille (Police secours, BAC) : elle roule déjà, elle se rend elle-même sur le point en urgence
       // (service 'police.patrols') — ni colonne, ni débarquement ; « Faire mouvement » vaut « Avancer jusqu'à »
       // « avec moi » : l'unité suit le joueur — elle vient en véhicules si elle est loin, puis prend place dans sa

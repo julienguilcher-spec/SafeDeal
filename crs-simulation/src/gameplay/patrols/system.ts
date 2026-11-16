@@ -488,6 +488,16 @@ export class PatrolsSystem implements GameSystem {
     }
   }
 
+  /** Au moins un équipier valide et libre (ni hors de combat, ni menotté, ni interpellé) ? */
+  private crewFit(members: readonly EntityId[]): boolean {
+    const ctx = this.ctx!;
+    for (const id of members) {
+      const m = ctx.people.get(id);
+      if (m && m.custody === 'free' && !ctx.health.isIncapacitated(m)) return true;
+    }
+    return false;
+  }
+
   /** Équipage au complet à bord et au volant ? Sinon, ordre d'embarquer (au plus toutes les 30 s). */
   private crewAboard(p: Patrol, v: Vehicle, now: number): boolean {
     const ctx = this.ctx!;
@@ -549,8 +559,15 @@ export class PatrolsSystem implements GameSystem {
     const ctx = this.ctx!;
     const v = ctx.vehicles.get(p.vehicleId);
     const squad = ctx.squads.get(p.squadId);
-    if (!v || !squad || v.state === 'wrecked' || v.state === 'burnt' || squad.members.length === 0) {
-      if (p.state !== 'hors_service') this.setState(p, 'hors_service', now);
+    if (!v || !squad || v.state === 'wrecked' || v.state === 'burnt' || !this.crewFit(squad.members)) {
+      if (p.state !== 'hors_service') {
+        this.setState(p, 'hors_service', now);
+        // équipage hors de combat (blessé, menotté, interpellé) : la voiture ne roule plus d'elle-même
+        if (v) {
+          this.autopilot()?.stop(v);
+          this.lightsOff(v);
+        }
+      }
       this.syncView(p);
       return;
     }

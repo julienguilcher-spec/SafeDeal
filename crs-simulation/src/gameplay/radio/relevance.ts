@@ -82,9 +82,9 @@ export function parseRadioHeader(text: string): RadioHeader | null {
   return null;
 }
 
-/** « À tous », « Toutes unités », « Tous » : diffusion générale. */
+/** « À tous », « Toutes unités », « À toutes les unités » (foyers de CENTRAL), « Tous » : diffusion générale. */
 function isAll(name: string): boolean {
-  return /^(A )?TOUS\b/.test(name) || /^TOUTES? (LES )?UNITES\b/.test(name);
+  return /^(A )?TOUS\b/.test(name) || /^(A )?TOUTES? (LES )?UNITES\b/.test(name);
 }
 
 /** Destinataire et émetteur reconnus d'un message (formes canoniques). */

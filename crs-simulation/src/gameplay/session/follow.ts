@@ -84,7 +84,10 @@ export class FollowLeaderSystem implements GameSystem {
     this.assign.clear();
     this.column = [];
     this.escorts = [];
+    this.escortSince = 0;
     this.nextThink = 0;
+    // l'horloge repart de 0 à chaque session : une échéance héritée bloquerait la revue « avec moi »
+    this.nextJoin = 0;
   }
 
   /** Unités qui suivent le joueur : celles qu'il commande, et la sienne quand il conduit le véhicule de son groupe. */

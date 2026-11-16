@@ -115,7 +115,8 @@ export class DroneUnit extends SpecialUnit {
       this.mode = 'rappel';
       this.wantsFlight = false;
       const pilot = this.pilot();
-      if (core.vext && pilot) core.vext.recallDrone(pilot);
+      // télépilote joueur : l'ordre lui est transmis, c'est lui qui ramène son appareil
+      if (core.vext && pilot && !pilot.isPlayer) core.vext.recallDrone(pilot);
       this.say(received(this.squad.name, 'je rappelle l’appareil'));
       this.finish(true, '');
     } else {
@@ -318,7 +319,8 @@ export class DroneUnit extends SpecialUnit {
         this.orbitX = NaN;
         this.setStage('pose');
       }
-      if (!this.wantsFlight || pilot.vehicleId !== 0 || pilot.posture === 'down') return;
+      // télépilote joueur : c'est lui qui décolle (pas de décollage d'office qui lui prendrait la caméra)
+      if (!this.wantsFlight || pilot.isPlayer || pilot.vehicleId !== 0 || pilot.posture === 'down') return;
       if (this.landedAt >= 0 && now - this.landedAt < SWAP_DELAY) return;
       v = ext.deployDrone(pilot);
       if (!v) return;
@@ -333,6 +335,18 @@ export class DroneUnit extends SpecialUnit {
     const fs = ext.flightStatus(v);
     st.supply = fs ? fs.battery : -1;
     if (this.slot < 0) this.takeSlot();
+    if (pilot.isPlayer) {
+      // télépilote joueur : il pilote lui-même (mode manuel) ; l'IA ne remet pas l'appareil en orbite,
+      // mais ce que montre sa caméra nourrit toujours le tableau de situation
+      if (now >= this.scanAt) {
+        this.scanAt = now + SCAN_PERIOD;
+        this.scan(v);
+      }
+      // placement demandé : exécuté quand il amène l'appareil sur zone (le compte rendu radio est le sien)
+      const o = this.order;
+      if (o && this.mode === 'point' && Math.hypot(v.x - this.px, v.z - this.pz) < core.tuning.droneOrbit + 15) this.finish(true, '');
+      return;
+    }
     if (!this.wantsFlight) return;
     this.fly(v);
     if (now >= this.scanAt) {

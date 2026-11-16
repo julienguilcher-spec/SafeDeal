@@ -47,6 +47,8 @@ import { createBravm, createCompany, createEquipage, createGroup, createPeloton,
  * la vue du joueur (m). */
 const BOARD_STUCK = 30;
 const BOARD_UNSEEN = 40;
+/** Vitesse de marche retenue pour le délai du repli « coincé » (m/s, prudente : détours compris). */
+const BOARD_WALK = 1.5;
 const G = 9.81;
 
 /** Ordres de mise en place qu'un joueur fait exécuter au trot quand le point est à plus de PLAYER_RUSH_MIN mètres. */
@@ -496,6 +498,8 @@ export class PoliceSystem implements GameSystem {
       this.board(a);
       return;
     }
+    // hors embarquement : l'horodatage d'un embarquement précédent ne doit pas resservir au suivant
+    a.boardAt = 0;
     if (a.op !== null) {
       if (a.hold) halt(a, a.face);
       else steer(k, a, a.goalX, a.goalZ, 0, 0, a.face, a.vcap, a.opRole !== 3);
@@ -560,9 +564,13 @@ export class PoliceSystem implements GameSystem {
     const dx = v.x - p.x;
     const dz = v.z - p.z;
     const reach = Math.max(v.def.length, v.def.width) * 0.5 + 1;
+    // désigné sans horodatage (retardataire d'une colonne) : le délai part de maintenant
+    if (a.boardAt <= 0) a.boardAt = k.now;
     // coincé derrière une grille ou un muret que la navigation ignore : au bout d'un moment, hors de la vue du
-    // joueur, il a fait le tour — il monte à bord (une colonne n'attend pas trois minutes un agent bloqué)
-    const stuck = a.boardAt > 0 && k.now - a.boardAt > BOARD_STUCK && this.unseen(p);
+    // joueur, il a fait le tour — il monte à bord (une colonne n'attend pas trois minutes un agent bloqué) ; jamais
+    // avant le temps qu'il lui faudrait pour rejoindre le véhicule à pied (pas de saut de 300 m)
+    const walk = Math.sqrt(dx * dx + dz * dz) / BOARD_WALK;
+    const stuck = k.now - a.boardAt > BOARD_STUCK + walk && this.unseen(p);
     if (stuck || dx * dx + dz * dz <= (reach + 0.3) * (reach + 0.3)) {
       const ok = p.poste === 'conducteur' ? ctx.vehicles.enter(p, v, 'driver') || ctx.vehicles.enter(p, v, 'passenger') : ctx.vehicles.enter(p, v, 'passenger');
       if (!ok) a.boardId = 0;

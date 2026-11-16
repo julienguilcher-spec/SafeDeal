@@ -29,6 +29,8 @@ import { SEIZED_ITEMS, WEAPON_ITEMS, hourText, offenseLabel } from './texts';
 
 /** Fenêtre avant l'interpellation dont les emplois de la force sont rattachés au dossier (s). */
 const FORCE_LOOKBACK = 30;
+/** Délai entre la remise du joueur (rôle civil) à l'officier de police judiciaire et la fin de la partie (s). */
+export const PLAYER_CUSTODY_END_DELAY = 8;
 
 /** État d'exécution d'une retenue en cours. */
 export interface Hold {
@@ -54,6 +56,12 @@ export class Custody {
   readonly parked: Person[] = [];
   private readonly holdOf = new Map<EntityId, Hold>();
   private readonly seizeIds: ItemId[] = [];
+  /**
+   * Joueur non policier remis à l'OPJ : instant de la remise (-1 sinon). La garde à vue met fin à sa
+   * partie (custody-step.ts) — sans cela il resterait assis, menotté, sans commande ni issue.
+   */
+  playerHandedAt = -1;
+  playerHandedId: EntityId = 0;
 
   constructor(private readonly k: Kernel) {}
 
@@ -61,6 +69,8 @@ export class Custody {
     this.holds.length = 0;
     this.holdOf.clear();
     this.parked.length = 0;
+    this.playerHandedAt = -1;
+    this.playerHandedId = 0;
   }
 
   // ───────────────────────────── aptitudes ─────────────────────────────
@@ -359,6 +369,10 @@ export class Custody {
         (to === 'vehicule' ? ', à bord du véhicule' : ', au point de regroupement') + " pour présentation à l'officier de police judiciaire. PARLEZ.",
     });
     k.notify(target, "Vous êtes remis à l'officier de police judiciaire : la garde à vue commence.", 'alert', 8);
+    if (target.isPlayer && target.faction !== 'police') {
+      this.playerHandedAt = ctx.clock.now;
+      this.playerHandedId = target.id;
+    }
     k.notify(actor, 'Interpellé remis. Procédure ' + rec.strength + (rec.strength === 'solide' ? ' : fait établi par des images.'
       : rec.strength === 'fragile' ? ' : fait constaté, sans image.' : ' : aucun fait établi, classement sans suite probable.'), rec.strength === 'nulle' ? 'warn' : 'ok', 6);
     return true;

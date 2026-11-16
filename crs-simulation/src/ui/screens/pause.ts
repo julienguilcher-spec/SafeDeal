@@ -10,6 +10,7 @@ import type { InputLabelsApi, InputPointerApi } from '@/input/api';
 import { clear, el, h } from '../core/dom';
 import { capitalize, hourLabel, stopwatch } from '../core/format';
 import type { UiEnv } from '../core/kit';
+import { isPoliceRole } from '../hud/model';
 import { sortObjectives } from '../hud/objectives';
 
 const KEY_ROWS: readonly { label: string; button: Button }[] = [
@@ -126,11 +127,30 @@ export function createPause(env: UiEnv): (host: HTMLElement) => ScreenInstance {
     const paintKeys = (): void => {
       clear(keys);
       const touch = ctx.input.device === 'touch';
+      const labels = ctx.service<InputLabelsApi>('input.labels');
+      const row = (label: string, key: string): void => {
+        if (key) keys.append(h('span', undefined, label), h('span', 'ui-key', key));
+      };
+      // Clavier seul (Mac sans souris) : déplacement et regard aux touches, puis les touches lues hors réaffectation.
+      if (ctx.input.device === 'kbm' && labels) {
+        const codes = (a: Parameters<InputLabelsApi['labelsFor']>[0]): string => labels.labelsFor(a, 'kbm').join(' / ');
+        row('Avancer · tenir : trot, puis course', codes('move_forward'));
+        row('Reculer', codes('move_back'));
+        row('Tourner la vue', [codes('look_left'), codes('look_right')].filter((x) => x).join(' '));
+        row('Lever / baisser le regard', [codes('look_up'), codes('look_down')].filter((x) => x).join(' '));
+      }
       for (const r of KEY_ROWS) {
         const label = env.keyLabel(r.button);
         if (!label) continue;
         const key = h('span', 'ui-key', label);
         keys.append(h('span', undefined, r.label), key);
+      }
+      if (ctx.input.device === 'kbm') {
+        row('Pause', 'Échap');
+        if (isPoliceRole(ctx.player.state.role)) {
+          row('Retour vidéo du drone', 'O');
+          row('Proposition de l’adjoint : accepter / plus tard', 'P / Maj + P');
+        }
       }
       keysTitle.textContent = touch ? 'Boutons à l’écran' : ctx.input.device === 'gamepad' ? 'Commandes — manette' : 'Commandes — clavier et souris';
     };

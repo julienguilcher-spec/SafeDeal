@@ -65,6 +65,14 @@ export interface KbmEnv {
   activity(): void;
   /** La souris a été rendue sans que le jeu le demande (Échap, changement de fenêtre) : demander la pause. */
   autoPause(): void;
+  /** Le joueur est-il au volant ? Les touches « regarder à gauche / à droite » (← / →) servent alors de volant. */
+  driving?(): boolean;
+}
+
+/** Volant au clavier : braquage des touches de déplacement plus celui des touches de regard, borné à ±1. */
+export function steerWithLookKeys(moveX: number, kx: number): number {
+  const x = moveX + kx;
+  return x > 1 ? 1 : x < -1 ? -1 : x;
 }
 
 const tmp: Axis2 = { x: 0, y: 0 };
@@ -200,7 +208,10 @@ export class KbmSource {
     }
     const kx = (c[AX_LOOK_RIGHT]! > 0 ? 1 : 0) - (c[AX_LOOK_LEFT]! > 0 ? 1 : 0);
     const ky = (c[AX_LOOK_UP]! > 0 ? 1 : 0) - (c[AX_LOOK_DOWN]! > 0 ? 1 : 0);
-    if (kx !== 0) lookX += kx * KEY_YAW_SPEED * sens * dt;
+    // au volant, ← / → braquent (jeu au clavier seul : pas de souris pour la vue, et le volant sous les flèches) ;
+    // à pied, elles tournent la vue
+    if (kx !== 0 && this.env.driving !== undefined && this.env.driving()) a.moveX = steerWithLookKeys(a.moveX, kx);
+    else if (kx !== 0) lookX += kx * KEY_YAW_SPEED * sens * dt;
     if (ky !== 0) lookY += ky * KEY_PITCH_SPEED * sens * dt * (s.invertY ? -1 : 1);
     if (lookX !== 0 || lookY !== 0) {
       const pending = this.env.core.pending;
@@ -296,7 +307,7 @@ export class KbmSource {
       this.fallback = true;
       if (!this.toldFallback) {
         this.toldFallback = true;
-        this.env.notify('La souris ne peut pas être capturée ici : maintenez un bouton de la souris et glissez pour regarder, ou utilisez les flèches du clavier.');
+        this.env.notify('La souris ne peut pas être capturée ici : maintenez un bouton de la souris et glissez pour regarder, ou tournez la vue avec ← / → (Page préc. / Page suiv. pour lever ou baisser le regard).');
       }
     }
   }

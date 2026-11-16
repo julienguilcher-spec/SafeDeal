@@ -286,16 +286,21 @@ export class MissionBriefSystem implements GameSystem {
 
   private chiefOf(me: Person, group: Squad | undefined, section: Squad | undefined): MissionChief | null {
     const ctx = this.ctx!;
+    // chef hors de combat (tué, grièvement blessé, interpellé, retiré) : on suit l'échelon au-dessus, pas son corps
+    const able = (p: Person | undefined): p is Person => !!p && p.custody === 'free' && p.health > 0
+      && p.injury !== 'dead' && p.injury !== 'critical' && p.injury !== 'serious';
     let lead: Person | undefined;
     let role = 'chef de groupe';
-    if (group && group.leaderId !== 0 && group.leaderId !== me.id) {
-      lead = ctx.people.get(group.leaderId);
-      role = group.kind === 'equipage' ? "chef d'équipage" : group.kind === 'section' ? 'chef de section' : group.kind === 'binome' ? 'chef de binôme' : 'chef de groupe';
-    } else if (section && section.leaderId !== 0 && section.leaderId !== me.id) {
-      lead = ctx.people.get(section.leaderId);
-      role = section.kind === 'compagnie' ? 'commandant' : 'chef de section';
+    const gl = group && group.leaderId !== 0 && group.leaderId !== me.id ? ctx.people.get(group.leaderId) : undefined;
+    const sl = section && section.leaderId !== 0 && section.leaderId !== me.id ? ctx.people.get(section.leaderId) : undefined;
+    if (able(gl)) {
+      lead = gl;
+      role = group!.kind === 'equipage' ? "chef d'équipage" : group!.kind === 'section' ? 'chef de section' : group!.kind === 'binome' ? 'chef de binôme' : 'chef de groupe';
+    } else if (able(sl)) {
+      lead = sl;
+      role = section!.kind === 'compagnie' ? 'commandant' : 'chef de section';
     }
-    if (!lead || lead.custody !== 'free') return null;
+    if (!lead) return null;
     let x = lead.x, z = lead.z;
     if (lead.vehicleId !== 0) {
       const v = ctx.vehicles.get(lead.vehicleId);

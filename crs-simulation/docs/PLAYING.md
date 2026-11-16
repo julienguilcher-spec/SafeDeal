@@ -26,8 +26,9 @@ Paramètres → Commandes.
 
 | Action | Clavier / souris | Manette | Tactile |
 |---|---|---|---|
-| Se déplacer | Z Q S D | stick gauche | joystick virtuel à gauche |
-| Regarder, viser | souris (cliquer dans la vue pour la capturer) ou flèches | stick droit | glisser à droite de l'écran |
+| Se déplacer | Z Q S D, ou flèches ↑ / ↓ pour avancer / reculer | stick gauche | joystick virtuel à gauche |
+| Courir sans touche de sprint | garder l'avance enfoncée (Z ou ↑) plus d'une seconde : trot, puis course ; relâcher = marche | stick à fond | joystick à fond |
+| Regarder, viser | souris (cliquer dans la vue pour la capturer), ou ← / → pour tourner et Page préc. / Page suiv. (fn + ↑ / fn + ↓ sur Mac) pour lever / baisser le regard | stick droit | glisser à droite de l'écran |
 | Marcher / trottiner (bascule) | touche à gauche de X (« W » en AZERTY, « Z » en QWERTY) — on marche par défaut | inclinaison du stick | inclinaison du joystick |
 | Sprinter | Maj gauche (tenir) | clic du stick gauche | pousser le joystick à fond |
 | S'accroupir / sauter, enjamber | C / Espace | B / A | boutons |
@@ -40,10 +41,12 @@ Paramètres → Commandes.
 | Radio / roue d'ordres | T / F | croix haut / droite | boutons |
 | Plan de Paris / carte tactique | M / Tab | Select (un appui : plan ; deux : carte tactique ; trois : retour au jeu) — ou menu de pause | boutons |
 | Zoom | + / − | — | — |
-| Pause | Échap ou P | Start | bouton |
+| Pause | Échap (seulement) | Start | bouton |
+| Proposition de l'adjoint : accepter / plus tard | P / Maj + P | — | bouton |
+| Retour vidéo du drone (fenêtre à gauche) | O | — | — |
 | Avance rapide ×4 (bascule) | . (point) | — | bouton |
 
-En véhicule : avancer / reculer = accélérer / freiner, gauche / droite = volant, Espace = frein à main,
+En véhicule : avancer / reculer (Z / S ou ↑ / ↓) = accélérer / freiner, gauche / droite (Q / D ou ← / →) = volant, Espace = frein à main,
 R = sirène, B = gyrophares, N = klaxon, V = vue intérieure / extérieure, E = descendre.
 
 ## Paramètres d'URL utiles

@@ -336,6 +336,8 @@ export class PlayerController implements GameSystem {
     cmd.moveX = 0;
     cmd.moveZ = 0;
     cmd.jump = false;
+    // commandes coupées (écran, montée à bord, à terre) : la course automatique repartira de la marche
+    this.pushT = 0;
     this.items.release(p);
   }
 

@@ -50,9 +50,9 @@ describe('entrées — table par défaut conforme à docs/ARCHITECTURE.md §5', 
   const pad = (a: BindAction): readonly string[] => s.get('gamepad', a);
 
   it('clavier/souris', () => {
-    expect(kbm('move_forward')).toEqual(['KeyW']);
+    expect(kbm('move_forward')).toEqual(['KeyW', 'ArrowUp']);
     expect(kbm('move_left')).toEqual(['KeyA']);
-    expect(kbm('move_back')).toEqual(['KeyS']);
+    expect(kbm('move_back')).toEqual(['KeyS', 'ArrowDown']);
     expect(kbm('move_right')).toEqual(['KeyD']);
     expect(kbm('primary')).toEqual(['Mouse0']);
     expect(kbm('secondary')).toEqual(['Mouse2']);

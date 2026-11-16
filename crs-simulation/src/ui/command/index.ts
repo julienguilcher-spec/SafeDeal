@@ -73,6 +73,8 @@ export class CommandSystem implements GameSystem {
       ctx.events.on('session:started', () => {
         core.invalidateScope();
         core.issued.length = 0;
+        // ordres repris au débarquement : propres à la session (les identifiants d'unités sont réattribués)
+        core.afterConvoy.clear();
         core.orderForce = 4;
         this.ordersDirty = true;
       }),

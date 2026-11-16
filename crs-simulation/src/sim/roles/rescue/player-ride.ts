@@ -256,7 +256,9 @@ export class PlayerRide implements PlayerRideView {
     }
     const aboard = p.vehicleId === v.id;
     const elapsed = now - this.since;
-    const late = !aboard && elapsed > waitMax;
+    // parti sans le joueur et resté loin derrière : la victime ne l'attend pas, l'ambulance évacue tout de suite
+    const late = !aboard && (elapsed > waitMax
+      || (this.stage === 'evacuation' && this.leftBehind && Math.hypot(p.x - v.x, p.z - v.z) > 150));
     let ready = true;
     for (let i = 0; i < crew.members.length; i++) {
       const r = crew.members[i];
@@ -375,6 +377,13 @@ export class PlayerRide implements PlayerRideView {
         // à l'arrêt devant une zone non sûre, le joueur décide d'y aller à pied : l'équipage le suit
         this.stage = 'aucun';
         this.rolling = false;
+        return;
+      }
+      if (drv && p.vehicleId !== v.id
+        && Math.min(Math.hypot(v.x - call.x, v.z - call.z), Math.hypot(p.x - call.x, p.z - call.z)) <= DISMOUNT_RANGE) {
+        // descendu tout près des lieux : il finit à pied, l'équipage descend avec lui (l'engin ne l'attend pas pour
+        // repartir « sans lui » deux minutes plus tard)
+        this.arrive(crew, call, p);
         return;
       }
       this.enterBoard('embarquement');

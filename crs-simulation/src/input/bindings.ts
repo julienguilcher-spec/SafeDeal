@@ -28,8 +28,10 @@ type Table = Partial<Record<BindAction, readonly string[]>>;
 
 /** Clavier/souris — conforme au tableau « Commandes par défaut » de docs/ARCHITECTURE.md §5. */
 export const DEFAULT_KBM: Readonly<Table> = {
-  move_forward: ['KeyW'], move_back: ['KeyS'], move_left: ['KeyA'], move_right: ['KeyD'],
-  look_left: ['ArrowLeft'], look_right: ['ArrowRight'], look_up: ['ArrowUp'], look_down: ['ArrowDown'],
+  // Flèches ↑ / ↓ = avancer / reculer (jeu au clavier seul, sans souris : Mac portable) ; ← / → tournent la
+  // vue ; Page préc. / Page suiv. lèvent / baissent le regard. Les menus gardent les flèches (ui_*, contexte à part).
+  move_forward: ['KeyW', 'ArrowUp'], move_back: ['KeyS', 'ArrowDown'], move_left: ['KeyA'], move_right: ['KeyD'],
+  look_left: ['ArrowLeft'], look_right: ['ArrowRight'], look_up: ['PageUp'], look_down: ['PageDown'],
   primary: ['Mouse0'], secondary: ['Mouse2'],
   interact: ['KeyE'],
   sprint: ['ShiftLeft'], crouch: ['KeyC'], jump: ['Space'],
@@ -76,9 +78,18 @@ const PAD_CODE = /^B(\d|1[0-6])$/;
 /** Codes reconnus pour le clavier et la souris : tout KeyboardEvent.code plausible, boutons de souris, molette. */
 const KBM_CODE = /^[A-Z][A-Za-z0-9]{1,24}$/;
 
+/**
+ * Touches lues directement par l'interface, hors de cette table : O = retour vidéo du drone
+ * (ui/drone/index.ts, DRONE_FEED_KEY), P / Maj + P = proposition de l'adjoint (ui/command/quickActions.ts).
+ * Les affecter à une action ferait agir un seul appui deux fois : elles sont refusées.
+ */
+export const RESERVED_KBM: Readonly<Record<string, string>> = {
+  KeyO: 'retour vidéo du drone', KeyP: 'propositions de l’adjoint',
+};
+
 export function isValidCode(device: BindDevice, code: unknown): code is string {
   if (typeof code !== 'string') return false;
-  return device === 'gamepad' ? PAD_CODE.test(code) : KBM_CODE.test(code);
+  return device === 'gamepad' ? PAD_CODE.test(code) : KBM_CODE.test(code) && RESERVED_KBM[code] === undefined;
 }
 
 /** Format enregistré : uniquement les actions modifiées. */
@@ -305,6 +316,7 @@ export class BindingStore {
     for (const d of ['kbm', 'gamepad'] as const) {
       const section = data[d];
       if (!section || typeof section !== 'object') continue;
+      const custom: number[] = [];
       for (const key of Object.keys(section)) {
         const i = actionIndex(key);
         const codes = (section as Record<string, unknown>)[key];
@@ -314,7 +326,38 @@ export class BindingStore {
           if (clean.length < MAX_SLOTS && isValidCode(d, c) && clean.indexOf(c) < 0) clean.push(c);
         }
         this.tables[d][i] = clean;
+        custom.push(i);
       }
+      this.dropDefaultsTakenByCustom(d, custom);
+    }
+  }
+
+  /**
+   * Les valeurs par défaut changent parfois (flèches ↑ / ↓ passées du regard au déplacement) alors que
+   * seuls les écarts sont enregistrés : une action restée par défaut pourrait alors partager une touche
+   * avec une action que le joueur a réaffectée lui-même (double action). Le choix enregistré du joueur
+   * l'emporte : la touche est retirée de l'action restée par défaut, comme lors d'une réaffectation.
+   * (Pas de changement de BINDINGS_VERSION : cela effacerait toutes les touches personnalisées.)
+   */
+  private dropDefaultsTakenByCustom(device: BindDevice, custom: readonly number[]): void {
+    if (custom.length === 0) return;
+    const table = this.tables[device];
+    for (let i = 0; i < ACTION_COUNT; i++) {
+      if (custom.indexOf(i) >= 0) continue;
+      const ctx = actionContext(ACTIONS[i]!);
+      const codes = table[i]!;
+      let kept: string[] | null = null;
+      for (let k = 0; k < codes.length; k++) {
+        const code = codes[k]!;
+        let taken = false;
+        for (let m = 0; m < custom.length && !taken; m++) {
+          const j = custom[m]!;
+          taken = table[j]!.indexOf(code) >= 0 && contextsOverlap(ctx, actionContext(ACTIONS[j]!));
+        }
+        if (taken) kept ??= codes.slice(0, k);
+        else if (kept) kept.push(code);
+      }
+      if (kept) table[i] = kept;
     }
   }
 }

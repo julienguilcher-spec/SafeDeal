@@ -194,6 +194,11 @@ export class InputSystem implements GameSystem {
       notify: (text) => this.notify(text, 8),
       activity: () => this.noteDevice('kbm'),
       autoPause: () => this.autoPause(),
+      driving: () => {
+        const v = ctx.player.vehicle();
+        const me = ctx.player.person();
+        return v !== null && me !== null && me !== undefined && !v.def.flying && v.seats[0] === me.id;
+      },
     });
     this.kbm.attach();
     this.touch.attach(uiEl);

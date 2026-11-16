@@ -14,6 +14,7 @@
 
 import type { Person } from '@/core/contracts';
 import type { Kernel } from './kernel';
+import { PLAYER_CUSTODY_END_DELAY } from './custody';
 import { GRIP_LENGTH, tether } from './subdue';
 
 /** Distance au-delà de laquelle l'escorté est ramené au contact, et au-delà de laquelle il est replacé d'un coup (m). */
@@ -168,5 +169,16 @@ export function custodyUpdate(k: Kernel): void {
     }
     p.vx = 0;
     p.vz = 0;
+  }
+
+  // joueur civil remis à l'OPJ : la garde à vue clôt sa partie (compte rendu), le temps de lire l'avis
+  if (custody.playerHandedAt >= 0 && now - custody.playerHandedAt >= PLAYER_CUSTODY_END_DELAY) {
+    const me = people.get(custody.playerHandedId);
+    if (!me || !me.isPlayer || (me.custody !== 'in_vehicle' && me.custody !== 'handed_over')) {
+      custody.playerHandedAt = -1;
+    } else if (ctx.session.phase === 'playing') {
+      custody.playerHandedAt = -1;
+      ctx.session.end(true);
+    }
   }
 }

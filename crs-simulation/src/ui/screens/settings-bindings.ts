@@ -6,6 +6,7 @@
  * ===================================================================================== */
 
 import type { InputBindingsApi, InputLabelsApi } from '@/input/api';
+import { RESERVED_KBM } from '@/input/bindings';
 import { clear, el, h } from '../core/dom';
 import { icon } from '../core/icons';
 import type { UiEnv } from '../core/kit';
@@ -64,7 +65,10 @@ export function buildBindings(env: UiEnv): SettingsPane {
         }
         const lost = api.set(device, action, slot, captured);
         if (lost === null) {
-          ctx.ui.notify('Cette touche ne peut pas être affectée à cette action.', 'warn');
+          const reserved = device === 'kbm' ? RESERVED_KBM[captured] : undefined;
+          ctx.ui.notify(reserved
+            ? `${names.codeLabel(device, captured)} est réservée (${reserved}) : choisissez une autre touche.`
+            : 'Cette touche ne peut pas être affectée à cette action.', 'warn');
         } else if (lost.length > 0) {
           ctx.ui.notify(`${actionName} : ${names.codeLabel(device, captured)} — retirée de ${lost.map((a) => names.actionName(a)).join(', ')}.`, 'info', 5);
         } else {
