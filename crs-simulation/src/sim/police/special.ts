@@ -244,6 +244,7 @@ export function startEmbark(k: Kernel, u: Unit, o: SquadOrder): void {
     const v = ctx.vehicles.get(fleet[pick])!;
     if (!(p.poste === 'conducteur' && driverSeatFree(v) && fleet[pick] === (a.home ? a.home.squad.vehicleId : 0))) freeSeats[pick]--;
     a.boardId = v.id;
+    a.boardAt = k.now;
     a.hasSlot = false;
     a.pathN = 0;
     assigned++;

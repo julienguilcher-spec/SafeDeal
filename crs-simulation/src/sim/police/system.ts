@@ -43,6 +43,10 @@ import { eachDescendant, refreshFormable, resolveLeads, syncTree, ledByPlayer, p
 import * as T from './tuning';
 import { createBravm, createCompany, createEquipage, createGroup, createPeloton, createSection, membersOf } from './units';
 
+/** Embarquement : délai au-delà duquel un agent qui n'atteint pas son véhicule y monte d'office (s), s'il est hors de
+ * la vue du joueur (m). */
+const BOARD_STUCK = 30;
+const BOARD_UNSEEN = 40;
 const G = 9.81;
 
 /** Ordres de mise en place qu'un joueur fait exécuter au trot quand le point est à plus de PLAYER_RUSH_MIN mètres. */
@@ -556,12 +560,21 @@ export class PoliceSystem implements GameSystem {
     const dx = v.x - p.x;
     const dz = v.z - p.z;
     const reach = Math.max(v.def.length, v.def.width) * 0.5 + 1;
-    if (dx * dx + dz * dz <= (reach + 0.3) * (reach + 0.3)) {
+    // coincé derrière une grille ou un muret que la navigation ignore : au bout d'un moment, hors de la vue du
+    // joueur, il a fait le tour — il monte à bord (une colonne n'attend pas trois minutes un agent bloqué)
+    const stuck = a.boardAt > 0 && k.now - a.boardAt > BOARD_STUCK && this.unseen(p);
+    if (stuck || dx * dx + dz * dz <= (reach + 0.3) * (reach + 0.3)) {
       const ok = p.poste === 'conducteur' ? ctx.vehicles.enter(p, v, 'driver') || ctx.vehicles.enter(p, v, 'passenger') : ctx.vehicles.enter(p, v, 'passenger');
       if (!ok) a.boardId = 0;
       return;
     }
     steer(k, a, v.x, v.z, 0, 0, a.face, 2.2, true);
+  }
+
+  /** Personne hors de la vue du joueur (à plus de BOARD_UNSEEN mètres de lui). */
+  private unseen(p: Person): boolean {
+    const me = this.ctx.player.person();
+    return !me || me === p || Math.hypot(me.x - p.x, me.z - p.z) > BOARD_UNSEEN;
   }
 
   // ───────────────────────────── géométrie pour l'interface et les tests ─────────────────────────────

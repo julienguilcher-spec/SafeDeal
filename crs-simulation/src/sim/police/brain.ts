@@ -180,6 +180,8 @@ export interface Agent {
   crew: boolean;
   /** Véhicule à rejoindre (embarquement en cours). */
   boardId: EntityId;
+  /** Instant où l'embarquement vers boardId a commencé (s). */
+  boardAt: number;
   /** Aléa individuel 0..1, fixé à la création. */
   seed: number;
 }
@@ -465,7 +467,7 @@ export function createAgent(p: Person, seed: number): Agent {
     op: null, opRole: 0, goalX: p.x, goalZ: p.z, goalRun: false, hold: false,
     act: ACT_NONE, actItem: '', actMeans: '', actT: 0, actUntil: 0, actTx: 0, actTy: 0, actTz: 0, actTarget: 0,
     actRestore: '', actPower: 1, actDone: false, contactAt: 0, postX: 0, postZ: 0, postUntil: 0,
-    formable: true, able: true, downSince: 0, crew: false, boardId: 0, seed,
+    formable: true, able: true, downSince: 0, crew: false, boardId: 0, boardAt: 0, seed,
   };
 }
 
