@@ -22,7 +22,7 @@
  * Simulation pure (aucun DOM).
  * ===================================================================================== */
 
-import type { GameContext, GameSystem, Person, RoadSample, Vehicle } from '@/core/contracts';
+import type { GameContext, GameSystem, Person, Prop, RoadSample, Vehicle } from '@/core/contracts';
 import { SystemOrder } from '@/core/contracts';
 import { EXT } from '@/core/extensions';
 import type { Objective, ObjectivesApi } from '@/core/extensions';
@@ -636,12 +636,14 @@ export class JourneeSystem implements GameSystem {
   private lineUp(tx: number, tz: number, companyId = this.companyId): void {
     const ctx = this.ctx!;
     const list: Vehicle[] = [];
+    const idle: Vehicle[] = [];
     for (const s of ctx.squads.list) {
       if (s.vehicleId === 0 || this.companyOf(s.id) !== companyId) continue;
       const v = ctx.vehicles.get(s.vehicleId);
-      // (un véhicule sans conducteur — fourgon cellulaire sans équipage — ne part pas : le mettre en file sur
-      // l'itinéraire bloquerait ceux qui le suivent)
-      if (v && CONVOY_KINDS.has(v.kind) && !v.def.flying && list.indexOf(v) < 0 && Math.abs(v.speed) < 0.2 && v.seats[0] !== 0) list.push(v);
+      if (!v || !CONVOY_KINDS.has(v.kind) || v.def.flying || list.indexOf(v) >= 0 || idle.indexOf(v) >= 0 || Math.abs(v.speed) >= 0.2) continue;
+      // (un véhicule sans conducteur — fourgon cellulaire sans équipage — ne part pas : il est rangé hors de la file)
+      if (v.seats[0] !== 0) list.push(v);
+      else idle.push(v);
     }
     if (list.length === 0) return;
     const rank = (v: Vehicle): number => (v.kind === 'vl_commandement' ? 0 : v.kind === 'fourgon_cellulaire' ? 3 : v.kind === 'fourgon_crs' || v.kind === 'car_crs' ? 1 : 2);
@@ -655,25 +657,88 @@ export class JourneeSystem implements GameSystem {
     try { ok = ctx.world.findPath(cx, cz, tx, tz, 'vehicle', path) && path.length >= 4; } catch { ok = false; }
     if (!ok) return;
     const p = { x: 0, z: 0 };
+    const moving = new Set<Vehicle>([...list, ...idle]);
+    const near: Vehicle[] = [];
+    const props: Prop[] = [];
+    const road = this.road;
+    // place libre pour un véhicule : sans mur ni objet, sur la chaussée, à l'écart des autres véhicules (sauf ceux qu'on
+    // range, pas encore placés)
+    const placed = new Set<Vehicle>();
+    const free = (v: Vehicle, x: number, z: number, h: number): boolean => {
+      const hw = v.def.width * 0.5, hl = v.def.length * 0.5;
+      const fx = Math.sin(h), fz = Math.cos(h);
+      for (const k of [-1, 0, 1]) {
+        if (!ctx.world.isFree(x + fx * k * (hl - hw), z + fz * k * (hl - hw), hw + 0.15)) return false;
+        const sf = ctx.world.surfaceAt(x + fx * k * hl, z + fz * k * hl);
+        if (sf !== 'road' && sf !== 'bridge' && sf !== 'sett' && sf !== 'plaza' && sf !== 'quay' && sf !== 'void') return false;
+      }
+      const n = ctx.vehicles.queryRadius(x, z, hl + 6, near);
+      for (let i = 0; i < n; i++) {
+        const o = near[i]!;
+        if (o === v || (moving.has(o) && !placed.has(o))) continue;
+        if (Math.hypot(o.x - x, o.z - z) < hl + o.def.length * 0.5 + 1.2) return false;
+      }
+      const np = ctx.props.queryRadius(x, z, hl + 2, props);
+      for (let i = 0; i < np; i++) {
+        const q = props[i]!;
+        if (!q.blocksMove || q.state === 'broken' || q.carriedBy !== 0) continue;
+        const r = Math.max(q.halfX, q.halfZ);
+        const along = (q.x - x) * fx + (q.z - z) * fz;
+        const lat = (q.x - x) * fz - (q.z - z) * fx;
+        if (Math.abs(along) < hl + r + 0.3 && Math.abs(lat) < hw + r + 0.3) return false;
+      }
+      return true;
+    };
+    const put = (v: Vehicle, x: number, z: number, h: number): void => {
+      v.x = x;
+      v.z = z;
+      v.heading = h;
+      v.vx = 0;
+      v.vz = 0;
+      v.speed = 0;
+      placed.add(v);
+    };
+    // du serre-file (le plus près du départ) à la tête (la plus avancée sur l'itinéraire), à droite de l'axe si possible
     let s = 6;
-    // du serre-file (le plus près du départ) à la tête (la plus avancée sur l'itinéraire)
     for (let i = list.length - 1; i >= 0; i--) {
       const v = list[i]!;
-      s += v.def.length * 0.5;
-      const h = pointOnPolyline(path, s, p);
-      // à droite de l'axe de la voie si la place est libre
-      const rx = Math.cos(h), rz = -Math.sin(h);
-      let x = p.x + rx * 1.4, z = p.z + rz * 1.4;
-      if (!ctx.world.isFree(x, z, v.def.width * 0.5)) { x = p.x; z = p.z; }
-      if (ctx.world.isFree(x, z, v.def.width * 0.45)) {
-        v.x = x;
-        v.z = z;
-        v.heading = h;
-        v.vx = 0;
-        v.vz = 0;
-        v.speed = 0;
+      let done = false;
+      for (let tries = 0; tries < 10 && !done; tries++) {
+        s += v.def.length * 0.5;
+        const h = pointOnPolyline(path, s, p);
+        const rx = Math.cos(h), rz = -Math.sin(h);
+        const half = ctx.world.nearestRoad(p.x, p.z, road, 20) ? road.width * 0.5 : 4;
+        const side = Math.max(0, Math.min(2.2, half - v.def.width * 0.5 - 0.6));
+        for (const off of [side, side * 0.5, 0, -side * 0.5]) {
+          const x = p.x + rx * off, z = p.z + rz * off;
+          if (!free(v, x, z, h)) continue;
+          put(v, x, z, h);
+          done = true;
+          break;
+        }
+        s += v.def.length * 0.5 + (done ? 4 : 2);
       }
-      s += v.def.length * 0.5 + 4;
+    }
+    // véhicules sans conducteur : hors de la file, derrière le serre-file (ils ne barrent pas la sortie)
+    if (idle.length > 0) {
+      const h0 = Math.atan2(path[2]! - path[0]!, path[3]! - path[1]!);
+      const bx = -Math.sin(h0), bz = -Math.cos(h0);
+      const rx = Math.cos(h0), rz = -Math.sin(h0);
+      let back = 8;
+      for (const v of idle) {
+        let done = false;
+        for (let tries = 0; tries < 12 && !done; tries++) {
+          back += v.def.length * 0.5;
+          for (const off of [2, 0, -2]) {
+            const x = path[0]! + bx * back + rx * off, z = path[1]! + bz * back + rz * off;
+            if (!free(v, x, z, h0)) continue;
+            put(v, x, z, h0);
+            done = true;
+            break;
+          }
+          back += v.def.length * 0.5 + 2;
+        }
+      }
     }
   }
 

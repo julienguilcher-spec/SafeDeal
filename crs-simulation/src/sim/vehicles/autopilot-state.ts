@@ -30,6 +30,8 @@ export class ApState {
   cruise = 0;
   urgence = false;
   pushThrough = false;
+  /** Zones à éviter (foule) pour les itinéraires de ce trajet. */
+  avoidZones: readonly { x: number; z: number; r: number; cost?: number }[] | null = null;
   /** Stationnement en rang, chacun son tour : véhicule dont on attend qu'il ait fini de se garer (0 = aucun). */
   waitFor: EntityId = 0;
   // ── suivi, convoi ──
@@ -41,6 +43,8 @@ export class ApState {
   convoy = false;
   /** Véhicule qui me suit dans la colonne (0 si aucun). */
   behindId: EntityId = 0;
+  /** Temps passé à l'arrêt à attendre le suivant qui a décroché (s). */
+  lagWaitT = 0;
   // ── stationnement ──
   /** 0 approche, 1 alignement final, 2 recul de reprise. */
   parkPhase = 0;
@@ -58,12 +62,39 @@ export class ApState {
   obsSpeed = 0;
   obsReason: AutopilotReason = '';
   obsStatic = false;
+  /** Personne au bord du couloir devant (m ; Infinity si personne) : allure de prudence. */
+  pedNear = Infinity;
+  /** Personne qui s'engage vers la chaussée devant (m ; Infinity sinon). */
+  pedCross = Infinity;
   /** Véhicule qui barre le passage (0 sinon), sa position latérale (m, positive à ma gauche), et s'il attend lui aussi. */
   obsId: EntityId = 0;
   obsLat = 0;
   obsWaiting = false;
+  /** Objet qui barre le passage (0 sinon). */
+  obsPropId: EntityId = 0;
   /** Temps passé face à un véhicule lui-même à l'arrêt (s) : règle de priorité. */
   yieldT = 0;
+  // ── contournement d'un obstacle arrêté (objet, épave, véhicule garé ou à l'arrêt devant une urgence) ──
+  /** Obstacle contourné : véhicule (avoidVeh) ou objet (avoidProp), 0 sinon. */
+  avoidVeh: EntityId = 0;
+  avoidProp: EntityId = 0;
+  /** Contournement d'un mur (avoidProp = −1) : abscisse de fin du tronçon barré. */
+  avoidS1 = 0;
+  /** Le contournement en cours passe sur le trottoir. */
+  avoidKerb = false;
+  /** Décalage à gauche (m, négatif : à droite) en cours / voulu. */
+  avoidShift = 0;
+  avoidWant = 0;
+  /** Prochain contrôle du couloir de contournement (s) ; durée du contournement en cours (s). */
+  avoidCheckT = 0;
+  avoidT = 0;
+  /** Marche arrière à faire avant de s'engager (m restants) et instant de son début. */
+  avoidBack = 0;
+  avoidBackT = 0;
+  /** Temps passé arrêté derrière un obstacle contournable sans couloir libre (s). */
+  avoidWaitT = 0;
+  /** Nouvel itinéraire après des blocages répétés (compteur). */
+  replans = 0;
   // ── demi-tour ──
   /** 0 aucun, 1 marche avant braquée, 2 marche arrière contre-braquée. */
   uturn = 0;
@@ -78,6 +109,8 @@ export class ApState {
   /** Demi-largeur de la chaussée (m) et sens unique, relus avec la voie. */
   roadHalf = 4;
   roadOneway = false;
+  /** Sens unique pris à contresens. */
+  contraflow = false;
   // ── dépassement d'un deux-roues lent ──
   /** Deux-roues dépassé (0 si aucun) et décalage à gauche en cours / voulu (m). */
   passId: EntityId = 0;
@@ -93,6 +126,10 @@ export class ApState {
   // ── divers ──
   blockedFor = 0;
   stuckT = 0;
+  /** Temps passé coincé au même endroit (reprises en marche arrière), et cet endroit. */
+  stuckAcc = 0;
+  stuckX = 0;
+  stuckZ = 0;
   unstickT = 0;
   unstickTries = 0;
   hornT = 0;
@@ -111,12 +148,14 @@ export class ApState {
     this.cruise = 0;
     this.urgence = false;
     this.pushThrough = false;
+    this.avoidZones = null;
     this.waitFor = 0;
     this.leaderId = 0;
     this.leadSpeed = 0;
     this.leadAccel = 0;
     this.convoy = false;
     this.behindId = 0;
+    this.lagWaitT = 0;
     this.parkPhase = 0;
     this.parkTries = 0;
     this.phaseT = 0;
@@ -125,10 +164,24 @@ export class ApState {
     this.obsSpeed = 0;
     this.obsReason = '';
     this.obsStatic = false;
+    this.pedNear = Infinity;
+    this.pedCross = Infinity;
     this.obsId = 0;
     this.obsLat = 0;
     this.obsWaiting = false;
     this.yieldT = 0;
+    this.obsPropId = 0;
+    this.avoidVeh = 0;
+    this.avoidProp = 0;
+    this.avoidShift = 0;
+    this.avoidWant = 0;
+    this.avoidKerb = false;
+    this.avoidCheckT = 0;
+    this.avoidT = 0;
+    this.avoidBack = 0;
+    this.avoidBackT = 0;
+    this.avoidWaitT = 0;
+    this.replans = 0;
     this.uturn = 0;
     this.uturnMoves = 0;
     this.laneT = 0;
@@ -143,6 +196,7 @@ export class ApState {
     this.closureT = 0;
     this.blockedFor = 0;
     this.stuckT = 0;
+    this.stuckAcc = 0;
     this.unstickT = 0;
     this.unstickTries = 0;
     this.hornT = 0;
@@ -251,9 +305,35 @@ export class ApState {
         bestS = this.cum[i]! + Math.sqrt(l2) * t;
       }
     }
+    // loin de l'itinéraire (virage manqué, détour) : on cherche plus loin devant (60 m), sans revenir en arrière
+    if (best > 64) {
+      const far = Math.min(last, this.seg + 64);
+      for (let i = end + 1; i <= far && this.cum[i]! < this.s + 60; i++) {
+        const ax = path[i * 2]!;
+        const az = path[i * 2 + 1]!;
+        const dx = path[i * 2 + 2]! - ax;
+        const dz = path[i * 2 + 3]! - az;
+        const l2 = dx * dx + dz * dz;
+        let t = l2 > 1e-9 ? ((x - ax) * dx + (z - az) * dz) / l2 : 0;
+        if (t < 0) t = 0;
+        else if (t > 1) t = 1;
+        const ex = x - (ax + dx * t);
+        const ez = z - (az + dz * t);
+        const d2 = ex * ex + ez * ez;
+        if (d2 < best * 0.5) {
+          best = d2;
+          bestSeg = i;
+          bestS = this.cum[i]! + Math.sqrt(l2) * t;
+        }
+      }
+    }
     this.seg = bestSeg;
     if (bestS > this.s) this.s = bestS;
+    this.offPath = Math.sqrt(best);
   }
+
+  /** Distance du véhicule à l'itinéraire au dernier recalage (m). */
+  offPath = 0;
 
   /** Point à l'abscisse `s` (bornée) ; écrit le point et la direction unitaire du tronçon dans `out`. */
   sample(s: number, out: PathPoint): void {

@@ -7,7 +7,7 @@
  * ===================================================================================== */
 
 import type {
-  GameContext, LandmarkInfo, MapFurnitureInfo, MapShopInfo, PlaceInfo, RayHit, RoadEdgeInfo, RoadNodeInfo, RoadSample,
+  GameContext, LandmarkInfo, PathStartOptions, MapFurnitureInfo, MapShopInfo, PlaceInfo, RayHit, RoadEdgeInfo, RoadNodeInfo, RoadSample,
   SurfaceKind, Vec2, WorldBounds,
 } from '@/core/contracts';
 import {
@@ -540,8 +540,8 @@ export class WorldQueryImpl implements WorldQueryExt, TileHost {
     return true;
   }
 
-  findPath(ax: number, az: number, bx: number, bz: number, mode: 'foot' | 'vehicle', out: number[]): boolean {
-    return this.base.paths.find(ax, az, bx, bz, mode === 'vehicle', out);
+  findPath(ax: number, az: number, bx: number, bz: number, mode: 'foot' | 'vehicle', out: number[], start?: PathStartOptions): boolean {
+    return this.base.paths.find(ax, az, bx, bz, mode === 'vehicle', out, start);
   }
 
   randomFreePoint(x: number, z: number, radius: number, surface: 'sidewalk' | 'road' | 'any', rand: () => number, out: Vec2): boolean {

@@ -20,6 +20,7 @@ import { SystemOrder } from '@/core/contracts';
 interface Autopilot {
   status(v: Vehicle): Readonly<{ mode: string; state: string; reason: string; blockedFor: number; remaining: number; leaderId?: number }>;
   driveTo(v: Vehicle, x: number, z: number, options?: { urgence?: boolean; speed?: number; stopBefore?: number; pushThrough?: boolean }): boolean;
+  reroute?(v: Vehicle, pushThrough?: boolean): boolean;
 }
 interface CrowdCore {
   stir(x: number, z: number, radius: number, fear: number, anger: number): number;
@@ -39,8 +40,11 @@ const CLEAR_AFTER = 2.5;
 const REROUTE_AFTER = 12;
 /** Arrêté par un véhicule depuis : on le fait se ranger (s). */
 const VEHICLE_AFTER = 5;
-/** Arrêté par une voiture civile immobile depuis : elle est poussée ou dégagée (s). */
-const CIVIL_AFTER = 10;
+/**
+ * Arrêté par une voiture civile immobile depuis : elle est dégagée, hors de la vue du joueur (s). Dernier recours : un
+ * engin en intervention la contourne (pilote automatique) bien avant.
+ */
+const CIVIL_AFTER = 40;
 /** Bloqué contre un mur ou un obstacle fixe depuis : nouvel itinéraire, puis marche arrière (s). */
 const WALL_AFTER = 12;
 /** Coincé depuis (s), hors de vue du joueur (m) : replacé plus loin sur l'itinéraire (m). */
@@ -50,6 +54,30 @@ const SKIP_DIST = 30;
 /** Progression minimale attendue (m) sur la fenêtre (s). */
 const PROGRESS_MIN = 15;
 const PROGRESS_WINDOW = 60;
+
+/** Service de lecture des interventions du filet de sécurité (tests, débogage). */
+export const ENGINS_SERVICE = 'session.engins';
+
+/**
+ * Compteurs des interventions de dernier recours (véhicule replacé hors de la vue du joueur, reculé d'office, voiture
+ * civile retirée). La conduite normale ne doit pas en avoir besoin : un banc d'essai exige qu'ils restent à zéro.
+ */
+export interface EnginsStats {
+  /** Véhicule coincé replacé derrière son chef de file. */
+  unstickFollow: number;
+  /** Véhicule replacé plus loin sur son itinéraire (coincé, sans progrès, ou contre un mur). */
+  skipAhead: number;
+  /** Véhicule reculé d'office de quelques mètres contre un mur. */
+  wallNudge: number;
+  /** Voiture civile immobile retirée de la chaussée. */
+  civilRemoved: number;
+  /** Détail des replacements (identifiant, motif, position, instant). */
+  readonly log: { id: number; kind: string; why: string; x: number; z: number; t: number }[];
+}
+
+export interface EnginsApi {
+  readonly stats: EnginsStats;
+}
 
 interface Blocked {
   since: number;
@@ -75,11 +103,30 @@ export class EnginsSystem implements GameSystem {
   /** Suivi de la progression des véhicules sous pilote automatique. */
   private readonly progress = new Map<EntityId, { remaining: number; at: number }>();
 
+  readonly stats: EnginsStats = { unstickFollow: 0, skipAhead: 0, wallNudge: 0, civilRemoved: 0, log: [] };
+
+  provide(ctx: GameContext): void {
+    const self = this;
+    ctx.provide(ENGINS_SERVICE, { get stats() { return self.stats; } } satisfies EnginsApi);
+  }
+
   init(ctx: GameContext): void {
     this.ctx = ctx;
   }
 
+  /** Consigne une intervention de dernier recours. */
+  private note(v: Vehicle, field: 'unstickFollow' | 'skipAhead' | 'wallNudge' | 'civilRemoved', why: string): void {
+    this.stats[field]++;
+    const log = this.stats.log;
+    if (log.length < 200) log.push({ id: v.id, kind: v.kind, why: `${field}:${why}`, x: Math.round(v.x), z: Math.round(v.z), t: Math.round(this.ctx ? this.ctx.clock.now : 0) });
+  }
+
   reset(): void {
+    this.stats.unstickFollow = 0;
+    this.stats.skipAhead = 0;
+    this.stats.wallNudge = 0;
+    this.stats.civilRemoved = 0;
+    this.stats.log.length = 0;
     this.nextThink = 0;
     this.nextEscort = 0;
     this.blocked.clear();
@@ -123,7 +170,7 @@ export class EnginsSystem implements GameSystem {
       // pas de progrès vers le but depuis une minute (va-et-vient devant une station de vélos, un plot…) : même filet
       if (st.mode === 'drive' && this.noProgress(v, st.remaining, now) && this.unseen(v)) {
         const t = this.destinationOf(v, ap);
-        if (t && this.skipAhead(v, ap, t)) { this.progress.delete(v.id); continue; }
+        if (t && this.skipAhead(v, ap, t, 'sans_progres')) { this.progress.delete(v.id); continue; }
       }
       // (les motos de la BRAV-M ont leur propre conduite de colonne : bravm.ts)
       if (v.kind === 'moto_bravm') continue;
@@ -160,7 +207,7 @@ export class EnginsSystem implements GameSystem {
       if (!b.rerouted && now - b.since > REROUTE_AFTER && st.mode === 'drive') {
         const t = this.destinationOf(v, ap);
         if (t) {
-          ap.driveTo(v, t.x, t.z, { urgence: true, pushThrough: v.def.canPush === true });
+          this.reroute(v, ap, t);
           b.rerouted = true;
         }
       }
@@ -186,11 +233,12 @@ export class EnginsSystem implements GameSystem {
         if (ap.driveTo(ov, tx, tz, { speed: 3, stopBefore: 1 })) return;
       }
     }
-    if (ov && ov.faction !== 'police' && Math.abs(ov.speed) < 0.3 && blockedFor > CIVIL_AFTER) {
+    if (ov && ov.faction !== 'police' && Math.abs(ov.speed) < 0.3 && blockedFor > CIVIL_AFTER && this.unseen(v) && this.unseen(ov)) {
       // voiture garée en travers (ou abandonnée) : le Centaure la pousse à la lame, sinon elle est dégagée
       const driver = ov.seats[0] !== 0 ? ctx.people.get(ov.seats[0]!) : undefined;
       if (!driver || !driver.isPlayer) {
         if (v.def.canPush) ctx.events.emit('sfx', { id: 'tole', x: ov.x, y: ov.y + 0.5, z: ov.z, volume: 1 });
+        this.note(ov, 'civilRemoved', `gene_${v.kind}`);
         ctx.vehicles.remove(ov.id);
         return;
       }
@@ -199,7 +247,7 @@ export class EnginsSystem implements GameSystem {
     if (blockedFor > REROUTE_AFTER && (!b || !b.rerouted)) {
       const t = this.destinationOf(v, ap);
       if (t && ap.status(v).mode === 'drive') {
-        ap.driveTo(v, t.x, t.z, { urgence: true, pushThrough: v.def.canPush === true });
+        this.reroute(v, ap, t);
         this.blocked.set(v.id, { since: this.ctx!.clock.now, rerouted: true, hornAt: 0, firstAt: this.ctx!.clock.now });
       }
     }
@@ -217,21 +265,28 @@ export class EnginsSystem implements GameSystem {
     if (!b.rerouted) {
       b.rerouted = true;
       b.since = now;
-      ap.driveTo(v, t.x, t.z, { urgence: v.siren !== 0, pushThrough: v.def.canPush === true });
+      this.reroute(v, ap, t);
       return;
     }
     if (now - b.since < WALL_AFTER) return;
     // toujours coincé depuis longtemps, loin des yeux du joueur : il finit par se dégager (on le retrouve plus loin
     // sur son itinéraire) — une colonne ne reste pas figée dans une cour pendant que le reste du dispositif est parti
-    if (now - b.firstAt > STUCK_SKIP && this.unseen(v) && this.skipAhead(v, ap, t)) {
+    if (now - b.firstAt > STUCK_SKIP && this.unseen(v) && this.skipAhead(v, ap, t, 'mur')) {
       b.since = now;
       b.firstAt = now;
+      return;
+    }
+    // le pilote automatique se dégage lui-même (marche arrière, contournement, nouvel itinéraire) : le recul d'office
+    // n'est qu'un dernier recours, hors de la vue du joueur
+    if (now - b.firstAt < STUCK_SKIP || !this.unseen(v)) {
+      b.since = now;
       return;
     }
     const world = this.ctx!.world;
     const back = 4;
     const bx = v.x - Math.sin(v.heading) * back, bz = v.z - Math.cos(v.heading) * back;
     if (world.isFree(bx, bz, v.def.width * 0.5)) {
+      this.note(v, 'wallNudge', 'recul');
       v.x = bx;
       v.z = bz;
       v.vx = 0;
@@ -239,7 +294,7 @@ export class EnginsSystem implements GameSystem {
       v.speed = 0;
     }
     b.since = now;
-    ap.driveTo(v, t.x, t.z, { urgence: v.siren !== 0, pushThrough: v.def.canPush === true });
+    this.reroute(v, ap, t);
   }
 
   private unstick(v: Vehicle, ap: Autopilot, st: { mode: string; leaderId?: number }): boolean {
@@ -250,6 +305,7 @@ export class EnginsSystem implements GameSystem {
       const gap = lead.def.length * 0.5 + v.def.length * 0.5 + 4;
       const x = lead.x - Math.sin(lead.heading) * gap, z = lead.z - Math.cos(lead.heading) * gap;
       if (!ctx.world.isFree(x, z, v.def.width * 0.5)) return false;
+      this.note(v, 'unstickFollow', 'coince');
       v.x = x;
       v.z = z;
       v.heading = lead.heading;
@@ -260,7 +316,7 @@ export class EnginsSystem implements GameSystem {
     }
     if (st.mode !== 'drive') return false;
     const t = this.destinationOf(v, ap);
-    return !!t && this.skipAhead(v, ap, t);
+    return !!t && this.skipAhead(v, ap, t, 'coince');
   }
 
   /** La distance restante n'a pas baissé de PROGRESS_MIN mètres en PROGRESS_WINDOW secondes. */
@@ -280,7 +336,7 @@ export class EnginsSystem implements GameSystem {
   }
 
   /** Replace le véhicule une trentaine de mètres plus loin sur son itinéraire, dans l'axe, et le relance. */
-  private skipAhead(v: Vehicle, ap: Autopilot, t: { x: number; z: number }): boolean {
+  private skipAhead(v: Vehicle, ap: Autopilot, t: { x: number; z: number }, why: string): boolean {
     let path: number[] | null = null;
     let n = 0;
     try {
@@ -302,16 +358,26 @@ export class EnginsSystem implements GameSystem {
       acc += Math.hypot(x1 - x0, z1 - z0);
       if (acc < SKIP_DIST) continue;
       if (!world.isFree(x1, z1, v.def.width * 0.5)) continue;
+      this.note(v, 'skipAhead', why);
       v.x = x1;
       v.z = z1;
       v.heading = Math.atan2(x1 - x0, z1 - z0);
       v.vx = 0;
       v.vz = 0;
       v.speed = 0;
-      ap.driveTo(v, t.x, t.z, { urgence: v.siren !== 0, pushThrough: v.def.canPush === true });
+      this.reroute(v, ap, t);
       return true;
     }
     return false;
+  }
+
+  /**
+   * Nouvel itinéraire vers la destination, depuis là où il est (le Centaure pousse à la lame) : la conduite garde son
+   * allure, son urgence et sa place dans la colonne.
+   */
+  private reroute(v: Vehicle, ap: Autopilot, t: { x: number; z: number }): void {
+    if (ap.reroute && ap.reroute(v, v.def.canPush === true)) return;
+    ap.driveTo(v, t.x, t.z, { urgence: v.siren !== 0, pushThrough: v.def.canPush === true });
   }
 
   /** Destination courante d'un véhicule : dernier point demandé (mémorisé au premier blocage), sinon inconnue. */

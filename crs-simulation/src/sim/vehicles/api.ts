@@ -240,6 +240,11 @@ export interface DriveOptions {
    * vers le trottoir jusqu'au carrefour suivant). Par défaut false.
    */
   inLane?: boolean;
+  /**
+   * Zones à contourner si possible (foule, manifestation) : l'itinéraire évite les voies qui y passent, sauf s'il n'y a
+   * pas d'autre chemin raisonnable. Gardées pour les nouveaux itinéraires du même trajet.
+   */
+  avoid?: readonly { x: number; z: number; r: number; cost?: number }[];
 }
 
 export interface ConvoyOptions extends DriveOptions {
@@ -280,6 +285,11 @@ export interface AutopilotApi {
   park(v: Vehicle, x: number, z: number, heading: number): boolean;
   /** Stationnement aligné de plusieurs véhicules autour du point : en bataille, en épi ou en file. */
   parkRow(list: readonly Vehicle[], x: number, z: number, heading: number, layout?: ParkLayout, spacing?: number): boolean;
+  /**
+   * Nouvel itinéraire vers la même destination depuis la position et le cap actuels (conduite ou suivi en cours),
+   * sans rien changer d'autre : allure, urgence, place dans la colonne. false si impossible (l'ancien est gardé).
+   */
+  reroute?(v: Vehicle, pushThrough?: boolean, avoid?: DriveOptions['avoid']): boolean;
   /** Arrête le véhicule et rend la main. */
   stop(v: Vehicle): void;
   status(v: Vehicle): Readonly<AutopilotStatus>;

@@ -14,7 +14,7 @@
  * une Squad du magasin ctx.squads, rattachée à son échelon supérieur (parentId).
  * ===================================================================================== */
 
-import type { EntityId, Person, Squad, SquadKind, Vehicle, VehicleKind } from '@/core/contracts';
+import type { EntityId, Person, Prop, RoadSample, Squad, SquadKind, Vehicle, VehicleKind } from '@/core/contracts';
 import type { SpawnHelperApi, UnitSlot } from '@/sim/roles/archetypes/api';
 import type {
   BravmOptions, CompanyOptions, CrewKind, CrewOptions, GroupOptions, GroupType, PelotonOptions, RosterSlot, SectionOptions,
@@ -100,32 +100,103 @@ function letter(group: string): string {
 }
 
 /** Place un véhicule derrière le point de mise en place : deux files, le long du cap, à 22 m et au-delà. */
-function parkSpot(k: Kernel, b: Build, n: number, out: { x: number; z: number }): boolean {
+function parkSpot(k: Kernel, b: Build, n: number, out: { x: number; z: number; heading: number }): boolean {
   const fx = Math.sin(b.heading);
   const fz = Math.cos(b.heading);
   const rx = -fz;
   const rz = fx;
   const world = k.ctx.world;
+  out.heading = b.heading;
   for (let attempt = 0; attempt < 3; attempt++) {
     const file = attempt === 2 ? 0 : (n & 1 ? 1 : -1) * (attempt === 1 ? -1 : 1);
     const row = n >> 1;
     const back = 24 + row * 7.6;
     const x = b.x - fx * back + rx * file * 1.8;
     const z = b.z - fz * back + rz * file * 1.8;
-    if (world.isFree(x, z, 1.3) && world.isFree(x + fx * 2.4, z + fz * 2.4, 1.2) && world.isFree(x - fx * 2.4, z - fz * 2.4, 1.2)) {
+    if (world.isFree(x, z, 1.3) && world.isFree(x + fx * 2.4, z + fz * 2.4, 1.2) && world.isFree(x - fx * 2.4, z - fz * 2.4, 1.2) && !parkTaken(b, x, z)) {
       out.x = x;
       out.z = z;
       return true;
     }
   }
+  // Emplacement habituel pris (façade, grille, arbre juste derrière l'unité) : sans filet, l'unité commençait SANS son
+  // véhicule — donc à pied pour toute la partie. On cherche plus loin derrière et sur les côtés, puis sur la chaussée
+  // la plus proche, dans l'axe de la voie.
+  for (let back = 24; back <= 84; back += 7.6) {
+    for (const file of PARK_FILES) {
+      const x = b.x - fx * back + rx * file * 1.8;
+      const z = b.z - fz * back + rz * file * 1.8;
+      if (!parkClear(k, x, z, b.heading)) continue;
+      out.x = x;
+      out.z = z;
+      return true;
+    }
+  }
+  for (let r = 0; r <= 180; r += 10) {
+    const count = r === 0 ? 1 : Math.max(8, Math.round((2 * Math.PI * r) / 14));
+    for (let i = 0; i < count; i++) {
+      const a = (i / count) * Math.PI * 2;
+      if (!world.nearestRoad(b.x + Math.cos(a) * r, b.z + Math.sin(a) * r, parkRoad, 12) || parkRoad.width < 4) continue;
+      const h = parkRoad.heading;
+      const edge = Math.max(0, parkRoad.width * 0.5 - 1.7);
+      // le long du trottoir de droite d'abord, puis vers l'axe
+      for (const f of PARK_OFFSETS) {
+        const x = parkRoad.x + Math.cos(h) * edge * f;
+        const z = parkRoad.z - Math.sin(h) * edge * f;
+        if (!parkClear(k, x, z, h)) continue;
+        out.x = x;
+        out.z = z;
+        out.heading = h;
+        return true;
+      }
+    }
+  }
   return false;
 }
 
-const spot = { x: 0, z: 0 };
+const PARK_FILES: readonly number[] = [-1, 1, 0, -3, 3, -5, 5];
+const PARK_OFFSETS: readonly number[] = [1, 0.5, 0];
+const parkRoad = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '' } as RoadSample;
+const parkProps: Prop[] = [];
+
+/** Une caisse tient-elle ici, au cap `h` : ni mur, ni bâti, ni eau, ni pelouse, ni mobilier, ni autre véhicule ? */
+function parkClear(k: Kernel, x: number, z: number, h: number): boolean {
+  const ctx = k.ctx;
+  const world = ctx.world;
+  const fx = Math.sin(h);
+  const fz = Math.cos(h);
+  if (!(world.isFree(x, z, 1.3) && world.isFree(x + fx * 2.4, z + fz * 2.4, 1.2) && world.isFree(x - fx * 2.4, z - fz * 2.4, 1.2))) return false;
+  const surf = world.surfaceAt(x, z);
+  if (surf === 'water' || surf === 'building' || surf === 'interior' || surf === 'park') return false;
+  // (liste complète : l'index spatial ne connaît pas encore les véhicules créés à l'instant)
+  const list = ctx.vehicles.list;
+  for (let i = 0; i < list.length; i++) {
+    const o = list[i]!;
+    const dx = o.x - x, dz = o.z - z;
+    const reach = 3.4 + o.def.length * 0.5;
+    if (dx * dx + dz * dz >= reach * reach) continue;
+    // rangé dans le même axe : côte à côte ou l'un derrière l'autre, à une portière près ; sinon, hors de son cercle
+    const parallel = Math.abs(Math.sin(o.heading - h)) < 0.35;
+    if (!parallel) return false;
+    const along = Math.abs(dx * fx + dz * fz);
+    const lat = Math.abs(dx * fz - dz * fx);
+    if (along < 2.9 + o.def.length * 0.5 && lat < 1.3 + o.def.width * 0.5) return false;
+  }
+  return ctx.props.queryRadius(x, z, 3.2, parkProps, (q) => q.blocksMove) === 0;
+}
+
+/** Un véhicule de l'unité occupe-t-il déjà cet emplacement (rangé là par le filet ci-dessus) ? */
+function parkTaken(b: Build, x: number, z: number): boolean {
+  const list = b.handle.vehicles;
+  for (let i = 0; i < list.length; i++) if (Math.hypot(list[i]!.x - x, list[i]!.z - z) < 3) return true;
+  return false;
+}
+
+const spot = { x: 0, z: 0, heading: 0 };
 
 function spawnVehicle(k: Kernel, b: Build, kind: VehicleKind, squad: Squad | null, color?: number): Vehicle | null {
   if (!parkSpot(k, b, b.handle.vehicles.length, spot)) return null;
-  const v = k.ctx.vehicles.spawn(kind, spot.x, spot.z, b.heading, { faction: 'police', color });
+  const v = k.ctx.vehicles.spawn(kind, spot.x, spot.z, spot.heading, { faction: 'police', color });
   b.handle.vehicles.push(v);
   if (squad) squad.vehicleId = v.id;
   k.reserveOf(v);

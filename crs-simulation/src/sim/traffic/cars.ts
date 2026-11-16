@@ -255,6 +255,9 @@ export class Cars {
       const z = pt.z;
       const d2 = k.distToFocus2(x, z);
       if (d2 < min2 || d2 > t.spawnMax * t.spawnMax) continue;
+      // pas d'apparition sous les yeux du joueur (au bout d'une avenue rectiligne qu'il regarde) : il naît hors
+      // champ ou derrière les façades, et entre dans la vue en roulant
+      if (k.visible(x, z)) continue;
       if (!ctx.world.isLoaded(x, z)) continue;
       if (ctx.vehicles.queryRadius(x, z, 22, this.near) > 0) continue;
       if (ctx.people.countIn(x, z, 6) > 0) continue;
@@ -383,7 +386,9 @@ export class Cars {
     if (b) {
       const driver = this.k.ctx.people.get(b.driverId);
       this.forget(b, false);
-      if (driver && driver.vehicleId === id) this.k.ctx.people.remove(driver.id);
+      // (le véhicule a déjà été vidé quand l'événement arrive : le conducteur, éjecté à côté, disparaît avec lui —
+      // sans quoi il restait planté au milieu de la chaussée, sans personne pour le faire marcher)
+      if (driver && !driver.isPlayer && (driver.vehicleId === id || driver.vehicleId === 0)) this.k.ctx.people.remove(driver.id);
     }
     const i = this.abandoned.indexOf(id);
     if (i >= 0) this.abandoned.splice(i, 1);

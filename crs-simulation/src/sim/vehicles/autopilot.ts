@@ -19,21 +19,74 @@
  * conducteur s'il en veut un) ; il met le contact et rend un véhicule arrêté, frein serré.
  * ===================================================================================== */
 
-import type { EntityId, Vehicle } from '@/core/contracts';
+import type { EntityId, PathStartOptions, RayHit, RoadSample, Vehicle } from '@/core/contracts';
+import { makeRayHit } from '@/core/null-services';
 import { angleDiff } from '@/core/math';
 import type { AutopilotApi, AutopilotStatus, ConvoyOptions, DriveOptions, ParkLayout } from './api';
 import { ApDriver, DEFAULT_SPEED } from './autopilot-drive';
 import { ApSensor } from './autopilot-sense';
 import { ApState } from './autopilot-state';
+import type { PathPoint } from './autopilot-state';
 import { IDLE_STATUS } from './runtime';
 import type { VehicleKernel, VehicleRt } from './runtime';
 
 export class Autopilot implements AutopilotApi {
   private readonly driver: ApDriver;
   private readonly scratch: number[] = [];
+  private readonly keepBuf: number[] = [];
+  private readonly footBuf: number[] = [];
+  private readonly hit: RayHit = makeRayHit();
+  /** Nouvel itinéraire après un demi-tour impossible : le demi-tour sur place est exclu. */
+  private forceAround = false;
+  private readonly road: RoadSample = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '', roadClass: 'residential', oneway: false };
+  private readonly start: PathStartOptions = { heading: 0, uturn: 0 };
 
   constructor(private readonly k: VehicleKernel) {
     this.driver = new ApDriver(k, new ApSensor(k));
+    this.driver.replan = (rt, ap, around, blocked) => this.replan(rt, ap, around === true, blocked === true);
+  }
+
+  /**
+   * Nouvel itinéraire vers la même destination depuis la position et le cap actuels, sans rien changer d'autre (allure,
+   * urgence, place dans la colonne). false si aucun chemin (l'ancien est gardé).
+   */
+  private replan(rt: VehicleRt, ap: ApState, around = false, blocked = false): boolean {
+    if (blocked) this.markBlocked(rt);
+    if (ap.mode === 'follow') {
+      // suivant : trace par les rues jusqu'au meneur, droit devant
+      const ctx = this.k.ctx;
+      const lv = ctx.vehicles.get(ap.leaderId);
+      const lp = lv ? undefined : ctx.people.get(ap.leaderId);
+      const l = lv ?? lp;
+      if (!l) return false;
+      this.forceAround = around;
+      const ok = this.plan(rt, ap, l.x, l.z);
+      this.forceAround = false;
+      if (ok) ap.axisUntil = 0;
+      return ok;
+    }
+    if (ap.mode !== 'drive' || ap.n < 2) return false;
+    const x = ap.path[ap.n * 2 - 2]!;
+    const z = ap.path[ap.n * 2 - 1]!;
+    this.forceAround = around;
+    const keep = this.keepBuf;
+    keep.length = 0;
+    for (let i = 0; i < ap.n * 2; i++) keep.push(ap.path[i]!);
+    const n = ap.n;
+    const axis = ap.axisUntil >= ap.total;
+    const endInLane = ap.endInLane;
+    const planned = this.plan(rt, ap, x, z);
+    this.forceAround = false;
+    if (!planned) {
+      ap.setPath(keep, n);
+      ap.axisUntil = axis ? ap.total : 0;
+      ap.endInLane = endInLane;
+      return false;
+    }
+    if (!axis) ap.axisUntil = 0;
+    ap.uturn = 0;
+    ap.obsDist = Infinity;
+    return true;
   }
 
   private state(rt: VehicleRt): ApState {
@@ -61,14 +114,96 @@ export class Autopilot implements AutopilotApi {
 
   // ───────────────────────────── itinéraires ─────────────────────────────
 
+  /**
+   * Endroits où un véhicule est resté coincé contre un obstacle fixe sur son itinéraire (chaussée barrée par un mur,
+   * un pilier, une grille — défauts de la carte) : évités par les itinéraires suivants pendant un quart d'heure.
+   */
+  private readonly blockedSpots: { x: number; z: number; r: number; cost: number; until: number }[] = [];
+  private readonly pp: PathPoint = { x: 0, z: 0, dx: 0, dz: 1 };
+  private readonly zoneBuf: { x: number; z: number; r: number; cost?: number }[] = [];
+
+  private markBlocked(rt: VehicleRt): void {
+    const v = rt.v;
+    const now = this.k.ctx.clock.now;
+    // sur l'itinéraire, un peu au-delà du point de blocage (s'il tourne là, c'est la rue où l'on voulait s'engager)
+    const ap = rt.ap as ApState;
+    let x = v.x + Math.sin(v.heading) * (rt.halfL + 4);
+    let z = v.z + Math.cos(v.heading) * (rt.halfL + 4);
+    let r = 4;
+    if (ap && ap.n >= 2) {
+      // l'itinéraire tourne juste après : c'est la rue où l'on s'engage qui est barrée (6 m après le carrefour) ;
+      // sinon, le point de blocage lui-même
+      let at = ap.s + rt.halfL + 6;
+      for (let j = ap.seg + 1; j < ap.n - 1 && ap.cum[j]! < ap.s + rt.halfL + 20; j++) {
+        const t = ap.turnAt(j);
+        if (t > 0.5 || t < -0.5) {
+          at = ap.cum[j]! + 6;
+          r = 3;
+          break;
+        }
+      }
+      ap.sample(Math.min(ap.total, at), this.pp);
+      x = this.pp.x;
+      z = this.pp.z;
+    }
+    for (const b of this.blockedSpots) {
+      if (Math.hypot(b.x - x, b.z - z) < 4) {
+        b.until = now + 900;
+        return;
+      }
+    }
+    if (this.blockedSpots.length >= 48) this.blockedSpots.shift();
+    this.blockedSpots.push({ x, z, r, cost: 1500, until: now + 900 });
+  }
+
+  /** Zones à éviter pour un itinéraire : celles du trajet (foule) et les endroits barrés. */
+  private zones(ap: ApState): PathStartOptions['avoid'] {
+    const now = this.k.ctx.clock.now;
+    const spots = this.blockedSpots;
+    for (let i = spots.length - 1; i >= 0; i--) if (spots[i]!.until < now) spots.splice(i, 1);
+    if (spots.length === 0) return ap.avoidZones ?? undefined;
+    const out = this.zoneBuf;
+    out.length = 0;
+    if (ap.avoidZones) for (const z of ap.avoidZones) out.push(z);
+    for (const b of spots) out.push(b);
+    return out;
+  }
+
+  /**
+   * Coût (s de trajet) d'un demi-tour sur place pour ce véhicule dans cette rue : quasi nul sur une large avenue, une
+   * manœuvre en trois temps si la chaussée est un peu plus large que le véhicule n'est long, prohibitif sinon (le
+   * tour du pâté de maisons est alors préféré).
+   */
+  private uturnCost(v: Vehicle): number {
+    const def = v.def;
+    const world = this.k.ctx.world;
+    if (world.edgeCount === 0 || !world.nearestRoad(v.x, v.z, this.road, 25)) return 30;
+    const w = this.road.width;
+    const r = def.wheelbase / Math.tan(def.maxSteer);
+    if (w >= 2 * r + def.width + 1) return 8;
+    if (w >= def.length + 3) return 35;
+    return 200;
+  }
+
   /** Calcule l'itinéraire du véhicule jusqu'au point. false si aucun chemin. */
-  private plan(rt: VehicleRt, ap: ApState, x: number, z: number, axisStart = false): boolean {
+  private plan(rt: VehicleRt, ap: ApState, x: number, z: number, axisStart = false, oriented = true): boolean {
     const v = rt.v;
     const world = this.k.ctx.world;
     const buf = this.scratch;
     let count = 0;
     let endInLane = false;
-    if (world.findPath(v.x, v.z, x, z, 'vehicle', buf) && buf.length >= 4) {
+    // départ orienté : l'itinéraire part de préférence dans le sens où le véhicule est tourné (la circulation, qui
+    // calcule elle-même l'itinéraire qu'elle confie au pilote, garde le calcul ordinaire)
+    const start = oriented ? this.start : undefined;
+    if (start) {
+      start.heading = v.heading;
+      start.uturn = this.forceAround ? 600 : this.uturnCost(v);
+      start.avoid = this.zones(ap);
+      // intervention urgente : un court sens unique peut être pris à contresens, au pas (voir ApDriver : allure)
+      start.contraflow = ap.urgence ? 3 : 0;
+      start.minWidth = v.def.width + 1.2;
+    }
+    if (world.findPath(v.x, v.z, x, z, 'vehicle', buf, start) && buf.length >= 4) {
       count = buf.length >> 1;
       // points d'accroche à la chaussée : inutiles s'ils sont tout près du départ ou de l'arrivée
       if (count >= 4) {
@@ -101,11 +236,26 @@ export class Autopilot implements AutopilotApi {
           // jusqu'au carrefour suivant.
           const from = axisStart && ahead && fwd > -3 && fwd < 3 && sx * sx + sz * sz < 16 ? 0 : 1;
           fromAxis = from === 0;
-          for (let i = from; i < count - 1; i++) {
-            buf[i * 2] = buf[i * 2 + 2]!;
-            buf[i * 2 + 1] = buf[i * 2 + 3]!;
+          // véhicule à l'écart de l'axe (garé contre le trottoir) : il rejoint l'axe sept mètres devant lui au lieu de
+          // longer la bordure jusqu'au carrefour suivant
+          let merge = false;
+          if (from === 1 && nl > 1) {
+            const along = ((v.x - buf[2]!) * nx + (v.z - buf[3]!) * nz) / nl;
+            const lat = Math.abs(((v.x - buf[2]!) * nz - (v.z - buf[3]!) * nx) / nl);
+            const t = along + 7;
+            if (lat > 0.8 && along > -4 && t > 0 && t < nl - 2) {
+              buf[2] = buf[2]! + (nx / nl) * t;
+              buf[3] = buf[3]! + (nz / nl) * t;
+              merge = true;
+            }
           }
-          count--;
+          if (!merge) {
+            for (let i = from; i < count - 1; i++) {
+              buf[i * 2] = buf[i * 2 + 2]!;
+              buf[i * 2 + 1] = buf[i * 2 + 3]!;
+            }
+            count--;
+          }
         }
       }
       if (!fromAxis) {
@@ -124,12 +274,77 @@ export class Autopilot implements AutopilotApi {
       buf[3] = z;
       count = 2;
     }
+    if (count >= 2 && world.edgeCount > 0) count = this.clearEnds(v, buf, count);
     ap.setPath(buf, count);
     ap.axisUntil = ap.total;
     ap.endInLane = endInLane;
     ap.closureT = 0;
     ap.closureS = -1;
     return ap.n >= 2;
+  }
+
+  /**
+   * Le tronçon droit entre le véhicule et la rue la plus proche (ou entre la rue et une destination posée sur une
+   * place) traverse-t-il un obstacle fixe — fontaine, statue, réverbère, grille ? On passe alors par les allées
+   * (cheminement piéton, au pas : place de la Concorde, esplanades) au lieu de foncer droit dessus. Retourne le
+   * nouveau nombre de points.
+   */
+  private clearEnds(v: Vehicle, buf: number[], count: number): number {
+    const hw = v.def.width * 0.5 + 0.2;
+    const world = this.k.ctx.world;
+    const legClear = (ax: number, az: number, bx: number, bz: number): boolean => {
+      const dx = bx - ax, dz = bz - az;
+      const l = Math.sqrt(dx * dx + dz * dz);
+      if (l < 0.5) return true;
+      const rx = -dz / l * hw, rz = dx / l * hw;
+      const hit = this.hit;
+      for (const k of [0, 1, -1]) {
+        if (world.raycast(ax + rx * k, az + rz * k, bx + rx * k, bz + rz * k, hit) && hit.hit) return false;
+      }
+      // mobilier (réverbères, bornes, arbres : cercles que le rayon ne voit pas) et sol carrossable (pas de pelouse)
+      const n = Math.ceil(l / 2);
+      for (let i = 1; i < n; i++) {
+        const x = ax + (dx * i) / n, z = az + (dz * i) / n;
+        if (!world.isFree(x, z, hw - 0.1)) return false;
+        const sf = world.surfaceAt(x, z);
+        if (sf === 'park' || sf === 'gravel' || sf === 'water' || sf === 'building') return false;
+      }
+      return true;
+    };
+    const detour = (ax: number, az: number, bx: number, bz: number): number[] | null => {
+      const foot = this.footBuf;
+      if (!world.findPath(ax, az, bx, bz, 'foot', foot) || foot.length < 4) return null;
+      let l = 0;
+      for (let i = 2; i < foot.length; i += 2) {
+        if (!legClear(foot[i - 2]!, foot[i - 1]!, foot[i]!, foot[i + 1]!)) return null;
+        l += Math.hypot(foot[i]! - foot[i - 2]!, foot[i + 1]! - foot[i - 1]!);
+      }
+      return l < Math.hypot(bx - ax, bz - az) * 3 + 60 ? foot.slice() : null;
+    };
+    // départ
+    if (count >= 2 && Math.hypot(buf[2]! - buf[0]!, buf[3]! - buf[1]!) > 4 && !legClear(buf[0]!, buf[1]!, buf[2]!, buf[3]!)) {
+      const d = detour(buf[0]!, buf[1]!, buf[2]!, buf[3]!);
+      if (d) {
+        const rest = buf.slice(4, count * 2);
+        buf.length = 0;
+        for (const x of d) buf.push(x);
+        for (const x of rest) buf.push(x);
+        count = buf.length >> 1;
+      }
+    }
+    // arrivée
+    if (count >= 2) {
+      const i = (count - 2) * 2;
+      if (Math.hypot(buf[i + 2]! - buf[i]!, buf[i + 3]! - buf[i + 1]!) > 4 && !legClear(buf[i]!, buf[i + 1]!, buf[i + 2]!, buf[i + 3]!)) {
+        const d = detour(buf[i]!, buf[i + 1]!, buf[i + 2]!, buf[i + 3]!);
+        if (d) {
+          buf.length = i;
+          for (const x of d) buf.push(x);
+          count = buf.length >> 1;
+        }
+      }
+    }
+    return count;
   }
 
   // ───────────────────────────── API ─────────────────────────────
@@ -139,8 +354,10 @@ export class Autopilot implements AutopilotApi {
     const rt = this.k.rt(v);
     const ap = this.state(rt);
     ap.resetRun();
+    ap.avoidZones = options?.avoid && options.avoid.length > 0 ? options.avoid : null;
+    ap.urgence = options?.urgence === true;
     // (départ de l'axe : sur demande, pour un véhicule qui roule déjà sur sa voie — circulation civile)
-    if (!this.plan(rt, ap, x, z, options?.inLane === true)) {
+    if (!this.plan(rt, ap, x, z, options?.inLane === true, options?.inLane !== true)) {
       ap.mode = 'idle';
       rt.apActive = false;
       this.driver.setStatus(rt, ap, 'echec', 'sans_itineraire');
@@ -293,6 +510,16 @@ export class Autopilot implements AutopilotApi {
       previous = list[i]!;
     }
     return ok;
+  }
+
+  reroute(v: Vehicle, pushThrough?: boolean, avoid?: DriveOptions['avoid']): boolean {
+    const rt = this.k.peek(v.id);
+    if (!rt || !rt.ap || !this.usable(v)) return false;
+    const ap = rt.ap as ApState;
+    if (ap.mode !== 'drive' && ap.mode !== 'follow') return false;
+    if (pushThrough !== undefined) ap.pushThrough = pushThrough && v.def.canPush === true;
+    if (avoid) ap.avoidZones = avoid.length > 0 ? avoid : null;
+    return this.replan(rt, ap, false);
   }
 
   stop(v: Vehicle): void {

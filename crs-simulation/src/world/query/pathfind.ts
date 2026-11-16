@@ -25,10 +25,36 @@ const MERGE_EPS = 0.05;
 
 const ADJ_FORWARD = 1;
 const ADJ_VEHICLE = 2;
+/** Sens interdit d'une voie carrossable à sens unique (empruntable à contresens par une intervention urgente). */
+const ADJ_CONTRA = 4;
+/** Longueur maximale d'un tronçon pris à contresens (m) et surcoût fixe (s). */
+const CONTRA_MAX = 160;
+const CONTRA_EXTRA = 15;
 
 // Marqueurs de provenance : départ par l'arête d'accroche vers son nœud b (avant) ou a (arrière).
 const FROM_START_FORWARD = -2;
 const FROM_START_BACKWARD = -3;
+
+/** Départ orienté d'un itinéraire de véhicule : cap au départ et coût d'un demi-tour (en secondes de trajet). */
+export interface PathStart {
+  heading: number;
+  uturn: number;
+  /**
+   * Zones à éviter (foule, manifestation) : une voie qui passe à moins de r m d'un centre coûte `cost` s de plus (défaut
+   * 240 s) — on la prend seulement s'il n'y a pas d'autre chemin raisonnable.
+   */
+  avoid?: readonly { x: number; z: number; r: number; cost?: number }[];
+  /**
+   * Intervention urgente : un court tronçon à sens unique (moins de 160 m) peut être pris à contresens, au pas — son
+   * temps de parcours est multiplié par ce facteur (0 : jamais).
+   */
+  contraflow?: number;
+  /**
+   * Largeur de chaussée confortable pour le véhicule (m) : une voie plus étroite (passage de service sous une arche,
+   * ruelle) coûte cher — empruntée seulement s'il n'y a rien d'autre.
+   */
+  minWidth?: number;
+}
 
 export class PathFinder {
   private readonly net: RoadNetwork;
@@ -41,6 +67,9 @@ export class PathFinder {
   private readonly adjVehicle: Float32Array;
   // Coordonnées des nœuds, à plat (l'heuristique les lit à chaque arête développée).
   private readonly nodeX: Float64Array;
+  /** Cap en quittant le nœud a (resp. b) le long de chaque arête. */
+  private readonly leaveA: Float32Array;
+  private readonly leaveB: Float32Array;
   private readonly nodeZ: Float64Array;
   // État de la recherche (réinitialisé paresseusement par tampon de génération).
   private readonly g: Float32Array;
@@ -97,9 +126,19 @@ export class PathFinder {
       k = cursor[ed.b]++;
       this.adjEdge[k] = e;
       this.adjTo[k] = ed.a;
-      this.adjFlags[k] = drivable && !ed.oneway ? ADJ_VEHICLE : 0;
+      this.adjFlags[k] = drivable && !ed.oneway ? ADJ_VEHICLE : drivable ? ADJ_CONTRA : 0;
       this.adjFoot[k] = ed.length;
       this.adjVehicle[k] = time;
+    }
+    // cap au départ de chaque extrémité d'arête (pour le coût des virages serrés)
+    this.leaveA = new Float32Array(edges.length);
+    this.leaveB = new Float32Array(edges.length);
+    for (let e = 0; e < edges.length; e++) {
+      const pts = edges[e].points;
+      const np = pts.length >> 1;
+      if (np < 2) continue;
+      this.leaveA[e] = Math.atan2(pts[2] - pts[0], pts[3] - pts[1]);
+      this.leaveB[e] = Math.atan2(pts[2 * np - 4] - pts[2 * np - 2], pts[2 * np - 3] - pts[2 * np - 1]);
     }
     this.nodeX = new Float64Array(nn);
     this.nodeZ = new Float64Array(nn);
@@ -295,10 +334,23 @@ export class PathFinder {
    * Itinéraire de (ax, az) à (bx, bz). Écrit la polyligne [x0, z0, x1, z1, …] dans `out` (vidé
    * au préalable). false si une extrémité est trop loin du réseau ou s'il n'existe aucun chemin.
    */
-  find(ax: number, az: number, bx: number, bz: number, vehicle: boolean, out: number[]): boolean {
+  find(ax: number, az: number, bx: number, bz: number, vehicle: boolean, out: number[], start?: PathStart): boolean {
     // Le tableau de l'appelant est réécrit en place puis ajusté à la bonne longueur : le vider
     // d'abord (length = 0) ferait réallouer son contenu à chaque appel.
     this.count = 0;
+    this.startHeading = start && Number.isFinite(start.heading) ? start.heading : NaN;
+    this.uturnCost = start && start.uturn > 0 ? start.uturn : 0;
+    this.avoid = vehicle && start && start.avoid && start.avoid.length > 0 ? start.avoid : undefined;
+    this.contra = vehicle && start && start.contraflow && start.contraflow > 0 ? start.contraflow : 0;
+    this.minWidth = vehicle && start && start.minWidth && start.minWidth > 0 ? start.minWidth : 0;
+    if (this.avoid) {
+      const ne = this.net.graph.edges.length;
+      if (this.edgePenalty.length !== ne) {
+        this.edgePenalty = new Float32Array(ne);
+        this.edgePenaltyGen = new Uint32Array(ne);
+      }
+      this.penaltyGen++;
+    }
     // 1. Accroche à la voie la plus proche de chaque extrémité.
     let found = this.search(ax, az, bx, bz, vehicle, out, false, false);
     if (!found) {
@@ -319,6 +371,103 @@ export class PathFinder {
 
   private lastStartEdge = -1;
   private lastEndEdge = -1;
+  /** Cap du véhicule au départ (NaN : indifférent) et coût d'un demi-tour au départ (unités du coût du mode). */
+  private startHeading = NaN;
+  private uturnCost = 0;
+  private avoid: PathStart['avoid'] = undefined;
+  private contra = 0;
+  private minWidth = 0;
+  /** Surcoût d'évitement de chaque arête pour la recherche en cours (calculé à la demande). */
+  private edgePenalty: Float32Array = new Float32Array(0);
+  private edgePenaltyGen: Uint32Array = new Uint32Array(0);
+  private penaltyGen = 0;
+
+  /** Surcoût de la portion [s0, s1] (abscisses) d'une arête qui traverse une zone à éviter (0 sinon). */
+  private penaltyOfRange(edge: number, s0: number, s1: number): number {
+    const avoid = this.avoid;
+    if (!avoid || avoid.length === 0) return 0;
+    const lo = s0 < s1 ? s0 : s1, hi = s0 < s1 ? s1 : s0;
+    const pts = this.net.graph.edges[edge].points;
+    const np = pts.length >> 1;
+    let pen = 0;
+    for (let a = 0; a < avoid.length; a++) {
+      const z0 = avoid[a]!;
+      const r2 = z0.r * z0.r;
+      let acc = 0;
+      let hit = false;
+      for (let i = 0; i + 1 < np && !hit; i++) {
+        const ax = pts[2 * i], az = pts[2 * i + 1];
+        const dx = pts[2 * i + 2] - ax, dz = pts[2 * i + 3] - az;
+        const l = Math.sqrt(dx * dx + dz * dz);
+        const e = acc + l;
+        if (e >= lo && acc <= hi && l > 1e-6) {
+          const ta = lo > acc ? (lo - acc) / l : 0, tb = hi < e ? (hi - acc) / l : 1;
+          let t = ((z0.x - ax) * dx + (z0.z - az) * dz) / (l * l);
+          if (t < ta) t = ta;
+          else if (t > tb) t = tb;
+          const ex = z0.x - (ax + dx * t), ez = z0.z - (az + dz * t);
+          hit = ex * ex + ez * ez < r2;
+        }
+        acc = e;
+      }
+      if (hit) pen += z0.cost ?? 240;
+    }
+    return pen;
+  }
+
+  /** Surcoût d'une arête qui traverse une zone à éviter (0 sinon). */
+  private penaltyOf(edge: number): number {
+    const avoid = this.avoid;
+    if (!avoid || avoid.length === 0) return 0;
+    if (this.edgePenaltyGen[edge] === this.penaltyGen) return this.edgePenalty[edge]!;
+    const pts = this.net.graph.edges[edge].points;
+    const np = pts.length >> 1;
+    let pen = 0;
+    for (let a = 0; a < avoid.length; a++) {
+      const z0 = avoid[a]!;
+      const r2 = z0.r * z0.r;
+      let hit = false;
+      for (let i = 0; i + 1 < np && !hit; i++) {
+        const ax = pts[2 * i], az = pts[2 * i + 1];
+        const dx = pts[2 * i + 2] - ax, dz = pts[2 * i + 3] - az;
+        const l2 = dx * dx + dz * dz;
+        let t = l2 > 1e-9 ? ((z0.x - ax) * dx + (z0.z - az) * dz) / l2 : 0;
+        if (t < 0) t = 0;
+        else if (t > 1) t = 1;
+        const ex = z0.x - (ax + dx * t), ez = z0.z - (az + dz * t);
+        hit = ex * ex + ez * ez < r2;
+      }
+      if (hit) pen += z0.cost ?? 240;
+    }
+    this.edgePenalty[edge] = pen;
+    this.edgePenaltyGen[edge] = this.penaltyGen;
+    return pen;
+  }
+
+  /** Surcoût d'un virage au nœud (s) : nul jusqu'à 110°, puis croissant jusqu'au demi-tour. */
+  private sharpTurn(inHeading: number, outHeading: number): number {
+    let d = outHeading - inHeading;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    const a = d < 0 ? -d : d;
+    if (a < 1.9) return 0;
+    if (a > 2.8) return 200;
+    return 25 + (a - 1.9) * 150;
+  }
+
+  /** Cap (atan2(dx, dz)) de l'arête dans le sens a → b à l'abscisse s. */
+  private tangentAt(edge: number, s: number): number {
+    const pts = this.net.graph.edges[edge].points;
+    const np = pts.length >> 1;
+    let acc = 0;
+    for (let i = 0; i + 1 < np; i++) {
+      const dx = pts[2 * i + 2] - pts[2 * i], dz = pts[2 * i + 3] - pts[2 * i + 1];
+      const len = Math.sqrt(dx * dx + dz * dz);
+      if (acc + len >= s || i + 2 >= np) return Math.atan2(dx, dz);
+      acc += len;
+    }
+    return 0;
+  }
 
   /** Une recherche A* ; `startMain` / `endMain` : accrocher l'extrémité au réseau principal du mode. */
   private search(ax: number, az: number, bx: number, bz: number, vehicle: boolean, out: number[], startMain: boolean, endMain: boolean): boolean {
@@ -343,14 +492,28 @@ export class PathFinder {
     const endRate = vehicle ? 1 / Math.max(MIN_SPEED, ee.speedLimit) : 1;
     // Coût minimal par mètre, pour une heuristique admissible.
     const hRate = vehicle ? 1 / Math.max(MIN_SPEED, net.maxSpeed) : 1;
-    const startBackOk = !vehicle || !es.oneway;
-    const endBackOk = !vehicle || !ee.oneway;
+    const contra = this.contra;
+    const startBackOk = !vehicle || !es.oneway || (contra > 0 && !es.pedestrianOnly && es.length < CONTRA_MAX);
+    const endBackOk = !vehicle || !ee.oneway || (contra > 0 && !ee.pedestrianOnly && ee.length < CONTRA_MAX);
+    // à contresens sur l'arête de départ ou d'arrivée : même tarif qu'un tronçon à contresens
+    const startBackRate = vehicle && es.oneway ? contra : 1;
+    const endBackRate = vehicle && ee.oneway ? contra : 1;
+    // Départ orienté (véhicule) : partir dans le sens opposé à son cap coûte un demi-tour ; dans une rue étroite, le
+    // tour du pâté de maisons revient moins cher qu'une manœuvre impossible.
+    let forwardExtra = 0;
+    let backwardExtra = 0;
+    if (vehicle && this.uturnCost > 0 && !Number.isNaN(this.startHeading)) {
+      const t = this.tangentAt(startEdge, startS);
+      const dot = Math.cos(this.startHeading - t);
+      if (dot < -0.25) forwardExtra = this.uturnCost;
+      else if (dot > 0.25) backwardExtra = this.uturnCost;
+    }
 
     // Trajet direct le long d'une même arête.
     let bestTotal = Infinity;
     let bestEnd = -1; // -1 : aucun ; -2 : direct ; sinon nœud final
     if (startEdge === endEdge && (endS >= startS || startBackOk)) {
-      bestTotal = Math.abs(endS - startS) * startRate;
+      bestTotal = Math.abs(endS - startS) * startRate * (endS >= startS ? 1 : startBackRate) + (endS >= startS ? forwardExtra : backwardExtra + (startBackRate > 1 ? CONTRA_EXTRA : 0));
       bestEnd = -2;
     }
 
@@ -363,14 +526,15 @@ export class PathFinder {
     // Germes : les deux nœuds de l'arête de départ.
     {
       const nb = es.b;
-      g[nb] = (es.length - startS) * startRate;
+      // (l'arête de départ ne coûte que dans le sens où l'on traverse la zone)
+      g[nb] = (es.length - startS) * startRate + forwardExtra + this.penaltyOfRange(startEdge, startS, es.length);
       seen[nb] = gen;
       parentNode[nb] = -1;
       parentAdj[nb] = FROM_START_FORWARD;
       this.push(nb, g[nb] + this.heuristic(nb, endX, endZ) * hRate);
       if (startBackOk) {
         const na = es.a;
-        const cost = startS * startRate;
+        const cost = startS * startRate * startBackRate + (startBackRate > 1 ? CONTRA_EXTRA : 0) + backwardExtra + this.penaltyOfRange(startEdge, 0, startS);
         if (seen[na] !== gen || cost < g[na]) {
           g[na] = cost;
           seen[na] = gen;
@@ -383,6 +547,9 @@ export class PathFinder {
 
     const adjStart = this.adjStart, adjTo = this.adjTo, adjFlags = this.adjFlags;
     const adjCost = vehicle ? this.adjVehicle : this.adjFoot;
+    // virages en épingle coûteux pour un véhicule piloté (départ orienté demandé) : un fourgon ne prend pas un virage à
+    // 150° d'un boulevard dans une rue de 5 m — il fait le tour par la rue suivante
+    const turns = vehicle && this.uturnCost > 0;
     while (this.heapSize > 0) {
       // Le plus petit f restant ne peut plus améliorer la meilleure arrivée connue : terminé.
       if (this.heapF[0] >= bestTotal) break;
@@ -400,17 +567,43 @@ export class PathFinder {
         }
       }
       if (n === ee.b && endBackOk) {
-        const total = gn + (ee.length - endS) * endRate;
+        const total = gn + (ee.length - endS) * endRate * endBackRate + (endBackRate > 1 ? CONTRA_EXTRA : 0);
         if (total < bestTotal) {
           bestTotal = total;
           bestEnd = n;
         }
       }
+      // cap d'arrivée au nœud (virages serrés : voir sharpTurn)
+      const pk = parentAdj[n];
+      let inHeading = NaN;
+      if (turns) {
+        if (pk >= 0) {
+          const pe = this.adjEdge[pk];
+          inHeading = (adjFlags[pk] & ADJ_FORWARD) !== 0 ? this.leaveB[pe] + Math.PI : this.leaveA[pe] + Math.PI;
+        } else if (pk === FROM_START_FORWARD) {
+          inHeading = this.leaveB[startEdge] + Math.PI;
+        } else if (pk === FROM_START_BACKWARD) {
+          inHeading = this.leaveA[startEdge] + Math.PI;
+        }
+      }
       for (let k = adjStart[n], end = adjStart[n + 1]; k < end; k++) {
-        if (vehicle && (adjFlags[k] & ADJ_VEHICLE) === 0) continue;
+        let contraCost = 0;
+        if (vehicle && (adjFlags[k] & ADJ_VEHICLE) === 0) {
+          if (contra === 0 || (adjFlags[k] & ADJ_CONTRA) === 0 || edges[this.adjEdge[k]].length > CONTRA_MAX) continue;
+          contraCost = adjCost[k] * (contra - 1) + CONTRA_EXTRA;
+        }
         const to = adjTo[k];
         if (closed[to] === gen) continue;
-        const cost = gn + adjCost[k];
+        let cost = gn + adjCost[k] + contraCost + (this.avoid ? this.penaltyOf(this.adjEdge[k]) : 0);
+        if (this.minWidth > 0) {
+          const ed = edges[this.adjEdge[k]];
+          if (ed.width > 0 && ed.width < this.minWidth) cost += adjCost[k] * 3 + 120;
+        }
+        if (turns && !Number.isNaN(inHeading)) {
+          const ek = this.adjEdge[k];
+          const out = (adjFlags[k] & ADJ_FORWARD) !== 0 ? this.leaveA[ek] : this.leaveB[ek];
+          cost += this.sharpTurn(inHeading, out);
+        }
         if (seen[to] === gen && cost >= g[to]) continue;
         g[to] = cost;
         seen[to] = gen;

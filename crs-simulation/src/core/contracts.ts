@@ -786,6 +786,20 @@ export interface RoadSample {
   oneway: boolean;
 }
 
+/**
+ * Départ orienté d'un itinéraire de véhicule (ctx.world.findPath) : cap au départ et coût d'un demi-tour sur place (s de
+ * trajet) ; zones à éviter (foule) avec leur surcoût (s, défaut 240).
+ */
+export interface PathStartOptions {
+  heading: number;
+  uturn: number;
+  avoid?: readonly { x: number; z: number; r: number; cost?: number }[];
+  /** Intervention urgente : facteur de temps d'un court sens unique pris à contresens (0 ou absent : interdit). */
+  contraflow?: number;
+  /** Largeur de chaussée confortable pour le véhicule (m) : les voies plus étroites coûtent cher. */
+  minWidth?: number;
+}
+
 export interface RoadNodeInfo {
   id: number;
   x: number; z: number;
@@ -886,8 +900,12 @@ export interface WorldQuery {
   node(id: number): RoadNodeInfo;
   edge(id: number): RoadEdgeInfo;
   nearestRoad(x: number, z: number, out: RoadSample, maxDist?: number): boolean;
-  /** Itinéraire. Écrit une polyligne [x0, z0, x1, z1, …] dans `out`. false si aucun chemin. */
-  findPath(ax: number, az: number, bx: number, bz: number, mode: 'foot' | 'vehicle', out: number[]): boolean;
+  /**
+   * Itinéraire. Écrit une polyligne [x0, z0, x1, z1, …] dans `out`. false si aucun chemin. `start` (véhicule) : cap au
+   * départ et coût d'un demi-tour (s de trajet) — l'itinéraire part de préférence droit devant (tour du pâté de
+   * maisons plutôt qu'un demi-tour impossible dans une rue étroite), zones à éviter (foule).
+   */
+  findPath(ax: number, az: number, bx: number, bz: number, mode: 'foot' | 'vehicle', out: number[], start?: PathStartOptions): boolean;
   /** Point libre aléatoire (trottoir ou chaussée) autour d'un point — pour faire apparaître des PNJ. */
   randomFreePoint(x: number, z: number, radius: number, surface: 'sidewalk' | 'road' | 'any', rand: () => number, out: Vec2): boolean;
 

@@ -47,10 +47,16 @@ export class ApSensor {
     let isStatic = false;
     let blocker: VehicleRt | null = null;
     let blockerLat = 0;
+    let propId = 0;
+    // obstacle contourné, déjà dégagé latéralement : il n'arrête plus le véhicule (voir ApDriver.avoid)
+    const skipVeh = ap.avoidVeh !== 0 && dir > 0 && this.committed(ap) ? ap.avoidVeh : 0;
+    const skipProp = ap.avoidProp !== 0 && dir > 0 && this.committed(ap) ? ap.avoidProp : 0;
 
     // ── personnes ──
     const mid = horizon * 0.5;
-    const np = ctx.people.queryRadius(bx + sn * mid, bz + cs * mid, mid + hw + 1.5, this.people);
+    const np = ctx.people.queryRadius(bx + sn * mid, bz + cs * mid, mid + hw + 3.5, this.people);
+    let pedNear = Infinity;
+    let pedCross = Infinity;
     for (let i = 0; i < np; i++) {
       const p = this.people[i]!;
       if (p.vehicleId !== 0 || p.dormant) continue;
@@ -60,6 +66,14 @@ export class ApSensor {
       if (fwd < -0.4 || fwd > horizon) continue;
       const lat = rx * lx + rz * lz - k2 * fwd * fwd;
       const margin = hw + p.radius + 0.15;
+      // quelqu'un au bord du couloir (trottoir, entre les voitures) : prudence, il peut traverser
+      if (lat > -(margin + 3) && lat < margin + 3 && fwd < pedNear) {
+        // (tout près du couloir, ou qui s'en approche : pas les passants qui longent le trottoir)
+        const toward = (p.vx * lx + p.vz * lz) * (lat > 0 ? -1 : 1);
+        if ((lat > -(margin + 1.2) && lat < margin + 1.2) || toward > 0.3) pedNear = fwd;
+        // qui s'engage franchement vers la chaussée devant nous : tout conducteur lève le pied
+        if (toward > 0.6 && fwd < pedCross) pedCross = fwd;
+      }
       let inside = lat > -margin && lat < margin;
       if (!inside) {
         // va-t-elle entrer dans le couloir avant que j'arrive à sa hauteur ?
@@ -99,7 +113,7 @@ export class ApSensor {
     const blade = ap.pushThrough && v.def.canPush;
     for (let i = 0; i < rts.length; i++) {
       const o = rts[i]!;
-      if (o === rt) continue;
+      if (o === rt || o.v.id === skipVeh) continue;
       const ov = o.v;
       const rx = ov.x - bx;
       const rz = ov.z - bz;
@@ -164,7 +178,7 @@ export class ApSensor {
     const nq = ctx.props.queryRadius(bx + sn * mid, bz + cs * mid, mid + hw + 1, this.props);
     for (let i = 0; i < nq; i++) {
       const p = this.props[i]!;
-      if (!p.blocksMove || p.dormant || p.state === 'broken' || p.carriedBy !== 0) continue;
+      if (!p.blocksMove || p.dormant || p.state === 'broken' || p.carriedBy !== 0 || p.id === skipProp) continue;
       if (blade) continue;
       if (ap.urgence && p.movable && p.hp <= 60) continue; // une poubelle n'arrête pas une intervention
       const rx = p.x - bx;
@@ -181,6 +195,7 @@ export class ApSensor {
         reason = 'obstacle';
         isStatic = true;
         blocker = null;
+        propId = p.id;
       }
     }
 
@@ -197,14 +212,49 @@ export class ApSensor {
       }
     }
 
+    // ── mobilier fixe de la carte (réverbère, arbre, borne, fût) : cercles de collision que le rayon ne voit pas ;
+    // sondés à courte portée, au centre et aux deux bords du couloir ──
+    const reachFix = Math.min(horizon, 1.6 + u * 0.8 + (u * u) / 8);
+    if (reachFix < best) {
+      const edge = rt.halfW - 0.1;
+      for (let d = 0.25; d <= reachFix && d < best; d += 0.6) {
+        const c = k2 * d * d;
+        const px = bx + sn * d;
+        const pz = bz + cs * d;
+        let hitFix = false;
+        for (let e = -1; e <= 1 && !hitFix; e++) {
+          const l = c + e * edge;
+          if (!ctx.world.isFree(px + lx * l, pz + lz * l, 0.12)) hitFix = true;
+        }
+        // (un objet déjà repéré à cette distance — barricade, borne — garde son motif : c'est lui qui barre)
+        if (hitFix && d - 0.3 < best - 0.6) {
+          best = Math.max(0, d - 0.3);
+          bestSpeed = 0;
+          reason = 'mur';
+          isStatic = true;
+          blocker = null;
+          break;
+        }
+      }
+    }
+
     ap.obsDist = best;
+    ap.pedNear = dir > 0 ? pedNear : Infinity;
+    ap.pedCross = dir > 0 ? pedCross : Infinity;
 
     ap.obsSpeed = bestSpeed;
     ap.obsReason = reason;
     ap.obsStatic = isStatic;
     ap.obsId = blocker ? blocker.v.id : 0;
+    ap.obsPropId = reason === 'obstacle' ? propId : 0;
     ap.obsLat = blockerLat;
     ap.obsWaiting = blocker !== null && blocker.apActive && Math.abs(blocker.v.speed) < 0.3;
+  }
+
+  /** Le décalage de contournement est pris (aux trois quarts) : l'obstacle contourné n'est plus dans le couloir. */
+  private committed(ap: ApState): boolean {
+    const w = ap.avoidWant;
+    return w !== 0 && (w > 0 ? ap.avoidShift >= w * 0.75 : ap.avoidShift <= w * 0.75);
   }
 
   /** L'itinéraire tourne-t-il (plus de 0,4 rad) d'ici l'horizon ? */
