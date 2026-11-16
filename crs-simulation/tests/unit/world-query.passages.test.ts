@@ -141,6 +141,73 @@ describe('monde : le graphe fait foi pour le passage (mini-carte)', () => {
   });
 });
 
+describe('monde : emprise réelle d\'un pont fournie par la carte (mini-carte)', () => {
+  let w: WorldQueryImpl;
+  const r = MINI_MAP.river, d = MINI_MAP.wide;
+
+  beforeAll(async () => {
+    w = createWorldQuery({ source: 'paris', parisSource: new MemoryMapSource(miniMapRaw()) });
+    await w.boot();
+    w.setFocus(256, 256);
+    await w.whenLoaded(256, 256, 400);
+  });
+
+  it('tout le tablier est praticable, pas seulement la largeur estimée de l\'arête', () => {
+    expect(w.isSolidAt(d.bridgeX, 430)).toBe(false);
+    expect(w.isSolidAt(d.bridgeX + d.halfDeck + 3, 430)).toBe(false); // au-delà de la largeur estimée
+    expect(w.isSolidAt(d.bridgeX - d.deckHalf + 0.5, 430)).toBe(false);
+    expect(w.isSolidAt(d.bridgeX + d.deckHalf + 0.5, 430)).toBe(true); // au-delà du tablier : l'eau
+    expect(w.isFree(d.bridgeX + 10, 430, R)).toBe(true);
+    expect(w.surfaceAt(d.bridgeX + 10, 430)).toBe('bridge');
+    expect(w.surfaceAt(d.bridgeX + d.deckHalf + 1.5, 430)).toBe('water');
+    expect(w.surfaceAt(d.bridgeX + 10, r.north - 3)).toBe('road'); // la même chaussée, sur la berge
+    // Cinq files d'une berge à l'autre : ni la berge ni le mur de quai continu n'arrêtent sous le tablier.
+    for (const dx of [-11, -6, 0, 6, 11]) {
+      const pos = { x: d.bridgeX + dx, z: 385 };
+      walk(w, pos, 0, 0.25, 360);
+      expect(pos.z).toBeCloseTo(475, 6);
+      expect(pos.x).toBeCloseTo(d.bridgeX + dx, 6);
+    }
+    // À côté du tablier, le mur de quai tient toujours.
+    const quay = { x: d.bridgeX + d.deckHalf + 4, z: 390 };
+    walk(w, quay, 0, 0.2, 100);
+    expect(quay.z).toBeLessThan(r.north - R);
+  });
+
+  it('les parapets sont au bord du tablier réel', () => {
+    for (const side of [-1, 1]) {
+      const pos = { x: d.bridgeX, z: 430 };
+      walk(w, pos, 0.1 * side, 0, 200);
+      expect(pos.x).toBeCloseTo(d.bridgeX + side * (d.deckHalf - R), 2);
+    }
+    const hit = makeHit();
+    expect(w.raycast(d.bridgeX, 430, d.bridgeX + 30, 430, hit)).toBe(true);
+    expect(hit.x).toBeCloseTo(d.bridgeX + d.deckHalf, 2);
+    expect(hit.kind).toBe('barrier');
+    expect(hit.nx).toBeCloseTo(-1, 5);
+    expect(w.lineOfSight(d.bridgeX, 430, d.bridgeX + 60, 430)).toBe(true); // un parapet n'arrête pas le regard
+    // Aucun parapet de l'arête au milieu du tablier (x = bridgeX ± 5).
+    expect(w.raycast(d.bridgeX, 430, d.bridgeX + d.deckHalf - 1, 430, hit)).toBe(false);
+  });
+
+  it('l\'altitude est celle du tablier sur toute sa largeur', () => {
+    expect(w.heightAt(d.bridgeX, 430)).toBeCloseTo(0, 5);
+    expect(w.heightAt(d.bridgeX + 8, 430)).toBeCloseTo(0, 5);
+    expect(w.heightAt(d.bridgeX + d.deckHalf - 0.2, 430)).toBeCloseTo(0, 5);
+    expect(w.heightAt(d.bridgeX + d.deckHalf + 2, 430)).toBeCloseTo(r.bed, 5); // le lit de la rivière
+    // Continuité en travers du tablier, et le long d'une file excentrée, berges comprises.
+    for (const [ax, az, bx, bz] of [[d.bridgeX - d.deckHalf + 0.1, 430, d.bridgeX + d.deckHalf - 0.1, 430], [d.bridgeX + 9, 370, d.bridgeX + 9, 490], [d.bridgeX - 11, 385, d.bridgeX + 11, 475]]) {
+      const steps = Math.ceil(Math.hypot(bx - ax, bz - az) / 0.05);
+      let prev = w.heightAt(ax, az);
+      for (let i = 1; i <= steps; i++) {
+        const y = w.heightAt(ax + ((bx - ax) * i) / steps, az + ((bz - az) * i) / steps);
+        expect(Math.abs(y - prev)).toBeLessThan(0.02);
+        prev = y;
+      }
+    }
+  });
+});
+
 describe('monde : monuments sans obstacles propres (mini-carte)', () => {
   // Repli de getColliders pour un monument sans fichier d'obstacles : il rend l'emprise du site.
   const siteFootprint: GetColliders = (_key, site) => [{ ring: Array.from(site.footprint), height: site.height, baseY: 0 }];

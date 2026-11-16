@@ -146,3 +146,11 @@ Chaque module de présentation peut se développer et se vérifier seul, sans at
   avec WebGL 2 logiciel (SwiftShader : correct mais lent — quelques images par seconde sur une scène lourde ; mesurer le
   coût CPU en JavaScript avec `performance.now()` et le nombre d'appels de dessin avec `renderer.info`, pas les images/s).
 - Les bancs d'essai ne font pas partie du jeu livré (seul `index.html` est construit).
+
+## 9. Références vivantes
+
+- `src/core/extensions.ts` : interfaces des **services étendus** (incidents, fermeture de rues, métro, secours, objectifs,
+  boîte à outils d'interface) et table `EXT` de leurs clés. Fait foi au même titre que `contracts.ts`.
+- `docs/modules/*.md` : compte rendu de chaque module déjà écrit — API publique, services fournis, événements,
+  limites. **À lire avant d'utiliser le module correspondant.**
+- `docs/research/*.md` : documentation de réalisme (00 = synthèse quand elle existe).

@@ -11,12 +11,10 @@
  * sol reste ainsi continu d'une rive à l'autre, à la hauteur des quais.
  * ===================================================================================== */
 import path from 'node:path';
-import { M, NORM, readJson, pointInPoly, bboxOf, median, round2 } from './build-lib.mjs';
+import { M, NORM, BOUNDS, SOURCE_MARGIN, readJson, pointInPoly, bboxOf, median, round2 } from './build-lib.mjs';
 
-/** Écart (m) au-dessus du niveau du fleuve en dessous duquel un nœud proche de l'eau est traité comme de l'eau. */
+/** Écart (m) au-dessus du niveau du fleuve en dessous duquel un nœud qui touche le fleuve est traité comme de l'eau. */
 const WATER_SLACK = 0.8;
-/** Distance (m) à l'eau jusqu'à laquelle cette règle s'applique. */
-const WATER_REACH = 30;
 /** Passes du filtre binomial 3 × 3 (σ ≈ 0,7 pas chacune). */
 const SMOOTH_PASSES = 2;
 
@@ -66,23 +64,25 @@ export function buildTerrain(waterPolys) {
   if (riverValues.length < 50) throw new Error(`relief : ${riverValues.length} nœuds seulement dans le fleuve — polygone de la Seine absent ?`);
   const riverNgf = median(riverValues);
 
-  // 2. Nœuds de berge au niveau de l'eau (le contour OSM et le modèle IGN ne sont pas recalés).
-  const reach = Math.ceil(WATER_REACH / step);
+  // 2. Nœuds au niveau de l'eau qui touchent le fleuve : le contour OSM et le modèle IGN ne sont pas
+  //    recalés, et le fleuve se prolonge au-delà de son polygone dans la marge du relief.
   let extra = 0;
-  const near = new Uint8Array(n);
-  for (let iz = 0; iz < nz; iz++) {
-    for (let ix = 0; ix < nx; ix++) {
-      if (water[iz * nx + ix] !== 1) continue;
-      for (let dz = -reach; dz <= reach; dz++) {
-        for (let dx = -reach; dx <= reach; dx++) {
-          const jx = ix + dx, jz = iz + dz;
-          if (jx >= 0 && jx < nx && jz >= 0 && jz < nz) near[jz * nx + jx] = 1;
-        }
+  const queue = [];
+  for (let i = 0; i < n; i++) if (water[i] === 1) queue.push(i);
+  while (queue.length > 0) {
+    const i = queue.pop();
+    const ix = i % nx, iz = (i - ix) / nx;
+    for (let dz = -1; dz <= 1; dz++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const jx = ix + dx, jz = iz + dz;
+        if (jx < 0 || jx >= nx || jz < 0 || jz >= nz) continue;
+        const j = jz * nx + jx;
+        if (water[j] !== 0 || raw[j] >= riverNgf + WATER_SLACK) continue;
+        water[j] = 3;
+        extra++;
+        queue.push(j);
       }
     }
-  }
-  for (let i = 0; i < n; i++) {
-    if (water[i] === 0 && near[i] === 1 && raw[i] < riverNgf + WATER_SLACK) { water[i] = 3; extra++; }
   }
 
   // 3. Comblement du lit : diffusion depuis les berges (relaxation de Laplace sur les nœuds d'eau).
@@ -159,15 +159,24 @@ export function buildTerrain(waterPolys) {
   const rawNgfAt = (x, z) => sampleGrid(g, raw, x, z);
   const waterLevel = Math.round((riverNgf - offset) * 10) / 10;
 
-  // Rapport : pentes et écart au modèle brut.
-  let maxSlope = 0, steep = 0, sumAbs = 0, maxAbs = 0, land = 0;
+  // Rapport : pentes et écart au modèle brut, dans l'emprise du jeu élargie de la marge des sources.
+  const b = BOUNDS;
+  const inMap = (ix, iz) => {
+    const x = x0 + ix * step, z = z0 + iz * step;
+    return x >= b.minX - SOURCE_MARGIN && x <= b.maxX + SOURCE_MARGIN && z >= b.minZ - SOURCE_MARGIN && z <= b.maxZ + SOURCE_MARGIN;
+  };
+  let maxSlope = 0, steep = 0, sumAbs = 0, maxAbs = 0, land = 0, minIn = Infinity, maxIn = -Infinity, pairs = 0;
   for (let iz = 0; iz < nz; iz++) {
     for (let ix = 0; ix < nx; ix++) {
+      if (!inMap(ix, iz)) continue;
       const i = iz * nx + ix;
-      if (ix < nx - 1) { const s = Math.abs(heights[i + 1] - heights[i]) / step; if (s > maxSlope) maxSlope = s; if (s > 0.08) steep++; }
-      if (iz < nz - 1) { const s = Math.abs(heights[i + nx] - heights[i]) / step; if (s > maxSlope) maxSlope = s; if (s > 0.08) steep++; }
+      const y = decoded.heights[i];
+      if (y < minIn) minIn = y;
+      if (y > maxIn) maxIn = y;
+      if (ix < nx - 1 && inMap(ix + 1, iz)) { const s = Math.abs(decoded.heights[i + 1] - y) / step; pairs++; if (s > maxSlope) maxSlope = s; if (s > 0.08) steep++; }
+      if (iz < nz - 1 && inMap(ix, iz + 1)) { const s = Math.abs(decoded.heights[i + nx] - y) / step; pairs++; if (s > maxSlope) maxSlope = s; if (s > 0.08) steep++; }
       if (water[i] === 0) {
-        const d = Math.abs(heights[i] + offset - raw[i]);
+        const d = Math.abs(y + offset - raw[i]);
         sumAbs += d; land++;
         if (d > maxAbs) maxAbs = d;
       }
@@ -189,8 +198,13 @@ export function buildTerrain(waterPolys) {
     smoothPasses: SMOOTH_PASSES,
     minY: round2(decoded.minY),
     maxY: round2(decoded.maxY),
-    maxSlopePercent: round2(maxSlope * 100),
-    edgesOver8Percent: steep,
+    inMap: {
+      minY: round2(minIn),
+      maxY: round2(maxIn),
+      maxSlopePercent: round2(maxSlope * 100),
+      nodePairs: pairs,
+      pairsOver8Percent: steep,
+    },
     meanAbsDiffToRawOnLand: round2(sumAbs / Math.max(1, land)),
     maxAbsDiffToRawOnLand: round2(maxAbs),
     references: [

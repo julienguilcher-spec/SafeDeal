@@ -102,7 +102,7 @@ export function loadLandmarkParts() {
       if (az === undefined) throw new Error(`monument « ${baseKey} » : azimut de façade inconnu (FACADE_AZIMUTH)`);
       // Azimut -> cap du jeu : h = π − azimut.
       let heading = Math.PI - (az * Math.PI) / 180;
-      let snapped = false;
+      let snapped = false, fill = 1;
       if (!NO_SNAP.has(baseKey) && part.box.length > 1) {
         // Les quatre directions du rectangle englobant ; on garde la plus proche du cap approximatif.
         const base = M.headingOf(part.box.ux, part.box.uz);
@@ -112,14 +112,16 @@ export function loadLandmarkParts() {
           const d = Math.abs(Math.atan2(Math.sin(h - heading), Math.cos(h - heading)));
           if (d < bestDiff) { bestDiff = d; best = h; }
         }
-        // Au-delà de 25° d'écart, l'emprise n'a pas de côté franc dans cette direction : on garde l'azimut.
-        if (bestDiff <= (25 * Math.PI) / 180) {
+        // Le calage n'a de sens que pour une emprise massive (elle remplit au moins 60 % de son rectangle
+        // englobant) qui présente un côté à moins de 25° de l'azimut ; sinon on garde l'azimut tel quel.
+        fill = part.area / Math.max(1, part.box.length * part.box.width);
+        if (bestDiff <= (25 * Math.PI) / 180 && fill >= 0.6) {
           heading = Math.atan2(Math.sin(best), Math.cos(best));
           snapped = true;
         }
       }
       part.heading = heading;
-      part.headingInfo = { azimuthApprox: az, guess, snappedToFootprint: snapped, azimuthFinal: round1((((Math.PI - heading) * 180) / Math.PI + 720) % 360) };
+      part.headingInfo = { azimuthApprox: az, guess, footprintFill: Math.round(fill * 100) / 100, snappedToFootprint: snapped, azimuthFinal: round1((((Math.PI - heading) * 180) / Math.PI + 720) % 360) };
       parts.push(part);
     }
   }

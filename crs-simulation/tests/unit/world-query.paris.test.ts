@@ -93,6 +93,31 @@ describe.skipIf(!available)('monde : vraies données de Paris', () => {
     expect(w.randomFreePoint(place.x, place.z, 120, 'sidewalk', rand, pos)).toBe(true);
   }, 120000);
 
+  it('noms de lieux et de secteurs usuels', () => {
+    expect(w.placeByName('étoile')?.name).toBe('Place Charles de Gaulle');
+    expect(w.placeByName('bastille')?.name).toBe('Place de la Bastille');
+    expect(w.placeByName('RÉPUBLIQUE')?.name).toBe('Place de la République');
+    expect(w.placeByName('tour eiffel')?.name).toBe('Tour Eiffel');
+    expect(w.placeByName('tuileries')?.name).toBe('Jardin des Tuileries');
+    expect(w.sectorName(0, 0)).toBe('place de la Concorde');
+    expect(w.sectorName(-127, 250)).toBe('pont de la Concorde');
+    // Sur les Champs-Élysées : l'avenue, pas la galerie marchande ou la contre-allée qui la longe.
+    const champs = w.placeByName('avenue des Champs-Élysées');
+    expect(champs).not.toBeNull();
+    if (champs !== null) {
+      let onAvenue = 0, named = 0;
+      for (let k = 1; k < 20; k++) {
+        // De l'Étoile au Rond-Point, le long de la droite qui les joint (l'avenue est rectiligne).
+        const x = -1890 + (1044 * k) / 20, z = -906 + (519 * k) / 20;
+        if (!w.nearestRoad(x, z, sample, 40)) continue;
+        named++;
+        if (w.sectorName(x, z) === 'avenue des Champs-Élysées') onAvenue++;
+      }
+      expect(named).toBeGreaterThan(15);
+      expect(onAvenue).toBeGreaterThanOrEqual(named - 3); // hors des places traversées (Étoile, Rond-Point)
+    }
+  });
+
   it('la Seine est de l\'eau, infranchissable hors des ponts', async () => {
     // De la Concorde vers le sud, entre le pont de la Concorde (x ≈ -130) et la passerelle (x ≈ 250).
     const x = 80;

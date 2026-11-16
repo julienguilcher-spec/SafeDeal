@@ -6,7 +6,7 @@
  * relevés de façon très inégale par la source, sont complétés le long des trottoirs
  * (objets SYNTHÉTIQUES, comptés à part dans le rapport).
  * ===================================================================================== */
-import { M, readLayer, px, pz, clamp, round1, pointAlong, hash01, normName } from './build-lib.mjs';
+import { M, readLayer, px, pz, clamp, round1, pointAlong, hash01, normName, hasTrademark } from './build-lib.mjs';
 import { buildingAt } from './build-buildings.mjs';
 
 const FURNITURE_KIND = {
@@ -201,6 +201,7 @@ export function buildMetro(tiles, ctx) {
     const tile = tiles.at(x, z);
     if (tile === undefined) { report.outside++; continue; }
     if (typeof p.name !== 'string' || p.name === '') throw new Error('métro : bouche sans nom de station');
+    if (hasTrademark(p.name)) throw new Error(`métro : le nom de station « ${p.name} » contient une marque déposée`);
     // Sortie : le long de la rue, en s'éloignant de la station.
     let heading = 0;
     const near = roads.grid.nearest(x, z, 40, streets);

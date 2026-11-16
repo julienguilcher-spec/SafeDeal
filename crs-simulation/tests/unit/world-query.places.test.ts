@@ -2,7 +2,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { createWorldQuery } from '@/world/query';
 import type { WorldQueryImpl } from '@/world/query';
-import { normalizeName, radioName } from '@/world/query/places';
+import { PlaceIndex, normalizeName, radioName } from '@/world/query/places';
 
 let w: WorldQueryImpl;
 
@@ -24,6 +24,26 @@ describe('monde : lieux', () => {
     expect(radioName('Île de la Cité')).toBe('île de la Cité');
     expect(radioName('Champ de Mars')).toBe('Champ de Mars');
     expect(radioName('Rond-Point des Champs-Élysées')).toBe('rond-point des Champs-Élysées');
+  });
+
+  it('connaît les noms d\'usage quand le nom officiel est sur la carte', () => {
+    const place = (name: string, kind: 'square' | 'street' | 'monument' | 'station', importance: number): { name: string; kind: 'square' | 'street' | 'monument' | 'station'; x: number; z: number; radius: number; importance: number; ref: string } =>
+      ({ name, kind, x: 0, z: 0, radius: 50, importance, ref: '' });
+    const index = new PlaceIndex([
+      place('Place Charles de Gaulle', 'square', 3), place("Temple de l'Étoile", 'monument', 2), place('Charles de Gaulle — Étoile', 'station', 3),
+      place('Avenue des Champs-Élysées', 'street', 3), place('Rond-Point des Champs-Élysées', 'square', 2), place('Place de la Concorde', 'square', 3),
+      place('Concorde', 'station', 3), place('Pont de la Concorde', 'bridge' as 'square', 3),
+    ], []);
+    expect(index.byName('Étoile')?.name).toBe('Place Charles de Gaulle');
+    expect(index.byName("place de l'Étoile")?.name).toBe('Place Charles de Gaulle');
+    expect(index.byName('les Champs')?.name).toBe('Avenue des Champs-Élysées');
+    expect(index.byName('rond-point des champs')?.name).toBe('Rond-Point des Champs-Élysées');
+    // L'exemple du cahier des charges : la place, pas la station ni le pont du même nom.
+    expect(index.byName('concorde')?.name).toBe('Place de la Concorde');
+    expect(index.byName('pont concorde')?.name).toBe('Pont de la Concorde');
+    // Sans le nom officiel sur la carte, le nom d'usage se cherche comme un autre.
+    const bare = new PlaceIndex([place("Temple de l'Étoile", 'monument', 2)], []);
+    expect(bare.byName('étoile')?.name).toBe("Temple de l'Étoile");
   });
 
   it('convertit les lieux et les monuments', () => {

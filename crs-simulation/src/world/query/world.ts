@@ -320,8 +320,19 @@ export class WorldQueryImpl implements WorldQueryExt, TileHost {
       }
       if (!represented) builder.addSolid([fb.ring], SOLID_LANDMARK, fb.top);
     }
+    let hasWater = false;
     for (const s of tile.surfaces) {
-      if (s.kind === 'water') builder.addWater(s.holes.length === 0 ? [s.outer] : [s.outer, ...s.holes]);
+      if (s.kind !== 'water') continue;
+      hasWater = true;
+      builder.addWater(s.holes.length === 0 ? [s.outer] : [s.outer, ...s.holes]);
+    }
+    if (hasWater) {
+      // Les surfaces dures qui recouvrent l'eau sont des tabliers de ponts (triées par le constructeur).
+      for (const s of tile.surfaces) {
+        if (s.kind === 'road' || s.kind === 'sidewalk' || s.kind === 'median' || s.kind === 'pedestrian' || s.kind === 'plaza') {
+          builder.addDeckCandidate(s.holes.length === 0 ? [s.outer] : [s.outer, ...s.holes]);
+        }
+      }
     }
     for (const b of tile.barriers) builder.addBarrier(b.kind, b.height, b.points);
     const bucket = builder.build();
@@ -396,7 +407,7 @@ export class WorldQueryImpl implements WorldQueryExt, TileHost {
   /** Altitude du sol : relief bilinéaire, ou tablier du pont (raccordé au relief sur ses bords). */
   heightAt(x: number, z: number): number {
     const base = this.base;
-    return base.roads.deckHeight(x, z, sampleTerrain(base.terrain, x, z));
+    return base.roads.deckHeight(x, z, sampleTerrain(base.terrain, x, z), this.collision);
   }
 
   /** Code de surface (indice dans SURFACE_CODES) ; 0 = hors carte ou tuile non chargée. */

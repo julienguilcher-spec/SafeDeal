@@ -15,7 +15,7 @@
 import {
   M, readLayer, projectPolygons, projectLine, simplifyRing, simplifyLine, dedupeRing, signedArea, polygonArea, bboxOf,
   ringCentroid, tilePolygon, tilePolyline, BoxGrid, pointInPoly, polylineLength, median, clamp, round1, clipStats,
-  selfIntersectsAtFormatPrecision, removeSpikes,
+  selfIntersectsAtFormatPrecision, removeSpikes, simpleRings, hasTrademark,
 } from './build-lib.mjs';
 
 /** Rang de superposition de l'eau : au-dessus de tout. */
@@ -53,12 +53,12 @@ function classify(p) {
 export function prepareAreas() {
   const fc = readLayer('areas');
   const list = [];
-  const report = { source: fc.features.length, droppedSmall: 0, droppedHoles: 0, simplificationRelaxed: 0, spikesRemoved: 0, selfIntersectingKept: 0, vertices: { before: 0, after: 0 }, byKind: {} };
+  const report = { source: fc.features.length, droppedSmall: 0, droppedHoles: 0, simplificationRelaxed: 0, spikesRemoved: 0, unkinked: 0, selfIntersectingKept: 0, vertices: { before: 0, after: 0 }, byKind: {} };
   for (const f of fc.features) {
     const p = f.properties;
     const c = classify(p);
     const rank = c.rank ?? (Number.isFinite(p.z) ? p.z : 5);
-    const name = c.named && typeof p.name === 'string' && p.name !== '' && !NAME_BLOCKLIST.has(p.name) ? p.name : '';
+    const name = c.named && typeof p.name === 'string' && p.name !== '' && !NAME_BLOCKLIST.has(p.name) && !hasTrademark(p.name) ? p.name : '';
     for (const poly of projectPolygons(f.geometry)) {
       report.vertices.before += poly.outer.length >> 1;
       for (const h of poly.holes) report.vertices.before += h.length >> 1;
@@ -69,11 +69,16 @@ export function prepareAreas() {
         if (!selfIntersectsAtFormatPrecision(outer)) break;
         if (tol === c.tol) report.simplificationRelaxed++;
       }
+      let extraOuters = [];
       if (selfIntersectsAtFormatPrecision(outer)) {
-        // La source se recoupe (plan de voirie) : on retire les épines ; s'il en reste, le contour est gardé tel quel.
+        // La source se recoupe : on retire les épines ; s'il en reste, le contour est défait en anneaux simples.
         const cleaned = dedupeRing(simplifyRing(removeSpikes(poly.outer), c.tol), 0.05);
         if (cleaned.length >= 6 && !selfIntersectsAtFormatPrecision(cleaned)) { outer = cleaned; report.spikesRemoved++; }
-        else report.selfIntersectingKept++;
+        else {
+          const fixed = simpleRings(outer, c.min);
+          if (fixed.rings.length > 0) { outer = fixed.rings[0]; extraOuters = fixed.rings.slice(1); report.unkinked++; }
+          report.selfIntersectingKept += fixed.unresolved;
+        }
       }
       if (outer.length < 6 || Math.abs(signedArea(outer)) < c.min) { report.droppedSmall++; continue; }
       const holes = [];
@@ -88,6 +93,12 @@ export function prepareAreas() {
       report.vertices.after += outer.length >> 1;
       for (const h of holes) report.vertices.after += h.length >> 1;
       list.push(item);
+      // Autres lobes d'un contour défait : surfaces à part entière, sans trou.
+      for (const extra of extraOuters) {
+        const e = { kind: c.kind, rank, name, sub: p.sub ?? '', poly: { outer: extra, holes: [] }, area: Math.abs(signedArea(extra)), bb: bboxOf(extra), level: null };
+        report.vertices.after += extra.length >> 1;
+        list.push(e);
+      }
     }
   }
   const sidewalkItems = list.filter((s) => s.kind === 'sidewalk');
@@ -134,17 +145,33 @@ export function emitSurfaces(areas, tiles, ctx) {
   }
   const before = { ...clipStats };
   const perTile = new Map();
-  let pieces = 0;
+  let pieceCount = 0, repaired = 0, unresolved = 0;
   for (let i = 0; i < areas.list.length; i++) {
     const s = areas.list[i];
+    const pieces = [];
     for (const piece of tilePolygon(s.poly)) {
+      if (!selfIntersectsAtFormatPrecision(piece.poly.outer)) { pieces.push(piece); continue; }
+      // Un trou qui frôle le contour (à quelques centimètres) le recoupe une fois arrondi au décimètre,
+      // dès que le découpage les a réunis en un seul anneau : le morceau est défait en anneaux simples.
+      const fixed = simpleRings(piece.poly.outer, 0.3);
+      if (fixed.rings.length === 0) { pieces.push(piece); continue; }
+      repaired++;
+      unresolved += fixed.unresolved;
+      const polys = fixed.rings.map((outer) => ({ outer, holes: [] }));
+      for (const h of piece.poly.holes) {
+        const host = polys.find((q) => M.pointInRing(q.outer, h[0], h[1]) && M.pointInRing(q.outer, h[2], h[3]));
+        if (host !== undefined) host.holes.push(h);
+      }
+      for (const poly of polys) pieces.push({ tx: piece.tx, tz: piece.tz, poly });
+    }
+    for (const piece of pieces) {
       const a = polygonArea(piece.poly);
       if (a < 0.3) continue;
       const tile = tiles.get(piece.tx, piece.tz);
       let list = perTile.get(tile);
       if (list === undefined) { list = []; perTile.set(tile, list); }
       list.push({ rank: s.rank, area: a, seq: i, surface: { kind: s.kind, name: s.name, level: s.level, outer: piece.poly.outer, holes: piece.poly.holes } });
-      pieces++;
+      pieceCount++;
       const k = (report.byKind[s.kind] ??= { pieces: 0, areaM2: 0 });
       k.pieces++;
       k.areaM2 += a;
@@ -157,7 +184,9 @@ export function emitSurfaces(areas, tiles, ctx) {
   }
   for (const k of Object.values(report.byKind)) k.areaM2 = Math.round(k.areaM2);
   report.polygons = areas.list.length;
-  report.pieces = pieces;
+  report.pieces = pieceCount;
+  report.piecesRepairedAfterClipping = repaired;
+  report.selfIntersectingKept += unresolved;
   report.clip = { whole: clipStats.whole - before.whole, split: clipStats.split - before.split, fallbackSutherlandHodgman: clipStats.fallback - before.fallback };
   report.waterLevels = levels;
   return report;

@@ -17,8 +17,14 @@ const ROAD_CELL = 32;
 const BRIDGE_CELL = 64;
 /** Largeur (m) de la bande de raccord entre le tablier d'un pont et le relief, de part et d'autre. */
 export const DECK_BLEND = 1.5;
+/** Handicap (m) d'une voie mineure (piétonne, de service) pour donner son nom à un secteur. */
+const MINOR_STREET_PENALTY = 10;
 /** Demi-largeur minimale d'un tablier (m). */
 const MIN_HALF_DECK = 1.5;
+/** Distance maximale (m) à l'axe d'un pont à laquelle son tablier réel peut s'étendre. */
+const DECK_REACH = 45;
+/** Longueur (m) sur laquelle le tablier réel, hors de l'axe épaissi, se raccorde à la berge. */
+const DECK_RAMP = 8;
 
 /** Bits de segFlags. */
 export const SEG_TUNNEL = 1;
@@ -79,6 +85,9 @@ export class RoadNetwork {
   readonly deckYa: Float32Array;
   readonly deckYb: Float32Array;
   readonly halfDeck: Float32Array;
+  /** 1 si l'extrémité a (resp. b) de l'arête de pont touche la terre ferme (début ou fin du pont). */
+  readonly rampA: Uint8Array;
+  readonly rampB: Uint8Array;
   bridgeEdgeCount = 0;
 
   // ── résultat de la dernière recherche (lecture immédiate, usage interne) ──
@@ -97,6 +106,8 @@ export class RoadNetwork {
     this.deckYa = new Float32Array(ne);
     this.deckYb = new Float32Array(ne);
     this.halfDeck = new Float32Array(ne);
+    this.rampA = new Uint8Array(ne);
+    this.rampB = new Uint8Array(ne);
     this.edgeSegStart = new Int32Array(ne + 1);
 
     for (let i = 0; i < graph.nodes.length; i++) {
@@ -290,6 +301,52 @@ export class RoadNetwork {
     return true;
   }
 
+  /**
+   * Voie nommée qui « possède » le point, pour nommer un secteur : la distance compte à partir du
+   * bord de la voie (chaussée + trottoirs), et une allée, une galerie ou une voie de service ne
+   * l'emporte pas sur l'avenue qu'elle longe. Résultat dans snapEdge / snapDist (distance à l'axe).
+   */
+  nearestNamedStreet(x: number, z: number, maxDist: number): boolean {
+    this.snapEdge = -1;
+    if (this.segCount === 0) return false;
+    const xz = this.segXZ, flags = this.segFlags;
+    const i0 = Math.max(0, Math.floor((x - maxDist - this.gx0) / ROAD_CELL)), i1 = Math.min(this.gnx - 1, Math.floor((x + maxDist - this.gx0) / ROAD_CELL));
+    const j0 = Math.max(0, Math.floor((z - maxDist - this.gz0) / ROAD_CELL)), j1 = Math.min(this.gnz - 1, Math.floor((z + maxDist - this.gz0) / ROAD_CELL));
+    let best = Infinity, bestSeg = -1, bestD = 0;
+    for (let j = j0; j <= j1; j++) {
+      for (let i = i0; i <= i1; i++) {
+        const c = j * this.gnx + i;
+        for (let p = this.cellStart[c], end = this.cellStart[c + 1]; p < end; p++) {
+          const s = this.cellItems[p];
+          const f = flags[s];
+          if ((f & SEG_TUNNEL) !== 0 || (f & SEG_NAMED) === 0) continue;
+          const ax = xz[4 * s], az = xz[4 * s + 1];
+          const dx = xz[4 * s + 2] - ax, dz = xz[4 * s + 3] - az;
+          const len2 = dx * dx + dz * dz;
+          let t = len2 > 0 ? ((x - ax) * dx + (z - az) * dz) / len2 : 0;
+          if (t < 0) t = 0; else if (t > 1) t = 1;
+          const ex = ax + dx * t - x, ez = az + dz * t - z;
+          const d = Math.sqrt(ex * ex + ez * ez);
+          if (d > maxDist) continue;
+          const ed = this.edges[this.segEdge[s]];
+          let score = d - ed.width / 2 - ed.sidewalk;
+          if (score < 0) score = 0;
+          if (ed.pedestrianOnly || ed.roadClass === 'service' || ed.roadClass === 'footway') score += MINOR_STREET_PENALTY;
+          if (score < best || (score === best && d < bestD)) {
+            best = score;
+            bestSeg = s;
+            bestD = d;
+          }
+        }
+      }
+    }
+    if (bestSeg < 0) return false;
+    this.snapSeg = bestSeg;
+    this.snapEdge = this.segEdge[bestSeg];
+    this.snapDist = bestD;
+    return true;
+  }
+
   /** Remplit un RoadSample à partir du résultat de nearest(). */
   fillSample(out: RoadSample): void {
     const s = this.snapSeg;
@@ -365,7 +422,9 @@ export class RoadNetwork {
       if (!ed.bridge || ed.tunnel) continue;
       this.deckYa[e] = y[ed.a];
       this.deckYb[e] = y[ed.b];
-      const m = this.halfDeck[e] + DECK_BLEND;
+      this.rampA[e] = interior[ed.a] === 1 ? 0 : 1;
+      this.rampB[e] = interior[ed.b] === 1 ? 0 : 1;
+      const m = DECK_REACH;
       for (let s = this.edgeSegStart[e]; s < this.edgeSegStart[e + 1]; s++) {
         list.push(s);
         minX = Math.min(minX, this.segXZ[4 * s] - m, this.segXZ[4 * s + 2] - m);
@@ -383,7 +442,7 @@ export class RoadNetwork {
     for (let pass = 0; pass < 2; pass++) {
       for (let q = 0; q < list.length; q++) {
         const s = list[q];
-        const m = this.halfDeck[this.segEdge[s]] + DECK_BLEND;
+        const m = DECK_REACH;
         const ax = this.segXZ[4 * s], az = this.segXZ[4 * s + 1], bx = this.segXZ[4 * s + 2], bz = this.segXZ[4 * s + 3];
         const i0 = Math.floor((Math.min(ax, bx) - m - this.bx0) / BRIDGE_CELL), i1 = Math.floor((Math.max(ax, bx) + m - this.bx0) / BRIDGE_CELL);
         const j0 = Math.floor((Math.min(az, bz) - m - this.bz0) / BRIDGE_CELL), j1 = Math.floor((Math.max(az, bz) + m - this.bz0) / BRIDGE_CELL);
@@ -404,11 +463,16 @@ export class RoadNetwork {
   }
 
   /**
-   * Altitude en tenant compte des ponts : sur un tablier, l'altitude interpolée entre ses deux
-   * extrémités ; dans une bande de DECK_BLEND autour, un raccord linéaire avec le relief `ground`
-   * (la fonction reste continue). Ailleurs, `ground` inchangé. Aucune allocation.
+   * Altitude en tenant compte des ponts.
+   *   - à moins d'une demi-largeur de l'axe d'une arête de pont : l'altitude du tablier, interpolée
+   *     entre ses deux extrémités (il ne suit pas le relief) ;
+   *   - au-delà, sur l'emprise réelle du pont quand la carte la fournit (`probe.onDeckSurface`) : la
+   *     même altitude, amenée en douceur sur les DECK_RAMP premiers et derniers mètres de l'arête ;
+   *   - dans une bande de DECK_BLEND autour de l'axe épaissi : raccord linéaire entre les deux.
+   * Ailleurs, `ground` inchangé. La fonction est continue, sauf au bord latéral d'un tablier réel
+   * (là où se trouve le parapet). Aucune allocation.
    */
-  deckHeight(x: number, z: number, ground: number): number {
+  deckHeight(x: number, z: number, ground: number, probe: DeckProbe | null): number {
     if (this.bnx === 0) return ground;
     const i = Math.floor((x - this.bx0) / BRIDGE_CELL), j = Math.floor((z - this.bz0) / BRIDGE_CELL);
     if (i < 0 || j < 0 || i >= this.bnx || j >= this.bnz) return ground;
@@ -417,7 +481,8 @@ export class RoadNetwork {
     const end = this.bridgeCellStart[c + 1];
     if (p === end) return ground;
     const xz = this.segXZ;
-    let bestD = Infinity, bestY = ground, bestH = 0;
+    // Segment de pont le plus proche (à portée de son tablier le plus large possible).
+    let bestD = DECK_REACH * DECK_REACH, bestSeg = -1, bestT = 0;
     for (; p < end; p++) {
       const s = this.bridgeCellItems[p];
       const ax = xz[4 * s], az = xz[4 * s + 1];
@@ -428,18 +493,32 @@ export class RoadNetwork {
       const ex = ax + dx * t - x, ez = az + dz * t - z;
       const d2 = ex * ex + ez * ez;
       if (d2 >= bestD) continue;
-      const e = this.segEdge[s];
-      const reach = this.halfDeck[e] + DECK_BLEND;
-      if (d2 >= reach * reach) continue;
       bestD = d2;
-      bestH = this.halfDeck[e];
-      const length = this.edges[e].length;
-      const u = length > 0 ? (this.segS0[s] + Math.sqrt(len2) * t) / length : 0;
-      bestY = this.deckYa[e] + (this.deckYb[e] - this.deckYa[e]) * u;
+      bestSeg = s;
+      bestT = t;
     }
-    if (bestD === Infinity) return ground;
+    if (bestSeg < 0) return ground;
+    const e = this.segEdge[bestSeg];
+    const half = this.halfDeck[e];
     const d = Math.sqrt(bestD);
-    if (d <= bestH) return bestY;
-    return bestY + (ground - bestY) * ((d - bestH) / DECK_BLEND);
+    const sx = xz[4 * bestSeg + 2] - xz[4 * bestSeg], sz = xz[4 * bestSeg + 3] - xz[4 * bestSeg + 1];
+    const length = this.edges[e].length;
+    const along = this.segS0[bestSeg] + Math.sqrt(sx * sx + sz * sz) * bestT;
+    const deckY = this.deckYa[e] + (this.deckYb[e] - this.deckYa[e]) * (length > 0 ? along / length : 0);
+    if (d <= half) return deckY;
+    // Hors de l'axe épaissi : sur l'emprise réelle du pont, si la carte la connaît.
+    let wide = 0;
+    if (probe !== null && probe.onDeckSurface(x, z)) {
+      wide = 1;
+      if (this.rampA[e] === 1 && along < DECK_RAMP) wide = along / DECK_RAMP;
+      if (this.rampB[e] === 1 && length - along < DECK_RAMP) wide = Math.min(wide, (length - along) / DECK_RAMP);
+    }
+    const w = d < half + DECK_BLEND ? 1 + (wide - 1) * ((d - half) / DECK_BLEND) : wide;
+    return ground + (deckY - ground) * w;
   }
+}
+
+/** Ce que deckHeight demande aux collisions : le point est-il sur l'emprise réelle d'un pont ? */
+export interface DeckProbe {
+  onDeckSurface(x: number, z: number): boolean;
 }

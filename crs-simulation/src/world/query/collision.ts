@@ -38,6 +38,11 @@ export const FLAG_SIGHT = 16;
 export const SOLID_BUILDING = 0;
 export const SOLID_WATER = 2;
 export const SOLID_LANDMARK = 3;
+/**
+ * Tablier : surface dure de la carte (chaussée, trottoir…) qui recouvre un plan d'eau. Ce n'est pas
+ * un obstacle : là où il passe, l'eau n'en est plus un.
+ */
+export const SOLID_DECK = 4;
 
 /** Nombre de valeurs par segment dans `seg` : ax, az, bx, bz, nx, nz, 1/longueur², demi-épaisseur. */
 export const SEG_STRIDE = 8;
@@ -109,6 +114,8 @@ export class CollisionBucket {
   polyCellItems: Uint32Array = new Uint32Array(0);
   /** Accélérateur des grands polygones (null ou absent pour les autres). */
   polyBands: (PolyBands | null)[] = [];
+  /** Le lot contient-il des tabliers (SOLID_DECK) ? */
+  hasDecks = false;
 
   /** Le point est-il dans le polygone q (règle de parité sur tous ses anneaux) ? */
   insidePolygon(q: number, x: number, z: number): boolean {
@@ -177,43 +184,63 @@ export class CollisionBucket {
     return false;
   }
 
-  /** Le point est-il dans un obstacle plein de ce lot ? */
-  solidAt(x: number, z: number): boolean {
+  /** Le point est-il dans le polygone désigné par une entrée de polyCellItems ? */
+  private insideItem(item: number, x: number, z: number): boolean {
+    if ((item & POLY_FULL_CELL) !== 0) return true;
+    const box = this.polyBox;
+    if (x < box[4 * item] || x > box[4 * item + 2] || z < box[4 * item + 1] || z > box[4 * item + 3]) return false;
+    return this.insidePolygon(item, x, z); // sans le bit « pleine », l'entrée est l'indice du polygone
+  }
+
+  /**
+   * Le point est-il dans un obstacle plein de ce lot ? Un bâtiment ou un monument hors de ses
+   * passages ; ou de l'eau, hors des capsules de pont et hors de tout tablier.
+   * @param except polygone à ignorer (construction des murs : mitoyenneté), -1 pour aucun
+   */
+  solidAt(x: number, z: number, except = -1): boolean {
     if (this.polyCount === 0 || x < this.minX || x > this.maxX || z < this.minZ || z > this.maxZ) return false;
     const i = Math.floor((x - this.gx0) / COLLISION_CELL), j = Math.floor((z - this.gz0) / COLLISION_CELL);
     if (i < 0 || j < 0 || i >= this.nx || j >= this.nz) return false;
     const c = j * this.nx + i;
-    const box = this.polyBox;
+    let water = false, deck = false;
     for (let p = this.polyCellStart[c], end = this.polyCellStart[c + 1]; p < end; p++) {
       const item = this.polyCellItems[p];
       const q = item & ~POLY_FULL_CELL;
-      if ((item & POLY_FULL_CELL) === 0) {
-        if (x < box[4 * q] || x > box[4 * q + 2] || z < box[4 * q + 1] || z > box[4 * q + 3]) continue;
-        if (!this.insidePolygon(q, x, z)) continue;
+      if (q === except || !this.insideItem(item, x, z)) continue;
+      const kind = this.polyKind[q];
+      if (kind === SOLID_DECK) {
+        deck = true;
+        continue;
       }
       if (this.polyCap0[q + 1] > this.polyCap0[q] && this.inCapsules(q, x, z)) continue;
-      return true;
+      if (kind !== SOLID_WATER) return true;
+      water = true;
+    }
+    return water && !deck;
+  }
+
+  /** Le point est-il sur un tablier (surface dure au-dessus de l'eau) ? */
+  deckAt(x: number, z: number): boolean {
+    if (!this.hasDecks || x < this.minX || x > this.maxX || z < this.minZ || z > this.maxZ) return false;
+    const i = Math.floor((x - this.gx0) / COLLISION_CELL), j = Math.floor((z - this.gz0) / COLLISION_CELL);
+    if (i < 0 || j < 0 || i >= this.nx || j >= this.nz) return false;
+    const c = j * this.nx + i;
+    for (let p = this.polyCellStart[c], end = this.polyCellStart[c + 1]; p < end; p++) {
+      const item = this.polyCellItems[p];
+      if (this.polyKind[item & ~POLY_FULL_CELL] === SOLID_DECK && this.insideItem(item, x, z)) return true;
     }
     return false;
   }
 
-  /** Comme solidAt, en ignorant le polygone `except` (construction des murs : mitoyenneté). */
-  solidAtExcept(x: number, z: number, except: number): boolean {
-    if (this.polyCount === 0) return false;
+  /** Le point est-il dans l'emprise d'un plan d'eau (pont ou pas) ? */
+  waterAt(x: number, z: number): boolean {
+    if (this.polyCount === 0 || x < this.minX || x > this.maxX || z < this.minZ || z > this.maxZ) return false;
     const i = Math.floor((x - this.gx0) / COLLISION_CELL), j = Math.floor((z - this.gz0) / COLLISION_CELL);
     if (i < 0 || j < 0 || i >= this.nx || j >= this.nz) return false;
     const c = j * this.nx + i;
-    const box = this.polyBox;
     for (let p = this.polyCellStart[c], end = this.polyCellStart[c + 1]; p < end; p++) {
       const item = this.polyCellItems[p];
-      const q = item & ~POLY_FULL_CELL;
-      if (q === except) continue;
-      if ((item & POLY_FULL_CELL) === 0) {
-        if (x < box[4 * q] || x > box[4 * q + 2] || z < box[4 * q + 1] || z > box[4 * q + 3]) continue;
-        if (!this.insidePolygon(q, x, z)) continue;
-      }
-      if (this.polyCap0[q + 1] > this.polyCap0[q] && this.inCapsules(q, x, z)) continue;
-      return true;
+      if (this.polyKind[item & ~POLY_FULL_CELL] === SOLID_WATER && this.insideItem(item, x, z)) return true;
     }
     return false;
   }
@@ -265,6 +292,19 @@ export class CollisionWorld {
   solidAt(x: number, z: number): boolean {
     const buckets = this.buckets;
     for (let k = 0; k < buckets.length; k++) if (buckets[k].solidAt(x, z)) return true;
+    return false;
+  }
+
+  /**
+   * Le point est-il sur l'emprise réelle d'un pont : une surface dure de la carte qui recouvre un
+   * plan d'eau (la surface entière compte, y compris sa partie posée sur les berges) ?
+   */
+  onDeckSurface(x: number, z: number): boolean {
+    const buckets = this.buckets;
+    for (let k = 0; k < buckets.length; k++) {
+      const b = buckets[k];
+      if (b.hasDecks && b.deckAt(x, z)) return true;
+    }
     return false;
   }
 

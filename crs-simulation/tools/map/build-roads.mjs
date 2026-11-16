@@ -15,7 +15,7 @@
  * ===================================================================================== */
 import {
   M, readLayer, px, pz, SegGrid, simplifyLine, polylineLength, pointAlong, distToSegment, median, clamp, round1,
-  BOUNDS, SOURCE_MARGIN,
+  BOUNDS, SOURCE_MARGIN, publicWayName,
 } from './build-lib.mjs';
 import { buildingAt } from './build-buildings.mjs';
 
@@ -305,6 +305,7 @@ export function buildRoads(ctx) {
   const widthStats = { source: 0, lanes: 0, classDefault: 0, clampedToLanes: 0, narrowedToFacades: 0 };
   const swStats = { facades: 0, polygons: 0, polygonsInsteadOfFarFacades: 0, classDefault: 0, bridge: 0, none: 0 };
   const out = [];
+  const namesRemoved = new Set();
   for (const ed of live) {
     const p = ed.p;
     const pts = simplifyLine(ed.pts, ROAD_TOLERANCE);
@@ -378,9 +379,16 @@ export function buildRoads(ctx) {
         if (measured > 0) { sidewalk = Math.min(25, measured); swStats.polygons++; }
         else { sidewalk = DEFAULT_SIDEWALK[p.class] ?? 0; swStats.classDefault++; }
       }
-    } else if (!pedestrianOnly && p.bridge) { sidewalk = Math.max(1.5, DEFAULT_SIDEWALK[p.class] ?? 0); swStats.bridge++; }
+    } else if (!pedestrianOnly && p.bridge) {
+      // Pont : pas de façade. Les trottoirs du plan de voirie franchissent le fleuve avec le tablier : on les mesure.
+      const measured = measureSidewalk(pts, length, width, ctx.onSidewalk);
+      sidewalk = measured > 0 ? Math.min(15, measured) : Math.max(1.5, DEFAULT_SIDEWALK[p.class] ?? 0);
+      swStats.bridge++;
+    }
     else swStats.none++;
 
+    const wayName = publicWayName(p.name, p.class === 'service' || pedestrianOnly);
+    if (wayName === '' && typeof p.name === 'string' && p.name !== '') namesRemoved.add(p.name);
     const kmh = Number.isFinite(p.maxspeed) && p.maxspeed > 0 ? Math.min(130, p.maxspeed) : pedestrianOnly ? 6 : p.class === 'living' ? 20 : 30;
     out.push({
       a: ed.a, b: ed.b, points: pts,
@@ -389,7 +397,7 @@ export function buildRoads(ctx) {
       lanesBackward: pedestrianOnly || oneway ? 0 : lanes === 1 ? 1 : Math.floor(lanes / 2),
       oneway,
       roadClass: CLASS_OF[p.class],
-      name: p.name ?? '',
+      name: wayName,
       bridge: p.bridge === true,
       tunnel: false,
       surface: SURFACE_OF[p.surface] ?? 'asphalt',
@@ -403,6 +411,7 @@ export function buildRoads(ctx) {
   }
   report.width = widthStats;
   report.sidewalk = swStats;
+  report.namesRemoved = { count: namesRemoved.size, sample: [...namesRemoved].sort().slice(0, 80) };
 
   // Bouts de cheminements piétons isolés (amorce d'un passage intérieur, marche d'un perron) : sans
   // lien avec le reste du graphe et trop courts pour servir, ils sont retirés.

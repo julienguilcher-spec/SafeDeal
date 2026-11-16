@@ -13,6 +13,9 @@
  * pris dans une capsule est ouvert, sauf s'il est mitoyen d'un autre obstacle plein.
  * Les côtés d'un plan d'eau posés sur une limite de tuile (artefact du découpage) ne sont pas
  * des berges : ils sont ignorés.
+ * Quand la carte fournit l'emprise réelle d'un pont (une chaussée ou un trottoir qui recouvre
+ * l'eau), ce « tablier » fait foi : l'eau n'est plus un obstacle dessous, ses bords au-dessus de
+ * l'eau reçoivent un parapet, la berge et le mur de quai s'ouvrent à son passage.
  *
  * Tout ce fichier s'exécute au chargement : les allocations y sont permises.
  * ===================================================================================== */
@@ -23,7 +26,7 @@ import { indexPolygons, indexSegments, insideRings } from './bucket-index';
 import type { PolyDraft } from './bucket-index';
 import {
   CAP_STRIDE, COLLISION_CELL, CollisionBucket, FLAG_ONE_SIDED, FLAG_SIGHT, KIND_BANK, KIND_BARRIER, KIND_BUILDING,
-  KIND_LANDMARK, SOLID_LANDMARK, SOLID_WATER,
+  KIND_LANDMARK, SOLID_DECK, SOLID_LANDMARK, SOLID_WATER,
 } from './collision';
 import type { RoadNetwork } from './roads';
 import { SEG_BRIDGE, SEG_TUNNEL } from './roads';
@@ -40,6 +43,8 @@ const SAMPLE_STEP = 0.5;
 const CAP_ARC_STEPS = 8;
 /** Distance (m) à laquelle on sonde, derrière un côté pris dans une capsule, s'il est mitoyen. */
 const PARTY_PROBE = 0.3;
+/** Distance (m) à laquelle on sonde l'eau derrière une berge, ou ce qu'il y a au-delà d'un bord de tablier. */
+const BANK_PROBE = 0.4;
 /** Marge (m) de la boîte d'un lot autour de son contenu (épaisseur des barrières, arrondis). */
 const BUCKET_MARGIN = 0.6;
 /** Hauteur (m) retenue pour les parapets générés le long des ponts. */
@@ -65,6 +70,20 @@ function inCaps(caps: readonly number[], x: number, z: number, skip: number, shr
     const o = c * CAP_STRIDE;
     const r = caps[o + 4] - shrink;
     if (r > 0 && distSqToSegment(x, z, caps[o], caps[o + 1], caps[o + 2], caps[o + 3]) < r * r) return true;
+  }
+  return false;
+}
+
+/** Un côté de la surface passe-t-il au-dessus d'un plan d'eau du lot ? (trois sondes par côté) */
+function overlapsWater(poly: PolyDraft, out: CollisionBucket): boolean {
+  for (const ring of poly.rings) {
+    const n = ring.length >> 1;
+    for (let i = 0, j = n - 1; i < n; j = i++) {
+      const ax = ring[2 * j], az = ring[2 * j + 1], bx = ring[2 * i], bz = ring[2 * i + 1];
+      for (let k = 1; k <= 3; k++) {
+        if (out.waterAt(ax + ((bx - ax) * k) / 4, az + ((bz - az) * k) / 4)) return true;
+      }
+    }
   }
   return false;
 }
@@ -124,6 +143,7 @@ export class BucketBuilder {
   private readonly tileRect: Bounds | null;
   private readonly polys: PolyDraft[] = [];
   private readonly barriers: BarrierDraft[] = [];
+  private readonly deckCandidates: PolyDraft[] = [];
   private readonly segs: number[] = [];
   private readonly segHeights: number[] = [];
   private readonly segFlags: number[] = [];
@@ -146,6 +166,17 @@ export class BucketBuilder {
   /** Plan d'eau : anneau extérieur puis îles. */
   addWater(rings: readonly ArrayLike<number>[]): void {
     this.addPoly(rings, SOLID_WATER, 0);
+  }
+
+  /**
+   * Surface dure de la carte (chaussée, trottoir, terre-plein, zone piétonne, place) d'une tuile qui
+   * contient de l'eau : si elle recouvre un plan d'eau, c'est un tablier de pont (l'emprise réelle du
+   * pont, plus juste que la largeur estimée de son arête). Le tri est fait à la construction.
+   */
+  addDeckCandidate(rings: readonly ArrayLike<number>[]): void {
+    const before = this.polys.length;
+    this.addPoly(rings, SOLID_DECK, 0);
+    if (this.polys.length > before) this.deckCandidates.push(this.polys.pop() as PolyDraft);
   }
 
   addBarrier(kind: BarrierKind, height: number, points: ArrayLike<number>): void {
@@ -184,7 +215,7 @@ export class BucketBuilder {
   /** Cherche les voies qui traversent le polygone et crée les capsules d'exemption correspondantes. */
   private findPassages(poly: PolyDraft): void {
     const roads = this.roads;
-    if (roads === null) return;
+    if (roads === null || poly.kind === SOLID_DECK) return;
     const list = this.roadScratch;
     const water = poly.kind === SOLID_WATER;
     // Pour l'eau, la recherche est élargie de la demi-largeur des plus grands tabliers.
@@ -275,6 +306,10 @@ export class BucketBuilder {
    * @param q indice du polygone dans le lot `out` (dont les polygones sont déjà indexés)
    */
   private emitPolyWalls(poly: PolyDraft, q: number, out: CollisionBucket): void {
+    if (poly.kind === SOLID_DECK) {
+      this.emitDeckRails(poly, out);
+      return;
+    }
     const water = poly.kind === SOLID_WATER;
     const flags = water ? KIND_BANK | FLAG_ONE_SIDED : (poly.kind === SOLID_LANDMARK ? KIND_LANDMARK : KIND_BUILDING) | FLAG_ONE_SIDED | FLAG_SIGHT;
     const height = water ? 0 : poly.height;
@@ -293,6 +328,20 @@ export class BucketBuilder {
         if (len < 1e-4) continue;
         if (water && this.isBorderEdge(ax, az, bx, bz)) continue;
         const nx = (-dz / len) * orient, nz = (dx / len) * orient;
+        if (water) {
+          if (!out.hasDecks && (!hasCaps || !capsNear(caps, ax, az, bx, bz))) {
+            this.pushSeg(ax, az, bx, bz, nx, nz, 0, height, flags);
+            continue;
+          }
+          // La berge s'ouvre là où l'eau, juste derrière elle, est sous un pont (capsule ou tablier) :
+          // le pont enjambe la berge à cet endroit.
+          const keepBank = (x: number, z: number): boolean => {
+            const px = x - nx * BANK_PROBE, pz = z - nz * BANK_PROBE;
+            return !inCaps(caps, px, pz, -1, 0) && !out.deckAt(px, pz);
+          };
+          splitByPredicate(ax, az, bx, bz, keepBank, (pax, paz, pbx, pbz) => this.pushSeg(pax, paz, pbx, pbz, nx, nz, 0, height, flags));
+          continue;
+        }
         if (!hasCaps || !capsNear(caps, ax, az, bx, bz)) {
           this.pushSeg(ax, az, bx, bz, nx, nz, 0, height, flags);
           continue;
@@ -300,7 +349,7 @@ export class BucketBuilder {
         // Dans une capsule, le côté s'ouvre — sauf s'il est mitoyen d'un autre obstacle plein
         // (le passage longe alors ce voisin : le mur reste).
         const keep = (x: number, z: number): boolean =>
-          !inCaps(caps, x, z, -1, 0) || out.solidAtExcept(x + nx * PARTY_PROBE, z + nz * PARTY_PROBE, q);
+          !inCaps(caps, x, z, -1, 0) || out.solidAt(x + nx * PARTY_PROBE, z + nz * PARTY_PROBE, q);
         splitByPredicate(ax, az, bx, bz, keep, (pax, paz, pbx, pbz) => this.pushSeg(pax, paz, pbx, pbz, nx, nz, 0, height, flags));
       }
     }
@@ -315,7 +364,9 @@ export class BucketBuilder {
       if (len < 1e-4) continue;
       const ux = (bx - ax) / len, uz = (bz - az) / len;
       const nx = -uz, nz = ux;
-      const keepSide = (x: number, z: number): boolean => out.insidePolygon(q, x, z) && !inCaps(caps, x, z, c, 0.02);
+      // (Pour l'eau : pas de parapet de capsule au milieu d'un tablier réel plus large qu'elle.)
+      const keepSide = (x: number, z: number): boolean =>
+        out.insidePolygon(q, x, z) && !inCaps(caps, x, z, c, 0.02) && !(water && out.deckAt(x, z));
       for (let side = -1; side <= 1; side += 2) {
         const ox = nx * half * side, oz = nz * half * side;
         splitByPredicate(ax + ox, az + oz, bx + ox, bz + oz, keepSide, (pax, paz, pbx, pbz) =>
@@ -342,7 +393,30 @@ export class BucketBuilder {
     }
   }
 
-  private emitBarrier(b: BarrierDraft): void {
+  /**
+   * Parapets d'un tablier : ses côtés, là où il n'y a que de l'eau (ou un autre obstacle plein) de
+   * l'autre côté. La normale regarde le tablier.
+   */
+  private emitDeckRails(poly: PolyDraft, out: CollisionBucket): void {
+    const flags = KIND_BANK | FLAG_ONE_SIDED;
+    for (let r = 0; r < poly.rings.length; r++) {
+      const ring = poly.rings[r];
+      const n = ring.length >> 1;
+      const area = ringSignedArea(ring);
+      const orient = (r === 0 ? area >= 0 : area < 0) ? 1 : -1;
+      for (let i = 0, j = n - 1; i < n; j = i++) {
+        const ax = ring[2 * j], az = ring[2 * j + 1], bx = ring[2 * i], bz = ring[2 * i + 1];
+        const dx = bx - ax, dz = bz - az;
+        const len = Math.hypot(dx, dz);
+        if (len < 1e-4 || this.isBorderEdge(ax, az, bx, bz)) continue;
+        const nx = (-dz / len) * orient, nz = (dx / len) * orient; // vers l'extérieur du tablier
+        const overWater = (x: number, z: number): boolean => out.solidAt(x + nx * BANK_PROBE, z + nz * BANK_PROBE);
+        splitByPredicate(ax, az, bx, bz, overWater, (pax, paz, pbx, pbz) => this.pushSeg(pax, paz, pbx, pbz, -nx, -nz, 0, RAIL_HEIGHT, flags));
+      }
+    }
+  }
+
+  private emitBarrier(b: BarrierDraft, out: CollisionBucket): void {
     let thick = 0.2, sight = false, height = b.height;
     if (b.kind === 'wall') sight = b.height >= 1.7;
     else if (b.kind === 'hedge') { thick = 0.4; sight = b.height >= 1.7; }
@@ -353,6 +427,14 @@ export class BucketBuilder {
     const pts = b.points;
     const roads = this.roads;
     const gaps: number[] = [];
+    // Un mur de quai court le long de la berge, y compris sous les ponts : sous un tablier, il ne
+    // barre pas le pont (la berge, elle, reste fermée de part et d'autre).
+    const underDeck = b.kind === 'quay_wall' && out.hasDecks;
+    const notUnderDeck = (x: number, z: number): boolean => !out.deckAt(x, z);
+    const push = (pax: number, paz: number, pbx: number, pbz: number, nx: number, nz: number): void => {
+      if (!underDeck) this.pushSeg(pax, paz, pbx, pbz, nx, nz, thick, height, flags);
+      else splitByPredicate(pax, paz, pbx, pbz, notUnderDeck, (qax, qaz, qbx, qbz) => this.pushSeg(qax, qaz, qbx, qbz, nx, nz, thick, height, flags));
+    };
     for (let i = 2; i + 1 < pts.length; i += 2) {
       const ax = pts[i - 2], az = pts[i - 1], bx = pts[i], bz = pts[i + 1];
       const dx = bx - ax, dz = bz - az;
@@ -382,7 +464,7 @@ export class BucketBuilder {
         }
       }
       if (gaps.length === 0) {
-        this.pushSeg(ax, az, bx, bz, nx, nz, thick, height, flags);
+        push(ax, az, bx, bz, nx, nz);
         continue;
       }
       // Complément des brèches le long du segment.
@@ -392,10 +474,10 @@ export class BucketBuilder {
       let from = 0;
       for (const g of order) {
         const lo = gaps[g], hi = gaps[g + 1];
-        if (lo - from > 0.05) this.pushSeg(ax + (dx * from) / len, az + (dz * from) / len, ax + (dx * lo) / len, az + (dz * lo) / len, nx, nz, thick, height, flags);
+        if (lo - from > 0.05) push(ax + (dx * from) / len, az + (dz * from) / len, ax + (dx * lo) / len, az + (dz * lo) / len, nx, nz);
         if (hi > from) from = hi;
       }
-      if (len - from > 0.05) this.pushSeg(ax + (dx * from) / len, az + (dz * from) / len, bx, bz, nx, nz, thick, height, flags);
+      if (len - from > 0.05) push(ax + (dx * from) / len, az + (dz * from) / len, bx, bz, nx, nz);
     }
   }
 
@@ -408,6 +490,12 @@ export class BucketBuilder {
     const out = new CollisionBucket();
     let minX = Infinity, minZ = Infinity, maxX = -Infinity, maxZ = -Infinity;
     for (const p of this.polys) {
+      if (p.minX < minX) minX = p.minX;
+      if (p.maxX > maxX) maxX = p.maxX;
+      if (p.minZ < minZ) minZ = p.minZ;
+      if (p.maxZ > maxZ) maxZ = p.maxZ;
+    }
+    for (const p of this.deckCandidates) {
       if (p.minX < minX) minX = p.minX;
       if (p.maxX > maxX) maxX = p.maxX;
       if (p.minZ < minZ) minZ = p.minZ;
@@ -433,8 +521,19 @@ export class BucketBuilder {
 
     // Les polygones d'abord : l'émission des murs interroge « y a-t-il un autre obstacle plein ici ? ».
     indexPolygons(out, this.polys);
+    // Tabliers : parmi les surfaces dures proposées, celles dont un côté passe au-dessus de l'eau.
+    let decks = 0;
+    for (const cand of this.deckCandidates) {
+      if (!overlapsWater(cand, out)) continue;
+      this.polys.push(cand);
+      decks++;
+    }
+    if (decks > 0) {
+      indexPolygons(out, this.polys);
+      out.hasDecks = true;
+    }
     for (let q = 0; q < this.polys.length; q++) this.emitPolyWalls(this.polys[q], q, out);
-    for (const b of this.barriers) this.emitBarrier(b);
+    for (const b of this.barriers) this.emitBarrier(b, out);
     indexSegments(out, this.segs, this.segHeights, this.segFlags);
     return out;
   }

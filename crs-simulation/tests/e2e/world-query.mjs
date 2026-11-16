@@ -71,6 +71,7 @@ if (hasParis) {
     { name: 'world-query-paris-concorde', req: { place: 'place de la Concorde', x: 0, z: 0, span: 520 }, expectSource: 'paris', needsPath: true },
     { name: 'world-query-paris-cite', req: { x: 1870, z: 1230, span: 900 }, expectSource: 'paris', needsPath: true },
     { name: 'world-query-paris-concorde-detail', req: { x: 0, z: 0, span: 160 }, expectSource: 'paris', needsPath: true },
+    { name: 'world-query-paris-pont-concorde', req: { x: -127, z: 250, span: 260 }, expectSource: 'paris', needsPath: true },
   ]);
 } else {
   console.log("[world-query] public/data/paris/manifest.json absent : captures de Paris non réalisées");

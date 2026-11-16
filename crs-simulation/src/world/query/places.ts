@@ -6,7 +6,6 @@
 import type { LandmarkInfo, PlaceInfo, PlaceKind } from '@/core/contracts';
 import type { Landmark, Place } from '../mapdata';
 import type { RoadNetwork } from './roads';
-import { ROAD_NAMED } from './roads';
 
 /** Mots vides ignorés dans une recherche (« place de la concorde » = « place concorde »). */
 const STOP_WORDS = new Set(['de', 'du', 'des', 'd', 'la', 'le', 'les', 'l', 'a', 'au', 'aux', 'et', 'en', 'sur']);
@@ -24,6 +23,22 @@ const GENERIC_WORDS = new Set([
 ]);
 
 const GENERIC_COMPOUNDS = new Set(['rond point', 'chemin de fer']);
+
+/**
+ * Noms d'usage (normalisés) → nom officiel porté par la carte. Consultés quand le nom demandé
+ * n'existe pas tel quel ; sans effet si le nom officiel est absent de la carte.
+ */
+const USUAL_NAMES: Readonly<Record<string, string>> = {
+  'etoile': 'place charles de gaulle',
+  'l etoile': 'place charles de gaulle',
+  'place de l etoile': 'place charles de gaulle',
+  'place charles de gaulle etoile': 'place charles de gaulle',
+  'champs': 'avenue des champs elysees',
+  'les champs': 'avenue des champs elysees',
+  'les champs elysees': 'avenue des champs elysees',
+  'beaubourg': 'centre pompidou',
+  'assemblee': 'assemblee nationale',
+};
 
 /** Préférence par nature de lieu, à qualité de correspondance égale. */
 const KIND_BONUS: Readonly<Record<PlaceKind, number>> = {
@@ -104,9 +119,25 @@ export class PlaceIndex {
     if (query === '') return null;
     const cached = this.cache.get(query);
     if (cached !== undefined) return cached;
-    const wanted = significantWords(query);
     let best: PlaceInfo | null = null;
     let bestScore = -Infinity;
+    // Nom d'usage : s'il désigne un lieu présent sur la carte, c'est lui.
+    const usual = USUAL_NAMES[query];
+    if (usual !== undefined && this.norm.indexOf(query) < 0) {
+      for (let i = 0; i < this.places.length; i++) {
+        if (this.norm[i] !== usual) continue;
+        const score = this.importance[i] * 15 + (KIND_BONUS[this.places[i].kind] ?? 0);
+        if (score > bestScore) {
+          bestScore = score;
+          best = this.places[i];
+        }
+      }
+      if (best !== null) {
+        this.cache.set(query, best);
+        return best;
+      }
+    }
+    const wanted = significantWords(query);
     for (let i = 0; i < this.places.length; i++) {
       const norm = this.norm[i];
       let quality = 0;
@@ -157,7 +188,7 @@ export class PlaceIndex {
   sectorName(x: number, z: number, roads: RoadNetwork | null, onGreen: boolean): string {
     let roadName = '';
     let onRoad = false;
-    if (roads !== null && roads.nearest(x, z, SECTOR_ROAD_DISTANCE, ROAD_NAMED)) {
+    if (roads !== null && roads.nearestNamedStreet(x, z, SECTOR_ROAD_DISTANCE)) {
       const ed = roads.edges[roads.snapEdge];
       const reach = ed.width / 2 + ed.sidewalk;
       // Sur un pont, le nom de l'ouvrage prime (il est porté par l'arête).

@@ -7,7 +7,7 @@
 import { TILE_SIZE } from '../mapdata';
 import type { RoadGraph, Tile } from '../mapdata';
 import type { WorldBase } from './base';
-import { CAP_STRIDE, SOLID_LANDMARK, SOLID_WATER } from './collision';
+import { CAP_STRIDE, SOLID_DECK, SOLID_LANDMARK, SOLID_WATER } from './collision';
 import type { CollisionBucket } from './collision';
 import {
   CODE_BRIDGE, CODE_BUILDING, CODE_PLAZA, CODE_ROAD, CODE_SETT, CODE_SIDEWALK, CODE_UNSET, CODE_WATER, TileGrid,
@@ -46,7 +46,7 @@ function paintLandmarkSolids(grid: TileGrid, bucket: CollisionBucket): void {
 /** Passages de voies sous les bâtiments d'un lot : le sol y redevient celui de la voie. */
 function paintPassages(grid: TileGrid, bucket: CollisionBucket, graph: RoadGraph): void {
   for (let q = 0; q < bucket.polyCount; q++) {
-    if (bucket.polyKind[q] === SOLID_WATER) continue;
+    if (bucket.polyKind[q] === SOLID_WATER || bucket.polyKind[q] === SOLID_DECK) continue;
     for (let c = bucket.polyCap0[q], end = bucket.polyCap0[q + 1]; c < end; c++) {
       const o = c * CAP_STRIDE;
       const ed = graph.edges[bucket.capEdge[c]];
@@ -101,7 +101,19 @@ export function buildTileGrid(base: WorldBase, entry: TileEntry, edgeScratch: nu
       paintPolyline(grid, ed.points, ed.width / 2 + 4, CODE_SETT, true, 0, road, -1);
     }
   }
-  // 5. Tabliers des ponts.
+  // 5. Tabliers des ponts : l'emprise réelle fournie par la carte là où elle recouvre l'eau, puis
+  //    les arêtes « pont » épaissies.
+  const bucket = entry.bucket;
+  if (bucket !== null && bucket.hasDecks) {
+    for (let q = 0; q < bucket.polyCount; q++) {
+      if (bucket.polyKind[q] !== SOLID_DECK) continue;
+      const rings: Float32Array[] = [];
+      for (let r = bucket.polyRing0[q], end = bucket.polyRing0[q + 1]; r < end; r++) {
+        rings.push(bucket.xz.subarray(bucket.ringPt0[r] * 2, bucket.ringPt0[r + 1] * 2));
+      }
+      fillPolygon(grid, rings, CODE_BRIDGE, -1, 0, water);
+    }
+  }
   for (const e of edges) {
     const ed = graph.edges[e];
     if (ed.tunnel || !ed.bridge) continue;

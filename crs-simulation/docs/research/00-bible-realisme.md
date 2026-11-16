@@ -2,16 +2,14 @@
 
 > Synthèse arbitrée des dossiers 01 à 06, relue et complétée le 16 novembre 2026. **En cas de désaccord entre deux dossiers, c'est ce fichier qui fait foi** ; le détail et les URL restent dans les dossiers 01 à 06.
 > Vérifications faites pour cette bible sur documents primaires : code de la sécurité intérieure et code pénal consolidés (éditions du 14 novembre et du 20 octobre 2026), instruction commune du 27 juillet / 2 août 2017 sur les armes de force intermédiaire (annexes), instruction gendarmerie n° 200000 du 26 juillet 2022, dossier de presse « Le Centaure » (octobre 2023), Cour des comptes « Les forces mobiles » (2024), réponse ministérielle n° 12772 (engins lanceurs d'eau).
+> Limite de cette relecture : le quota de recherche web de la session était épuisé ; les compléments viennent de la lecture directe de documents (codes consolidés, instructions, rapports, pages de référence), sans nouvelle recherche par mots-clés. Ce qui n'a pas pu être vérifié est listé en J.2.
 > Rappels du BRIEF : aucun nom de marque, de personne, de parti ni de syndicat réel dans le jeu ; violences décrites au niveau du gameplay ; interface en français.
 
 **Marqueurs.** **(vérifié)** = valeur lue dans un texte officiel, un document primaire, une base de référence (open data Ville de Paris, IGN, OpenStreetMap) ou une source de référence lue et non contredite. **(estimé)** = valeur de conception pour le jeu, calcul, donnée de constructeur ou de presse non recoupée, observation. Un marqueur placé dans un en-tête de colonne ou de tableau vaut pour toutes ses valeurs. **Tous les codes hexadécimaux sont (estimé)** (seuls les RAL 7011 / 7012 des barrières de chantier sont officiels). Distances en mètres, durées en secondes, sauf mention.
 
----
-
 ## A. Sommations et cadre d'emploi de la force
 
 ### A.1 Textes exacts, à reproduire au caractère près (audio et sous-titres)
-
 Article R. 211-11 du code de la sécurité intérieure, version du décret n° 2021-556 du 5 mai 2021, relu dans le code consolidé du 14 novembre 2026 **(vérifié)**. Le texte réglementaire ne met ni point ni point d'exclamation final.
 
 | Clé | Étape (verbe du texte) | Paroles à prononcer « par haut-parleur » |
@@ -30,7 +28,6 @@ Article R. 211-11 du code de la sécurité intérieure, version du décret n° 2
 - Avertissements hors sommations (riposte directe), textes de jeu **(estimé)** : « Attention, nous allons employer des grenades lacrymogènes. Écartez-vous. » ; « Attention, charge. Dégagez la chaussée. » ; « Attention, usage du canon à eau. Reculez. »
 
 ### A.2 États juridiques (un état par unité et par compartiment de terrain)
-
 | Code | État | Entrée | Force licite maximale (`RoeState.lawfulForce` ; le chiffre est une correspondance de jeu, estimé) | `sommation` |
 |---|---|---|---|---|
 | `E0` | Cortège ou rassemblement | État initial | 1 : présence, barrage statique, filtrage, dialogue | 0 |
@@ -43,7 +40,6 @@ Article R. 211-11 du code de la sécurité intérieure, version du décret n° 2
 | `FIN` | Fin d'emploi de la force | Le trouble a cessé | retour à 1 | 0 |
 
 ### A.3 Règles applicables par le moteur
-
 1. **Défaut.** Toute unité est en `E0`. Aucune action coercitive ; les unités restent hors de vue (rue parallèle) ou à 50 m au moins (estimé) du cortège, sauf en tête. Une manifestation est déclarée, jamais « autorisée » : un cortège calme n'est pas une cible (vérifié).
 2. **Autorité.** Seul un personnage au poste `autorite_civile`, présent à moins de 50 m (estimé) de l'unité et portant l'insigne (`sash` ou `armband`), peut constater l'attroupement et prononcer `S1` à `S3bis`. Le commandant de CRS n'est jamais habilité. Sans autorité civile présente : seuls `R` et `LD` existent (vérifié : art. R. 211-21, instruction de 2022).
 3. **Constat.** L'attroupement peut être constaté si la manifestation est interdite ou non déclarée, si elle ne respecte pas sa déclaration, si les organisateurs ont donné l'ordre de dispersion (vérifié), ou, règle de jeu, si 3 infractions distinctes au moins ont été vues en 60 s dans la zone (estimé). Qualifier d'attroupement un cortège calme est une faute.
@@ -70,7 +66,6 @@ Article R. 211-11 du code de la sécurité intérieure, version du décret n° 2
 24. **Compte rendu.** Chaque tir est journalisé (heure, moyen, distance estimée, état juridique, ordre reçu, filmé ou non) ; l'écran de fin est le compte rendu d'opération : munitions par type, blessés des deux côtés, interpellations (vérifié pour le principe).
 
 ### A.4 Matrice de licéité (annexe VIII de l'instruction de 2017, vérifié ; lignes marquées * : classement de jeu, estimé)
-
 | Moyen (`ForceMeans`) | `E0` à `E2` | `E3` | `E4` | `R` | `LD` |
 |---|---|---|---|---|---|
 | `presence` (barrage statique, filtrage) * | oui | oui | oui | oui | oui |
@@ -87,7 +82,6 @@ Article R. 211-11 du code de la sécurité intérieure, version du décret n° 2
 | `vehicule` (lame du Centaure sur un obstacle vérifié vide) * | oui | oui | oui | oui | oui |
 
 ### A.5 Délais (aucun délai chiffré n'existe dans les textes ; valeurs de jeu, estimé)
-
 | Intervalle minimal | Courte (10 min) | Standard (25 min) | Longue (45 min) | Temps réel |
 |---|---|---|---|---|
 | `S1` → `S2` | 15 | 30 | 60 | 120 |
@@ -96,33 +90,31 @@ Article R. 211-11 du code de la sécurité intérieure, version du décret n° 2
 | `S3bis` → premier tir d'arme | 5 | 10 | 20 | 30 |
 | Réponse de l'autorité à une demande | 5 à 20 (20 à 60 en « commandement centralisé ») | idem | idem | idem |
 
----
-
 ## B. Tableau du matériel
 
 Condition légale : codes de A.2 (« `E3`+ » = `E3`, `E4`, `R`, `LD`). Quantité = dotation de jeu en durée standard.
 
-| Objet (`ItemId`) | Porteur | Apparence | Dimensions, masse | Couleur | Portée | Durée d'effet | Rayon | Cadence | Quantité | Condition légale |
+| Objet (`ItemId`) | Porteur | Apparence | Dimensions, masse | Couleur | Portée | Durée d'effet | Rayon | Cadence | Quantité (estimé) | Condition légale |
 |---|---|---|---|---|---|---|---|---|---|---|
-| Bouclier de maintien de l'ordre (`bouclier`) | Porte-bouclier | Polycarbonate transparent cintré, deux poignées ; se raye, se fissure | 1,00 × 0,57, ép. 0,004 ; 4 kg (estimé) | `#CFE3EA` à 25 % | contact | — | couvre 0,7 de front (estimé) | — | 1 | Protection : toujours ; coup de bouclier : `E3`+ |
+| Bouclier de maintien de l'ordre (`bouclier`) | Porte-bouclier | Polycarbonate transparent cintré, deux poignées ; se raye, se fissure | 1,00 × 0,57, ép. 0,004 ; 4 kg (estimé) | `#CFE3EA`, opacité 25 % (estimé) | contact | — | couvre 0,7 de front (estimé) | — | 1 | Protection : toujours ; coup de bouclier : `E3`+ |
 | Petit bouclier rond | Interpellateur | Disque transparent, une poignée | Ø 0,58 ; 2,5 kg (estimé) | idem | contact | — | — | — | 1 | idem |
 | Bâton de défense à poignée latérale (`tonfa`, `baton`) | Tout agent | Bâton noir, poignée perpendiculaire | 0,60 × Ø 0,03 ; 0,6 kg (estimé) | `#111111` | 1,2 (estimé) | — | — | 1 coup par 0,8 s (estimé) | 1 | `E3`+ ; jamais tête, personne à terre ou maîtrisée |
 | Aérosol lacrymogène individuel (`gazeuse`) | Tout agent | Bombe à gâchette, étui de ceinture | Ø 0,04 × 0,15 ; 100 ml (estimé) | corps `#1A1A1A`, capot `#D62828` | 4, cône de 30° (estimé) | gêne 60 s (estimé) | — | 7 jets de 1 s (estimé) | 1 | `E3`+ ; jamais sur une personne maîtrisée |
-| Aérosol grande capacité | 1 par groupe | Grosse bombe à poignée-pistolet | Ø 0,07 × 0,30 (estimé) | `#1A1A1A` | cône de 7 (estimé) | 60 s (estimé) | — | 12 s de jet cumulé (estimé) | 1 | `E3`+ |
+| Aérosol grande capacité | 1 par groupe (estimé) | Grosse bombe à poignée-pistolet | Ø 0,07 × 0,30 (estimé) | `#1A1A1A` | cône de 7 (estimé) | 60 s (estimé) | — | 12 s de jet cumulé (estimé) | 1 | `E3`+ |
 | Grenade lacrymogène à 6 palets, à main (`grenade_lacrymo`) | Lanceur, chefs de groupe | Cylindre gris à cuillère | calibre 56 mm (vérifié) ; longueur 0,199 ; 340 g (estimé) | `#9AA0A6`, nuage `#E4E6E1` → `#C7CBC6` | 5 à 30 à la main (estimé) | émission 30 s par palet ; nuage 60 à 180 s sans vent (estimé) | 800 m², soit 16 de rayon, sur 3 à 5 de haut (estimé, fiche de fabricant de 2012) | lancer en 3 s (estimé) | 4 par lanceur, 2 par chef de groupe (estimé) | `E3`+ |
 | Même grenade tirée au lanceur | Lanceur | Tir en cloche, s'ouvre en l'air, 6 palets dispersés sur 5 à 15 (estimé) | idem | idem | 50, 100 ou 200 selon le dispositif de propulsion (vérifié) ; vol 3,2 / 4,5 / 6,4 s (estimé) | idem | idem | voir lanceur | 8 par lanceur (estimé ; gilet réel : jusqu'à 20, presse) | `E4` ou `R` ; sur ordre ; tir tendu interdit |
 | Lanceur de grenades 56 mm mono-tube (`lanceur_cougar` ; afficher « Lanceur 56 ») | Lanceur + superviseur | Gros tube noir, crosse repliable | 0,765 de long ; 3,67 kg (estimé) | `#15171A` | 50 à 200 (vérifié) | — | — | 6 à 8 coups par minute, soit 8 s par tir (estimé) | 2 par section (estimé) | `E4` ou `R` |
 | Lanceur multi-coups 40 mm | Unités spécialisées | Barillet à 6 chambres (vérifié) | 0,87 ; 5,2 kg (estimé) | `#15171A` | 50, 100, 150 (estimé) | — | — | 6 coups en 6 s (estimé) | option | `E4` ou `R` |
 | Grenade assourdissante-lacrymogène (`grenade_gm2l`) | Lanceur | Cylindre court | Ø 0,056 × 0,092 ; 150 g (estimé) | `#6B7280` | 200 au plus (vérifié) ; au lanceur et en cloche seulement depuis 2021 (vérifié) | détonation + nuage instantané 15 s (estimé) | sidération 10, nuage 5 (estimé) ; 160 dB à 5 m (estimé) | voir lanceur | 2 par lanceur (estimé) | `E4` ou `R` |
-| Grenade assourdissante à main | Chef de groupe | Petit cylindre | non trouvé | `#3A3A3A` | 5 à 30 (estimé) | détonation | 8 (estimé) | 3 s | 1 par groupe ; option « suspendue en 2026 » (presse) | `E4` ou `R` |
-| Grenade de désencerclement (`grenade_desencerclement`) | Chef de groupe, interpellateur | Cylindre noir à cuillère, roulée au sol | Ø 0,056 ; 248 g (estimé) | `#111111` | jusqu'à 30 (vérifié) | retard 1,5 s (vérifié) ; détonation de plus de 150 dB (estimé) | 10 au plus (vérifié), 18 galets de caoutchouc (vérifié) ; modèle actuel moins puissant : 7 en jeu (estimé) | 3 s | 2 par groupe (estimé) | `E4` ou `R` ; au ras du sol ; jamais au lanceur |
-| Lanceur de balles de défense de 40 mm (`lbd40`) | 1 tireur habilité par section + superviseur | Lanceur mono-coup à canon basculant, viseur électronique | 0,59 de long ; 2,05 kg (estimé) | `#15171A` | 10 à 50, optimum 30 (vérifié) ; munition courte : 3 à 35, optimum 25 (vérifié) ; 92 m/s (estimé) | impact | — | 1 tir par 5 s (estimé) | 6 munitions (estimé) | `R` ou `LD` seulement ; torse et membres ; tête interdite |
+| Grenade assourdissante à main | Chef de groupe | Petit cylindre | non trouvé | `#3A3A3A` | 5 à 30 (estimé) | détonation | 8 (estimé) | 3 s (estimé) | 1 par groupe ; option « suspendue en 2026 » (presse) | `E4` ou `R` |
+| Grenade de désencerclement (`grenade_desencerclement`) | Chef de groupe, interpellateur | Cylindre noir à cuillère, roulée au sol | Ø 0,056 ; 248 g (estimé) | `#111111` | jusqu'à 30 (vérifié) | retard 1,5 s (vérifié) ; détonation de plus de 150 dB (estimé) | 10 au plus (vérifié), 18 galets de caoutchouc (vérifié) ; modèle actuel moins puissant : 7 en jeu (estimé) | 3 s (estimé) | 2 par groupe (estimé) | `E4` ou `R` ; au ras du sol ; jamais au lanceur |
+| Lanceur de balles de défense de 40 mm (`lbd40`) | 1 tireur habilité par section (estimé) + superviseur | Lanceur mono-coup à canon basculant, viseur électronique | 0,59 de long ; 2,05 kg (estimé) | `#15171A` | 10 à 50, optimum 30 (vérifié) ; munition courte : 3 à 35, optimum 25 (vérifié) ; 92 m/s (estimé) | impact | — | 1 tir par 5 s (estimé) | 6 munitions (estimé) | `R` ou `LD` seulement ; torse et membres ; tête interdite |
 | Arme de service (`pistolet`) | Tout policier | Pistolet semi-automatique en étui | 0,19 × 0,14 (estimé) | `#111111` | 25 (estimé) | — | — | — | 15 cartouches (estimé) | `LD` uniquement |
 | Menottes, liens (`menottes`) | Tout agent | Acier ; liens plastiques | 0,24 × 0,08 (estimé) | `#B0B4BA` | contact | — | — | pose 4 s, liens 3 s (estimé) | 1 paire + 5 liens (estimé) | Personne dangereuse ou susceptible de fuir (art. 803 du code de procédure pénale, vérifié) |
-| Radio (`radio`) | Tout agent | Poste portatif, micro d'épaule | 0,13 × 0,06 (estimé) | `#111111` | réseau | message 4 à 8 s (estimé) | — | 1 locuteur par canal | 1 | — |
+| Radio (`radio`) | Tout agent | Poste portatif, micro d'épaule | 0,13 × 0,06 (estimé) | `#111111` | réseau | message 4 à 8 s (estimé) | — | 1 locuteur par canal (estimé) | 1 | — |
 | Mégaphone (`megaphone`) | Autorité civile, équipe de liaison | Porte-voix à pavillon | Ø 0,23 × 0,35 (estimé) | `#F2F2F2` | intelligible 60, audible 120 dans le bruit ; double par temps calme (estimé) | — | cône de 60° (estimé) | — | 1 | Obligatoire pour `S1` à `S3bis` |
 | Haut-parleur de forte puissance | Véhicule sonorisé | Enceinte de toit | — | — | intelligible 150, audible 300 (estimé) | — | — | — | 1 par compagnie (estimé) | idem |
-| Fusée rouge (`fusee_sommation`) | Autorité civile ou agent désigné | Étoile rouge tirée vers le ciel | — | `#FF2A1A` | apogée 80 (estimé) | visible 6 s (estimé) | visible de toute la place | 1 par étape | 4 (estimé) | Remplace ou complète chaque annonce ou sommation |
+| Fusée rouge (`fusee_sommation`) | Autorité civile ou agent désigné | Étoile rouge tirée vers le ciel | — | `#FF2A1A` | apogée 80 (estimé) | visible 6 s (estimé) | visible de toute la place | 1 par étape (estimé) | 4 (estimé) | Remplace ou complète chaque annonce ou sommation |
 | Extincteur (`extincteur`) | Porte-extincteur, chaque véhicule | Extincteur portatif rouge | Ø 0,16 × 0,52 ; 6 kg (estimé) | `#D0021B` | 4 (estimé) | 15 s de jet (estimé) | — | — | 1, recharge au fourgon | Toujours |
 | Masque à gaz (`masque_gaz`) | Tout agent | Masque panoramique, cartouche | 0,20 × 0,17 (estimé) | `#111111` | — | pose 8 s ; champ de vision −30 % (estimé) | — | — | 1 | — |
 | Caméra-piéton | Chefs, superviseur du LBD | Boîtier sur le haut du torse, voyant rouge quand elle enregistre | 0,07 × 0,09 (estimé) | `#111111`, voyant `#FF2A2A` | 15 (estimé) | enregistrement non permanent, effacé après 1 mois (vérifié, art. L. 241-1) | — | — | 1 | Déclenchement quand un incident se produit ou risque de se produire |
@@ -130,18 +122,16 @@ Condition légale : codes de A.2 (« `E3`+ » = `E3`, `E4`, `R`, `LD`). Quantit�
 | Barrière de police | Pose par la préfecture, les CRS | Acier galvanisé à barreaux, crochets | 1,10 × 2,00 ou 2,50 ; 14 à 20 kg (vérifié) | `#A9AEB3` | — | — | — | pose 5 s (estimé) | selon mission | — |
 | Pavé, fragment (`pave`) | `radical`, `opportuniste` | Cube de granit ou débris ramassé | 0,10 de côté ; 1 à 3 kg (estimé) | `#6B6E72` | 15 à 30 (estimé) | impact | dispersion ± 3 à 20 m (estimé) | 1 jet par 6 à 10 s (estimé) | ramassé sur place (stock par rue) | Infraction : art. 222-14-5 si agent visé |
 | Bouteille (`bouteille`) | idem | Verre | 0,5 kg (estimé) | `#6E8F7A` | 15 à 30 (estimé) | éclats 2 (estimé) | — | idem | ramassée (terrasses, conteneurs) | idem |
-| Engin incendiaire (`molotov`) | `radical`, tension ≥ 0,7 | Bouteille enflammée | — | flamme `#FFD27A` / `#FF7A00` | 15 à 25 (estimé) | flaque de feu 20 à 40 s (estimé) | Ø 2 à 3 (estimé) | rare : 1 par 60 s et par bloc (estimé) | 0 à 6 par bloc (estimé) | art. 322-6 : 10 ans (vérifié) |
+| Engin incendiaire (`molotov`) | `radical`, tension ≥ 0,7 (estimé) | Bouteille enflammée | — | flamme `#FFD27A` / `#FF7A00` | 15 à 25 (estimé) | flaque de feu 20 à 40 s (estimé) | Ø 2 à 3 (estimé) | rare : 1 par 60 s et par bloc (estimé) | 0 à 6 par bloc (estimé) | art. 322-6 : 10 ans (vérifié) |
 | Mortier d'artifice (`mortier`) | `radical`, émeutiers | Tube tenu à la main, tir tendu | 0,5 de long (estimé) | étoiles `#FF3B30` `#34C759` `#FFD60A` | 30 à 60 (estimé) | détonation, brûlure | sursaut 15 (estimé) | 1 coup par 1 à 2 s, 4 à 8 coups par tube (estimé) | 1 tube pour 15 radicaux (estimé) | Arme par destination |
 | Fumigène (`fumigene`) | Cortège (couleur), bloc (noir = signal) | Torche | — | `#D62828`, signal `#1A1A1A` | — | 60 s (estimé) | 6 (estimé) | — | — | Interdit par arrêté aux abords |
-| Banderole renforcée (`banderole`) | Tête du bloc, 6 à 10 porteurs | Bande rigide noire, lettres blanches | 3 à 6 × 1,5 (estimé) | `#0B0B0D` | — | arrête jets et tirs de LBD sur ses porteurs (estimé) | — | — | 1 à 3 par bloc | — |
+| Banderole renforcée (`banderole`) | Tête du bloc, 6 à 10 porteurs (estimé) | Bande rigide noire, lettres blanches | 3 à 6 × 1,5 (estimé) | `#0B0B0D` | — | arrête jets et tirs de LBD sur ses porteurs (estimé) | — | — | 1 à 3 par bloc | — |
 | Parapluie (`parapluie`) | Bloc | Ouvert en nombre, masque aux caméras | Ø 1,1 (estimé) | `#0B0B0D` ; signal multicolore | — | masque 3 personnes au drone (estimé) | — | — | 1 pour 5 (estimé) | — |
 | Marteau, barre (`marteau`, `barre`) | `radical`, `pilleur` | Outil | 0,3 à 0,8 (estimé) | `#3A3A3A` | contact | vitrine brisée en 2 à 6 coups, 3 à 10 s (estimé) | — | — | 1 pour 8 radicaux (estimé) | art. 322-1 |
-| Bombe de peinture (`bombe_peinture`) | `radical` | Aérosol | — | `#101010`, `#B3121B` | 1 | inscription en 4 à 8 s (estimé) | — | — | — | art. 322-1 II |
+| Bombe de peinture (`bombe_peinture`) | `radical` | Aérosol | — | `#101010`, `#B3121B` | 1 (estimé) | inscription en 4 à 8 s (estimé) | — | — | — | art. 322-1 II |
 | Pancarte, drapeau (`pancarte`, `drapeau`) | Manifestants | Carton manuscrit ; drapeau sur hampe | 0,5 × 0,7 ; hampe 2 à 3 (estimé) | selon la cause | — | — | — | — | 1 pour 4 marcheurs (estimé) | — |
 | Sac de secouriste (`trousse_secours`, `serum_physiologique`) | Street medic, secouriste d'unité | Sac à dos, croix | — | `#F5F5F5`, croix `#D62828` | contact | rinçage 6 s ; pansement 10 s (estimé) | — | — | 20 doses de sérum (estimé) | — |
-| Appareil photo, caméra (`appareil_photo`, `camera_tv`) | Journaliste | Boîtier et téléobjectif ; caméra d'épaule | — | `#111111` | sujet net de 5 à 30 (estimé) | publication après 30 à 120 s (estimé) | — | 1 vue par s | 24 vues (estimé) | Ne peut être saisi (vérifié) |
-
----
+| Appareil photo, caméra (`appareil_photo`, `camera_tv`) | Journaliste | Boîtier et téléobjectif ; caméra d'épaule | — | `#111111` | sujet net de 5 à 30 (estimé) | publication après 30 à 120 s (estimé) | — | 1 vue par s (estimé) | 24 vues (estimé) | Ne peut être saisi (vérifié) |
 
 ## C. Tableau des véhicules
 
@@ -149,27 +139,25 @@ Condition légale : codes de A.2 (« `E3`+ » = `E3`, `E4`, `R`, `LD`). Quantit�
 |---|---|---|---|---|---|---|---|
 | Fourgon de CRS (`fourgon_crs`) | 5,8 × 2,05 × 2,55 (estimé) | 3,5 t (estimé) | 110 km/h ; 30 en colonne ; 5 derrière la troupe (estimé) | 6 : un groupe (vérifié) | Grilles rabattables, rampe bleue, haut-parleur, râtelier à boucliers, coffre à grenades, extincteur | Blanc `#F4F5F7`, « POLICE » et bandes `#1D4E9E` | Police |
 | Car de transport (`car_crs`) | 12,0 × 2,55 × 3,30 (estimé) | 18 t (estimé) | 90 km/h (estimé) | 1 + 49 (estimé) | Soute à matériel | Blanc, « POLICE » | Police |
-| Véhicule de commandement (`vl_commandement`) | 6,5 × 2,10 × 2,80 (estimé) | 3,5 t (estimé) | 110 km/h (estimé) | 4 (estimé) | Radios, carte tactique, retour vidéo du drone, antennes de 1,5, sonorisation | Blanc, « POLICE » | Police |
-| Voiture de police (`voiture_police`) | 4,64 × 1,84 × 1,65 (estimé) | 1,6 t (estimé) | 150 km/h (estimé) | 4 | Rampe bleue | Gris métallisé `#8E949A`, sérigraphie bleue et rouge (presse) ; variante blanche | Police |
+| Véhicule de commandement (`vl_commandement`) | 6,5 × 2,10 × 2,80 (estimé) | 3,5 t (estimé) | 110 km/h (estimé) | 4 (estimé) | Radios, carte tactique, retour vidéo du drone, antennes de 1,5 (estimé), sonorisation | Blanc, « POLICE » | Police |
+| Voiture de police (`voiture_police`) | 4,64 × 1,84 × 1,65 (estimé) | 1,6 t (estimé) | 150 km/h (estimé) | 4 (estimé) | Rampe bleue | Gris métallisé `#8E949A`, sérigraphie bleue et rouge (presse) ; variante blanche | Police |
 | Fourgon cellulaire (`fourgon_cellulaire`) | 6,0 × 2,05 × 2,60 (estimé) | 3,5 t (estimé) | 110 km/h (estimé) | 2 + 8 retenus (estimé) | Cellules, vitres occultées | Blanc, « POLICE » | Police |
 | Moto de BRAV-M (`moto_bravm`) | 2,25 × 0,98 × 1,41 (estimé) | 260 kg (estimé) | 130 km/h ; 20 à moins de 30 m de piétons (estimé) | 2 : pilote + opérateur (vérifié) | Feux bleus, top-case ; aucun geste de force en selle | Sombre `#1A1A1A`, sans gros marquage | Police |
 | Centaure (`centaure`) | 7,5 × 2,94 × 3,82 (vérifié) ; caisse à 3,0, le reste est le tourelleau (estimé) | 14,5 t (vérifié) | 100 km/h sur route (estimé) ; 6 km/h près des piétons (estimé) | 3 opérateurs + 7 passagers (vérifié) | 300 ch, blindage STANAG 2 ; lame : pousse 12 t immobilisées (« un bus à vide ») ou 31 t sur roues, percute 3,5 t jusqu'à 30 km/h (vérifié) ; lance-grenades téléopéré, « de 1 à 30 tirs en série » (vérifié), 0,3 s entre deux tirs, rechargement 120 s, une recharge de 30 (estimé) ; vision à 360°, vision de nuit de 3 à 9 km, détection de tirs (vérifié) ; sonorisation extérieure (vérifié pour les blindés polyvalents) ; mitrailleuse démontée en maintien de l'ordre | Bleu profond `#1B2F5E`, « GENDARMERIE » blanc | Gendarmerie |
-| Engin lanceur d'eau (`canon_eau`) | 9,67 × 2,60 × 3,72 (estimé, constructeur) | 29 t (estimé) | 90 km/h (estimé) ; 5 derrière la ligne | 3 : conducteur, chef d'engin, opérateur (estimé) | 2 canons de toit ; cuve 10 000 l (estimé ; parc CRS officiel : 4 000 à 7 500 l, vérifié) ; 15 l/s (estimé) ; 15 à 20 bars (estimé) ; portée 60 au plus, 40 utile en jet droit, 15 à 20 en jet diffus (estimé) ; émulsifiant anti-incendie à 6 ou 7 % (vérifié) ; ravitaillement sur bouche d'incendie 90 s (estimé) | Blanc `#F4F5F7`, « POLICE », cabine grillagée | Police |
+| Engin lanceur d'eau (`canon_eau`) | 9,67 × 2,60 × 3,72 (estimé, constructeur) | 29 t (estimé) | 90 km/h ; 5 derrière la ligne (estimé) | 3 : conducteur, chef d'engin, opérateur (estimé) | 2 canons de toit ; cuve 10 000 l (estimé ; parc CRS officiel : 4 000 à 7 500 l, vérifié) ; 15 l/s (estimé) ; 15 à 20 bars (estimé) ; portée 60 au plus, 40 utile en jet droit, 15 à 20 en jet diffus (estimé) ; émulsifiant anti-incendie à 6 ou 7 % (vérifié) ; ravitaillement sur bouche d'incendie 90 s (estimé) | Blanc `#F4F5F7`, « POLICE », cabine grillagée | Police |
 | Véhicule de groupe de gendarmerie | 6,0 × 2,05 × 2,60 (estimé) | 3,5 t (estimé) | 110 km/h (estimé) | jusqu'à 9 (vérifié) | Idem fourgon | Bleu `#23407A`, sérigraphie jaune (estimé) | Gendarmerie |
 | Engin-pompe des sapeurs-pompiers (`camion_pompiers`) | 6,5 × 2,30 × 2,90 (estimé) | 14 t (estimé) | 90 km/h (estimé) | 6 (vérifié) | Lance (25 de portée, 8 l/s, estimé), échelle, couloir requis de 3,5 de large (estimé) | Rouge `#C8102E`, bande jaune, « SAPEURS-POMPIERS DE PARIS » | Pompiers |
 | Ambulance (`ambulance`) | 6,0 × 2,10 × 2,80 (estimé) | 3,5 t (estimé) | 130 km/h (estimé) | 3 (vérifié) | Brancard, matériel de réanimation | Pompiers : rouge ; SAMU : blanc, « SAMU » `#003DA5`, chevrons jaune et rouge | Pompiers ou SAMU |
-| Camion sono (`camion_sono`) | 7,0 × 2,3 × 3,2 (estimé) | 7,5 t (estimé) | au pas : 3 km/h (estimé) | 1 + animateur | Enceintes, groupe électrogène, ballon de Ø 3 à 6 de haut (estimé) | Blanc + couleurs de l'organisation fictive | — |
+| Camion sono (`camion_sono`) | 7,0 × 2,3 × 3,2 (estimé) | 7,5 t (estimé) | au pas : 3 km/h (estimé) | 1 + animateur (estimé) | Enceintes, groupe électrogène, ballon de Ø 3 à 6 de haut (estimé) | Blanc + couleurs de l'organisation fictive | — |
 | Drone (`drone`) | 0,35 × 0,28 × 0,11 (estimé) | 0,9 kg (estimé) | 15 m/s ; altitude 30 à 120 (estimé) | Télépilote + opérateur image | Caméra zoom ×28 et thermique ; batterie 30 min, relève 40 s ; audible sous 80 (estimé) ; **ni son ni reconnaissance faciale, pas d'intérieur de domicile, images gardées 7 jours** (vérifié, art. L. 242-4 et L. 242-5) | Gris `#8A8F96` | — |
-| Hélicoptère (`helicoptere`) | rotor Ø 10,2 ; h 3,5 (estimé) | 2,9 t (estimé) | 260 km/h ; orbites à 300 à 600 de haut (estimé) | 3 | Caméra, projecteur ; ne tire jamais | Bleu `#1F3A7A`, « GENDARMERIE » | — |
-| Voiture, utilitaire, bus, scooter (civils) | 4,3 × 1,8 × 1,5 ; 5,0 × 2,0 × 2,2 ; 12 × 2,55 × 3,0 ; 1,9 × 0,7 × 1,2 (estimé) | 1,3 t ; 2 t ; 12 t ; 130 kg (estimé) | 50 km/h en ville | 1 à 5 ; 2 ; 1 + 80 ; 1 | Peuvent être renversés (voiture : 6 personnes, 8 s) et incendiés : embrasement 2 à 4 min, durée 15 à 25 min (estimé) | Noms de modèles fictifs | — |
+| Hélicoptère (`helicoptere`) | rotor Ø 10,2 ; h 3,5 (estimé) | 2,9 t (estimé) | 260 km/h ; orbites à 300 à 600 de haut (estimé) | 3 (estimé) | Caméra, projecteur ; ne tire jamais | Bleu `#1F3A7A`, « GENDARMERIE » | — |
+| Voiture, utilitaire, bus, scooter (civils) | 4,3 × 1,8 × 1,5 ; 5,0 × 2,0 × 2,2 ; 12 × 2,55 × 3,0 ; 1,9 × 0,7 × 1,2 (estimé) | 1,3 t ; 2 t ; 12 t ; 130 kg (estimé) | 30 km/h, limite générale à Paris (estimé) | 1 à 5 ; 2 ; 1 + 80 ; 1 (estimé) | Peuvent être renversés (voiture : 6 personnes, 8 s) et incendiés : embrasement 2 à 4 min, durée 15 à 25 min (estimé) | Noms de modèles fictifs | — |
 
 **Sirènes deux tons (vérifié, arrêté de 1987 lu par deux sources secondaires concordantes).** Police : 435 Hz / 580 Hz, 50 à 60 cycles par minute. Gendarmerie : 435 / 732 Hz, 50 à 60. Pompiers : 435 / 488 Hz, **25 à 30** (lent). SAMU : 435 / 651 Hz, 50 à 60. Feux d'urgence : toujours bleus `#1E5BFF`, 2 à 4 éclats par seconde (estimé) ; orange = voirie.
 
----
-
 ## D. Apparence de chaque catégorie de personnage
 
-Objectif : unité reconnaissable à 30 m, grade lisible à 5 m. Entre parenthèses : `OutfitId` et `HeadgearId` du contrat.
+Objectif (estimé) : unité reconnaissable à 30 m, grade lisible à 5 m. Entre parenthèses : `OutfitId` et `HeadgearId` du contrat. Galons : description d'un site de préparation aux concours qui reprend le texte réglementaire, relue pour cette bible ; l'arrêté du 9 décembre 2019 lui-même n'a pas été lu.
 
 | Catégorie | Palette | Signes distinctifs |
 |---|---|---|
@@ -191,8 +179,8 @@ Objectif : unité reconnaissable à 30 m, grade lisible à 5 m. Entre parenthès
 | **Journaliste** (`presse`, `casque_presse`) | Casque noir ou blanc ; brassard `#FFFFFF` | Casque et brassard « PRESSE », gilet, masque, appareil à téléobjectif ou caméra d'épaule ; **aucun signe n'est obligatoire** (vérifié) : un journaliste sans marquage existe |
 | **Observateur** (`observateur`) | Chasuble `#F5F5F5`, casque `#2D6CDF` | Chasuble et casque siglés « OBSERVATEUR », par équipes de 3, carnet et téléphone (estimé) |
 | Manifestant, gilets jaunes (`gilet_fluo`) | `#DFFF00`, bandes `#C8CCD0` | Gilet de haute visibilité annoté au dos, bonnet ; pancarte : « On veut vivre, pas survivre » |
-| Manifestant, cortège syndical (`syndical`) | Chasubles `#D62828` `#F77F00` `#1D4E89` `#6A4C93` `#2A9D8F` `#F2C94C` | Chasuble d'une organisation fictive, drapeau de 1,0 × 1,5, ballon, camion sono ; « Retraites : ni report, ni recul » |
-| Service d'ordre | Brassard `#C1121F` | Brassard « SO », chaîne humaine de 5 à 12 personnes autour du carré de tête ; ne lance jamais |
+| Manifestant, cortège syndical (`syndical`) | Chasubles `#D62828` `#F77F00` `#1D4E89` `#6A4C93` `#2A9D8F` `#F2C94C` | Chasuble d'une organisation fictive, drapeau de 1,0 × 1,5 (estimé), ballon, camion sono ; « Retraites : ni report, ni recul » |
+| Service d'ordre | Brassard `#C1121F` | Brassard « SO », chaîne humaine de 5 à 12 personnes (estimé) autour du carré de tête ; ne lance jamais |
 | Étudiants et lycéens | Jean `#3B5B8C`, sweat `#58C99B` | Sac à dos, carton peint, mégaphone ; « Notre avenir n'est pas à vendre » |
 | Militants climat | `#3C8D4B`, `#F2C94C` | Vêtements colorés, globe en carton ; « Il n'y a pas de planète B » |
 | Personnels soignants | Blouse `#F5F5F5`, `#A9CCE3` | Blouse blanche ; « Des lits, des bras, du temps pour soigner » |
@@ -201,15 +189,12 @@ Objectif : unité reconnaissable à 30 m, grade lisible à 5 m. Entre parenthès
 | **Black bloc** (`black_bloc`, `capuche`) | `#0B0B0D`, `#1C1C1F` | Noir de la tête aux pieds, capuche, visage masqué, lunettes, gants, sac à dos ; banderole renforcée en tête, parapluies ; **se change en 30 à 60 s à couvert** (estimé) et redevient visuellement un manifestant ordinaire |
 | Pilleur ; passant, touriste, commerçant (`civil`) | Sombre `#1C1C1F` ; palette neutre | Capuche, sac vide puis butin ; sacs de courses, téléphone levé ; tablier, rideau métallique |
 
----
-
 ## E. Organisation et commandement
 
 ### E.1 Unités
-
-| Unité | Réel | Valeur de jeu retenue |
+| Unité | Réel | Valeur de jeu retenue (estimé) |
 |---|---|---|
-| Compagnie de CRS | 60 compagnies, 11 150 agents (vérifié) ; environ 130 agents par compagnie (estimé) ; commandée par un commandant de police ; 4 sections de service général + 1 section de commandement et de services ; 2 demi-compagnies « Alpha » et « Bravo » | **70 à pied** = commandement 6 (commandant, adjoint, 2 radios, opérateur vidéo, conducteur) + 4 sections de 16 ; 12 fourgons + 1 véhicule de commandement (estimé) |
+| Compagnie de CRS | 60 compagnies, 11 150 agents (vérifié) ; environ 130 agents par compagnie (estimé) ; commandée par un commandant de police ; 4 sections de service général + 1 section de commandement et de services ; 2 demi-compagnies « Alpha » et « Bravo » | **70 à pied** = commandement 6 (commandant, adjoint, 2 radios, opérateur vidéo, agent de liaison) + 4 sections de 16 ; 12 fourgons + 1 véhicule de commandement (estimé) |
 | Section | **16 agents** (vérifié, Cour des comptes) ; 3 groupes A, B, C, le C étant le commandement (estimé) | 16 = A 6 + B 6 + C 4 |
 | Groupe tactique | **6 agents** (vérifié) | 6 ; un fourgon par groupe |
 | Seuil d'emploi | Jamais moins de 2 sections, soit **32 agents**, pour une mission de maintien de l'ordre (vérifié) | Demi-compagnie = 32 : plus petite unité qu'un scénario peut engager seule face à une foule |
@@ -219,8 +204,7 @@ Objectif : unité reconnaissable à 30 m, grade lisible à 5 m. Entre parenthès
 | Appuis | Engin lanceur d'eau : décision du préfet de zone (vérifié) ; blindé : décision gouvernementale (vérifié) | Appuis fixés par le scénario ; indisponibles sinon |
 
 ### E.2 Postes d'une section de 16 (construction de jeu, estimé)
-
-| Groupe | Effectif | Postes (`PolicePoste`) |
+| Groupe | Effectif (estimé) | Postes (`PolicePoste`) (estimé) |
 |---|---|---|
 | A, appui | 6 | chef de groupe et superviseur, 3 boucliers, 1 lanceur de grenades, 1 extincteur |
 | B, intervention | 6 | chef de groupe et superviseur, 2 boucliers, 1 LBD, 2 interpellateurs à petit bouclier |
@@ -229,8 +213,7 @@ Objectif : unité reconnaissable à 30 m, grade lisible à 5 m. Entre parenthès
 Front tenu (estimé) : 0,7 m par bouclier au coude à coude, 1,0 m en ligne lâche. Section : 7 boucliers, soit 4,9 m ou 7 m. Compagnie : **20 m serrés, 28 m lâches** ; au-delà, fourgons en travers (5,8 m chacun) et barrières.
 
 ### E.3 Grades, postes et étendue du commandement
-
-| Grade (`PoliceRank`) | Poste type | Commande | Carte tactique |
+| Grade (`PoliceRank`) | Poste type | Commande (effectifs de jeu de E.1) | Carte tactique |
 |---|---|---|---|
 | `gardien_stagiaire`, `gardien` | équipier | personne | lecture seule |
 | `brigadier` | grade supprimé le 1er août 2023 (vérifié) : option « avant 2023 » | — | — |
@@ -241,7 +224,6 @@ Front tenu (estimé) : 0,7 m par bouclier au coude à coude, 1,0 m en ligne lâc
 | `commissaire` | autorité civile, chef de secteur | ne commande pas la manœuvre : qualifie, somme, autorise, suspend | calque juridique : état, issues, couverture sonore |
 
 ### E.4 Qui décide (vérifié : art. R. 211-14 et R. 211-21, schéma national, instruction de 2022)
-
 | Décision | Autorité civile | Commandant de compagnie |
 |---|---|---|
 | Qualifier l'attroupement, faire les sommations | oui (ou officier de police judiciaire qu'elle désigne, elle présente) | non |
@@ -253,11 +235,9 @@ Front tenu (estimé) : 0,7 m par bouclier au coude à coude, 1,0 m en ligne lâc
 Chaîne parisienne : préfet de police → directeur du service d'ordre (salle de commandement) → chef de secteur (commissaire) → commandant d'unité → chef de section → chef de groupe.
 
 ### E.5 Indicatifs (tous fictifs ; les indicatifs réels n'ont pas été trouvés)
-
 Salle : « CENTRAL ». Autorité civile du secteur n : « AUTORITÉ n ». Compagnies de CRS (noms de vents) : « MISTRAL », « TRAMONTANE », « SIROCCO », « ZÉPHYR » ; section n : « MISTRAL n » ; groupe : « MISTRAL n ALFA / BRAVO / CHARLIE ». Escadron : « ÉPERVIER », pelotons « ÉPERVIER 1 » à « 4 ». BRAV-M : « FAUCON 1 » à « 3 ». Engin lanceur d'eau : « NEPTUNE 1 ». Blindé : « CENTAURE 1 ». Drone : « ICARE ». Équipe de liaison : « LIAISON ». Secours : « SANTÉ 1 ».
 
 ### E.6 Phraséologie (procédure radiotéléphonique française courante, source de formation non officielle : estimé)
-
 - Gabarit : `APPELÉ ICI APPELANT. Corps du message. PARLEZ` (réponse attendue) ou `TERMINÉ` (aucune réponse attendue).
 - Mots : « REÇU » (j'accuse réception), « APERÇU » (compris et en mesure d'exécuter), « FAITES L'APERÇU », « COLLATIONNEZ » (répétez tout), « RÉPÉTEZ », « ATTENDEZ », « NÉGATIF », « URGENT ».
 - Chiffres dits un par un, sauf les multiples exacts de mille : 45 → « QUATRE-CINQ » ; 5 000 → « CINQ MILLE ». Lettres en alphabet radio (ALFA, BRAVO, CHARLIE…).
@@ -265,7 +245,6 @@ Salle : « CENTRAL ». Autorité civile du secteur n : « AUTORITÉ n ». Compag
 - Toute autorisation reçue est horodatée au journal : c'est la pièce relue en cas d'enquête.
 
 ### E.7 Quarante messages prêts à l'emploi (textes de jeu, estimé)
-
 1. « CENTRAL ICI MISTRAL, CONTRÔLE RADIO, PARLEZ. » — « ICI CENTRAL, FORT ET CLAIR, TERMINÉ. »
 2. « CENTRAL ICI MISTRAL. Compagnie en zone de stationnement, cours la Reine. SEPT-ZÉRO à pied, UN-DEUX fourgons. Prêt. PARLEZ. »
 3. « MISTRAL ICI CENTRAL. Mission : INTERDIRE le pont de la Concorde. Cadre : manifestation interdite. AUTORITÉ DEUX est à vos côtés. FAITES L'APERÇU. » — « ICI MISTRAL. APERÇU. TERMINÉ. »
@@ -309,14 +288,27 @@ Salle : « CENTRAL ». Autorité civile du secteur n : « AUTORITÉ n ». Compag
 
 Commandements à la voix dans la section (estimé) : « Section, en ligne ! » ; « Boucliers ! » ; « En avant, marche ! » ; « Halte ! » ; « Porte ! » ; « Lanceurs, cent mètres, tir courbe, feu ! » ; « Halte au feu ! » ; « Couloir ! » ; « Reformez ! ». Fin de charge : coup de sifflet ; dépasser le sifflet de plus de 2 s est une faute (estimé).
 
----
+### E.8 Formations (demande du BRIEF : unités en ordre ; géométrie réglementaire non trouvée, valeurs de jeu : estimé)
+| Formation | Géométrie (estimé) | Allure et délais (estimé) |
+|---|---|---|
+| Ligne de barrage | Un rang de boucliers jointifs, rectiligne, un agent tous les 0,7 m (1,0 m en ligne lâche), écart toléré 0,3 m ; deuxième rang à 3 m : chefs de groupe, lanceurs, LBD, extincteur ; chef de section à 5–8 m ; véhicules en travers à 30 m | Mise en ligne depuis la colonne : 15 s |
+| Colonne par deux ou par trois | Files espacées de 0,8 m, rangs tous les 1,2 m, chef en tête, serre-file en queue | 1,2 m/s au pas ; 2,3 m/s au trot |
+| Tortue | Deux rangs serrés, boucliers de face et au-dessus des têtes | 0,6 m/s ; aucun tir possible ; sous jets nourris ou engins incendiaires |
+| Bond offensif | La ligne avance de 20 à 40 m, s'arrête net et se réaligne, sans rechercher le contact | 2,3 m/s ; réalignement 5 s |
+| Charge | Course sur 30 à 60 m, coup de sifflet, arrêt, repli au pas sur la ligne de départ | 4,0 m/s ; arrêt en 1 s |
+| Vague de refoulement | Ligne au pas par tronçons de 50 m, arrêt de 10 s entre deux tronçons, issue libre devant la foule | 1,2 m/s |
+| Relève | Section fraîche alignée à 10 m derrière ; passage de ligne ; la section relevée récupère aux véhicules | Passage 15 s ; récupération 120 s |
+| Débarquement | Fourgons alignés, cap vers la sortie, à 50 m au moins de la foule ; les groupes sortent, se forment en colonne puis en ligne | Groupe dehors en 10 s ; section en ligne en 20 s |
+| BRAV-M | Colonne de binômes par deux, arrêt à 40–80 m de l'objectif, pied à terre ensemble ; 1 pilote sur 3 garde les motos | 30 à 50 km/h ; débarquement 5 s |
+| Progression derrière le Centaure | Colonne de 8 gendarmes dans la zone abritée, 3 m de large sur 6 m derrière la caisse | 6 km/h |
+
+Une unité ne se désordonne que sous une pression réelle (charge subie, panique, plus de 25 % de pertes) et se reforme en 10 s dès qu'elle cesse. Un PNJ exécute un ordre en moins de 1,5 s et ne reste jamais bloqué plus de 3 s.
 
 ## F. Modèle de comportement de foule
 
 Repères réels (vérifié, rapport parlementaire de 2023) : 0,5 à 1 % de manifestants « à risque » ; 1 interpellation pour 1 000 manifestants ; à Paris, 3 à 10 policiers et gendarmes pour 100 manifestants ; précortège parisien de 2 000 à 12 000 personnes ; aucune violence pendant le rassemblement ; le bloc se forme **après** le départ ; les violents arrivent les mains vides et ramassent sur place ; la peur soude la foule si l'action policière paraît indistincte.
 
 ### F.1 Types de participants et proportions (en % de l'effectif simulé, estimé ; les scénarios tendus forcent le trait)
-
 | Profil (`ProtestProfile`) | Comportement | Marche calme | Journée nationale tendue | Samedi sans organisateur | Soir spontané | Soir de match |
 |---|---|---|---|---|---|---|
 | `pacifique` | Marche, chante, filme ; s'écarte des violences ; reste et hue s'il se sent visé à tort | 62 | 59 | 60 | 55 | 78 |
@@ -331,8 +323,7 @@ Repères réels (vérifié, rapport parlementaire de 2023) : 0,5 à 1 % de manif
 
 `volatility` déplace des suiveurs vers les radicaux et multiplie les hausses de tension par `0,5 + volatility`. Mode libre, réglage « Qui dérape » (estimé) : « la foule » = parts de `radical` et d'`opportuniste` × 1,5 ; « les forces » = quand la tension locale dépasse 0,6, probabilité de 0,15 par minute qu'un policier PNJ de l'unité commette un geste hors cadre, que le joueur doit prévenir, arrêter ou signaler ; « les deux » ; « personne » ; « au hasard » (40 % personne, 20 % chacun des trois autres).
 
-### F.2 Phases et durées
-
+### F.2 Phases et durées (répartition et durées de jeu : estimé)
 | Phase (`CrowdPhase`) | Contenu | Part (estimé) | 10 min | 25 min | 45 min | Réel (estimé) |
 |---|---|---|---|---|---|---|
 | `rassemblement` | Arrivées par les bouches de métro, camions sono, banderole de tête ; **aucune violence** | 12 % | 70 s | 180 s | 330 s | 60 à 120 min |
@@ -349,7 +340,6 @@ Repères réels (vérifié, rapport parlementaire de 2023) : 0,5 à 1 % de manif
 - Signes avant-coureurs, dans l'ordre (vérifié pour la nature, avance en durée standard estimée) : nébuleuse de tête qui grossit (300 s avant les premiers jets) ; visages qui se couvrent (120 s) ; signal de ralliement : fumigène noir ou parapluie multicolore (60 s) ; regroupement compact et changement de tenue (40 s) ; banderoles et parapluies déployés (20 s) ; dépavage, mobilier tiré en travers (10 s).
 
 ### F.3 Variables, seuils et vitesses (estimé)
-
 `peur` (demi-vie 45 s ; 25 s pour `radical` ; 90 s pour `famille`), `colere` (demi-vie 180 s), `legitimite` par tronçon de 50 m (départ 0,7 ; 0,5 si `volatility` > 0,6 ; +0,01 par 10 s sans emploi de la force), `cohesion` (départ 0,3 ; −0,01 par 10 s). Contagion toutes les 2 s : chacun rapproche sa peur et sa colère de la moyenne de ses voisins à moins de 5 m, d'une fraction `0,10 + 0,30 × cohesion`.
 
 | Profil | Recule si | Quitte les lieux si | Se solidarise (reste, hue, filme, fait écran) si | Change de profil |
@@ -365,7 +355,6 @@ Repères réels (vérifié, rapport parlementaire de 2023) : 0,5 à 1 % de manif
 Distances tenues face à une ligne immobile : curieux 5 à 10 m ; foule calme 8 à 15 m ; bloc qui lance 20 à 35 m ; tireurs de mortiers 30 à 60 m derrière un obstacle ; pacifiques après la première grenade 40 à 60 m ; tous à plus de 40 m de l'engin lanceur d'eau. Vitesses en m/s (marche / trot / course) : manifestant 0,8 / 3,0 / 5,0 pendant 20 s ; famille 0,6 / 2,0 / 3,0 ; radical 0,9 / 3,5 / 6,0 pendant 35 s ; agent équipé 1,2 (pas cadencé) / 2,3 (bond offensif) / 4,0 (charge, 20 s ; 3,2 bouclier levé).
 
 ### F.4 Déclencheurs d'escalade et de désescalade (estimé)
-
 « Justifié » = un acte violent a été visible à moins de 40 m dans les 60 s précédentes. Dernière colonne : valeur passée à `addTension`.
 
 | Événement | Rayon | Δ peur | Δ colère | Δ légitimité | Δ cohésion | Δ tension locale |
@@ -392,17 +381,13 @@ Distances tenues face à une ligne immobile : curieux 5 à 10 m ; foule calme 8 
 Tension globale = `0,6 × moyenne locale pondérée par l'effectif + 0,4 × maximum local`, lissée sur 10 s ; décroissance de 0,01 par 10 s sans incident. Le signal du bloc tombe entre 20 % et 70 % de la phase `cortege` selon `volatility`. Paliers : 0 à 0,15 calme ; 0,15 à 0,30 agitation (huées, fumigènes, tags) ; 0,30 à 0,50 tension (bloc formé, premiers jets) ; 0,50 à 0,70 affrontement localisé (jets nourris, vitrines, feux) ; 0,70 à 0,85 affrontement généralisé (mortiers, engins incendiaires, barricades enflammées, véhicules en feu) ; 0,85 à 1 émeute (groupes dispersés, pillages en série). La tension est **locale** : 0,7 autour du bloc et 0,1 à 300 m dans le cortège organisé est la situation normale.
 
 ### F.5 Cibles de la casse, par ordre de priorité (poids relatifs, estimé ; nature des cibles vérifiée par les arrêtés préfectoraux et le rapport parlementaire)
-
 1. Forces de l'ordre et leurs véhicules, agent isolé (10). 2. Agences bancaires, assurances (9). 3. Panneaux publicitaires, abribus (8). 4. Restauration rapide, agences d'intérim et immobilières, grandes enseignes (7). 5. Caméras, horodateurs (6) ; enseignes de luxe et grands magasins (6, et 10 dans les quartiers de luxe) ; bâtiments publics (6). 6. Chantiers, kiosques, vélos et trottinettes en libre-service (5) : réserve de projectiles, de combustible et de matériaux de barricade. 7. Monuments (2). 8. Petits commerces indépendants, habitations (1). 9. Hôpitaux, écoles (0). Pilleurs : tabac, téléphonie, optique, alimentation, habillement (9) ; jamais le reste.
 
 Durées d'action (estimé) : vitrine 3 à 10 s ; pillage 20 à 60 s par personne ; abribus 15 à 30 s ; tag 4 à 8 s ; barricade de 8 m en 40 à 90 s à six ; voiture renversée en 8 s à six ; renvoi d'un palet : fenêtre de 30 s, réussite 60 %.
 
----
-
 ## G. Blessures, gaz, secours
 
 ### G.1 Nuage lacrymogène (estimé, cohérent avec la table B)
-
 | Paramètre | Valeur |
 |---|---|
 | Source | 6 palets tombés dans un rayon de 5 à 15 m, 30 s d'émission chacun ; un palet déplacé emporte son nuage |
@@ -422,7 +407,6 @@ Durées d'action (estimé) : vitrine 3 à 10 s ; pillage 20 à 60 s par personne
 Réel (vérifié, réponse ministérielle) : produit CS ; l'effet irritant disparaît 15 à 30 minutes après décontamination ; le gaz touche « de manière indifférenciée » un groupe.
 
 ### G.2 Blessures par cause (probabilités par impact, estimé ; niveaux `InjuryLevel`)
-
 | Cause | Agent en tenue (casque, protections) | Personne non protégée | Remarques |
 |---|---|---|---|
 | Pavé, fragment | paré au bouclier : rien ; sinon 12 % `light`, 3 % `serious` | 45 % `light`, 20 % `serious`, 3 % `critical` | Tête, genoux (zones réelles des blessures policières, vérifié) ; les jets courts blessent d'autres manifestants |
@@ -440,7 +424,6 @@ Réel (vérifié, réponse ministérielle) : produit CS ; l'effet irritant dispa
 État : `light` = continue, vitesse × 0,8 ; `serious` = hors de combat, à évacuer ; `critical` = décès évitable si la prise en charge commence en moins de 240 s. Agent blessé : indisponible 1 à 3 missions en Carrière. Réglage « sobre » : mêmes mécaniques, sang masqué.
 
 ### G.3 Tri et gestes (estimé ; tri de type START d'après une source secondaire)
-
 Vert : marche. Rouge : plus de 30 respirations par minute, ou pouls radial absent, ou n'exécute pas un ordre simple. Jaune : les autres. Noir : ne respire pas après libération des voies aériennes. Couleurs `#2E9E44`, `#D0021B`, `#F5C400`, `#1A1A1A`.
 
 | Geste | Durée | Effet |
@@ -456,7 +439,6 @@ Vert : marche. Rouge : plus de 30 respirations par minute, ou pouls radial absen
 Secours officiels : ils n'entrent en zone dangereuse que sous protection policière (estimé, presse). Couloir de 3,5 m ouvert en 6 s et tenu 30 à 90 s. Point de rassemblement des victimes à 100–200 m derrière le dispositif : un engin-pompe, une ambulance, une tente de 3 × 6 m, 8 brancards. Agent à terre : 2 boucliers couvrent, 2 agents le tirent à 0,6 m/s, moins de 20 s.
 
 ### G.4 Feux de rue et barricades (demande du BRIEF ; valeurs estimées)
-
 | Matériau | Allumage | Durée | Flamme et fumée | Particularité | Extinction |
 |---|---|---|---|---|---|
 | Bac roulant, conteneur (plastique) | 5 à 10 s | 240 à 600 s | 1 à 3 m ; fumée noire épaisse `#141414` | Fond en flaque ; gagne un objet à moins de 1,5 m après 60 s, une façade après 90 s | Extincteur 8 s ; canon à eau 3 s |
@@ -468,8 +450,6 @@ Secours officiels : ils n'entrent en zone dangereuse que sous protection polici�
 
 Résidus persistants : carcasse calcinée `#1A1A1A`, bitume noirci sur 1,5 fois l'emprise, débris, verre brisé `#CFE3EA` (nouveaux projectiles).
 
----
-
 ## H. Interpellation, qualifications, discipline et sanctions
 ### H.1 Règles d'interpellation
 1. **Fondement.** On n'interpelle qu'un personnage auquel un **fait daté** est rattaché (`Offense` vue par un agent ou une caméra) : délit flagrant, « qui se commet actuellement, ou qui vient de se commettre » (code de procédure pénale, art. 53, vérifié). Sans fait : interpellation abusive. Une simple contravention (manifestation interdite) se verbalise et ne s'interpelle pas ; participer à une manifestation seulement **non déclarée** n'est pas une infraction (jurisprudence de 2022 citée au dossier 01).
@@ -478,8 +458,8 @@ Résidus persistants : carcasse calcinée `#1A1A1A`, bitume noirci sur 1,5 fois 
 4. **Menottes** seulement si la personne est dangereuse ou susceptible de fuir (art. 803, vérifié) ; la force cesse dès la maîtrise ; l'état de santé est vérifié après tout usage d'une arme (vérifié).
 5. **Interpellation différée** : possible après la dispersion, pour ne pas provoquer de mouvement de foule (pratique vérifiée dans une réponse ministérielle) ; en jeu, marquage par le drone valable 90 s hors champ (estimé).
 6. **Solidité de la procédure (estimé).** Fait filmé (drone, caméra-piéton, presse) : solide. Fait vu par un seul agent : fragile. Fiche incomplète ou mauvaise qualification : classée.
-### H.2 Qualifications (peines relues dans le code pénal consolidé du 20 octobre 2026 : vérifié, sauf mention)
 
+### H.2 Qualifications (peines relues dans le code pénal consolidé du 20 octobre 2026 : vérifié, sauf mention)
 | Fait observable (`OffenseType`) | Texte | Peine encourue |
 |---|---|---|
 | Rester après les sommations (`attroupement_apres_sommations`) | art. 431-4 | 1 an et 15 000 € ; 3 ans et 45 000 € si le visage est dissimulé |
@@ -497,8 +477,8 @@ Résidus persistants : carcasse calcinée `#1A1A1A`, bitume noirci sur 1,5 fois 
 | Participer à une manifestation interdite ; l'organiser | art. R. 644-4 ; art. 431-9 | contravention de 4e classe : 750 € au plus (vérifié), 135 € en amende forfaitaire (estimé) ; 6 mois et 7 500 € |
 
 Suites simulées en fin de mission (estimé ; repère réel vérifié : 80 % de classements sans suite sur 785 gardes à vue parisiennes en une semaine de mars 2023) : aucun fait enregistré → classement 90 % ; fait vu par un seul agent → classement 50 %, convocation 30 %, déferrement 20 % ; fait filmé → déferrement 70 %, convocation 30 %.
-### H.3 Fautes, sanctions et effets en Carrière (échelle réelle : quatre groupes de l'art. L. 533-1 du code général de la fonction publique, vérifié au dossier 01 ; correspondance de jeu estimée)
 
+### H.3 Fautes, sanctions et effets en Carrière (échelle réelle : quatre groupes de l'art. L. 533-1 du code général de la fonction publique, vérifié au dossier 01 ; correspondance de jeu estimée)
 | `severity` | Exemples | Sanction | Effet en jeu |
 |---|---|---|---|
 | 1 | Geste hors cadre sans blessé, compte rendu incomplet, numéro masqué, caméra éteinte lors d'un tir | 1er groupe : avertissement, blâme | Mention au dossier ; note A inaccessible pendant 2 missions |
@@ -508,6 +488,7 @@ Suites simulées en fin de mission (estimé ; repère réel vérifié : 80 % de 
 
 - Enquête (estimé) : suspension possible ; convocation devant l'inspection entre deux missions, avec les pièces : journal radio horodaté, caméra-piéton, images de presse et de téléphones, compte rendu. Avoir rendu compte, disposer d'une autorisation tracée et avoir formulé ses objections protège le joueur. L'inspection propose, l'autorité hiérarchique sanctionne. Délais réels : environ 1 an pour un blâme, plus de 3 ans pour les sanctions lourdes (estimé, presse) ; en jeu : verdict après 1 ou 2 missions.
 - Échecs immédiats (estimé) : mort imputable au joueur ; arme de service hors légitime défense ; trois actes hors cadre, ou un seul tir tendu ou tir de LBD pour disperser ; abandon de poste de plus de 90 s ; image publique de la mission sous 20 ; plus de la moitié de l'unité hors de combat.
+
 ### H.4 Barème (estimé)
 - Quatre jauges de 0 à 100, pondérées pour les forces de l'ordre : Mission 35 %, Règle 30 %, Intégrité 20 %, Image 15 %. Lettres : A ≥ 85, B ≥ 70, C ≥ 55, D ≥ 40, E au-dessous. **Chaque point retiré est expliqué** (heure, lieu, acte, règle).
 - Jauge Règle : tir à la tête au LBD −60 ; tir tendu −40 ; coup après maîtrise −40 ; force sans sommation hors riposte directe −40 ; encerclement sans sortie −40 ; force sur journaliste, secouriste ou observateur −35 ; LBD hors cadre −30 ; attroupement qualifié à tort −30 ; interpellation sans fait −25 ; LBD à moins de 10 m −25 ; sommations sans issue libre −25 ; force poursuivie −20 ; tir sans ordre −15 ; sommations inaudibles pour plus de la moitié de la foule −15.
@@ -515,9 +496,9 @@ Suites simulées en fin de mission (estimé ; repère réel vérifié : 80 % de 
 
 ## I. Lieux
 Coordonnées de jeu `x ; z` en mètres (projection du BRIEF) ; dimensions et largeurs : open data de la Ville de Paris et OpenStreetMap (vérifié), sauf mention.
-### I.1 Places
 
-| Lieu | x ; z | Dimensions | Débouchés principaux (largeur) | Emploi |
+### I.1 Places
+| Lieu | x ; z (vérifié) | Dimensions (vérifié) | Débouchés principaux, largeur (vérifié) | Emploi |
 |---|---|---|---|---|
 | Place de la République | 3123 ; −208 | 283 × 119 | bd du Temple (36,5), bd Saint-Martin (33), bd Voltaire (30), bd de Magenta (30), av. de la République (30) | Départ des cortèges ; rassemblements quotidiens ; statue escaladée |
 | Place de la Bastille | 3542 ; 1395 | 215 × 150 | bd Beaumarchais (35), rue Saint-Antoine (21,5), rue de Lyon (30), bd Henri-IV (30), bd Richard-Lenoir (60) | Arrivée et dispersion ; à 250 m du bord est de la carte |
@@ -533,14 +514,15 @@ Coordonnées de jeu `x ; z` en mètres (projection du BRIEF) ; dimensions et lar
 | Place Vendôme | 601 ; −204 | 213 × 124 | rue de la Paix (22,5), rue de Castiglione (22,5) | Deux accès seulement : nasse naturelle |
 
 Voirie : largeur médiane des 1 503 voies de l'emprise : 12 m (vérifié) ; Grands Boulevards 33 à 37 m ; percées de 30 m ; Champs-Élysées 70 m sur 1 910 m. Capacité (estimé) : 1,5 personne par m² pour une foule dense immobile, 0,5 pour un cortège en marche.
+
 ### I.2 Parcours
 - **A** République → boulevards du Temple (405 m), des Filles-du-Calvaire (210 m), Beaumarchais (750 m) → Bastille : 1,5 km, 35 à 36,5 m de large.
 - **B** Opéra → boulevards des Capucines, des Italiens, Montmartre, Poissonnière, de Bonne-Nouvelle, Saint-Denis, Saint-Martin → République : 2,2 km. **A + B** enchaînés : 3,7 km.
 - **C** Bastille → République → Opéra → Madeleine → rue Royale → Concorde : 4,4 km ; parcours « contesté », la fin entre dans le périmètre interdit.
 - **D** Invalides → boulevard des Invalides (39 m) : 0,8 km jouable, sortie par le bord sud. **E** convergence sur l'Étoile et descente des Champs-Élysées : toujours non déclaré. **F** statiques : Trocadéro, Champ-de-Mars, Invalides, Hôtel de Ville, Châtelet.
-### I.3 Sites sensibles et périmètres
 
-| Site | x ; z | Dispositif |
+### I.3 Sites sensibles et périmètres
+| Site | x ; z (vérifié) | Dispositif (largeurs : vérifié) |
 |---|---|---|
 | Palais de l'Élysée ; ministère de l'Intérieur (place Beauvau) | −334 ; −515 et −295 ; −700 | Rue du Faubourg-Saint-Honoré (14,5 m) fermée, barrières, guérites ; un seul îlot de protection |
 | Palais Bourbon (Assemblée nationale) | −222 ; 453 | Verrou sur le **pont de la Concorde** (36 m) : fourgons en travers, foule tenue à 200 m (estimé) |
@@ -554,6 +536,7 @@ Voirie : largeur médiane des 1 503 voies de l'emprise : 12 m (vérifié) ; Gran
 - **Petit périmètre** (arrêté du 21 août 2020, vérifié) : Champs-Élysées de l'Étoile au Rond-point et rues perpendiculaires sur 100 m ; secteur Élysée – Beauvau – Concorde, soit environ x de −820 à +140 et z de −850 à +160 (estimé). **Grand périmètre** (arrêté de mars 2023, vérifié) : contour en 38 voies, de l'Étoile à Beaubourg et de la rive droite au boulevard des Invalides ; liste au dossier 04 §2.2.
 - **Seine** : eau à y ≈ 26,7 m, berges basses à 29 m, ville à 33–36 m (vérifié, IGN) ; 24 ponts, seuls passages. Verrous : Concorde 36 m, Alexandre-III 40 m, Iéna 35 m, Saint-Michel et au Change 30 m, Invalides et Royal 16 m.
 - **Couper la circulation** (demande du BRIEF ; estimé) : fermer une voie demande un véhicule en travers et 2 agents par tranche de 10 m de chaussée, ou 4 barrières ; mise en place en 30 à 60 s ; les véhicules civils font demi-tour ou prennent la déviation, un bouchon se forme en amont ; une rue non coupée où arrive un cortège expose des automobilistes bloqués. La préparation réelle du parcours (vérifié) comprend l'enlèvement des véhicules, la neutralisation des conteneurs à verre et des chantiers, la fermeture de stations de métro : elle réduit le stock de projectiles et de combustible.
+
 ### I.4 Bases
 - **Poste de commandement proposé : Préfecture de police**, île de la Cité (1869 ; 1253), 128 × 96 m, cour centrale : briefings, salle de commandement, départ des rôles commissaire et télépilote.
 - Bases secondaires : caserne Vérines, place de la République (3152 ; −306) ; quartier des Célestins, près de la Bastille (3197 ; 1628) ; commissariat du 8e dans le Grand Palais (−692 ; −96).
@@ -561,8 +544,7 @@ Voirie : largeur médiane des 1 503 voies de l'emprise : 12 m (vérifié) ; Gran
 - Origine du monde : l'obélisque est à (−8 ; +17) dans OpenStreetMap, à 19 m de l'origine du BRIEF ; fontaines à (20 ; −40) et (−36 ; 75).
 
 ## J. Incertitudes restantes et choix retenus par défaut
-### J.1 Contradictions entre dossiers, tranchées ici
-
+### J.1 Contradictions entre dossiers, tranchées ici (chaque valeur garde le marqueur de sa section d'origine)
 | Sujet | Versions en présence | Choix retenu |
 |---|---|---|
 | Section et groupe de CRS | 15 (encyclopédie), 16 et 6 (Cour des comptes), 18 et 7 (dossiers 01, 05, 06), 20, 35 | **16 et 6** ; lire 6, 16, 32, 70 partout où les dossiers 05 et 06 écrivent 7, 18, 36, 78 |
@@ -583,7 +565,6 @@ Voirie : largeur médiane des 1 503 voies de l'emprise : 12 m (vérifié) ; Gran
 | Rayon de contagion ; barème photo | 5 ou 8 m ; deux barèmes (05, 06) | 5 m ; barème sur 1 000 points du dossier 05 §3.1 |
 
 ### J.2 Points non trouvés et valeurs par défaut
-
 | Point | État | Défaut |
 |---|---|---|
 | Sens de port de l'écharpe du commissaire, bras du brassard | Aucun texte (art. R. 211-12 muet) ; « en ceinture » dans une encyclopédie, sans source | Bandoulière épaule droite → hanche gauche, bleu vers le col ; brassard au bras gauche |
@@ -607,5 +588,6 @@ Voirie : largeur médiane des 1 503 voies de l'emprise : 12 m (vérifié) ; Gran
 - `ForceMeans` ne distingue pas la lacrymogène **à la main** de la lacrymogène **au lanceur**, alors que la licéité diffère (A.4) ; pas de moyen « assourdissante ».
 - `PolicePoste` n'a ni superviseur, ni secouriste d'unité, ni chef d'engin ; `PoliceRank` n'a pas d'entrée pour le capitaine des 4 premières années (2 barrettes).
 - `ItemId` `lanceur_cougar` porte un nom de modèle commercial (cité tel quel par l'instruction de 2017) : garder l'identifiant, afficher « Lanceur 56 ».
+
 ### J.4 Durée et Mode libre : recommandation
 Durée standard de 25 min, réglable (10, 25, 45 min, temps réel) ; la mission dure tant que la manifestation n'est pas terminée (F.2). Mode libre entièrement ouvert dès la première partie : les 12 rôles, tous les grades, **commandant et commissaire compris**, les 84 missions du dossier 05 ou une session libre sur un lieu, avec le réglage « Qui dérape » (F.1). Un commandant débutant reçoit les propositions d'ordre de son adjoint, qu'il valide d'une touche.

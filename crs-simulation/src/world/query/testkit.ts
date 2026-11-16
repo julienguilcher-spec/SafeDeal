@@ -41,6 +41,11 @@ export const MINI_MAP = {
   pond: { minX: 200, minZ: 300, maxX: 260, maxZ: 340, pathX: 230 },
   /** Rivière (z 400..460) ; pont en x = 400 (chaussée 6 m + trottoirs 2 m : demi-tablier 5 m). */
   river: { north: 400, south: 460, bridgeX: 400, halfDeck: 5, bed: -5 },
+  /**
+   * Second pont en x = 200 : même arête (demi-tablier estimé 5 m), mais la carte fournit son emprise
+   * réelle, une chaussée de 24 m de large (demi-largeur 12 m) qui recouvre la rivière.
+   */
+  wide: { bridgeX: 200, halfDeck: 5, deckHalf: 12 },
   /** Statue (monument sans bâtiment) : socle carré de 2 m centré ici, haut de 6 m. */
   statue: { x: 60, z: 60, height: 6 },
 } as const;
@@ -52,6 +57,8 @@ export const MINI_MAP = {
  * dans le relief (le tablier du pont ne doit pas le suivre).
  */
 export function miniMapRaw(): RawMapData {
+  const rect = (x0: number, z0: number, x1: number, z1: number): number[] => [x0, z0, x0, z1, x1, z1, x1, z0];
+  const p = MINI_MAP;
   const nodes: RoadNodeInput[] = [];
   const node = (x: number, z: number): number => {
     nodes.push({ x, z, signal: false, crossing: false, boundary: false });
@@ -75,9 +82,10 @@ export function miniMapRaw(): RawMapData {
   edge(n4, n5, { name: 'Allée du Bassin', pedestrianOnly: true, roadClass: 'footway', width: 2, lanesForward: 0, lanesBackward: 0 });
   edge(n5, n6, { name: 'Quai Nord' });
   edge(n6, n7, { name: 'Pont Neuf Fictif', bridge: true, sidewalk: 2, landmarkKey: 'pont_test' });
+  const n8 = node(p.wide.bridgeX, 380), n9 = node(p.wide.bridgeX, 480);
+  edge(n5, n8, { name: 'Quai Nord' });
+  edge(n8, n9, { name: 'Pont Large', bridge: true, sidewalk: 2 });
 
-  const rect = (x0: number, z0: number, x1: number, z1: number): number[] => [x0, z0, x0, z1, x1, z1, x1, z0];
-  const p = MINI_MAP;
   const refs = computeTileEdgeRefs({ edges });
   const tile: TileInput = {
     version: FORMAT_VERSION,
@@ -89,6 +97,8 @@ export function miniMapRaw(): RawMapData {
     ],
     roadEdges: refs.get(tileKey(0, 0)) ?? [],
     surfaces: [
+      // Emprise réelle du « Pont Large » : une chaussée de 24 m qui recouvre la rivière (peinte sous l'eau, comme dans la vraie carte).
+      { kind: 'road', name: '', level: null, outer: rect(p.wide.bridgeX - p.wide.deckHalf, p.river.north - 5, p.wide.bridgeX + p.wide.deckHalf, p.river.south + 5), holes: [] },
       { kind: 'water', name: 'Bassin', level: -0.3, outer: rect(p.pond.minX, p.pond.minZ, p.pond.maxX, p.pond.maxZ), holes: [] },
       { kind: 'water', name: 'Rivière', level: -3, outer: rect(0, p.river.north, 512, p.river.south), holes: [] },
     ],

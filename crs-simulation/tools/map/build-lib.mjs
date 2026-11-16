@@ -294,6 +294,80 @@ export function removeSpikes(ring) {
   return pts;
 }
 
+/**
+ * Défait les croisements d'un anneau : à chaque paire de côtés qui se croisent, l'anneau est coupé
+ * au point de croisement en deux anneaux, traités à leur tour. Retourne des anneaux simples,
+ * antihoraires, d'au moins `minArea` m² (un « nœud papillon » donne ses deux lobes ; une boucle
+ * parasite minuscule disparaît). Sert de réparation aux rares contours invalides des sources.
+ */
+export function unkinkRing(ring, minArea = 0.5) {
+  const out = [];
+  const todo = [Array.from(ring)];
+  let guard = 0;
+  while (todo.length > 0 && guard++ < 200) {
+    const r = dedupeRing(todo.pop(), 1e-6);
+    const n = r.length >> 1;
+    if (n < 3) continue;
+    let cut = null;
+    for (let i = 0; i < n && cut === null; i++) {
+      const i2 = (i + 1) % n;
+      const x1 = r[2 * i], z1 = r[2 * i + 1], x2 = r[2 * i2], z2 = r[2 * i2 + 1];
+      for (let j = i + 2; j < n; j++) {
+        const j2 = (j + 1) % n;
+        if (j2 === i) continue;
+        const x3 = r[2 * j], z3 = r[2 * j + 1], x4 = r[2 * j2], z4 = r[2 * j2 + 1];
+        const d1 = (x4 - x3) * (z1 - z3) - (z4 - z3) * (x1 - x3);
+        const d2 = (x4 - x3) * (z2 - z3) - (z4 - z3) * (x2 - x3);
+        const d3 = (x2 - x1) * (z3 - z1) - (z2 - z1) * (x3 - x1);
+        const d4 = (x2 - x1) * (z4 - z1) - (z2 - z1) * (x4 - x1);
+        if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) {
+          const t = d1 / (d1 - d2);
+          cut = { i, j, x: x1 + (x2 - x1) * t, z: z1 + (z2 - z1) * t };
+          break;
+        }
+      }
+    }
+    if (cut === null) {
+      if (Math.abs(signedArea(r)) >= minArea) out.push(orient(r, true));
+      continue;
+    }
+    // Anneau A : X, v(i+1) … v(j) ; anneau B : X, v(j+1) … v(i).
+    const a = [cut.x, cut.z], b = [cut.x, cut.z];
+    for (let k = cut.i + 1; k <= cut.j; k++) a.push(r[2 * k], r[2 * k + 1]);
+    for (let k = cut.j + 1; k < n + cut.i + 1; k++) b.push(r[2 * (k % n)], r[2 * (k % n) + 1]);
+    todo.push(a, b);
+  }
+  return out;
+}
+
+/**
+ * Anneaux simples À LA PRÉCISION DU FORMAT (décimètre) équivalents à un anneau qui se recoupe.
+ * Le point de coupe n'étant pas sur la grille, un lobe peut se recouper de nouveau une fois
+ * arrondi : on recommence, trois fois au plus. Un lobe encore invalide est rendu tel quel
+ * (`unresolved` le compte) : mieux vaut un avertissement qu'une surface perdue.
+ */
+export function simpleRings(ring, minArea = 0.5) {
+  const round = (r) => r.map((v) => Math.round(v * 10) / 10);
+  let pending = [round(Array.from(ring))];
+  const rings = [];
+  let unresolved = 0;
+  for (let pass = 0; pass < 3 && pending.length > 0; pass++) {
+    const next = [];
+    for (const r of pending) {
+      for (const part of unkinkRing(r, minArea)) {
+        const q = dedupeRing(round(part), 0.01);
+        if (q.length < 6 || Math.abs(signedArea(q)) < minArea) continue;
+        if (M.ringSelfIntersects(q)) next.push(q);
+        else rings.push(orient(q, true));
+      }
+    }
+    pending = next;
+  }
+  for (const r of pending) { rings.push(orient(r, true)); unresolved++; }
+  rings.sort((a, b) => Math.abs(signedArea(b)) - Math.abs(signedArea(a)));
+  return { rings, unresolved };
+}
+
 /** Enveloppe convexe d'un nuage de points plat (chaîne monotone d'Andrew), antihoraire vue de dessus. */
 export function convexHull(points) {
   const pts = [];
@@ -792,7 +866,27 @@ export function loadBrandNames() {
 export const PUBLIC_PREFIX = /^(rue|avenue|boulevard|place|quai|pont|passerelle|square|jardin|jardins|passage|impasse|cite|villa|cour|cours|allee|galerie|port|promenade|esplanade|parvis|voie|carrefour|rond point|chemin|sentier|terrasse|parc|pelouse|bassin|fontaine|eglise|chapelle|cathedrale|temple|synagogue|mosquee|musee|theatre|opera|palais|hotel de|mairie|ministere|ambassade|consulat|gare|ecole|college|lycee|universite|institut|hopital|bibliotheque|mediatheque|tour|arc|colonne|statue|monument|porte|caserne|commissariat|prefecture|tribunal|centre|maison de|fondation|conservatoire|creche|gymnase|piscine|marche|halle|bourse|archives|cimetiere|couvent|abbaye|basilique|oratoire|pavillon)\b/;
 
 /** Marques déposées repérées dans des noms de musées ou de fondations (relevé à la lecture des données). */
-export const TRADEMARK_RE = /\b(yves saint laurent|fragonard|fondation cartier|le lido|lido de paris)\b/;
+export const TRADEMARK_RE = /\b(yves saint laurent|fragonard|fondation cartier|le lido|lido de paris|galeries lafayette|samaritaine|bateaux parisiens|ratp|sncf)\b/;
+
+/** Vrai si le nom contient une marque déposée connue. */
+export function hasTrademark(name) {
+  return TRADEMARK_RE.test(normName(name));
+}
+
+/** Début de nom d'une voie ou d'un cheminement public (sur un nom normalisé). */
+const WAY_PREFIX = /^(rue|ruelle|avenue|boulevard|place|placette|quai|pont|petit pont|passerelle|passage|impasse|cite|villa|cour|cours|allee|galerie|port|promenade|esplanade|parvis|voie|square|jardin|jardins|chemin|sentier|sente|terrasse|rond point|carrefour|pelouse|souterrain|tunnel|route|escalier|rampe|arcade|arcades|hameau|peristyle|porte|chaussee|contre allee|mail|berge|berges|parc|cloitre|carre|belvedere|pavillon|ile|pointe|rotonde|colonnade|portique|traverse|venelle|faubourg|marche)\b/;
+
+/**
+ * Nom publié d'une arête. Une voie de desserte ou un cheminement dont le nom n'est pas celui
+ * d'une voie (« Accès Parking … », « Dépose minute … ») perd son nom : ces libellés décrivent un
+ * équipement, parfois par le nom d'une enseigne voisine.
+ */
+export function publicWayName(name, minor) {
+  if (typeof name !== 'string' || name === '') return '';
+  if (hasTrademark(name)) return '';
+  if (minor && !WAY_PREFIX.test(normName(name))) return '';
+  return name;
+}
 
 /** Noms identiques à celui d'un commerce mais qui désignent bien un édifice ou une œuvre publics (relus un à un). */
 const PUBLIC_HOMONYMS = new Set(['jeanne d arc', 'la seine', 'diderot', 'missions etrangeres de paris', 'delegation de la polynesie francaise']);

@@ -10,7 +10,7 @@
 import {
   M, readLayer, projectRing, orient, signedArea, simplifyRing, dedupeRing, bboxOf, orientedBox, BoxGrid, SegGrid,
   median, clamp, round1, hasTile, T, isCommercialName, selfIntersectsAtFormatPrecision,
-  removeSpikes, convexHull,
+  removeSpikes, convexHull, simpleRings,
 } from './build-lib.mjs';
 
 /** Tolérance de simplification des emprises (m). */
@@ -112,7 +112,7 @@ export function buildBuildings(ctx) {
     return l.length === 1 ? '' : l.join(',');
   };
   const out = [];
-  let droppedSmall = 0, droppedHoles = 0, vertsIn = 0, vertsOut = 0, outside = 0, relaxed = 0, namesRemoved = 0, spikes = 0, hulls = 0;
+  let droppedSmall = 0, droppedHoles = 0, vertsIn = 0, vertsOut = 0, outside = 0, relaxed = 0, namesRemoved = 0, spikes = 0, hulls = 0, unkinked = 0;
   for (const it of items) {
     const simplified = [];
     for (let r = 0; r < it.rings.length; r++) {
@@ -140,8 +140,12 @@ export function buildBuildings(ctx) {
       if (selfIntersectsAtFormatPrecision(pts)) {
         pts = dedupeRing(simplifyRing(removeSpikes(ring.pts), BUILDING_TOLERANCE), 0.05);
         if (!selfIntersectsAtFormatPrecision(pts) && pts.length >= 6) spikes++;
-        else if (r === 0) { pts = convexHull(ring.pts); hulls++; }
-        else pts = [];
+        else if (r === 0) {
+          // Contour défait en anneaux simples : on garde le plus grand ; à défaut, l'enveloppe convexe.
+          const fixed = simpleRings(pts, 4);
+          if (fixed.rings.length > 0 && fixed.unresolved === 0) { pts = fixed.rings[0]; unkinked++; }
+          else { pts = convexHull(ring.pts); hulls++; }
+        } else pts = [];
       }
       simplified.push(pts);
     }
@@ -177,6 +181,7 @@ export function buildBuildings(ctx) {
   report.outsideTiles = outside;
   report.simplificationRelaxed = relaxed;
   report.spikesRemoved = spikes;
+  report.unkinked = unkinked;
   report.replacedByConvexHull = hulls;
   report.commercialNamesRemoved = namesRemoved;
   report.vertices = { before: vertsIn, after: vertsOut };

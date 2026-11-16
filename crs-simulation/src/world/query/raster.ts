@@ -13,7 +13,8 @@
  *   4. les chaussées : arêtes carrossables épaissies de leur largeur. Si la carte fournit les
  *      emprises de chaussée, elles font foi et l'arête ne comble que les zones sans information ;
  *      les pavés (connus du seul graphe) sont reportés sur ces emprises ;
- *   5. les tabliers des ponts (chaussée + trottoirs) ;
+ *   5. les tabliers des ponts : surfaces dures de la carte qui recouvrent l'eau, et arêtes « pont »
+ *      épaissies (chaussée + trottoirs) ;
  *   6. les bâtiments, puis les obstacles des monuments ;
  *   7. les passages de voies sous un bâtiment (porches).
  * Remplissage de polygones maison : balayage par lignes, règle de parité, centres de cellules.
@@ -104,8 +105,9 @@ let crossings = new Float64Array(64);
  * @param code code de surface à écrire
  * @param heightDm hauteur de bâti à écrire (dm), ou -1 pour ne pas toucher aux hauteurs
  * @param protect masque de bits (1 << code) des cellules à ne pas recouvrir
+ * @param only masque (1 << code) des seules cellules à recouvrir (0 = toutes)
  */
-export function fillPolygon(grid: TileGrid, rings: readonly ArrayLike<number>[], code: number, heightDm: number, protect: number): void {
+export function fillPolygon(grid: TileGrid, rings: readonly ArrayLike<number>[], code: number, heightDm: number, protect: number, only = 0): void {
   let minZ = Infinity, maxZ = -Infinity, edgeCount = 0;
   for (let r = 0; r < rings.length; r++) {
     const ring = rings[r];
@@ -146,6 +148,7 @@ export function fillPolygon(grid: TileGrid, rings: readonly ArrayLike<number>[],
       const i0 = Math.max(0, Math.ceil(xs[k] - grid.ox - 0.5)), i1 = Math.min(GRID_SIZE - 1, Math.ceil(xs[k + 1] - grid.ox - 0.5) - 1);
       for (let i = i0; i <= i1; i++) {
         if (protect !== 0 && (protect & (1 << kinds[row + i])) !== 0) continue;
+        if (only !== 0 && (only & (1 << kinds[row + i])) === 0) continue;
         kinds[row + i] = code;
         if (heightDm >= 0) heights[row + i] = heightDm;
       }

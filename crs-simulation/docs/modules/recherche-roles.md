@@ -1,0 +1,8 @@
+# Compte rendu — recherche:roles
+
+> Généré automatiquement à partir du rapport de l'étape. Référence pour les développeurs suivants.
+
+
+## Résumé
+
+Le dossier 06 est écrit : 991 lignes, 14 sections de rôle, chacune terminée par un encadré « Ce que le jeu doit reproduire », plus « Sources » (42 références avec URL) et « Points incertains ». Il dépasse d'environ 10 % la cible de 900 lignes. Pour chaque rôle (six postes de CRS, chefs de groupe et de section, commandant, commissaire, BRAV-M, équipage du Centaure, engin lanceur d'eau, télépilote, street medic et secours officiels, journaliste, manifestant pacifique / service d'ordre / radical, observateur, commerçant), il donne le métier réel sourcé, l'équipement, les gestes, ce qu'il voit et entend, les risques, les critères de réussite, puis une boucle de jeu chiffrée, un barème, les échecs, l'interface et 80 idées de missions au total. Les faits réels viennent surtout de sources primaires lues : auditions de la commission d'enquête de l'Assemblée nationale (2020), synthèse du Sénat d'octobre 2026, arrêté préfectoral autorisant les drones, fiche CNIL, rapport du contrôleur des lieux de privation de liberté, deux réponses ministérielles. Tout ce qui est géométrie de manœuvre, durées, points et probabilités est une proposition marquée [JEU], faute de source ouverte. Le BRIEF a été modifié pendant le travail ; le dossier a été aligné dessus : carte tactique (lecture seule pour le CRS de base, 15 manœuvres, niveau de force 0 à 4), causes et familles visuelles, black bloc au niveau gameplay. Seul ce fichier a été écrit et je n'ai rien commité ; un autre processus l'a déjà inclus dans un commit en cours de route. Le barème commun du §1.3 est déjà cité par le dossier 05, donc à ne pas renuméroter.
