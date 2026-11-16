@@ -29,8 +29,10 @@ import { ensureCommandStyle } from './style';
 import { TacticalMap } from './tacticalMap';
 import { MapPopover } from './tacticalPop';
 import { IDLE, TacticalState } from './tacticalState';
+import { TACTICAL_KEYS_LEGEND, cycleUnitKey, keyboardSections, sectionKeyIndex } from './tacticalKeys';
 import { RadialMenu } from './wheel';
 import type { WheelItem } from './wheel';
+import { wheelKeyLabel } from './wheelKeys';
 
 const PHASE_LABELS: Readonly<Record<CrowdPhase, string>> = {
   aucune: 'Pas de rassemblement', rassemblement: 'Rassemblement', depart: 'Départ du cortège', cortege: 'Cortège en marche',
@@ -106,7 +108,12 @@ export class TacticalScreen implements ScreenInstance {
   private lastStatus = -1;
   private zone = 0;
   private readonly w = { x: 0, z: 0 };
+  /** Mode de la carte à la dernière vérification : un ordre choisi dans la palette rend le focus à la carte. */
+  private lastModeKind = 'idle';
+  private readonly keysLegend: HTMLDivElement;
   private readonly onResize = (): void => this.layout();
+  /** Raccourcis du clavier seul (tacticalKeys.ts) : sections, unité suivante, liste des ordres. */
+  private readonly onKeyDown = (e: KeyboardEvent): void => this.shortcut(e);
 
   constructor(private readonly core: CommandCore, host: HTMLElement, data: unknown) {
     ensureCommandStyle();
@@ -209,7 +216,9 @@ export class TacticalScreen implements ScreenInstance {
     this.scale = new ScaleBar(mapwrap);
     this.rose = new WindRose(mapwrap, 'ct-wind');
     mapControls(mapwrap, this.map, core.maps, [layersBtn]);
-    mapwrap.append(this.hint, tools, this.layersBox, this.quickBox);
+    // clavier seul : les touches de la carte, en bas (masquées au doigt)
+    this.keysLegend = el('div', 'ct-keys', TACTICAL_KEYS_LEGEND);
+    mapwrap.append(this.hint, tools, this.layersBox, this.quickBox, this.keysLegend);
 
     // ── panneau de gauche ──
     this.units = new UnitsPanel(core, st, this.map, this.tmap, body);
@@ -276,6 +285,16 @@ export class TacticalScreen implements ScreenInstance {
     // LB / RB : le socle envoie « ui:tab » au conteneur du groupe de focus actif (l'hôte de l'écran, ou notre racine)
     host.addEventListener('ui:tab', (e) => this.cycleZone((e as CustomEvent<{ step: number }>).detail.step));
     window.addEventListener('resize', this.onResize);
+    window.addEventListener('keydown', this.onKeyDown);
+    // clavier : Échap ou ⌫ dans la liste des unités ou dans les onglets ramène à la carte (pas la fermeture de
+    // l'écran) ; à la manette, B ferme toujours la carte (LB / RB passent d'une zone à l'autre)
+    const backToMap = (e: Event): void => {
+      if (this.quick || ctx.input.device !== 'kbm') return;
+      e.preventDefault();
+      this.focusMap();
+    };
+    this.leftEl.addEventListener('ui:back', backToMap);
+    this.rightEl.addEventListener('ui:back', backToMap);
     this.focus = core.kit ? core.kit.focusGroup(this.root) : { dispose(): void {} };
     this.refresh(true);
   }
@@ -394,7 +413,10 @@ export class TacticalScreen implements ScreenInstance {
       verbs.push(v);
       // « me suivre » : intitulé complet (« À pied » seul ne dirait pas qui l'unité suit)
       const follow = v.type === 'suivre_pied' ? 'à pied' : v.type === 'avec_moi' ? 'en colonne (véh.)' : '';
-      items.push({ id: v.type, label: follow !== '' ? 'Me suivre' : v.short, sub: follow !== '' ? follow : undefined, force: v.coercive, disabled: v.force > roe.authorizedForce && !roe.underAttack });
+      items.push({
+        id: v.type, label: follow !== '' ? 'Me suivre' : v.short, sub: follow !== '' ? follow : undefined, force: v.coercive,
+        disabled: v.force > roe.authorizedForce && !roe.underAttack, key: wheelKeyLabel(i),
+      });
     }
     const n = this.tmap.selectedUnits().length;
     this.quick = new RadialMenu(this.quickBox, items, {
@@ -428,6 +450,76 @@ export class TacticalScreen implements ScreenInstance {
     this.quickBox.classList.remove('is-on');
   }
 
+  // ───────────────────────────── clavier seul ─────────────────────────────
+
+  /** Rend le focus à la carte (curseur au clavier). */
+  private focusMap(): void {
+    this.map.canvas.focus({ preventScroll: true });
+    this.zone = 0;
+  }
+
+  private shortcut(e: KeyboardEvent): void {
+    if (e.repeat || e.ctrlKey || e.altKey || e.metaKey || this.quick) return;
+    // écran recouvert par un autre (inerte), ou frappe destinée à autre chose que la carte : rien
+    if (this.root.closest('[inert]')) return;
+    const t = e.target as HTMLElement | null;
+    if (t && t !== document.body && t !== document.documentElement && !this.root.contains(t)) return;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    const core = this.core;
+    if (core.scope().level === 'lecture') return;
+    const st = this.state;
+    const scene = core.maps.scene;
+    const can = (squadId: number): boolean => core.canCommand(squadId);
+    const n = sectionKeyIndex(e.code);
+    if (n >= 0) {
+      const sections = keyboardSections(scene.units, can);
+      const u = sections[n];
+      if (!u) {
+        core.ctx.ui.notify(sections.length === 0 ? 'Aucune unité sous vos ordres.' : `Touches 1 à ${Math.min(9, sections.length)} : ${sections.length} unité${sections.length > 1 ? 's' : ''} sous vos ordres.`, 'info', 3);
+        return;
+      }
+      e.preventDefault();
+      if (e.shiftKey) st.select(u.key, true);
+      else st.setSelection([u.key]);
+      this.map.flyTo(u.x, u.z);
+      return;
+    }
+    if (e.code === 'KeyU') {
+      e.preventDefault();
+      let current = 0;
+      if (st.selection.size === 1) for (const k of st.selection) current = k;
+      const key = cycleUnitKey(scene.units, can, current, e.shiftKey ? -1 : 1);
+      const u = key !== 0 ? scene.unitModel.get(key) : undefined;
+      if (!u) {
+        core.ctx.ui.notify('Aucune unité sous vos ordres.', 'info', 3);
+        return;
+      }
+      st.setSelection([key]);
+      this.map.flyTo(u.x, u.z);
+      return;
+    }
+    if (e.code === 'KeyL') {
+      e.preventDefault();
+      st.setTab('ordres');
+      this.refresh(true);
+      const first = this.orders.root.querySelector<HTMLButtonElement>('.ct-verb:not([disabled])');
+      first?.focus({ preventScroll: true });
+      first?.scrollIntoView?.({ block: 'nearest' });
+    }
+  }
+
+  /** Ordre rapide au clavier (E) : au curseur, ou au centre de la carte s'il n'est pas encore affiché. */
+  private openQuickByKey(): void {
+    if (this.tmap.selectedUnits().length === 0) {
+      this.core.ctx.ui.notify('Sélectionnez d’abord une unité : 1 à 9 (section) ou U (unité suivante).', 'warn', 3);
+      return;
+    }
+    const v = this.map.view;
+    const x = this.map.cursorOn ? this.map.cursorX : v.width * 0.5;
+    const y = this.map.cursorOn ? this.map.cursorY : v.height * 0.5;
+    this.openQuick(x, y);
+  }
+
   // ───────────────────────────── rafraîchissement ─────────────────────────────
 
   private refreshHint(): void {
@@ -459,6 +551,12 @@ export class TacticalScreen implements ScreenInstance {
     if (!on) return;
     setClass(this.hint, 'is-mode', mode.kind !== 'idle');
     setText(this.hintTitle, title);
+    // au clavier seul, la désignation se fait au curseur (les consignes des ordres parlent de clic et de glisser)
+    if (mode.kind !== 'idle' && this.core.ctx.input.device === 'kbm' && !coarsePointer()) {
+      text += mode.kind === 'close_area'
+        ? ' Clavier\u00a0: flèches pour placer le centre, Entrée maintenue et flèches pour le rayon.'
+        : ' Clavier\u00a0: flèches pour viser, Entrée pour désigner (Entrée maintenue et flèches pour tracer)\u00a0; Échap annule.';
+    }
     setText(this.hintText, text);
     setText(this.hintRule, rule);
     this.hintRule.style.display = rule !== '' ? '' : 'none';
@@ -516,6 +614,16 @@ export class TacticalScreen implements ScreenInstance {
       else if (st.tab === 'journal') this.journal.refresh();
       this.refreshHint();
       this.refreshDrone();
+      // ordre (ou appel des secours) choisi au clavier dans la palette : le focus passe à la carte pour désigner le point
+      const kind = st.mode.kind;
+      if (kind !== this.lastModeKind) {
+        const from = this.lastModeKind;
+        this.lastModeKind = kind;
+        const active = document.activeElement;
+        if (from === 'idle' && kind !== 'idle' && active instanceof HTMLElement && this.rightEl.contains(active)) this.focusMap();
+      }
+      const keysOn = this.core.ctx.input.device === 'kbm' && !coarsePointer() && this.core.scope().level !== 'lecture';
+      this.keysLegend.style.display = keysOn ? '' : 'none';
       const o = this.map.overlay;
       o.hoverKey = st.dropKey !== 0 ? st.dropKey : st.hoverKey;
       o.focusIncident = st.focusIncident;
@@ -556,16 +664,26 @@ export class TacticalScreen implements ScreenInstance {
   update(dt: number, input: InputState): void {
     const active = document.activeElement;
     const onMap = active === this.map.canvas || active === document.body || active === null;
+    // clavier seul : focus perdu (élément retiré, ouverture avant que la carte soit prête) → il revient à la carte,
+    // sinon les flèches et Entrée n'y feraient rien
+    if (onMap && active !== this.map.canvas && input.device === 'kbm' && !this.root.closest('[inert]')) this.focusMap();
     if (this.quick) {
       // roue d'ordre rapide : direction au stick, validation, annulation
       if (input.device === 'gamepad') {
         this.quick.pointAt(input.moveX, -input.moveY, 0.45);
         if (input.pressed('ui_accept')) this.quick.choose();
+      } else {
+        // clavier : chiffre = ordre direct, flèches = surlignage, Entrée = valider (Échap : back())
+        const quick = this.quick;
+        quick.applyKeys(input, input.device === 'kbm', () => this.core.ctx.audio.play('ui_alerte'));
+        if (this.quick === quick && input.pressed('ui_accept') && quick.highlighted >= 0 && !quick.choose()) this.core.ctx.audio.play('ui_alerte');
       }
     } else if (onMap) {
       this.map.updatePad(dt, input);
       if (input.device === 'gamepad' && input.pressed('interact') && this.map.cursorOn && this.tmap.selectedUnits().length > 0 && this.state.mode.kind === 'idle') {
         this.openQuick(this.map.cursorX, this.map.cursorY);
+      } else if (input.device === 'kbm' && input.pressed('interact') && this.state.mode.kind === 'idle' && this.core.scope().level !== 'lecture') {
+        this.openQuickByKey();
       }
     }
     this.map.frame(dt);
@@ -610,6 +728,7 @@ export class TacticalScreen implements ScreenInstance {
     });
     if (this.slow) this.core.ctx.clock.timeScale = this.savedScale;
     window.removeEventListener('resize', this.onResize);
+    window.removeEventListener('keydown', this.onKeyDown);
     this.closeQuick();
     this.incidents.dispose();
     this.focus.dispose();

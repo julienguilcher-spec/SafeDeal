@@ -55,9 +55,10 @@ export function superior(k: Kernel, u: Unit, order: SquadOrder | null): string {
     const by = k.ctx.people.get(order.issuedBy);
     if (by && by.squadId !== 0) {
       const s = k.ctx.squads.get(by.squadId);
-      // le chef rend compte à l'échelon au-dessus de lui, pas à lui-même
-      if (s && s.id !== u.id) return s.name;
-      if (s && s.parentId !== 0) {
+      // le chef rend compte à l'échelon au-dessus de lui, pas à lui-même — ni à l'un de ses propres groupes : l'ordre
+      // de son chef de section (rangé dans le groupe de commandement) donnait « FILTRE CHARLIE ICI FILTRE »
+      if (s && s.id !== u.id && !within(k, s.id, u.id)) return s.name;
+      if (s && s.id === u.id && s.parentId !== 0) {
         const up = k.ctx.squads.get(s.parentId);
         if (up) return up.name;
       }
@@ -66,6 +67,16 @@ export function superior(k: Kernel, u: Unit, order: SquadOrder | null): string {
   for (let x = u.parent; x; x = x.parent) if (x.squad.name !== '') return x.squad.name;
   const own = unitOf(k.ctx.squads.get(u.squad.parentId));
   return own ? own.squad.name : 'CENTRAL';
+}
+
+/** L'unité `id` est-elle subordonnée (à un niveau quelconque) à l'unité `ancestor` ? */
+function within(k: Kernel, id: number, ancestor: number): boolean {
+  let s = k.ctx.squads.get(id);
+  for (let guard = 0; s && guard < 8; guard++) {
+    if (s.parentId === ancestor) return true;
+    s = s.parentId !== 0 ? k.ctx.squads.get(s.parentId) : undefined;
+  }
+  return false;
 }
 
 function sector(k: Kernel, x: number, z: number): string {

@@ -4,6 +4,8 @@
  *
  * Touche « Ordres » maintenue : la roue reste ouverte, on choisit une direction (souris, stick),
  * on relâche pour valider. Appui bref ou doigt : la roue reste affichée, on touche un secteur.
+ * Au clavier seul (Mac portable sans souris) : 1…9 puis 0 choisissent directement un secteur, les flèches
+ * déplacent le surlignage et Entrée valide ; Échap ou ⌫ referment la roue (wheelKeys.ts).
  * ===================================================================================== */
 
 import type { InputState, Squad } from '@/core/contracts';
@@ -17,6 +19,8 @@ import type { OrderGeom } from './orders';
 import { ensureCommandStyle } from './style';
 import { RadialMenu } from './wheel';
 import type { WheelItem } from './wheel';
+import { WHEEL_KEYS_LEGEND, wheelKeyLabel } from './wheelKeys';
+import type { InputLabelsApi } from '@/input/api';
 
 export const WHEEL_SCREEN = 'roue_ordres';
 
@@ -105,6 +109,8 @@ export class OrderWheelScreen implements ScreenInstance {
     }
 
     const roe = ctx.law.roe;
+    const labels = ctx.service<InputLabelsApi>('input.labels');
+    const codeLabel = labels && typeof labels.codeLabel === 'function' ? (code: string) => labels.codeLabel('kbm', code) : undefined;
     const items: WheelItem[] = [];
     for (let i = 0; i < WHEEL.length; i++) {
       const w = WHEEL[i]!;
@@ -115,7 +121,7 @@ export class OrderWheelScreen implements ScreenInstance {
         disabled = true;
         sub = 'aucune cible';
       } else if (disabled) sub = `force ${verb.force}`;
-      items.push({ id: w.type, label: w.label, sub, disabled, force: verb.coercive });
+      items.push({ id: w.type, label: w.label, sub, disabled, force: verb.coercive, key: wheelKeyLabel(i, codeLabel) });
     }
     this.wheel = new RadialMenu(this.root, items, {
       onChoose: (_i, item) => this.issue(item.id),
@@ -129,8 +135,12 @@ export class OrderWheelScreen implements ScreenInstance {
     const key = core.kit ? core.kit.keyLabel('orders') : '';
     if (ctx.input.device === 'touch' || coarsePointer()) cap.textContent = 'Touchez un ordre — le centre annule';
     else if (ctx.input.device === 'gamepad') cap.textContent = 'Stick\u00a0: choisir · relâchez pour valider · B\u00a0: annuler';
-    else cap.textContent = `Dirigez la souris vers un ordre, relâchez ${key !== '' ? '«\u00a0' + key + '\u00a0»' : 'la touche'} pour valider · Échap\u00a0: annuler`;
+    else cap.textContent = `Souris\u00a0: dirigez-la vers un ordre, relâchez ${key !== '' ? '«\u00a0' + key + '\u00a0»' : 'la touche'} pour valider`;
     this.root.appendChild(cap);
+    // clavier seul : la légende des touches, sous la roue
+    if (ctx.input.device === 'kbm' && !coarsePointer()) {
+      this.root.appendChild(el('div', 'cw-legend', `${WHEEL_KEYS_LEGEND} · Échap ou ⌫\u00a0: fermer`));
+    }
     window.addEventListener('pointermove', this.onMove);
   }
 
@@ -227,6 +237,10 @@ export class OrderWheelScreen implements ScreenInstance {
       if (Math.hypot(input.moveX, input.moveY) > 0.5) wheel.pointAt(input.moveX, -input.moveY, 0.5);
       else wheel.pointAt(this.vx, this.vy, 0.4);
     }
+    // clavier : chiffre = ordre direct, flèches = surlignage (pas à la manette : la croix porte « Ordres »)
+    // (un secteur surligné aux flèches est validé par Entrée, ou au relâchement de « Ordres » comme à la souris)
+    wheel.applyKeys(input, input.device === 'kbm', () => this.core.ctx.audio.play('ui_alerte'));
+    if (this.done) return;
     // roue restée affichée après un appui bref : un nouvel appui sur « Ordres » la referme
     if (!this.held && this.ticks > 1 && input.pressed('orders')) {
       this.close();

@@ -1,10 +1,13 @@
 /* =====================================================================================
  * COMMANDEMENT — drone : télépilote IA (docs/research/06-roles-jouables.md §9).
  *
- *   placement     sans ordre particulier (« libre »), l'appareil se tient au-dessus du point chaud
- *                 connu le plus intense, à défaut au-dessus de la tête du cortège ; « avancer » le
- *                 place au-dessus d'un point, « suivre » lui fait suivre une personne (avec le groupe
- *                 qui l'entoure) ou une unité ; « repli » et « cesser » le rappellent ;
+ *   placement     sans ordre particulier (« libre »), l'appareil se tient au-dessus de l'attroupement
+ *                 le plus dense près du point chaud connu le plus intense (à défaut, de la tête du
+ *                 cortège), ramené dans l'axe de la rue où il se tient, et le suit quand il marche ;
+ *                 « avancer » le place au-dessus d'un point, « suivre » lui fait suivre une personne
+ *                 (avec le groupe qui l'entoure) ou une unité ; « repli » et « cesser » le rappellent.
+ *                 Rayon et hauteur de l'orbite sont choisis pour que la caméra voie le sol visé (lignes
+ *                 de vue entre les immeubles, drone-view.ts) : orbite serrée, montée jusqu'à 120 m si besoin ;
  *   observation   toutes les deux secondes : volume de la foule dans le champ, auteurs de faits
  *                 récents, feux, barricades. Chaque observation alimente le tableau de situation du
  *                 commandement (un fait dans le champ du drone est « vu ») et les plus notables sont
@@ -22,6 +25,8 @@ import type { Picture } from './picture';
 import { recentOffender } from './picture';
 import { SpecialUnit, locate } from './special';
 import { CENTRAL, estimate, received, report, spell } from './texts';
+import type { Cluster, Pattern } from './drone-view';
+import { choosePattern, densestCluster, snapToStreet } from './drone-view';
 
 /** Délai de relève par un appareil frais après la pose (s). */
 const SWAP_DELAY = 40;
@@ -30,6 +35,15 @@ const SCAN_PERIOD = 2;
 const REPORT_GAP = 25;
 /** Balayage d'initiative : décalages par rapport à la tête du cortège (m). */
 const SWEEP: readonly number[] = [90, 170, 20, -70];
+/** Recherche de l'attroupement autour du point de référence (m), pénalité d'éloignement (m), effectif minimal. */
+const CROWD_SEARCH = 120;
+const CROWD_FALLOFF = 80;
+const CROWD_MIN = 5;
+/** Période du choix du placement (s) et déplacement du centre au-delà duquel l'orbite est reprise (m). */
+const PLAN_PERIOD = 1;
+const RECENTER = 10;
+/** Cibles de visée au plus (personnes ou points du sol) pour valider un placement. */
+const MAX_AIM = 24;
 
 export function isDroneTeam(_core: CommandCore, s: Squad, members: readonly Person[]): boolean {
   if (s.kind !== 'equipage' && s.kind !== 'binome' && s.kind !== 'groupe') return false;
@@ -45,6 +59,14 @@ export class DroneUnit extends SpecialUnit {
   private followId = 0;
   private orbitX = NaN;
   private orbitZ = NaN;
+  private planAt = 0;
+  private readonly cluster: Cluster = { x: 0, z: 0, count: 0 };
+  private readonly local: Cluster = { x: 0, z: 0, count: 0 };
+  private readonly centre = { x: 0, z: 0 };
+  private readonly pattern: Pattern = { radius: 0, altitude: 0, seen: 0 };
+  /** Cibles de visée : x, y, z entrelacés. */
+  private readonly aims = new Float64Array(MAX_AIM * 3);
+  private aimN = 0;
   private scanAt = 0;
   private reportAt = -100;
   private lastKind = '';
@@ -195,21 +217,139 @@ export class DroneUnit extends SpecialUnit {
     const ext = core.vext;
     if (!ext) return;
     const fs = ext.flightStatus(v);
-    if (!fs || fs.mode === 'retour' || fs.mode === 'atterrissage' || fs.mode === 'chute') return;
-    if (!this.target()) return;
-    const x = core.v2.x;
-    const z = core.v2.z;
-    // nouvelle orbite seulement si le point a bougé (un groupe suivi qui marche)
-    if (Number.isNaN(this.orbitX) || Math.hypot(x - this.orbitX, z - this.orbitZ) > 10) {
-      const t = core.tuning;
-      if (ext.orbit(v, x, z, t.droneOrbit, t.droneAltitude, 6)) {
-        this.orbitX = x;
-        this.orbitZ = z;
-        this.setStage(this.mode === 'suivi' ? 'suivi' : 'vol');
-        if (this.order && this.order.type !== 'suivre' && this.order.type !== 'escorter' && this.mode === 'point') {
-          // l'ordre de placement est exécuté quand l'appareil est en orbite
-        }
+    // posé (épave) ou de retour : rien à commander (pas de recherche de placement à chaque pas)
+    if (!fs || fs.mode === 'pose' || fs.mode === 'retour' || fs.mode === 'atterrissage' || fs.mode === 'chute') return;
+    // le placement est revu une fois par seconde (lignes de vue : pas à chaque pas), ou tout de suite sans orbite
+    const fresh = Number.isNaN(this.orbitX) || fs.mode !== 'orbite';
+    if (!fresh && core.now < this.planAt) return;
+    this.planAt = core.now + PLAN_PERIOD;
+    if (!this.place()) return;
+    const x = this.centre.x;
+    const z = this.centre.z;
+    // nouvelle orbite seulement si le centre a bougé (un attroupement, un groupe suivi qui marche) : pas de reprise à
+    // chaque pas, pas de va-et-vient sur place
+    if (!fresh && Math.hypot(x - this.orbitX, z - this.orbitZ) <= RECENTER) return;
+    const t = core.tuning;
+    const pat = choosePattern(core.ctx.world, x, z, this.aims, this.aimN, t.droneAltitude, t.droneOrbit, this.pattern);
+    if (ext.orbit(v, x, z, pat.radius, pat.altitude, 6)) {
+      this.orbitX = x;
+      this.orbitZ = z;
+      this.setStage(this.mode === 'suivi' ? 'suivi' : 'vol');
+    }
+  }
+
+  /**
+   * Centre du placement (this.centre) et cibles que la caméra doit voir (this.aims) selon le mode ; false s'il n'y a
+   * rien à survoler.
+   */
+  private place(): boolean {
+    const core = this.core;
+    const ctx = core.ctx;
+    const pic = this.pic;
+    this.aimN = 0;
+    if (this.mode === 'libre') {
+      // point de référence : point chaud connu, sinon tête du cortège, sinon la position de l'appareil
+      const hot = pic.hottest(0.3);
+      let rx: number;
+      let rz: number;
+      if (hot) {
+        rx = hot.x;
+        rz = hot.z;
+      } else if (pic.active && pic.route.length >= 4) {
+        pic.routePoint(pic.headS);
+        rx = core.v2.x;
+        rz = core.v2.z;
+      } else {
+        const d = this.drone();
+        rx = d ? d.x : this.status.x;
+        rz = d ? d.z : this.status.z;
       }
+      const n = ctx.people.queryRadius(rx, rz, CROWD_SEARCH, this.people, isProtester);
+      const c = this.cluster;
+      if (n >= CROWD_MIN && densestCluster(this.people, n, rx, rz, CROWD_FALLOFF, c) && c.count >= CROWD_MIN) {
+        // hystérésis : l'attroupement déjà filmé est gardé tant qu'il pèse au moins 70 % du plus dense
+        const l = this.local;
+        if (!Number.isNaN(this.orbitX) && densestCluster(this.people, n, this.orbitX, this.orbitZ, 20, l) && l.count >= CROWD_MIN
+          && l.count >= c.count * 0.7 && Math.hypot(l.x - this.orbitX, l.z - this.orbitZ) < 30) {
+          c.x = l.x;
+          c.z = l.z;
+          c.count = l.count;
+        }
+        snapToStreet(ctx.world, c.x, c.z, core.road, this.centre);
+        this.aimPeople(c.x, c.z, 20, n);
+        return true;
+      }
+      // personne en vue : placement d'initiative sur le point de référence ou balayage du parcours
+      if (!this.target()) return false;
+      this.centre.x = core.v2.x;
+      this.centre.z = core.v2.z;
+      this.aimGround(this.centre.x, this.centre.z);
+      return true;
+    }
+    if (!this.target()) return false;
+    this.centre.x = core.v2.x;
+    this.centre.z = core.v2.z;
+    if (this.mode === 'suivi') {
+      const p = ctx.people.get(this.followId);
+      if (p) {
+        const n = ctx.people.queryRadius(p.x, p.z, 10, this.people);
+        let m = 0;
+        for (let i = 0; i < n && m < MAX_AIM; i++) {
+          const q = this.people[i];
+          if (q !== p && q.faction !== p.faction) continue;
+          this.aim(q.x, q.y + 1.2, q.z);
+          m++;
+        }
+        return true;
+      }
+    }
+    // point désigné (ou unité suivie) : le sol autour du point doit être visible
+    this.aimGround(this.centre.x, this.centre.z);
+    return true;
+  }
+
+  private aim(x: number, y: number, z: number): void {
+    if (this.aimN >= MAX_AIM) return;
+    const k = this.aimN * 3;
+    this.aims[k] = x;
+    this.aims[k + 1] = y;
+    this.aims[k + 2] = z;
+    this.aimN++;
+  }
+
+  /** Cibles : les manifestants (this.people[0..n)) à moins de `radius` de (x, z). */
+  private aimPeople(x: number, z: number, radius: number, n: number): void {
+    const r2 = radius * radius;
+    let m = 0;
+    for (let i = 0; i < n; i++) {
+      const p = this.people[i];
+      if ((p.x - x) * (p.x - x) + (p.z - z) * (p.z - z) <= r2) m++;
+    }
+    // échantillon régulier si l'attroupement dépasse le nombre de cibles
+    const step = m > MAX_AIM ? m / MAX_AIM : 1;
+    let k = 0;
+    let next = 0;
+    for (let i = 0; i < n && this.aimN < MAX_AIM; i++) {
+      const p = this.people[i];
+      if ((p.x - x) * (p.x - x) + (p.z - z) * (p.z - z) > r2) continue;
+      if (k >= next) {
+        this.aim(p.x, p.y + 1.2, p.z);
+        next += step;
+      }
+      k++;
+    }
+  }
+
+  /** Cibles : le sol au point (le toit si le point désigné est sur un immeuble) et à 5 m autour (hors bâti). */
+  private aimGround(x: number, z: number): void {
+    const world = this.core.ctx.world;
+    this.aim(x, world.heightAt(x, z) + world.buildingHeightAt(x, z) + 0.5, z);
+    for (let j = 0; j < 4; j++) {
+      const a = (j * Math.PI) / 2;
+      const gx = x + Math.sin(a) * 5;
+      const gz = z + Math.cos(a) * 5;
+      if (world.buildingHeightAt(gx, gz) > 0) continue;
+      this.aim(gx, world.heightAt(gx, gz) + 0.5, gz);
     }
   }
 

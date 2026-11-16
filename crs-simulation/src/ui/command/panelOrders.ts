@@ -107,7 +107,7 @@ export class OrdersPanel {
     this.firemenBtn = button('Pompiers →', () => this.pickRescue('pompiers'), { icon: 'fire', id: 'tac-rescue-pompiers', className: 'ct-verb' });
     this.samuBtn = button('SAMU →', () => this.pickRescue('samu'), { icon: 'cross', id: 'tac-rescue-samu', className: 'ct-verb' });
     rrow.append(this.firemenBtn, this.samuBtn);
-    this.rescueNote = el('div', 'ct-note', 'Puis cliquez sur la carte\u00a0: sur un feu ou un blessé, l’équipe va directement l’éteindre ou le prendre en charge\u00a0; ailleurs, elle se rend au point désigné.');
+    this.rescueNote = el('div', 'ct-note', 'Puis cliquez sur la carte (au clavier\u00a0: flèches puis Entrée)\u00a0: sur un feu ou un blessé, l’équipe va directement l’éteindre ou le prendre en charge\u00a0; ailleurs, elle se rend au point désigné.');
     this.sRescue.append(rh, rrow, this.rescueNote);
 
     this.root.append(sLegal, sForce, sVerbs, this.sRescue);

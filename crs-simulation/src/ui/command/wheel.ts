@@ -12,6 +12,8 @@ export interface WheelItem {
   disabled?: boolean;
   /** Ordre de force : secteur surligné en rouge. */
   force?: boolean;
+  /** Touche du clavier qui choisit ce secteur (« 1 »…« 0 »), affichée près du bord extérieur. */
+  key?: string;
 }
 
 export interface WheelOptions {
@@ -19,9 +21,14 @@ export interface WheelOptions {
   onCancel(): void;
 }
 
+import { wheelKeyAction } from './wheelKeys';
+import type { WheelKeyInput } from './wheelKeys';
+
 const R_OUT = 152;
 const R_IN = 58;
 const R_TEXT = 106;
+/** Rayon des touches du clavier affichées dans les secteurs. */
+const R_KEY = 138;
 const NS = 'http://www.w3.org/2000/svg';
 
 function polar(r: number, a: number): string {
@@ -42,6 +49,19 @@ export class RadialMenu {
   private idleTitle = '';
   private idleSub = '';
   private readonly step: number;
+  /** Dernière touche de secteur tapée (KeyboardEvent.code), servie à la prochaine image par applyKeys(). */
+  private pendingKey = '';
+  /**
+   * Les chiffres sont notés à la frappe et traités à l'image suivante (applyKeys), jamais dans l'événement :
+   * l'écran bloquant reste ouvert jusqu'au verrouillage des entrées de l'image, qui retient l'appui pour la
+   * simulation (sinon le même chiffre changerait aussi l'objet en main, roue refermée).
+   */
+  private readonly onKey = (e: KeyboardEvent): void => {
+    if (e.repeat || e.ctrlKey || e.altKey || e.metaKey) return;
+    const t = e.target as HTMLElement | null;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    if (e.code) this.pendingKey = e.code;
+  };
 
   constructor(host: HTMLElement, readonly items: readonly WheelItem[], private readonly options: WheelOptions) {
     this.step = (Math.PI * 2) / items.length;
@@ -73,6 +93,14 @@ export class RadialMenu {
       text.setAttribute('y', (ty + (it.sub ? -3 : 4)).toFixed(1));
       text.textContent = it.label;
       svg.appendChild(text);
+      if (it.key) {
+        const k = document.createElementNS(NS, 'text');
+        k.setAttribute('class', 'cw-key' + (it.disabled ? ' is-off' : ''));
+        k.setAttribute('x', (Math.cos(mid) * R_KEY).toFixed(1));
+        k.setAttribute('y', (Math.sin(mid) * R_KEY + 3.5).toFixed(1));
+        k.textContent = it.key;
+        svg.appendChild(k);
+      }
       if (it.sub) {
         const s = document.createElementNS(NS, 'text');
         s.setAttribute('class', 'cw-sublabel' + (it.disabled ? ' is-off' : ''));
@@ -95,6 +123,7 @@ export class RadialMenu {
     svg.append(this.title, this.sub);
     this.root.appendChild(svg);
     host.appendChild(this.root);
+    window.addEventListener('keydown', this.onKey, true);
 
     svg.addEventListener('pointermove', (e) => {
       if (e.pointerType === 'touch' || !this.hoverEnabled) return;
@@ -182,7 +211,23 @@ export class RadialMenu {
     return true;
   }
 
+  /**
+   * Clavier, à appeler à chaque image : chiffre tapé = choix direct du secteur ; flèches (si `arrows`) = surlignage.
+   * Retourne true si les entrées ont été prises (un secteur indisponible choisi au chiffre est seulement surligné :
+   * `refused` est alors appelé pour le signaler).
+   */
+  applyKeys(input: WheelKeyInput, arrows: boolean, refused?: () => void): boolean {
+    const key = this.pendingKey;
+    this.pendingKey = '';
+    const a = wheelKeyAction(this.highlighted, this.items.length, key, input, arrows);
+    if (!a) return false;
+    this.setHighlight(a.index);
+    if (a.kind === 'choose' && !this.choose()) refused?.();
+    return true;
+  }
+
   dispose(): void {
+    window.removeEventListener('keydown', this.onKey, true);
     this.root.remove();
   }
 }

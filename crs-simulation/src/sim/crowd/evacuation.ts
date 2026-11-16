@@ -32,7 +32,18 @@ const CLEAR = 28;
 /** Distance maximale entre l'ordre « filtrer » et le pourtour de la nasse (m). */
 const REACH = 40;
 
-type Role = 'queue' | 'check' | 'hold' | 'out';
+/** Personne retenue : rayon autour de la porte où elle attend sans bouger (m), délai avant de la confier au binôme
+ * d'interpellation (s), durée maximale de retenue (s). */
+const HOLD_STAY = 5;
+const HOLD_ORDER = 4;
+const HOLD_MAX = 600;
+/** Tentatives d'interpellation par personne (ordre « interpeller » donné à l'unité qui filtre). */
+const ARREST_TRIES = 2;
+/** Auteur de faits sorti de la nasse sans passer la porte : interpellé s'il est encore à moins de tant de la porte (m). */
+const WANTED_RANGE = 60;
+
+/** 'wanted' : auteur de faits établis qui s'est soustrait à la nasse (hors de la porte) ; l'unité qui filtre l'interpelle. */
+type Role = 'queue' | 'check' | 'hold' | 'out' | 'wanted';
 
 interface Evac {
   view: EvacuationView;
@@ -52,6 +63,8 @@ interface Evac {
   ready: boolean;
   startedAt: number;
   exitIndex: number;
+  /** Auteurs de faits établis vus dans la nasse (ils ne sortent que par la porte, interpellés). */
+  seen: Set<EntityId>;
 }
 
 interface Tie {
@@ -63,6 +76,8 @@ interface Tie {
   lastX: number;
   lastZ: number;
   lastAt: number;
+  /** Nombre d'ordres « interpeller » déjà donnés à l'unité pour cette personne. */
+  tries: number;
 }
 
 export class EvacuationSystem implements GameSystem {
@@ -167,7 +182,7 @@ export class EvacuationSystem implements GameSystem {
     }
     const ev: Evac = {
       view, radius: best.a, ox, oz, lanes: new Array<EntityId>(LANES).fill(0), queue: [], arrests: [], arrestAt: -1e9, arrestId: 0,
-      emptySince: -1, nextReport: now + 45, exitIndex, ready: false, startedAt: now,
+      emptySince: -1, nextReport: now + 45, exitIndex, ready: false, startedAt: now, seen: new Set(),
     };
     this.evacs.push(ev);
     this.views.push(view);
@@ -232,8 +247,10 @@ export class EvacuationSystem implements GameSystem {
       if (tie && tie.role === 'out') continue;
       waiting++;
       if (!this.ties.has(p.id)) free.push(p);
+      if (!ev.seen.has(p.id) && this.offender(p)) ev.seen.add(p.id);
     }
     v.waiting = waiting;
+    this.wanted(ev, now);
     // file : les plus proches de la porte d'abord
     const q = ev.queue;
     for (let i = q.length - 1; i >= 0; i--) {
@@ -250,7 +267,7 @@ export class EvacuationSystem implements GameSystem {
       for (let i = 0; i < free.length && q.length < QUEUE; i++) {
         const p = free[i]!;
         q.push(p.id);
-        this.ties.set(p.id, { e: ev, role: 'queue', slot: 0, until: 0, since: now, lastX: p.x, lastZ: p.z, lastAt: now });
+        this.ties.set(p.id, { e: ev, role: 'queue', slot: 0, until: 0, since: now, lastX: p.x, lastZ: p.z, lastAt: now, tries: 0 });
       }
     }
     for (let i = 0; i < q.length; i++) {
@@ -306,14 +323,22 @@ export class EvacuationSystem implements GameSystem {
         continue;
       }
       if (p.custody !== 'free') {
-        if (t.role === 'hold' || t.role === 'check') v.arrested++;
+        if (t.role === 'hold' || t.role === 'check' || t.role === 'wanted') v.arrested++;
         this.ties.delete(id);
-      } else if (t.role === 'hold' && now - t.since > 180) {
-        // l'interpellation n'a pas pu se faire : la personne sort avec les autres
-        this.letOut(t, p, now);
-      }
+        ev.seen.delete(id);
+      } else if ((t.role === 'hold' || t.role === 'wanted') && t.tries > 0 && ev.arrestId !== id && ev.arrests.indexOf(id) < 0) {
+        // l'interpellation ordonnée n'a pas abouti : nouvelle tentative, puis on y renonce (la personne retenue sort
+        // avec les autres). Tant qu'elle attend son tour, elle reste retenue — même au-delà de trois minutes.
+        if (t.tries < ARREST_TRIES) ev.arrests.push(id);
+        else if (t.role === 'hold') this.letOut(t, p, now);
+        else {
+          this.ties.delete(id);
+          ev.seen.delete(id);
+        }
+      } else if (t.role === 'hold' && now - t.since > HOLD_MAX) this.letOut(t, p, now);
     }
-    if (waiting === 0 && q.length === 0 && ev.lanes.every((x) => x === 0)) {
+    // (fin : nasse vide et plus aucune interpellation en attente ou en cours)
+    if (waiting === 0 && q.length === 0 && ev.lanes.every((x) => x === 0) && ev.arrests.length === 0 && ev.arrestId === 0 && !this.pending(ev)) {
       if (ev.emptySince < 0) ev.emptySince = now;
       else if (now - ev.emptySince > 20) {
         this.end(ev, 'vide');
@@ -328,6 +353,12 @@ export class EvacuationSystem implements GameSystem {
     }
   }
 
+  /** Reste-t-il une personne retenue ou recherchée à interpeller ? */
+  private pending(ev: Evac): boolean {
+    for (const t of this.ties.values()) if (t.e === ev && (t.role === 'hold' || t.role === 'wanted')) return true;
+    return false;
+  }
+
   /** Une infraction est retenue contre la personne (hors la seule participation à l'attroupement). */
   private offender(p: Person): boolean {
     const law = this.ctx.law;
@@ -338,50 +369,38 @@ export class EvacuationSystem implements GameSystem {
     return false;
   }
 
-  /** Agents à pied de l'unité qui filtre (et de ses subordonnées), dans `out`. */
-  private agents(ev: Evac, out: Person[]): void {
-    out.length = 0;
+  /**
+   * Interpellation à la porte : la personne retenue est confiée au binôme d'interpellation de l'unité qui filtre
+   * (ordre 'interpeller', procédure du module de police), à son tour. (La saisie directe par l'agent de la porte le plus
+   * proche ne pouvait pas aboutir : tenu à son créneau par la formation, il a toujours une intention de déplacement, et
+   * le module des interactions interrompt la saisie dans le pas même.)
+   */
+  private doorArrests(ev: Evac, now: number): void {
     const ctx = this.ctx;
-    const walk = (id: number, depth: number): void => {
-      const sq = ctx.squads.get(id);
-      if (!sq || depth > 4) return;
-      for (const m of sq.members) {
-        const a = ctx.people.get(m);
-        if (a && a.faction === 'police' && a.vehicleId === 0 && a.posture === 'stand' && !a.isPlayer && a.carrying === 0) out.push(a);
-      }
-      for (const ch of ctx.squads.childrenOf(id)) walk(ch.id, depth + 1);
-    };
-    walk(ev.view.squadId, 0);
+    for (const [id, t] of this.ties) {
+      if (t.e !== ev || t.role !== 'hold' || t.tries > 0) continue;
+      const p = ctx.people.get(id);
+      if (!p || p.custody !== 'free') continue;
+      if (now - t.since > HOLD_ORDER && ev.arrests.indexOf(id) < 0 && ev.arrestId !== id) ev.arrests.push(id);
+    }
   }
 
   /**
-   * Interpellation à la porte : l'agent du barrage le plus proche de la personne retenue la maîtrise (interaction
-   * « maîtriser » du module de droit : procès-verbal, privation de liberté). À défaut d'agent à portée après 40 s,
-   * l'unité reçoit l'ordre d'interpeller (procédure du binôme du module de police).
+   * Auteurs de faits établis vus dans la nasse et qui en sont sortis sans passer la porte (par une issue que la nasse
+   * ne tenait pas) : s'ils sont encore à proximité, l'unité qui filtre les interpelle, à leur tour.
    */
-  private readonly cops: Person[] = [];
-  private doorArrests(ev: Evac, now: number): void {
+  private wanted(ev: Evac, now: number): void {
     const ctx = this.ctx;
-    let listed = false;
-    for (const [id, t] of this.ties) {
-      if (t.e !== ev || t.role !== 'hold') continue;
+    const v = ev.view;
+    for (const id of ev.seen) {
       const p = ctx.people.get(id);
-      if (!p || p.custody !== 'free') continue;
-      if (!listed) {
-        this.agents(ev, this.cops);
-        listed = true;
+      if (!p || p.custody !== 'free') {
+        ev.seen.delete(id);
+        continue;
       }
-      let best: Person | null = null;
-      let bestD = 2.2;
-      for (const a of this.cops) {
-        const d = Math.hypot(a.x - p.x, a.z - p.z);
-        if (d < bestD && ctx.interactions.current(a) === null) {
-          bestD = d;
-          best = a;
-        }
-      }
-      if (best && ctx.interactions.startVerb(best, 'maitriser', p.id)) continue;
-      if (now - t.since > 40 && ev.arrests.indexOf(id) < 0 && ev.arrestId !== id) ev.arrests.push(id);
+      if (this.ties.has(id) || this.inside(ev, p) || Math.hypot(p.x - v.x, p.z - v.z) > WANTED_RANGE) continue;
+      this.ties.set(id, { e: ev, role: 'wanted', slot: 0, until: 0, since: now, lastX: p.x, lastZ: p.z, lastAt: now, tries: 0 });
+      if (ev.arrests.indexOf(id) < 0 && ev.arrestId !== id) ev.arrests.push(id);
     }
   }
 
@@ -398,17 +417,19 @@ export class EvacuationSystem implements GameSystem {
       const id = ev.arrests.shift()!;
       const p = ctx.people.get(id);
       const t = this.ties.get(id);
-      if (!p || !t || t.role !== 'hold' || p.custody !== 'free') continue;
+      if (!p || !t || (t.role !== 'hold' && t.role !== 'wanted') || p.custody !== 'free') continue;
       const sq = ctx.squads.get(ev.view.squadId);
       if (!sq) return;
       ev.arrestId = id;
       ev.arrestAt = now;
+      t.tries++;
       ctx.squads.issue(sq.id, { type: 'interpeller', x: p.x, z: p.z, targetId: id, issuedBy: sq.leaderId, maxForce: 2 });
       return;
     }
   }
 
   private letOut(t: Tie, p: Person, now: number): void {
+    t.e.seen.delete(p.id);
     t.role = 'out';
     t.since = now;
     t.lastX = p.x;
@@ -445,6 +466,9 @@ export class EvacuationSystem implements GameSystem {
     const v = ev.view;
     if (p.gas > T.GAS_FEEL * 2 || p.burning > 0.05) return false;
     switch (t.role) {
+      case 'wanted':
+        // sorti de la nasse : il va où il veut ; le binôme d'interpellation vient le chercher
+        return false;
       case 'queue': {
         // en file indienne, de la porte vers l'intérieur de la nasse
         const back = 3.6 + t.slot * 0.85;
@@ -462,17 +486,12 @@ export class EvacuationSystem implements GameSystem {
         let x = this.v2.x;
         let z = this.v2.z;
         if (t.role === 'hold') {
-          // retenu : conduit vers l'agent de la porte le plus proche, qui va le maîtriser
-          this.agents(ev, this.cops);
-          let bestD = Infinity;
-          for (const a of this.cops) {
-            const d = Math.hypot(a.x - p.x, a.z - p.z);
-            if (d < bestD) {
-              bestD = d;
-              const l = d > 0.01 ? d : 1;
-              x = a.x + ((p.x - a.x) / l) * 0.9;
-              z = a.z + ((p.z - a.z) / l) * 0.9;
-            }
+          // retenu : il reste sur place, à la porte, où le binôme d'interpellation vient le chercher. (Conduit vers
+          // « l'agent le plus proche », il reculait dès que le binôme sortait du rang — l'agent le plus proche changeait
+          // — et l'interpellation échouait : « individu hors d'atteinte ».)
+          if (Math.hypot(p.x - x, p.z - z) < HOLD_STAY) {
+            x = p.x;
+            z = p.z;
           }
         }
         this.goNear(p, b, x, z, 0.8);

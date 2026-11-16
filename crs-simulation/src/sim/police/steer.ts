@@ -265,6 +265,13 @@ export function navigate(k: Kernel, a: Agent, tx: number, tz: number, interval: 
   a.lastZ = p.z;
   if (d2 > 0.5 && mx * mx + mz * mz < T.STUCK_SPEED * interval * (T.STUCK_SPEED * interval) && p.stun <= 0) {
     a.stuckT += interval;
+    // barrière Vauban (ou autre obstacle bas) en travers du trajet : l'agent l'enjambe. La navigation ignore le
+    // mobilier : une rue fermée par une ligne de barrières bloquait une section entière à 30 m de son poste
+    // (« Barrage filtrant en place » annoncé alors que personne n'avait franchi les barrières).
+    if (a.stuckT >= T.WAY_TIME * 2 && vaultOver(k, a, tx, tz)) {
+      a.stuckT = 0;
+      return;
+    }
     if (a.stuckT >= T.WAY_TIME && k.now - a.wayAt >= 1.2) {
       a.wayAt = k.now;
       askWay(k, a, tx, tz);
@@ -293,6 +300,40 @@ export function navigate(k: Kernel, a: Agent, tx: number, tz: number, interval: 
   }
 }
 
+
+/** Hauteur maximale d'un obstacle que l'agent enjambe (m) : celle que la locomotion sait franchir. */
+const VAULT_HEIGHT = 1.15;
+/** Portée de la recherche d'un obstacle à enjamber devant l'agent (m). */
+const VAULT_LOOK = 1.2;
+
+/**
+ * Obstacle bas (barrière Vauban, banc, jardinière) juste devant l'agent, vers son but : il l'enjambe (cmd.jump,
+ * franchissement géré par la locomotion), droit vers le but — le contournement en cours est abandonné. Jamais par-dessus
+ * un objet en feu, ni s'il n'y a qu'un mur derrière.
+ */
+function vaultOver(k: Kernel, a: Agent, tx: number, tz: number): boolean {
+  const p = a.p;
+  if (p.posture !== 'stand' || p.carrying !== 0 || p.custody !== 'free') return false;
+  const dx = tx - p.x;
+  const dz = tz - p.z;
+  const d = Math.sqrt(dx * dx + dz * dz);
+  if (d < 1.5) return false;
+  const ux = dx / d;
+  const uz = dz / d;
+  const hit = k.hit;
+  const ctx = k.ctx;
+  const bx = p.x + ux * VAULT_LOOK;
+  const bz = p.z + uz * VAULT_LOOK;
+  if (!ctx.props.raycast(p.x, p.z, bx, bz, hit, 'move') || !hit.hit || hit.height > VAULT_HEIGHT) return false;
+  const prop = ctx.props.get(hit.id);
+  if (!prop || prop.state === 'burning') return false;
+  if (!ctx.world.isFree(p.x + ux * (VAULT_LOOK + 1), p.z + uz * (VAULT_LOOK + 1), 0.3)) return false;
+  a.pathN = 0;
+  a.sideUntil = 0;
+  a.avoidUntil = 0;
+  p.cmd.jump = true;
+  return true;
+}
 
 const cast: SegmentCast = { t: 0, nx: 0, nz: 0 };
 

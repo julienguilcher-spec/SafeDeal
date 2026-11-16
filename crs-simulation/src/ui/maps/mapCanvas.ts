@@ -12,6 +12,8 @@ import { PointerGestures } from './gestures';
 import type { GestureHandlers, PointerInfo, PointerKind } from './gestures';
 import { ALL_LAYERS, drawOverlay } from './overlay';
 import type { OverlayOptions } from './overlay';
+import { cursorAxes, cursorWakes, stepCursor } from './cursor';
+import type { CursorAxes, CursorStep } from './cursor';
 import type { MapsRuntime } from './runtime';
 import { MapTransform, NORTH_UP } from './transform';
 
@@ -41,6 +43,7 @@ const PAD_ID = -77;
 /** Vitesse du curseur de la manette (px/s) et du déplacement de vue au stick droit (px par radian de regard). */
 const CURSOR_SPEED = 560;
 const LOOK_PAN = 260;
+const NO_AXES: Readonly<CursorAxes> = Object.freeze({ x: 0, y: 0, speed: 0 });
 
 export class MapCanvas {
   readonly el: HTMLDivElement;
@@ -73,6 +76,8 @@ export class MapCanvas {
   private cursorTransform = '';
   private disposed = false;
   private readonly tmp: Vec2 = { x: 0, z: 0 };
+  private readonly axes: CursorAxes = { x: 0, y: 0, speed: 0 };
+  private readonly stepOut: CursorStep = { x: 0, y: 0, panX: 0, panY: 0 };
 
   constructor(private readonly runtime: MapsRuntime, host: HTMLElement, options: MapCanvasOptions = {}) {
     this.interval = options.interval ?? 0.1;
@@ -221,13 +226,18 @@ export class MapCanvas {
   /**
    * Manette : stick gauche = curseur (la vue suit quand il touche un bord), stick droit = vue,
    * gâchettes et touches de zoom = zoom, « Valider » = bouton du curseur (toucher, glisser, appui long).
+   * Clavier seul (Mac portable sans souris), carte focalisée : flèches = curseur (Maj : plus vite),
+   * Entrée = bouton du curseur, + / − = zoom (cursor.ts).
    */
   updatePad(dt: number, input: InputState): void {
     const v = this.view;
     const pad = input.device === 'gamepad';
-    const mx = pad ? input.moveX : 0;
-    const my = pad ? input.moveY : 0;
-    if (pad && !this.cursorOn && (mx !== 0 || my !== 0 || input.pressed('ui_accept'))) {
+    // au clavier, les flèches ne pilotent le curseur que si la carte a le focus (sinon elles naviguent entre les boutons)
+    const keys = input.device === 'kbm' && typeof document !== 'undefined' && document.activeElement === this.canvas;
+    const axes = pad || keys ? cursorAxes(input, CURSOR_SPEED, this.axes) : NO_AXES;
+    const mx = axes.x;
+    const my = axes.y;
+    if ((pad || keys) && !this.cursorOn && cursorWakes(input, axes)) {
       this.cursorOn = true;
       this.cursorEl.classList.add('is-on');
       if (this.cursorX <= 0 || this.cursorY <= 0 || this.cursorX > v.width || this.cursorY > v.height) {
@@ -236,16 +246,11 @@ export class MapCanvas {
       }
     }
     if (this.cursorOn && (mx !== 0 || my !== 0)) {
-      let x = this.cursorX + mx * CURSOR_SPEED * dt;
-      let y = this.cursorY - my * CURSOR_SPEED * dt;
-      const edge = 26;
-      let panX = 0, panY = 0;
-      if (x < edge) { panX = edge - x; x = edge; }
-      else if (x > v.width - edge) { panX = v.width - edge - x; x = v.width - edge; }
-      if (y < edge) { panY = edge - y; y = edge; }
-      else if (y > v.height - edge) { panY = v.height - edge - y; y = v.height - edge; }
-      if (panX !== 0 || panY !== 0) {
-        v.panByPixels(panX, panY);
+      const st = stepCursor(this.cursorX, this.cursorY, axes, dt, v.width, v.height, this.stepOut);
+      const x = st.x;
+      const y = st.y;
+      if (st.panX !== 0 || st.panY !== 0) {
+        v.panByPixels(st.panX, st.panY);
         this.viewChanged();
       }
       this.cursorX = x;
@@ -268,7 +273,8 @@ export class MapCanvas {
       const ay = this.cursorOn ? this.cursorY : v.height * 0.5;
       this.zoomAt(ax, ay, Math.exp(zoom * 1.7 * dt));
     }
-    if (this.cursorOn) {
+    // clavier : Entrée n'agit sur le curseur que carte focalisée (sinon elle valide le bouton focalisé)
+    if (this.cursorOn && (pad || keys || this.padDown)) {
       if (input.pressed('ui_accept') && !this.padDown) {
         this.padDown = true;
         this.gestures.down(PAD_ID, this.cursorX, this.cursorY, this.runtime.time, { button: 0, shift: false, ctrl: false, kind: 'pad' });

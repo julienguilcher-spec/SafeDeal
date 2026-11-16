@@ -745,7 +745,7 @@ async function plan() {
   const wedge = await page.evaluate(() => {
     const r = document.querySelector('.cw-svg').getBoundingClientRect();
     const cx = r.left + r.width / 2, cy = r.top + r.height / 2, k = r.width / 320;
-    const a = (8 * (Math.PI * 2 / 10)) - Math.PI / 2; // secteur « En ligne »
+    const a = (9 * (Math.PI * 2 / 12)) - Math.PI / 2; // secteur « En ligne » (10e des 12 secteurs)
     return { x: cx + Math.cos(a) * 106 * k, y: cy + Math.sin(a) * 106 * k };
   });
   await page.mouse.click(wedge.x, wedge.y);
@@ -760,13 +760,71 @@ async function plan() {
   const w2 = await page.evaluate(() => {
     const r = document.querySelector('.cw-svg').getBoundingClientRect();
     const cx = r.left + r.width / 2, cy = r.top + r.height / 2, k = r.width / 320;
-    const a = (2 * (Math.PI * 2 / 10)) - Math.PI / 2; // « Charge »
+    const a = (2 * (Math.PI * 2 / 12)) - Math.PI / 2; // « Charge » (3e des 12 secteurs)
     return { x: cx + Math.cos(a) * 106 * k, y: cy + Math.sin(a) * 106 * k };
   });
   await page.mouse.click(w2.x, w2.y);
   await settle(page, 300);
   check((await order(page, I.groups[1][0])).type === 'ligne', 'secteur « Charge » indisponible (force non autorisée) : aucun ordre');
   check(await key(page, 'Escape', 'roue_ordres', false), 'Échap ferme la roue');
+
+  // ── roue d'ordres au clavier seul (Mac sans souris) : chiffres, flèches puis Entrée, ⌫ ──
+  const held0 = await page.evaluate(() => { const p = window.__cmd.ctx.player.person(); return p ? p.active : -2; });
+  const before0 = (await order(page, I.groups[1][0])).type;
+  await key(page, 'KeyF', 'roue_ordres', true);
+  await settle(page, 300);
+  const keysShown = await page.evaluate(() => Array.from(document.querySelectorAll('.cw-key')).map((e) => e.textContent));
+  check(keysShown.length === 12 && keysShown[0] === '1' && keysShown[9] === '0', `chaque secteur affiche sa touche (${keysShown.join(' ')})`);
+  check(await page.evaluate(() => /Chiffres, ou flèches puis Entrée/.test(document.querySelector('.cw-legend')?.textContent ?? '')), 'légende « Chiffres, ou flèches puis Entrée » sous la roue');
+  await page.keyboard.press('ArrowUp');
+  await frames(page, 3);
+  check(await page.evaluate(() => document.querySelector('.cw-title').textContent === 'En avant'), '↑ : secteur « En avant » surligné');
+  await page.keyboard.press('ArrowRight');
+  await frames(page, 3);
+  check(await page.evaluate(() => document.querySelector('.cw-title').textContent === 'Bond'), '→ : secteur suivant (« Bond ») surligné');
+  check(await key(page, 'Backspace', 'roue_ordres', false), '⌫ ferme la roue sans ordre');
+  check((await order(page, I.groups[1][0])).type === before0, 'roue fermée au clavier : aucun nouvel ordre');
+  await key(page, 'KeyF', 'roue_ordres', true);
+  await settle(page, 300);
+  await page.keyboard.press('Digit1');
+  check(await untilStack(page, 'roue_ordres', false), 'chiffre 1 : la roue se ferme');
+  await frames(page, 4);
+  check((await order(page, I.groups[1][0])).type === 'avancer', 'chiffre 1 : ordre « avancer » transmis');
+  const held1 = await page.evaluate(() => { const p = window.__cmd.ctx.player.person(); return p ? p.active : -2; });
+  check(held1 === held0, `le chiffre tapé dans la roue ne change pas l'objet en main (${held0} → ${held1})`);
+
+  // ── carte tactique au clavier seul : section au chiffre, curseur aux flèches, ordre rapide (E), palette (L) ──
+  check(await key(page, 'Tab', 'carte_tactique', true), 'clavier : Tab ouvre la carte tactique');
+  await settle(page, 300);
+  await frames(page, 3);
+  const focus0 = await page.evaluate(() => { const a = document.activeElement; return a ? `${a.tagName}.${a.className}#${a.dataset?.id ?? ''}` : 'null'; });
+  check(focus0.endsWith('#tac-map'), `la carte a le focus à l'ouverture (${focus0})`);
+  check(await page.evaluate(() => getComputedStyle(document.querySelector('.ct-keys')).display !== 'none'), 'légende des touches affichée sur la carte');
+  await page.keyboard.press('Digit1');
+  await frames(page, 3);
+  check(await page.evaluate(() => window.__cmd.tactical().state.selection.size === 1), 'touche 1 : une unité sélectionnée');
+  await page.keyboard.down('ArrowRight');
+  await settle(page, 250);
+  await page.keyboard.up('ArrowRight');
+  await frames(page, 2);
+  check(await page.evaluate(() => window.__cmd.tactical().map.cursorOn && document.querySelector('.cm-cursor').classList.contains('is-on')), 'flèches : le curseur de la carte apparaît et se déplace');
+  await page.keyboard.press('KeyE');
+  await frames(page, 4);
+  check(await page.evaluate(() => document.querySelectorAll('.ct-quick .cw-key').length === 10), 'E : ordre rapide au curseur, touches affichées');
+  await page.keyboard.press('Digit7');
+  await frames(page, 6);
+  check(await page.evaluate(() => document.querySelector('.ct-quick .cw-wheel') === null), 'chiffre 7 : la roue d\'ordre rapide se ferme');
+  check((await order(page, I.groups[1][0])).type === 'tenir', `chiffre 7 : ordre « tenir » transmis (${(await order(page, I.groups[1][0])).type})`);
+  await page.keyboard.press('KeyL');
+  await frames(page, 3);
+  check(await page.evaluate(() => document.activeElement?.classList.contains('ct-verb')), 'L : le focus passe à la liste des ordres');
+  await page.keyboard.press('ArrowDown');
+  await frames(page, 3);
+  check(await page.evaluate(() => document.activeElement?.classList.contains('ct-verb')), 'flèches : on parcourt la liste des ordres');
+  await page.keyboard.press('Escape');
+  await frames(page, 3);
+  check(await page.evaluate(() => document.activeElement?.dataset.id === 'tac-map') && (await stack(page)).includes('carte_tactique'), 'Échap dans la liste : retour à la carte (sans la fermer)');
+  check(await key(page, 'Escape', 'carte_tactique', false), 'Échap sur la carte : la carte se ferme');
 
   // ── radio ──
   check(await key(page, 'KeyT', 'radio', true), 'la touche T ouvre la radio');

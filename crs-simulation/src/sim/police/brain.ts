@@ -389,6 +389,8 @@ export interface Unit {
   phaseT: number;
   /** Instant au-delà duquel une mise en place est déclarée faite même si un agent manque. */
   formDeadline: number;
+  /** Comptes rendus de mise en place retardée depuis le début de la mise en place (le premier, puis un sur quatre). */
+  lateN: number;
   man: Maneuver;
   /** Ordre reçu, à démarrer au prochain pas. */
   pending: SquadOrder | null;
@@ -511,7 +513,7 @@ export function createUnit(squad: Squad): Unit {
   };
   const u: Unit = {
     tag: UNIT_TAG, squad, id: squad.id, parent: null, children: [], isRoot: true, lead: null as unknown as Unit, joinedTo: null, extraVehicles: [], memberSig: 0, seq: 0, sortLat: 0, accLat: 0, accN: 0,
-    own: [], agents: [], groups: [], order: null, task: null, storeOrder: squad.order, restoreOrder: null, placedOrder: null, phase: 'repos', phaseT: 0, formDeadline: 0, man: createManeuver(), pending: null,
+    own: [], agents: [], groups: [], order: null, task: null, storeOrder: squad.order, restoreOrder: null, placedOrder: null, phase: 'repos', phaseT: 0, formDeadline: 0, lateN: 0, man: createManeuver(), pending: null,
     ackAt: 0, ackText: '', reported: true,
     sense: createSense(), thinkAt: 0, warnedAt: -100, volleyAt: 0, masksAt: 0, lbdAt: 0, attackReportAt: -100, windReportAt: -100,
     duckUntil: 0, trotUntil: 0, briskUntil: 0, shieldsUntil: 0,

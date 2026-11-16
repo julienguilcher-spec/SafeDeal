@@ -388,6 +388,37 @@ export class DroneFeedSystem implements GameSystem, DroneFeedApi {
       }
       const found = m >= 3 && densestSpot(this.xz, m, 12, v.x, v.z, this.spot, 70);
       if (found) {
+        // le barycentre d'un bloc de 36 m peut tomber entre deux groupes, sur une chaussée vide (au zoom ×4, le champ
+        // ne fait qu'une vingtaine de mètres : « personne » à l'image) : la visée est ramenée sur le groupe visible le
+        // plus proche de ce barycentre (barycentre des personnes à moins de 6 m de la plus proche). Le groupe déjà
+        // filmé est gardé tant qu'il reste dans le bloc (pas de bascule d'un groupe à l'autre toutes les secondes)
+        const keep = this.hasTarget && !this.snap && (this.rawX - this.spot.x) ** 2 + (this.rawZ - this.spot.z) ** 2 < 18 * 18;
+        const ax = keep ? this.rawX : this.spot.x;
+        const az = keep ? this.rawZ : this.spot.z;
+        let best = -1;
+        let bestD = Infinity;
+        for (let i = 0; i < m; i++) {
+          const d = (this.xz[i * 2]! - ax) ** 2 + (this.xz[i * 2 + 1]! - az) ** 2;
+          if (d < bestD) {
+            bestD = d;
+            best = i;
+          }
+        }
+        const qx = this.xz[best * 2]!;
+        const qz = this.xz[best * 2 + 1]!;
+        let sx = 0;
+        let sz = 0;
+        let k = 0;
+        for (let i = 0; i < m; i++) {
+          const x = this.xz[i * 2]!;
+          const z = this.xz[i * 2 + 1]!;
+          if ((x - qx) * (x - qx) + (z - qz) * (z - qz) > 36) continue;
+          sx += x;
+          sz += z;
+          k++;
+        }
+        this.spot.x = sx / k;
+        this.spot.z = sz / k;
         this.rawX = this.spot.x;
         this.rawZ = this.spot.z;
         if (!this.hasTarget || this.snap) {

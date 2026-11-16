@@ -264,7 +264,10 @@ export class InputSystem implements GameSystem {
     else this.stepIdle += dt > 0 ? dt : 0;
     this.stepped = false;
     const ctx = this.ctx;
-    const simRunning = ctx.session.phase === 'playing' && this.stepIdle < STEP_IDLE_LIMIT;
+    // Écran bloquant ouvert (roue d'ordres, carte tactique, radio) : ses touches sont pour lui. La vue « simulation »
+    // est recalée comme en pause, sinon un chiffre tapé pour choisir un secteur de la roue, lu par l'interface dans une
+    // image sans pas de simulation, serait encore vu par le jeu au pas suivant, roue refermée (l'objet en main changeait).
+    const simRunning = ctx.session.phase === 'playing' && this.stepIdle < STEP_IDLE_LIMIT && !ctx.ui.modal;
     this.core.beginFrame(simRunning);
     if (this.kbm) this.kbm.enforceLockPolicy();
     this.touch.update(dt, this.core.device);

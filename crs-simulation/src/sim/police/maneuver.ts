@@ -20,7 +20,7 @@ import type { FormGroup, Unit } from './brain';
 import { F_BOX, F_COLUMN, F_HOLD, F_LINE, F_NONE, F_SCREEN, F_TORTUE } from './brain';
 import type { Kernel } from './kernel';
 import {
-  allSettled, columnSpeed, commonRunSpeed, commonTrotSpeed, copyOrder, done, filesFor, formBox, formColumn, formHold, formLine, formScreen,
+  allSettled, columnSpeed, commonRunSpeed, commonTrotSpeed, copyOrder, done, filesFor, followRunSpeed, formBox, formColumn, formHold, formLine, formScreen,
   formTortue, formLate, gather, hasFormation, inPlace, isAligned, leaderOf, lineSpeed, mainGroup, moveTo, personById, react, reform,
   report, setPhase, setStep, staminaCap, stepColumn, stepFrame, stopGroup, underPressure, unitCenter, vehicleById,
 } from './mcore';
@@ -392,11 +392,27 @@ function followColumn(k: Kernel, u: Unit, g: FormGroup, dt: number): void {
   }
   appendPath(g, tp ? tp.x : tv!.x, tp ? tp.z : tv!.z);
   const goal = g.total - g.radius;
+  const behind = goal - g.s;
+  // allure de la cible : la colonne trotte quand elle trotte, court quand elle court (ou pour combler un retard)
+  const pace = tp ? Math.sqrt(tp.vx * tp.vx + tp.vz * tp.vz) : Math.abs(tv!.speed);
+  const trot = commonTrotSpeed(u, k.tuning.trot);
+  let cap = pace > trot * 0.9 || behind > T.FOLLOW_CATCH_UP ? followRunSpeed(u, Math.max(k.tuning.run, pace + 0.5)) : trot;
+  // à bout de souffle, l'unité ralentit — sans descendre sous l'allure de la cible, qui s'essouffle elle aussi
+  const breath = staminaCap(k, u);
+  const gain = behind > 6 ? 0.8 : 0.3;
+  if (cap > breath) cap = Math.max(breath, Math.min(cap, pace + gain));
+  // allure de ralliement des agents (reflex.ts : vcap) : le retardataire court pour recoller
+  g.speed = cap;
   let cohesion = 1 - (g.errAll - 0.6) / 1.6;
   if (cohesion > 1) cohesion = 1;
   else if (cohesion < 0.2) cohesion = 0.2;
-  let want = (goal - g.s) * 1.4;
-  const max = commonTrotSpeed(u, k.tuning.trot) * cohesion;
+  let want = behind * 1.4;
+  let max = cap * cohesion;
+  // un retardataire ne fait pas perdre la cible de vue : la tête garde au moins l'allure de la cible (un peu plus
+  // quand elle est distancée) et la colonne s'étire — elle tombait à 0,5 m/s et restait à 75 m du joueur qui marchait
+  let keep = pace + (behind > 6 ? gain : 0);
+  if (keep > cap) keep = cap;
+  if (max < keep) max = keep;
   if (want > max) want = max;
   if (want < 0) want = 0;
   const dv = (want > g.v ? T.FRAME_ACCEL : T.FRAME_DECEL * 2) * dt;

@@ -37,15 +37,39 @@ export function setPhase(k: Kernel, u: Unit, phase: UnitPhase): void {
       if (d > far) far = d;
     }
     u.formDeadline = k.now + T.FORM_TIMEOUT + Math.sqrt(far) / 1.6;
+    u.lateN = 0;
   }
   if (u.phase === phase) return;
   u.phase = phase;
   u.phaseT = k.now;
 }
 
-/** La mise en place a-t-elle assez duré pour être déclarée faite malgré un retardataire ? */
+/** Distance à son emplacement en deçà de laquelle un agent compte comme arrivé pour un compte rendu tardif (m). */
+const LATE_NEAR = 3;
+
+/**
+ * La mise en place a-t-elle assez duré pour être déclarée faite malgré un retardataire ? Seulement si le gros de
+ * l'unité (deux agents sur trois) est à son emplacement : sinon l'unité rend compte de son retard à la radio et
+ * poursuit sa mise en place (elle annonçait « en place » à 30 m de son poste, bloquée derrière des barrières).
+ */
 export function formLate(k: Kernel, u: Unit): boolean {
-  return k.now > u.formDeadline;
+  if (k.now <= u.formDeadline) return false;
+  let n = 0;
+  let near = 0;
+  const agents = u.agents;
+  for (let i = 0; i < agents.length; i++) {
+    const a = agents[i];
+    if (!a.able || !a.hasSlot || a.op !== null || a.p.isPlayer) continue;
+    n++;
+    const dx = a.sx - a.p.x;
+    const dz = a.sz - a.p.z;
+    if (dx * dx + dz * dz <= LATE_NEAR * LATE_NEAR) near++;
+  }
+  if (n === 0 || near * 3 >= n * 2) return true;
+  u.formDeadline = k.now + T.FORM_TIMEOUT;
+  // compte rendu au premier retard, puis toutes les quatre échéances (pas une rafale toutes les 25 s)
+  if (u.lateN++ % 4 === 0) report(k, u, 'Mise en place retardée : ' + (n - near) + ' agents encore loin de leur poste. Je poursuis', 1, false);
+  return false;
 }
 
 export function setStep(k: Kernel, u: Unit, step: number): void {
@@ -449,6 +473,14 @@ export function hasFormation(u: Unit): boolean {
 /** Vitesse commune que tout le premier rang peut tenir à l'allure de course (m/s). */
 export function commonRunSpeed(u: Unit, wanted: number): number {
   return commonSpeed(u, wanted, 2, 0.94);
+}
+
+/**
+ * Course d'une unité qui suit une cible (m/s) : jusqu'à la vitesse de course du plus lent, sans marge — la colonne
+ * s'étire plutôt que de laisser filer celui qu'elle suit.
+ */
+export function followRunSpeed(u: Unit, wanted: number): number {
+  return commonSpeed(u, wanted, 2, 1);
 }
 
 /**

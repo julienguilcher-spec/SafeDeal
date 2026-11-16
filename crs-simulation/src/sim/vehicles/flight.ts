@@ -345,9 +345,18 @@ export class FlightSystem {
       // tangente (sens horaire vu du ciel pour une vitesse positive) + rappel vers le cercle
       const dir = f.orbitSpeed >= 0 ? 1 : -1;
       const sp = Math.abs(f.orbitSpeed);
-      const corr = clampAbs((f.orbitR - d) * 0.4, sp * 0.6);
-      wantX = -rz * dir * sp + rx * corr;
-      wantZ = rx * dir * sp + rz * corr;
+      const far = d - f.orbitR;
+      if (far > 12) {
+        // loin du cercle : transit en ligne droite vers lui (une spirale à vitesse radiale bornée mettait des
+        // dizaines de secondes à rejoindre une orbite serrée), freinage à l'arrivée sur le cercle
+        const s = Math.min(vmax, Math.sqrt(2 * fs.accel * 0.6 * far));
+        wantX = -rx * s;
+        wantZ = -rz * s;
+      } else {
+        const corr = clampAbs((f.orbitR - d) * 0.4, sp * 0.6);
+        wantX = -rz * dir * sp + rx * corr;
+        wantZ = rx * dir * sp + rz * corr;
+      }
       wantVy = this.climbTo(world.heightAt(f.orbitCx, f.orbitCz) + f.targetAlt, v.y, fs);
       wantYaw = clampAbs(angleDiff(v.heading, Math.atan2(wantX, wantZ)) * 2, fs.yawRate * 2);
     }
@@ -521,6 +530,8 @@ export class FlightSystem {
     }
     this.emit(v, f, 'perdu');
     this.releasePlayer(ctx.people.get(f.pilotId));
+    // l'épave reste au sol, mais ce n'est plus l'appareil du télépilote : il peut en déployer un autre (relève)
+    if (f.pilotId !== 0 && this.droneOfPilot.get(f.pilotId) === v.id) this.droneOfPilot.delete(f.pilotId);
   }
 
   /** État de vol à jour (objet stable par appareil). null pour un véhicule terrestre. */

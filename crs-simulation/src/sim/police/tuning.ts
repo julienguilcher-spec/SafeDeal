@@ -194,6 +194,8 @@ export const ARREST_OUT_TIME = 30;
 export const ARREST_MAX_RANGE = 45;
 /** Portée de saisie (m) : en deçà de la portée du module de droit (2 m). */
 export const ARREST_REACH = 1.5;
+/** Suivi d'une cible : retard (m) au-delà duquel la colonne passe à la course pour la rattraper. */
+export const FOLLOW_CATCH_UP = 15;
 /** Hostiles autour de la cible au-delà desquels le binôme ne sort pas d'initiative. */
 export const ARREST_CROWD_LIMIT = 4;
 /** Secours : distance derrière le premier rang où l'on dépose un blessé (m). */

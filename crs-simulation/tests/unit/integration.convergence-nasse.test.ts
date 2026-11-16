@@ -17,7 +17,7 @@ import { createSystems as vehicles } from '@/sim/vehicles';
 import { createSystems as crowd, CROWD_CORE, CROWD_EVACUATIONS, CROWD_FLAG, CROWD_MANIFS, CROWD_STATE } from '@/sim/crowd';
 import type { CrowdCoreApi, EvacuationsApi, ManifsApi, ManifView } from '@/sim/crowd';
 import { createSystems as police } from '@/sim/police';
-import { ENCIRCLE_CLOSE_ALL, POLICE_UNITS_SERVICE } from '@/sim/police/api';
+import { ENCIRCLE_CLOSE_ALL, IN_PLACE_EVENT, POLICE_UNITS_SERVICE } from '@/sim/police/api';
 import type { PoliceUnitsApi } from '@/sim/police/api';
 import { createSystems as items } from '@/sim/items';
 import { createSystems as props } from '@/sim/props';
@@ -120,7 +120,16 @@ describe('cortèges détournés, convergence, nasse et évacuation filtrée', ()
     expect(door).not.toBeNull();
     const ox = door!.x - S.x, oz = door!.z - S.z, ol = Math.hypot(ox, oz);
     const out = roadNear(door!.x + (ox / ol) * 40, door!.z + (oz / ol) * 40);
-    const filtre = units.createSection({ x: out.x, z: out.z, heading: Math.atan2(S.x - out.x, S.z - out.z), callsign: 'FILTRE' }).squad;
+    const filtreUnit = units.createSection({ x: out.x, z: out.z, heading: Math.atan2(S.x - out.x, S.z - out.z), callsign: 'FILTRE' });
+    const filtre = filtreUnit.squad;
+    // quand l'unité rend compte « en place », elle y est vraiment : le gros de ses agents à pied est à la porte
+    const walkers = filtreUnit.people.filter((p) => p.poste !== 'conducteur');
+    let atDoorWhenPlaced = -1;
+    ctx.events.onAny(IN_PLACE_EVENT, (e) => {
+      const d = e as { squadId: number };
+      if (d.squadId !== filtre.id || atDoorWhenPlaced >= 0) return;
+      atDoorWhenPlaced = walkers.filter((p) => Math.hypot(p.x - door!.x, p.z - door!.z) < 8).length;
+    });
     ctx.squads.issue(filtre.id, { type: 'filtrer', x: door!.x, z: door!.z, heading: Math.atan2(S.x - door!.x, S.z - door!.z), width: 0, issuedBy: me.id });
     const evac = ctx.require<EvacuationsApi>(CROWD_EVACUATIONS);
     t.step(2);
@@ -134,9 +143,12 @@ describe('cortèges détournés, convergence, nasse et évacuation filtrée', ()
     console.log(`[évacuation] sorties ${ev.out}, interpellations ${ev.arrested}, encore dans la nasse ${inside1} (sur ${inside0.length}) ; actif : ${ev.active}`);
     console.log('[évacuation] radio :', reports.map((m) => m.text).join(' | '));
     console.log('[évacuation] auteurs :', culprits.map((p) => p.custody).join(', '));
+    console.log(`[évacuation] FILTRE en place avec ${atDoorWhenPlaced} agents sur ${walkers.length} à moins de 8 m de la porte`);
+    expect(atDoorWhenPlaced).toBeGreaterThanOrEqual(Math.ceil(walkers.length * 0.6));
     expect(ev.out).toBeGreaterThan(inside0.length * 0.5);
-    expect(ev.arrested).toBeGreaterThanOrEqual(1);
-    expect(culprits.some((p) => p.custody !== 'free')).toBe(true);
+    // tous les auteurs de faits établis sont interpellés (à la porte, ou s'ils se sont soustraits à la nasse)
+    expect(ev.arrested).toBeGreaterThanOrEqual(culprits.length);
+    expect(culprits.every((p) => p.custody !== 'free')).toBe(true);
     expect(reports.some((m) => /Évacuation|évacuation/.test(m.text) && /sorties/.test(m.text))).toBe(true);
     expect(dead).toBe(0);
     const crushed = ctx.people.list.filter((p) => p.faction === 'protest' && (p.injury === 'critical' || p.injury === 'dead')).length;
