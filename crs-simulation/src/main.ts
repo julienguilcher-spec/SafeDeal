@@ -42,6 +42,7 @@ import { createSystems as medics } from '@/sim/roles/medics';        // médecin
 import { createSystems as session, installLoadingGate } from '@/gameplay/session'; // mise en place de la session
 import { createSystems as missions, missionById, missionConfig } from '@/gameplay/missions'; // cadre de mission
 import { createSystems as career } from '@/gameplay/career';         // carrière : grades, chapitres, sanctions
+import { createSystems as history } from '@/gameplay/history';       // historique des parties jouées
 import { createSystems as renderBase } from '@/render/base';         // renderer, ciel, caméra (fournit ctx.view)
 import { createSystems as worldView } from '@/world/view';           // maillages de la ville
 import { createSystems as monuments } from '@/world/monuments';      // monuments
@@ -180,7 +181,7 @@ const MODULES: ModuleFactory[] = [
   // (la circulation après les véhicules : elle attend leur pilote automatique)
   // (la police après la foule : à ordre égal, les manifestants décident avant les unités qui leur répondent)
   input, env, worldQuery, simRoles, simPeople, simVehicles, simTraffic, simCrowd, simPolice, simItems, simProps, simHazards,
-  law, radio, incidents, rescue, medics, session, missions, career,
+  law, radio, incidents, rescue, medics, session, missions, career, history,
   // présentation — le rendu de base d'abord
   renderBase, worldView, map2dAdapter, monuments, monumentsClearAir, renderPeople, renderVehicles, renderProps, renderFx, ui, audio,
 ];
