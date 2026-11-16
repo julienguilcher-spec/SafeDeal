@@ -24,6 +24,31 @@
 - Manette : branchez-la (ou appairez-la en Bluetooth) avant de lancer le jeu.
 - Tout fonctionne hors connexion : la carte de Paris est incluse.
 
+## Jouer au clavier, sans souris (clavier français)
+
+| Pour… | Touche |
+| --- | --- |
+| Avancer / reculer | **Z** ou **↑** / **S** ou **↓** (tenir « avancer » : petite foulée puis course) |
+| Aller à gauche / à droite | **Q** / **D** |
+| Tourner la tête | **←** / **→** (ou le trackpad) ; au volant, **←** / **→** dirigent le véhicule |
+| Agir (monter à bord, interpeller, se ravitailler…) | **E** |
+| Utiliser l'objet en main / viser | clic du trackpad / clic à deux doigts |
+| Choisir un objet | **1** à **9** |
+| Carte tactique (toutes les unités, ordres) | **Tab** |
+| Radio (secours, renforts, demande de ravitaillement) | **T** |
+| Ordres à son unité | **F** |
+| Accepter la proposition de l'adjoint | **P** (**Maj + P** : plus tard) |
+| Retour vidéo du drone | **O** |
+| Sirène deux tons / gyrophares | **R** / **B** |
+| Pause | **Échap** |
+
+**Se ravitailler.** Quand il vous manque des grenades ou des munitions, une indication apparaît avec un repère sur
+le fourgon le plus proche qui en a encore : allez à l'**arrière du fourgon**, appuyez sur **E** et restez sur place quatre secondes. Si la
+réserve des fourgons est vide, la même touche (ou le menu Radio, **T**) envoie une « Demande de ravitaillement » :
+la logistique complète les fourgons de la compagnie — et la soute du Centaure — quelques minutes plus tard.
+Centaure : tubes vides, arrêtez l'engin, l'équipage recharge. Canon à eau : arrêtez-vous à moins de 45 m d'une
+bouche d'incendie (repère), le plein se fait.
+
 ## Vos parties sont conservées
 
 Carrière, historique des parties, scénarios et paramètres sont enregistrés automatiquement et retrouvés à chaque
