@@ -283,8 +283,9 @@ export class RadioAmbient {
 
   private pickTopic(facts: WorldFacts): string {
     const director = this.ctx.director;
-    let topics = ambientTopics(director.phase, director.tension).filter((t) => topicAllowed(t.key, facts));
-    if (topics.length === 0) topics = [...ALWAYS_TRUE];
+    const topics = ambientTopics(director.phase, director.tension).filter((t) => topicAllowed(t.key, facts));
+    // presque rien à dire de vrai : il reste toujours l'heure et la météo, pour ne pas ressasser un seul thème
+    if (topics.length < 2) for (const t of ALWAYS_TRUE) if (!topics.some((o) => o.key === t.key)) topics.push(t);
     // le thème qui vient de passer est rendu peu probable : la radio change de sujet
     const weights = topics.map((t) => (t.key === this.lastTopic ? t.weight * 0.2 : t.weight));
     const i = weightedIndex(this.rng, weights);
@@ -292,8 +293,8 @@ export class RadioAmbient {
   }
 
   /**
-   * Unité qui parle. Pour un thème de tension, c'est l'unité la plus exposée (tension locale la plus forte) : une
-   * section au repos à l'arrière n'annonce pas des affrontements. Sinon, une unité au hasard.
+   * Unité qui parle. Pour un thème de tension, c'est l'une des unités les plus exposées (tension locale la plus
+   * forte) : une section au repos à l'arrière n'annonce pas des affrontements. Sinon, une unité au hasard.
    */
   private pickSquad(key: string): Squad | null {
     const list = this.speakers;
@@ -301,18 +302,18 @@ export class RadioAmbient {
     if (key !== 'ambiance_tension' && key !== 'ambiance_affrontement' && key !== 'ambiance_vigilance') {
       return list[this.rng.int(0, list.length)]!;
     }
-    let best: Squad | null = null;
-    let bestTension = -1;
+    let hottest = -1;
+    const tensions: number[] = [];
     for (let i = 0; i < list.length; i++) {
-      const s = list[i]!;
-      const leader = this.ctx.people.get(s.leaderId);
+      const leader = this.ctx.people.get(list[i]!.leaderId);
       const t = leader ? this.ctx.director.tensionAt(leader.x, leader.z) : 0;
-      if (t > bestTension) {
-        bestTension = t;
-        best = s;
-      }
+      tensions.push(t);
+      if (t > hottest) hottest = t;
     }
-    return best;
+    // à tension égale (à un dixième près), n'importe laquelle des unités exposées peut parler
+    const exposed: Squad[] = [];
+    for (let i = 0; i < list.length; i++) if (tensions[i]! >= hottest - 0.1) exposed.push(list[i]!);
+    return exposed[this.rng.int(0, exposed.length)]!;
   }
 
   /** Agents de l'unité encore en état de tenir. */

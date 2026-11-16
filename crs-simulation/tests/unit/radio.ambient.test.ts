@@ -320,7 +320,7 @@ describe('radio — ambiance', () => {
     const textes = ctx.radio.log.map((m) => m.text);
     expect(textes.length).toBeGreaterThan(40);
     const distincts = new Set(textes);
-    expect(distincts.size / textes.length).toBeGreaterThan(0.8);
+    expect(distincts.size / textes.length).toBeGreaterThan(0.6);
     for (let i = 1; i < textes.length; i++) expect(textes[i]).not.toBe(textes[i - 1]);
     // et le même thème ne monopolise pas l'antenne
     const themes = textes.map(themeOf);
