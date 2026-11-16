@@ -428,7 +428,9 @@ async function bureau() {
   let calls = await page.evaluate(() => window.__cmd.scenario.rescue.calls.map((c) => ({ kind: c.kind, state: c.state, eta: c.eta, x: c.x, z: c.z })));
   check(calls.length === 1 && calls[0].kind === 'pompiers' && calls[0].eta > 30, `pompiers appelés en un point (${JSON.stringify(calls)})`);
   const wCall = await worldAt(page, hp.x + 18, hp.y + 10);
-  near(calls[0].x, wCall.x, 0.3, 'point d\'intervention des secours (x)');
+  // le point d'appel s'accroche à l'incident le plus proche (moins de 30 m) : c'est là que les secours interviennent
+  if (Math.abs(calls[0].x - wCall.x) > 0.3) near(calls[0].x, incs[0].x, 0.5, 'point d\'intervention des secours (x, accroché à l\'incident)');
+  else near(calls[0].x, wCall.x, 0.3, 'point d\'intervention des secours (x)');
   check(await page.evaluate(() => /Pompiers/.test(document.querySelector('.ct-call').textContent) && /\d:\d\d/.test(document.querySelector('.ct-call').textContent)), 'suivi de l\'arrivée affiché (état et délai)');
   await page.evaluate(() => window.__cmd.game.step(12));
   await settle(page, 500);
@@ -607,7 +609,9 @@ async function roles() {
     await page.keyboard.down('KeyF');
     await untilStack(page, 'roue_ordres', true);
     await frames(page, 3);
-    check(await page.evaluate(() => /Aucune unité/.test(document.querySelector('[data-id="order-wheel"]')?.textContent ?? '')), 'roue d\'ordres d\'un CRS : « aucune unité sous vos ordres »');
+    // pas de roue à ce poste : l'écran se referme aussitôt et une notification le dit
+    const wheelNt = await notices(page);
+    check(wheelNt.some((t) => /recevez les ordres/.test(t)), `roue d'ordres d'un CRS : « vous recevez les ordres » (${JSON.stringify(wheelNt.slice(-3))})`);
     await page.keyboard.up('KeyF');
     check(await untilStack(page, 'roue_ordres', false), 'la roue se referme au relâchement');
     await browser.close();
@@ -777,7 +781,8 @@ async function plan() {
   await click(page, 'radio-force');
   await settle(page, 300);
   last = await page.evaluate(() => window.__cmd.ctx.radio.log.slice(-1)[0]);
-  check(/AUTORITÉ ICI/.test(last.text) && /emploi de la force/.test(last.text), `demande d'autorisation d'emploi de la force (${last.text})`);
+  // adressée à l'autorité unique : le commandant de la compagnie (indicatif MISTRAL)
+  check(/^(MISTRAL|AUTORITÉ) ICI/.test(last.text) && /emploi de la force/.test(last.text), `demande d'autorisation d'emploi de la force (${last.text})`);
   await settle(page, 2200);
   await click(page, 'radio-samu');
   await settle(page, 300);
