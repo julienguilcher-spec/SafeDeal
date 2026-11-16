@@ -5,7 +5,8 @@
  * dossiers : groupe de 6, section de 16, demi-compagnie de 32, compagnie de 70 à pied, escadron de 72,
  * unité de BRAV-M de 18 motos) et répartition des postes d'une section :
  *   groupe A, appui        : chef de groupe (superviseur), 3 boucliers, 1 lanceur de grenades, 1 extincteur ;
- *   groupe B, intervention : chef de groupe (superviseur), 2 boucliers, 1 LBD, 2 interpellateurs ;
+ *   groupe B, intervention : chef de groupe (superviseur), 3 boucliers, 1 LBD, 1 interpellateur
+ *                            (une ligne de CRS est d'abord une ligne de boucliers : 6 boucliers pour 10 agents) ;
  *   groupe C, commandement : chef de section, radio, secouriste-vidéo, lanceur de réserve.
  * La répartition réelle des postes n'est pas publiée : c'est une construction de jeu (estimé).
  * ===================================================================================== */
@@ -51,9 +52,9 @@ function groupeAppui(out: UnitSlot[], s: number, drivers: boolean): void {
 
 function groupeIntervention(out: UnitSlot[], s: number, drivers: boolean): void {
   add(out, 'crs', 'chef_groupe', 'brigadier_chef', s, 'B', 'Chef de groupe (superviseur)', 'groupe');
-  repeat(out, 2, 'crs', 'bouclier', s, 'B', 'Porteur de bouclier');
+  repeat(out, 3, 'crs', 'bouclier', s, 'B', 'Porteur de bouclier');
   repeat(out, 1, 'crs', 'lbd', s, 'B', 'Porteur de LBD');
-  repeat(out, 2, 'crs', 'interpellation', s, 'B', 'Interpellateur');
+  repeat(out, 1, 'crs', 'interpellation', s, 'B', 'Interpellateur');
   if (drivers) driver(out, 'crs', s, 'B');
 }
 

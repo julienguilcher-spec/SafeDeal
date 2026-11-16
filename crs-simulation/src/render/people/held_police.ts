@@ -15,16 +15,19 @@ export function registerPoliceModels(): void {
     // repère local : y = vertical (pouce), z = face avant du bouclier, x = le long de l'avant-bras
     b.push().frame(0, 1, 0, 0, 0, 1, 1, 0, 0).translate(0.10, -0.08, 0);
     const R = 0.95, a = 0.305, oz = 0.07 - R;
-    b.fixed(0xbfd3df, 0.26);
+    // polycarbonate fumé : assez lisible à distance pour qu'une ligne de boucliers se voie (il était presque invisible)
+    b.fixed(0x9db3c2, 0.5);
     b.arc([[-0.50, R, R, oz], [0.0, R, R, oz], [0.50, R, R, oz]], 6, Math.PI / 2 + a, Math.PI / 2 - a);
     // bandeau de marquage (POLICE, CRS, GENDARMERIE)
     b.fixed(0x16233f, 0.82).text(TEXT_BACK);
     b.arc([[0.24, R + 0.002, R + 0.002, oz], [0.37, R + 0.002, R + 0.002, oz]], 6, Math.PI / 2 + a * 0.93, Math.PI / 2 - a * 0.93);
     b.text(0);
-    // chants renforcés
-    b.fixed(0x9fb2bd, 0.6);
-    b.arc([[0.487, R + 0.001, R + 0.001, oz], [0.50, R + 0.001, R + 0.001, oz]], 6, Math.PI / 2 + a, Math.PI / 2 - a);
-    b.arc([[-0.50, R + 0.001, R + 0.001, oz], [-0.487, R + 0.001, R + 0.001, oz]], 6, Math.PI / 2 + a, Math.PI / 2 - a);
+    // chants en caoutchouc noir sur les quatre côtés
+    b.fixed(0x16181c, 0.95);
+    b.arc([[0.47, R + 0.002, R + 0.002, oz], [0.50, R + 0.002, R + 0.002, oz]], 6, Math.PI / 2 + a, Math.PI / 2 - a);
+    b.arc([[-0.50, R + 0.002, R + 0.002, oz], [-0.47, R + 0.002, R + 0.002, oz]], 6, Math.PI / 2 + a, Math.PI / 2 - a);
+    b.arc([[-0.50, R + 0.002, R + 0.002, oz], [0.50, R + 0.002, R + 0.002, oz]], 1, Math.PI / 2 + a, Math.PI / 2 + a - 0.03);
+    b.arc([[-0.50, R + 0.002, R + 0.002, oz], [0.50, R + 0.002, R + 0.002, oz]], 1, Math.PI / 2 - a + 0.03, Math.PI / 2 - a);
     b.pop();
     // poignée et sangle d'avant-bras (opaques)
     b.fixed(BLACK, 1);

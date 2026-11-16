@@ -235,7 +235,7 @@ describe('unités de police', () => {
     // A : chef de groupe, 3 boucliers, 1 lanceur, 1 extincteur
     expect([count(a, 'chef_groupe'), count(a, 'bouclier'), count(a, 'lanceur'), count(a, 'extincteur')]).toEqual([1, 3, 1, 1]);
     // B : chef de groupe, 2 boucliers, 1 LBD, 2 interpellateurs
-    expect([count(b, 'chef_groupe'), count(b, 'bouclier'), count(b, 'lbd'), count(b, 'interpellation')]).toEqual([1, 2, 1, 2]);
+    expect([count(b, 'chef_groupe'), count(b, 'bouclier'), count(b, 'lbd'), count(b, 'interpellation')]).toEqual([1, 3, 1, 1]);
     // C : chef de section, radio, secouriste-vidéo, lanceur de réserve
     expect([count(c, 'chef_section'), count(c, 'operateur'), count(c, 'lanceur')]).toEqual([1, 2, 1]);
     expect(c.map((s) => s.variant).filter(Boolean).sort()).toEqual(['radio', 'secouriste']);
@@ -272,7 +272,7 @@ describe('unités de police', () => {
     expect(count(compagnie, 'commandant_unite')).toBe(1);
     expect(compagnie[0]!.rank).toBe('commandant');
     expect(new Set(compagnie.map((s) => s.section))).toEqual(new Set([0, 1, 2, 3, 4]));
-    expect(count(compagnie, 'bouclier')).toBe(20);
+    expect(count(compagnie, 'bouclier')).toBe(24);
     expect(count(compagnie, 'lbd')).toBe(4);
     expect(helper.policeUnit('compagnie', { drivers: true }).length).toBe(83);
     expect(count(helper.policeUnit('compagnie', { authority: false }), 'commandant_unite')).toBe(0);
@@ -301,7 +301,7 @@ describe('unités de police', () => {
     expect(people.length).toBe(70);
     expect(people.filter((p) => p.look.sash).length).toBe(1);
     expect(people.filter((p) => p.look.sash)[0]!.poste).toBe('commandant_unite');
-    expect(people.filter((p) => countOf(p, 'bouclier') > 0).length).toBe(20);
+    expect(people.filter((p) => countOf(p, 'bouclier') > 0).length).toBe(24);
     expect(people.filter((p) => countOf(p, 'megaphone') > 0).length).toBe(2);
     expect(new Set(people.map((p) => p.rio)).size).toBe(70);
     // secours : sans poste ni grade

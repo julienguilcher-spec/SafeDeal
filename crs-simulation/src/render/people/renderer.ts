@@ -8,7 +8,7 @@ import { BONE_CHEST, BONE_COUNT, BONE_HAND_L, BONE_HAND_R, BONE_HEAD, BONE_STRID
 import { hash32, srgbToLinear } from './mathx';
 import { PeopleAnimator, createAnimSample, sampleFromPerson, type AnimSample } from './animator';
 import { FpRig } from './fp';
-import { HOLD_NONE, U_CARRIED, U_DRAGGED, U_NONE, U_RIDE } from './poseparams';
+import { HOLD_NONE, HOLD_SHIELD, U_CARRIED, U_DRAGGED, U_NONE, U_RIDE } from './poseparams';
 import { Placement } from './placement';
 import { QUALITY } from './quality';
 import { LOOK_W, lookSignature, resolveLook } from './look';
@@ -297,6 +297,20 @@ export class PeopleRenderer {
     return m;
   }
 
+  /**
+   * Seconde main : un porteur de bouclier (main gauche) tient aussi son tonfa ou son bâton dans la main droite,
+   * comme sur une ligne de CRS ; null sinon.
+   */
+  private offhandFor(p: Person, m: HeldModel | null): HeldModel | null {
+    if (!m || m.hold !== HOLD_SHIELD) return null;
+    const inv = p.inventory;
+    for (let i = 0; i < inv.length; i++) {
+      const id = inv[i].id;
+      if (id === 'tonfa' || id === 'baton') return findHeldModel(id) ?? null;
+    }
+    return null;
+  }
+
   private refreshItem(slot: number, p: Person, m: HeldModel | null): void {
     this.modelOf[slot] = m ? m.id : 0;
     this.modelById[m ? m.id : 0] = m ?? undefined;
@@ -335,7 +349,7 @@ export class PeopleRenderer {
   private writeLook(slot: number, p: Person, state: number): void {
     const look = p.look;
     const m = this.modelById[this.modelOf[slot]];
-    const fistR = !!m && (m.bone === BONE_HAND_R || m.twoHanded);
+    const fistR = !!m && (m.bone === BONE_HAND_R || m.twoHanded || this.offhandFor(p, m) !== null);
     const fistL = !!m && (m.bone === BONE_HAND_L || m.twoHanded);
     const info = resolveLook(look, this.animator.variantOf(slot), fistL, fistR, p.wet, p.burning, this.atlas.cellOf, this.lookData, slot * LOOK_STRIDE, (state & 64) !== 0);
     this.visorOf[slot] = info.visor;
@@ -547,6 +561,10 @@ export class PeopleRenderer {
       // objet tenu et visière
       if (model && (lod < 2 || model.big)) {
         this.pushItem(items[model.family], slot, mid, this.itemCell[slot], this.itemCol[slot * 3], this.itemCol[slot * 3 + 1], this.itemCol[slot * 3 + 2]);
+      }
+      if (model && lod < 2) {
+        const off = this.offhandFor(p, model);
+        if (off) this.pushItem(items[off.family], slot, off.id, 0, 1, 1, 1);
       }
       if (lod < 2) {
         const vz = this.visorOf[slot];

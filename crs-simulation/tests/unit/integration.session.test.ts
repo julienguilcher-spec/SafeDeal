@@ -192,7 +192,7 @@ describe('intégration : mise en place de session', () => {
       { role: 'commissaire', kind: 'crs', poste: 'commandant_unite', faction: 'police', vehicles: 4, squad: 2 },
       { role: 'bravm', kind: 'bravm', poste: 'passager_moto', faction: 'police', vehicles: 3, squad: 6 },
       { role: 'gendarme_centaure', kind: 'gendarme', poste: 'conducteur', faction: 'police', vehicles: 1, squad: 3 },
-      { role: 'operateur_canon_eau', kind: 'crs', poste: 'operateur', faction: 'police', vehicles: 1, squad: 3 },
+      { role: 'operateur_canon_eau', kind: 'crs', poste: 'conducteur', faction: 'police', vehicles: 1, squad: 3 },
       { role: 'telepilote', kind: 'telepilote', poste: 'telepilote', faction: 'police', vehicles: 1, squad: 2 },
       { role: 'street_medic', kind: 'street_medic', poste: null, faction: 'medic', vehicles: 0, squad: 3 },
       { role: 'secouriste', extra: { variante: 'pompier' }, kind: 'pompier', poste: null, faction: 'rescue', vehicles: 1, squad: 6 },
