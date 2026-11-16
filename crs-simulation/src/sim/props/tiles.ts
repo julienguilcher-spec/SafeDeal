@@ -15,7 +15,7 @@
  *     (déplacé, cassé, brûlé, pillé, enlevé) est mémorisé et retrouvé au rechargement.
  * ===================================================================================== */
 
-import type { MapFurnitureInfo, MapShopInfo, PropKind, PropState, Rng, Vec2, WindowState } from '@/core/contracts';
+import type { MapFurnitureInfo, MapShopInfo, PropKind, PropState, Rng, RoadSample, Vec2, WindowState } from '@/core/contracts';
 import { distSqPointObb } from '@/core/math';
 import { mapFurnitureKind, propDef } from './defs';
 import type { Mod } from './mod';
@@ -32,6 +32,9 @@ const SHOP_BLOCK = 48;
 const SITE_SERIAL = 900_000_000;
 /** Nombre maximal d'objets d'ambiance par tuile. */
 const MAX_EXTRAS = 320;
+/** Distance maximale (m) à laquelle un objet de la carte tombé sur la chaussée est replacé sur un sol piéton. */
+const RELOCATE_DEFAULT = 3;
+const RELOCATE_REACH: Partial<Record<PropKind, number>> = { candelabre: 4.5, station_velo: 6, abribus: 4.5, potelet: 2.5 };
 
 interface PropSnap {
   x: number; z: number; heading: number; halfX: number; halfZ: number; height: number;
@@ -75,6 +78,10 @@ export class Tiles {
   private readonly queue: TileRec[] = [];
   private readonly spot: Vec2 = { x: 0, z: 0 };
   private readonly buf: PropObj[] = [];
+  /** Emplacement retenu par offCarriageway(), voies les plus proches (réutilisés). */
+  private readonly off = { x: 0, z: 0 };
+  private readonly roadAt = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '', oneway: false } as unknown as RoadSample;
+  private readonly roadAt2 = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '', oneway: false } as unknown as RoadSample;
   /** Tuile en cours de déchargement : ses retraits ne sont pas des enlèvements volontaires. */
   private unloading: TileRec | null = null;
   private readonly rand = (): number => this.randRng.next();
@@ -329,7 +336,10 @@ export class Tiles {
   private addFurniture(rec: TileRec, info: MapFurnitureInfo, job: Job, density: number): void {
     const kind = mapFurnitureKind(info.kind);
     if (kind === '') return;
-    const p = this.spawn(rec, kind, info.x, info.z, info.heading, info.index);
+    // la carte pose parfois un objet sur la chaussée du jeu (plus large que la vraie) : replacé sur le trottoir
+    // le plus proche, ou pas posé du tout s'il n'y a pas de place (jamais de lampadaire au milieu de la voie)
+    if (!this.offCarriageway(kind, info.x, info.z)) return;
+    const p = this.spawn(rec, kind, this.off.x, this.off.z, info.heading, info.index);
     if (!(density > 0)) return;
     const rng = job.rng;
     const c = Math.cos(p.heading);
@@ -355,6 +365,53 @@ export class Tiles {
       this.extra(rec, job, 'chaise', p.x + c * 0.62, p.z - s * 0.62, p.heading - Math.PI * 0.5, base);
       this.extra(rec, job, 'chaise', p.x - c * 0.62, p.z + s * 0.62, p.heading + Math.PI * 0.5, base + 1);
     }
+  }
+
+  /**
+   * Emplacement d'un objet de la carte hors de l'emprise des voies, écrit dans this.off : le point lui-même s'il n'est
+   * pas dans la chaussée d'une voie (axe et largeur du réseau) ; sinon le bord de cette voie, du côté où il se trouve
+   * (on garde l'alignement de la rue), à défaut le sol libre le plus proche hors de toute voie. false : aucune place
+   * à moins de `reach` mètres — l'objet n'est pas posé. Une place sans voie (statue, candélabres de la Concorde)
+   * garde son mobilier là où la carte le met.
+   */
+  private offCarriageway(kind: PropKind, x: number, z: number): boolean {
+    const world = this.m.k.ctx.world;
+    const spot = this.off;
+    spot.x = x;
+    spot.z = z;
+    const s = world.surfaceAt(x, z);
+    if (s !== 'road' && s !== 'sett' && s !== 'bridge') return true;
+    const road = this.roadAt;
+    if (!world.nearestRoad(x, z, road, 40)) return true;
+    const edge = road.width * 0.5;
+    if (road.dist >= edge + 0.25) return true;
+    const reach = RELOCATE_REACH[kind] ?? RELOCATE_DEFAULT;
+    let nx = x - road.x, nz = z - road.z;
+    const d = Math.hypot(nx, nz);
+    if (d < 0.05) { nx = Math.cos(road.heading); nz = -Math.sin(road.heading); } else { nx /= d; nz /= d; }
+    const ax = road.x, az = road.z;
+    for (let extra = 0.5; extra <= reach; extra += 0.5) {
+      const px = ax + nx * (edge + extra), pz = az + nz * (edge + extra);
+      if (this.clearSpot(px, pz)) { spot.x = px; spot.z = pz; return true; }
+    }
+    for (let r = 0.5; r <= reach; r += 0.5) {
+      for (let k = 0; k < 16; k++) {
+        const a = (k / 16) * Math.PI * 2;
+        const px = x + Math.sin(a) * r, pz = z + Math.cos(a) * r;
+        if (this.clearSpot(px, pz)) { spot.x = px; spot.z = pz; return true; }
+      }
+    }
+    return false;
+  }
+
+  /** Point hors de la chaussée de toute voie, sur un sol où l'on peut poser un objet, libre de tout mur. */
+  private clearSpot(x: number, z: number): boolean {
+    const world = this.m.k.ctx.world;
+    const s = world.surfaceAt(x, z);
+    if (s === 'water' || s === 'building' || s === 'interior' || s === 'void') return false;
+    const road = this.roadAt2;
+    if (world.nearestRoad(x, z, road, 40) && road.dist < road.width * 0.5 + 0.25) return false;
+    return world.isFree(x, z, 0.3);
   }
 
   /** Y a-t-il déjà un objet de ce type à moins de `r` du point ? */

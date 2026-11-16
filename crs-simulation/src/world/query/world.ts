@@ -27,6 +27,7 @@ import { BucketBuilder } from './obstacles';
 import { CODE_GRAVEL, CODE_PARK, CODE_VOID, GRID_SIZE, surfaceOfCode } from './raster';
 import type { TileGrid } from './raster';
 import { ROAD_ANY, ROAD_DRIVABLE } from './roads';
+import { clearQuayWalls, clearTrees } from './quaywalls';
 import { DEFAULT_BASE_URL, FetchMapSource, createTestDistrictSource, testDistrictRaw } from './sources';
 import { findSpawnPoint } from './spawn';
 import { buildTileGrid, patchNeighbourGrid } from './surfaces';
@@ -320,10 +321,19 @@ export class WorldQueryImpl implements WorldQueryExt, TileHost {
     }
   }
 
+  /** Tuiles dont les murs de quai ont déjà été ramenés hors des chaussées. */
+  private readonly quaysCleared = new WeakSet<object>();
+
   tileDecoded(entry: TileEntry): void {
     const tile = entry.tile;
     if (tile === null) return;
     const t0 = now();
+    // barrières et arbres ramenés hors des chaussées (une seule fois par tuile décodée ; le rendu lit les mêmes données)
+    if (!this.quaysCleared.has(tile)) {
+      this.quaysCleared.add(tile);
+      clearQuayWalls(tile.barriers, this.base.roads, tile.surfaces);
+      clearTrees(tile.trees, this.base.roads);
+    }
     const replaced = this.base.landmarkSet.replaced;
     const builder = new BucketBuilder(this.base.roads, tileBounds(entry.tx, entry.tz));
     for (const b of tile.buildings) {
