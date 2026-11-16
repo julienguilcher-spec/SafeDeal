@@ -7,8 +7,12 @@
  * annonce par radio. Il conduit, descend, éteint à la lance ou à l'extincteur, soigne, porte, charge
  * dans l'ambulance : ce sont les mêmes objets et les mêmes gestes que les PNJ.
  *
- * Ses équipiers PNJ le suivent : ils montent quand il prend le volant, descendent avec lui, et sur
- * les lieux travaillent comme n'importe quel équipage (lance, secours à victime, soins). Le joueur
+ * Il n'est pas le conducteur de l'engin : à l'appel, l'équipage embarque, le conducteur (IA) attend le joueur à sa
+ * portière (deux minutes au plus, rappels), puis conduit deux tons jusqu'aux lieux, s'arrête à distance de travail
+ * (ou de sécurité si la zone n'est pas sûre), tout le monde descend ; l'intervention finie, l'engin rentre au centre
+ * de secours (player-ride.ts). Le joueur peut aussi prendre le volant : il conduit, l'équipage monte avec lui.
+ * Tout près, on y va à pied. Ses équipiers PNJ travaillent sur les lieux comme n'importe quel équipage (lance,
+ * secours à victime, soins). La radio est celle du réseau des secours (radio.ts : « FOURGON SÉVIGNÉ de PARIS… »). Le joueur
  * décide seul d'entrer ou non dans une zone dangereuse : l'évaluation de sécurité lui est donnée en
  * conseil (waitingReason), et un équipier blessé faute de protection pèse sur la note.
  * L'intervention est notée à la fin (points du dossier 06 §10.4) dans « rescue.records ».
@@ -21,11 +25,14 @@ import { Crew, ROLE_AID, ROLE_CHIEF, ROLE_DOCTOR, ROLE_DRIVER, ROLE_HOSE, ROLE_N
 import type { CallRec, RescueKernel } from './crew';
 import type { FireWork } from './crew-fire';
 import type { MedicalWork } from './crew-medical';
+import type { CrewDriver } from './crew-drive';
 import type { CrewTasks } from './crew-tasks';
 import type { Dispatcher } from './dispatch';
 import { holdFacing } from './nav';
+import { PlayerRide } from './player-ride';
 import type { RescueRadio } from './radio';
 import type { Spawner } from './spawn';
+import { injuryRank } from './care';
 import { WORK_RADIUS } from './tuning';
 
 const ON_SCENE = 30;
@@ -41,12 +48,20 @@ export class PlayerCrew {
   private advisedAt = -1e9;
   private quietSince = -1;
   private readonly nearVehicles: Vehicle[] = [];
+  /** Foyers éteints déjà annoncés, bilan du SAMU déjà passé (intervention en cours). */
+  private firesSaid = 0;
+  private bilanSaid = false;
   dispatcher!: Dispatcher;
+  /** Trajet de l'engin conduit par son conducteur (IA). */
+  readonly ride: PlayerRide;
 
   constructor(
     private readonly k: RescueKernel, private readonly spawner: Spawner, private readonly tasks: CrewTasks,
     private readonly fire: FireWork, private readonly medical: MedicalWork, private readonly radio: RescueRadio,
-  ) {}
+    driver: CrewDriver,
+  ) {
+    this.ride = new PlayerRide(k, tasks, driver, radio);
+  }
 
   reset(): void {
     this.crew = null;
@@ -55,6 +70,9 @@ export class PlayerCrew {
     this.thinkAt = 0;
     this.advisedAt = -1e9;
     this.quietSince = -1;
+    this.firesSaid = 0;
+    this.bilanSaid = false;
+    this.ride.reset();
   }
 
   get callId(): number {
@@ -110,9 +128,23 @@ export class PlayerCrew {
     if (squad) {
       let hoses = 0;
       let aids = 0;
+      let hasDriver = false;
       for (let i = 0; i < members.length; i++) {
         if (members[i].role === ROLE_HOSE) hoses++;
         else if (members[i].role === ROLE_AID) aids++;
+        else if (members[i].role === ROLE_DRIVER) hasDriver = true;
+      }
+      // conducteur du fourgon : un sapeur qui n'est pas le chef d'agrès, de préférence sans lance (il reste à la pompe)
+      let driverId = 0;
+      if (kind === 'pompiers' && !hasDriver) {
+        let count = 0;
+        for (let i = 0; i < squad.members.length; i++) {
+          const q = ctx.people.get(squad.members[i]);
+          if (!q || q === p || q.isPlayer || crew.memberOf(q.id) || q.kind !== 'pompier' || q.id === squad.leaderId) continue;
+          count++;
+          if (driverId === 0 || ctx.actions.has(q, 'lance_incendie') === 0) driverId = q.id;
+        }
+        if (count < 3) driverId = 0; // trop peu de monde : chacun travaille, le conducteur sera pris parmi eux
       }
       for (let i = 0; i < squad.members.length; i++) {
         const q = ctx.people.get(squad.members[i]);
@@ -120,6 +152,8 @@ export class PlayerCrew {
         let role: number;
         if (kind === 'samu') {
           role = members.length <= 1 ? ROLE_NURSE : ROLE_DRIVER;
+        } else if (q.id === driverId) {
+          role = ROLE_DRIVER;
         } else if (q.id === squad.leaderId) {
           role = ROLE_CHIEF;
         } else if (ctx.actions.has(q, 'lance_incendie') > 0 && hoses < 2) {
@@ -197,6 +231,8 @@ export class PlayerCrew {
     crew.patientId = 0;
     this.call = call;
     this.quietSince = -1;
+    this.firesSaid = 0;
+    this.bilanSaid = false;
     const d = Math.hypot(p.x - call.x, p.z - call.z);
     call.eta = d / 8 + 10;
     k.setState(call, 'en_route');
@@ -215,9 +251,11 @@ export class PlayerCrew {
       urgent = inc.urgency >= 3;
       incidents.assign(inc.id, 'joueur');
     }
-    const squad = p.squadId !== 0 ? ctx.squads.get(p.squadId) : undefined;
-    this.radio.toPlayer(squad ? squad.name : call.kind === 'pompiers' ? 'SAPEUR 1' : 'SANTÉ 1', label, urgent);
-    ctx.ui.notify(`Appel : ${label} — à ${Math.round(d)} m`, urgent ? 'alert' : 'warn', 6);
+    // la salle des secours engage l'engin (« FOURGON SÉVIGNÉ de PARIS : départ pour … »)
+    this.radio.engaged(call, crew, urgent);
+    this.ride.start(crew, call, p);
+    const how = this.ride.stage === 'embarquement' ? ' : embarquez, départ deux tons' : this.ride.stage === 'a_pied' ? ' : à pied avec votre équipe' : '';
+    ctx.ui.notify(`Appel : ${label} — à ${Math.round(d)} m${how}`, urgent ? 'alert' : 'warn', 6);
   }
 
   /** L'appel a été annulé pendant que le joueur s'y rendait. */
@@ -245,6 +283,7 @@ export class PlayerCrew {
       k.ctx.ui.notify(`Intervention terminée${parts.length > 0 ? ' — ' + parts.join(', ') : ''} (${r.points >= 0 ? '+' : ''}${r.points} points)`,
         r.crewHurt > 0 ? 'warn' : 'ok', 6);
     }
+    if (done && crew) this.radio.leaving(call, crew);
     call.crew = null;
     if (crew) {
       crew.call = null;
@@ -258,6 +297,7 @@ export class PlayerCrew {
     }
     this.call = null;
     this.quietSince = -1;
+    if (crew) this.ride.ended(crew, k.ctx.player.person());
   }
 
   // ───────────────────────────── à chaque pas ─────────────────────────────
@@ -285,15 +325,20 @@ export class PlayerCrew {
     const p = ctx.player.person();
     if (!p) return;
     const call = this.call;
+    const ride = this.ride;
+    // le trajet de l'engin (embarquement, route deux tons, retour) : conduit par son conducteur
+    ride.think(crew, call && call.live ? call : null, p);
     const v = crew.vehicle;
+    // à bord (au volant ou passager)
     const driving = v !== null && p.vehicleId === v.id;
     let onScene = false;
     if (call && call.live) {
       const px = driving && v ? v.x : p.x;
       const pz = driving && v ? v.z : p.z;
       const d = Math.hypot(px - call.x, pz - call.z);
-      call.eta = d > ON_SCENE ? d / (driving ? 8 : 3) : 0;
-      onScene = d <= ON_SCENE;
+      if (!ride.aiDriving) call.eta = d > ON_SCENE ? d / (driving ? 8 : 3) : 0;
+      // parti sans le joueur : l'équipage est sur les lieux, il travaille sans lui
+      onScene = d <= ON_SCENE || ride.crewOnSceneAlone();
       // la victime évacuée d'un lieu : l'appel suit la victime chargée, pas le lieu
       this.advise(call, px, pz, d);
       if (onScene && call.state !== 'sur_place') {
@@ -304,17 +349,41 @@ export class PlayerCrew {
         crew.lastVictimAt = now;
       }
       this.noteCrewHurt(crew, call);
+      this.report(crew, call);
     }
     // les équipiers
-    const working = call !== null && call.live && onScene && !driving;
+    const working = call !== null && call.live && onScene && (!driving || ride.crewOnSceneAlone()) && !ride.holdsCrew();
     if (working && call) {
       const done = call.kind === 'pompiers' ? this.fire.think(crew, call, dt) : this.medical.think(crew, call, dt);
       this.watchEnd(crew, call, done, p);
     } else {
-      this.follow(crew, p, driving);
+      // pendant le trajet, l'équipage est tenu par l'engin (player-ride.ts) ; sinon il suit le joueur
+      if (!ride.holdsCrew()) this.follow(crew, p, driving);
       if (call && call.live && call.state === 'sur_place') this.watchEnd(crew, call, false, p);
     }
-    if (call && call.live) this.deliver(crew, call);
+    if (call && call.live) {
+      // victime chargée dans l'ambulance conduite par l'IA : on évacue
+      if (call.kind === 'samu' && ride.stage === 'sur_place' && this.patientAboard(crew) !== 0) ride.evacuate(crew);
+      this.deliver(crew, call);
+    }
+  }
+
+  /** Comptes rendus de l'engin du joueur : feu éteint, bilan du SAMU. */
+  private report(crew: Crew, call: CallRec): void {
+    const k = this.k;
+    if (call.kind === 'pompiers' && call.record.firesOut > this.firesSaid) {
+      this.firesSaid = call.record.firesOut;
+      this.radio.fireOut(call, crew);
+    }
+    if (call.kind === 'samu' && !this.bilanSaid && call.state === 'sur_place' && k.now - crew.phaseAt > 10) {
+      this.bilanSaid = true;
+      let worst = 0;
+      const incidents = k.ctx.service<IncidentsApi>(EXT.incidents);
+      const inc = incidents && call.incidentId !== 0 ? incidents.get(call.incidentId) : undefined;
+      const victim = inc && inc.targetKind === 'person' ? k.ctx.people.get(inc.targetId) : undefined;
+      if (victim) worst = injuryRank(victim.injury);
+      this.radio.bilan(call, crew, worst >= 3 ? 'critique' : 'sérieuse');
+    }
   }
 
   /** Conseil de sécurité à l'approche : le joueur décide, mais il sait à quoi s'attendre. */

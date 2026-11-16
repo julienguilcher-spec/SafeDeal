@@ -132,15 +132,24 @@ export interface ChannelListen {
   channels: ReadonlySet<RadioChannel>;
   /** Émetteurs entendus quel que soit le canal (formes canoniques, préfixes). */
   senders: readonly string[];
+  /**
+   * Sur les canaux écoutés, seuls ces émetteurs sont entendus (formes canoniques, préfixes) ; absent = tous. Le réseau
+   * des secours est partagé avec les demandes des unités de police : le pompier n'entend que les siens.
+   */
+  onlyFrom?: readonly string[];
   /** Libellé pour la carte (« Radio : réseau des secours »). */
   label: string;
 }
+
+/** Indicatifs du réseau des secours (formes canoniques, préfixes) : salles, engins, équipes. */
+export const RESCUE_NETWORK: readonly string[] = ['PARIS', 'SAMU', 'FOURGON', 'SMUR', 'SAPEUR', 'SANTE', 'POMPIERS', 'PS', 'VSAV', 'UMH'];
 
 /** Réseau d'un rôle non policier ; null pour un rôle de police (écoute par unité ou complète). */
 export function listenForRole(role: string): ChannelListen | null {
   switch (role) {
     case 'secouriste':
-      return { channels: new Set<RadioChannel>(['secours']), senders: [], label: 'Radio : réseau des secours (régulation)' };
+      // salle des pompiers (PARIS), régulation (SAMU 75), engins (FOURGON …, SMUR …) ; pas les unités de police ni CENTRAL
+      return { channels: new Set<RadioChannel>(['secours']), senders: [], onlyFrom: RESCUE_NETWORK, label: 'Radio : réseau des secours (PARIS, SAMU 75)' };
     case 'street_medic':
       return { channels: new Set<RadioChannel>(['public']), senders: ['SECOURISTE DE RUE', 'STREET MEDIC'], label: 'Canal de votre équipe de street medics' };
     case 'journaliste':
@@ -199,7 +208,9 @@ export class ExecutantRadioFilter {
   acceptChannel(msg: RadioMessage, listen: ChannelListen, self: EntityId, now: number): boolean {
     if (msg.personId !== undefined && msg.personId !== 0 && msg.personId === self) return true;
     const sender = canonicalCallsign(msg.from);
-    const ok = listen.channels.has(msg.channel) || listen.senders.some((p) => sender.startsWith(p));
+    const only = listen.onlyFrom;
+    const onChannel = listen.channels.has(msg.channel) && (!only || only.some((p) => sender === p || sender.startsWith(`${p} `)));
+    const ok = onChannel || listen.senders.some((p) => sender.startsWith(p));
     if (!ok) return this.hide(now);
     const key = `${msg.channel}|${radioBody(msg.text)}`;
     const last = this.seen.get(key);

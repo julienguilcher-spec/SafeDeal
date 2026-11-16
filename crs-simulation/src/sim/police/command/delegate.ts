@@ -344,15 +344,25 @@ export class Delegation {
         if (now - a.assignedAt > limit) this.fail(a, cmd);
         continue;
       }
+      // déjà engagé hors du commandement (les secours, ou le joueur — pompier, SAMU — à qui la salle l'a confié) :
+      // le commandant ne le reprend pas, ce qui annulerait l'appel en cours
+      if (this.heldElsewhere(a)) continue;
       // délai de décision du commandant (plus court si c'est vital)
       const wait = cmd.latency * (a.urgency >= 3 ? 0.3 : a.urgency === 2 ? 0.7 : 1);
       if (now - a.seenAt < wait) continue;
       const key = 'incident:' + a.id;
       if (!cmd.ready(key, cmd.ia ? 8 : 60)) continue;
       cmd.act(key, a.urgency, a.x, a.z, this.advice(cmd, a), () => {
-        if (a.state === 'ouvert') this.engage(cmd, a);
+        if (a.state === 'ouvert' && !this.heldElsewhere(a)) this.engage(cmd, a);
       });
     }
+  }
+
+  /** L'incident lié est confié aux secours ou au joueur sans passer par ce commandement. */
+  private heldElsewhere(a: Affair): boolean {
+    if (a.means !== '') return false;
+    const inc = this.incident(a);
+    return !!inc && inc.state === 'assigne' && (inc.means === 'joueur' || inc.means === 'pompiers' || inc.means === 'samu');
   }
 
   private fail(a: Affair, cmd: Command): void {

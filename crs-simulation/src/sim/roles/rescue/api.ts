@@ -219,6 +219,37 @@ export interface RescueRecords {
   summary(): string[];
 }
 
+/**
+ * Trajet de l'engin du joueur secouriste (player-ride.ts) :
+ *   'aucun'        pas de trajet commandé (disponible, ou le joueur conduit lui-même : selfDrive) ;
+ *   'a_pied'       intervention toute proche, ou sans engin : l'équipage y va à pied avec le joueur ;
+ *   'embarquement' l'engin attend le joueur (waitLeft) ; 'route' deux tons vers les lieux (aiDriving) ;
+ *   'attente'      arrêté à distance, zone non sûre ; 'sur_place' l'équipage est descendu ;
+ *   'evacuation'   (SAMU) victime à bord ; 'retour' vers le centre de secours ; 'rentre' disponible à la remise.
+ */
+export type PlayerRideStage = 'aucun' | 'a_pied' | 'embarquement' | 'route' | 'attente' | 'sur_place' | 'evacuation' | 'retour' | 'rentre';
+
+export interface PlayerRideView {
+  readonly stage: PlayerRideStage;
+  /** Indicatif de l'engin sur le réseau des secours (« FOURGON SÉVIGNÉ », « SMUR NECKER »), '' sans équipage. */
+  readonly callsign: string;
+  readonly vehicleId: EntityId;
+  /** Le conducteur (IA) conduit, le joueur est passager. */
+  readonly aiDriving: boolean;
+  /** Le joueur a pris le volant pour l'intervention en cours. */
+  readonly selfDrive: boolean;
+  /** L'engin est parti sans le joueur. */
+  readonly leftBehind: boolean;
+  /** Secondes avant le départ sans le joueur (−1 sans objet). */
+  readonly waitLeft: number;
+  /** Destination du trajet (lieux, point de rassemblement des victimes, centre de secours) et son nom. */
+  readonly destX: number;
+  readonly destZ: number;
+  readonly destName: string;
+  /** Distance restante du trajet en cours (m ; 0 à l'arrêt). */
+  readonly remaining: number;
+}
+
 export interface RescueExtApi {
   readonly tuning: RescueTuning;
   readonly crews: readonly CrewView[];
@@ -230,4 +261,6 @@ export interface RescueExtApi {
   stage(kind: RescueKind, x: number, z: number, heading: number): CrewView | null;
   /** Appel en cours confié à l'équipage du joueur (0 si aucun). */
   readonly playerCallId: number;
+  /** Trajet de l'engin du joueur secouriste (null hors de ce rôle). */
+  readonly playerRide: PlayerRideView | null;
 }

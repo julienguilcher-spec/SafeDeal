@@ -12,7 +12,7 @@ import { SystemOrder } from '@/core/contracts';
 import { EXT } from '@/core/extensions';
 import type { RescueApi, RescueCall, RescueKind } from '@/core/extensions';
 import { RESCUE_EXT_SERVICE, RESCUE_RECORDS_SERVICE, RESCUE_SYSTEM_ID } from './api';
-import type { CrewView, RescueExtApi, SafetyReport } from './api';
+import type { CrewView, PlayerRideView, RescueExtApi, SafetyReport } from './api';
 import { obtainCare } from './care';
 import { createCareHandlers } from './care-handlers';
 import { RescueKernel } from './crew';
@@ -71,6 +71,9 @@ export class RescueSystem implements GameSystem {
       get playerCallId(): number {
         return self.player ? self.player.callId : 0;
       },
+      get playerRide(): PlayerRideView | null {
+        return self.player && self.player.crew ? self.player.ride : null;
+      },
     };
   }
 
@@ -86,7 +89,7 @@ export class RescueSystem implements GameSystem {
     const driver = new CrewDriver(k, this.spawner);
     const phases = new CrewPhases(k, this.spawner, this.tasks, this.fire, this.medical, this.radio, driver, new CrewClear(k, this.tasks));
     this.dispatcher = new Dispatcher(k, this.spawner, this.tasks, this.radio, this.records, driver, phases);
-    this.player = new PlayerCrew(k, this.spawner, this.tasks, this.fire, this.medical, this.radio);
+    this.player = new PlayerCrew(k, this.spawner, this.tasks, this.fire, this.medical, this.radio, driver);
     this.player.dispatcher = this.dispatcher;
     this.dispatcher.player = this.player;
     ctx.provide(EXT.rescue, this.api);
@@ -186,6 +189,7 @@ export class RescueSystem implements GameSystem {
     this.spawner.reset();
     this.dispatcher.reset();
     this.player.reset();
+    if (this.radio) this.radio.reset();
     if (k.care) k.care.reset();
   }
 
@@ -193,5 +197,6 @@ export class RescueSystem implements GameSystem {
     this.kernel.care.holdPatients();
     this.dispatcher.update(dt);
     this.player.update(dt);
+    this.radio.tick();
   }
 }

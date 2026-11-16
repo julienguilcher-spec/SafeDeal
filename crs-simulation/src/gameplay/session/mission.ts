@@ -61,6 +61,15 @@ const EMPTY: Instruction = { source: 'attente', title: '', detail: '', target: '
 
 const RESCUE_TITLES: Readonly<Record<string, string>> = { pompier: 'Sapeur-pompier', samu: 'SAMU' };
 
+/** Trajet de l'engin du joueur secouriste, lu sur le service « rescue.ext » (src/sim/roles/rescue/api.ts, PlayerRideView). */
+const RESCUE_EXT = 'rescue.ext';
+interface RescueRideLike {
+  readonly playerRide: {
+    readonly stage: string; readonly callsign: string; readonly vehicleId: number; readonly aiDriving: boolean; readonly leftBehind: boolean;
+    readonly waitLeft: number; readonly destName: string; readonly remaining: number;
+  } | null;
+}
+
 export class MissionBriefSystem implements GameSystem {
   readonly id = 'session.mission';
   readonly order = SystemOrder.CONTROL + 48;
@@ -411,6 +420,78 @@ export class MissionBriefSystem implements GameSystem {
     return o ? { text: o.text, x: o.x, z: o.z } : null;
   }
 
+  /**
+   * Pompier ou soignant du SAMU : son engin, son indicatif, et UNE consigne qui suit le trajet de l'engin
+   * (src/sim/roles/rescue/player-ride.ts) — embarquez (GPS sur l'engin), en route deux tons (restez à bord), sur les
+   * lieux (lance, soins), évacuation, retour au centre de secours ; tout près, à pied avec l'équipe.
+   */
+  private rescueCard(me: Person, crew: Squad | undefined, inputs: InstructionInputs): void {
+    const ctx = this.ctx!;
+    const service = me.kind === 'pompier' ? 'pompier' : 'samu';
+    this.heading = RESCUE_TITLES[service] ?? 'Secours';
+    const ride = ctx.service<RescueRideLike>(RESCUE_EXT)?.playerRide ?? null;
+    const engine = ride && ride.vehicleId !== 0 ? ctx.vehicles.get(ride.vehicleId) : crew && crew.vehicleId !== 0 ? ctx.vehicles.get(crew.vehicleId) : undefined;
+    const corps = service === 'pompier' ? 'Sapeurs-pompiers' : 'SAMU de Paris';
+    const unit = engine ? engine.def.name : crew ? crew.name : '';
+    const sign = ride && ride.callsign ? `, indicatif ${ride.callsign}` : crew && !/pompier|samu|sapeur|sant/i.test(crew.name) ? ` (${crew.name})` : '';
+    this.chain = unit ? `${corps} — ${unit}${sign}` : corps;
+    this.chief = crew ? this.chiefOf(me, crew, undefined) : null;
+    if (this.chief) this.chief.role = service === 'pompier' ? "chef d'agrès" : "chef d'équipe";
+    const inVehicle = engine !== undefined && me.vehicleId === engine.id;
+    const name = engine ? this.vehicleLabel(engine, undefined) : 'véhicule de secours';
+    const stage = ride ? ride.stage : 'aucun';
+    const meters = (d: number): string => `${Math.max(10, Math.round(d / 10) * 10)} m`;
+    inputs.incident = this.incidentInput((label, d) => {
+      const where = ride && ride.destName ? ride.destName : '';
+      if (ride && ride.leftBehind && stage !== 'evacuation') {
+        return d < 30 ? 'Vous avez rejoint votre équipe : au travail avec elle.'
+          : `Votre engin est parti sans vous : rejoignez les lieux${where ? `, ${where}` : ''}, à ${meters(d)}.`;
+      }
+      if (d < 30 && !inVehicle) {
+        return service === 'pompier' ? 'Sur les lieux : établissez la lance, éteignez, tenez le public à distance.'
+          : 'Sur les lieux : bilan, premiers soins, puis chargez la victime dans l’ambulance.';
+      }
+      switch (stage) {
+        case 'embarquement':
+          return 'À bord : l’équipage embarque, départ deux tons dans un instant. Le conducteur conduit.';
+        case 'route':
+          return `Engin en route, deux tons${where ? `, vers ${where}` : ''}. Le conducteur conduit : restez à bord. Encore ${meters(ride!.remaining || d)}.`;
+        case 'attente':
+          return 'Zone non sûre : l’engin attend à distance que la police sécurise l’accès. Restez à bord, ou engagez-vous à vos risques.';
+        case 'evacuation':
+          return ride!.aiDriving ? 'Évacuation de la victime, deux tons : restez à bord avec elle.' : `Montez dans l’${name} : on évacue la victime.`;
+        case 'a_pied':
+          return `Tout près : à pied avec votre équipe${where ? `, ${where}` : ''}, à ${meters(d)}.`;
+        case 'sur_place':
+          return `L’engin est arrêté : rejoignez les lieux à pied, à ${meters(d)}.`;
+        default:
+          if (!inVehicle) return `Montez dans votre engin (${engine ? this.vehicleLabel(engine, crew) : 'véhicule de secours'}) : vous y allez en véhicule, deux tons.`;
+          return `Engin en route, deux tons : ${label}. Encore ${meters(d)}.`;
+      }
+    });
+    // embarquement : la consigne est l'engin (GPS sur lui), pas encore le lieu
+    if (inputs.incident && engine && !inVehicle && (stage === 'embarquement' || (stage === 'evacuation' && ride && !ride.aiDriving))) {
+      const left = ride && ride.waitLeft >= 0 ? ` Départ dans ${Math.ceil(ride.waitLeft)} s, avec ou sans vous.` : '';
+      inputs.task = stage === 'evacuation'
+        ? { title: `Montez dans l’${name} : évacuation`, detail: `La victime est à bord, on part deux tons.${left}`, x: engine.x, z: engine.z, target: 'vehicle' }
+        : { title: `Embarquez : ${inputs.incident.label}`,
+          detail: `Votre ${name} part deux tons${ride && ride.destName ? ` pour ${ride.destName}` : ''}. Montez comme passager, le conducteur conduit (ou prenez le volant).${left}`,
+          x: engine.x, z: engine.z, target: 'vehicle' };
+      inputs.incident = null;
+      return;
+    }
+    if (inputs.incident) return;
+    if (stage === 'retour' && engine) {
+      inputs.task = ride!.aiDriving
+        ? { title: `Retour ${ride!.destName}`, detail: 'Sans sirène : restez à bord, la salle peut vous engager en route.', target: 'none' }
+        : { title: 'Rembarquez : retour au centre', detail: `Votre ${name} vous attend pour rentrer ${ride!.destName}.`, x: engine.x, z: engine.z, target: 'vehicle' };
+    } else if (engine && !inVehicle) {
+      inputs.task = { title: 'Disponible : restez près de votre engin', detail: 'La salle vous engagera par radio sur le prochain appel.', x: engine.x, z: engine.z, target: 'vehicle' };
+    } else {
+      inputs.task = { title: 'Disponible : attendez l’appel de la salle', detail: 'Restez à bord, la radio des secours vous donnera l’adresse.', target: 'none' };
+    }
+  }
+
   /** Tâche d'incident confiée au joueur (repère du HUD sur l'incident). */
   private incidentInput(detail: ((label: string, d: number) => string) | null): InstructionInputs['incident'] {
     const ctx = this.ctx!;
@@ -434,27 +515,7 @@ export class MissionBriefSystem implements GameSystem {
     const inputs: InstructionInputs = {};
     inputs.mission = this.missionInput();
     if (role === 'secouriste') {
-      const service = me.kind === 'pompier' ? 'pompier' : 'samu';
-      this.heading = RESCUE_TITLES[service] ?? 'Secours';
-      const engine = crew && crew.vehicleId !== 0 ? ctx.vehicles.get(crew.vehicleId) : undefined;
-      const corps = service === 'pompier' ? 'Sapeurs-pompiers' : 'SAMU';
-      const unit = engine ? engine.def.name : crew ? crew.name : '';
-      const call = crew && !/pompier|samu|sapeur|sant/i.test(crew.name) ? ` (${crew.name})` : '';
-      this.chain = unit ? `${corps} — ${unit}${call}` : corps;
-      this.chief = crew ? this.chiefOf(me, crew, undefined) : null;
-      if (this.chief) this.chief.role = "chef d'agrès";
-      const inVehicle = me.vehicleId !== 0;
-      inputs.incident = this.incidentInput((label, d) => {
-        if (d < 30) return service === 'pompier' ? 'Sur les lieux : établissez la lance, éteignez, protégez-vous du public.'
-          : 'Sur les lieux : bilan, premiers soins, puis chargez la victime dans l’ambulance.';
-        if (!inVehicle) return `Montez dans votre engin (${engine ? this.vehicleLabel(engine, crew) : 'véhicule de secours'}) : vous y allez en véhicule, deux tons.`;
-        return `Engin en route, deux tons : ${label}. Encore ${Math.round(d / 10) * 10} m.`;
-      });
-      if (engine && !inVehicle) {
-        inputs.task = { title: 'Disponible : restez près de votre engin', detail: 'La salle vous engagera par radio sur le prochain appel.', x: engine.x, z: engine.z, target: 'vehicle' };
-      } else {
-        inputs.task = { title: 'Disponible : attendez l’appel de la salle', detail: 'Restez à bord, la radio des secours vous donnera l’adresse.', target: 'none' };
-      }
+      this.rescueCard(me, crew, inputs);
     } else if (role === 'street_medic') {
       this.heading = 'Street medic';
       this.chain = crew ? `Équipe ${crew.name}` : 'Équipe de street medics bénévoles';

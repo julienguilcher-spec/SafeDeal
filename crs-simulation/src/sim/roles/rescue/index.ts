@@ -21,6 +21,6 @@ export {
   RESCUE_RECORDS_SERVICE, RESCUE_SYSTEM_ID,
 } from './api';
 export type {
-  CareApi, CareRecord, CareState, CareVerb, CrewView, RescueCallEvent, RescueExtApi, RescueRecord, RescueRecords, RescueTuning,
+  CareApi, CareRecord, CareState, CareVerb, CrewView, PlayerRideStage, PlayerRideView, RescueCallEvent, RescueExtApi, RescueRecord, RescueRecords, RescueTuning,
   SafetyReport, TriageColor,
 } from './api';

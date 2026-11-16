@@ -216,6 +216,8 @@ export class Crew implements CrewView {
   /** Progression à pied : meilleure distance au but relevée, et instant de ce relevé. */
   bestDistance = Infinity;
   bestAt = 0;
+  /** Indicatif sur le réseau des secours (« FOURGON SÉVIGNÉ »), attribué au premier message ('' avant). */
+  radioName = '';
 
   constructor(readonly id: number, readonly kind: RescueKind) {}
 

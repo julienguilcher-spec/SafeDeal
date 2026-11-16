@@ -168,7 +168,11 @@ describe('radio des autres rôles : jamais la radio de police', () => {
     const f = new ExecutantRadioFilter();
     const rescue = listenForRole('secouriste')!;
     expect(f.acceptChannel(msg('MISTRAL 1', 'MISTRAL UN ALFA ICI MISTRAL UN. En ligne. PARLEZ.'), rescue, 1, 0)).toBe(false);
-    expect(f.acceptChannel(msg('CENTRAL', 'ICI CENTRAL. Sapeurs-pompiers en route vers rue X. TERMINÉ.', { channel: 'secours' }), rescue, 1, 1)).toBe(true);
+    // sur le réseau des secours, seuls les secours parlent : salle des pompiers, régulation, engins ; pas CENTRAL ni la police
+    expect(f.acceptChannel(msg('PARIS', 'FOURGON SÉVIGNÉ de PARIS : départ pour feu de poubelles, 12 rue de Rivoli. Rendez compte.', { channel: 'secours' }), rescue, 1, 1)).toBe(true);
+    expect(f.acceptChannel(msg('SMUR NECKER', 'SAMU 75 de SMUR NECKER : l’UMH est sur les lieux.', { channel: 'secours' }), rescue, 1, 1.5)).toBe(true);
+    expect(f.acceptChannel(msg('MISTRAL 2 ALFA', 'URGENT. Demande sapeurs-pompiers, secteur rue X.', { channel: 'secours' }), rescue, 1, 1.6)).toBe(false);
+    expect(f.acceptChannel(msg('CENTRAL', 'ICI CENTRAL. Sapeurs-pompiers en route vers rue X. Préparez l’accès. TERMINÉ.', { channel: 'secours' }), rescue, 1, 1.7)).toBe(false);
     const medic = listenForRole('street_medic')!;
     expect(f.acceptChannel(msg('Secouriste de rue', 'Blessé à la tête, on le prend.', { channel: 'secours' }), medic, 1, 2)).toBe(true);
     expect(f.acceptChannel(msg('SAPEUR 1', 'CENTRAL ICI SAPEUR UN. Feu éteint. PARLEZ.', { channel: 'secours' }), medic, 1, 3)).toBe(false);

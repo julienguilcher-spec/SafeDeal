@@ -69,7 +69,7 @@ describe('secours — le joueur pompier', () => {
     expect(call.vehicleId).toBe(v.id);
     expect(api.playerIncidentId).toBe(fire.id);
     expect(fire.means).toBe('joueur');
-    expect(ctx.radio.log.some((m) => m.from === 'CENTRAL' && /SAPEUR UN ICI CENTRAL.*Vous êtes engagé/.test(m.text))).toBe(true);
+    expect(ctx.radio.log.some((m) => m.from === 'PARIS' && /^FOURGON .+ de PARIS : départ pour .+Rendez compte/.test(m.text))).toBe(true);
     expect(rig.ext.crews.length).toBe(1);
     expect(rig.ext.crews[0].playerLed).toBe(true);
     // aucun engin PNJ n'est parti à sa place
