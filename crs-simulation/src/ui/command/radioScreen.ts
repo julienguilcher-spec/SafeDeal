@@ -130,7 +130,7 @@ export class RadioScreen implements ScreenInstance {
   private sendForce(): void {
     const roe = this.core.ctx.law.roe;
     const want = Math.min(4, roe.authorizedForce + 1) as 0 | 1 | 2 | 3 | 4;
-    this.say(forceRequest(this.core.callsign(), this.sector(this.core.player()), want, roe.underAttack), 2, 'commandement');
+    this.say(forceRequest(this.core.callsign(), this.sector(this.core.player()), want, roe.underAttack, this.core.ctx.squads.list.find((q) => q.kind === 'compagnie' && q.faction === 'police')?.name), 2, 'commandement');
   }
 
   private sendRescue(kind: RescueKind): void {

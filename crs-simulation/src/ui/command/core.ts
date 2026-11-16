@@ -80,7 +80,6 @@ export class CommandCore implements CommandApi {
   callsign(): string {
     const p = this.player();
     const sc = this.scope();
-    if (this.ctx.player.state.role === 'commissaire' || (p && p.kind === 'commissaire')) return 'AUTORITÉ';
     const own = sc.ownSquadId !== 0 ? this.ctx.squads.get(sc.ownSquadId) : p && p.squadId !== 0 ? this.ctx.squads.get(p.squadId) : undefined;
     if (own) return own.name;
     return p ? p.name : 'UNITÉ';

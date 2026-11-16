@@ -228,8 +228,9 @@ export class UiSystem implements GameSystem {
       this.onPhase(p.phase, p.previous);
     }));
     this.offs.push(ctx.events.on('session:started', ({ config }) => this.onSessionStarted(config)));
+    // le module radio (service 'radio.phrases') sous-titre lui-même ses messages, au bon rythme : pas de doublon
     this.offs.push(ctx.events.on('radio:message', ({ msg }) => {
-      if (msg.priority >= 1) this.notices.subtitle(msg.from, msg.text);
+      if (msg.priority >= 1 && ctx.service('radio.phrases') === undefined) this.notices.subtitle(msg.from, msg.text);
     }));
     this.offs.push(ctx.events.on('law:sommation', ({ text }) => {
       if (text) this.notices.subtitle('Sommation', text, 7);

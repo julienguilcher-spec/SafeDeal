@@ -91,6 +91,8 @@ export class PropsRenderer {
     this.atlas = new PropAtlas(this.cfg.atlas, this.quality === 'bas' ? 2 : aniso);
     this.materials = this.makeMaterials();
     this.asm = new Assembler(this.lib, this.atlas);
+    const city = ctx.service<{ liftAt(x: number, z: number): number }>('world.view');
+    if (city && typeof city.liftAt === 'function') this.asm.lift = (x, z) => city.liftAt(x, z);
     this.ext = ctx.service<PropsExtLike>(PROPS_EXT_KEY);
     this.shared = ctx.service<UniformsLike>(RENDER_UNIFORMS_KEY);
     this.rig = new LightRig(ctx, this.uniforms, this.cfg, ctx.service<LightsLike>(RENDER_LIGHTS_KEY));

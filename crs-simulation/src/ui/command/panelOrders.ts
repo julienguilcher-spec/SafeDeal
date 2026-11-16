@@ -182,7 +182,7 @@ export class OrdersPanel {
     const want = Math.min(4, ctx.law.roe.authorizedForce + 1) as ForceLevel;
     ctx.radio.say({
       channel: 'commandement', from: core.callsign(), priority: 2, personId: p ? p.id : 0,
-      text: forceRequest(core.callsign(), p ? ctx.world.sectorName(p.x, p.z) : '', want, ctx.law.roe.underAttack),
+      text: forceRequest(core.callsign(), p ? ctx.world.sectorName(p.x, p.z) : '', want, ctx.law.roe.underAttack, ctx.squads.list.find((q) => q.kind === 'compagnie' && q.faction === 'police')?.name),
     });
     ctx.ui.notify('Demande d’autorisation transmise à l’autorité.', 'info', 3);
   }

@@ -138,10 +138,11 @@ export function reinforcementRequest(from: string, sector: string): string {
   return radioFrame('CENTRAL', from, `Demande renfort sur ma position${at(sector)}`, true);
 }
 
-export function forceRequest(from: string, sector: string, level: ForceLevel, underAttack: boolean): string {
+/** Demande au commandant (autorité unique, indicatif de la compagnie : « MISTRAL » par défaut). */
+export function forceRequest(from: string, sector: string, level: ForceLevel, underAttack: boolean, commander = 'MISTRAL'): string {
   const motif = underAttack ? 'Jets de projectiles sur l’unité, refus de se disperser' : 'Attroupement, refus de se disperser';
   const ask = level >= 3 ? 'Demande sommations et emploi de la force, lacrymogènes compris' : 'Demande sommations et emploi de la force';
-  return radioFrame('AUTORITÉ', from, `${motif}${at(sector)}. ${ask}`, true);
+  return radioFrame(commander.toUpperCase(), from, `${motif}${at(sector)}. ${ask}`, true);
 }
 
 export function rescueRequest(from: string, sector: string, kind: RescueKind): string {

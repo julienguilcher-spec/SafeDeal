@@ -31,6 +31,12 @@ export class Assembler {
   private readonly base = matNew();
   private readonly pen = new GeoBuilder(0, 0);
 
+  /**
+   * Surélévation du sol dessiné (trottoirs, terre-pleins) au-dessus du relief de la simulation (service 'world.view',
+   * liftAt) : sans elle, les objets posés sur un trottoir s'enfoncent de quelques centimètres dans la bordure.
+   */
+  lift: (x: number, z: number) => number = () => 0;
+
   constructor(readonly lib: ModelLibrary, private atlas: PropAtlas) {}
 
   setAtlas(atlas: PropAtlas): void {
@@ -49,7 +55,7 @@ export class Assembler {
       return;
     }
     const melted = variant === V_BURNT && rec.info.burn === 'fond';
-    const m = propMatrix(this.m1, rec.kind, rec.id, p.x, p.y, p.z, p.heading, p.halfX, p.halfZ, p.height, p.toppled, p.carriedBy !== 0, melted);
+    const m = propMatrix(this.m1, rec.kind, rec.id, p.x, p.y + this.lift(p.x, p.z), p.z, p.heading, p.halfX, p.halfZ, p.height, p.toppled, p.carriedBy !== 0, melted);
     if (rec.scaled) matScale(m, p.halfX / rec.info.hx, p.height / rec.info.h, p.halfZ / rec.info.hz);
     const tpl = this.lib.get(rec.kind, lod, variant, rec.skin, rec.panes);
     if (glass && tpl.g && lod <= 1) emitBuf(glass, tpl.g, m);
@@ -69,7 +75,7 @@ export class Assembler {
     const tpl = this.lib.get(rec.kind, lod, variant, rec.skin, rec.panes);
     if (!tpl.g) return;
     const melted = variant === V_BURNT && rec.info.burn === 'fond';
-    const m = propMatrix(this.m1, rec.kind, rec.id, p.x, p.y, p.z, p.heading, p.halfX, p.halfZ, p.height, p.toppled, p.carriedBy !== 0, melted);
+    const m = propMatrix(this.m1, rec.kind, rec.id, p.x, p.y + this.lift(p.x, p.z), p.z, p.heading, p.halfX, p.halfZ, p.height, p.toppled, p.carriedBy !== 0, melted);
     emitBuf(glass, tpl.g, m);
   }
 
@@ -81,7 +87,7 @@ export class Assembler {
     const p = rec.prop;
     const parts = rec.parts;
     const base = matIdentity(this.base);
-    matTranslate(base, p.x - ox, p.y, p.z - oz);
+    matTranslate(base, p.x - ox, p.y + this.lift(p.x, p.z), p.z - oz);
     matRotY(base, p.heading);
     const v0 = dst.nv;
     if (parts) {
@@ -114,7 +120,7 @@ export class Assembler {
   shop(dst: MeshBuf, rec: ShopRec, lod: number, ox: number, oz: number): void {
     const s = rec.shop;
     const m = matIdentity(this.m1);
-    matTranslate(m, s.x - ox, s.y, s.z - oz);
+    matTranslate(m, s.x - ox, s.y + this.lift(s.x, s.z), s.z - oz);
     matRotY(m, s.heading);
     let sign: Region | null = null;
     if (lod <= 1 && !rec.state.burnt) {
@@ -133,7 +139,7 @@ export class Assembler {
   shopSoot(blend: MeshBuf, rec: ShopRec): void {
     const s = rec.shop;
     const m = matIdentity(this.m1);
-    matTranslate(m, s.x, s.y, s.z);
+    matTranslate(m, s.x, s.y + this.lift(s.x, s.z), s.z);
     matRotY(m, s.heading);
     buildShopSoot(blend, m, s.width, rec.state);
   }
