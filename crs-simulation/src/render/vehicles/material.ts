@@ -125,7 +125,7 @@ const VERT_AFTER_UV = /* glsl */`
 	if ( surf < 0.5 ) c *= iColor.rgb;
 	vCrsCol = max( c, vec3( 0.004 ) );
 	float rough = 0.78, metal = 0.0;
-	if ( surf < 0.5 ) { rough = 0.36; metal = 0.08; }
+	if ( surf < 0.5 ) { rough = 0.44; metal = 0.06; }
 	else if ( surf < 1.5 ) { rough = 0.72; }
 	else if ( surf < 2.5 ) { rough = 0.07; }
 	else if ( surf < 3.5 ) { rough = 0.93; }

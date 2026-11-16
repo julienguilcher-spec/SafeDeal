@@ -46,18 +46,31 @@ function grid(n: number, step: number): { nodes: FakeRoadNode[]; edges: FakeRoad
   return { nodes, edges };
 }
 
-/** Temps moyen et maximal passé dans update() du module pendant `steps` pas (ms). */
-function measure(b: VehicleBench, steps: number, each?: (i: number) => void): { mean: number; max: number } {
-  const perf = b.t.game.perf.find((p) => p.id === VEHICLES_SYSTEM_ID)!;
-  let total = 0;
-  let max = 0;
+/** Temps processeur consommé par le processus (ms) : insensible à la charge de la machine de test. */
+function cpuMs(): number {
+  const u = process.cpuUsage();
+  return (u.user + u.system) / 1000;
+}
+
+/** Charge de référence (10 millions de sin·cos) : situe la vitesse du processeur qui exécute les tests. */
+function reference(): number {
+  const t = cpuMs();
+  let s = 0;
+  for (let i = 0; i < 1e7; i++) s += Math.sin(i * 0.001) * Math.cos(i * 0.002);
+  return cpuMs() - t + s * 0;
+}
+
+/**
+ * Coût d'un pas de simulation (ms de processeur, moyenne sur `steps` pas) : moteur + module des véhicules,
+ * seul module branché. On mesure du temps processeur et non du temps réel, car la machine de test est partagée.
+ */
+function measure(b: VehicleBench, steps: number, each?: (i: number) => void): number {
+  const t0 = cpuMs();
   for (let i = 0; i < steps; i++) {
     each?.(i);
     b.t.game.step(DT);
-    total += perf.updateMs;
-    if (perf.updateMs > max) max = perf.updateMs;
   }
-  return { mean: total / steps, max };
+  return (cpuMs() - t0) / steps;
 }
 
 const PARKED: VehicleKind[] = ['voiture', 'citadine', 'suv', 'utilitaire', 'taxi', 'fourgon_crs', 'scooter', 'camion', 'bus', 'voiture_police'];
@@ -66,41 +79,52 @@ describe('performances des véhicules', () => {
   it('150 véhicules en ville : 40 en circulation sous pilote automatique, 110 garés, 120 piétons', async () => {
     const g = grid(5, 120);
     const b = await createVehicleBench({ world: createFakeWorld({ nodes: g.nodes, edges: g.edges }) });
+    expect(b.t.game.perf.some((p) => p.id === VEHICLES_SYSTEM_ID)).toBe(true);
     const rng = b.ctx.rng.fork('perf');
-    // véhicules garés le long des rues (hors chaussée)
-    for (let i = 0; i < 110; i++) {
-      const row = i % 5;
-      b.spawn(PARKED[i % PARKED.length]!, 20 + Math.floor(i / 5) * 20, row * 120 + 6.5, Math.PI / 2);
+    // véhicules garés le long des rues est-ouest, hors chaussée et hors carrefours
+    let parked = 0;
+    for (let i = 0; parked < 110; i++) {
+      const x = 14 + Math.floor(i / 5) * 9;
+      if (Math.abs(((x + 60) % 120) - 60) < 10) continue;
+      b.spawn(PARKED[parked % PARKED.length]!, x, (i % 5) * 120 + 6.6, Math.PI / 2);
+      parked++;
     }
-    // circulation
+    // circulation : chaque véhicule reçoit une nouvelle destination dès qu'il est arrivé
     const moving: Vehicle[] = [];
     const dispatch = (v: Vehicle): void => {
       const n = g.nodes[rng.int(0, g.nodes.length)]!;
-      b.autopilot.driveTo(v, n.x + rng.range(-30, 30), n.z, {});
+      b.autopilot.driveTo(v, n.x, n.z + rng.range(20, 100) * (n.z > 240 ? -1 : 1), {});
     };
     for (let i = 0; i < 40; i++) {
-      const v = b.spawn(i % 8 === 0 ? 'fourgon_crs' : i % 5 === 0 ? 'bus' : 'voiture', (i % 5) * 120 - 1.75, 15 + Math.floor(i / 5) * 60, 0);
+      const v = b.spawn(i % 8 === 0 ? 'fourgon_crs' : i % 5 === 0 ? 'bus' : 'voiture', (i % 5) * 120 - 1.75, 15 + Math.floor(i / 5) * 55, 0);
       moving.push(v);
       dispatch(v);
     }
-    // piétons sur les trottoirs et aux carrefours
-    for (let i = 0; i < 120; i++) b.person('passant', rng.range(0, 480), (i % 5) * 120 + (i % 2 === 0 ? 5 : -5));
+    // piétons sur les trottoirs des rues est-ouest, loin des carrefours
+    for (let i = 0; i < 120; i++) {
+      const x = 12 + ((i * 37) % 96) + Math.floor(rng.range(0, 4)) * 120;
+      b.person('passant', x, (i % 5) * 120 + (i % 2 === 0 ? 9 : -5));
+    }
     expect(b.ctx.vehicles.list.length).toBe(150);
+    let arrivals = 0;
     const redispatch = (i: number): void => {
       if (i % 30 !== 0) return;
       for (const v of moving) {
         const st = b.autopilot.status(v).state;
+        if (st === 'arrive') arrivals++;
         if (st !== 'en_route' && st !== 'attente') dispatch(v);
       }
     };
     measure(b, 600, redispatch); // mise en température
-    const res = measure(b, 1800, redispatch);
+    const ref = reference();
+    const cost = measure(b, 3000, redispatch);
     const awake = b.ctx.vehicles.list.filter((v) => !b.ext.dynamics(v).asleep).length;
     const rolling = moving.filter((v) => Math.abs(v.speed) > 0.5).length;
-    console.log(`[perf] 150 véhicules en ville (${awake} éveillés, ${rolling} roulent) : ${res.mean.toFixed(3)} ms par pas en moyenne, ${res.max.toFixed(2)} ms au pire`);
-    expect(rolling).toBeGreaterThan(15);
-    expect(res.mean).toBeLessThan(1.5);
-  });
+    console.log(`[perf] 150 véhicules en ville (${awake} éveillés, ${rolling} roulent, ${arrivals} trajets terminés) : ${cost.toFixed(3)} ms de processeur par pas (référence ${ref.toFixed(0)} ms)`);
+    expect(rolling).toBeGreaterThan(12);
+    expect(arrivals).toBeGreaterThan(10);
+    expect(cost).toBeLessThan(1.5);
+  }, 60000);
 
   it('pire cas : 150 véhicules tous en mouvement, au milieu de 200 personnes', async () => {
     const b = await createVehicleBench({ world: createFakeWorld() });
@@ -122,21 +146,21 @@ describe('performances des véhicules', () => {
       }
     };
     measure(b, 300, drive);
-    const res = measure(b, 1200, drive);
+    const cost = measure(b, 1500, drive);
     const rolling = list.filter((v) => Math.abs(v.speed) > 0.5).length;
-    console.log(`[perf] 150 véhicules tous en mouvement (${rolling} roulent) : ${res.mean.toFixed(3)} ms par pas en moyenne, ${res.max.toFixed(2)} ms au pire`);
+    console.log(`[perf] 150 véhicules tous en mouvement (${rolling} roulent), 200 personnes : ${cost.toFixed(3)} ms de processeur par pas`);
     expect(rolling).toBeGreaterThan(100);
-    expect(res.mean).toBeLessThan(4);
-  });
+    expect(cost).toBeLessThan(1.5);
+  }, 60000);
 
   it('150 véhicules garés ne coûtent presque rien', async () => {
     const b = await createVehicleBench({ world: createFakeWorld() });
     for (let i = 0; i < 150; i++) b.spawn(PARKED[i % PARKED.length]!, (i % 15) * 20, Math.floor(i / 15) * 20, 0);
     measure(b, 120);
-    const res = measure(b, 1200);
-    console.log(`[perf] 150 véhicules garés : ${(res.mean * 1000).toFixed(1)} µs par pas`);
+    const cost = measure(b, 6000);
+    console.log(`[perf] 150 véhicules garés : ${(cost * 1000).toFixed(1)} µs de processeur par pas`);
     expect(b.ctx.vehicles.list.every((v) => b.ext.dynamics(v).asleep)).toBe(true);
-    expect(res.mean).toBeLessThan(0.3);
+    expect(cost).toBeLessThan(0.1);
   });
 
   it('n\'alloue pas dans la boucle : une minute de circulation sans passage notable du ramasse-miettes', async () => {

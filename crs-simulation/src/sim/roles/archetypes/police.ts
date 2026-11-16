@@ -402,7 +402,7 @@ export function dressPolice(
   d.gasProtection = 0;
 }
 
-/** Âge minimal crédible : un chef n'a pas vingt ans. Sert aux tests de cohérence. */
+/** Libellé français d'un grade ('' si aucun). */
 export function rankLabel(rank: PoliceRank | null): string {
   return rank ? RANK_DEFS[rank]?.label ?? '' : '';
 }

@@ -41,7 +41,7 @@ const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerH
 const world = new THREE.Group();
 scene.add(world);
 const sun = new THREE.DirectionalLight(night ? 0x8fa6d8 : 0xfff2e0, night ? 0.22 : 2.7);
-sun.position.set(-14, 22, 12);
+sun.position.set(16, 34, 22);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 sun.shadow.bias = -0.0005;
@@ -58,7 +58,7 @@ function setShadowArea(cx: number, cz: number, half: number): void {
   const c = sun.shadow.camera;
   c.left = -half; c.right = half; c.top = half; c.bottom = -half; c.near = 1; c.far = 160;
   c.updateProjectionMatrix();
-  sun.position.set(cx - 22, 36, cz + 20);
+  sun.position.set(cx + 16, 34, cz + 22);
   sun.target.position.set(cx, 0, cz);
 }
 

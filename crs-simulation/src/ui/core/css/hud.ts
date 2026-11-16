@@ -15,7 +15,7 @@ export const CSS_HUD = `
 .ui-hud[data-compact="1"] { --hp: 10px; font-size: 12px; }
 .hud-slot { position: absolute; display: flex; flex-direction: column; gap: 8px; pointer-events: none; max-width: 46%; }
 .ui-hud[data-compact="1"] .hud-slot { gap: 5px; }
-.hud-slot > * { order: 50; }
+.hud-slot > * { order: 50; max-width: 100%; min-width: 0; }
 .hud-slot--top-left { left: calc(var(--hp) + var(--ui-safe-l)); top: calc(var(--hp) + var(--ui-safe-t)); align-items: flex-start; }
 .hud-slot--top { left: 50%; top: calc(var(--hp) + var(--ui-safe-t)); transform: translateX(-50%); align-items: center; }
 .hud-slot--top-right { right: calc(var(--hp) + var(--ui-safe-r)); top: calc(var(--hp) + var(--ui-safe-t)); align-items: flex-end; }
@@ -42,7 +42,6 @@ export const CSS_HUD = `
 .ui-hud[data-touch="pied"] .hud-slot--bottom { left: calc(176px * var(--ts) + var(--ui-safe-l)); right: calc(214px * var(--ts) + var(--ui-safe-r)); bottom: calc(68px * var(--ts) + var(--ui-safe-b)); }
 .ui-hud[data-touch="vehicule"] .hud-slot--bottom { left: calc(210px * var(--ts) + var(--ui-safe-l)); right: calc(290px * var(--ts) + var(--ui-safe-r)); bottom: calc(10px * var(--ts) + var(--ui-safe-b)); }
 .ui-hud[data-touch="drone"] .hud-slot--bottom { left: calc(176px * var(--ts) + var(--ui-safe-l)); right: calc(240px * var(--ts) + var(--ui-safe-r)); bottom: calc(10px * var(--ts) + var(--ui-safe-b)); }
-.hud-slot--bottom > * { max-width: 100%; }
 .ui-hud[data-touch="pied"] .hud-slot--bottom-left { left: calc(190px * var(--ts) + var(--ui-safe-l)); bottom: calc(68px * var(--ts) + var(--ui-safe-b)); }
 .ui-hud[data-touch="vehicule"] .hud-slot--bottom-left, .ui-hud[data-touch="drone"] .hud-slot--bottom-left {
   left: calc(214px * var(--ts) + var(--ui-safe-l)); bottom: calc(10px * var(--ts) + var(--ui-safe-b)); }
@@ -141,7 +140,8 @@ export const CSS_HUD = `
 .hud-obj__bar { grid-column: 2 / span 2; height: 3px; border-radius: 2px; background: rgba(255, 255, 255, .2); overflow: hidden; margin-top: 3px; }
 .hud-obj__bar i { display: block; height: 100%; background: #fff; transform-origin: left center; }
 .hud-obj__more { font-size: 11.5px; color: #b9c5d9; padding-left: 21px; }
-.hud-obj1 { display: flex; align-items: center; gap: 7px; max-width: min(420px, 46vw); padding: 3px 10px; border-radius: 12px; }
+.hud-objw { display: flex; justify-content: center; }
+.hud-obj1 { display: flex; align-items: center; gap: 7px; max-width: min(420px, 100%); min-width: 0; padding: 3px 10px; border-radius: 12px; }
 .hud-obj1__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ui-yellow); flex: none; }
 .hud-obj1__text { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hud-obj1__meta { font-size: 11px; font-weight: 700; color: var(--ui-yellow); white-space: nowrap; }

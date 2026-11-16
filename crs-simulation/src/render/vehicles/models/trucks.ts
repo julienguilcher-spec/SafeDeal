@@ -27,6 +27,8 @@ export interface TruckBaseOptions {
   wheelR: number;
   /** Grilles de protection sur le pare-brise et les vitres de cabine. */
   grilles?: boolean;
+  /** Retrait de la face avant de la cabine (m) pour loger un pare-buffle. */
+  frontInset?: number;
   /** Couleur fixe de la cabine (sinon teinte de l'instance). */
   cabColor?: number;
   bumperColor?: number;
@@ -36,6 +38,8 @@ export interface TruckBaseOptions {
 export interface TruckAnchors {
   meta: ModelMeta;
   hl: number; hw: number;
+  /** Face avant de la cabine (le pare-chocs ou le pare-buffle occupe le reste jusqu'à hl). */
+  zFront: number;
   /** Arrière de la cabine, dessus du châssis, toit de cabine. */
   zCab: number; yDeck: number; cabTop: number;
   zF: number; zR: number; r: number;
@@ -48,13 +52,14 @@ export function truckBase(g: Geo, far: boolean, def: VehicleDef, o: TruckBaseOpt
   const r = o.wheelR, ww = 0.3;
   const gc = 0.42;
   const yDeck = r * 2 + 0.1;
-  const zCab = hl - o.cabLen;
+  const zf = hl - 0.07 - (o.frontInset ?? 0);   // face avant de la cabine
+  const zCab = zf - o.cabLen;
   const yBelt = yDeck + 0.5;
   const cabTop = o.cabTop;
   const meta = emptyMeta(def);
   const cabStyle = (): void => { if (o.cabColor !== undefined) g.paint(o.cabColor, SURF_FIXED); else g.body(); };
   const over = L - def.wheelbase;
-  const zF = Math.min(hl - r - 0.25, hl - over * 0.36);
+  const zF = Math.min(zf - r - 0.2, hl - over * 0.36);
   const zR = zF - def.wheelbase;
 
   // ── châssis ──
@@ -72,15 +77,15 @@ export function truckBase(g: Geo, far: boolean, def: VehicleDef, o: TruckBaseOpt
   // ── cabine ──
   const stations: Station[] = [
     { z: zCab, w: hw, y0: gc + 0.05, y1: yBelt, round: 0.02, tuck: 0.08 },
-    { z: hl - 0.22, w: hw, y0: gc + 0.05, y1: yBelt, round: 0.02, tuck: 0.08 },
-    { z: hl, w: hw * 0.96, y0: gc + 0.16, y1: yBelt - 0.02, round: 0.04, tuck: 0.06 },
+    { z: zf - 0.22, w: hw, y0: gc + 0.05, y1: yBelt, round: 0.02, tuck: 0.08 },
+    { z: zf, w: hw * 0.96, y0: gc + 0.16, y1: yBelt - 0.02, round: 0.04, tuck: 0.06 },
   ];
   shell(g, far, stations, cabStyle);
   const cab: CabinSpec = {
-    zA: hl - 0.02, zB: hl - 0.24, zC: zCab + 0.06, zD: zCab + 0.02, yBelt, yRoof: cabTop, wBelt: hw - 0.015, wRoof: hw - 0.1,
+    zA: zf - 0.02, zB: zf - 0.24, zC: zCab + 0.06, zD: zCab + 0.02, yBelt, yRoof: cabTop, wBelt: hw - 0.015, wRoof: hw - 0.1,
     cap: 0.08, rearGlass: false, grilleFront: o.grilles, side: [],
   };
-  const fd1 = hl - 0.3, fd0 = Math.max(zCab + 0.12, fd1 - 1.05);
+  const fd1 = zf - 0.3, fd0 = Math.max(zCab + 0.12, fd1 - 1.05);
   if (far) cab.side.push({ z0: o.crew ? zCab + 0.2 : fd0, z1: fd1 });
   cabin(g, far, cab, cabStyle);
   const notch = { z: zF - r * 1.2, y: r * 2.28 };
@@ -101,27 +106,28 @@ export function truckBase(g: Geo, far: boolean, def: VehicleDef, o: TruckBaseOpt
   }
 
   // ── face avant ──
-  const fz = hl + 0.006;
+  const fz = zf + 0.006;
   const s2 = stations[2]!;
   if (!far) {
-    grille(g, false, yDeck + 0.12, fz, hw * 1.25, 0.42);
-    plate(g, false, gc + 0.3, fz + 0.012, 'F');
-    bumper(g, false, hw * 0.98, gc + 0.1, gc + 0.42, hl - 0.085, 0.14, o.bumperColor ?? COL.plastic);
+    grille(g, false, yDeck + 0.2, fz, hw * 1.2, 0.36);
+    plate(g, false, gc + 0.25, zf + 0.074, 'F');
+    bumper(g, false, hw * 0.98, gc + 0.08, gc + 0.4, zf - 0.014, 0.14, o.bumperColor ?? COL.plastic);
   }
+  if (far && !o.frontInset) g.paint(o.bumperColor ?? COL.plastic, SURF_FIXED).box(-hw * 0.96, hw * 0.96, gc + 0.08, gc + 0.4, zf - 0.05, hl, 1 | 2 | 4);
   g.mirror(() => {
-    lamp(g, s2.w * 0.74, gc + 0.56, fz + (far ? 0 : 0.0), [1, 0, 0], [0, 1, 0], 0.3, 0.14, COL.headLens, LIGHT_HEAD);
+    lamp(g, s2.w * 0.74, gc + 0.62, fz, [1, 0, 0], [0, 1, 0], 0.3, 0.14, COL.headLens, LIGHT_HEAD, far ? 0 : 0.02);
   });
   if (!far) {
-    lamp(g, s2.w * 0.93, gc + 0.56, fz, [1, 0, 0], [0, 1, 0], 0.08, 0.14, COL.amber, LIGHT_IND_L);
-    lamp(g, -s2.w * 0.93, gc + 0.56, fz, [1, 0, 0], [0, 1, 0], 0.08, 0.14, COL.amber, LIGHT_IND_R);
+    lamp(g, s2.w * 0.93, gc + 0.62, fz, [1, 0, 0], [0, 1, 0], 0.08, 0.14, COL.amber, LIGHT_IND_L);
+    lamp(g, -s2.w * 0.93, gc + 0.62, fz, [1, 0, 0], [0, 1, 0], 0.08, 0.14, COL.amber, LIGHT_IND_R);
     g.mirror(() => {
-      sideMirror(g, false, hw - 0.01, yBelt + 0.5, hl - 0.32, 0.3, () => g.paint(COL.plastic, SURF_FIXED));
+      sideMirror(g, false, hw - 0.01, yBelt + 0.5, zf - 0.32, 0.3, () => g.paint(COL.plastic, SURF_FIXED));
     });
     // pare-soleil
     cabStyle();
-    g.box(-hw * 0.9, hw * 0.9, cabTop - 0.1, cabTop - 0.04, hl - 0.24, hl - 0.02);
+    g.box(-hw * 0.9, hw * 0.9, cabTop - 0.1, cabTop - 0.04, zf - 0.24, zf - 0.02);
   }
-  meta.head.push(s2.w * 0.74, gc + 0.56, hl, -s2.w * 0.74, gc + 0.56, hl);
+  meta.head.push(s2.w * 0.74, gc + 0.62, zf, -s2.w * 0.74, gc + 0.62, zf);
 
   // ── feux arrière sur le châssis ──
   const rz = -hl - 0.004;
@@ -154,7 +160,7 @@ export function truckBase(g: Geo, far: boolean, def: VehicleDef, o: TruckBaseOpt
   });
 
   if (o.lightbar) {
-    const by = cabTop + (far ? 0 : 0.03), bz = hl - o.cabLen * 0.5;
+    const by = cabTop + (far ? 0 : 0.03), bz = zf - o.cabLen * 0.5;
     lightbar(g, far, by, bz, Math.min(1.5, W * 0.62));
     meta.beaconA.push(0.45, by + 0.08, bz);
     meta.beaconB.push(-0.45, by + 0.08, bz);
@@ -163,10 +169,10 @@ export function truckBase(g: Geo, far: boolean, def: VehicleDef, o: TruckBaseOpt
 
   meta.wheelRadius = r;
   meta.cockpit = 'truck';
-  meta.beltY = yBelt; meta.hoodY = yBelt - 0.25; meta.roofY = cabTop; meta.cowlZ = hl - 0.02; meta.halfWidth = hw;
+  meta.beltY = yBelt; meta.hoodY = yBelt - 0.25; meta.roofY = cabTop; meta.cowlZ = zf - 0.02; meta.halfWidth = hw;
   meta.grille = !!o.grilles;
   meta.sag = r * 0.22;
-  return { meta, hl, hw, zCab, yDeck, cabTop, zF, zR, r, yBelt };
+  return { meta, hl, hw, zFront: zf, zCab, yDeck, cabTop, zF, zR, r, yBelt };
 }
 
 /** Camion civil : cabine à la teinte de l'instance, caisse fourgon claire. */
@@ -189,8 +195,8 @@ export function buildCamion(g: Geo, far: boolean, def: VehicleDef): ModelMeta {
     g.mirror(() => { for (const y of [0.25, 0.5, 0.75]) g.box(hw - 0.02, hw + 0.004, yDeck + (H - yDeck) * y, yDeck + (H - yDeck) * y + 0.02, -hl + 0.02, z1 - 0.02); });
     g.body();
     g.hexa([
-      -hw * 0.9, a.cabTop, zCab + 0.1, hw * 0.9, a.cabTop, zCab + 0.1, hw * 0.9, a.cabTop, hl - 0.5, -hw * 0.9, a.cabTop, hl - 0.5,
-      -hw * 0.9, H - 0.05, zCab + 0.1, hw * 0.9, H - 0.05, zCab + 0.1, hw * 0.8, a.cabTop + 0.05, hl - 0.6, -hw * 0.8, a.cabTop + 0.05, hl - 0.6,
+      -hw * 0.9, a.cabTop, zCab + 0.1, hw * 0.9, a.cabTop, zCab + 0.1, hw * 0.9, a.cabTop, a.zFront - 0.5, -hw * 0.9, a.cabTop, a.zFront - 0.5,
+      -hw * 0.9, H - 0.05, zCab + 0.1, hw * 0.9, H - 0.05, zCab + 0.1, hw * 0.8, a.cabTop + 0.05, a.zFront - 0.6, -hw * 0.8, a.cabTop + 0.05, a.zFront - 0.6,
     ], 1);
   }
   a.meta.fire = [0, a.cabTop * 0.8, hl - 1.0, 0, H * 0.7, -1, 0, H * 0.7, -hl + 1.2];
@@ -229,7 +235,7 @@ export function buildPompiers(g: Geo, far: boolean, def: VehicleDef): ModelMeta 
     }
     // marquage au-dessus des rideaux et bande réfléchissante
     decal(g, 'pompiers', face, xs * s, top - 0.31, (-hl + z1) / 2, Math.min(0.46, (bodyLen - 0.3) / 5.2));
-    if (!far) decal(g, 'damier', face, xs * s, yDeck + 0.42, (zCab + hl - 0.3) / 2, 0.14, hl - 0.3 - zCab - 0.2);
+    if (!far) decal(g, 'damier', face, xs * s, yDeck + 0.42, (zCab + a.zFront - 0.3) / 2, 0.14, a.zFront - 0.3 - zCab - 0.2);
   }
   // arrière : rideau, chevrons
   if (!far) {
@@ -248,7 +254,7 @@ export function buildPompiers(g: Geo, far: boolean, def: VehicleDef): ModelMeta 
     for (const z of [-hl + 0.4, z1 - 0.1]) g.box(lx - 0.24, lx + 0.24, top, ly - 0.02, z - 0.03, z + 0.03);
     // dévidoir et tuyaux d'aspiration côté gauche
     g.paint(0x2a2c30, SURF_FIXED).tube(hw - 0.35, top + 0.1, -hl + 0.2, hw - 0.35, top + 0.1, z1 - 0.2, 0.09, 0.09, 8);
-    g.paint(COL.fireYellow, SURF_FIXED).box(-hw * 0.96, hw * 0.96, a.yBelt - 0.18, a.yBelt - 0.1, hl + 0.004, hl + 0.012);
+    g.paint(COL.fireYellow, SURF_FIXED).box(-hw * 0.96, hw * 0.96, a.yBelt - 0.18, a.yBelt - 0.1, a.zFront + 0.004, a.zFront + 0.012);
   }
   beacon(g, far, hw - 0.25, top, -hl + 0.25, LIGHT_BEACON_A, 0.085);
   beacon(g, far, -(hw - 0.25), top, -hl + 0.25, LIGHT_BEACON_B, 0.085);
@@ -329,6 +335,3 @@ export function buildSono(g: Geo, far: boolean, def: VehicleDef): ModelMeta {
   meta.fire = [0, a.cabTop * 0.8, hl - 1.0, 0, deck + 1.0, -1];
   return meta;
 }
-
-// optiques communes exportées pour l'engin lanceur d'eau
-export { LIGHT_BRAKE, LIGHT_IND_L, LIGHT_IND_R, LIGHT_REVERSE };

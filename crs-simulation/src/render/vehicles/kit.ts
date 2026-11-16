@@ -6,7 +6,7 @@
  */
 
 import {
-  Geo, LIGHT_BEACON_A, LIGHT_BEACON_B, LIGHT_NONE, PART_DOOR, PART_NONE, PART_SLIDE, PART_WHEEL, PART_WHEEL_STEER,
+  Geo, LIGHT_BEACON_A, LIGHT_BEACON_B, LIGHT_NONE, PART_DOOR, PART_SLIDE, PART_WHEEL, PART_WHEEL_STEER,
   SURF_DARK, SURF_FIXED, SURF_GLASS, SURF_LAMP, SURF_METAL, SURF_PLATE, SURF_RUBBER,
 } from './geo';
 import { tile, tileAspect } from './atlas-layout';
@@ -525,9 +525,23 @@ export function arch(g: Geo, far: boolean, x: number, z: number, r: number, yMin
 
 // ── équipements ──────────────────────────────────────────────────────────────────────
 
-/** Optique plane : centre, « droite » et « haut » du panneau, dimensions, couleur de lentille, code de feu. */
-export function lamp(g: Geo, cx: number, cy: number, cz: number, right: readonly number[], up: readonly number[], w: number, h: number, color: number, code: number): void {
-  g.tile(null).paint(color, SURF_LAMP).light(code);
+/**
+ * Optique plane : centre, « droite » et « haut » du panneau, dimensions, couleur de lentille, code de feu.
+ * `bezel` > 0 ajoute un enjoliveur sombre de cette largeur autour de la lentille (indispensable sur une caisse blanche).
+ */
+export function lamp(
+  g: Geo, cx: number, cy: number, cz: number, right: readonly number[], up: readonly number[], w: number, h: number,
+  color: number, code: number, bezel = 0,
+): void {
+  g.tile(null);
+  if (bezel > 0) {
+    // l'enjoliveur est posé juste derrière la lentille, le long de la normale droite × haut
+    const nx = right[1]! * up[2]! - right[2]! * up[1]!, ny = right[2]! * up[0]! - right[0]! * up[2]!, nz = right[0]! * up[1]! - right[1]! * up[0]!;
+    const nl = Math.hypot(nx, ny, nz) || 1;
+    g.paint(0x1c1d20, SURF_FIXED).light(LIGHT_NONE);
+    g.panel(cx - (nx / nl) * 0.003, cy - (ny / nl) * 0.003, cz - (nz / nl) * 0.003, right, up, w + bezel * 2, h + bezel * 2);
+  }
+  g.paint(color, SURF_LAMP).light(code);
   g.panel(cx, cy, cz, right, up, w, h);
   g.light(LIGHT_NONE);
 }
@@ -689,4 +703,3 @@ export function pipe(g: Geo, pts: readonly number[], r: number, seg = 6): void {
   }
 }
 
-export { PART_NONE };

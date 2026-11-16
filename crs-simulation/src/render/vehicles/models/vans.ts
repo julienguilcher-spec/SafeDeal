@@ -204,7 +204,7 @@ export function buildVan(g: Geo, far: boolean, def: VehicleDef, st: VanStyle): M
     bumper(g, false, hw * 0.95, gc + 0.05, gc + 0.185, hl - 0.075, 0.12, 0x33363b);
   }
   g.mirror(() => {
-    lamp(g, hw * 0.66, capY1 - 0.07, fz, [1, 0, 0], [0, 1, 0], hw * 0.32, 0.13, COL.headLens, LIGHT_HEAD);
+    lamp(g, hw * 0.66, capY1 - 0.07, fz, [1, 0, 0], [0, 1, 0], hw * 0.32, 0.13, COL.headLens, LIGHT_HEAD, far ? 0 : 0.018);
     if (!far) {
       g.paint(COL.headLens, SURF_LAMP).light(LIGHT_HEAD); patch(g, s4, s5, EDGE_SIDE, 0.1, 0.96, 0.6, 0.96, 1);
       g.light(LIGHT_NONE);
@@ -282,5 +282,3 @@ export function buildVan(g: Geo, far: boolean, def: VehicleDef, st: VanStyle): M
   meta.sag = r * 0.26;
   return meta;
 }
-
-// rappel : LIGHT_BEACON_A / B sont utilisés par beacon() ; SURF_LAMP par les optiques de coin.

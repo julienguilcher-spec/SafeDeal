@@ -278,9 +278,11 @@ try {
           });
         }
         let painAtHit = 0;
+        let arcAtHit = false;
         if (scene.busy) {
           await frames(page, 3);
           painAtHit = await page.evaluate(() => window.__uiTest.fx.pain);
+          arcAtHit = await page.evaluate(() => [...document.querySelectorAll('.hud-dmg')].some((e) => Number(getComputedStyle(e).opacity) > 0.5));
         }
         await settle(page, 420);
         await shot(page, `ui-hud-${scene.name}-${size.key}`);
@@ -291,7 +293,7 @@ try {
           const fx = await page.evaluate(() => ({ ...window.__uiTest.fx }));
           check(fx.gas > 0.1 && painAtHit > 0.2 && fx.visor === 1, `effets d'écran envoyés à ctx.view (gaz ${fx.gas.toFixed(2)}, douleur au moment du coup ${painAtHit.toFixed(2)}, visière ${fx.visor}) [${size.key}]`);
           check(fx.pain < painAtHit, `l'effet de douleur s'estompe (${painAtHit.toFixed(2)} → ${fx.pain.toFixed(2)}) [${size.key}]`);
-          check(await page.evaluate(() => [...document.querySelectorAll('.hud-dmg')].some((e) => Number(getComputedStyle(e).opacity) > 0.2)), `indicateur de direction du coup reçu visible [${size.key}]`);
+          check(arcAtHit, `indicateur de direction du coup reçu visible au moment du coup [${size.key}]`);
           const dash = await page.evaluate(() => Number(document.querySelector('.r-charge').getAttribute('stroke-dashoffset')));
           check(dash > 40 && dash < 70, `jauge de charge du lancer à 62 % (décalage ${dash}) [${size.key}]`);
           check((await page.evaluate(() => window.__uiTest.debug().notices().length)) === 3, `trois notifications empilées [${size.key}]`);

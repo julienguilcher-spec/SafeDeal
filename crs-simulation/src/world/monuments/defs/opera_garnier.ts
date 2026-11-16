@@ -191,8 +191,12 @@ function build(site: MonumentSite, quality: QualityLevel): Builder {
     }));
     copper.append(domeRibs(domeProfile(9.4, 6.6, 6, 0.9, 1.7), lod > 0 ? 12 : 6, 0.9, 0.2).translate(px, WALL - 3, pz));
   }
-  // rampes carrossables du pavillon de l'Empereur (ouest) : deux murets courbes en pente
-  for (const t of [-1, 1]) stone.append(box(8, 2.2, 1.3).rotateY(t * 0.5).translate(-52.6, 0, 5.6 + t * 12.5));
+  // rampes carrossables du pavillon de l'Empereur (ouest) : deux rampes en pente adossées à la rotonde, parapet plein
+  for (const t of [-1, 1]) {
+    const ramp = slabXY([0, 0, 9.5, 0, 9.5, 3.4, 8.6, 3.4, 0, 0.5], 2.6).rotateY(t > 0 ? -Math.PI / 2 : Math.PI / 2);
+    stone.append(ramp.translate(-49.2, 0, 5.6 + t * (9.4 + 9.5)));
+  }
+  stone.append(boxAt(-52, 0, 5.6 - 9.4, -47.6, 3.4, 5.6 + 9.4));
   // ── administration (nord) : comble brisé d'ardoise ──
   zinc.append(hipRoof(26.5, -74, -56, 6.5, 8).translate(0, WALL, 0));
   b.add(STONE, stone); b.add(ZINC, zinc); b.add(COPPER, copper); b.add('ombre', eyes);

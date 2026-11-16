@@ -3,7 +3,7 @@
 import type { VehicleDef } from '@/core/contracts';
 import {
   LIGHT_BRAKE, LIGHT_HEAD, LIGHT_IND_L, LIGHT_IND_R, LIGHT_NONE, LIGHT_REVERSE, LIGHT_SIGN, LIGHT_TAIL, PART_SLIDE,
-  SURF_DARK, SURF_FIXED, SURF_GLASS, SURF_LAMP,
+  SURF_DARK, SURF_FIXED, SURF_GLASS,
 } from '../geo';
 import type { Geo } from '../geo';
 import { COL, arch, bumper, decal, lamp, lightbar, plate, shell, wheel } from '../kit';
@@ -94,7 +94,7 @@ export function buildCoach(g: Geo, far: boolean, def: VehicleDef, kind: 'bus' | 
     }
   }
   g.mirror(() => {
-    lamp(g, hw * 0.68, gc + 0.42, fz, [1, 0, 0], [0, 1, 0], 0.36, 0.14, COL.headLens, LIGHT_HEAD);
+    lamp(g, hw * 0.68, gc + 0.42, fz, [1, 0, 0], [0, 1, 0], 0.36, 0.14, COL.headLens, LIGHT_HEAD, far ? 0 : 0.02);
   });
   if (!far) {
     lamp(g, hw * 0.86, gc + 0.62, fz, [1, 0, 0], [0, 1, 0], 0.12, 0.09, COL.amber, LIGHT_IND_L);
@@ -189,6 +189,3 @@ export function buildCoach(g: Geo, far: boolean, def: VehicleDef, kind: 'bus' | 
   meta.sag = r * 0.22;
   return meta;
 }
-
-// SURF_LAMP est employé indirectement par lamp() ; conservé à l'import pour les variantes éclairées.
-export const COACH_LAMP_SURF = SURF_LAMP;

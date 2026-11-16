@@ -170,6 +170,26 @@ export class Motion {
     this.m.store.reindex(p);
   }
 
+  /** Redresse un objet renversé et le remet en ordre (il ne compte plus comme matière de barricade). */
+  standUp(p: PropObj): boolean {
+    if (p.slot < 0 || !p.toppled || p.parts !== null || p.state === 'broken' || p.state === 'burnt') return false;
+    const def = p.def;
+    p.toppled = false;
+    p.toppledDone = false;
+    p.halfX = p.standHalfX;
+    p.halfZ = p.standHalfZ;
+    p.height = p.standHeight;
+    p.blocksMove = def.blocksMove;
+    p.blocksSight = def.blocksSight;
+    p.vx = 0;
+    p.vz = 0;
+    p.movedAt = -1e9;
+    p.movedBy = 0;
+    p.dirty = true;
+    this.m.store.reindex(p);
+    return true;
+  }
+
   // ───────────────────────────── portage ─────────────────────────────
 
   carry(p: PropObj, by: Person): boolean {

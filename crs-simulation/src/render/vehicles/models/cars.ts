@@ -140,7 +140,7 @@ export function buildCar(g: Geo, far: boolean, def: VehicleDef, st: CarStyle): M
     bumper(g, false, hw * 0.93, gc + 0.04, gc + 0.165, hl - 0.07, 0.11, st.cladding ? COL.plastic : 0x2f3136);
   }
   g.mirror(() => {
-    lamp(g, hw * 0.61, capY1 - 0.055, fz, [1, 0, 0], [0, 1, 0], hw * 0.36, 0.1, COL.headLens, LIGHT_HEAD);
+    lamp(g, hw * 0.61, capY1 - 0.055, fz, [1, 0, 0], [0, 1, 0], hw * 0.36, 0.1, COL.headLens, LIGHT_HEAD, far ? 0 : 0.012);
     if (!far) {
       g.paint(COL.headLens, SURF_LAMP).light(LIGHT_HEAD);
       patch(g, s6, s7, EDGE_SIDE, 0.1, 0.96, 0.62, 0.97, 1);

@@ -407,6 +407,3 @@ export function buildHelico(g: Geo, far: boolean, def: VehicleDef): ModelMeta {
   meta.sag = 0;
   return meta;
 }
-
-// codes de clignotants employés par les deux-roues
-export const BIKE_LIGHTS = [LIGHT_IND_L, LIGHT_IND_R] as const;

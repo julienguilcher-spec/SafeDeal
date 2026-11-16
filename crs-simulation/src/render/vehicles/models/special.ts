@@ -25,7 +25,7 @@ export function buildCanonEau(g: Geo, far: boolean, def: VehicleDef): ModelMeta 
     ? turrets.slice(0, 2).map((t) => [-t.x, t.y, t.z])
     : [[0.62, H - 0.5, def.length / 2 - 2.9], [-0.62, H - 0.5, def.length / 2 - 2.9]];
   const cabTop = Math.min(2.95, H - 0.75);
-  const a = truckBase(g, far, def, { cabLen: 2.35, cabTop, rearAxles: 2, wheelR: 0.52, grilles: true, cabColor: undefined, bumperColor: 0x2a2c30, lightbar: true });
+  const a = truckBase(g, far, def, { cabLen: 2.35, cabTop, rearAxles: 2, wheelR: 0.52, grilles: true, frontInset: 0.26, bumperColor: 0x2a2c30, lightbar: true });
   const { hl, hw, zCab, yDeck, meta } = a;
   const white = (): void => { g.body(); };
   const tankTop = Math.min(H - 0.55, Math.min(...tp.map((p) => p[1])) - 0.12);
@@ -79,20 +79,26 @@ export function buildCanonEau(g: Geo, far: boolean, def: VehicleDef): ModelMeta 
     }
   }
 
-  // ── pare-buffle ──
-  const gcB = 0.52, fz = hl;
+  // ── pare-buffle : cadre tubulaire et tôle, devant la cabine en retrait ──
+  const gcB = 0.5, fz = hl;
+  const zc = a.zFront;
   if (far) {
-    g.paint(0x2a2c30, SURF_FIXED).box(-hw * 0.95, hw * 0.95, gcB, a.yBelt - 0.1, fz - 0.14, fz, 1);
+    g.paint(0x2a2c30, SURF_FIXED).box(-hw * 0.95, hw * 0.95, gcB, a.yBelt - 0.1, zc, fz, 1 | 4);
   } else {
-    g.paint(0x2a2c30, SURF_METAL);
-    const bz = fz - 0.05, by1 = a.yBelt + 0.05;
+    g.paint(0x2f3237, SURF_METAL);
+    const bz = fz - 0.045, by1 = a.yBelt + 0.02;
     g.mirror(() => {
-      pipe(g, [hw * 0.92, gcB, bz - 0.12, hw * 0.92, gcB + 0.1, bz, hw * 0.92, by1, bz, hw * 0.7, by1 + 0.12, bz], 0.04, 6);
-      g.tube(hw * 0.38, gcB, bz, hw * 0.38, by1 + 0.12, bz, 0.035, 0.035, 6);
+      // montants, jambes de force vers la cabine, retour protège-phare
+      g.tube(hw * 0.9, gcB, bz, hw * 0.9, by1, bz, 0.045, 0.045, 6);
+      g.tube(hw * 0.36, gcB, bz, hw * 0.36, by1 + 0.14, bz, 0.04, 0.04, 6);
+      g.tube(hw * 0.9, by1, bz, hw * 0.62, by1 + 0.14, bz, 0.04, 0.04, 6, false, false);
+      g.tube(hw * 0.9, gcB + 0.5, bz, hw * 0.9, gcB + 0.5, zc + 0.02, 0.035, 0.035, 5, false, false);
+      g.tube(hw * 0.9, gcB + 0.08, bz, hw * 0.9, gcB + 0.08, zc + 0.02, 0.035, 0.035, 5, false, false);
     });
-    for (const y of [gcB + 0.1, (gcB + by1) / 2 + 0.05, by1 + 0.12]) g.tube(-hw * (y > by1 ? 0.7 : 0.92), y, bz, hw * (y > by1 ? 0.7 : 0.92), y, bz, 0.035, 0.035, 6);
-    // tôle de protection basse
-    g.paint(0x25272b, SURF_FIXED).box(-hw * 0.9, hw * 0.9, gcB - 0.08, gcB + 0.12, bz - 0.16, bz - 0.06);
+    for (const y of [gcB + 0.06, gcB + 0.34, (gcB + by1) / 2 + 0.16]) g.tube(-hw * 0.9, y, bz, hw * 0.9, y, bz, 0.04, 0.04, 6);
+    g.tube(-hw * 0.62, by1 + 0.14, bz, hw * 0.62, by1 + 0.14, bz, 0.04, 0.04, 6);
+    // tôle de protection basse et plaque
+    g.paint(0x26282c, SURF_FIXED).box(-hw * 0.88, hw * 0.88, gcB - 0.06, gcB + 0.3, bz - 0.1, bz - 0.04);
   }
 
   // ── canons à eau ──
@@ -218,7 +224,7 @@ export function buildCentaure(g: Geo, far: boolean, def: VehicleDef): ModelMeta 
   }
   // vitres latérales : porte de cabine puis trois épiscopes du compartiment arrière
   const sideX = hw + 0.012;
-  const winY0 = yFloor + 1.0, winY1 = Math.min(hullTop - 0.42, winY0 + 0.42);
+  const winY0 = yFloor + 0.92, winY1 = Math.min(hullTop - 0.36, winY0 + 0.5);
   const sideWin = (s: number, z0: number, z1: number, y0: number, y1: number): void => {
     const x = sideX * s;
     g.paint(glassCol, SURF_GLASS).tile(tile('verre'));
@@ -226,8 +232,8 @@ export function buildCentaure(g: Geo, far: boolean, def: VehicleDef): ModelMeta 
     g.tile(null);
     if (!far) {
       // encadrement d'acier
-      g.paint(0x10131a, SURF_METAL);
-      const f = 0.035;
+      g.paint(0x8a93a6, SURF_METAL);
+      const f = 0.03;
       g.box(Math.min(x, x + 0.012 * s), Math.max(x, x + 0.012 * s), y0 - f, y0, z0 - f, z1 + f);
       g.box(Math.min(x, x + 0.012 * s), Math.max(x, x + 0.012 * s), y1, y1 + f, z0 - f, z1 + f);
       g.box(Math.min(x, x + 0.012 * s), Math.max(x, x + 0.012 * s), y0, y1, z0 - f, z0);
@@ -258,7 +264,7 @@ export function buildCentaure(g: Geo, far: boolean, def: VehicleDef): ModelMeta 
     const span = cabZ0 - 0.25 - (zRear + 0.75);
     for (let i = 0; i < 3; i++) {
       const zc = zRear + 0.75 + span * ((i + 0.5) / 3);
-      sideWin(s, zc - 0.22, zc + 0.22, winY0 + 0.06, winY1 - 0.04);
+      sideWin(s, zc - 0.3, zc + 0.3, winY0 + 0.04, winY1 - 0.02);
       // sabord de tir sous la vitre
       g.paint(0x10131a, SURF_METAL).tube(sideX * s, winY0 - 0.2, zc, (sideX + 0.02) * s, winY0 - 0.2, zc, 0.06, 0.06, 8, false, true);
     }
@@ -460,6 +466,3 @@ export function buildCentaure(g: Geo, far: boolean, def: VehicleDef): ModelMeta 
   meta.sag = r * 0.12;
   return meta;
 }
-
-// codes de feux utilisés par les optiques communes
-export const SPECIAL_LIGHTS = [LIGHT_BRAKE, LIGHT_BEACON_A, LIGHT_BEACON_B] as const;
