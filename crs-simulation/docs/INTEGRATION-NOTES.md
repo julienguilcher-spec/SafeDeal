@@ -114,21 +114,28 @@ Mode d'emploi du jeu : `docs/PLAYING.md`. Tests : `tests/e2e/game.mjs` (vrai jeu
 `tests/e2e/game-dist.mjs` (jeu construit servi sous un sous-chemin), `tests/unit/integration.session.test.ts`.
 
 ### Modules branchés (`src/main.ts`, tableau MODULES)
-`input`, `env`, `world/query`, `sim/roles` (archétypes), `sim/people`, `sim/vehicles`, `sim/items`, `sim/props`,
-`sim/hazards`, `gameplay/law`, `gameplay/radio`, `gameplay/session` (nouveau), puis la présentation : `render/base`
-(en premier : à ordre égal les systèmes s'exécutent dans l'ordre d'ajout), `world/view`, l'adaptateur `main.map2d`,
-`world/monuments`, `render/people`, `render/vehicles`, `ui` (qui agrège `ui/maps` et `ui/command`), `audio`.
-`render/vehicles` figurait parmi les modules « en cours » : il compilait, ses 68 tests passaient et aucun de ses
-fichiers n'avait changé depuis plus de 20 minutes au moment du branchement.
+`input`, `env`, `world/query`, `sim/roles` (archétypes), `sim/people`, `sim/vehicles`, `sim/traffic`, `sim/crowd`,
+`sim/items`, `sim/props`, `sim/hazards`, `gameplay/law`, `gameplay/radio`, `gameplay/session` (nouveau), puis la
+présentation : `render/base` (en premier : à ordre égal les systèmes s'exécutent dans l'ordre d'ajout), `world/view`,
+l'adaptateur `main.map2d`, `world/monuments`, `render/people`, `render/vehicles`, `render/fx`, `ui` (qui agrège
+`ui/maps` et `ui/command`), `audio`.
+
+Quatre modules de la liste « en cours » ont été branchés parce qu'ils remplissaient les trois conditions au moment du
+branchement (compilation sans erreur, tests verts, aucun fichier modifié depuis plus de 10 minutes) :
+- `render/vehicles` : 68 tests verts, inchangé depuis plus de 20 min (95 min à la fin de l'assemblage) ;
+- `sim/crowd` : compte rendu livré (`docs/modules/ia-foule.md`), inchangé depuis 72 min ; `sim/traffic` : compte rendu
+  livré (`docs/modules/vehicules-circulation.md`), inchangé depuis 50 min ; 69 tests verts pour les deux ;
+- `render/fx` : 5 fichiers de tests verts, inchangé depuis 39 min.
+La foule et la circulation se mettent en place seules sur `session:started` d'après `ctx.session.config` ; la mise en
+place de session ne pose alors plus ses passants figés (la circulation fournit les piétons civils).
 
 ### Laissés de côté (encore modifiés pendant l'assemblage — à brancher à l'assemblage 2)
-- `sim/crowd`, `sim/police`, `sim/traffic` : fichiers modifiés dans les dernières minutes (et, à 03 h 53, `tsc` signalait
-  `src/sim/police/command/command.ts` : module './adjoint' introuvable). Conséquences : pas de foule, collègues immobiles,
-  pas de circulation ; les services `crowd.metro`, `traffic.control`, `police.units` sont absents.
-- `render/props`, `render/fx` : en cours d'écriture. Conséquences : mobilier, vitrines, barricades, projectiles, gaz,
-  fumée et feu sont SIMULÉS mais INVISIBLES (on bute sur des poubelles que l'on ne voit pas).
-- `gameplay/missions/catalog` : données seules (pas de système), en cours de relecture. `gameplay/incidents`,
-  `sim/roles/rescue`, `sim/roles/medics` : dossiers absents à ce jour.
+- `sim/police` : fichiers modifiés jusqu'à la dernière minute. Conséquence : les collègues du joueur ne bougent pas, les
+  ordres ne sont exécutés par personne, le service `police.units` est absent.
+- `render/props` : en cours d'écriture. Conséquence : mobilier, vitrines et barricades sont SIMULÉS mais INVISIBLES
+  (on bute sur des poubelles et des barrières que l'on ne voit pas).
+- `gameplay/incidents`, `sim/roles/rescue`, `sim/roles/medics` : apparus pendant l'assemblage, modifiés dans les dix
+  dernières minutes. `gameplay/missions/catalog` : données seules (pas de système), en cours de relecture.
 Les lignes d'import correspondantes sont prêtes, en commentaire, dans `src/main.ts`.
 
 ### Ajouts compatibles au cœur
@@ -182,9 +189,10 @@ Les lignes d'import correspondantes sont prêtes, en commentaire, dans `src/main
 ### Vérifié en jeu (captures regardées)
 Page d'accueil, chargement avec progression réelle, vues à la première et à la troisième personne place de la
 Concorde (pavés, obélisque et sa grille, fontaine, hôtels de Gabriel, arbres, ciel, groupe de six CRS, HUD, mini-carte),
-marche et course, collision avec la grille de l'obélisque, grenade lacrymogène en main puis lancée (projectile, gaz,
+manifestation en phase de rassemblement (manifestants visibles, parcours tracé sur la mini-carte), marche et course,
+collision avec la grille de l'obélisque, grenade lacrymogène en main puis lancée (projectile, nuage de gaz dessiné,
 faute relevée par le droit : emploi sans sommation), plan de Paris orienté nord en haut, carte tactique avec l'unité,
-pause, paramètres, commandes tactiles sur téléphone. Zéro erreur console.
+pause, paramètres, recommencer, compte rendu, commandes tactiles sur téléphone. Zéro erreur console.
 
 ### Défauts connus après l'assemblage 1
 - **Tour Eiffel / monuments lointains invisibles** : `render/base` règle le brouillard sur la distance d'affichage

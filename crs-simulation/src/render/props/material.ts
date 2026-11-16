@@ -87,7 +87,7 @@ ${GATE_GLSL}`)
     // puissances : lanterne 7, intérieur éclairé 1,6, écran 1,4, feu tricolore 5 (lentille éteinte : 0,04)
     float crsPower = crsKind < 1.5 ? 7.0 : crsKind < 2.5 ? 1.6 : crsKind < 3.5 ? 1.4 : crsKind < 7.5 ? 5.0 : crsKind < 8.5 ? 3.0 : 4.0;
     float crsFloor = ( crsKind > 3.5 && crsKind < 6.5 ) || crsKind > 8.5 ? 0.04 : 0.0;
-    vPFx = vec3( ( crsFloor + crsG.x * crsPower ) * aFx.y, crsG.y * 0.36 * aFx.y * aFx.y, aFx.w );
+    vPFx = vec3( ( crsFloor + crsG.x * crsPower ) * aFx.y, crsG.y * 0.26 * aFx.y * aFx.y, aFx.w );
   }`);
   let f = shader.fragmentShader
     .replace('#include <common>', `#include <common>

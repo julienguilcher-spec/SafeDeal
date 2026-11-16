@@ -22,6 +22,7 @@ import { injuryRank } from './entry';
 import type { Kernel } from './kernel';
 import { relabel } from './labels';
 import type { Sense } from './sense';
+import type { Tracker } from './track';
 import {
   AGGRAVATION_STEP, FAM_BARRICADE, FAM_FIRE, FAM_ISOLATED, FAM_LOOTING, FAM_MOTORIST, FAM_OFFICER, FAM_RESCUE, FAM_SUSPECT,
   FAM_VICTIM, FIRE_OUT, FIRE_OUT_HOLD, FIRE_RAMP_TIME, FIRE_THREAT, ISOLATED_CLEAR, LOOTING_QUIET, MOTORIST_FREE,
@@ -38,6 +39,7 @@ function clamp01(v: number): number {
 
 export class Thinker {
   assigner!: Assigner;
+  tracker!: Tracker;
 
   constructor(private readonly k: Kernel, private readonly sense: Sense) {}
 
@@ -176,7 +178,7 @@ export class Thinker {
     // aggravation par la seule montée de la gravité, faute de traitement
     if (!first && !treating && e.severity >= e.aggravatedFrom + AGGRAVATION_STEP) this.aggravate(e);
 
-    this.assigner.track(e, dt, treating);
+    this.tracker.track(e, dt, treating);
   }
 
   /** Tous les membres ont disparu : traité s'il y a eu intervention, sinon la cause s'est éteinte d'elle-même. */

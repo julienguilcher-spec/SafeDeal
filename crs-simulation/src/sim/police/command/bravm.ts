@@ -382,7 +382,6 @@ export class BravmUnit extends SpecialUnit {
   // ───────────────────────────── interception à pied ─────────────────────────────
 
   private approach(): void {
-    const core = this.core;
     const o = this.order;
     if (this.footOperators() === 0) {
       this.complete(false, 'Aucun opérateur disponible.');

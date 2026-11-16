@@ -184,10 +184,18 @@ async function bureau(server) {
     s = await state(page);
     check(s.camera === 'tps', 'la touche V passe à la troisième personne', s.camera);
     await capture('game-tps-collegues');
-    // retour face à l'obélisque
+    // retour face à l'obélisque : les flèches tournent aussi pendant les images réelles (durée variable sous WebGL
+    // logiciel), on vérifie donc le sens du retour puis on recale le regard exactement dans l'axe de départ
     await page.keyboard.down('ArrowLeft');
-    await step(page, 0.55);
+    await step(page, 0.3);
     await page.keyboard.up('ArrowLeft');
+    const yawBack = (await state(page)).camYaw;
+    check(Math.sin(yawBack - yawTurned) > 0, 'la flèche gauche ramène le regard vers la gauche', `${yawTurned.toFixed(2)} → ${yawBack.toFixed(2)} rad`);
+    await page.evaluate(() => {
+      const c = window.__CRS.ctx;
+      c.player.state.camYaw = c.service('session.setup').summary.heading;
+      c.player.state.camPitch = 0;
+    });
     await step(page, 0.3);
     await capture('game-tps');
 
@@ -197,9 +205,11 @@ async function bureau(server) {
     await step(page, 3);
     const walk = await state(page);
     const dWalk = Math.hypot(walk.x - start.x, walk.z - start.z);
-    // la boucle d'images fait aussi avancer la simulation en temps réel : la vitesse se mesure sur l'horloge simulée
+    // la boucle d'images fait aussi avancer la simulation en temps réel : la vitesse se mesure sur l'horloge simulée.
+    // Au clavier, « avancer » seul donne la course légère (allure 1, ≈ 2,5 m/s avec l'équipement) ; ici le joueur part
+    // du second rang et doit d'abord se glisser entre ses collègues, d'où une moyenne plus basse.
     const vWalk = dWalk / Math.max(0.1, walk.t - start.t);
-    check(vWalk > 0.9 && vWalk < 1.9, 'marche : environ 1,4 m/s', `${dWalk.toFixed(1)} m en ${(walk.t - start.t).toFixed(1)} s simulées, soit ${vWalk.toFixed(2)} m/s`);
+    check(vWalk > 0.8 && vWalk < 3.4, 'la touche « avancer » déplace le personnage à allure de course légère', `${dWalk.toFixed(1)} m en ${(walk.t - start.t).toFixed(1)} s simulées, soit ${vWalk.toFixed(2)} m/s`);
     await page.keyboard.down('ShiftLeft');
     let travelled = dWalk;
     let last = walk;

@@ -196,6 +196,8 @@ export class Crew implements CrewView {
   readonly victims: Person[] = [];
   /** Une demande de SAMU a déjà été faite par cet équipage pour cette intervention. */
   askedSamu = false;
+  /** Foyers déjà comptés éteints pendant cette intervention [x0, z0, x1, z1, …] (deux lances sur un même feu : un seul foyer). */
+  readonly firesDone: number[] = [];
   blockedSince = -1;
   /** Trajet en cours : destination finale, et point de passage quand il faut contourner un pâté de maisons. */
   destX = 0;

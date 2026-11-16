@@ -191,6 +191,7 @@ export class PlayerCrew {
     call.record.departedAt = k.now;
     crew.foundWork = false;
     crew.askedSamu = false;
+    crew.firesDone.length = 0;
     crew.leftBehind = 0;
     crew.phaseAt = k.now;
     crew.patientId = 0;

@@ -18,6 +18,7 @@ import { PlayerDesk } from './dispatch';
 import { Kernel } from './kernel';
 import { Sense } from './sense';
 import { Thinker } from './think';
+import { Tracker } from './track';
 
 export class IncidentsSystem implements GameSystem {
   readonly id = INCIDENTS_SYSTEM_ID;
@@ -26,7 +27,8 @@ export class IncidentsSystem implements GameSystem {
   readonly kernel = new Kernel();
   private readonly sense = new Sense(this.kernel);
   private readonly thinker = new Thinker(this.kernel, this.sense);
-  private readonly assigner = new Assigner(this.kernel, this.sense);
+  private readonly assigner = new Assigner(this.kernel);
+  private readonly tracker = new Tracker(this.kernel, this.sense, this.assigner);
   private readonly desk = new PlayerDesk(this.kernel, this.assigner);
   private readonly detector = new Detector(this.kernel, this.sense, this.thinker);
   readonly api: IncidentsApi;
@@ -35,6 +37,7 @@ export class IncidentsSystem implements GameSystem {
     const k = this.kernel;
     const assigner = this.assigner;
     this.thinker.assigner = assigner;
+    this.thinker.tracker = this.tracker;
     assigner.desk = this.desk;
     this.api = {
       list: k.entries,
@@ -97,6 +100,7 @@ export class IncidentsSystem implements GameSystem {
     k.reset();
     this.detector.reset();
     this.assigner.reset();
+    this.tracker.reset();
     this.desk.reset();
   }
 
@@ -105,7 +109,7 @@ export class IncidentsSystem implements GameSystem {
     k.radio.enabled = k.tuning.radio;
     this.detector.update();
     this.thinker.update();
-    this.assigner.pollRescue();
+    this.tracker.pollRescue();
     this.desk.update();
     k.radio.update(k.now);
     k.prune();

@@ -336,6 +336,18 @@ export class FireWork {
     }
   }
 
+  /** Note un foyer éteint ; false s'il avait déjà été compté (même foyer arrosé par deux lances, nappe au pied de l'objet). */
+  private countFireOut(crew: Crew, x: number, z: number): boolean {
+    const done = crew.firesDone;
+    for (let i = 0; i < done.length; i += 2) {
+      const dx = done[i] - x;
+      const dz = done[i + 1] - z;
+      if (dx * dx + dz * dz < 25) return false;
+    }
+    done.push(x, z);
+    return true;
+  }
+
   /** Un pas du porte-lance. Retourne true tant qu'il a un foyer à combattre. */
   private hose(crew: Crew, r: Rescuer, index: number, dt: number): boolean {
     const k = this.k;
@@ -347,7 +359,7 @@ export class FireWork {
     if (r.task === T_HOSE) {
       const m = this.measure(r);
       if (m <= FIRE_MIN) {
-        if (r.lastMeasure > FIRE_MIN && crew.call) crew.call.record.firesOut++;
+        if (r.lastMeasure > FIRE_MIN && crew.call && this.countFireOut(crew, r.tx, r.tz)) crew.call.record.firesOut++;
         r.task = T_IDLE;
         if (p.upper === 'extinguish') p.upper = 'none';
       } else {

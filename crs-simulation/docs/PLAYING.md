@@ -1,8 +1,9 @@
 # Jouer à CRS Simulation France — mode d'emploi (assemblage 1)
 
 Premier jeu jouable : la page d'accueil, le chargement du vrai Paris, un personnage incarné à hauteur d'homme
-avec son unité, ses objets, le HUD, les cartes, la pause et les paramètres. Les foules, l'IA des unités, la
-circulation, le mobilier visible et les effets (gaz, feu) arrivent avec les modules suivants — voir la fin.
+avec son unité, une manifestation qui se rassemble, la circulation autour, les objets, le gaz lacrymogène, le HUD, les
+cartes, la pause et les paramètres. L'IA des unités de police, le mobilier visible, les incidents et les missions
+arrivent avec les modules suivants — voir la fin.
 
 ## Lancer le jeu
 
@@ -27,7 +28,7 @@ Paramètres → Commandes.
 |---|---|---|---|
 | Se déplacer | Z Q S D | stick gauche | joystick virtuel à gauche |
 | Regarder, viser | souris (cliquer dans la vue pour la capturer) ou flèches | stick droit | glisser à droite de l'écran |
-| Courir | Maj gauche | clic du stick gauche | pousser le joystick à fond |
+| Sprinter | Maj gauche | clic du stick gauche | pousser le joystick à fond |
 | S'accroupir / sauter, enjamber | C / Espace | B / A | boutons |
 | Action principale (lancer, tirer, frapper) | clic gauche — maintenir pour doser un lancer, relâcher pour lancer | gâchette droite | bouton « Action » |
 | Action secondaire (lever le bouclier, épauler) | clic droit | gâchette gauche | bouton « Viser » |
@@ -76,11 +77,17 @@ d'intégration sans rendu (`tests/unit/integration.session.test.ts`).
   et son véhicule de commandement), BRAV-M, équipages du Centaure et du canon à eau, télépilote, street medic, pompier
   ou SAMU, journaliste, manifestant. Les collègues sont en ligne (boucliers devant), les véhicules stationnés derrière,
   quelques passants autour. Les dix lieux proposés par la page d'accueil donnent une mise en place valide.
-- **Se déplacer** : marche (≈ 1,4 m/s), course ; on bute sur la grille de l'obélisque et on la contourne, on ne
-  traverse pas les murs. **Vues** à la première et à la troisième personne (V).
+- **Se déplacer** : au clavier, « avancer » donne la course légère (≈ 2,5 m/s avec l'équipement), Maj le sprint ; la
+  marche s'obtient au stick ou au joystick à mi-course, et d'office bouclier levé ou accroupi. On bute sur la grille
+  de l'obélisque et on la contourne, on ne traverse pas les murs. **Vues** à la première et à la troisième personne (V).
+- **Manifestation** : la foule arrive par vagues (bouches de métro), se rassemble sur le lieu, puis suit son
+  déroulé (phase et tension affichées au HUD, parcours sur la mini-carte) ; affluence, cause, tension et durée de la
+  page d'accueil sont prises en compte (en qualité basse l'effectif est divisé par deux). Vérifié : rassemblement
+  place de la Concorde dans le navigateur ; trois minutes de simulation sans rendu avec 240 personnes.
+- **Circulation** : voitures et piétons civils autour du lieu (comptés dans les tests, non regardés un à un).
 - **Objets** : barre d'objets, mise en main (1 à 9), lancer dosé au clic maintenu. La grenade lacrymogène part, ses
-  palets diffusent un gaz (concentration mesurée au point de chute), l'emploi de la force est jugé et consigné —
-  sans sommation préalable, le jeu relève la faute.
+  palets diffusent un nuage de gaz visible qui dérive avec le vent, la foule le ressent (la tension monte), l'emploi
+  de la force est jugé et consigné — sans sommation préalable, le jeu relève la faute.
 - **Véhicules** (sans rendu) : l'invite « Conduire — Fourgon de CRS » à la portière, la montée, la conduite ; au
   Centaure, la tourelle suit le regard et la grenade part où l'on regarde.
 - **HUD** : heure et météo, boussole et secteur, état légal (sommations, force licite et autorisée), unité, santé et
@@ -95,16 +102,15 @@ Branché mais non vérifié à l'œil ou à l'oreille ici : le son (aucune sorti
 
 ## Ce qui ne l'est pas encore
 
-- **Pas de manifestation** : le module de foule n'est pas encore branché. Aucun manifestant n'est créé (pas de
-  fausse foule) ; les réglages d'affluence, de cause, de tension et de durée de la page d'accueil sont enregistrés
-  dans le scénario mais sans effet. Il n'y a ni objectifs ni fin de mission automatique (terminer par la pause).
-- **Les collègues ne bougent pas** : l'IA des unités n'est pas branchée ; ordres, roue d'ordres et carte tactique
-  s'ouvrent, mais aucune unité n'exécute. Les passants sont immobiles eux aussi.
-- **Pas de circulation**, pas de fermeture de rues ni de stations de métro (services absents).
+- **Les collègues ne bougent pas** : l'IA des unités de police n'est pas encore branchée ; ordres, roue d'ordres et
+  carte tactique s'ouvrent, mais aucune unité n'exécute. Face à une foule qui dégénère, le joueur est seul à agir.
 - **Mobilier urbain, vitrines, barricades : simulés mais invisibles** (rendu du décor en cours d'écriture) — on bute
   donc parfois sur une poubelle ou un potelet que l'on ne voit pas.
-- **Gaz, fumée, feu, projectiles : simulés mais invisibles** (rendu des effets en cours d'écriture). La grenade part,
-  le nuage existe (toux, voile d'écran, carte tactique), mais on ne voit ni le projectile ni la fumée.
+- **Pas d'objectifs ni de fin de mission automatique** : le cadre de mission n'existe pas encore (terminer par la
+  pause : « Terminer et voir le compte rendu »). Missions du catalogue, carrière, incidents à traiter, secours sur
+  appel, médias, campagne, école : modules non branchés.
 - **Tour Eiffel et monuments lointains** : masqués par la brume au-delà de la distance d'affichage (300 m en qualité
   basse, 1 500 m en ultra).
-- Carrière, missions du catalogue, incidents, secours sur appel, médias, campagne, école : modules non branchés.
+- **Trottoirs** : les pieds s'enfoncent de quelques centimètres dans les trottoirs surélevés.
+- La manifestation n'a été regardée que dans sa phase de rassemblement : cortège, affrontements, dispersion et
+  réactions fines de la foule tournent dans les tests du module de foule, pas encore à l'écran dans le jeu assemblé.

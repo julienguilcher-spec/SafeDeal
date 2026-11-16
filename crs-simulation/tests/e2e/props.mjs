@@ -142,7 +142,7 @@ let ok = true;
 const check = (cond, msg) => { if (!cond) { ok = false; console.error('[props] ' + msg); } };
 if (masse) {
   console.log(`[props] 3 000 objets : ${masse.moduleCalls} appels de dessin du module (+${masse.shadowCalls} ombre ; scène : ${masse.calls}), `
-    + `${masse.moduleTriangles} triangles, CPU médian ${masse.cpuMedian.toFixed(2)} ms/image`);
+    + `${masse.moduleTriangles} triangles (le coût CPU est mesuré à part, sans rendu : lignes « mesure-… »)`);
   check(masse.props >= 2900, 'trop peu d’objets suivis : ' + masse.props);
   check(masse.moduleCalls + masse.shadowCalls <= 70, 'trop d’appels de dessin : ' + (masse.moduleCalls + masse.shadowCalls));
   check(masse.moduleCalls >= 3, 'rien n’est dessiné');

@@ -265,24 +265,48 @@ const suie: Painter = (g, w, h, rnd) => {
   }
 };
 
-/** Suie sur un mur : langues qui montent d'une baie, denses en bas, effacées vers le haut. */
+/** Suie sur un mur : volutes qui montent d'une baie, denses en bas, effacées vers le haut et sur les côtés. */
 const suieMur: Painter = (g, w, h, rnd) => {
-  for (let i = 0; i < 9; i++) {
-    const x = (i + 0.5) * (w / 9) + (rnd() - 0.5) * 6;
-    const top = h * (0.05 + rnd() * 0.5);
-    const half = w / 9 * (0.7 + rnd() * 0.7);
-    const edge = Math.min(1, Math.min(i + 0.6, 8.6 - i) / 2.2);
-    const gr = g.createLinearGradient(0, h, 0, top);
-    gr.addColorStop(0, `rgba(12,10,9,${0.85 * edge})`);
-    gr.addColorStop(0.5, `rgba(14,12,10,${0.5 * edge})`);
-    gr.addColorStop(1, 'rgba(16,14,12,0)');
+  // nappe de fond
+  const base = g.createLinearGradient(0, h, 0, h * 0.25);
+  base.addColorStop(0, 'rgba(12,10,9,0.8)');
+  base.addColorStop(0.6, 'rgba(14,12,10,0.28)');
+  base.addColorStop(1, 'rgba(16,14,12,0)');
+  g.fillStyle = base;
+  g.fillRect(0, 0, w, h);
+  // volutes : ellipses floues, plus hautes au centre
+  for (let i = 0; i < 16; i++) {
+    const x = (0.08 + rnd() * 0.84) * w;
+    const centre = 1 - Math.abs(x / w - 0.5) * 1.4;
+    const ry = h * (0.25 + rnd() * 0.5) * Math.max(0.35, centre), rx = w * (0.06 + rnd() * 0.07);
+    const gr = g.createRadialGradient(0, 0, 0, 0, 0, 1);
+    gr.addColorStop(0, 'rgba(8,7,6,0.55)');
+    gr.addColorStop(0.6, 'rgba(10,9,8,0.25)');
+    gr.addColorStop(1, 'rgba(12,10,9,0)');
+    g.save();
+    g.translate(x, h - ry * 0.75);
+    g.scale(rx, ry);
     g.fillStyle = gr;
     g.beginPath();
-    g.moveTo(x - half, h);
-    g.quadraticCurveTo(x - half * 0.6, (h + top) / 2, x, top);
-    g.quadraticCurveTo(x + half * 0.6, (h + top) / 2, x + half, h);
+    g.arc(0, 0, 1, 0, 7);
     g.fill();
+    g.restore();
   }
+  // fondu sur les bords latéraux et en haut : aucune arête visible
+  g.globalCompositeOperation = 'destination-out';
+  for (const [x0, x1] of [[0, w * 0.12], [w, w * 0.88]] as const) {
+    const e = g.createLinearGradient(x0, 0, x1, 0);
+    e.addColorStop(0, 'rgba(0,0,0,1)');
+    e.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = e;
+    g.fillRect(Math.min(x0, x1), 0, Math.abs(x1 - x0), h);
+  }
+  const top = g.createLinearGradient(0, 0, 0, h * 0.2);
+  top.addColorStop(0, 'rgba(0,0,0,1)');
+  top.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = top;
+  g.fillRect(0, 0, w, h * 0.2);
+  g.globalCompositeOperation = 'source-over';
 };
 
 const dechets: Painter = (g, w, h, rnd) => {

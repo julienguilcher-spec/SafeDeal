@@ -1,28 +1,19 @@
 /* =====================================================================================
- * COMMANDEMENT — le commandement d'UNE compagnie : dispositif, accompagnement du cortège,
- * logistique, fin de mission. Les réactions aux points chauds et la procédure des sommations sont
- * dans react.ts, la délégation des incidents dans delegate.ts.
+ * COMMANDEMENT — le commandement d'UNE compagnie : état, outils de décision, éléments de manœuvre,
+ * suivi des comptes rendus, réflexion. Le dispositif est dans dispositif.ts, la logistique et la fin
+ * de mission dans sustain.ts, les réactions aux points chauds et la procédure des sommations dans
+ * react.ts, la délégation des incidents dans delegate.ts.
  *
  * Le commandant IA décide par `act()` : en mode « ia » la décision est exécutée (ordre par
  * ctx.squads.issue, message radio, inscription au journal) ; en mode « adjoint » (le joueur
  * commande) la même décision devient une PROPOSITION dite à la radio, que le joueur peut accepter.
- *
- * Articulation (docs/research/06-roles-jouables.md §4.2, bible §E) :
- *   - les sections de manœuvre tiennent les débouchés latéraux du parcours (canalisation), fractionnées
- *     en groupes quand il y a plus de débouchés que de sections ; la dernière section est la réserve ;
- *   - le dispositif glisse avec le cortège : un barrage dépassé par la queue est levé, son unité se
- *     reporte en avant ; les rues en avant de la tête sont fermées à la circulation à l'avance ;
- *   - relève d'une unité épuisée par la réserve, ravitaillement aux fourgons ;
- *   - fin de mission : regroupement, rembarquement, « Fin de mission, retour à la base ».
  * ===================================================================================== */
 
 import type { EntityId, OrderType, Person, Squad, SquadOrder } from '@/core/contracts';
 import { cardinalFr } from '@/core/math';
 import type { PoliceOrderDone } from '../api';
 import { agentOf, unitOf } from '../brain';
-import {
-  COMMAND_DEPLOYED_EVENT, COMMAND_MISSION_END_EVENT, COMMAND_STATE_EVENT,
-} from './api';
+import { COMMAND_DEPLOYED_EVENT, COMMAND_STATE_EVENT } from './api';
 import type { CommandMode, CommandPhase, CommandState, CommandStateEvent, Post } from './api';
 import type { Adjoint } from './adjoint';
 import type { ConvoyControl } from './convoy';
@@ -66,9 +57,6 @@ interface Support {
   ordered: boolean;
 }
 
-/** Allure d'une unité qui rejoint un emplacement en colonne (m/s) et allure moyenne d'un cortège (m/s). */
-const MARCH_SPEED = 1.2;
-const CORTEGE_SPEED = 0.7;
 
 /** Durée maximale de la mise en place avant de déclarer le dispositif en l'état (s). */
 const DEPLOY_TIMEOUT = 150;

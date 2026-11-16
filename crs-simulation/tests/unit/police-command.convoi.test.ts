@@ -93,7 +93,6 @@ describe('convoi', () => {
       return s === 'parti';
     });
     const aboard1 = cie.people.filter((p) => p.vehicleId !== 0).length;
-    console.log('   restés à pied :', cie.people.filter((p) => p.vehicleId === 0).map((p) => p.poste + '@' + Math.round(p.x) + ',' + Math.round(p.z) + ':' + p.posture + ':' + p.custody).join(' '), '| places libres :', fleet.map((v) => v.kind.slice(0, 6) + ':' + v.seats.filter((x) => x === 0).length + '/' + v.seats.length).join(' '));
     const moved = x0 - Math.min(...fleet.map((v) => v.x));
     console.log('départ :', stages.slice(4).map((s) => s.stage + '@' + s.t.toFixed(0)).join(' '), '| à bord', aboard1, '/', total, '| véhicule de tête avancé de', moved.toFixed(0), 'm');
     expect(stages.some((s) => s.stage === 'rembarquement')).toBe(true);

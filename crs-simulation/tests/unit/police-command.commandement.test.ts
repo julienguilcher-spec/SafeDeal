@@ -166,6 +166,84 @@ describe('adjoint du joueur-commandant', () => {
   }, 300000);
 });
 
+describe('salle de commandement', () => {
+  it('sur demande, l\'officier IA se porte à portée de mégaphone et prononce la sommation suivante', async () => {
+    const t = await startCommand(MODULES, { mode: 'test', x: 0, z: -160, extra: { commandement: 'joueur', 'law.attroupement': true, 'law.delays': { annonce: 2, sommation: 2, force: 2, armes: 2 } } }, { seed: 35 });
+    const { ctx } = t;
+    const cie = t.units.createCompany({ x: 0, z: -95, heading: Math.PI, vehicles: false });
+    const zone = { x: 110, z: -160 };
+    const groupe = spawnProtesters(ctx, 14, zone.x, zone.z, -Math.PI / 2, 'radical', 1.3, 5);
+    for (const p of groupe) p.brain = { tag: 'test.groupe' };
+    const orders: string[] = [];
+    ctx.events.on('order:issued', (e) => orders.push(e.order.type));
+    const sommations: { stage: number; byId: number; d: number; t: number }[] = [];
+    ctx.events.on('law:sommation', (e) => sommations.push({ stage: e.stage, byId: e.byId, d: Math.hypot(e.x - zone.x, e.z - zone.z), t: ctx.clock.now }));
+    t.step(3);
+    const state = t.api.stateOf(cie.squad.id)!;
+    expect(state.mode).toBe('adjoint');
+    expect(t.api.requestSommation(cie.squad.id, zone.x, zone.z)).toBe(true);
+    t.run(150, 1, () => sommations.length >= 1);
+    t.step(4);
+    console.log('salle de commandement : sommations', JSON.stringify(sommations), '| ordres donnés par l\'IA :', orders.length, '| procédure :', state.sommations);
+    expect(sommations.length).toBe(1);
+    expect(sommations[0].stage).toBe(1);
+    expect(sommations[0].byId).toBe(cie.leader!.id);
+    expect(sommations[0].d).toBeLessThan(60);
+    // une étape par demande, et aucun ordre donné aux unités à la place du joueur
+    expect(orders.length).toBe(0);
+    expect(state.sommations).toBe('aucune');
+    expect(ctx.law.roe.authorizedForce).toBe(1);
+  }, 300000);
+});
+
+describe('coût', () => {
+  it('reste faible avec 1 500 personnes, une compagnie déployée, les moyens spéciaux et des points chauds actifs', async () => {
+    const dir = createTestDirector(ROUTE.slice(), 'cortege');
+    const svc = createTestServices({ traffic: true, incidents: true });
+    const t = await startCommand(MODULES, { mode: 'test', x: 20, z: -160 }, { seed: 37, systems: [dir.system, svc.system] });
+    const { ctx } = t;
+    const cie = t.units.createCompany({ x: 0, z: -95, heading: Math.PI, vehicles: false });
+    t.units.createEquipage('centaure', { x: 0, z: -40, heading: Math.PI });
+    t.units.createEquipage('canon_eau', { x: 0, z: -20, heading: Math.PI });
+    t.units.createBravm(6, { x: 0, z: 60, heading: Math.PI, mounted: true });
+    t.api.createDroneTeam({ x: 6, z: -80 });
+    // 1 500 manifestants immobiles le long du parcours et de l'avenue (aucune IA de foule : seul le commandement est mesuré)
+    const crowdPeople: Person[] = [];
+    for (let b = 0; b < 15; b++) {
+      const along = b < 8;
+      const x = along ? 40 + b * 45 : -420 + (b - 8) * 55;
+      const z = along ? -160 : 0;
+      for (const p of spawnProtesters(ctx, 100, x, z, Math.PI / 2, b % 5 === 0 ? 'radical' : 'pacifique', 0.9, 10)) {
+        p.brain = { tag: 'test.foule' };
+        crowdPeople.push(p);
+      }
+    }
+    t.step(30);
+    t.cost();
+    let k = 0;
+    const t0 = performance.now();
+    t.run(60, 0.5, (elapsed) => {
+      // des faits répétés entretiennent quatre points chauds, la tête du cortège avance
+      dir.director.headProgress = Math.min(380, elapsed * 0.7);
+      for (let i = 0; i < 4; i++) {
+        const p = crowdPeople[(i * 200 + (k % 40)) % crowdPeople.length];
+        ctx.law.recordOffense(p, 'degradation', p.x, p.z, 3);
+        ctx.events.emit('shop:window', { id: ctx.props.shops.length > 0 ? ctx.props.shops[(i * 7) % ctx.props.shops.length].id : 0, state: 'broken', byId: p.id });
+      }
+      k++;
+    });
+    const wall = performance.now() - t0;
+    const cost = t.cost();
+    const state = t.api.stateOf(cie.squad.id)!;
+    console.log('coût du commandement,', ctx.people.list.length, 'personnes :', 'moyenne', cost.mean.toFixed(4), 'ms ; p95', cost.p95.toFixed(4), 'ms ; max', cost.max.toFixed(2), 'ms sur', cost.steps, 'pas (60 s simulées en', Math.round(wall), 'ms tout compris) | phase', state.phase, '| points chauds', t.api.hotspots.length, '| unités spéciales', t.api.specials.length, '| décisions', t.api.decisions.length);
+    expect(ctx.people.list.length).toBeGreaterThanOrEqual(1500);
+    expect(t.api.specials.length).toBe(4);
+    expect(t.api.hotspots.length).toBeGreaterThan(0);
+    expect(cost.mean).toBeLessThan(0.5);
+    expect(cost.p95).toBeLessThan(1.5);
+  }, 300000);
+});
+
 describe('services absents', () => {
   it('le commandement seul, sans aucun autre module, ne fait rien et ne plante pas', async () => {
     const t = createTestContext({ seed: 3, systems: [new CommandSystem()] });

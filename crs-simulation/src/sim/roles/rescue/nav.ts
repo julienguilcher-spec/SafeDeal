@@ -12,10 +12,13 @@
 
 import type { GameContext, Person, RayHit } from '@/core/contracts';
 
-const DIRECT_RANGE = 32;
+/** Portée à laquelle un but ou un point de passage « en vue » est rejoint en ligne droite (m). */
+const SIGHT_RANGE = 70;
 const WAYPOINT_REACH = 1.6;
 /** Distance à laquelle on regarde devant soi pour contourner un véhicule ou un objet (m). */
 const LOOK_AHEAD = 2.4;
+/** Demi-largeur du couloir sondé devant soi : un obstacle frôlé de l'épaule est contourné lui aussi (m). */
+const SHOULDER = 0.42;
 const hit: RayHit = { hit: false, t: 1, x: 0, z: 0, nx: 0, nz: 0, kind: 'none', id: 0, height: 0 };
 
 /** La voie est-elle libre de tout mur entre deux points ? */
@@ -77,12 +80,53 @@ export class Walker {
     this.idx = 0;
     this.count = 0;
     this.direct = true;
-    if (dx * dx + dz * dz <= DIRECT_RANGE * DIRECT_RANGE && clearLine(ctx, p.x, p.z, this.gx, this.gz)) return;
+    if (dx * dx + dz * dz <= SIGHT_RANGE * SIGHT_RANGE && clearLine(ctx, p.x, p.z, this.gx, this.gz)) return;
     if (ctx.world.findPath(p.x, p.z, this.gx, this.gz, 'foot', this.path) && this.path.length >= 4) {
       this.count = this.path.length >> 1;
       this.idx = 1; // le premier point est le départ
       this.direct = false;
+      this.smooth(ctx, p);
     }
+  }
+
+  /**
+   * Coupe au plus court : droit au but s'il est en vue, sinon vers le plus lointain des prochains points
+   * de passage en vue (on ne revient pas en arrière chercher le premier nœud de l'itinéraire).
+   */
+  private smooth(ctx: GameContext, p: Person): void {
+    const gdx = this.gx - p.x;
+    const gdz = this.gz - p.z;
+    if (gdx * gdx + gdz * gdz <= SIGHT_RANGE * SIGHT_RANGE && clearLine(ctx, p.x, p.z, this.gx, this.gz)) {
+      this.direct = true;
+      return;
+    }
+    const last = this.idx + 3 < this.count - 1 ? this.idx + 3 : this.count - 1;
+    for (let i = last; i > this.idx; i--) {
+      const nx = this.path[i * 2];
+      const nz = this.path[i * 2 + 1];
+      const ndx = nx - p.x;
+      const ndz = nz - p.z;
+      if (ndx * ndx + ndz * ndz < SIGHT_RANGE * SIGHT_RANGE && clearLine(ctx, p.x, p.z, nx, nz)) {
+        this.idx = i;
+        return;
+      }
+    }
+  }
+
+  /** Un véhicule ou un objet barre-t-il le couloir devant soi ? Le résultat est dans `hit`. */
+  private blockedAhead(ctx: GameContext, p: Person, dx: number, dz: number, ahead: number): boolean {
+    for (let k = 0; k < 3; k++) {
+      // au centre, puis à hauteur de chaque épaule
+      const off = k === 0 ? 0 : k === 1 ? SHOULDER : -SHOULDER;
+      const sx = p.x - dz * off;
+      const sz = p.z + dx * off;
+      const ax = sx + dx * LOOK_AHEAD;
+      const az = sz + dz * LOOK_AHEAD;
+      if ((ctx.vehicles.raycast(sx, sz, ax, az, hit, 'move') || ctx.props.raycast(sx, sz, ax, az, hit, 'move')) && hit.t < ahead && hit.id !== p.carrying) {
+        return true;
+      }
+    }
+    return false;
   }
 
   stop(p: Person): void {
@@ -126,15 +170,11 @@ export class Walker {
         if (dx * dx + dz * dz > WAYPOINT_REACH * WAYPOINT_REACH) break;
         this.idx++;
       }
-      if (now >= this.shortcutAt && this.idx < this.count - 1) {
+      if (now >= this.shortcutAt) {
         this.shortcutAt = now + 0.5;
-        const nx = this.path[this.idx * 2 + 2];
-        const nz = this.path[this.idx * 2 + 3];
-        const ndx = nx - p.x;
-        const ndz = nz - p.z;
-        if (ndx * ndx + ndz * ndz < DIRECT_RANGE * DIRECT_RANGE && clearLine(ctx, p.x, p.z, nx, nz)) this.idx++;
+        this.smooth(ctx, p);
       }
-      if (this.idx >= this.count - 1) {
+      if (this.direct || this.idx >= this.count - 1) {
         // dernier tronçon : droit au but s'il est en vue, sinon le dernier point de la rue
         this.idx = this.count - 1;
       } else {
@@ -176,11 +216,9 @@ export class Walker {
     // véhicule ou objet droit devant : on longe son flanc (relevé toutes les 0,15 s)
     if (now >= this.avoidAt && (dx !== 0 || dz !== 0)) {
       this.avoidAt = now + 0.15;
-      const ax = p.x + dx * LOOK_AHEAD;
-      const az = p.z + dz * LOOK_AHEAD;
       const ahead = d < LOOK_AHEAD ? d / LOOK_AHEAD : 1;
       this.avoiding = false;
-      if ((ctx.vehicles.raycast(p.x, p.z, ax, az, hit, 'move') || ctx.props.raycast(p.x, p.z, ax, az, hit, 'move')) && hit.t < ahead && hit.id !== p.carrying) {
+      if (this.blockedAhead(ctx, p, dx, dz, ahead)) {
         let tx2 = -hit.nz;
         let tz2 = hit.nx;
         if (now >= this.avoidKeep) this.avoidSide = tx2 * dx + tz2 * dz >= 0 ? 1 : -1;

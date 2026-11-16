@@ -108,10 +108,21 @@ export class Kernel {
     let bestD = Infinity;
     for (let i = 0; i < entries.length; i++) {
       const e = entries[i];
-      if (!e.active || e.family !== family || !e.tracked) continue;
+      if (!e.active || e.family !== family) continue;
       const r = this.mergeRadius(family, kind, e.kind);
       if (r <= 0) continue;
       const members = e.members;
+      if (members.length === 0) {
+        // incident « abstrait » (signalé sans entité mesurable) : son point fait foi
+        const ax = e.x - x;
+        const az = e.z - z;
+        const ad = ax * ax + az * az;
+        if (ad <= r * r && ad < bestD) {
+          bestD = ad;
+          best = e;
+        }
+        continue;
+      }
       for (let j = 0; j < members.length; j++) {
         const m = members[j];
         if (m.gone) continue;
@@ -148,7 +159,13 @@ export class Kernel {
     // 2. doublon proche de la même famille
     const near = this.nearby(family, kind, x, z);
     if (near) {
-      this.addMember(near, targetKind, targetId, x, z);
+      // une déclaration sans entité mesurable ne fait que confirmer l'incident déjà connu
+      const measurable = (targetKind !== 'place' && targetId !== 0) || (family === FAM_FIRE && (!external || this.ctx.hazards.fireAt(x, z) > 0.05));
+      if (measurable) {
+        if (targetKind !== 'place' && targetId !== 0) this.addMember(near, targetKind, targetId, x, z);
+        else this.addMember(near, 'place', 0, x, z);
+        near.tracked = true;
+      }
       if (urgency > near.baseUrgency) near.baseUrgency = urgency as 1 | 2 | 3;
       this.upgradeKind(near, kind, targetKind, targetId, x, z);
       near.record.merged++;

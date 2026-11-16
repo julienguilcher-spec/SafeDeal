@@ -268,8 +268,9 @@ export class Reaction {
     const text = TX.approachContact(cmd.squad.name, sector);
     cmd.say(text);
     core.decide(cmd.squad.id, 'sommation', text, 0, '', x, z);
-    // une ligne d'appui précède le commandant, à portée de grenade à main
-    const res = cmd.available(x, z);
+    // une ligne d'appui précède le commandant, à portée de grenade à main (sur demande de la salle, c'est le
+    // joueur qui dispose des unités : l'officier se porte seul au point de sommation)
+    const res = onRequest ? null : cmd.available(x, z);
     this.line = res;
     if (res) {
       res.hold = true;
