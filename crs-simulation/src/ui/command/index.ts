@@ -79,6 +79,11 @@ export class CommandSystem implements GameSystem {
       // un ordre du joueur refusé ou abandonné par l'unité : le motif s'affiche (sinon il croit qu'on l'ignore)
       ctx.events.onAny('police:order_refused', (e) => this.orderProblem(e as OrderProblem, true)),
       ctx.events.onAny('police:order_done', (e) => this.orderProblem(e as OrderProblem, false)),
+      // mouvement motorisé : au débarquement, l'unité exécute l'ordre donné
+      ctx.events.onAny('command:convoy', (e) => {
+        const c = e as { squadId: number; stage: string };
+        if (c && typeof c.squadId === 'number') core.onConvoyStage(c.squadId, c.stage);
+      }),
     );
     if (!kit) {
       if (!ctx.headless) console.warn('[commandement] boîte à outils d’interface absente : ni carte tactique ni roue d’ordres');

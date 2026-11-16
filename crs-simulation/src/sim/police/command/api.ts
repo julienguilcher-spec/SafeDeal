@@ -297,6 +297,12 @@ export interface ConvoyDestination {
    * l'attend) ; la colonne ne part qu'ensuite. Défaut false : départ immédiat avec ceux qui sont à bord.
    */
   boardFirst?: boolean;
+  /**
+   * true : départ ÉCHELONNÉ plutôt qu'en file accrochée — le véhicule le plus avancé part d'abord, le suivant quand
+   * il a dégagé ; chacun roule au point par le même itinéraire et s'arrête derrière le précédent. Sûr depuis un
+   * stationnement en bloc (ordre de mouvement donné par le joueur).
+   */
+  stagger?: boolean;
 }
 
 export interface ConvoyStatus {

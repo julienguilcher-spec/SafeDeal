@@ -189,12 +189,24 @@ export class FollowLeaderSystem implements GameSystem {
       const st = command ? command.stateOf(company) : null;
       companyFree = !st || st.phase === 'termine' || st.missionEnded || st.commanderId === me.id;
     }
+    // engin (Centaure, canon à eau) : jamais seul — l'engin de même type le plus proche l'accompagne toujours
+    let pair: Squad | null = null;
+    if (lead.kind === 'centaure' || lead.kind === 'canon_eau') {
+      let best = COMPANY_RADIUS * 1.5;
+      for (const s of ctx.squads.list) {
+        if (s.faction !== 'police' || s.vehicleId === 0 || s.vehicleId === lead.id || s.leaderId === me.id || mine.indexOf(s) >= 0) continue;
+        const v = ctx.vehicles.get(s.vehicleId);
+        if (!v || v.kind !== lead.kind || v.state === 'wrecked' || v.state === 'burnt') continue;
+        const d = Math.hypot(v.x - lead.x, v.z - lead.z);
+        if (d < best) { best = d; pair = s; }
+      }
+    }
     for (const s of ctx.squads.list) {
       if (s.faction !== 'police' || mine.indexOf(s) >= 0 || s.vehicleId === 0 || s.vehicleId === lead.id) continue;
       if (s.members.length === 0 || s.leaderId === me.id) continue;
-      const under = this.underAny(s, led);
+      const under = this.underAny(s, led) || s === pair;
       if (!under && !(companyFree && this.rootOf(s.id) === company)) continue;
-      if (!FREE_ORDERS.has(s.order.type)) continue;
+      if (!FREE_ORDERS.has(s.order.type) && s !== pair) continue;
       const v = ctx.vehicles.get(s.vehicleId);
       if (!v || v.state === 'wrecked' || v.state === 'burnt' || v.def.flying || !POLICE_FLEET.has(v.kind) && !TROOP_KINDS.has(v.kind)) continue;
       if (Math.hypot(v.x - lead.x, v.z - lead.z) > COMPANY_RADIUS) continue;

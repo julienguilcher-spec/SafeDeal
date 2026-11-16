@@ -44,6 +44,8 @@ export const ORDER_VERBS: readonly OrderVerb[] = [
     hint: 'Désignez la limite de la charge\u00a0: arrêt au sifflet, repli au pas.', rule: 'Après la dernière sommation, sauf violences contre l’unité.' },
   { type: 'refoulement', label: 'Vague de refoulement', short: 'Refouler', group: 'mouvement', gesture: 'point', force: 1, coercive: true,
     hint: 'Désignez la limite du refoulement\u00a0: par tronçons de 50\u00a0m, issue libre devant la foule.', rule: 'Après la dernière sommation\u00a0; une issue reste libre.' },
+  { type: 'faire_mouvement', label: 'Faire mouvement en véhicules vers…', short: 'Véhicules', group: 'mouvement', gesture: 'point', force: 0, coercive: false,
+    hint: 'Désignez le point\u00a0: l’unité embarque (elle vous attend si vous en faites partie), roule en colonne, deux tons, et débarque sur place.', rule: 'Au-delà de 250\u00a0m, tout ordre de mouvement d’une unité qui a ses véhicules se fait ainsi.' },
   { type: 'repli', label: 'Repli', short: 'Repli', group: 'mouvement', gesture: 'point', force: 0, coercive: false,
     hint: 'Désignez la position de repli\u00a0: l’unité recule par échelons, face à la foule.', rule: '' },
   { type: 'encercler', label: 'Encercler (nasse)', short: 'Nasse', group: 'manoeuvre', gesture: 'area', force: 1, coercive: true,

@@ -132,8 +132,11 @@ describe('commandement — catalogue des ordres', () => {
   ];
 
   it('tous les verbes d\'OrderType du contrat ont un libellé français, une seule fois', () => {
-    const types = ORDER_VERBS.map((v) => v.type).sort();
+    // « faire_mouvement » est un ordre de l'interface seule (colonne motorisée lancée par police.command), jamais
+    // transmis tel quel à une unité
+    const types = ORDER_VERBS.map((v) => v.type).filter((t) => t !== 'faire_mouvement').sort();
     expect(types).toEqual([...CONTRACT].sort());
+    expect(ORDER_VERBS.some((v) => v.type === 'faire_mouvement')).toBe(true);
     for (const v of ORDER_VERBS) {
       expect(v.label.length).toBeGreaterThan(3);
       expect(v.short.length).toBeGreaterThan(2);

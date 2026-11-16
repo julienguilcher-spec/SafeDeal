@@ -12,7 +12,7 @@
  * ===================================================================================== */
 
 import type { OrderType, Vehicle } from '@/core/contracts';
-import { angleDiff, projectOnPolyline } from '@/core/math';
+import { angleDiff, pointOnPolyline, projectOnPolyline } from '@/core/math';
 import { agentOf } from '../brain';
 import { COMMAND_CONVOY_EVENT } from './api';
 import type { ConvoyDestination, ConvoyEvent, ConvoyStage, ConvoyStatus } from './api';
@@ -43,6 +43,11 @@ interface Convoy {
   /** Véhicules sortis de la colonne parce que bloqués (ils rejoignent seuls) et prochain contrôle. */
   solo: Vehicle[];
   unstuckAt: number;
+  /** Départ échelonné : prochain véhicule à lancer, instant du dernier départ, positions de départ. */
+  staggerIdx: number;
+  staggerAt: number;
+  startX: number[];
+  startZ: number[];
 }
 
 /** Attente maximale du joueur avant que la colonne parte sans lui (s), et intervalle des rappels radio. */
@@ -98,7 +103,7 @@ export class ConvoyControl {
       c = {
         status: { squadId, stage: 'route', vehicles: 0, parked: 0, alignError: -1, headingError: -1, t0: this.core.now },
         vehicles: [], dest: { x: 0, z: 0, heading: 0 }, hasDest: false, exitX: 0, exitZ: 0, hasExit: false, stageT: this.core.now,
-        fromX: 0, fromZ: 0, orderDone: false, stragglersAt: 0, boarding: false, waitSince: 0, remindAt: 0, solo: [], unstuckAt: 0,
+        fromX: 0, fromZ: 0, orderDone: false, stragglersAt: 0, boarding: false, waitSince: 0, remindAt: 0, solo: [], unstuckAt: 0, staggerIdx: 0, staggerAt: 0, startX: [], startZ: [],
       };
       this.list.push(c);
     }
@@ -121,7 +126,7 @@ export class ConvoyControl {
    * sortie (le début de l'itinéraire vers la destination), sans quoi un fourgon attend celui qui le bloque et qui
    * l'attend lui-même. Le véhicule de commandement reste en tête s'il n'est pas enfermé derrière les autres.
    */
-  private orderForDeparture(c: Convoy, tx: number, tz: number): void {
+  private orderForDeparture(c: Convoy, tx: number, tz: number, commandFirst = true): void {
     const list = c.vehicles;
     if (list.length < 2) return;
     const ctx = this.core.ctx;
@@ -159,7 +164,7 @@ export class ConvoyControl {
     let best = -Infinity;
     for (let i = 0; i < list.length; i++) {
       const v = list[i]!;
-      const k = v.kind === 'vl_commandement' && ahead(v) > front - 4 ? 1e9 : ahead(v);
+      const k = commandFirst && v.kind === 'vl_commandement' && ahead(v) > front - 1.5 ? 1e9 : ahead(v);
       if (k > best) { best = k; head = i; }
     }
     // puis chacun suit son voisin immédiat : la file se défait dans l'ordre où elle est garée
@@ -246,6 +251,9 @@ export class ConvoyControl {
     c.boarding = false;
     c.waitSince = 0;
     if (dest.boardFirst && lead && ap) {
+      // stationnement en bloc serré (rangs côte à côte) : personne ne pourrait manœuvrer pour sortir ; les véhicules
+      // se rangent d'abord en file le long du début de l'itinéraire, nez vers la sortie (les équipages y montent)
+      if (dest.stagger && this.packed(c)) this.lineUp(c, dest.x, dest.z);
       // embarquement d'abord : la colonne est « en route » pour le commandement (il attend), mais ne roule pas encore
       c.boarding = true;
       c.stragglersAt = 0;
@@ -283,6 +291,12 @@ export class ConvoyControl {
     c.boarding = false;
     c.stageT = core.now;
     const squad = core.ctx.squads.get(c.status.squadId);
+    if (ap && c.vehicles.length > 0 && c.dest.stagger) {
+      c.staggerIdx = 0;
+      this.launchNext(c);
+      if (squad) core.say(squad.name, frame('CENTRAL', squad.name, 'Départ en colonne, ' + spell(c.vehicles.length) + ' véhicules, deux tons', false), 1, 'commandement', squad.leaderId);
+      return;
+    }
     if (ap && c.vehicles.length > 0 && ap.convoy(c.vehicles, c.dest.x, c.dest.z, { gap: core.tuning.convoyGap, speed: core.tuning.convoySpeed, urgence: true })) {
       if (squad) core.say(squad.name, frame('CENTRAL', squad.name, 'En route vers la zone de stationnement, ' + spell(c.vehicles.length) + ' véhicules en colonne', false), 1, 'commandement', squad.leaderId);
       return;
@@ -343,10 +357,140 @@ export class ConvoyControl {
     return true;
   }
 
+  /** Véhicules garés trop près les uns des autres pour sortir chacun de son côté (moins de 7 m entre deux). */
+  private packed(c: Convoy): boolean {
+    const list = c.vehicles;
+    for (let i = 0; i < list.length; i++) {
+      if (Math.abs(list[i]!.speed) > 0.3) return false;
+      for (let j = i + 1; j < list.length; j++) if (Math.hypot(list[i]!.x - list[j]!.x, list[i]!.z - list[j]!.z) < 7) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Met la colonne en file le long du début de l'itinéraire vers (tx, tz) : la tête au plus loin, chacun à 4 m du
+   * précédent, à droite de l'axe si la place est libre. Les véhicules qu'aucune place ne reçoit restent où ils sont.
+   */
+  private lineUp(c: Convoy, tx: number, tz: number): void {
+    const ctx = this.core.ctx;
+    const list = c.vehicles;
+    let cx = 0, cz = 0;
+    for (const v of list) { cx += v.x; cz += v.z; }
+    cx /= list.length;
+    cz /= list.length;
+    const path = this.pathBuf;
+    path.length = 0;
+    let ok = false;
+    try { ok = ctx.world.findPath(cx, cz, tx, tz, 'vehicle', path) && path.length >= 4; } catch { ok = false; }
+    if (!ok) return;
+    this.orderForDeparture(c, tx, tz, false);
+    const p = { x: 0, z: 0 };
+    const near: Vehicle[] = [];
+    let s = 8;
+    for (let i = list.length - 1; i >= 0; i--) {
+      const v = list[i]!;
+      // un véhicule sans conducteur ne partira pas : il reste à sa place, hors de la file
+      if (v.seats[0] === 0) continue;
+      // première place libre le long de l'itinéraire (ni mur, ni voiture garée, ni autre véhicule)
+      let placed = false;
+      for (let tries = 0; tries < 8 && !placed; tries++) {
+        s += v.def.length * 0.5;
+        const h = pointOnPolyline(path, s, p);
+        const rx = Math.cos(h), rz = -Math.sin(h);
+        for (const off of [1.4, 0, -1.4]) {
+          const x = p.x + rx * off, z = p.z + rz * off;
+          if (!ctx.world.isFree(x, z, v.def.width * 0.5)) continue;
+          let busy = false;
+          ctx.vehicles.queryRadius(x, z, v.def.length * 0.5 + 2, near as never[]);
+          for (const o of near) if (o !== v) { busy = true; break; }
+          if (busy) continue;
+          v.x = x;
+          v.z = z;
+          v.heading = h;
+          v.vx = 0;
+          v.vz = 0;
+          v.speed = 0;
+          placed = true;
+          break;
+        }
+        s += v.def.length * 0.5 + (placed ? 6 : 2);
+      }
+    }
+  }
+
+  /** Départ échelonné : le véhicule suivant part vers le point et s'arrêtera derrière ceux qui le précèdent. */
+  private launchNext(c: Convoy): void {
+    const core = this.core;
+    const ap = core.autopilot;
+    const v = c.vehicles[c.staggerIdx];
+    if (!ap || !v) return;
+    const order = c.staggerIdx;
+    c.startX[order] = v.x;
+    c.startZ[order] = v.z;
+    ap.driveTo(v, c.dest.x, c.dest.z, { urgence: true, speed: core.tuning.convoySpeed, stopBefore: 2 + order * 11 });
+    c.staggerIdx++;
+    c.staggerAt = core.now;
+  }
+
+  /** Colonne échelonnée en route : départs successifs, puis débarquement quand tous sont arrivés (ou arrêtés). */
+  private thinkStagger(c: Convoy): void {
+    const core = this.core;
+    const ap = core.autopilot!;
+    const now = core.now;
+    const n = c.vehicles.length;
+    if (c.staggerIdx < n) {
+      const i = c.staggerIdx - 1;
+      const prev = c.vehicles[i];
+      const moved = prev ? Math.hypot(prev.x - c.startX[i]!, prev.z - c.startZ[i]!) : 99;
+      if (moved > 12 || now - c.staggerAt > 8) this.launchNext(c);
+      return;
+    }
+    // colonne coincée au départ : un véhicule arrêté derrière un autre de la colonne pas encore lancé le fait partir ;
+    // une voiture civile qui barre la route à une colonne en urgence se range (retirée de la chaussée)
+    if (now >= c.unstuckAt) {
+      c.unstuckAt = now + 2;
+      for (let i = 0; i < c.staggerIdx; i++) {
+        const v = c.vehicles[i]!;
+        const st = ap.status(v);
+        if ((st.state !== 'attente' && st.state !== 'bloque') || st.blockedFor < 6 || Math.abs(v.speed) > 0.3) continue;
+        const o = obstacleOf(ap, v);
+        const ov = o !== 0 ? core.ctx.vehicles.get(o) : undefined;
+        if (!ov) continue;
+        const k = c.vehicles.indexOf(ov);
+        if (k >= c.staggerIdx) {
+          // le gêneur est de la colonne et attend son tour : il part maintenant
+          c.vehicles.splice(k, 1);
+          c.vehicles.splice(c.staggerIdx, 0, ov);
+          this.launchNext(c);
+        } else if (k < 0 && ov.faction !== 'police' && st.blockedFor > 8 && Math.abs(ov.speed) < 0.3) {
+          const driver = ov.seats[0] !== 0 ? core.ctx.people.get(ov.seats[0]!) : undefined;
+          if (!driver || !driver.isPlayer) core.ctx.vehicles.remove(ov.id);
+        }
+      }
+    }
+    let done = 0;
+    for (const v of c.vehicles) {
+      const st = ap.status(v);
+      const near = Math.hypot(v.x - c.dest.x, v.z - c.dest.z) < 70 + n * 11;
+      // arrivé, ou arrêté près du point derrière les autres (ils se gênent à l'arrivée : c'est le débarquement)
+      if (st.state === 'arrive' || st.state === 'echec' || (st.mode === 'idle' && near) || (near && Math.abs(v.speed) < 0.5 && st.blockedFor > 4)
+        || (st.state === 'bloque' && st.blockedFor > 60)) done++;
+    }
+    if (done < n && now - c.stageT < 600) return;
+    for (let i = 0; i < n; i++) if (Math.abs(c.vehicles[i]!.speed) > 0.4 && now - c.stageT < 620) return;
+    // les véhicules arrêtés : plus de pilote automatique (ils ne cherchent plus à se faufiler pendant le débarquement)
+    for (const v of c.vehicles) ap.stop(v);
+    this.beginDisembark(c);
+  }
+
   private thinkRoute(c: Convoy): void {
     const core = this.core;
     if (c.boarding) {
       this.thinkBoard(c);
+      return;
+    }
+    if (c.dest.stagger && core.autopilot) {
+      this.thinkStagger(c);
       return;
     }
     const ap = core.autopilot;
@@ -370,6 +514,17 @@ export class ConvoyControl {
           break;
         }
       }
+    }
+    // tête bloquée au départ par un véhicule de sa propre colonne (garés en bloc) : nouvel ordre, strictement physique
+    const ls = ap.status(lead);
+    if ((ls.state === 'attente' || ls.state === 'bloque') && ls.blockedFor > 15 && Math.abs(lead.speed) < 0.3 && now >= c.unstuckAt) {
+      this.orderForDeparture(c, c.dest.x, c.dest.z, false);
+      if (c.vehicles[0] !== lead) {
+        ap.convoy(c.vehicles, c.dest.x, c.dest.z, { gap: core.tuning.convoyGap, speed: core.tuning.convoySpeed, urgence: true });
+        c.unstuckAt = now + 15;
+        return;
+      }
+      c.unstuckAt = now + 15;
     }
     const st = ap.status(lead);
     const arrived = st.state === 'arrive' || st.mode === 'idle';
@@ -599,3 +754,18 @@ export class ConvoyControl {
     return c && c.hasDest ? { x: c.fromX, z: c.fromZ } : null;
   }
 }
+
+/**
+ * Véhicule qui arrête celui-ci (0 si aucun). Lu dans l'état interne du pilote automatique, faute d'un champ public
+ * (à exposer dans AutopilotStatus quand le module des véhicules sera revu).
+ */
+function obstacleOf(ap: unknown, v: Vehicle): number {
+  try {
+    const rt = (ap as { k?: { rt?(v: Vehicle): { ap?: { obsId?: number; obsReason?: string } | null } } }).k?.rt?.(v);
+    const st = rt && rt.ap;
+    return st && st.obsReason === 'vehicule' && typeof st.obsId === 'number' ? st.obsId : 0;
+  } catch {
+    return 0;
+  }
+}
+

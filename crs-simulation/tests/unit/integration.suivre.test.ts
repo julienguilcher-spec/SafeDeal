@@ -138,4 +138,27 @@ describe('l’unité suit le joueur', () => {
     const cannon = ctx.squads.list.find((s) => s.kind === 'equipage' && ctx.vehicles.get(s.vehicleId)?.kind === 'canon_eau')!;
     expect(cannon.members.filter((id) => ctx.people.get(id)!.vehicleId !== 0).length).toBe(cannon.members.length);
   }, 300000);
+
+  it('Centaure : jamais seul — le second Centaure et l’escorte suivent l’engin du joueur', async () => {
+    const t = createTestContext({ seed: 8, strict: false, modules: SIM });
+    const moyens = { ...COMPANY, centaure: 2 };
+    await t.start({ mode: 'libre', role: 'gendarme_centaure', place: 'essai', x: -10, z: 15, crowdSize: 30, tension: 0, volatility: 0, duration: 'standard', extra: { moyens } });
+    const { ctx } = t;
+    t.step(5);
+    const { v } = takeWheel(ctx, 'centaure');
+    const other = ctx.vehicles.list.find((q) => q.kind === 'centaure' && q !== v)!;
+    expect(other).toBeDefined();
+    const d0 = Math.hypot(other.x - v.x, other.z - v.z);
+    t.step(45);
+    v.siren = 1;
+    const input = ctx.input as { moveY: number };
+    input.moveY = 1; t.step(10); input.moveY = 0; t.step(8);
+    const d1 = Math.hypot(other.x - v.x, other.z - v.z);
+    const ap = ctx.service<{ status(v: unknown): { mode: string; leaderId: number } }>('vehicles.autopilot')!;
+    console.log(`second Centaure : conducteur ${other.seats[0] ? 'oui' : 'non'}, ${ap.status(other).mode}, écart ${d0.toFixed(0)} → ${d1.toFixed(0)} m, sirène ${other.siren}`);
+    expect(other.seats[0]).not.toBe(0);
+    expect(ap.status(other).mode).toBe('follow');
+    expect(d1).toBeLessThan(Math.max(40, d0));
+  }, 300000);
 });
+
