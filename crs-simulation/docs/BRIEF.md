@@ -63,6 +63,23 @@ meilleur que les jeux « CRS simulation » existants. En priorité : **les manif
   noire. Restent ensuite des carcasses calcinées, du bitume noirci et des débris. Les barricades gênent réellement la
   progression des unités et des véhicules ; on les éteint (extincteur, canon à eau, pompiers) et on les dégage (à la
   main, à la lame du Centaure).
+- **Page d'accueil où l'on choisit tout** (demande explicite du commanditaire) : à l'arrivée dans le jeu, un écran
+  d'accueil soigné, entièrement en français, utilisable à la souris, à la manette et au doigt, d'où l'on règle **chaque
+  détail** avant de jouer, avec un aperçu et un bouton « Lancer » :
+  - **rôle** (CRS, chef de groupe, commandant, commissaire, BRAV-M, équipage du Centaure, opérateur du canon à eau,
+    télépilote de drone, médecin, journaliste, manifestant) et, pour les forces de l'ordre, **grade** et **poste** ;
+  - **mode** (carrière, mode libre, monde ouvert) et **mission** (catalogue filtrable par rôle et par type) ;
+  - **lieu** (places et parcours réels, choisis sur la carte de Paris) ;
+  - **heure** et **météo** (clair, couvert, pluie, averse, brouillard, orage) ; vent ;
+  - **affluence** (nombre de manifestants), **cause** de la manifestation et composition de la foule (familles, gilets
+    jaunes, cortège syndical, part de black bloc…) ;
+  - **tension de départ** et **propension à dégénérer** ; **durée** (10 / 25 / 45 min / temps réel) ;
+  - **moyens engagés** : nombre de sections, véhicules, Centaure, canon à eau, BRAV-M, drone, secours ;
+  - options de règles (sanctions actives ou non), niveau de violence affiché, circulation ouverte ou coupée au départ,
+    stations de métro ouvertes ou fermées ;
+  - un bouton « Surprends-moi » qui tire un scénario au hasard, et la possibilité d'**enregistrer ses scénarios**.
+  Le même écran donne accès à la carrière, à la personnalisation, au garage, aux paramètres (graphismes, commandes, son)
+  et aux crédits (dont l'attribution des données cartographiques).
 - **Tout le matériel** : bouclier, tonfa / bâton de défense, gazeuse, grenades lacrymogènes à main et au lanceur
   (Cougar), grenades de désencerclement, LBD 40, extincteur, menottes, radio, mégaphone, arme de service
   (légitime défense uniquement). **Véhicules conduisibles** : fourgon CRS, car de transport, véhicule de commandement,
