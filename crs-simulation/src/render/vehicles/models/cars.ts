@@ -7,7 +7,7 @@ import {
 } from '../geo';
 import type { Geo } from '../geo';
 import {
-  COL, EDGE_SIDE, arch, bumper, cabin, decal, decalFree, door, grille, lamp, lampBox, lightbar, patch, plate, policeBand,
+  COL, EDGE_SIDE, arch, bumper, cabin, decal, decalFree, door, grille, lamp, lightbar, patch, plate, policeBand,
   shell, sideMirror, wheel, antenna,
 } from '../kit';
 import type { CabinSpec, Station, WheelStyle } from '../kit';

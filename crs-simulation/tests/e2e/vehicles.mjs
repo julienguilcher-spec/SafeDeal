@@ -78,6 +78,27 @@ await capture('interieur-voiture-gauche', 'view=interieur&kind=voiture&regard=-5
 // (g) écrans de tourelle
 await capture('tourelle-centaure', 'view=tourelle&kind=centaure&gis=18&site=14&pas=0.033', { frames: 12 });
 await capture('tourelle-canon_eau', 'view=tourelle&kind=canon_eau&gis=-12&site=6&pas=0.033', { frames: 12 });
+// mesure du coût CPU du module seul (sans rendu) : 600 images à 60 Hz avec 150 véhicules
+async function measure(name, query, n = 600) {
+  if (filter && !name.includes(filter)) return null;
+  const { browser, page, errors } = await openPage(server.url + 'harness/vehicles.html?' + query + '&mesure=' + n, { width: 480, height: 270 });
+  browserRef = browser;
+  try {
+    await waitFor(page, 'window.__mesure !== undefined', 600000);
+    const m = await page.evaluate(() => window.__mesure);
+    console.log(`[vehicles] ${name} : ${m.vehicules} véhicules (${m.detailles} détaillés, ${m.lointains} lointains, ${m.masques} masqués, ${m.quads} quads lumineux), `
+      + `${m.appels} appels de dessin, ${m.triangles} triangles — CPU par image : médiane ${m.mediane.toFixed(3)} ms, moyenne ${m.moyenne.toFixed(3)} ms, `
+      + `p95 ${m.p95.toFixed(3)} ms, max ${m.max.toFixed(3)} ms (sur ${m.images} images) ; croissance du tas : `
+      + (m.tasOctetsParImage === null ? 'non mesurable' : `${m.tasOctetsParImage.toFixed(0)} octets/image`));
+    for (const e of errors) allErrors.push(name + ' : ' + e);
+    return m;
+  } finally {
+    await browser.close().catch(() => {});
+  }
+}
+const mesure = await measure('mesure-150-haut', 'view=parc&n=150&qualite=haut');
+await measure('mesure-150-nuit', 'view=parc&n=150&qualite=haut&nuit=1');
+await measure('mesure-150-bas', 'view=parc&n=150&qualite=bas');
 // (h) parc de 150 véhicules civils
 const parc = await capture('parc-150', 'view=parc&n=150&pas=0.033', { frames: 30, timeout: 600000 });
 await capture('parc-150-sol', 'view=parc&n=150&cam=sol&pas=0.033', { frames: 30, timeout: 600000 });
@@ -90,6 +111,6 @@ if (parc) {
     + `${parc.near} détaillés / ${parc.far} lointains / ${parc.hidden} masqués, CPU médian ${parc.cpuMedian.toFixed(2)} ms/image (max ${parc.cpuMax.toFixed(2)})`);
   if (parc.moduleCalls > 60) { ok = false; console.error('[vehicles] trop d’appels de dessin : ' + parc.moduleCalls); }
   if (parc.near + parc.far < 60) { ok = false; console.error('[vehicles] trop peu de véhicules affichés'); }
-  if (parc.cpuMedian > 4) { ok = false; console.error('[vehicles] coût CPU trop élevé : ' + parc.cpuMedian.toFixed(2) + ' ms'); }
 }
+if (mesure && mesure.mediane > 2) { ok = false; console.error('[vehicles] coût CPU trop élevé : ' + mesure.mediane.toFixed(2) + ' ms'); }
 await finish({ browser: browserRef, server, errors: allErrors, ok, label: 'vehicles' });

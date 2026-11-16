@@ -465,6 +465,32 @@ window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
 });
+// mesure du coût CPU du module seul : N images à 60 Hz sans rendu (&mesure=600)
+const mesureN = num('mesure', 0);
+if (mesureN > 0) {
+  camera.updateMatrixWorld();
+  const mem = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory;
+  for (let i = 0; i < 30; i++) { if (frameHook) frameHook(1 / 60, i / 60); game.frame(1 / 60); }
+  const heap0 = mem ? mem.usedJSHeapSize : 0;
+  const times: number[] = [];
+  const t0 = performance.now();
+  for (let i = 0; i < mesureN; i++) {
+    if (frameHook) frameHook(1 / 60, (i + 30) / 60);
+    const a = performance.now();
+    game.frame(1 / 60);
+    times.push(performance.now() - a);
+  }
+  const total = performance.now() - t0;
+  const heap1 = mem ? mem.usedJSHeapSize : 0;
+  times.sort((a, b) => a - b);
+  const s = api.stats;
+  (window as unknown as { __mesure: unknown }).__mesure = {
+    images: mesureN, vehicules: ctx.vehicles.list.length, detailles: s.near, lointains: s.far, masques: s.hidden, quads: s.fx,
+    appels: s.drawCalls, triangles: s.triangles,
+    mediane: times[Math.floor(times.length / 2)], p95: times[Math.floor(times.length * 0.95)], max: times[times.length - 1],
+    moyenne: total / mesureN, tasOctetsParImage: mem ? (heap1 - heap0) / mesureN : null,
+  };
+}
 (window as unknown as { __ready: boolean }).__ready = true;
 (window as unknown as { __kinds: string[] }).__kinds = KINDS;
 requestAnimationFrame(loop);

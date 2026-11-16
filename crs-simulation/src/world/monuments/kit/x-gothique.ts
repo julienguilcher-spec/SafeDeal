@@ -101,7 +101,7 @@ export function buttress(w: number, depth: number, h: number, steps = 2, taper =
     const y0 = (k / n) * h, y1 = ((k + 1) / n) * h;
     const d0 = depth * (1 - (1 - taper) * (k / n)), d1 = k === n - 1 ? 0.02 : depth * (1 - (1 - taper) * ((k + 1) / n));
     const s = Math.min((d0 - d1) * 1.25, (y1 - y0) * 0.6);
-    g.append(slabXY([0, y0, d0, y0, d0, y1 - s, d1, y1, 0, y1], w, { back: false }).rotateY(-Math.PI / 2));
+    g.append(slabXY([0, y0, d0, y0, d0, y1 - s, d1, y1, 0, y1], w).rotateY(-Math.PI / 2));
   }
   return g;
 }

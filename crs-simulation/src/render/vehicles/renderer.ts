@@ -15,7 +15,7 @@ import {
   SRGB_TO_LINEAR, advanceWheelAngle, composeVehicleMatrix, pack2, pack4, steerToThree, transformPoint,
   turretPitchToThree, turretYawToThree, vehiclePointToWorld,
 } from './frame';
-import { LOD_FAR, LOD_HIDDEN, LOD_NEAR, VEHICLE_QUALITY, adaptNearScale, chooseLod } from './lod';
+import { LOD_HIDDEN, LOD_NEAR, VEHICLE_QUALITY, adaptNearScale, chooseLod } from './lod';
 import type { VehicleLod, VehicleQuality } from './lod';
 import { createVehicleMaterial, createVehicleUniforms } from './material';
 import type { VehicleUniforms } from './material';

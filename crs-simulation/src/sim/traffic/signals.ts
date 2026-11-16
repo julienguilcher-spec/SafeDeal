@@ -286,7 +286,6 @@ export class Boxes {
       if (r.car === car) mine = r;
       else if (r.until < now) this.drop(b, i);
     }
-    if (mine && b.res.indexOf(mine) >= b.n) mine = null;
     if (!mine) {
       mine = this.pool.pop() ?? new Reservation();
       mine.car = car;

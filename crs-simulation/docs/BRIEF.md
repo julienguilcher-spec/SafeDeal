@@ -89,6 +89,13 @@ meilleur que les jeux « CRS simulation » existants. En priorité : **les manif
   - Les **véhicules en stationnement** restent présents dans les rues adjacentes (ce sont eux que les émeutiers
     incendient ou retournent) ; le stationnement est dégagé sur le parcours lui-même.
   - Seuls roulent dans la zone : les véhicules de police, le camion sono du cortège, et les secours appelés.
+  - **Situations imprévues, où foule et circulation se rencontrent** (validé par le commanditaire) : rien n'a été fermé
+    à l'avance quand un groupe quitte le parcours, lors d'un **rassemblement non déclaré** ou d'un **blocage** (sit-in
+    sur un boulevard), d'une **émeute de nuit**, ou d'un **soir de match** où la foule déborde sur la chaussée. C'est
+    alors au joueur de couper à temps. Règles : les voitures ne traversent JAMAIS une foule (elles s'arrêtent avant,
+    klaxonnent, font demi-tour) ; de temps en temps un véhicule reste **coincé** et devient un incident à traiter
+    (dégager le conducteur, ou le protéger si le groupe s'en prend au véhicule). Cela reste rare par défaut ; le réglage
+    « circulation ouverte ou coupée au départ » de la page d'accueil laisse choisir.
 - **Barricades et feux de rue réalistes** (demande explicite du commanditaire) : les émeutiers construisent des barrages
   avec ce qu'ils trouvent — poubelles et conteneurs renversés puis enflammés, barrières de chantier, palettes, mobilier de
   terrasse, **vélos et trottinettes en libre-service**, scooters — et y mettent le feu. Chaque matériau brûle à sa façon :

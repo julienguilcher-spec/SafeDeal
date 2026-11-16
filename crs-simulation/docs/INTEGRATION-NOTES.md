@@ -55,9 +55,12 @@ Points à reprendre lors de l'assemblage, parce qu'ils ont été décidés aprè
   carte ; sommations déléguées à un officier IA sur ordre. À proposer sur la page d'accueil.
 
 ## Circulation (précision du 16/11, après le lancement du module de trafic)
-- Aucun véhicule civil dans la manifestation : le module `sim/traffic` doit fermer d'office le lieu de rassemblement et
-  tout le couloir du parcours (`ctx.director.route` + marge ~60 m) dès `session:started`, n'y faire apparaître ni rouler
-  aucun véhicule civil, et y retirer le stationnement. Vérifier aussi : arrêt et demi-tour à ≥ 40 m de toute foule dense ;
-  jamais d'entrée dans une foule ; plus d'incident « automobiliste pris dans le cortège ».
+- Manifestation DÉCLARÉE : le module `sim/traffic` ferme d'office le lieu de rassemblement et tout le couloir du parcours
+  (`ctx.director.route` + marge ~60 m) dès `session:started`, n'y fait apparaître ni rouler aucun véhicule civil, et y
+  retire le stationnement.
+- Situations IMPRÉVUES (groupe hors parcours, rassemblement non déclaré, blocage, émeute de nuit, soir de match) : rien
+  n'est fermé d'avance ; arrêt et demi-tour à ≥ 40 m de toute foule dense, jamais d'entrée dans une foule ; rarement un
+  véhicule coincé → incident `automobiliste_bloque`. Le type de mission (`MissionType`) et
+  `config.extra` (circulation ouverte ou coupée au départ) décident du cas.
 - Les fermetures du joueur servent au périmètre (rues adjacentes, accès, itinéraires de secours).
 - Véhicules en stationnement conservés dans les rues adjacentes.
