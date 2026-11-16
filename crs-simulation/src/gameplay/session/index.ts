@@ -20,7 +20,10 @@ import { SessionSetupSystem } from './setup';
 import { TimeWarpSystem } from './timewarp';
 
 /** Deux systèmes : la mise en place ('session.setup') et l'avance rapide ('session.timewarp', touche « . »). */
-export const createSystems: ModuleFactory = () => [new SessionSetupSystem(), new TimeWarpSystem()];
+import { FollowLeaderSystem } from './follow';
+export { FollowLeaderSystem } from './follow';
+
+export const createSystems: ModuleFactory = () => [new SessionSetupSystem(), new TimeWarpSystem(), new FollowLeaderSystem()];
 
 export { SessionSetupSystem } from './setup';
 export { FAST_FORWARD_SCALE, TIME_WARP_SERVICE, TimeWarpSystem } from './timewarp';

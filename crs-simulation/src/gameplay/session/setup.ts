@@ -42,6 +42,8 @@ import type { Cast, CastSlot, RequestedMeans } from './roster';
 /** Sections par compagnie (au-delà, les sections suivantes lui sont rattachées en renfort). */
 const COMPANY_SECTIONS = 4;
 const COMPANY_LAYOUT: 'colonne' | 'ligne' = 'ligne';
+/** Rôles où le joueur commande sa petite unité : elle le suit à pied et en véhicule (voir follow.ts). */
+const LEADER_ROLES: ReadonlySet<string> = new Set(['chef_groupe', 'bravm', 'gendarme_centaure', 'operateur_canon_eau', 'telepilote']);
 /** Véhicules de l'unité que l'on gare nez vers la sortie (les engins à équipage restent face au front). */
 const PARKED_KINDS: readonly string[] = ['fourgon_crs', 'car_crs', 'vl_commandement', 'fourgon_cellulaire', 'voiture_police', 'moto_bravm'];
 const isProtester = (p: { faction: string }): boolean => p.faction === 'protest';
@@ -153,6 +155,13 @@ export class SessionSetupSystem implements GameSystem {
         summary.playerId = player.id;
         // commandant en salle de commandement : il s'installe dans le véhicule de commandement, vue tactique
         if (config.role === 'commandant' && config.extra && config.extra['variante'] === 'salle') this.seatInCommandRoom(player);
+        // rôles à responsabilité : le joueur prend la tête de son unité (BRAV-M, équipage d'engin, équipe du drone)
+        if (LEADER_ROLES.has(config.role) && player.squadId !== 0) {
+          const own = ctx.squads.get(player.squadId);
+          if (own && own.faction === 'police' && own.leaderId !== player.id) ctx.squads.setLeader(own.id, player.id);
+          // canon à eau, Centaure : un groupe de CRS de la compagnie l'escorte et le suit
+          if (own && (config.role === 'operateur_canon_eau' || config.role === 'gendarme_centaure')) this.attachEscort(player, own);
+        }
         // le joueur chef d'une unité (groupe, section) : son unité le suit tant qu'il ne lui donne pas d'autre ordre
         if (config.role !== 'commandant' && config.role !== 'commissaire') {
           for (const s of ctx.squads.list) {
@@ -571,6 +580,27 @@ export class SessionSetupSystem implements GameSystem {
       deputy.look.sash = true;
       if (ctx.actions.has(deputy, 'megaphone') === 0) ctx.actions.give(deputy, 'megaphone');
       if (ctx.actions.has(deputy, 'fusee_sommation') === 0) ctx.actions.give(deputy, 'fusee_sommation');
+    }
+  }
+
+  /**
+   * Escorte d'un engin conduit par le joueur : le groupe de CRS le plus proche quitte sa section (le commandant IA
+   * ne lui donne plus de poste) et passe sous l'équipage du joueur ; il suit l'engin à pied.
+   */
+  private attachEscort(player: Person, crew: Squad): void {
+    const ctx = this.ctx;
+    let best: Squad | null = null;
+    let bestD = Infinity;
+    for (const s of ctx.squads.list) {
+      if (s.faction !== 'police' || s.kind !== 'groupe' || s.id === crew.id || s.members.length < 3 || s.leaderId === player.id) continue;
+      const lead = ctx.people.get(s.leaderId) ?? ctx.people.get(s.members[0]!);
+      if (!lead) continue;
+      const d = Math.hypot(lead.x - player.x, lead.z - player.z);
+      if (d < bestD) { bestD = d; best = s; }
+    }
+    if (best && bestD < 400) {
+      best.parentId = crew.id;
+      ctx.radio.say({ channel: 'unite', from: crew.name, text: `${best.name}, vous escortez l’engin : suivez-nous.`, priority: 1, personId: player.id });
     }
   }
 

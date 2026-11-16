@@ -461,3 +461,20 @@ un téléphone lancé en portrait trouve désormais la session EN PAUSE (c'étai
   l'officier IA le plus gradé reçoit l'écharpe, le mégaphone et la fusée ; le bouton « Sommation suivante » le fait
   sommer sur ordre (`police.command.requestSommation`, qui ne s'interrompt plus sur une foule présente).
 - Vérifié : `tests/unit/integration.poste.test.ts`. Non vu dans le navigateur.
+
+## L'unité suit le joueur, colonne de véhicules (16/11) — LIVRÉ
+- Rôles à responsabilité (chef de groupe, BRAV-M, équipage Centaure / canon à eau, télépilote) : le joueur devient chef
+  de sa petite unité, qui reçoit « suivre » (`session/setup.ts`, `LEADER_ROLES`). Canon à eau et Centaure : le groupe de
+  CRS le plus proche passe sous l'équipage du joueur et l'escorte (`attachEscort`).
+- `session/follow.ts` (FollowLeaderSystem) : quand le joueur prend le volant, ses équipiers montent (son véhicule
+  d'abord, à la place exacte — poste de tir compris —, puis les motos / fourgons libres de l'unité) ; les unités placées
+  sous lui, et toute la compagnie s'il conduit un véhicule de compagnie et qu'aucun commandant IA ne la tient en
+  dispositif, reçoivent « embarquer » dans leur propre fourgon. Colonne derrière lui (pilote automatique « follow » en
+  chaîne, engagé une seule fois), sirène et gyrophares recopiés. Il descend : la colonne s'arrête, ses équipiers
+  descendent, les groupes « débarquer » en ligne à côté de leur fourgon (les équipages d'engin restent à bord). Une
+  unité qui tient un poste (« tenir », « ligne »…) reste en place.
+- `vehicles/autopilot-drive.ts` : un suiveur simple (sans allure de croisière, hors convoi IA) tient l'allure du meneur
+  + 4 m/s même si la voie la plus proche est un cheminement piéton (il était bridé à 1,7 m/s place de la Concorde).
+- Vérifié : `tests/unit/integration.suivre.test.ts` (BRAV-M en colonne à 2 et 9 m à 50 km/h ; fourgon du chef de
+  groupe ; escorte du canon à eau ; compagnie entière derrière le commandant, 6/6 groupes, sirènes). Non vu à l'écran.
+- Remarque : le canon à eau (29 t) ne démarre pas en côte légère à mi-accélérateur (gâchette à moitié) ; plein gaz ok.

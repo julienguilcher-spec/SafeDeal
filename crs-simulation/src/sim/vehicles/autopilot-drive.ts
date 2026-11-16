@@ -158,6 +158,12 @@ export class ApDriver {
     const aLat = (ap.urgence ? 3.2 : 2.0) * grip;
     const aDec = (ap.urgence ? 3.0 : 1.8) * grip;
     let vt = ap.cruise > 0 ? ap.cruise : ap.roadLimit;
+    if (ap.mode === 'follow' && ap.cruise === 0 && !ap.convoy) {
+      // une colonne tient l'allure de son meneur (+ de quoi recoller), même là où la voie la plus proche est un
+      // cheminement piéton à vitesse de marche (place, quai) : c'est le meneur qui choisit où et à quelle vitesse on passe (les convois de l'IA ont leur propre allure de croisière)
+      const lv = ctx.vehicles.get(ap.leaderId);
+      if (lv && lv.speed + 4 > vt) vt = lv.speed + 4;
+    }
     if (ap.urgence) vt = Math.max(vt * 1.5, 50 / 3.6);
     if (vt > def.maxSpeed * 0.9) vt = def.maxSpeed * 0.9;
     if (ap.mode === 'park' && remaining < 25) vt = Math.min(vt, finalLeg ? 2 : 3);
