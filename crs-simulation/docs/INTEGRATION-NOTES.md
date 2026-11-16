@@ -506,3 +506,18 @@ un téléphone lancé en portrait trouve désormais la session EN PAUSE (c'étai
   construction de tuile (`quality.tinCell` : 16 m en « bas », 8 m sinon) ; un changement de qualité reconstruit tout.
 - Mesure `tests/e2e/perf-bas.mjs` (Concorde) : sol 214 000 → 129 000 triangles ; total 495 000 → 409 000.
 - Vu au navigateur (Concorde, quai, Tuileries) : ni trou ni trottoir flottant.
+
+## Journée de service (16/11) — LIVRÉ
+- Option de la page d'accueil « Journée de service (départ de la caserne) », cochée par défaut (scénario libre ou
+  carrière sans mission imposée) ; URL `&journee=1`. `session/journee.ts` (service `session.journee`).
+- Caserne de la Cité (préfecture de police) : véhicules rangés en file le long du début de l'itinéraire ; briefing de
+  CENTRAL ; embarquement (la colonne attend le joueur, place réservée, rappels radio, objectif « Embarquez » au GPS) ;
+  colonne en urgence, sirènes, conduite par l'IA ; débarquement avec son groupe ; le commandement IA ne déploie qu'à
+  l'arrivée. Fin de mission → rembarquement → retour. Journée normale ou longue : seconde intervention (feux de
+  voitures et de conteneurs dans un autre quartier, pompiers engagés, cordon « protéger »), puis fin de service.
+  Feux de poubelles ailleurs en ville tout au long de la journée.
+- Convoi (`police/command/convoy.ts`) : boardFirst, attente du joueur, conducteur assuré, ordre de départ physique,
+  tête qui s'arrête si la colonne décroche. Fourgon de CRS : 9 places.
+- Vérifié : `tests/unit/integration.journee.test.ts` (journée complète, deux interventions) ;
+  `tests/e2e/verif-journee.mjs` (caserne, colonne dans le navigateur).
+- Limite : une seule manifestation à la fois (le module de foule ne gère qu'un cortège).

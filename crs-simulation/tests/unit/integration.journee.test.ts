@@ -73,9 +73,29 @@ describe('journée de service', () => {
       .sort((a, b) => Math.hypot(a.x - me.x, a.z - me.z) - Math.hypot(b.x - me.x, b.z - me.z))[0]!;
     me.x = back.x + 3; me.z = back.z;
     expect(ctx.vehicles.enter(me, back, 'passenger')).toBe(true);
-    for (let i = 0; i < 200 && j.stage !== 'fin'; i++) t.step(5);
+    for (let i = 0; i < 260 && (j.stage === 'retour' || j.stage === 'rembarquement'); i++) t.step(5);
     console.log(`retour : étape ${j.stage} ; joueur à ${Math.hypot(me.x - SERVICE_BASE.x, me.z - SERVICE_BASE.z).toFixed(0)} m de la caserne`);
+
+    // seconde intervention : feux dans un autre quartier, la colonne y va, cordon, puis retour
+    expect(j.stage).toBe('intervention_route');
+    expect(ctx.radio.log.some((m) => /Changement de mission/.test(m.text))).toBe(true);
+    for (let i = 0; i < 200 && j.stage === 'intervention_route'; i++) t.step(5);
+    const site = j.destination!;
+    console.log(`intervention : étape ${j.stage} ; ${site.name} ; joueur à pied ${me.vehicleId === 0} à ${Math.hypot(me.x - site.x, me.z - site.z).toFixed(0)} m ; ordre de la compagnie ${company.order.type}`);
+    expect(j.stage).toBe('intervention');
+    expect(company.order.type).toBe('proteger');
+    for (let i = 0; i < 120 && j.stage === 'intervention'; i++) t.step(5);
+    expect(j.stage).toBe('rembarquement');
+    t.step(20);
+    if (me.vehicleId === 0) {
+      const v2 = ctx.vehicles.list.filter((v) => (v.kind === 'fourgon_crs' || v.kind === 'vl_commandement') && v.seats.some((id, i) => id === 0 && i > 0))
+        .sort((a, b) => Math.hypot(a.x - me.x, a.z - me.z) - Math.hypot(b.x - me.x, b.z - me.z))[0]!;
+      me.x = v2.x + 3; me.z = v2.z;
+      ctx.vehicles.enter(me, v2, 'passenger');
+    }
+    for (let i = 0; i < 250 && j.stage !== 'fin'; i++) t.step(5);
+    console.log(`fin de journée : étape ${j.stage}`);
     expect(j.stage).toBe('fin');
     expect(ctx.radio.log.some((m) => /fin de service/.test(m.text))).toBe(true);
-  }, 1800000);
+  }, 3000000);
 });

@@ -13,7 +13,10 @@
  *   3. route             : colonne en urgence, sirènes et gyrophares ; les chauffeurs de l'IA conduisent ;
  *   4. sur place         : débarquement (le joueur passager descend avec son groupe), le commandement prend la main ;
  *   5. retour            : fin de mission → rembarquement (la colonne attend le joueur) → retour à la caserne ;
- *   6. fin de service    : compte rendu.
+ *   6. seconde intervention (journée normale ou longue) : de retour à la caserne, la salle engage la compagnie sur
+ *                          des feux de véhicules et de conteneurs dans un autre quartier (pompiers engagés) :
+ *                          colonne, cordon autour des feux, retour quand ils sont éteints ;
+ *   7. fin de service    : compte rendu.
  * Pendant toute la journée, la ville vit : feux de poubelles et de conteneurs dans d'autres quartiers, signalés à la
  * radio et sur la carte (module des incidents), traités par les pompiers ou confiés au joueur selon son rôle.
  * Simulation pure (aucun DOM).
@@ -29,7 +32,9 @@ import { SERVICE_BASE, isJournee } from './journee-data';
 import { chooseStandOffCrowd } from './placement';
 import { pointOnPolyline } from '@/core/math';
 
-export type JourneeStage = 'inactif' | 'prise_de_service' | 'embarquement' | 'route' | 'sur_place' | 'rembarquement' | 'retour' | 'fin';
+export type JourneeStage =
+  | 'inactif' | 'prise_de_service' | 'embarquement' | 'route' | 'sur_place' | 'rembarquement' | 'retour'
+  | 'intervention_route' | 'intervention' | 'fin';
 
 export const JOURNEE_SERVICE = 'session.journee';
 export const JOURNEE_OBJECTIVE_ID = 'journee';
@@ -45,6 +50,7 @@ export interface JourneeApi {
 /** Vue minimale du commandement IA (police.command). */
 interface CommandLike {
   arrive(companyId: number, dest: { x: number; z: number; heading: number; layout?: 'file' | 'bataille' | 'epi'; boardFirst?: boolean }): boolean;
+  depart(companyId: number, exit?: { x: number; z: number }): boolean;
   convoyOf(companyId: number): { stage: string } | null;
   stateOf(companyId: number): { phase: string; missionEnded: boolean } | null;
 }
@@ -68,6 +74,8 @@ const CITY_MAX = 6;
 /** Rayon d'arrivée à la caserne (m) ; durée maximale du retour avant de clore la journée (s). */
 const BASE_RADIUS = 160;
 const RETURN_MAX = 900;
+/** Durée maximale de la seconde intervention avant de lever le périmètre (s). */
+const INTERVENTION_MAX = 420;
 
 const CONVOY_KINDS: ReadonlySet<string> = new Set(['fourgon_crs', 'car_crs', 'vl_commandement', 'fourgon_cellulaire', 'canon_eau', 'centaure']);
 
@@ -84,6 +92,10 @@ export class JourneeSystem implements GameSystem {
   private dest: { x: number; z: number; heading: number; name: string } | null = null;
   private endAt = 0;
   private returnAt = 0;
+  private secondDone = false;
+  private interventionAt = 0;
+  private site: { x: number; z: number; name: string } | null = null;
+  private readonly fires: { x: number; z: number; vehicleId: number }[] = [];
   private nextCity = 0;
   private cityCount = 0;
   private sirensOn = false;
@@ -95,7 +107,7 @@ export class JourneeSystem implements GameSystem {
     const self = this;
     ctx.provide(JOURNEE_SERVICE, {
       get stage() { return self.stage_; },
-      get travelling() { return self.stage_ === 'embarquement' || self.stage_ === 'route' || self.stage_ === 'rembarquement' || self.stage_ === 'retour'; },
+      get travelling() { return self.stage_ === 'embarquement' || self.stage_ === 'route' || self.stage_ === 'rembarquement' || self.stage_ === 'retour' || self.stage_ === 'intervention_route'; },
       get destination() { return self.dest ? { x: self.dest.x, z: self.dest.z, name: self.dest.name } : null; },
     } satisfies JourneeApi);
   }
@@ -113,6 +125,10 @@ export class JourneeSystem implements GameSystem {
     this.dest = null;
     this.endAt = 0;
     this.returnAt = 0;
+    this.secondDone = false;
+    this.interventionAt = 0;
+    this.site = null;
+    this.fires.length = 0;
     this.cityCount = 0;
     this.sirensOn = false;
     this.nextThink = 0;
@@ -165,6 +181,12 @@ export class JourneeSystem implements GameSystem {
       case 'rembarquement':
       case 'retour':
         this.thinkReturn(now);
+        break;
+      case 'intervention_route':
+        this.thinkInterventionRoute();
+        break;
+      case 'intervention':
+        this.thinkIntervention(now);
         break;
       case 'fin':
         if (this.endAt > 0 && now >= this.endAt) {
@@ -332,12 +354,148 @@ export class JourneeSystem implements GameSystem {
     const atBase = (lead && Math.hypot(lead.x - SERVICE_BASE.x, lead.z - SERVICE_BASE.z) < BASE_RADIUS && Math.abs(lead.speed) < 0.5)
       || (st && st.stage === 'parti' && me && Math.hypot(me.x - SERVICE_BASE.x, me.z - SERVICE_BASE.z) < BASE_RADIUS * 2)
       || now - this.returnAt > RETURN_MAX;
+    if (atBase && !this.secondDone && this.wantSecond()) {
+      // la journée continue : la salle engage la compagnie sur une seconde intervention, ailleurs dans Paris
+      this.secondDone = true;
+      if (this.startIntervention(now)) return;
+    }
     if (atBase) {
       this.stage_ = 'fin';
       this.endAt = now + DEBRIEF_DELAY;
       this.clearObjective();
       ctx.radio.say({ channel: 'commandement', from: this.companyName(), priority: 2, text: `CENTRAL de ${this.companyName()}. Retour ${SERVICE_BASE.name}, fin de service. Rien à signaler de plus.` });
       ctx.ui.notify('Fin de service : compte rendu dans quelques secondes.', 'ok', 6);
+    }
+  }
+
+  // ───────────────────────────── seconde intervention ─────────────────────────────
+
+  /** Seconde intervention pour une journée normale ou longue (une journée courte s'arrête après la manifestation). */
+  private wantSecond(): boolean {
+    const d = this.ctx!.session.config?.duration;
+    return d !== 'courte';
+  }
+
+  /**
+   * Feux de véhicules et de conteneurs dans un autre quartier : la salle engage les pompiers et la compagnie, qui s'y
+   * porte en colonne et tient un cordon autour des feux le temps de l'extinction.
+   */
+  private startIntervention(now: number): boolean {
+    const ctx = this.ctx!;
+    const rand = this.rng!;
+    const command = ctx.service<CommandLike>('police.command');
+    if (!command) return false;
+    const b = ctx.world.bounds;
+    for (let attempt = 0; attempt < 80; attempt++) {
+      const a = rand() * Math.PI * 2;
+      const d = 600 + rand() * 1000;
+      const x = SERVICE_BASE.x + Math.cos(a) * d;
+      const z = SERVICE_BASE.z + Math.sin(a) * d;
+      if (x < b.minX + 80 || x > b.maxX - 80 || z < b.minZ + 80 || z > b.maxZ - 80) continue;
+      // une rue où l'on peut garer des voitures le long du trottoir et faire passer la colonne (6 m au moins)
+      if (!ctx.world.nearestRoad(x, z, this.road, 80) || this.road.width < 6) continue;
+      const h = this.road.heading;
+      const rx = Math.cos(h), rz = -Math.sin(h);
+      const curb = Math.max(1.2, this.road.width * 0.5 - 1.1);
+      const fx = this.road.x, fz = this.road.z;
+      const street = this.road.name || ctx.world.sectorName(fx, fz) || 'en ville';
+      // zone de stationnement : 45 m en amont, côté caserne
+      const ux = fx - SERVICE_BASE.x, uz = fz - SERVICE_BASE.z;
+      const ul = Math.hypot(ux, uz) || 1;
+      const sx = fx - (ux / ul) * 45, sz = fz - (uz / ul) * 45;
+      if (!ctx.world.nearestRoad(sx, sz, this.road, 40)) continue;
+      const stand = { x: this.road.x, z: this.road.z, heading: Math.atan2(fx - this.road.x, fz - this.road.z) };
+      // deux voitures en feu le long du trottoir, deux conteneurs
+      this.fires.length = 0;
+      const kinds = ['citadine', 'voiture'] as const;
+      for (let i = 0; i < 2; i++) {
+        const along = (i === 0 ? -4 : 4);
+        const vx = fx + rx * curb + Math.sin(h) * along, vz = fz + rz * curb + Math.cos(h) * along;
+        if (!ctx.world.isFree(vx, vz, 1.0)) continue;
+        const v = ctx.vehicles.spawn(kinds[i]!, vx, vz, h);
+        ctx.vehicles.damage(v, { amount: 30, kind: 'burn', sourceId: 0, x: vx, z: vz });
+        this.fires.push({ x: vx, z: vz, vehicleId: v.id });
+      }
+      for (let i = 0; i < 2; i++) {
+        const px = fx - rx * curb + Math.sin(h) * (i === 0 ? -2 : 6), pz = fz - rz * curb + Math.cos(h) * (i === 0 ? -2 : 6);
+        if (!ctx.world.isFree(px, pz, 0.8)) continue;
+        const prop = ctx.props.spawn('conteneur', px, pz, h);
+        ctx.props.damage(prop, 1000, 'burn', 0);
+        ctx.hazards.ignite(px, pz, 1.6, 0.9, 0);
+        this.fires.push({ x: px, z: pz, vehicleId: 0 });
+      }
+      if (this.fires.length === 0) continue;
+      this.site = { x: fx, z: fz, name: street };
+      this.dest = { x: stand.x, z: stand.z, heading: stand.heading, name: street };
+      this.returnAt = 0;
+      this.interventionAt = now;
+      ctx.radio.say({ channel: 'commandement', from: 'CENTRAL', priority: 2,
+        text: `${this.companyName()} de CENTRAL. Changement de mission : véhicules et conteneurs en feu, ${street}. Portez-vous sur place et sécurisez le périmètre pour les sapeurs-pompiers. Deux tons.` });
+      // la salle engage les pompiers
+      const rescue = ctx.service<{ request(kind: 'pompiers' | 'samu', x: number, z: number, byId: number): unknown }>(EXT.rescue);
+      if (rescue) rescue.request('pompiers', fx, fz, 0);
+      command.arrive(this.companyId, { x: stand.x, z: stand.z, heading: stand.heading, layout: 'file', boardFirst: true });
+      this.stage_ = 'intervention_route';
+      this.objective(`Intervention : feux, ${street}`, fx, fz, true);
+      return true;
+    }
+    return false;
+  }
+
+  private thinkInterventionRoute(): void {
+    const ctx = this.ctx!;
+    const command = ctx.service<CommandLike>('police.command');
+    const st = command ? command.convoyOf(this.companyId) : null;
+    const lead = this.convoyLead();
+    if (lead && Math.abs(lead.speed) > 1.2) this.setSirens(true);
+    const me = ctx.player.person();
+    if (me && me.vehicleId === 0 && st && st.stage === 'route' && !(lead && Math.abs(lead.speed) > 1.2)) {
+      const v = this.seatFor(me);
+      if (v) this.objective(`Embarquez : ${this.vehicleLabel(v)}`, v.x, v.z, true);
+    } else if (this.site) {
+      this.objective(`Intervention : feux, ${this.site.name}`, this.site.x, this.site.z, true);
+    }
+    if (!st || st.stage === 'debarquement' || st.stage === 'en_place') this.onIntervention();
+  }
+
+  /** Sur place : le joueur passager descend, la compagnie forme un cordon autour des feux. */
+  private onIntervention(): void {
+    const ctx = this.ctx!;
+    this.setSirens(false);
+    const me = ctx.player.person();
+    if (me && me.vehicleId !== 0) {
+      const v = ctx.vehicles.get(me.vehicleId);
+      if (v && v.seats[0] !== me.id && CONVOY_KINDS.has(v.kind)) ctx.vehicles.exit(me);
+    }
+    const site = this.site!;
+    const company = ctx.squads.get(this.companyId);
+    if (company) {
+      ctx.squads.issue(company.id, { type: 'proteger', x: site.x, z: site.z, heading: this.dest ? this.dest.heading : 0, width: 36, issuedBy: company.leaderId });
+    }
+    this.stage_ = 'intervention';
+    this.objective(`Sécurisez le périmètre pour les pompiers : ${site.name}`, site.x, site.z, true);
+    ctx.radio.say({ channel: 'commandement', from: this.companyName(), priority: 1,
+      text: `CENTRAL de ${this.companyName()}. Sur place, ${site.name}. Périmètre en cours, j'attends les sapeurs-pompiers.` });
+  }
+
+  /** Feux éteints (ou sept minutes écoulées) : fin d'intervention, rembarquement, retour à la caserne. */
+  private thinkIntervention(now: number): void {
+    const ctx = this.ctx!;
+    let burning = 0;
+    for (const f of this.fires) {
+      const v = f.vehicleId !== 0 ? ctx.vehicles.get(f.vehicleId) : undefined;
+      if (v && v.state === 'burning') burning++;
+      else if (!v && ctx.hazards.fireAt(f.x, f.z) > 0.05) burning++;
+    }
+    if (burning > 0 && now - this.interventionAt < INTERVENTION_MAX) return;
+    const command = ctx.service<CommandLike>('police.command');
+    ctx.radio.say({ channel: 'commandement', from: this.companyName(), priority: 1,
+      text: burning > 0 ? `CENTRAL de ${this.companyName()}. Les sapeurs-pompiers tiennent le feu, on lève le périmètre. Retour ${SERVICE_BASE.name}.`
+        : `CENTRAL de ${this.companyName()}. Feux éteints, fin d'intervention. Retour ${SERVICE_BASE.name}.` });
+    this.stage_ = 'rembarquement';
+    if (!command || !command.depart(this.companyId, { x: SERVICE_BASE.x, z: SERVICE_BASE.z })) {
+      this.stage_ = 'retour';
+      this.objective(`Retour : ${SERVICE_BASE.name}`, SERVICE_BASE.x, SERVICE_BASE.z, true);
     }
   }
 
