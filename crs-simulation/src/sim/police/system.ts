@@ -45,6 +45,10 @@ import { createBravm, createCompany, createEquipage, createGroup, createPeloton,
 
 const G = 9.81;
 
+/** Ordres de mise en place qu'un joueur fait exécuter au trot quand le point est à plus de PLAYER_RUSH_MIN mètres. */
+const PLAYER_RUSH_ORDERS: ReadonlySet<string> = new Set(['tenir', 'ligne', 'colonne', 'avancer', 'couper_circulation', 'filtrer', 'proteger', 'encercler', 'escorter']);
+const PLAYER_RUSH_MIN = 35;
+
 export class PoliceSystem implements GameSystem {
   readonly id = POLICE_SYSTEM_ID;
   readonly order = SystemOrder.CONTROL;
@@ -285,6 +289,12 @@ export class PoliceSystem implements GameSystem {
   private handleOrder(u: Unit, o: SquadOrder): void {
     const k = this.k;
     const type = o.type;
+    // ordre de mise en place donné par le JOUEUR sur un point éloigné : l'unité s'y porte au pas de gymnastique
+    // (trot) au lieu du pas cadencé — le joueur qui gère la manifestation veut voir ses unités y aller franchement
+    if (o.issuedBy !== 0 && o.issuedBy === this.ctx.player.state.personId && PLAYER_RUSH_ORDERS.has(type)) {
+      const d = Math.hypot(o.x - u.status.x, o.z - u.status.z);
+      if (d > PLAYER_RUSH_MIN) u.trotUntil = k.now + d / T.SPEED_TROT + 25;
+    }
     // unité spéciale pilotée par le commandement (BRAV-M en selle, engins, drone) : elle exécute elle-même cet ordre
     if (k.orderHook !== null && k.orderHook(u, o)) {
       u.storeOrder = o;

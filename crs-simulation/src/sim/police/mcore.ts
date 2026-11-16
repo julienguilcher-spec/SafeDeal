@@ -255,9 +255,10 @@ export function stepFrame(g: FormGroup, dt: number): boolean {
   const dx = g.tx - g.ax;
   const dz = g.tz - g.az;
   const dist = Math.sqrt(dx * dx + dz * dz);
-  let cohesion = 1 - (g.lag - 0.3) / 0.9;
+  // un agent à un mètre de sa place ne doit pas immobiliser la ligne (elle tombait à 0,2 m/s pour 1,2 m de retard)
+  let cohesion = 1 - (g.lag - 0.5) / 1.5;
   if (cohesion > 1) cohesion = 1;
-  else if (cohesion < 0.15) cohesion = 0.15;
+  else if (cohesion < 0.25) cohesion = 0.25;
   let want = g.speed * cohesion;
   const stop = Math.sqrt(2 * T.FRAME_DECEL * dist);
   if (want > stop) want = stop;
@@ -311,6 +312,9 @@ export function stepFrame(g: FormGroup, dt: number): boolean {
 /** Fait avancer la tête d'une colonne le long de son itinéraire. Retourne true à l'arrivée. */
 export function stepColumn(g: FormGroup, dt: number): boolean {
   const left = g.total - g.s;
+  // cohésion : la tête ralentit quand un agent décroche de son emplacement. Un ou deux mètres de retard sont normaux
+  // en marche (un agent qui contourne un potelet) : l'ancienne règle (pleine allure sous 0,6 m, 20 % à 2,2 m) faisait
+  // avancer les colonnes par à-coups à 0,2-0,4 m/s — « ils ne vont pas directement sur la position ».
   let cohesion = 1 - (g.errAll - 0.6) / 1.6;
   // au trot (mouvement urgent ordonné par le commandement), la colonne n'attend pas un retardataire resté
   // derrière elle : il ne pourrait pas la remonter, et recolle à l'arrêt

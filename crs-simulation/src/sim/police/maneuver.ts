@@ -236,6 +236,9 @@ export function startOrder(k: Kernel, u: Unit, o: SquadOrder): void {
 }
 
 /** Mise en colonne puis marche vers (x, z). */
+/** Distance maximale (m) d'un « avancer » exécuté en ligne ; au-delà : colonne puis déploiement. */
+const ADVANCE_IN_LINE = 45;
+
 function startColumn(k: Kernel, u: Unit, x: number, z: number, files: number): void {
   const g = mainGroup(u);
   const leader = leaderOf(k, u);
@@ -275,7 +278,9 @@ function startAdvance(k: Kernel, u: Unit, o: SquadOrder): void {
     formLine(k, u, cx, cz, d > 2 ? Math.atan2(o.x - cx, o.z - cz) : o.heading, o.width);
   }
   const d = Math.sqrt((o.x - g.ax) * (o.x - g.ax) + (o.z - g.az) * (o.z - g.az));
-  if (d <= 160 && k.sight(g.ax, g.az, o.x, o.z)) {
+  // une ligne ne marche en ligne que sur un bond court, face à son objectif ; au-delà, l'unité se porte en colonne
+  // (plus vite, par les rues) et se redéploie en ligne à l'arrivée — comme une compagnie qui change de position
+  if (d <= ADVANCE_IN_LINE && k.sight(g.ax, g.az, o.x, o.z)) {
     if (Math.abs(angleDiff(g.ah, o.heading)) > 0.9) refit(k, u, g, o.heading);
     moveTo(g, o.x, o.z, o.heading, g.kind === F_TORTUE ? k.tuning.tortue : k.tuning.pace);
     setStep(k, u, 1);
