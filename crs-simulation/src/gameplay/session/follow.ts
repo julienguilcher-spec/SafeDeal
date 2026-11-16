@@ -43,6 +43,7 @@ const COLUMN_GAP = 9;
 /** Rayon dans lequel les fourgons d'une unité accompagnatrice peuvent rejoindre la colonne (m). */
 const COMPANY_RADIUS = 160;
 /** Ordres qui n'engagent pas une unité : on peut l'emmener sans défaire une manœuvre (une unité qui tient un barrage reste). */
+const ARMORED: ReadonlySet<string> = new Set(['centaure', 'canon_eau']);
 const FREE_ORDERS: ReadonlySet<string> = new Set(['libre', 'suivre', 'cesser', 'embarquer', 'debarquer', 'colonne', 'escorter']);
 /** Véhicules qui emmènent la compagnie : quand le joueur en conduit un, toute la colonne suit. */
 const TROOP_KINDS: ReadonlySet<string> = new Set(['fourgon_crs', 'car_crs', 'vl_commandement', 'canon_eau', 'centaure', 'fourgon_cellulaire']);
@@ -206,7 +207,9 @@ export class FollowLeaderSystem implements GameSystem {
       if (s.members.length === 0 || s.leaderId === me.id) continue;
       const under = this.underAny(s, led) || s === pair;
       if (!under && !(companyFree && this.rootOf(s.id) === company)) continue;
-      if (!FREE_ORDERS.has(s.order.type) && s !== pair) continue;
+      // l'escorte à pied d'un blindé (session/engins.ts) part avec la colonne, dans son fourgon
+      const guardsEngine = s.order.type === 'proteger' && ARMORED.has(ctx.vehicles.get(s.order.targetId)?.kind ?? '');
+      if (!FREE_ORDERS.has(s.order.type) && s !== pair && !guardsEngine) continue;
       const v = ctx.vehicles.get(s.vehicleId);
       if (!v || v.state === 'wrecked' || v.state === 'burnt' || v.def.flying || !POLICE_FLEET.has(v.kind) && !TROOP_KINDS.has(v.kind)) continue;
       if (Math.hypot(v.x - lead.x, v.z - lead.z) > COMPANY_RADIUS) continue;
