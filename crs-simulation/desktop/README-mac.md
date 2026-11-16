@@ -24,6 +24,14 @@
 - Manette : branchez-la (ou appairez-la en Bluetooth) avant de lancer le jeu.
 - Tout fonctionne hors connexion : la carte de Paris est incluse.
 
+## Vos parties sont conservées
+
+Carrière, historique des parties, scénarios et paramètres sont enregistrés automatiquement et retrouvés à chaque
+lancement, même après avoir quitté l'application ou redémarré le Mac. Ils sont rangés dans
+`~/Library/Application Support/CRS Simulation/` (avec une copie de secours, `sauvegarde.json`). Pour les mettre à
+l'abri ou les copier sur un autre Mac : page d'accueil > **Historique** > « Exporter ma sauvegarde », puis
+« Importer… » sur l'autre Mac.
+
 ## Si macOS dit « endommagé » ou « développeur non identifié »
 
 Refaites l'étape 3 (la commande du Terminal). Autre solution : clic droit sur l'application > Ouvrir > Ouvrir.
@@ -34,4 +42,7 @@ Refaites l'étape 3 (la commande du Terminal). Autre solution : clic droit sur l
 cd crs-simulation && npm run build          # construit le jeu (dist/)
 cd desktop && npm install && npm run dist:mac   # fabrique release/CRS-Simulation-mac-{arm64,x64}.zip
 CRS_SMOKE=1 npx electron .                  # vérification automatique : lance une partie, capture, compte rendu
+CRS_USER_DATA=/tmp/profil CRS_SMOKE_SAVE=ecrire npx electron .   # sauvegarde : écrit, joue une partie, quitte
+CRS_USER_DATA=/tmp/profil CRS_SMOKE_SAVE=lire npx electron .     # relance : tout doit être retrouvé
+CRS_USER_DATA=/tmp/profil CRS_SMOKE_SAVE=lire-sans-stockage npx electron .  # idem, localStorage vidé (copie de secours)
 ```

@@ -17,6 +17,7 @@
  *   'roles.causes'  causes de manifestation (liste de CauseLike ou de chaînes)
  *   'world.map2d'   fond de carte 2D (Map2dLike ; fourni par le monde ou, à défaut, par src/ui/maps)
  *   'law.records'   dossier juridique de la session (src/gameplay/law/api.ts)
+ *   'career', 'history'  carrière et historique des parties (src/gameplay/career, src/gameplay/history)
  *   'input.touch', 'input.labels', 'input.bindings', 'input.pointer' (src/input/api.ts)
  *   'launch'        paramètres d'URL (src/core/launch.ts), 'perf' (src/core/game.ts)
  *

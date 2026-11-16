@@ -162,6 +162,7 @@ export function createHome(env: UiEnv): (host: HTMLElement, data: unknown) => Sc
     };
     // entrées vers les écrans des autres modules, seulement s'ils sont enregistrés
     if (env.kit.hasScreen('carriere')) navButton('Carrière', 'chevrons', 'carriere');
+    if (env.kit.hasScreen('historique')) navButton('Historique', 'clock', 'historique');
     if (env.kit.hasScreen('missions')) navButton('Missions', 'list', 'missions');
     if (env.kit.hasScreen('personnalisation')) navButton('Personnalisation', 'edit', 'personnalisation');
     if (env.kit.hasScreen('garage')) navButton('Garage', 'car', 'garage');

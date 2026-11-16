@@ -6,6 +6,7 @@
  * (ctx.law.forceLog), objectifs (EXT.objectives).
  * Après une mission jouée en mode carrière, un encart reprend le bilan de carrière ('career' :
  * promotion, chapitre terminé, missions restant à réussir, sanction inscrite).
+ * Une ligne rappelle que la partie est inscrite dans l'historique ('history'), avec un accès à l'écran.
  * ===================================================================================== */
 
 import type { ForceVerdictKind, GameContext } from '@/core/contracts';
@@ -18,6 +19,7 @@ import type { UiEnv } from '../core/kit';
 import { sortObjectives } from '../hud/objectives';
 import { isPoliceRole } from '../hud/model';
 import { rankLabel } from './catalog';
+import { readHistory } from './history';
 import { readCareer } from './home-career';
 import { draftFromConfig, identityLabel } from './scenario';
 import { readMissionResult } from './services';
@@ -164,6 +166,22 @@ export function createDebrief(env: UiEnv): (host: HTMLElement) => ScreenInstance
         const open = widgets.button('Voir la carrière', () => ctx.ui.open('carriere'), 'ghost', 'chevrons');
         open.dataset.id = 'debrief-carriere-ouvrir';
         open.style.marginTop = '6px';
+        left.append(open);
+      }
+    }
+
+    // historique : la partie y est inscrite à sa fin (session:ended suit de près l'ouverture du compte rendu)
+    const history = readHistory(ctx);
+    if (history && history.willRecord()) {
+      const note = h('p', 'ui-para', 'Partie enregistrée dans l’historique.');
+      note.dataset.id = 'debrief-historique';
+      note.style.marginTop = '10px';
+      note.style.opacity = '.8';
+      left.append(note);
+      if (env.kit.hasScreen('historique')) {
+        const open = widgets.button('Voir l’historique', () => ctx.ui.open('historique'), 'ghost', 'clock');
+        open.dataset.id = 'debrief-historique-ouvrir';
+        open.style.marginTop = '4px';
         left.append(open);
       }
     }

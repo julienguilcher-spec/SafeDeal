@@ -176,6 +176,10 @@ function runSmoke(win) {
  */
 function runSmokeSave(win, step) {
   const t0 = Date.now();
+  // messages de la sauvegarde du jeu (copie de secours rétablie, stockage indisponible…)
+  win.webContents.on('console-message', (_e, _level, message) => {
+    if (typeof message === 'string' && message.startsWith('[save]')) console.log('[smoke-save] page : ' + message);
+  });
   const poll = async () => {
     let ready = false;
     try { ready = await win.webContents.executeJavaScript('!!(window.__CRS && window.__CRS.ready)'); } catch { ready = false; }

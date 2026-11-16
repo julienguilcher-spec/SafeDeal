@@ -13,6 +13,7 @@ import { int, times } from '../core/format';
 import type { IconName } from '../core/icons';
 import type { UiEnv } from '../core/kit';
 import { simulatedCrowd } from './scenario';
+import { downloadSave } from './save-file';
 import { buildBindings } from './settings-bindings';
 
 type TabId = 'graphismes' | 'commandes' | 'touches' | 'son' | 'jeu' | 'sauvegarde';
@@ -210,23 +211,8 @@ export function createSettingsScreen(env: UiEnv): (host: HTMLElement, data: unkn
       });
 
       const exportBtn = widgets.button('Exporter', () => {
-        const json = ctx.save.exportAll();
+        const { json, downloaded } = downloadSave(ctx);
         area.value = json;
-        let downloaded = false;
-        try {
-          const blob = new Blob([json], { type: 'application/json' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = 'crs-simulation-france-sauvegarde.json';
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-          setTimeout(() => URL.revokeObjectURL(url), 2000);
-          downloaded = true;
-        } catch {
-          downloaded = false;
-        }
         ctx.ui.notify(downloaded ? 'Sauvegarde exportée (fichier téléchargé, texte ci-dessous).' : 'Sauvegarde exportée : copiez le texte ci-dessous.', 'ok');
       }, 'secondary', 'download');
       exportBtn.dataset.id = 'save-export';
@@ -267,7 +253,7 @@ export function createSettingsScreen(env: UiEnv): (host: HTMLElement, data: unkn
       const wipe = widgets.button('Effacer toute la sauvegarde', () => {
         widgets.confirm(host, {
           title: 'Effacer toute la sauvegarde ?',
-          text: 'Carrière, scénarios enregistrés, paramètres et touches seront définitivement supprimés de cet appareil.',
+          text: 'Carrière, historique des parties, scénarios enregistrés, paramètres et touches seront définitivement supprimés de cet appareil.',
           confirm: 'Tout effacer',
           danger: true,
           onConfirm: () => {
@@ -289,7 +275,7 @@ export function createSettingsScreen(env: UiEnv): (host: HTMLElement, data: unkn
       const dangerLine = el('div', 'ui-inline', reset, wipe);
       root.append(
         widgets.sectionTitle('Exporter et importer'),
-        h('p', 'ui-para', 'La sauvegarde reste sur cet appareil. Exportez-la pour la copier vers un autre navigateur, puis importez-la là-bas.'),
+        h('p', 'ui-para', 'Carrière, historique des parties, scénarios et paramètres sont enregistrés automatiquement sur cet appareil et retrouvés à chaque lancement. Exportez la sauvegarde pour la mettre à l’abri ou la copier vers un autre appareil, puis importez-la là-bas.'),
         exportLine, area,
         widgets.sectionTitle('Remise à zéro'), dangerLine,
       );
