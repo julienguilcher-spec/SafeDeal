@@ -441,3 +441,13 @@ un téléphone lancé en portrait trouve désormais la session EN PAUSE (c'étai
   `debrief`) ; `tests/e2e/mission.mjs` dans le navigateur (bandeau, objectifs au HUD, zéro erreur console).
 - Limites : « ligne enfoncée » et conditions d'échec personnalisées non mesurées ; « publier » compté comme une prise de
   vue (pas de module médias) ; aléas imposés par les phases (`events`) ignorés ; pas encore de carrière (déblocages).
+
+## Allègement téléphone (qualité « bas », 16/11) — EN PARTIE
+- Mesure (`tests/e2e/perf-bas.mjs`, place de la Concorde, coin de 4 tuiles détaillées, foule de 150) :
+  650 000 → 495 000 triangles ; temps JS par image ≈ 9 → 6 ms ; 75 appels de dessin.
+- Changements : houppier 20 faces et tronc 4 pans en « bas » ; le houppier « allégé » des tuiles très arborées n'est
+  plus plus fin que le normal (il valait 80 faces même en « bas » : principal poste, 390 000 → 100 000) ; zone détaillée
+  110 m ; grille de surfaces 2 m ; mobilier détaillé jusqu'à 40 / 110 m.
+- Reste le sol en facettes (~200 000 sur 4 tuiles : trottoirs découpés selon le réseau de 8 m) et les façades. Pistes :
+  facettes de 16 m en « bas » (TIN_CELL est global : à rendre dépendant de la qualité), découpe simplifiée des trottoirs.
+  Jamais mesuré sur un vrai téléphone.

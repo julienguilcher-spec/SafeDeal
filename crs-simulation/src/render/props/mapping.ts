@@ -147,7 +147,7 @@ export interface LodConfig {
 }
 
 export const LOD_CONFIGS: Readonly<Record<Quality, LodConfig>> = {
-  bas: { d0: 0, d1: 50, d2: 140, cap: 300, shadowLevel: -1, maxDynamic: 32, lamps: 2, fires: 1, atlas: 1024 },
+  bas: { d0: 0, d1: 40, d2: 110, cap: 300, shadowLevel: -1, maxDynamic: 32, lamps: 2, fires: 1, atlas: 1024 },
   moyen: { d0: 20, d1: 95, d2: 220, cap: 450, shadowLevel: 0, maxDynamic: 64, lamps: 4, fires: 2, atlas: 2048 },
   haut: { d0: 38, d1: 150, d2: 320, cap: 600, shadowLevel: 0, maxDynamic: 96, lamps: 6, fires: 3, atlas: 2048 },
   ultra: { d0: 60, d1: 210, d2: 430, cap: 700, shadowLevel: 1, maxDynamic: 128, lamps: 8, fires: 4, atlas: 2048 },

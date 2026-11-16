@@ -116,7 +116,8 @@ export function createSharedResources(q: CityQuality, antialias: boolean): Share
   const haloTexture = canvasTexture(paintHaloTexture(64), 1, false, 'ville-halo');
 
   const crownGeometry = createCrownGeometry({ main: q.crownMain, side: q.crownSide, trunkSides: q.trunkSides });
-  const crownLightGeometry = createCrownGeometry({ main: 1, side: -1, trunkSides: 0 });
+  // houppier allégé des tuiles très arborées : jamais plus fin que le houppier normal (qualité basse : 20 faces)
+  const crownLightGeometry = createCrownGeometry({ main: Math.min(1, q.crownMain), side: -1, trunkSides: 0 });
   const crownFarGeometry = createCrownGeometry({ main: 0, side: -1, trunkSides: 0 });
   const trunkGeometry = createTrunkGeometry(q.trunkSides);
   const haloGeometry = new THREE.PlaneGeometry(2, 2);

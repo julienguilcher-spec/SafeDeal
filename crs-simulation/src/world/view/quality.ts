@@ -46,8 +46,10 @@ export interface CityQuality {
 
 export const CITY_QUALITY: Readonly<Record<QualityLevel, CityQuality>> = {
   bas: {
-    rasterSize: 512, atlasSize: 256, anisotropy: 2, lambert: true, blend: true, detail: false, detailRadius: 170, fadeNear: 60, fadeFar: 120,
-    curbs: true, gutters: false, markings: true, grates: false, crownMain: 1, crownSide: -1, denseTrees: 300, trunkSides: 5, wind: false, leafCut: false,
+    // téléphone : houppier en un volume à 20 faces, tronc à 4 pans, zone détaillée resserrée (mesuré place de la Concorde :
+    // 650 000 → voir docs/INTEGRATION-NOTES.md « Allègement téléphone »)
+    rasterSize: 256, atlasSize: 256, anisotropy: 2, lambert: true, blend: true, detail: false, detailRadius: 110, fadeNear: 60, fadeFar: 120,
+    curbs: true, gutters: false, markings: true, grates: false, crownMain: 0, crownSide: -1, denseTrees: 300, trunkSides: 4, wind: false, leafCut: false,
     treeShadows: false, farTrees: false, halos: false, budgetMs: 3, copingLand: 1.0,
   },
   moyen: {
