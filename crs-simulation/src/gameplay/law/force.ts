@@ -211,6 +211,10 @@ export class ForceJudge {
 
     // ── véhicule : jamais contre des personnes ──
     if (means === 'vehicule') {
+      if (target && target.faction === 'police' && target.id !== by.id) {
+        this.set('interdit', 'aucun', 4, 'Collègue renversé par le véhicule (' + target.name + ') : défaut de maîtrise du véhicule et blessure involontaire d’un agent. Faute grave de conduite.');
+        return;
+      }
       let victim: Person | null = target && target.faction !== 'police' ? target : null;
       if (!victim) {
         this.excludeA = by.id;

@@ -327,6 +327,58 @@ describe('gestionnaires d\'interaction', () => {
     expect(b.ext.canBoard(b.person('pompier', 0, 0), engine)).toBe(true);
   });
 
+  it('le conducteur IA cède le volant au joueur de son camp : il passe à la place du passager', async () => {
+    const b = await createVehicleBench();
+    const van = b.spawn('fourgon_crs', 0, 0, 0);
+    const driver = b.person('crs', 0, 0);
+    driver.poste = 'conducteur';
+    expect(b.ctx.vehicles.enter(driver, van, 'driver')).toBe(true);
+    const door = exitWorld(van, 0);
+    const mate = b.person('crs', door.x, door.z);
+    b.step(0.05);
+    // un collègue IA ne prend pas la place du conducteur
+    expect(b.ext.canDrive(mate, van)).toBe(false);
+    expect(options(b, mate).some((o) => o.verb === 'conduire')).toBe(false);
+    // le joueur, si : l'invite « Conduire » lui est proposée, et le conducteur lui laisse le volant
+    mate.isPlayer = true;
+    expect(b.ext.canDrive(mate, van)).toBe(true);
+    const drive = options(b, mate).find((o) => o.verb === 'conduire');
+    expect(drive).toBeDefined();
+    expect(b.ctx.interactions.start(mate, drive!)).toBe(true);
+    b.step(drive!.duration + 0.5);
+    expect(b.ext.driverOf(van)).toBe(mate);
+    expect(driver.vehicleId).toBe(van.id);
+    expect(van.def.seats[driver.seat]!.role).toBe('passenger');
+    // … mais pas en roulant, ni à un joueur d'un autre camp
+    const other = b.spawn('fourgon_crs', 40, 0, 0);
+    const d2 = b.person('crs', 40, 0);
+    b.ctx.vehicles.enter(d2, other, 'driver');
+    other.speed = 3;
+    expect(b.ext.canDrive(mate, other)).toBe(false);
+    other.speed = 0;
+    const protester = b.person('manifestant', 40, 2);
+    protester.isPlayer = true;
+    expect(b.ext.canDrive(protester, other)).toBe(false);
+  });
+
+  it('le camion sono du cortège n’est pas proposé aux forces de l’ordre ni aux passants (recette du premier jeu assemblé)', async () => {
+    const b = await createVehicleBench();
+    const sono = b.ctx.vehicles.spawn('camion_sono', 0, 0, 0, { faction: 'protest' });
+    const door = exitWorld(sono, 0);
+    const crs = b.person('crs', door.x, door.z);
+    const passant = b.person('passant', door.x + 0.3, door.z);
+    const militant = b.person('manifestant', door.x, door.z + 0.3);
+    b.step(0.05);
+    expect(sono.faction).toBe('protest');
+    expect(b.ext.canBoard(crs, sono)).toBe(false);
+    expect(b.ext.canBoard(passant, sono)).toBe(false);
+    expect(options(b, crs).filter((o) => o.verb === 'monter' || o.verb === 'conduire')).toEqual([]);
+    expect(b.ctx.interactions.startVerb(crs, 'monter', sono.id)).toBe(false);
+    // les manifestants, eux, y montent
+    expect(b.ext.canBoard(militant, sono)).toBe(true);
+    expect(options(b, militant).some((o) => o.verb === 'monter' || o.verb === 'conduire')).toBe(true);
+  });
+
   it('verrouillage : fermé à clé, un véhicule civil n\'accepte personne, un véhicule de police seulement les policiers', async () => {
     const b = await createVehicleBench();
     const car = b.spawn('voiture', 0, 0);

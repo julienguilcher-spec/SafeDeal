@@ -233,13 +233,125 @@ Qualité « bas », fenêtre 960×540 (tampon de rendu 672×378), place de la Co
   encore le lieu quand le cœur calcule le point de départ (repli sur l'origine, avec un avertissement). Dans le
   navigateur la carte est lue pendant `init()`, le lieu est trouvé. Les tests headless passent `x`/`z`.
 - **Souris capturée sous Chromium headless** : chaque événement de bouton synthétique rapporte la position du pointeur
-  comme un déplacement (le regard saute). Artefact d'outillage : `tests/e2e/game.mjs` clique en (2, 2).
-- **Premier clic** : le déverrouillage du son (premier geste) coûte quelques secondes d'images très lentes sous WebGL
-  logiciel et machine chargée ; non mesurable sur du vrai matériel ici.
+  comme un déplacement (le regard saute). SURTOUT : sous capture de la souris, Chromium headless s'emballe (images
+  rares, mémoire du moteur de page qui passe de 100 Mo à plus de 1 Go en 30 s) — constaté par la recette sur une page
+  VIDE, sans le jeu (`tests/e2e/verif-diag-lock-vide.mjs`, `verif-tpm-ptrlock.mjs`). C'est la cause des « images très
+  lentes après le premier clic » et des pages tuées à plusieurs Go : ni le déverrouillage du son ni l'absence de
+  `gl.finish()` (explications données à l'assemblage 1 : fausses). Depuis l'assemblage 2, `tests/e2e/game.mjs` ouvre la
+  page avec `pointerLock: false` (`tests/e2e/lib.mjs`) : la capture est refusée, le jeu passe en mode de repli. La
+  capture réelle reste à vérifier sur un vrai navigateur.
 - Mur aveugle à texture étirée (`buildings-haut-street-15.png`) : pas retrouvé place de la Concorde ; non recherché
   ailleurs.
 - Indicatif radio « AUTORITÉ » du droit contre « MISTRAL 0 » de la radio, sous-titres radio possibles en double
   (`ui` et `gameplay/radio` appellent tous deux `ui.subtitle`) : non traités, à voir avec l'IA des unités.
+
+### Recette de l'assemblage 1 : corrigé / restant (assemblage 2, 16/11)
+
+Deux testeurs indépendants ont relevé 35 défauts sur le premier jeu assemblé (scripts `tests/e2e/verif-*.mjs`).
+Cette passe les a repris ; les tests qui auraient attrapé chaque défaut sont cités.
+
+**Modules branchés en plus** (`src/main.ts`) — tous inchangés depuis plus de deux heures, compilation propre, tests
+verts (49 fichiers, 199 tests, avec la foule) au moment du branchement :
+`sim/police` (IA des unités ET commandement : `police.ai`, `police.command`), `render/props` (mobilier, vitrines,
+barricades), `gameplay/incidents`, `sim/roles/rescue`, `sim/roles/medics`. `sim/crowd` embarque désormais son troisième
+système `sim:crowd.radical` (groupes radicaux) : il est dans le jeu depuis que `sim/crowd/index.ts` l'importe.
+Aucun fichier de ces modules « en cours » n'a été modifié.
+Ordre : la police après la foule ; `render/props` après le rendu de base ; nouvel adaptateur `main.monuments.air`.
+
+**Corrigé (majeurs)**
+- *Collègues immobiles* : l'IA de police est branchée. Un ordre du chef de groupe est exécuté (« avancer » de 20 m :
+  les cinq équipiers avancent de 18 m — `integration.forces`), le commandant IA déploie la compagnie (34 à 45 agents
+  sur 84 ont manœuvré en 100 s dans le navigateur, 36 messages radio, un incident « automobiliste bloqué » traité).
+  DANS une compagnie menée par l'IA, le chef de section envoie d'abord le groupe du joueur à son poste (jusqu'à
+  290 m place de la Concorde) sans attendre son chef ; l'ordre du joueur prime ensuite le sien (il n'est pas
+  remplacé), le groupe revient là où l'ordre a été donné, s'y met en colonne puis rejoint le point : 31 s si l'ordre
+  est donné à 16 s de jeu, 49 s à 45 s, 87 s à 100 s (mesures sans rendu ; second test de `integration.forces`,
+  partie B de `tests/e2e/assemblage2.mjs`). Si le joueur reste sur place, la colonne l'attend et avance au ralenti
+  (20 m en 80 s) — comportement du module de police, non modifié.
+- *« Moyens engagés » sans effet* : `gameplay/session` lit `extra.moyens`. Avec le service `police.units`, la mise en
+  place crée la COMPAGNIE (1 à 8 sections : quatre dans la compagnie, les suivantes rattachées en renfort), ses fourgons
+  (un par groupe, dans la limite demandée : les fourgons en trop et leurs conducteurs sont retirés), l'engin lanceur
+  d'eau, le Centaure, les groupes BRAV-M (six motos) et l'équipe drone ; le joueur CRS, chef de groupe, chef de
+  section ou commandant y tient son poste. Sans la clé (URL) : une section si une manifestation se tient, sinon le
+  seul groupe du joueur. `SessionSetupSummary.means` dit ce qui est réellement en jeu. Rôles spécialisés et civils :
+  la compagnie est créée aussi, commandée par l'IA ; l'équipe du joueur se range sur son flanc.
+- *Dispositif posé dans le rassemblement* : `placement.chooseStandOffCrowd` — à 85–125 m du lieu, hors du couloir du
+  parcours (≥ 40 m), sans manifestant à moins de 30 m, face au lieu, avec de la place derrière pour les véhicules.
+  Les dix lieux de l'accueil sont vérifiés. Le camion sono n'est plus proposé aux forces (`sim/vehicles` : véhicule
+  de faction « protest » réservé aux manifestants).
+- *Fourgon nez vers le groupe* : véhicules de l'unité garés nez vers la sortie (demi-tour sur place après création :
+  `faceExit`) ; un collègue renversé par un véhicule de police est relevé par le droit (« interdit », gravité 4).
+- *Course qui vide le souffle* : au clavier la touche d'avance fait MARCHER ; nouveau bouton `jog` (touche physique
+  KeyZ) qui bascule marche ↔ petite foulée, annoncé par une notification ; Maj tenu = sprint.
+- *Mobilier invisible* : `render/props` branché (6 245 objets et 2 402 devantures place de la Concorde en 10 appels
+  de dessin, 44 000 triangles en qualité basse).
+- *Brume en qualité basse* : service `render.clearAir` du rendu de base (`src/render/base/clearAir.ts`) — les
+  maillages confiés reçoivent le voile d'une atmosphère réelle (5 km par temps clair, même loi météo que la scène) au
+  lieu du brouillard de distance d'affichage ; l'adaptateur `main.monuments.air` lui confie le groupe des monuments.
+  La tour Eiffel se voit du Trocadéro (751 m) et de la Concorde ; le reste de la ville garde le brouillard qui cache
+  la limite d'affichage.
+- *Carte tactique à la manette* : un second appui sur le bouton du plan (Select) passe à la carte tactique, un
+  troisième revient au jeu ; entrée « Carte tactique » dans le menu de pause ; l'aide n'affiche plus une touche de
+  clavier (`keyLabelOf` : « Select ×2 »).
+- *Gels en déplacement* : fond de carte 2D redessiné une fois les tuiles stabilisées et par tranches
+  (`Map2dApi.incomplete`, adaptateur `main.map2d`) au lieu de tout reconstruire à chaque tuile. Traversée de 180 m à
+  54 km/h rejouée (`verif-tpm-perf --parts=B`) : 2 images sur 360 au-dessus de 33 ms (107 et 38 ms) contre 15
+  (pire 451 ms) ; le pic de 448 ms du système `props` n'a pas été revu (pire : 15 ms sous Node en roulant).
+- *Code branché changé pendant la recette* : voir « Modules branchés en plus ».
+
+**Corrigé (mineurs)** : troncs d'arbres solides (`world/query` : `BucketBuilder.addTrunk`, sauf dans l'emprise
+roulable d'une voie) ; « Repousser » plus proposé sur un collègue ; avance rapide branchée (`session.timewarp`, ×4,
+bascule) ; touche et bouton « Ordres » d'un équipier : notification « Vous recevez les ordres », bouton tactile
+masqué ; HUD compact sous 1 100 px de large, barre d'objets réduite, panneaux du bas relevés sous 760 px ;
+notifications bornées en hauteur (au plus au tiers de l'écran), en lignes (4, 3 sous 600 px, 2 sous 420 px), une
+seule sous 600 px, masquées derrière un écran bloquant ouvert après elles ; sous-titres masqués en pause ; pieds posés
+sur le sol dessiné (`render/people` lit `world.view.liftAt`, rendu sans allocation) ; mur aveugle en pleine rue
+(`world/view/buildings` : un voisin qui couvre moins de 60 % de la hauteur ne rend plus le mur mitoyen) ; bouclier
+levé et arme longue au port en vue subjective (`render/people/fp.ts`) ; départ dégagé : le joueur d'un rang intérieur
+d'une formation de l'IA est posé au bout du premier rang, couloir de 8 m libre devant lui (`setup.stepOutOfRanks` —
+au premier essai sur téléphone il n'avançait que de 1,4 m en 8 s, enfermé derrière les boucliers ; 30 m ensuite), vue
+à la troisième personne seulement si un collègue reste dans l'axe ; le joueur peut prendre le volant d'un véhicule de
+son unité tenu par un conducteur IA, qui lui cède la place (`sim/vehicles/seats.ts` : `yields`, `makeRoom`) ;
+« risque de débordement modéré » ; lieu inconnu dans l'URL : libellés composés
+acceptés (« Champs-Élysées – Étoile ») et notification sinon ; capture de la souris demandée seulement au
+clavier-souris ; pause automatique en portrait ; avertissement à l'accueil sans stockage local ; `game.mjs` : capture
+refusée, touches de menu tenues deux images.
+
+**Ajouts compatibles au contrat** : `Button` gagne `'jog'` (`contracts.ts`). `extensions.ts` inchangé.
+Services nouveaux (clés libres) : `render.clearAir` (`RenderClearAirApi`), `session.timewarp` (`TimeWarpApi`) ;
+`SessionSetupSummary` gagne `means` et `offCrowd` ; la source de carte 2D de `world/view` gagne le drapeau `incomplete`.
+
+**Vérifications rejouées en fin de passe** (16/11, Chromium headless, WebGL logiciel) : `npx tsc --noEmit` propre ;
+`npx vitest run` : 236 fichiers, 2 836 tests verts ; `npx vite build` propre ; `tests/e2e/game.mjs` : bureau 68
+vérifications, téléphone 7, zéro échec, zéro erreur console ; nouveau `tests/e2e/assemblage2.mjs` (manette et carte
+tactique, ordre du chef de groupe, fourgon pris au conducteur IA et conduit, vue subjective lanceur / bouclier, pieds
+sur le trottoir, nuit place de la République, HUD à 640×360 / 700×900 / 960×540, pause en portrait) : 32
+vérifications, zéro échec (dans le navigateur, le groupe parti à 25–36 m du point ordonné y est en ligne 90 s après
+l'ordre) ; `boot.mjs`, `game-dist.mjs`, `ui.mjs --only=parcours` (56 vérifications) verts. `boot.mjs` a été adapté :
+un téléphone lancé en portrait trouve désormais la session EN PAUSE (c'était « playing »).
+
+**Restant**
+- *Monuments* : un monument détaillé est toujours construit en UNE image (jusqu'à 1,6 s mesuré par la recette en
+  arrivant par téléportation) et libéré dès qu'on s'en éloigne — le module `world/monuments` est sur la liste « en
+  cours », non modifié. À faire dans le module : construire à l'approche (≈ 450 m d'avance) et garder en réserve.
+- *Stationnement* (`sim/police/units.ts`, non modifié) : `spawnVehicle` réessaie toujours le même emplacement ; si le
+  premier est pris, TOUS les véhicules suivants de l'unité manquent. Contourné par le choix de l'emplacement
+  (`parkingRoom` compte les places libres consécutives) ; à corriger dans le module (curseur qui avance).
+- *Rendu de `render/vehicles` et `render/props`* : ne lisent pas `liftAt` (roues et mobilier 8 cm sous le trottoir
+  dessiné). Feux tricolores dessinés non synchronisés avec la circulation.
+- *Chef de groupe laissé sur place* : dans une compagnie menée par l'IA, le groupe du joueur part à son poste dès
+  l'ordre du chef de section, sans attendre son chef ; rien à l'écran ne dit encore au joueur de le suivre (le
+  service `police.slot` donne pourtant sa place : à afficher au HUD).
+- *Sous-titres radio* : deux bandeaux au milieu de l'image dans une petite fenêtre et sur téléphone (ils couvrent le
+  bord de la mini-carte à 844×390 et le compteur du véhicule à 960×540).
+- *PNJ et arbres* : les troncs arrêtent tout le monde ; un scénario émergent des radicaux a changé de déroulé (graine
+  du test `crowd-radical.casse` passée de 9 à 18, statistiques dans le test).
+- *Textures jamais libérées* en changeant de quartier (cache borné : 57 → 137) ; *rendu flou sur téléphone* en
+  qualité basse (échelle 70 %) ; *voiture qui heurte un piéton* (vu une fois) ; *menus lus une fois par image*
+  (frappes perdues sous 1 image/s) : non traités.
+- Toujours ouverts depuis l'assemblage 1 : cadre de mission (objectifs, fin automatique), choix du poste du
+  commandant (terrain / salle), indicatif « AUTORITÉ » contre « MISTRAL », sous-titres radio en double, charge de
+  triangles en qualité basse (1 million avec la compagnie), son et vrai processeur graphique non vérifiés.
 
 ## Radio et missions (relectures du 16/11)
 - **Sous-titres en double** : l'interface (`src/ui/core/system.ts`) sous-titre `radio:message` ET le module radio appelle
@@ -261,15 +373,17 @@ Qualité « bas », fenêtre 960×540 (tampon de rendu 672×378), place de la Co
 
 ## Mémoire (constat du 16/11, pendant l'assemblage)
 - Un Chromium de test faisant tourner le vrai jeu a été tué par le noyau à ~6 Go de mémoire (un autre tournait à 3,5 Go).
-  En WebGL logiciel les textures comptent dans la mémoire du processus, mais c'est un signal : mesurer
+  **Cause établie par la recette : la capture de la souris sous Chromium headless, pas le jeu** (voir « Souris
+  capturée » plus haut) ; sans capture, le jeu tient entre 370 et 600 Mo de rendu et 58 à 68 Mo de tas JavaScript sur
+  7 minutes. Reste utile de toute façon : mesurer
   `renderer.info.memory` (textures, géométries) et le tas JS en jeu, par qualité ; suspects : textures de sol par tuile,
   atlas des immeubles, nombre de tuiles détaillées chargées, cibles de rendu des ombres. Objectif : ≤ 1 Go en qualité
   « bas » (téléphone), ≤ 2,5 Go en « haut ».
 - Ne pas lancer plusieurs tests e2e du vrai jeu en parallèle sur cette machine (limite commune de 15 Go).
 - **Durée de `tests/e2e/game.mjs`** : 15 à 25 minutes sur la machine d'essai chargée (une image coûte de 0,4 à plusieurs
   secondes en WebGL logiciel) — au-delà du délai par défaut de `run-all.mjs` (900 s) : le lancer seul, ou avec
-  `--timeout=2700`, ou en deux fois (`--only=bureau`, `--only=telephone`). Ne pas enchaîner des dizaines d'images sans
-  `gl.finish()` : le processus graphique s'emballe et le noyau tue la page (vu une fois pendant les mesures).
+  `--timeout=2700`, ou en deux fois (`--only=bureau`, `--only=telephone`). (La page tuée pendant les mesures de
+  l'assemblage 1 venait de la capture de la souris, pas de l'absence de `gl.finish()`.)
 - **Réglages de scénario** : la foule lit elle-même `options.metro`, la circulation `options.circulation` ; la mise en
   place de session les applique aussi par les services (appels sans effet double : stations déjà fermées ignorées,
   `closeArea` idempotent d'après le module de circulation). À ne garder qu'à un endroit quand le cadre de mission existera.

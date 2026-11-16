@@ -33,6 +33,8 @@ export const DEFAULT_KBM: Readonly<Table> = {
   primary: ['Mouse0'], secondary: ['Mouse2'],
   interact: ['KeyE'],
   sprint: ['ShiftLeft'], crouch: ['KeyC'], jump: ['Space'],
+  // bascule marche ↔ petite foulée (touche physique à gauche de X : « W » sur un clavier AZERTY)
+  jog: ['KeyZ'],
   item_next: ['WheelDown'], item_prev: ['WheelUp'],
   slot1: ['Digit1'], slot2: ['Digit2'], slot3: ['Digit3'], slot4: ['Digit4'], slot5: ['Digit5'],
   slot6: ['Digit6'], slot7: ['Digit7'], slot8: ['Digit8'], slot9: ['Digit9'],

@@ -236,8 +236,10 @@ export function createPeopleHandlers(
       if (ctx.clock.now < shared.of(actor).pushReadyAt) return null;
       let best: Person | null = null;
       if (targetId !== undefined) {
+        // cible désignée (personne visée par le joueur, ou choisie par une IA) : jamais un membre de son propre
+        // camp — on ne « repousse » pas un collègue, et ce ne serait pas un emploi de la force à déclarer
         const t = ctx.people.get(targetId);
-        if (pushable(actor, t)) best = t;
+        if (pushable(actor, t) && t.faction !== actor.faction) best = t;
       } else {
         // sans cible désignée : la personne d'un autre camp la plus proche, face à soi
         const fx = Math.sin(actor.aimYaw);

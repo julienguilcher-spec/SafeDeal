@@ -332,11 +332,20 @@ export function tensionLabel(t: number): string {
   return 'explosive';
 }
 
+/** Propension à dégénérer, accordée au féminin (« propension … élevée »). */
 export function volatilityLabel(v: number): string {
   if (v < 0.25) return 'faible';
   if (v < 0.5) return 'modérée';
   if (v < 0.75) return 'élevée';
   return 'très élevée';
+}
+
+/** Le même niveau accordé au masculin (« risque de débordement élevé »). */
+export function volatilityLabelMasc(v: number): string {
+  if (v < 0.25) return 'faible';
+  if (v < 0.5) return 'modéré';
+  if (v < 0.75) return 'élevé';
+  return 'très élevé';
 }
 
 export type DayPhase = 'jour' | 'crepuscule' | 'nuit';
@@ -411,7 +420,7 @@ export function summarize(d: ScenarioDraft): string {
   }
   const crowd = `${int(d.crowdSize)} manifestants — ${d.causeLabel.toLowerCase()} —, ${topInfo.label.toLowerCase()} en tête`
     + (bloc > 0 ? `, ${bloc} % de black bloc.` : ', sans black bloc.');
-  const mood = `Ambiance ${tensionLabel(d.tension)}, risque de débordement ${volatilityLabel(d.volatility).replace('élevée', 'élevé').replace('modérée', 'modéré')}.`;
+  const mood = `Ambiance ${tensionLabel(d.tension)}, risque de débordement ${volatilityLabelMasc(d.volatility)}.`;
   return `${where} ${crowd} ${mood} Vous êtes ${withArticle(identityLabel(d))}.`;
 }
 

@@ -174,6 +174,9 @@ try {
     width: 390, height: 844, deviceScaleFactor: 2, mobile: true,
   }));
   await waitFor(page, 'window.__CRS && window.__CRS.ready === true');
+  // Téléphone tenu en PORTRAIT : depuis l'assemblage 2, la session lancée se met d'elle-même en pause derrière
+  // « Tournez votre appareil » (le temps simulé ne s'écoule plus sans que le joueur voie le jeu).
+  await waitFor(page, "window.__CRS.ctx.session.phase === 'paused'", 30000).catch(() => {});
   const auto = await page.evaluate(() => ({
     summary: window.__CRS.summary(),
     error: window.__CRS.error,
@@ -186,7 +189,7 @@ try {
     cardWidth: document.querySelector('.diag-card')?.getBoundingClientRect().width ?? 0,
   }));
   check(auto.error === null, 'erreur de démarrage automatique : ' + auto.error);
-  check(auto.summary.phase === 'playing', `autostart : phase attendue « playing », obtenue « ${auto.summary.phase} »`);
+  check(auto.summary.phase === 'paused', `autostart en portrait : session lancée puis en pause attendue (« paused »), obtenue « ${auto.summary.phase} »`);
   check(auto.mode === 'libre' && auto.seed === 7, 'autostart : configuration inattendue');
   check(
     auto.config && auto.config.role === 'commandant' && auto.config.rank === 'commandant' && auto.config.missionId === 'essai_libre' &&

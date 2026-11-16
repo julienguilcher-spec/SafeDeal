@@ -56,6 +56,8 @@ export class PlayerController implements GameSystem {
   private remoteId: EntityId = 0;
   private turret = -1;
   private crouch = false;
+  /** Allure au clavier : false = marche (par défaut), true = petite foulée (bascule par le bouton « jog »). */
+  private jog = false;
   private promptT = 0;
   private aimT = 0;
   private footCamera: CameraMode = 'tps';
@@ -133,6 +135,7 @@ export class PlayerController implements GameSystem {
     this.remoteId = 0;
     this.turret = -1;
     this.crouch = false;
+    this.jog = false;
     this.promptT = 0;
     this.aimT = 0;
     this.items.reset();
@@ -438,6 +441,12 @@ export class PlayerController implements GameSystem {
       else cmd.jump = true;
     }
     const sprint = input.down('sprint') || (input.device === 'touch' && mag >= T.TOUCH_SPRINT);
+    // Au clavier la touche d'avance est tout ou rien : on MARCHE par défaut (le souffle se refait) et une touche
+    // bascule vers la petite foulée. À la manette et au doigt, c'est l'inclinaison du manche qui choisit.
+    if (input.pressed('jog')) {
+      this.jog = !this.jog;
+      ctx.ui.notify(this.jog ? 'Allure : petite foulée' : 'Allure : marche', 'info', 2);
+    }
     const dragging = this.dragging(p);
     if (mag < 0.02) {
       cmd.moveX = 0;
@@ -454,6 +463,10 @@ export class PlayerController implements GameSystem {
         scale = mag / T.STICK_WALK;
       } else if (this.items.altSent || this.crouch) {
         // bouclier levé, visée épaulée, accroupi : on avance au pas
+        gait = 0;
+        scale = 1;
+      } else if (input.device === 'kbm' && !this.jog) {
+        // clavier : marche tant que la petite foulée n'est pas demandée (Maj tenu = sprint, traité plus haut)
         gait = 0;
         scale = 1;
       } else {

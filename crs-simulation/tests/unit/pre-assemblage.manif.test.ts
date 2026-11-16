@@ -47,9 +47,10 @@ describe('pré-assemblage : manifestation complète en headless', () => {
     const man = ctx.people.list.filter((p) => p.faction === 'protest');
     const verdicts: Record<string, number> = {};
     for (const f of ctx.law.forceLog) verdicts[f.verdict.kind] = (verdicts[f.verdict.kind] ?? 0) + 1;
-    const disabled = game.perf.filter((p: { disabled?: boolean }) => p.disabled).map((p: { id: string }) => p.id);
-    const top = [...game.perf].sort((a: { avgMs?: number }, b: { avgMs?: number }) => (b.avgMs ?? 0) - (a.avgMs ?? 0)).slice(0, 6)
-      .map((p: { id: string; avgMs?: number }) => `${p.id}=${(p.avgMs ?? 0).toFixed(2)}ms`);
+    const disabled = game.perf.filter((p) => p.disabled).map((p) => p.id);
+    // moyenne glissante du temps de update() par système (le champ s'appelle avgUpdateMs : « avgMs » n'existe pas)
+    const top = [...game.perf].sort((a, b) => b.avgUpdateMs - a.avgUpdateMs).slice(0, 6)
+      .map((p) => `${p.id}=${p.avgUpdateMs.toFixed(2)}ms`);
     console.log(JSON.stringify({
       phases, phaseFinale: ctx.director.phase, tension: +ctx.director.tension.toFixed(2), stats: ctx.director.stats,
       policiers: pol.length, policiersATerre: pol.filter((p) => p.posture === 'down').length,

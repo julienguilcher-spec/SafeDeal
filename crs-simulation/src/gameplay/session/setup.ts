@@ -11,11 +11,16 @@
  * L'avancement est annoncé par l'événement libre 'ui:loading' { progress, label }.
  *
  * Ce module tient lieu de cadre de mission en attendant le vrai : il ne crée AUCUNE foule et ne
- * pilote personne (les collègues restent en place tant qu'aucune IA ne leur écrit de commande).
+ * pilote personne. Quand le module de police est branché (service 'police.units'), c'est lui qui
+ * construit les unités — compagnie, sections, moyens d'appui de la rubrique « Moyens engagés » — et
+ * son IA qui les fait manœuvrer ; sinon les collègues sont créés directement et restent en place.
+ *
+ * Quand une manifestation se tient au lieu choisi, les forces de l'ordre sont placées À L'ÉCART :
+ * hors du rassemblement et du couloir du parcours, à une centaine de mètres, face au lieu.
  * ===================================================================================== */
 
 import type {
-  CameraMode, EntityId, GameContext, GameSystem, Person, PersonKind, SessionConfig, Squad, Unsubscribe, Vec2, Vehicle,
+  CameraMode, EntityId, GameContext, GameSystem, Person, PersonKind, RayHit, SessionConfig, Squad, Unsubscribe, Vec2, Vehicle,
 } from '@/core/contracts';
 import { SystemOrder } from '@/core/contracts';
 import { getCore } from '@/core/context';
@@ -26,11 +31,20 @@ import type { SpawnHelperApi } from '@/sim/roles/archetypes/api';
 import {
   SCENARIO_AREA_RADIUS, SESSION_SETUP_EVENT, SESSION_SETUP_SERVICE, SESSION_SETUP_SYSTEM_ID, UI_LOADING_EVENT,
 } from './api';
-import type { LoadingProgress, PoliceUnitsLike, SessionSetupApi, SessionSetupSummary } from './api';
-import { FILE_SPACING, RANK_DEPTH, chooseStand, parkingSpot, settle } from './placement';
+import type {
+  EngagedMeans, LoadingProgress, PoliceCommandLike, PoliceUnitHandleLike, PoliceUnitsLike, SessionSetupApi, SessionSetupSummary,
+} from './api';
+import { FILE_SPACING, RANK_DEPTH, chooseStand, chooseStandOffCrowd, parkingSpot, settle, supportSpot } from './placement';
 import type { Stand } from './placement';
-import { castFor, rankOf } from './roster';
-import type { Cast, CastSlot } from './roster';
+import { castFor, isPoliceRole, meansOf, rankOf } from './roster';
+import type { Cast, CastSlot, RequestedMeans } from './roster';
+
+/** Sections par compagnie (au-delà, les sections suivantes lui sont rattachées en renfort). */
+const COMPANY_SECTIONS = 4;
+const COMPANY_LAYOUT: 'colonne' | 'ligne' = 'ligne';
+/** Véhicules de l'unité que l'on gare nez vers la sortie (les engins à équipage restent face au front). */
+const PARKED_KINDS: readonly string[] = ['fourgon_crs', 'car_crs', 'vl_commandement', 'fourgon_cellulaire', 'voiture_police', 'moto_bravm'];
+const isProtester = (p: { faction: string }): boolean => p.faction === 'protest';
 
 const DEFAULT_BYSTANDERS = 10;
 const BYSTANDER_REACH = 120;
@@ -47,6 +61,7 @@ export class SessionSetupSystem implements GameSystem {
   private readonly offs: Unsubscribe[] = [];
   private readonly progressEvent: LoadingProgress = { progress: 0, label: '' };
   private readonly pos: Vec2 = { x: 0, z: 0 };
+  private readonly hit: RayHit = { hit: false, t: 0, x: 0, z: 0, nx: 0, nz: 0, kind: 'none', id: 0, height: 0 };
   private readonly spot = { x: 0, z: 0, heading: 0 };
 
   provide(ctx: GameContext): void {
@@ -93,20 +108,39 @@ export class SessionSetupSystem implements GameSystem {
       const rand = (): number => rng.next();
       const x = typeof config.x === 'number' ? config.x : 0;
       const z = typeof config.z === 'number' ? config.z : 0;
-      const stand = chooseStand(ctx, x, z, rand);
       const helper = ctx.service<SpawnHelperApi>('roles.spawn');
       const cast = castFor(config, helper);
+      // Une manifestation se tient ici (le module de foule s'est mis en place juste avant, sur le même événement) :
+      // les forces de l'ordre et les secours se placent à l'écart, pas au milieu du rassemblement.
+      ctx.people.rebuildIndex();
+      const crowd = this.crowdHere();
+      const apart = crowd ? chooseStandOffCrowd(ctx, x, z, ctx.director.route, isProtester) : null;
+      const forces = apart ?? chooseStand(ctx, x, z, rand);
+      const withForces = isPoliceRole(config.role) || config.role === 'secouriste';
+      // le joueur manifestant, journaliste ou secouriste de rue est, lui, sur le lieu même
+      let stand = withForces || !apart ? forces : chooseStand(ctx, x, z, rand);
       const summary: SessionSetupSummary = {
         playerId: 0, role: config.role, x: stand.x, z: stand.z, heading: stand.heading, squadId: 0, rootSquadId: 0,
-        teammates: 0, vehicleIds: [], bystanders: 0, usedPoliceUnits: false,
+        teammates: 0, vehicleIds: [], bystanders: 0, usedPoliceUnits: false, offCrowd: apart !== null,
+        means: { agents: 0, sections: 0, fourgons: 0, centaure: 0, canon_eau: 0, bravm: 0, drone: 0 },
       };
 
-      let player = this.buildWithPoliceUnits(config, cast, stand, summary);
-      if (!player) player = this.buildCast(cast, stand, helper, rand, summary);
+      let player = this.buildWithPoliceUnits(config, cast, forces, meansOf(config), crowd, summary);
+      if (!player) {
+        // l'équipe du joueur est créée directement ; si une compagnie tient déjà l'emplacement, elle se range à côté
+        if (summary.usedPoliceUnits && withForces) stand = this.besideForces(forces);
+        summary.x = stand.x;
+        summary.z = stand.z;
+        summary.heading = stand.heading;
+        player = this.buildCast(cast, stand, helper, rand, summary);
+      }
+      this.countMeans(summary);
 
       if (player) {
+        // unité tenue par l'IA : le joueur ne commence pas enfermé dans les rangs (voir stepOutOfRanks)
+        if (summary.usedPoliceUnits && isPoliceRole(config.role)) this.stepOutOfRanks(player, stand, rand);
         // le joueur regarde ce que regarde son unité
-        player.heading = stand.heading;
+        if (player.vehicleId === 0) player.heading = stand.heading;
         player.aimYaw = stand.heading;
         player.aimPitch = 0;
         ctx.player.possess(player.id, config.role);
@@ -114,7 +148,7 @@ export class SessionSetupSystem implements GameSystem {
         st.camYaw = stand.heading;
         st.camPitch = 0;
         st.controlEnabled = true;
-        ctx.player.setCameraMode(this.cameraOf(config));
+        ctx.player.setCameraMode(this.cameraOf(config, player, stand.heading));
         ctx.service<RenderCameraApi>('render.camera')?.cut();
         summary.playerId = player.id;
       } else {
@@ -136,24 +170,167 @@ export class SessionSetupSystem implements GameSystem {
     }
   }
 
-  private cameraOf(config: SessionConfig): CameraMode {
+  /**
+   * Le joueur qui tient un rang intérieur d'une formation de l'IA (boucliers jointifs devant lui, collègues tout
+   * autour) ne pouvait ni voir ni avancer : il est posé au bout du premier rang, dans le prolongement de la ligne —
+   * devant lui le terrain est libre, son unité est à son côté. Son emplacement dans la formation lui reste réservé
+   * (service 'police.slot') : il le rejoint quand son groupe manœuvre.
+   */
+  private stepOutOfRanks(player: Person, stand: Stand, rand: () => number): void {
+    if (player.vehicleId !== 0) return;
+    const ctx = this.ctx;
+    const fx = Math.sin(stand.heading);
+    const fz = Math.cos(stand.heading);
+    const rx = -fz;
+    const rz = fx;
+    const list = ctx.people.list;
+    // quelqu'un devant lui, à moins de 3,2 m, dans l'axe du regard ?
+    let blocked = false;
+    for (let i = 0; i < list.length && !blocked; i++) {
+      const p = list[i]!;
+      if (p === player || p.dormant || p.vehicleId !== 0) continue;
+      const dx = p.x - player.x;
+      const dz = p.z - player.z;
+      const ahead = dx * fx + dz * fz;
+      blocked = ahead > 0.4 && ahead < 3.2 && Math.abs(dx * rx + dz * rz) < ahead * 0.7 + 0.3;
+    }
+    if (!blocked) return;
+    // premier rang de la formation qui l'entoure, et ses deux bouts
+    let front = -Infinity;
+    for (let i = 0; i < list.length; i++) {
+      const p = list[i]!;
+      if (p === player || p.faction !== 'police' || p.vehicleId !== 0) continue;
+      const dx = p.x - player.x;
+      const dz = p.z - player.z;
+      if (dx * dx + dz * dz > 30 * 30) continue;
+      const ahead = (p.x - stand.x) * fx + (p.z - stand.z) * fz;
+      if (ahead > front && Math.abs(dx * fx + dz * fz) < 12) front = ahead;
+    }
+    if (front === -Infinity) return;
+    let left = Infinity;
+    let right = -Infinity;
+    for (let i = 0; i < list.length; i++) {
+      const p = list[i]!;
+      if (p === player || p.faction !== 'police' || p.vehicleId !== 0) continue;
+      const ahead = (p.x - stand.x) * fx + (p.z - stand.z) * fz;
+      if (ahead < front - 1.2) continue;
+      const lateral = (p.x - stand.x) * rx + (p.z - stand.z) * rz;
+      if (Math.abs(lateral - ((player.x - stand.x) * rx + (player.z - stand.z) * rz)) > 40) continue;
+      if (lateral < left) left = lateral;
+      if (lateral > right) right = lateral;
+    }
+    if (left === Infinity) return;
+    const mine = (player.x - stand.x) * rx + (player.z - stand.z) * rz;
+    // le bout le plus proche d'abord, l'autre ensuite
+    const ends = mine - left <= right - mine ? [left - 1.4, right + 1.4] : [right + 1.4, left - 1.4];
+    const pos = this.pos;
+    // deux passes : d'abord un bout d'où l'on peut marcher 8 m droit devant (ni mur, ni mât, ni arbre), sinon le premier libre
+    for (let pass = 0; pass < 2; pass++) {
+      for (const lateral of ends) {
+        pos.x = stand.x + rx * lateral + fx * front;
+        pos.z = stand.z + rz * lateral + fz * front;
+        if (!ctx.world.isFree(pos.x, pos.z, 0.5) || !settle(ctx, pos, 0.35, rand)) continue;
+        if (ctx.people.countIn(pos.x, pos.z, 0.7, (p) => p !== player) > 0) continue;
+        if (pass === 0 && !this.clearAhead(pos.x, pos.z, fx, fz, 8)) continue;
+        player.x = pos.x;
+        player.z = pos.z;
+        player.y = ctx.world.heightAt(pos.x, pos.z);
+        player.vx = 0;
+        player.vz = 0;
+        ctx.people.rebuildIndex();
+        return;
+      }
+    }
+  }
+
+  /** Couloir large comme un homme, libre de tout obstacle du décor sur `length` mètres dans la direction (fx, fz). */
+  private clearAhead(x: number, z: number, fx: number, fz: number, length: number): boolean {
+    const world = this.ctx.world;
+    const hit = this.hit;
+    for (let side = -1; side <= 1; side++) {
+      const ox = x - fz * side * 0.35;
+      const oz = z + fx * side * 0.35;
+      if (world.raycast(ox, oz, ox + fx * length, oz + fz * length, hit)) return false;
+    }
+    return true;
+  }
+
+  /**
+   * Vue de départ : celle que demande le scénario (extra.camera) ; sinon à hauteur d'homme, SAUF si le joueur tient
+   * un second rang — trois dos casqués à deux mètres bouchaient alors toute l'image de départ : il commence en vue à
+   * la troisième personne, d'où il lit le dispositif (la touche de caméra bascule à tout moment).
+   */
+  private cameraOf(config: SessionConfig, player: Person, heading: number): CameraMode {
     const v = config.extra ? config.extra['camera'] : undefined;
-    return v === 'tps' ? 'tps' : 'fps';
+    if (v === 'tps' || v === 'fps') return v;
+    if (player.vehicleId !== 0) return 'fps';
+    const ctx = this.ctx;
+    const fx = Math.sin(heading);
+    const fz = Math.cos(heading);
+    const list = ctx.people.list;
+    for (let i = 0; i < list.length; i++) {
+      const p = list[i]!;
+      if (p === player || p.dormant || p.vehicleId !== 0) continue;
+      const dx = p.x - player.x;
+      const dz = p.z - player.z;
+      const ahead = dx * fx + dz * fz;
+      if (ahead < 0.4 || ahead > 3.2) continue;
+      // dans un cône d'environ 35° de part et d'autre du regard
+      if (Math.abs(-dx * fz + dz * fx) < ahead * 0.7 + 0.3) return 'tps';
+    }
+    return 'fps';
   }
 
   // ───────────────────────────── unités par le module d'IA de police ─────────────────────────────
 
+  /** Des manifestants sont là, ou un parcours est déclaré : une manifestation se tient au lieu de la session. */
+  private crowdHere(): boolean {
+    const ctx = this.ctx;
+    if (ctx.director.route.length >= 2 || ctx.director.phase !== 'aucune') return true;
+    const list = ctx.people.list;
+    for (let i = 0; i < list.length; i++) if (list[i]!.faction === 'protest') return true;
+    return false;
+  }
+
   /**
-   * Quand le service 'police.units' est branché, c'est lui qui construit le groupe ou la section (ses agents
-   * sont alors pilotés par l'IA). Retourne la personne du joueur, ou null pour passer à la création directe.
+   * Quand le service 'police.units' est branché, c'est lui qui construit les unités (ses agents sont alors pilotés
+   * par l'IA) :
+   *   - manifestation en cours (ou joueur commandant) : une COMPAGNIE (sections, fourgons, moyens d'appui selon les
+   *     « moyens engagés » de la page d'accueil) où le joueur CRS, chef de groupe, chef de section ou commandant
+   *     tient son poste ;
+   *   - sinon (patrouille libre) : le seul groupe — ou la section — du joueur.
+   * Retourne la personne du joueur, ou null quand il reste à créer directement (rôle hors compagnie, ou échec).
    */
-  private buildWithPoliceUnits(config: SessionConfig, cast: Cast, stand: Stand, summary: SessionSetupSummary): Person | null {
+  private buildWithPoliceUnits(
+    config: SessionConfig, cast: Cast, stand: Stand, means: RequestedMeans | null, crowd: boolean, summary: SessionSetupSummary,
+  ): Person | null {
     const ctx = this.ctx;
     const units = ctx.service<PoliceUnitsLike>('police.units');
-    if (!units || (config.role !== 'crs' && config.role !== 'chef_groupe')) return null;
+    if (!units) return null;
+    const role = config.role;
+    const commander = role === 'commandant' || role === 'commissaire';
+    const foot = commander || role === 'crs' || role === 'chef_groupe';
     const mine = cast.slots[cast.player];
-    if (!mine) return null;
     try {
+      // Patrouille libre (aucune manifestation, joueur non commandant) : une compagnie n'aurait rien à y faire,
+      // même si la page d'accueil a transmis ses « moyens engagés » — le joueur part avec son seul groupe.
+      const wantCompany = commander || (crowd && (means !== null || foot));
+      if (wantCompany && typeof units.createCompany === 'function') {
+        // sans réglage (session lancée par l'URL) : une section et ses trois fourgons
+        const asked: RequestedMeans = means ?? { sections: 1, fourgons: 3, centaure: 0, canon_eau: 0, bravm: 0, drone: 0 };
+        const handles = this.buildCompany(units, stand, asked, summary);
+        if (handles.length === 0) return null;
+        summary.usedPoliceUnits = true;
+        summary.rootSquadId = handles[0]!.squad.id;
+        if (!foot || !mine) return null;
+        const person = this.pickPlayer(handles, role, mine.poste);
+        if (!person) return null;
+        if (mine.rank) person.rank = mine.rank;
+        summary.squadId = person.squadId;
+        summary.teammates = this.people.length - 1;
+        return person;
+      }
+      if (!foot || commander || !mine) return null;
       const place = { x: stand.x, z: stand.z, heading: stand.heading, layout: 'ligne' as const, vehicles: true, drivers: mine.poste === 'conducteur', section: 1 };
       const handle = mine.poste === 'chef_section'
         ? units.createSection(place)
@@ -171,6 +348,7 @@ export class SessionSetupSystem implements GameSystem {
       if (mine.rank) person.rank = mine.rank;
       for (const p of handle.people) this.people.push(p.id);
       for (const v of handle.vehicles) summary.vehicleIds.push(v.id);
+      this.faceExit(handle);
       summary.squadId = person.squadId;
       summary.rootSquadId = handle.squad.id;
       summary.teammates = handle.people.length - 1;
@@ -178,8 +356,209 @@ export class SessionSetupSystem implements GameSystem {
       return person;
     } catch (err) {
       console.error('[session] construction de l’unité par « police.units » impossible : création directe', err);
+      if (getCore(ctx).strict) throw err;
       return null;
     }
+  }
+
+  /**
+   * Compagnie et moyens d'appui de la rubrique « Moyens engagés ». Retourne les unités créées, la compagnie en
+   * premier (tableau vide si rien n'a pu l'être).
+   */
+  private buildCompany(units: PoliceUnitsLike, stand: Stand, means: RequestedMeans, summary: SessionSetupSummary): PoliceUnitHandleLike[] {
+    const ctx = this.ctx;
+    const out: PoliceUnitHandleLike[] = [];
+    const sections = Math.max(1, means.sections);
+    const vans = means.fourgons > 0;
+    const fx = Math.sin(stand.heading);
+    const fz = Math.cos(stand.heading);
+    const rx = -fz;
+    const rz = fx;
+    const company = units.createCompany!({
+      x: stand.x, z: stand.z, heading: stand.heading, sections: Math.min(COMPANY_SECTIONS, sections), vehicles: vans, drivers: vans, layout: COMPANY_LAYOUT,
+    });
+    out.push(company);
+    this.progress(0.47, 'Mise en place de la compagnie');
+    // sections de renfort (5 à 8) : rattachées à la même compagnie, en colonne sur ses flancs
+    for (let s = COMPANY_SECTIONS + 1; s <= sections; s++) {
+      const n = s - COMPANY_SECTIONS - 1;
+      const side = (n % 2 === 0 ? 1 : -1) * (9 + Math.floor(n / 2) * 9);
+      const px = stand.x + rx * side;
+      const pz = stand.z + rz * side;
+      // la file de la section et ses fourgons doivent tenir sur ce flanc ; sinon elle se range derrière la compagnie, à pied
+      const lane = ctx.world.isFree(px, pz, 1.6) && ctx.world.isFree(px - fx * 8, pz - fz * 8, 1.6) && ctx.world.isFree(px - fx * 26, pz - fz * 26, 2.4);
+      try {
+        out.push(units.createSection({
+          x: lane ? px : stand.x - fx * (6 + n * 5), z: lane ? pz : stand.z - fz * (6 + n * 5), heading: stand.heading,
+          parentId: company.squad.id, section: ((s - 1) % COMPANY_SECTIONS) + 1, callsign: `${company.squad.name ?? 'COMPAGNIE'} ${s}`,
+          vehicles: vans && lane, drivers: vans && lane, layout: 'colonne',
+        }));
+      } catch (err) {
+        console.error(`[session] section de renfort n° ${s} impossible`, err);
+        if (getCore(ctx).strict) throw err;
+      }
+    }
+    this.trimVans(out, means.fourgons);
+
+    // moyens d'appui : sur les flancs, en retrait
+    this.progress(0.49, 'Moyens d’appui');
+    const taken: number[] = [];
+    const spot = this.spot;
+    let index = 0;
+    const special = (make: (x: number, z: number, heading: number) => PoliceUnitHandleLike | undefined, radius: number, what: string, rearLane = 0): void => {
+      // (pour des machines à ranger en file : d'abord avec toute la bande libre derrière, sinon avec la moitié)
+      if (!supportSpot(ctx, stand, index, radius, taken, spot, rearLane) && !(rearLane > 0 && supportSpot(ctx, stand, index, radius, taken, spot, rearLane * 0.6))) {
+        index++;
+        console.warn(`[session] pas de place pour ${what} près de l'unité : moyen non engagé`);
+        return;
+      }
+      index++;
+      try {
+        const h = make(spot.x, spot.z, spot.heading);
+        if (h) out.push(h);
+      } catch (err) {
+        console.error(`[session] création de ${what} impossible`, err);
+        if (getCore(ctx).strict) throw err;
+      }
+    };
+    const parentId = company.squad.id;
+    if (typeof units.createEquipage === 'function') {
+      for (let i = 0; i < means.canon_eau; i++) special((x, z, heading) => units.createEquipage!('canon_eau', { x, z, heading, parentId }), 5.5, 'l’engin lanceur d’eau');
+      for (let i = 0; i < means.centaure; i++) special((x, z, heading) => units.createEquipage!('centaure', { x, z, heading, parentId }), 4.5, 'le Centaure');
+    }
+    if (typeof units.createBravm === 'function') {
+      for (let i = 0; i < means.bravm; i++) {
+        special((x, z, heading) => units.createBravm!(6, { x, z, heading, vehicles: true, mounted: false, callsign: means.bravm > 1 ? `FAUCON ${i + 1}` : undefined }), 3, 'la BRAV-M', 44);
+      }
+    }
+    const command = ctx.service<PoliceCommandLike>('police.command');
+    if (command && typeof command.createDroneTeam === 'function') {
+      for (let i = 0; i < means.drone; i++) special((x, z, heading) => command.createDroneTeam!({ x, z, heading, parentId }), 2, 'l’équipe du drone');
+    }
+
+    for (const h of out) {
+      for (const p of h.people) if (ctx.people.get(p.id)) this.people.push(p.id);
+      for (const v of h.vehicles) if (ctx.vehicles.get(v.id)) summary.vehicleIds.push(v.id);
+      this.faceExit(h);
+    }
+    return out;
+  }
+
+  /**
+   * « Fourgons » de la page d'accueil : la dotation normale est d'un fourgon par groupe ; si le joueur en a demandé
+   * moins, les derniers groupes n'en ont pas (fourgon et conducteur retirés). On n'en crée pas au-delà de la dotation.
+   */
+  private trimVans(handles: PoliceUnitHandleLike[], wanted: number): void {
+    const ctx = this.ctx;
+    const vans: Vehicle[] = [];
+    for (const h of handles) {
+      for (const ref of h.vehicles) {
+        const v = ctx.vehicles.get(ref.id);
+        if (v && v.kind === 'fourgon_crs') vans.push(v);
+      }
+    }
+    for (let i = vans.length - 1; i >= Math.max(0, wanted); i--) {
+      const v = vans[i]!;
+      for (let seat = 0; seat < v.seats.length; seat++) {
+        const p = v.seats[seat] ? ctx.people.get(v.seats[seat]!) : undefined;
+        if (!p) continue;
+        ctx.vehicles.exit(p);
+        ctx.squads.removeMember(p.id);
+        ctx.people.remove(p.id);
+      }
+      for (const sq of ctx.squads.list) if (sq.vehicleId === v.id) sq.vehicleId = 0;
+      ctx.vehicles.remove(v.id);
+    }
+  }
+
+  /**
+   * Véhicules de l'unité garés nez vers la sortie (dos à l'unité) : prêts à repartir, et celui qui prend le volant
+   * et roule tout droit s'éloigne de ses collègues au lieu de leur passer dessus. Demi-tour sur place (même emprise).
+   */
+  private faceExit(handle: PoliceUnitHandleLike): void {
+    const ctx = this.ctx;
+    for (const ref of handle.vehicles) {
+      const v = ctx.vehicles.get(ref.id);
+      if (!v || PARKED_KINDS.indexOf(v.kind) < 0 || Math.abs(v.speed) > 0.1) continue;
+      let h = (v.heading + Math.PI) % (Math.PI * 2);
+      if (h > Math.PI) h -= Math.PI * 2;
+      v.heading = h;
+    }
+  }
+
+  /** Poste du joueur dans la compagnie : son commandant, le chef de la 1re section ou de son 1er groupe, ou un équipier. */
+  private pickPlayer(handles: PoliceUnitHandleLike[], role: SessionConfig['role'], poste: string | null): Person | null {
+    const ctx = this.ctx;
+    const company = handles[0]!;
+    if (role === 'commandant' || role === 'commissaire') return company.leader ? ctx.people.get(company.leader.id) ?? null : null;
+    const section = company.sections && company.sections[0];
+    const sectionId = section ? section.id : company.squad.id;
+    const inFirstSection = (squadId: number | undefined): boolean => {
+      const sq = squadId ? ctx.squads.get(squadId) : undefined;
+      return !!sq && (sq.id === sectionId || sq.parentId === sectionId);
+    };
+    if (role === 'chef_groupe') {
+      if (poste === 'chef_section' && section && section.leaderId) return ctx.people.get(section.leaderId) ?? null;
+      // chef du premier groupe (appui) de la première section
+      for (const g of company.groups ?? []) {
+        if (g.parentId === sectionId && g.leaderId) {
+          const p = ctx.people.get(g.leaderId);
+          if (p && p.poste === 'chef_groupe') return p;
+        }
+      }
+    }
+    const want = poste ?? (role === 'chef_groupe' ? 'chef_groupe' : 'bouclier');
+    let anywhere: Person | null = null;
+    for (const ref of company.people) {
+      if (ref.poste !== want) continue;
+      const p = ctx.people.get(ref.id);
+      if (!p) continue;
+      if (inFirstSection(p.squadId)) return p;
+      if (!anywhere) anywhere = p;
+    }
+    if (anywhere) return anywhere;
+    // poste introuvable dans la composition : un équipier du premier groupe
+    for (const ref of company.people) {
+      const p = ctx.people.get(ref.id);
+      if (p && inFirstSection(p.squadId) && p.poste !== 'conducteur') return p;
+    }
+    return null;
+  }
+
+  /** Emplacement de l'équipe du joueur quand une compagnie tient déjà l'emplacement des forces : sur son flanc. */
+  private besideForces(forces: Stand): Stand {
+    const spot = this.spot;
+    if (supportSpot(this.ctx, forces, 0, 5, [], spot)) return { x: spot.x, z: spot.z, heading: forces.heading, facing: forces.facing };
+    const fx = Math.sin(forces.heading);
+    const fz = Math.cos(forces.heading);
+    return { x: forces.x + fz * 14 - fx * 4, z: forces.z - fx * 14 - fz * 4, heading: forces.heading, facing: forces.facing };
+  }
+
+  /** Recense les moyens réellement présents (ce que la page d'accueil a demandé et qui a pu être placé). */
+  private countMeans(summary: SessionSetupSummary): void {
+    const ctx = this.ctx;
+    const m: EngagedMeans = summary.means;
+    m.agents = 0;
+    for (const p of ctx.people.list) if (p.faction === 'police') m.agents++;
+    m.sections = 0;
+    m.bravm = 0;
+    for (const sq of ctx.squads.list) {
+      if (sq.faction !== 'police') continue;
+      if (sq.kind === 'section' && sq.name.indexOf('FAUCON') < 0) m.sections++;
+    }
+    m.fourgons = m.centaure = m.canon_eau = m.drone = 0;
+    let motos = 0;
+    for (const v of ctx.vehicles.list) {
+      if (v.faction !== 'police') continue;
+      if (v.kind === 'fourgon_crs') m.fourgons++;
+      else if (v.kind === 'centaure') m.centaure++;
+      else if (v.kind === 'canon_eau') m.canon_eau++;
+      else if (v.kind === 'moto_bravm') motos++;
+      else if (v.kind === 'drone') m.drone++;
+    }
+    m.bravm = Math.ceil(motos / 6);
+    // le drone est un engin déployé par son télépilote : on compte les équipes
+    if (m.drone === 0) for (const p of ctx.people.list) if (p.faction === 'police' && p.poste === 'telepilote' && !p.isPlayer) m.drone++;
   }
 
   // ───────────────────────────── création directe ─────────────────────────────

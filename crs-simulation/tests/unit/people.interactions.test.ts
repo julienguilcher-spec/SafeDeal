@@ -423,4 +423,24 @@ describe('pousser', () => {
     expect(ctx.interactions.current(behind)).toBeNull();
     expect(colleague.vx).toBe(0);
   });
+
+  it('collègue DÉSIGNÉ (visé par le joueur) : « Repousser » n’est ni proposé ni lancé, rien n’est déclaré au droit', async () => {
+    const t = await setup();
+    const ctx = t.ctx;
+    const crs = ctx.people.spawn({ kind: 'crs', x: 0, z: 0, heading: 0 });
+    const colleague = ctx.people.spawn({ kind: 'crs', x: 0, z: 0.95 });
+    let reports = 0;
+    ctx.events.on('law:force', () => { reports++; });
+    const out: InteractionOption[] = [];
+    expect(ctx.interactions.options(crs, out)).toBe(0);
+    expect(ctx.interactions.startVerb(crs, 'pousser', colleague.id)).toBe(false);
+    t.step(1);
+    expect(colleague.vx).toBe(0);
+    expect(colleague.z).toBeCloseTo(0.95, 2);
+    expect(reports).toBe(0);
+    // un manifestant à la même place, lui, peut être repoussé
+    const other = ctx.people.spawn({ kind: 'manifestant', x: 0.2, z: 0.9 });
+    ctx.people.rebuildIndex();
+    expect(ctx.interactions.startVerb(crs, 'pousser', other.id)).toBe(true);
+  });
 });

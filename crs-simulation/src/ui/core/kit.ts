@@ -19,7 +19,7 @@ const FALLBACK_KEYS: Readonly<Partial<Record<Button, string>>> = {
   primary: 'Clic gauche', secondary: 'Clic droit', interact: 'E', reload: 'R', sprint: 'Maj', crouch: 'C', jump: 'Espace',
   item_next: 'Molette', item_prev: 'Molette', radio: 'T', orders: 'F', map: 'M', tactical: 'Tab', camera: 'V', pause: 'Échap',
   flashlight: 'L', mask: 'G', visor: 'H', siren: 'R', beacons: 'B', horn: 'N', handbrake: 'Espace', headlights: 'L', megaphone: 'X',
-  fast_forward: '.', zoom_in: '+', zoom_out: '−', ui_accept: 'Entrée', ui_back: 'Échap', ui_up: '↑', ui_down: '↓', ui_left: '←', ui_right: '→',
+  fast_forward: '.', jog: 'W', zoom_in: '+', zoom_out: '−', ui_accept: 'Entrée', ui_back: 'Échap', ui_up: '↑', ui_down: '↓', ui_left: '←', ui_right: '→',
 };
 
 /** Ce dont les écrans internes ont besoin. */
@@ -50,6 +50,15 @@ export function keyLabelOf(ctx: GameContext, button: Button, device?: InputDevic
     try {
       const text = labels.labelFor(button, device);
       if (text) return text;
+      const active = device ?? ctx.input.device;
+      // Manette : aucun bouton libre pour la carte tactique — un second appui sur le bouton du plan y mène
+      // (voir UiSystem.toggleHotkeyScreen). L'aide l'annonce au lieu d'afficher une touche du clavier.
+      if (button === 'tactical' && active === 'gamepad') {
+        const map = labels.labelFor('map', device);
+        return map ? `${map} ×2` : '';
+      }
+      // le module des entrées est branché et n'a rien pour ce périphérique : pas de touche de clavier à la place
+      if (active !== 'kbm') return '';
     } catch (err) {
       console.error('[ui] libellé de touche indisponible', err);
     }

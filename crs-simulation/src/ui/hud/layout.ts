@@ -12,3 +12,13 @@ export function touchScale(width: number, height: number): number {
 
 /** Hauteur d'écran sous laquelle le HUD passe en disposition compacte (téléphone en paysage). */
 export const COMPACT_HEIGHT = 520;
+/**
+ * Largeur sous laquelle le HUD passe aussi en disposition compacte : dans une fenêtre d'ordinateur de 960 px, la
+ * disposition large faisait se recouvrir le panneau de situation, la boussole et le bandeau d'unité.
+ */
+export const COMPACT_WIDTH = 1100;
+
+/** Disposition compacte pour cette taille de fenêtre ? */
+export function isCompact(width: number, height: number): boolean {
+  return height < COMPACT_HEIGHT || width < COMPACT_WIDTH;
+}

@@ -44,6 +44,8 @@ export class CommandSystem implements GameSystem {
   private kit: UiKit | undefined;
   private ctx: GameContext | null = null;
   private readonly unsub: (() => void)[] = [];
+  /** Le bouton tactile « Ordres » est à remontrer ou à masquer (nouvelle incarnation). */
+  private ordersDirty = false;
 
   provide(ctx: GameContext): void {
     this.ctx = ctx;
@@ -59,11 +61,15 @@ export class CommandSystem implements GameSystem {
     const kit = (this.kit = ctx.headless ? undefined : ctx.service<UiKit>(EXT.uiKit));
     core.kit = kit;
     this.unsub.push(
-      ctx.events.on('player:possessed', () => core.invalidateScope()),
+      ctx.events.on('player:possessed', () => {
+        core.invalidateScope();
+        this.ordersDirty = true;
+      }),
       ctx.events.on('session:started', () => {
         core.invalidateScope();
         core.issued.length = 0;
         core.orderForce = 4;
+        this.ordersDirty = true;
       }),
     );
     if (!kit) {
@@ -88,6 +94,25 @@ export class CommandSystem implements GameSystem {
 
   frame(): void {
     this.ownMaps?.frame();
+    if (this.ordersDirty) this.syncOrdersButton();
+  }
+
+  /**
+   * Écran tactile : le bouton « Ordres » n'est montré qu'à ceux qui commandent une unité (chef de groupe, de
+   * section, commandant). Pour un équipier il n'ouvrirait rien : il est masqué. Recalculé à chaque incarnation.
+   */
+  private syncOrdersButton(): void {
+    this.ordersDirty = false;
+    const ctx = this.ctx;
+    const core = this.core;
+    if (!ctx || !core || ctx.player.state.personId === 0) return;
+    const touch = ctx.service<{ setButtonVisible(button: 'orders', visible: boolean): void }>('input.touch');
+    if (!touch || typeof touch.setButtonVisible !== 'function') return;
+    try {
+      touch.setButtonVisible('orders', core.scope().level !== 'lecture');
+    } catch (err) {
+      console.error('[commandement] bouton « Ordres » de l’écran tactile : mise à jour impossible', err);
+    }
   }
 
   reset(): void {

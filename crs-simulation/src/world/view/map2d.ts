@@ -38,6 +38,11 @@ export interface Map2dOptions {
 }
 
 export interface Map2dApi {
+  /**
+   * Le dernier draw() sans `complete` a laissé des tuiles de côté (budget de construction des tracés épuisé) : il
+   * faut redessiner pour compléter. Permet d'étaler la construction sur plusieurs images au lieu de geler l'image.
+   */
+  readonly incomplete?: boolean;
   draw(ctx2d: CanvasRenderingContext2D, centerX: number, centerZ: number, metersPerPixel: number, rotation?: number, options?: Map2dOptions): void;
   /** Position à l'écran d'un point du monde, pour y poser ses propres marqueurs. */
   worldToScreen(x: number, z: number, centerX: number, centerZ: number, metersPerPixel: number, rotation: number, width: number, height: number, out: { x: number; y: number }): { x: number; y: number };
@@ -120,6 +125,8 @@ export class Map2d implements Map2dApi {
   private readonly source: () => Map2dSource | null;
   private readonly tiles = new Map<string, TilePaths>();
   private readonly roads = new Map<string, RoadPaths>();
+  /** Le dernier dessin a sauté des tuiles faute de budget (voir Map2dApi.incomplete). */
+  incomplete = false;
   private edgeIndex: EdgeIndex | null = null;
   private indexedGraph: RoadGraph | null = null;
   private readonly edgeScratch: number[] = [];
@@ -245,6 +252,7 @@ export class Map2d implements Map2dApi {
     const showBuildings = options.buildings ?? mpp < 4;
     const graph = data.roadGraph;
     let budget = options.complete ? 1e9 : 3;
+    this.incomplete = false;
 
     g.save();
     g.transform(a, b, c2, d, e, f);
@@ -284,7 +292,11 @@ export class Map2d implements Map2dApi {
         let tp = this.tiles.get(key);
         if (tp === undefined) {
           const tile = data.tile(tx, tz);
-          if (tile === null || budget <= 0) continue;
+          if (tile === null) continue;
+          if (budget <= 0) {
+            this.incomplete = true;
+            continue;
+          }
           budget--;
           tp = buildTilePaths(tile);
           this.remember(key, tp);

@@ -47,6 +47,28 @@ const POSTES: readonly string[] = [
   'commandant_unite', 'autorite_civile', 'pilote_moto', 'passager_moto', 'telepilote',
 ];
 
+/** « Moyens engagés » demandés sur la page d'accueil (SessionConfig.extra.moyens), bornés. */
+export interface RequestedMeans {
+  sections: number;
+  fourgons: number;
+  centaure: number;
+  canon_eau: number;
+  bravm: number;
+  drone: number;
+}
+
+/** Lit extra.moyens ; null quand la clé est absente (session lancée sans passer par la page d'accueil). */
+export function meansOf(config: SessionConfig): RequestedMeans | null {
+  const raw = config.extra ? config.extra['moyens'] : undefined;
+  if (typeof raw !== 'object' || raw === null) return null;
+  const m = raw as Record<string, unknown>;
+  const n = (key: string, hi: number): number => {
+    const v = Number(m[key]);
+    return Number.isFinite(v) ? Math.max(0, Math.min(hi, Math.round(v))) : 0;
+  };
+  return { sections: n('sections', 8), fourgons: n('fourgons', 24), centaure: n('centaure', 2), canon_eau: n('canon_eau', 2), bravm: n('bravm', 3), drone: n('drone', 2) };
+}
+
 function posteOf(config: SessionConfig): PolicePoste | null {
   const v = config.extra ? config.extra['poste'] : undefined;
   return typeof v === 'string' && POSTES.indexOf(v) >= 0 ? (v as PolicePoste) : null;

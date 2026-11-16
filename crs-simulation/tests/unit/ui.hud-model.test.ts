@@ -1,7 +1,7 @@
 // HUD — logique pure : éléments affichés selon le rôle et la situation, cadre légal, boussole, projection des marqueurs.
 import { describe, expect, it } from 'vitest';
 import type { CameraMode, PlayableRole, RoeState, SeatRole, VehicleDef } from '@/core/contracts';
-import { touchScale } from '@/ui/hud/layout';
+import { isCompact, touchScale } from '@/ui/hud/layout';
 import { clampToFrame, projectPoint } from '@/ui/hud/markers';
 import {
   compassMarkerOffset, focalLength, forceLabel, gearLabel, healthTone, hudProfile, injuryLabel, isPoliceRole, itemName, legalReminder,
@@ -155,6 +155,16 @@ describe('hud/boussole et directions', () => {
     expect(touchScale(667, 375)).toBeCloseTo(0.82, 2);
     expect(touchScale(1180, 820)).toBeCloseTo(1180 / 844, 6);
     expect(touchScale(2560, 1440)).toBe(1.45);
+  });
+
+  it('disposition compacte : écran bas (téléphone) OU fenêtre étroite (ordinateur en 960 px de large)', () => {
+    expect(isCompact(844, 390)).toBe(true);     // téléphone en paysage
+    expect(isCompact(960, 540)).toBe(true);     // fenêtre d'ordinateur étroite : le panneau de situation recouvrait la boussole
+    expect(isCompact(640, 360)).toBe(true);
+    expect(isCompact(700, 900)).toBe(true);
+    expect(isCompact(1280, 720)).toBe(false);
+    expect(isCompact(1180, 820)).toBe(false);   // tablette
+    expect(isCompact(1600, 500)).toBe(true);    // large mais bas
   });
 });
 

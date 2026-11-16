@@ -101,7 +101,7 @@ describe('regard et déplacement', () => {
     // avancer mène donc vers l'ouest
     r.input.setMove(0, 1);
     r.t.step(2);
-    expect(r.me.x).toBeLessThan(-3);
+    expect(r.me.x).toBeLessThan(-2);
     expect(Math.abs(r.me.z)).toBeLessThan(0.01);
     expect(r.me.aimYaw).toBeCloseTo(-Math.PI / 2, 10);
   });
@@ -124,25 +124,36 @@ describe('regard et déplacement', () => {
     const r = await setup();
     r.input.setMove(1, 0); // pas de côté à droite
     r.t.step(2);
-    expect(r.me.x).toBeLessThan(-3);
+    expect(r.me.x).toBeLessThan(-2);
     expect(Math.abs(r.me.z)).toBeLessThan(0.01);
     r.input.setMove(0, 1);
     r.t.step(2);
-    expect(r.me.z).toBeGreaterThan(3);
+    expect(r.me.z).toBeGreaterThan(2);
     // caméra tournée vers l'est (cap +π/2) : « avant » mène à l'est
     r.input.look(-Math.PI / 2, 0);
     r.input.setMove(0, 1);
     const x0 = r.me.x;
     r.t.step(2);
-    expect(r.me.x).toBeGreaterThan(x0 + 3);
+    expect(r.me.x).toBeGreaterThan(x0 + 2);
   });
 
-  it('allures : course par défaut, sprint maintenu, marche en visant, joystick analogique et tactile à fond', async () => {
+  it('allures : marche par défaut au clavier, petite foulée par bascule, sprint maintenu, marche en visant, joystick analogique et tactile à fond', async () => {
     const r = await setup('manifestant');
     const { me, input } = r;
     me.look.backpack = false;
     const speed = (): number => Math.hypot(me.vx, me.vz);
+    // clavier : la touche d'avance seule fait MARCHER — le souffle ne s'use pas (défaut de la recette : 100 → 0 en 78 s)
     input.setMove(0, 1);
+    r.t.step(2);
+    expect(me.cmd.gait).toBe(0);
+    expect(speed()).toBeCloseTo(me.speedWalk, 1);
+    me.stamina = 60;
+    r.t.step(20);
+    expect(me.stamina).toBeGreaterThan(60);
+    // bascule « marcher / trottiner » : petite foulée, qui tient jusqu'à la bascule suivante
+    input.press('jog');
+    tick(r);
+    input.release('jog');
     r.t.step(2);
     expect(me.cmd.gait).toBe(1);
     expect(speed()).toBeCloseTo(me.speedRun, 1);
@@ -156,6 +167,14 @@ describe('regard et déplacement', () => {
     expect(me.cmd.gait).toBe(0);
     expect(speed()).toBeCloseTo(me.speedWalk, 1);
     input.release('secondary');
+    // seconde bascule : retour à la marche
+    r.t.step(1);
+    expect(me.cmd.gait).toBe(1);
+    input.press('jog');
+    tick(r);
+    input.release('jog');
+    r.t.step(1);
+    expect(me.cmd.gait).toBe(0);
     // manette : stick à moitié = marche lente
     input.device = 'gamepad';
     input.setMove(0, 0.3);

@@ -9,6 +9,7 @@ import type { GameContext, QualityLevel, ViewApi } from '@/core/contracts';
 import type { EnvExtApi } from '@/env/api';
 import type { RenderBaseApi, RenderStats } from './api';
 import { bodiesFromEnvState, computeAtmosphere, createAtmosphere, fogDensityFor, visibilityFor } from './atmosphere';
+import { ClearAir } from './clearAir';
 import type { Atmosphere, AtmosphereInput } from './atmosphere';
 import { CameraRig } from './cameraRig';
 import { Lighting } from './lighting';
@@ -35,6 +36,8 @@ export class RenderView implements ViewApi, RenderBaseApi {
   readonly rig: CameraRig;
   readonly lights: LightPool;
   readonly shared = new SharedUniformsHub();
+  /** Voile d'air clair des monuments (insensible à la distance d'affichage). */
+  readonly clearAir = new ClearAir();
   readonly stats: RenderStats = {
     drawCalls: 0, triangles: 0, prepareMs: 0, renderMs: 0, width: 0, height: 0, pixelRatio: 1,
     lightsWanted: 0, lightsLit: 0, rainStreaks: 0,
@@ -292,6 +295,7 @@ export class RenderView implements ViewApi, RenderBaseApi {
     }
     this.drawDistance_ = draw;
     this.lighting.apply(atm, density);
+    this.clearAir.update(env.fog, env.rain);
 
     // ── ombres : portée selon la hauteur de la caméra (vues hautes) ──
     if (this.lighting.shadows) {

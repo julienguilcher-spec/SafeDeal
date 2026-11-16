@@ -15,6 +15,9 @@ export const RENDER_LIGHTS_SERVICE = 'render.lights';
 export const RENDER_UNIFORMS_SERVICE = 'render.uniforms';
 export const RENDER_CAMERA_SERVICE = 'render.camera';
 export const RENDER_BASE_SERVICE = 'render.base';
+/** ctx.service<RenderClearAirApi>('render.clearAir') : voile d'air clair des grands repères (voir clearAir.ts). */
+export const RENDER_CLEAR_AIR_SERVICE = 'render.clearAir';
+export type { RenderClearAirApi } from './clearAir';
 
 // ───────────────────────────── lumières dynamiques ─────────────────────────────
 

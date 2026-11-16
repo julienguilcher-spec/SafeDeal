@@ -2,7 +2,8 @@
  * Systèmes du rendu de base.
  *
  *   'render.base'    (ordre VIEW)      crée le renderer dans #game, publie ctx.view et les services
- *                                      étendus ; à chaque image : caméra, ciel, lumière, pluie, effets.
+ *                                      étendus (lumières, uniformes, caméra, mesures, air clair) ; à chaque
+ *                                      image : caméra, ciel, lumière, pluie, effets.
  *   'render.present' (ordre VIEW + 90) appelle renderer.render une fois que tous les systèmes de
  *                                      présentation d'ordre VIEW ont mis leurs objets à jour, et
  *                                      avant l'interface (UI).
@@ -13,9 +14,9 @@
 import { SystemOrder } from '@/core/contracts';
 import type { GameContext, GameSystem } from '@/core/contracts';
 import {
-  RENDER_BASE_SERVICE, RENDER_CAMERA_SERVICE, RENDER_LIGHTS_SERVICE, RENDER_UNIFORMS_SERVICE,
+  RENDER_BASE_SERVICE, RENDER_CAMERA_SERVICE, RENDER_CLEAR_AIR_SERVICE, RENDER_LIGHTS_SERVICE, RENDER_UNIFORMS_SERVICE,
 } from './api';
-import type { RenderBaseApi, RenderCameraApi, RenderLightsApi, RenderUniformsApi } from './api';
+import type { RenderBaseApi, RenderCameraApi, RenderClearAirApi, RenderLightsApi, RenderUniformsApi } from './api';
 import { RenderView } from './view';
 
 /** Le rendu passe après tous les systèmes d'ordre VIEW (personnages, véhicules, effets) et avant l'interface. */
@@ -40,6 +41,7 @@ export class RenderBaseSystem implements GameSystem {
       ctx.provide<RenderUniformsApi>(RENDER_UNIFORMS_SERVICE, view.shared);
       ctx.provide<RenderCameraApi>(RENDER_CAMERA_SERVICE, view.rig);
       ctx.provide<RenderBaseApi>(RENDER_BASE_SERVICE, view);
+      ctx.provide<RenderClearAirApi>(RENDER_CLEAR_AIR_SERVICE, view.clearAir);
     } catch (err) {
       this.view = null;
       console.error('[render] création du rendu 3D impossible (WebGL indisponible ?)', err);

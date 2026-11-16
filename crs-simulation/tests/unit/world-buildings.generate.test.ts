@@ -212,6 +212,28 @@ describe('murs mitoyens', () => {
     expect([...fc.values()].every((f) => f === WALL_FREE)).toBe(true);
   });
 
+  it('un voisin nettement plus bas (boutique d’un étage devant un immeuble) ne rend pas le mur aveugle', () => {
+    // Défaut relevé rue Royale : des pans gris sans fenêtres en pleine rue, là où un bâtiment bas est collé devant un
+    // immeuble de six étages. Le mur de l'immeuble reste une façade ; seul son pied est masqué par le voisin.
+    const tall = building(rect(0, 0, 10, 10), { height: 20 });
+    const shop = building(rect(10, 0, 14, 10), { height: 4.5 });
+    const mid = building(rect(0, 10, 10, 20), { height: 13 });
+    const p = prepareTile(tileOf([tall, shop, mid]), flat, never, 1);
+    const flagAt = (k: number, mx: number, mz: number): number => {
+      const r = p.firstRing[k];
+      for (let i = 0; i < p.ringLen[r]; i++) {
+        const s0 = p.ringStart[r] + i, e = p.ringStart[r] + ((i + 1) % p.ringLen[r]);
+        const x = (p.coords[2 * s0] + p.coords[2 * e]) / 2, z = (p.coords[2 * s0 + 1] + p.coords[2 * e + 1]) / 2;
+        if (Math.abs(x - mx) < 0.5 && Math.abs(z - mz) < 0.5) return p.wall[s0];
+      }
+      return -1;
+    };
+    expect(flagAt(0, 10, 5)).toBe(WALL_FREE);       // côté boutique (4,5 m sur 20) : façade
+    expect(flagAt(0, 5, 10)).toBe(WALL_PARTY);      // côté immeuble de 13 m (65 % de la hauteur) : pignon aveugle
+    expect(flagAt(1, 10, 5)).toBe(WALL_HIDDEN);     // le mur de la boutique contre l'immeuble n'est pas dessiné
+    expect(flagAt(2, 5, 10)).toBe(WALL_HIDDEN);
+  });
+
   it('ne dessine pas les murs cachés et ne met pas de fenêtre sur un mur mitoyen', () => {
     const main = new MeshData(), rail = new MeshData();
     generateTileMeshes(tile, opts('bas'), main, rail);

@@ -29,10 +29,14 @@ export async function startServer() {
 
 /**
  * Ouvre une page. Retourne { browser, page, errors } ; `errors` accumule erreurs de page et console.error.
- * Options : width, height, deviceScaleFactor (1 par défaut ; 2 pour une capture destinée à être montrée), mobile (émulation tactile).
+ * Options : width, height, deviceScaleFactor (1 par défaut ; 2 pour une capture destinée à être montrée), mobile (émulation tactile),
+ * pointerLock (true par défaut ; false : la capture de la souris est REFUSÉE, comme dans une iframe sans permission — le jeu passe
+ * alors dans son mode de repli : le clic agit, glisser ou les flèches regardent). Sous Chromium headless, une souris capturée
+ * emballe le navigateur (images rares, mémoire qui enfle jusqu'à plusieurs Go — constaté par la recette sur une page VIDE, sans le
+ * jeu : tests/e2e/verif-diag-lock-vide.mjs) : les parcours longs du vrai jeu passent donc pointerLock: false.
  */
 export async function openPage(url, opts = {}) {
-  const { width = 1280, height = 720, deviceScaleFactor = 1, mobile = false } = opts;
+  const { width = 1280, height = 720, deviceScaleFactor = 1, mobile = false, pointerLock = true } = opts;
   const browser = await chromium.launch();
   const context = await browser.newContext({
     viewport: { width, height },
@@ -41,6 +45,13 @@ export async function openPage(url, opts = {}) {
     isMobile: mobile,
   });
   const page = await context.newPage();
+  if (!pointerLock) {
+    await page.addInitScript(() => {
+      Element.prototype.requestPointerLock = function () {
+        return Promise.reject(new DOMException('capture refusée (essai de bout en bout)', 'NotAllowedError'));
+      };
+    });
+  }
   const errors = [];
   page.on('pageerror', (e) => errors.push('pageerror: ' + (e && e.stack ? e.stack : String(e))));
   page.on('console', (m) => { if (m.type() === 'error') errors.push('console.error: ' + m.text()); });

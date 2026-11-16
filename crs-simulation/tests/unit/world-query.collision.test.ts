@@ -227,8 +227,13 @@ describe('monde : collisions (quartier d\'essai)', () => {
     const pos = { x: -3, z: -290 };
     walk(pos, 0.25, 0, 24);
     expect(pos).toEqual({ x: 3, z: -290 });
-    // La limite z = 0 passe dans l'avenue.
-    expect(w.raycast(100, -12, 100, 12, hit)).toBe(false);
+    // La limite z = 0 passe dans l'avenue. (À x = 106, entre deux arbres du terre-plein — plantés tous les 12 m,
+    // dont un en x = 100 : depuis l'assemblage 2 les troncs sont des obstacles.)
+    expect(w.raycast(106, -12, 106, 12, hit)).toBe(false);
+    // … et le tronc du terre-plein arrête bien le rayon, à la limite de tuile comme ailleurs
+    expect(w.raycast(100, -12, 100, 12, hit)).toBe(true);
+    expect(hit.kind).toBe('barrier');
+    expect(Math.abs(hit.z)).toBeLessThan(0.6);
     // Un rayon qui traverse trois tuiles et finit dans une façade.
     expect(w.raycast(-300, -100, 300, 160, hit)).toBe(true);
     expect(hit.kind).toBe('building');

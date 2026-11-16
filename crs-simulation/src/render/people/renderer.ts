@@ -31,6 +31,10 @@ const POSE_STRIDE = POSE_W * 4;
 const LOOK_STRIDE = LOOK_W * 4;
 const FP_SLOT = 0;
 
+/** Service de la ville en 3D ('world.view') : seule la surélévation du sol dessiné nous intéresse ici. */
+const GROUND_LIFT_SERVICE = 'world.view';
+interface GroundLift { liftAt(x: number, z: number): number }
+
 export class PeopleRenderer {
   readonly stats: PeopleRenderStats = { near: 0, mid: 0, far: 0, items: 0, posed: 0, cpuMs: 0, cpuMsAvg: 0, drawCalls: 0 };
   /** Désactive les niveaux de détail (tout au niveau proche) — bancs d'essai uniquement. */
@@ -420,6 +424,10 @@ export class PeopleRenderer {
     const nearD = Q.near * this.nearScale * zoom, midD = Q.mid * this.midScale * zoom;
     const force = this.forceLod;
 
+    // surélévation du sol dessiné (service facultatif de la ville en 3D ; absent : aucun décalage)
+    const groundService = ctx.service<GroundLift>(GROUND_LIFT_SERVICE);
+    const ground = groundService && typeof groundService.liftAt === 'function' ? groundService : undefined;
+
     const lods = this.lods, items = this.items, blob = this.blob as InstancedLayer;
     for (let d = 0; d < 3; d++) lods[d].count = 0;
     for (let i = 0; i < items.length; i++) items[i].count = 0;
@@ -449,6 +457,9 @@ export class PeopleRenderer {
       let x = p.x, y = p.y, z = p.z;
       const special = p.vehicleId !== 0 || p.heldBy !== 0;
       if (special) { place.resolve(ctx, p); x = place.x; y = place.y; z = place.z; }
+      // à pied : posé sur le sol DESSINÉ (bordure de trottoir, pelouse), quelques centimètres au-dessus du sol de
+      // la simulation — sinon les pieds s'enfoncent dans le dallage
+      else if (ground !== undefined) y += ground.liftAt(x, z);
       const dx = x - camX, dy = y + 0.9 - camY, dz = z - camZ;
       const d2 = dx * dx + dy * dy + dz * dz;
       const isFp = id === fpId;

@@ -12,6 +12,8 @@ import type { UiEnv } from '../core/kit';
 import { sortObjectives } from '../hud/objectives';
 
 const KEY_ROWS: readonly { label: string; button: Button }[] = [
+  { label: 'Courir (tenir)', button: 'sprint' },
+  { label: 'Marcher / trottiner', button: 'jog' },
   { label: 'Interagir', button: 'interact' },
   { label: 'Action principale', button: 'primary' },
   { label: 'Viser, lever le bouclier', button: 'secondary' },
@@ -20,6 +22,7 @@ const KEY_ROWS: readonly { label: string; button: Button }[] = [
   { label: 'Carte', button: 'map' },
   { label: 'Carte tactique', button: 'tactical' },
   { label: 'Changer de caméra', button: 'camera' },
+  { label: 'Avance rapide', button: 'fast_forward' },
 ];
 
 export function createPause(env: UiEnv): (host: HTMLElement) => ScreenInstance {
@@ -79,8 +82,20 @@ export function createPause(env: UiEnv): (host: HTMLElement) => ScreenInstance {
       });
     }, 'danger', 'exit');
     b5.dataset.id = 'pause-quitter';
-    list.append(b1, b2, b3, b4, b5);
-    for (const b of [b1, b2, b3, b4, b5]) b.classList.add('ui-btn--block');
+    // Carte tactique : accessible d'ici aussi — à la manette aucun bouton ne lui est réservé (BRIEF : la carte
+    // tactique doit être utilisable à la souris, à la manette et au doigt).
+    const buttons: HTMLButtonElement[] = [b1];
+    if (env.screens.has('carte_tactique')) {
+      const bt = widgets.button('Carte tactique', () => {
+        ctx.ui.close('pause');
+        ctx.ui.open('carte_tactique');
+      }, 'secondary', 'target');
+      bt.dataset.id = 'pause-tactique';
+      buttons.push(bt);
+    }
+    buttons.push(b2, b3, b4, b5);
+    list.append(...buttons);
+    for (const b of buttons) b.classList.add('ui-btn--block');
     menu.append(list);
 
     // ── côté : objectifs et commandes ──

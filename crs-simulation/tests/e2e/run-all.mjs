@@ -16,7 +16,7 @@ import path from 'node:path';
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(DIR, '../..');
 /** Fichiers qui ne sont pas des tests. */
-const NOT_TESTS = new Set(['lib.mjs', 'run-all.mjs']);
+const NOT_TESTS = new Set(['lib.mjs', 'run-all.mjs', 'verif-lib.mjs', 'verif-tpm-lib.mjs']);
 /** Tests lancés en premier : ils valident l'outillage puis le moteur, dont tous les autres dépendent. */
 const FIRST = ['smoke', 'boot'];
 

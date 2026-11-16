@@ -29,28 +29,33 @@ import { createSystems as simRoles } from '@/sim/roles';             // archéty
 import { createSystems as simPeople } from '@/sim/people';           // locomotion, santé, interactions, joueur
 import { createSystems as simVehicles } from '@/sim/vehicles';       // physique des véhicules, tourelles
 import { createSystems as simTraffic } from '@/sim/traffic';         // circulation, piétons civils, fermeture de rues
-import { createSystems as simCrowd } from '@/sim/crowd';             // manifestants, cortège, tension, métro
+import { createSystems as simCrowd } from '@/sim/crowd';             // manifestants, cortège, tension, métro, groupes radicaux
+import { createSystems as simPolice } from '@/sim/police';           // IA des unités, formations, ordres, commandement
 import { createSystems as simItems } from '@/sim/items';             // objets, projectiles
 import { createSystems as simProps } from '@/sim/props';             // mobilier, vitrines, barricades
 import { createSystems as simHazards } from '@/sim/hazards';         // gaz, fumée, feu, eau
 import { createSystems as law } from '@/gameplay/law';               // sommations, emploi de la force
 import { createSystems as radio } from '@/gameplay/radio';           // messages radio
+import { createSystems as incidents } from '@/gameplay/incidents';   // incidents à traiter ou à déléguer
+import { createSystems as rescue } from '@/sim/roles/rescue';        // pompiers et SAMU sur appel
+import { createSystems as medics } from '@/sim/roles/medics';        // médecins de rue
 import { createSystems as session, installLoadingGate } from '@/gameplay/session'; // mise en place de la session
 import { createSystems as renderBase } from '@/render/base';         // renderer, ciel, caméra (fournit ctx.view)
 import { createSystems as worldView } from '@/world/view';           // maillages de la ville
 import { createSystems as monuments } from '@/world/monuments';      // monuments
 import { createSystems as renderPeople } from '@/render/people';     // personnages
 import { createSystems as renderVehicles } from '@/render/vehicles'; // véhicules
+import { createSystems as renderProps } from '@/render/props';       // mobilier urbain, vitrines, barricades
 import { createSystems as renderFx } from '@/render/fx';             // gaz, fumée, feu, eau, projectiles, décalques
 import { createSystems as ui } from '@/ui';                          // accueil, HUD, cartes, commandement
 import { createSystems as audio } from '@/audio';                    // sons, ambiances, voix
+import type * as THREE from 'three';
+import { RENDER_CLEAR_AIR_SERVICE } from '@/render/base';
+import type { RenderClearAirApi } from '@/render/base';
 import type { Map2dService } from '@/ui/maps/api';
 import type { Map2dApi } from '@/world/view/api';
 
-// ── modules encore en cours d'écriture au moment de l'assemblage (à brancher quand ils seront livrés) ──
-//   import { createSystems as simPolice } from '@/sim/police';           // IA des unités, formations, ordres
-//   import { createSystems as renderProps } from '@/render/props';       // mobilier urbain, vitrines, barricades
-//   import { createSystems as incidents } from '@/gameplay/incidents';   // incidents à traiter
+// ── modules qui n'existent pas encore (à brancher quand ils seront livrés) ──
 //   import { createSystems as missions } from '@/gameplay/missions';     // cadre de mission (remplacera gameplay/session)
 //   import { createSystems as career } from '@/gameplay/career';         // carrière, mode libre
 //   import { createSystems as media } from '@/gameplay/media';           // journalistes, image publique
@@ -70,20 +75,33 @@ import type { Map2dApi } from '@/world/view/api';
  * l'échelle de la densité d'écran, de sorte que la taille des noms reste bornée (9 à 13 px) quel que soit l'écran.
  */
 function map2dAdapter(): GameSystem[] {
+  let native: Map2dApi | undefined;
+  let revision = 1;
+  /** Délai (s) avant le prochain changement de révision ; négatif : rien en attente. */
+  let pending = -1;
+  /**
+   * Le fond a changé (tuile arrivée ou partie) ou reste à compléter : on attend que les événements se calment, puis
+   * la révision change UNE fois. Sans cette attente, chaque tuile chargée faisait redessiner tout le fond de la
+   * mini-carte, plusieurs fois de suite (images de 0,4 à 1 s relevées par la recette à chaque changement de tuiles).
+   */
+  const touch = (delay: number): void => {
+    if (pending < 0 || delay < pending) pending = delay;
+  };
   return [{
     id: 'main.map2d',
     // provide() juste après celui de la ville (ordre WORLD_VIEW), avant ceux de l'interface
     order: SystemOrder.WORLD_VIEW + 1,
     provide(ctx: GameContext): void {
-      const native = ctx.service<Map2dApi>('world.map2d');
-      if (!native || typeof native.draw !== 'function' || ctx.headless) return;
-      let revision = 1;
-      const bump = (): void => {
-        revision++;
-      };
-      ctx.events.on('world:tile_loaded', bump);
-      ctx.events.on('world:tile_unloaded', bump);
-      ctx.events.onAny('world:source', bump);
+      native = ctx.service<Map2dApi>('world.map2d');
+      if (!native || typeof native.draw !== 'function' || ctx.headless) {
+        native = undefined;
+        return;
+      }
+      const source = native;
+      const changed = (): void => touch(0.35);
+      ctx.events.on('world:tile_loaded', changed);
+      ctx.events.on('world:tile_unloaded', changed);
+      ctx.events.onAny('world:source', changed);
       const adapted: Map2dService = {
         draw(g, centerX, centerZ, metersPerPixel, rotation, options) {
           const pr = options && options.pixelRatio && options.pixelRatio > 0 ? options.pixelRatio : 1;
@@ -92,9 +110,12 @@ function map2dAdapter(): GameSystem[] {
           g.save();
           g.scale(pr, pr);
           try {
-            native.draw(g, centerX, centerZ, metersPerPixel * pr, rotation + Math.PI, {
-              width, height, names: options?.labels !== false, landmarks: true, complete: true,
+            // Les tracés des tuiles sont construits par tranches (trois tuiles par dessin) : un fond incomplet est
+            // redessiné aux images suivantes, au lieu de tout construire dans une seule image très longue.
+            source.draw(g, centerX, centerZ, metersPerPixel * pr, rotation + Math.PI, {
+              width, height, names: options?.labels !== false, landmarks: true, complete: false,
             });
+            if (source.incomplete === true) touch(0.08);
           } finally {
             g.restore();
           }
@@ -106,15 +127,62 @@ function map2dAdapter(): GameSystem[] {
       ctx.provide('world.map2d.native', native);
       ctx.provide<Map2dService>('world.map2d', adapted);
     },
+    frame(dt: number): void {
+      if (pending < 0) return;
+      pending -= dt;
+      if (pending > 0) return;
+      pending = -1;
+      revision++;
+    },
+  }];
+}
+
+/**
+ * Air clair des monuments : le brouillard de scène est calé sur la distance d'affichage de la ville (220 m en qualité
+ * basse) ; appliqué aux monuments, il délavait l'Arc de Triomphe à 120 m et effaçait la tour Eiffel à 750 m. Le rendu
+ * de base publie un voile d'« air clair » (visibilité de 5 km par beau temps, réduite par la météo) ; cet adaptateur
+ * lui confie le groupe « monuments » de la scène, que le module des monuments remplit et vide au fil du trajet — d'où
+ * le passage en revue périodique (les maillages déjà équipés sont ignorés).
+ */
+function monumentsClearAir(): GameSystem[] {
+  let ctx: GameContext | null = null;
+  let air: RenderClearAirApi | undefined;
+  let root: THREE.Object3D | null = null;
+  let timer = 0;
+  return [{
+    id: 'main.monuments.air',
+    // après le système des monuments (ordre VIEW, ajouté avant) et avant le rendu de l'image (VIEW + 90)
+    order: SystemOrder.VIEW + 5,
+    init(c: GameContext): void {
+      ctx = c;
+      air = c.service<RenderClearAirApi>(RENDER_CLEAR_AIR_SERVICE);
+    },
+    frame(dt: number): void {
+      if (!ctx || !air || !ctx.view) return;
+      // le groupe des monuments est cherché de temps en temps ; une fois trouvé, il est revu à chaque image
+      // (un monument qui vient d'être construit ne doit pas apparaître une fraction de seconde dans la brume)
+      if (!root || root.parent === null) {
+        timer -= dt;
+        if (timer > 0) return;
+        timer = 0.25;
+        root = ctx.view.world.getObjectByName('monuments') ?? null;
+      }
+      if (root) air.exempt(root);
+    },
+    reset(): void {
+      timer = 0;
+    },
   }];
 }
 
 const MODULES: ModuleFactory[] = [
   // simulation
   // (la circulation après les véhicules : elle attend leur pilote automatique)
-  input, env, worldQuery, simRoles, simPeople, simVehicles, simTraffic, simCrowd, simItems, simProps, simHazards, law, radio, session,
+  // (la police après la foule : à ordre égal, les manifestants décident avant les unités qui leur répondent)
+  input, env, worldQuery, simRoles, simPeople, simVehicles, simTraffic, simCrowd, simPolice, simItems, simProps, simHazards,
+  law, radio, incidents, rescue, medics, session,
   // présentation — le rendu de base d'abord
-  renderBase, worldView, map2dAdapter, monuments, renderPeople, renderVehicles, renderFx, ui, audio,
+  renderBase, worldView, map2dAdapter, monuments, monumentsClearAir, renderPeople, renderVehicles, renderProps, renderFx, ui, audio,
 ];
 
 // ───────────────────────────── démarrage ─────────────────────────────

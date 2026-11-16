@@ -74,6 +74,7 @@ export class UiSystem implements GameSystem {
   private readonly offs: Unsubscribe[] = [];
   private pendingExtra: { extra: ScenarioExtra; x: number; z: number } | null = null;
   private noMenu = false;
+  private storageWarned = false;
 
   provide(ctx: GameContext): void {
     this.ctx = ctx;
@@ -264,6 +265,11 @@ export class UiSystem implements GameSystem {
     screens.update(dt, input);
     this.applyScenarioExtra();
     this.hud.update(dt);
+    // En jeu, un écran bloquant (pause, plan, carte tactique, roue d'ordres) passe DEVANT les notifications déjà
+    // affichées : une « Faute » relevée juste avant ne recouvre ni le menu de pause ni l'en-tête de la carte.
+    this.notices.setCovered(screens.modal && (phase === 'playing' || phase === 'paused'));
+    // en pause, les sous-titres radio encore affichés ne passent pas sur le menu
+    this.notices.setPaused(phase === 'paused');
     this.notices.update(dt);
   }
 
@@ -340,6 +346,7 @@ export class UiSystem implements GameSystem {
       case 'menu':
         screens.closeAll();
         if (!this.noMenu) screens.open('menu_principal');
+        this.warnStorage();
         break;
       case 'loading':
         screens.closeAll();
@@ -363,6 +370,18 @@ export class UiSystem implements GameSystem {
     }
     screens.syncPause();
     this.updateHudVisibility();
+  }
+
+  /**
+   * Stockage du navigateur indisponible (navigation privée stricte, iframe sans accès, quota) : le jeu fonctionne,
+   * mais rien ne sera conservé. On le dit une fois, à l'arrivée sur la page d'accueil.
+   */
+  private warnStorage(): void {
+    if (this.storageWarned) return;
+    const save = this.ctx.save as { persistent?: boolean };
+    if (save.persistent !== false) return;
+    this.storageWarned = true;
+    this.notices.notify('Stockage du navigateur indisponible : réglages, scénarios et progression ne seront pas conservés après la fermeture de la page (l’export reste possible dans les paramètres).', 'warn', 14);
   }
 
   private togglePause(): void {
@@ -393,6 +412,21 @@ export class UiSystem implements GameSystem {
     if (key === 'orders' || key === 'radio') {
       if (!screens.modal && !screens.isOpen(id)) screens.open(id);
       return;
+    }
+    // Manette : un seul bouton pour les deux cartes (aucun autre n'est libre sur la manette). Premier appui : le
+    // plan ; deuxième appui : la carte tactique ; troisième : retour au jeu.
+    if (key === 'map' && this.ctx.input.device === 'gamepad') {
+      let tactical: ScreenId | null = null;
+      for (const candidate of HOTKEY_SCREENS.tactical) if (!tactical && screens.has(candidate)) tactical = candidate;
+      if (tactical && screens.isOpen(tactical)) {
+        screens.close(tactical);
+        return;
+      }
+      if (tactical && screens.isOpen(id)) {
+        screens.close(id);
+        screens.open(tactical);
+        return;
+      }
     }
     if (screens.isOpen(id)) {
       screens.close(id);

@@ -23,7 +23,7 @@ import { buildFoule, buildMoyens, buildOptions, buildScenarios, buildTension } f
 import { buildLieu, buildMeteo, buildMode, buildRole } from './home-panes-a';
 import {
   buildSessionConfig, compositionShares, defaultDraft, draftFromConfig, identityLabel, meansSummary, sanitizeDraft, suggestName,
-  summarize, surpriseDraft, tensionLabel, volatilityLabel, windLabel,
+  summarize, surpriseDraft, tensionLabel, volatilityLabelMasc, windLabel,
 } from './scenario';
 import type { ScenarioDraft } from './scenario';
 import { ScenarioStore } from './scenarios-store';
@@ -310,7 +310,7 @@ export function createHome(env: UiEnv): (host: HTMLElement, data: unknown) => Sc
       }
       const duration = DURATIONS.find((x) => x.id === d.duration)!;
       rowMood.strong.set(`Tension ${tensionLabel(d.tension)}`);
-      rowMood.rest.set(` · débordement ${volatilityLabel(d.volatility)} · ${duration.long}`);
+      rowMood.rest.set(` · risque de débordement ${volatilityLabelMasc(d.volatility)} · ${duration.long}`);
       rowMeans.strong.set('Moyens');
       rowMeans.rest.set(' · ' + meansSummary(d.moyens));
       rowOptions.strong.set(d.options.sanctions ? 'Sanctions actives' : 'Sans sanctions');

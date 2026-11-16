@@ -159,6 +159,23 @@ export class PlaceIndex {
         best = p;
       }
     }
+    // Libellé composé (« Champs-Élysées – Étoile », « Concorde, côté Seine ») : aucun lieu ne porte le tout ;
+    // on retient la partie qui désigne le lieu le plus marquant (une place avant une avenue).
+    if (best === null) {
+      const parts = name.split(/\s+[–—-]\s+|[,;(/)]+/);
+      if (parts.length > 1) {
+        for (const part of parts) {
+          if (normalizeName(part) === '' || normalizeName(part) === query) continue;
+          const found = this.byName(part);
+          if (found === null) continue;
+          const score = this.importance[found.id] * 15 + (KIND_BONUS[found.kind] ?? 0);
+          if (score > bestScore) {
+            bestScore = score;
+            best = found;
+          }
+        }
+      }
+    }
     if (this.cache.size > 500) this.cache.clear();
     this.cache.set(query, best);
     return best;

@@ -139,6 +139,9 @@ export class SeatSystem {
     const wreck = v.state === 'wrecked';
     if (v.faction === 'police' && p.faction !== 'police') return wreck; // épave ouverte seulement
     if (v.faction === 'rescue' && p.faction !== 'rescue' && p.faction !== 'police') return wreck;
+    // véhicule du cortège (camion sono) : ses occupants sont des manifestants — on ne propose pas à un policier, à un
+    // secouriste ou à un passant d'y « monter (passager) »
+    if (v.faction === 'protest' && p.faction !== 'protest') return wreck;
     if (v.locked && !wreck) return p.faction === v.faction && (v.faction === 'police' || v.faction === 'rescue');
     return true;
   }
@@ -149,7 +152,30 @@ export class SeatSystem {
     const rt = this.k.rt(v);
     if (rt.driverSeat < 0) return false;
     const occupant = v.seats[rt.driverSeat]!;
-    return occupant === 0 || occupant === p.id;
+    return occupant === 0 || occupant === p.id || this.yields(p, v, occupant);
+  }
+
+  /**
+   * Le conducteur IA cède-t-il le volant à cette personne ? Oui au JOUEUR de son camp, véhicule à l'arrêt : dans une
+   * unité dont chaque véhicule a son conducteur, le joueur doit pouvoir prendre le volant (on se rend sur les lieux en
+   * conduisant). Le conducteur passe alors sur une place passager, ou descend s'il n'y en a pas.
+   */
+  private yields(p: Person, v: Vehicle, occupantId: EntityId): boolean {
+    if (!p.isPlayer || occupantId === 0 || Math.abs(v.speed) > 0.5) return false;
+    const o = this.k.ctx.people.get(occupantId);
+    return !!o && !o.isPlayer && o.faction === p.faction && o.custody === 'free';
+  }
+
+  /** Libère le siège `seat` pour `actor` quand son occupant le lui cède (voir yields). */
+  private makeRoom(actor: Person, v: Vehicle, seat: number): void {
+    const id = v.seats[seat]!;
+    if (id === 0 || id === actor.id || !this.yields(actor, v, id)) return;
+    const o = this.k.ctx.people.get(id);
+    if (!o) return;
+    for (let i = 0; i < v.seats.length; i++) {
+      if (v.seats[i] === 0 && v.def.seats[i]!.role === 'passenger' && this.enter(o, v, i)) return;
+    }
+    this.exit(o);
   }
 
   /** Rôle que la personne cherche d'abord, d'après son poste. */
@@ -429,6 +455,8 @@ export class SeatSystem {
       let seat = this.pending.get(actor.id);
       this.pending.delete(actor.id);
       if (!v) return;
+      // volant tenu par un collègue IA : il le cède au joueur
+      if (seat !== undefined && seat === k.rt(v).driverSeat) this.makeRoom(actor, v, seat);
       if (seat === undefined || (v.seats[seat] !== 0 && v.seats[seat] !== actor.id)) seat = this.chooseSeat(actor, v);
       if (seat >= 0) this.enter(actor, v, seat);
     };
@@ -481,7 +509,8 @@ export class SeatSystem {
             const v = k.store.get(actor.vehicleId);
             if (!v || (targetId !== undefined && targetId !== 0 && targetId !== v.id)) return null;
             const rt = k.rt(v);
-            if (rt.driverSeat < 0 || actor.seat === rt.driverSeat || v.seats[rt.driverSeat] !== 0) return null;
+            if (rt.driverSeat < 0 || actor.seat === rt.driverSeat) return null;
+            if (v.seats[rt.driverSeat] !== 0 && !this.yields(actor, v, v.seats[rt.driverSeat]!)) return null;
             if (Math.abs(v.speed) > 0.5 || !this.canDrive(actor, v)) return null;
             conduire.targetId = v.id;
             conduire.label = `Prendre le volant — ${v.def.name}`;

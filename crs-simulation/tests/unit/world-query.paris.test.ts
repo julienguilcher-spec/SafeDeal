@@ -99,6 +99,11 @@ describe.skipIf(!available)('monde : vraies données de Paris', () => {
     expect(w.placeByName('RÉPUBLIQUE')?.name).toBe('Place de la République');
     expect(w.placeByName('tour eiffel')?.name).toBe('Tour Eiffel');
     expect(w.placeByName('tuileries')?.name).toBe('Jardin des Tuileries');
+    // libellés composés de la page d'accueil, passés tels quels dans l'URL (« &place=Champs-Élysées – Étoile »
+    // démarrait place de la Concorde sans rien dire) : la partie qui désigne le lieu le plus marquant l'emporte
+    expect(w.placeByName('Champs-Élysées – Étoile')?.name).toBe('Place Charles de Gaulle');
+    expect(w.placeByName('Concorde, côté Seine')?.name).toBe('Place de la Concorde');
+    expect(w.placeByName('lieu qui n’existe pas – ni celui-ci')).toBeNull();
     expect(w.sectorName(0, 0)).toBe('place de la Concorde');
     expect(w.sectorName(-127, 250)).toBe('pont de la Concorde');
     // Sur les Champs-Élysées : l'avenue, pas la galerie marchande ou la contre-allée qui la longe.

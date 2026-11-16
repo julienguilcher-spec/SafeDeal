@@ -2,10 +2,14 @@
  * Module « mise en place de session » (src/gameplay/session) — cadre de mission provisoire.
  *
  * Branchement : `import { createSystems as session } from '@/gameplay/session'` puis l'ajouter aux modules.
- * Un système de simulation pure, id 'session.setup', ordre SystemOrder.RULES − 100 : sur 'session:started'
- * il crée le joueur à son poste, son unité immobile en ligne, les véhicules stationnés et quelques
- * passants, incarne le joueur, puis applique vent / circulation / métro du scénario.
- * Service : ctx.service<SessionSetupApi>('session.setup'). Événements libres : 'ui:loading', 'session:setup'.
+ * Deux systèmes de simulation pure :
+ *   - 'session.setup' (ordre SystemOrder.RULES − 100) : sur 'session:started' il choisit l'emplacement des forces
+ *     (à l'écart de la manifestation quand il y en a une), fait construire la compagnie et les « moyens engagés » par
+ *     le module de police quand il est branché (sinon crée le joueur et son unité directement), gare les véhicules
+ *     nez vers la sortie, incarne le joueur, puis applique vent / circulation / métro du scénario.
+ *     Service : ctx.service<SessionSetupApi>('session.setup'). Événements libres : 'ui:loading', 'session:setup'.
+ *   - 'session.timewarp' (ordre INPUT + 10) : avance rapide ×4 par le bouton « fast_forward ».
+ *     Service : ctx.service<TimeWarpApi>('session.timewarp').
  *
  * Côté navigateur, `installLoadingGate(ctx)` (loading.ts) tient l'écran de chargement jusqu'à ce que la
  * ville et les monuments proches soient construits autour du joueur ; la racine de composition l'appelle.
@@ -13,17 +17,21 @@
 
 import type { ModuleFactory } from '@/core/contracts';
 import { SessionSetupSystem } from './setup';
+import { TimeWarpSystem } from './timewarp';
 
-export const createSystems: ModuleFactory = () => [new SessionSetupSystem()];
+/** Deux systèmes : la mise en place ('session.setup') et l'avance rapide ('session.timewarp', touche « . »). */
+export const createSystems: ModuleFactory = () => [new SessionSetupSystem(), new TimeWarpSystem()];
 
 export { SessionSetupSystem } from './setup';
+export { FAST_FORWARD_SCALE, TIME_WARP_SERVICE, TimeWarpSystem } from './timewarp';
+export type { TimeWarpApi } from './timewarp';
 export { installLoadingGate } from './loading';
 export type { LoadingGateOptions } from './loading';
-export { castFor, isPoliceRole, rankOf } from './roster';
-export type { Cast, CastSlot, CastSquad } from './roster';
-export { chooseStand, parkingSpot, settle } from './placement';
+export { castFor, isPoliceRole, meansOf, rankOf } from './roster';
+export type { Cast, CastSlot, CastSquad, RequestedMeans } from './roster';
+export { chooseStand, chooseStandOffCrowd, distanceToRoute, parkingRoom, parkingSpot, settle, supportSpot } from './placement';
 export type { Stand } from './placement';
 export {
   SCENARIO_AREA_RADIUS, SESSION_SETUP_EVENT, SESSION_SETUP_SERVICE, SESSION_SETUP_SYSTEM_ID, UI_LOADING_EVENT,
 } from './api';
-export type { LoadingProgress, SessionSetupApi, SessionSetupSummary } from './api';
+export type { EngagedMeans, LoadingProgress, SessionSetupApi, SessionSetupSummary } from './api';

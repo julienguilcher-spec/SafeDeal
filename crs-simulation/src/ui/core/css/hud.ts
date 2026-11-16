@@ -287,9 +287,14 @@ export const CSS_HUD = `
 .ui-toast--warn { border-left-color: var(--ui-yellow); } .ui-toast--warn .ui-ic { color: var(--ui-yellow); }
 .ui-toast--alert { border-left-color: var(--ui-red); } .ui-toast--alert .ui-ic { color: #ff8177; }
 .ui-toast.is-out { opacity: 0; transform: translateY(-6px); }
+/* notification antérieure à l'écran bloquant ouvert par-dessus le jeu : masquée tant qu'il est ouvert */
+.ui-toast.is-covered { display: none; }
+/* un texte long (motif d'une faute) est borné à quatre lignes ; le détail complet est dans le compte rendu */
+.ui-toast__text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; }
 .ui-toast__count { font-size: 12px; font-weight: 800; color: var(--ui-text-dim); }
 .ui-subs { position: absolute; left: calc(50% + var(--ui-sub-shift, 0px)); bottom: calc(var(--ui-sub-bottom, 28px) + var(--ui-safe-b)); transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 4px;
   width: max-content; max-width: var(--ui-sub-max, min(720px, 74vw)); pointer-events: none; }
+.ui-subs.is-paused { display: none; }
 .ui-sub-line { padding: 5px 12px; border-radius: 6px; background: rgba(4, 8, 16, .78); font-size: 15.5px; font-weight: 500; line-height: 1.35; text-align: center; text-shadow: 0 1px 2px #000; animation: ui-fade .15s ease-out; }
 .ui-sub-line__who { font-size: 11.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--ui-yellow); margin-right: 9px; }
 .ui-banner { position: absolute; left: 50%; top: 19%; transform: translateX(-50%); display: grid; justify-items: center; gap: 7px; text-align: center; padding: 12px 34px 14px;
@@ -304,7 +309,35 @@ export const CSS_HUD = `
   .ui-banner__title { font-size: 19px; }
   .ui-banner__sub { font-size: 13px; }
   .ui-toast { font-size: 12.5px; padding: 5px 12px 5px 8px; }
-  /* écran bas : une seule notification visible, la plus récente */
+}
+@media (max-height: 600px) {
+  /* écran bas (téléphone, petite fenêtre) : une seule notification visible, la plus récente, sur trois lignes */
   .ui-toast:nth-last-child(n+2) { display: none; }
+  .ui-toast__text { -webkit-line-clamp: 3; }
+}
+@media (max-height: 420px) {
+  /* téléphone en paysage : deux lignes, pour ne pas couvrir l'en-tête de la carte tactique ni le haut du jeu */
+  .ui-toast__text { -webkit-line-clamp: 2; }
+}
+/* ── fenêtre d'ordinateur étroite (souris ou manette, pas de surcouche tactile) ──
+   La barre d'objets rétrécit au lieu de passer sur la jauge de santé ; sous 760 px, la jauge, la boussole et le
+   panneau de situation se resserrent aussi. */
+@media (max-width: 1100px) {
+  .ui-hud[data-touch="none"] .hud-item { width: 40px; height: 40px; }
+  .ui-hud[data-touch="none"] .hud-item svg { width: 21px; height: 21px; }
+  .ui-hud[data-touch="none"] .hud-items__row { gap: 4px; }
+}
+@media (max-width: 760px) {
+  .ui-hud[data-touch="none"] .hud-item { width: 30px; height: 30px; }
+  .ui-hud[data-touch="none"] .hud-item svg { width: 16px; height: 16px; }
+  .ui-hud[data-touch="none"] .hud-items__row { gap: 3px; }
+  .ui-hud[data-touch="none"] .hud-items__name { font-size: 11.5px; }
+  .ui-hud[data-touch="none"] .hud-slot--bottom { max-width: 96%; }
+  /* la jauge de santé se resserre et reste à gauche de la barre d'objets (294 px au centre) */
+  .ui-hud[data-touch="none"] .hud-status { width: 150px; padding: 4px 7px; }
+  .ui-hud[data-touch="none"] .hud-slot--top { max-width: 34%; }
+  .ui-hud[data-touch="none"] .hud-compass { --cw: 176px; }
+  .ui-hud[data-touch="none"] .hud-sit { max-width: 190px; }
+  .ui-hud[data-touch="none"] .hud-remind { max-width: 184px; }
 }
 `;

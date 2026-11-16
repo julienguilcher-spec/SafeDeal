@@ -49,7 +49,9 @@ describe('intégration : mise en place de session', () => {
     expect(me.id).toBe(s.playerId);
     expect(me.isPlayer).toBe(true);
     expect(ctx.player.state.role).toBe('crs');
-    expect(ctx.player.state.cameraMode).toBe('fps');
+    // lanceur = second rang, trois boucliers à deux mètres devant lui : la vue de départ est à la troisième personne
+    // (à hauteur d'homme, les dos des collègues bouchaient l'image — défaut de la recette du premier jeu assemblé)
+    expect(ctx.player.state.cameraMode).toBe('tps');
     expect(me.kind).toBe('crs');
     expect(me.poste).toBe('lanceur');
     expect(me.rank).toBe('gardien');
@@ -123,6 +125,59 @@ describe('intégration : mise en place de session', () => {
     console.log(`gaz au point de chute : ${gas.toFixed(2)} ; journal de la force : ${ctx.law.forceLog.length} entrée(s)`);
     expect(gas).toBeGreaterThan(0.02);
     expect(ctx.law.forceLog.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('vue de départ : à hauteur d’homme au premier rang, troisième personne au second ; le scénario peut l’imposer', async () => {
+    const t = createTestContext({ seed: 11, modules: SIM });
+    const start = (extra: Record<string, unknown>) => t.start({ mode: 'libre', role: 'crs', rank: 'gardien', x: -3.3, z: 11.8, extra });
+    await start({ poste: 'bouclier' });
+    expect(t.ctx.player.state.cameraMode).toBe('fps');
+    await start({ poste: 'lanceur' });
+    expect(t.ctx.player.state.cameraMode).toBe('tps');
+    // personne à moins de 3 m dans l'axe du regard du porte-bouclier ; au moins un collègue devant le lanceur
+    const me = t.ctx.player.person()!;
+    const s = setupOf(t.ctx).summary!;
+    const ahead = t.ctx.people.list.filter((p) => p !== me && (p.x - me.x) * Math.sin(s.heading) + (p.z - me.z) * Math.cos(s.heading) > 0.4
+      && Math.hypot(p.x - me.x, p.z - me.z) < 3.2);
+    expect(ahead.length).toBeGreaterThan(0);
+    await start({ poste: 'lanceur', camera: 'fps' });
+    expect(t.ctx.player.state.cameraMode).toBe('fps');
+    await start({ poste: 'bouclier', camera: 'tps' });
+    expect(t.ctx.player.state.cameraMode).toBe('tps');
+  });
+
+  it('avance rapide : le bouton bascule la vitesse de la simulation (×4), sans effet écran ouvert ; retour à ×1 en fin de session', async () => {
+    const t = createTestContext({ seed: 3, modules: [input, ...SIM] });
+    await t.start({ mode: 'test', role: 'crs', x: 0, z: 0 });
+    const { ctx } = t;
+    const script = ctx.require<InputScriptApi>('input.script');
+    const warp = ctx.require<{ fast: boolean; set(fast: boolean): void }>('session.timewarp');
+    expect(ctx.clock.timeScale).toBe(1);
+    // appui tenu pendant plusieurs pas : UNE bascule
+    script.press('fast_forward');
+    t.step(0.3);
+    expect(ctx.clock.timeScale).toBe(4);
+    expect(warp.fast).toBe(true);
+    script.release('fast_forward');
+    t.step(0.3);
+    expect(ctx.clock.timeScale).toBe(4);
+    // le temps simulé avance quatre fois plus vite que le temps réel donné à la boucle
+    const t0 = ctx.clock.now;
+    t.game.frame(0.05);
+    expect(ctx.clock.now - t0).toBeCloseTo(0.2, 5);
+    // second appui : retour à la vitesse normale
+    script.press('fast_forward');
+    t.step(0.2);
+    script.release('fast_forward');
+    t.step(0.2);
+    expect(ctx.clock.timeScale).toBe(1);
+    expect(warp.fast).toBe(false);
+    // fin de session : la vitesse normale est rétablie
+    warp.set(true);
+    expect(ctx.clock.timeScale).toBe(4);
+    ctx.session.end(false);
+    expect(ctx.clock.timeScale).toBe(1);
+    expect(warp.fast).toBe(false);
   });
 
   it('chaque rôle jouable obtient un personnage cohérent, sans erreur ni personne dans un mur', async () => {
@@ -274,8 +329,9 @@ describe('intégration : mise en place de session', () => {
     const walked = Math.hypot(me.x - x0, me.z - z0);
     const along = (me.x - x0) * Math.sin(s.heading) + (me.z - z0) * Math.cos(s.heading);
     console.log(`marche : ${walked.toFixed(1)} m en 4 s, dont ${along.toFixed(1)} m dans l'axe du regard`);
-    expect(walked).toBeGreaterThan(3.5);
-    expect(walked).toBeLessThan(14);
+    // au clavier, la touche d'avance fait marcher (≈ 1,3 m/s) : la petite foulée se demande par une bascule
+    expect(walked).toBeGreaterThan(2);
+    expect(walked).toBeLessThan(8);
     expect(along).toBeGreaterThan(walked * 0.9);
 
     // gaz : une nappe au-dessus du joueur → exposition, sans masque

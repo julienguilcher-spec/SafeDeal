@@ -11,7 +11,8 @@ const quality = args.quality ?? 'bas';
 const [W, H] = (args.size ?? '1280x720').split('x').map(Number);
 const R = { tag, place, quality, mem: [] };
 const server = await startServer();
-const url = `${server.url}?autostart=paris&role=crs&poste=lanceur&place=${encodeURIComponent(place)}&time=${args.time ?? 12}&weather=${args.weather ?? 'clair'}&quality=${quality}&seed=5&camera=fps`;
+const where = args.x !== undefined ? `x=${args.x}&z=${args.z}` : `place=${encodeURIComponent(place)}`;
+const url = `${server.url}?autostart=paris&role=crs&poste=lanceur&${where}&time=${args.time ?? 12}&weather=${args.weather ?? 'clair'}&quality=${quality}&seed=5&camera=fps`;
 const { browser, page, errors } = await openPage(url, { width: W, height: H });
 const key = page.keyboard;
 const ev = (fn, arg) => page.evaluate(fn, arg);
@@ -53,7 +54,7 @@ try {
   await key.press('KeyV'); await step(page, 0.3);
   save();
   // monument le plus proche : on s'en approche à 60 m (ou on reste si plus près) et on le regarde
-  const lm = R.setup.landmarks[0];
+  const lm = args.lm ? (await ev((k) => { const c = window.__CRS.ctx; const p = c.player.person(); const l = c.world.landmarks.find((q) => q.key === k); return l ? { key: l.key, x: l.x, z: l.z, heading: l.heading, h: l.height, d: Math.round(Math.hypot(l.x - p.x, l.z - p.z)) } : null; }, args.lm)) : R.setup.landmarks[0];
   if (lm) {
     const d = Math.max(30, Math.min(70, lm.h * 1.6));
     // point de vue dans l'axe du joueur vers le monument

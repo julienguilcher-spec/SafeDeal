@@ -27,8 +27,17 @@ const COMPACT_REACH = 35;
 const MAX_FROM_PLACE = 110;
 /** Demi-largeur de front à garder libre (m) et recul du second rang. */
 const FRONT_HALF = 4;
-export const RANK_DEPTH = 1.6;
+/** Recul du second rang : deux mètres, comme dans les formations du module de police (on voit entre les casques). */
+export const RANK_DEPTH = 2;
 export const FILE_SPACING = 0.95;
+
+/** Distances d'essai au lieu de rassemblement quand une manifestation s'y tient (m). */
+const CROWD_RINGS: readonly number[] = [95, 105, 85, 115, 125];
+const CROWD_DIRECTIONS = 24;
+/** Aucun manifestant à moins de cette distance de l'emplacement des forces (m). */
+const CROWD_CLEAR = 30;
+/** Distance minimale au parcours déclaré du cortège (m) : on ne se met pas en travers. */
+const ROUTE_CLEAR = 40;
 
 const WALKABLE: Readonly<Record<SurfaceKind, number>> = {
   // préférence de sol pour se mettre en place : esplanade et pavés d'abord, jamais l'eau ni le bâti
@@ -137,6 +146,98 @@ export function chooseStand(ctx: GameContext, x: number, z: number, rand: () => 
   return { x: sx, z: sz, heading: wrap(heading), facing: lm ? lm.key : '' };
 }
 
+/** Distance d'un point à une polyligne [x0, z0, x1, z1, …] (Infinity si elle est vide). */
+export function distanceToRoute(route: ArrayLike<number>, x: number, z: number): number {
+  let best = Infinity;
+  for (let i = 0; i + 3 < route.length; i += 2) {
+    const ax = route[i]!;
+    const az = route[i + 1]!;
+    const dx = route[i + 2]! - ax;
+    const dz = route[i + 3]! - az;
+    const len2 = dx * dx + dz * dz;
+    let t = len2 > 1e-6 ? ((x - ax) * dx + (z - az) * dz) / len2 : 0;
+    if (t < 0) t = 0;
+    else if (t > 1) t = 1;
+    const d = Math.hypot(x - (ax + dx * t), z - (az + dz * t));
+    if (d < best) best = d;
+  }
+  if (route.length === 2) best = Math.hypot(x - route[0]!, z - route[1]!);
+  return best;
+}
+
+/**
+ * Nombre de véhicules que le module de police pourra ranger derrière un emplacement (0 à 14). Il les pose l'un après
+ * l'autre sur deux files à 1,8 m de l'axe, un rang tous les 7,6 m à partir de 24 m ; un emplacement pris (arbre, mur,
+ * mobilier) l'arrête : les véhicules suivants ne sont pas créés. On compte donc les places libres CONSÉCUTIVES depuis
+ * la première — c'est ce nombre qui dit si l'unité aura ses fourgons.
+ */
+export function parkingRoom(ctx: GameContext, x: number, z: number, heading: number): number {
+  const world = ctx.world;
+  const fx = Math.sin(heading);
+  const fz = Math.cos(heading);
+  let n = 0;
+  for (; n < 14; n++) {
+    const file = n & 1 ? 1 : -1;
+    const back = 24 + (n >> 1) * 7.6;
+    const px = x - fx * back - fz * file * 1.8;
+    const pz = z - fz * back + fx * file * 1.8;
+    if (!(world.isFree(px, pz, 1.3) && world.isFree(px + fx * 2.4, pz + fz * 2.4, 1.2) && world.isFree(px - fx * 2.4, pz - fz * 2.4, 1.2))) break;
+  }
+  return n;
+}
+
+/**
+ * Emplacement des forces de l'ordre quand une manifestation se tient au lieu (x, z) : HORS du rassemblement et du
+ * couloir du parcours déclaré, à une centaine de mètres, face au lieu, sur un sol dégagé, sans manifestant
+ * alentour, de préférence avec vue sur le rassemblement et de la place derrière soi pour les véhicules.
+ * `route` = parcours du cortège [x0, z0, …] (vide : rassemblement statique). Retourne null si rien ne convient
+ * (l'appelant se rabat sur chooseStand).
+ */
+export function chooseStandOffCrowd(
+  ctx: GameContext, x: number, z: number, route: ArrayLike<number>, isProtester: (p: { faction: string }) => boolean,
+): Stand | null {
+  const world = ctx.world;
+  let best: Stand | null = null;
+  let bestScore = -Infinity;
+  // deux passes : exigences complètes, puis distances réduites pour les lieux très bâtis
+  for (let pass = 0; pass < 2 && !best; pass++) {
+    const routeClear = pass === 0 ? ROUTE_CLEAR : ROUTE_CLEAR * 0.55;
+    const crowdClear = pass === 0 ? CROWD_CLEAR : CROWD_CLEAR * 0.6;
+    for (let r = 0; r < CROWD_RINGS.length; r++) {
+      const ring = pass === 0 ? CROWD_RINGS[r]! : CROWD_RINGS[r]! * 0.72;
+      for (let k = 0; k < CROWD_DIRECTIONS; k++) {
+        const a = (k / CROWD_DIRECTIONS) * Math.PI * 2;
+        const cx = x + Math.sin(a) * ring;
+        const cz = z + Math.cos(a) * ring;
+        const ground = WALKABLE[world.surfaceAt(cx, cz)];
+        if (!(ground > 0) || !world.isFree(cx, cz, 0.6)) continue;
+        const dRoute = distanceToRoute(route, cx, cz);
+        if (dRoute < routeClear) continue;
+        if (ctx.people.countIn(cx, cz, crowdClear, isProtester as never) > 0) continue;
+        const heading = a + Math.PI; // face au lieu de rassemblement
+        const clearance = frontClearance(ctx, cx, cz, heading);
+        if (clearance < 0.75) continue;
+        const fx = Math.sin(heading);
+        const fz = Math.cos(heading);
+        let score = clearance * 6 + ground - r * 0.5;
+        if (world.isFree(cx, cz, 5)) score += 2;
+        // vue sur le rassemblement (jusqu'à 30 m de son centre : le centre lui-même est souvent un monument)
+        if (world.lineOfSight(cx, cz, cx + fx * (ring - 30), cz + fz * (ring - 30))) score += 3;
+        // de la place derrière soi pour ranger les véhicules de l'unité : c'est ce qui décide entre deux emplacements
+        // dégagés (une rue ou une avenue qui débouche sur le lieu offre toute sa longueur)
+        score += parkingRoom(ctx, cx, cz, heading) * 0.7;
+        // plutôt loin du parcours (on le borde, on ne le coupe pas)
+        score += Math.min(dRoute, 90) / 45;
+        if (score > bestScore) {
+          bestScore = score;
+          best = { x: cx, z: cz, heading: wrap(heading), facing: '' };
+        }
+      }
+    }
+  }
+  return best;
+}
+
 function wrap(a: number): number {
   let h = a % (Math.PI * 2);
   if (h > Math.PI) h -= Math.PI * 2;
@@ -203,7 +304,8 @@ export function parkingSpot(
   const rx = -fz;
   const rz = fx;
   const half = Math.max(length, width) * 0.5 + 0.4;
-  // en bataille derrière le groupe : nez vers le front, véhicules espacés de leur largeur + 1,2 m
+  // en bataille derrière le groupe, NEZ VERS LA SORTIE (dos au groupe) : prêts à repartir, et un départ tout droit
+  // ne passe jamais sur les collègues ; véhicules espacés de leur largeur + 1,2 m
   const pitch = width + 1.2;
   const lateral0 = (rank % 2 === 0 ? 1 : -1) * Math.ceil(rank / 2) * pitch;
   for (let back = 13; back <= 45; back += 4) {
@@ -221,9 +323,63 @@ export function parkingSpot(
       if (ctx.people.countIn(px, pz, half + 0.5) > 0) continue;
       out.x = px;
       out.z = pz;
-      out.heading = stand.heading;
+      out.heading = wrap(stand.heading + Math.PI);
       return true;
     }
+  }
+  return false;
+}
+
+const WHEELED: Readonly<Record<SurfaceKind, number>> = {
+  // sols où l'on gare un engin : chaussée et esplanades, jamais une pelouse ni l'eau
+  road: 3, plaza: 2.5, sett: 2.5, sidewalk: 1.5, gravel: 1.5, quay: 2, bridge: 1, park: 0, interior: 0, water: -1, building: -1, void: -1,
+};
+
+/**
+ * Emplacement n° `index` d'un moyen d'appui (engin lanceur d'eau, blindé, BRAV-M, équipe drone) : sur les côtés de
+ * l'unité, en retrait, sur un sol carrossable, à l'écart du bâti, du mobilier, des véhicules et des personnes.
+ * Les emplacements déjà pris (`taken` : [x0, z0, …]) sont évités. Retourne false si aucune place n'est trouvée.
+ */
+export function supportSpot(
+  ctx: GameContext, stand: Stand, index: number, radius: number, taken: number[], out: { x: number; z: number; heading: number },
+  /** Longueur (m) de la bande à garder libre DERRIÈRE l'emplacement (machines garées en file) ; 0 = aucune. */
+  rearLane = 0,
+): boolean {
+  const world = ctx.world;
+  const fx = Math.sin(stand.heading);
+  const fz = Math.cos(stand.heading);
+  const rx = -fz;
+  const rz = fx;
+  const tryAt = (back: number, side: number): boolean => {
+    const px = stand.x - fx * back + rx * side;
+    const pz = stand.z - fz * back + rz * side;
+    if (!(WHEELED[world.surfaceAt(px, pz)] > 0) || !world.isFree(px, pz, radius)) return false;
+    for (let i = 0; i + 1 < taken.length; i += 2) if (Math.hypot(taken[i]! - px, taken[i + 1]! - pz) < radius + 6) return false;
+    if (ctx.props.queryRadius(px, pz, radius, propsOut as never[], (p) => p.blocksMove) > 0) return false;
+    if (ctx.vehicles.queryRadius(px, pz, radius + 1.5, propsOut as never[]) > 0) return false;
+    if (ctx.people.countIn(px, pz, radius + 1) > 0) return false;
+    for (let b = 6; b <= rearLane; b += 4) {
+      const lx = px - fx * b;
+      const lz = pz - fz * b;
+      if (!world.isFree(lx, lz, 3.4) || ctx.vehicles.queryRadius(lx, lz, 4, propsOut as never[]) > 0) return false;
+    }
+    out.x = px;
+    out.z = pz;
+    out.heading = stand.heading;
+    taken.push(px, pz);
+    if (rearLane > 0) taken.push(px - fx * rearLane * 0.6, pz - fz * rearLane * 0.6, px - fx * rearLane, pz - fz * rearLane);
+    return true;
+  };
+  // un côté puis l'autre, de plus en plus loin ; puis plus en retrait
+  for (let back = 8; back <= 56; back += 12) {
+    for (let step = 0; step < 8; step++) {
+      const side = ((step + index) % 2 === 0 ? 1 : -1) * (12 + Math.floor(step / 2) * 9);
+      if (tryAt(back, side)) return true;
+    }
+  }
+  // rue étroite : dans l'axe, derrière les véhicules de l'unité
+  for (let back = 84; back <= 164; back += 8) {
+    if (tryAt(back, 0) || tryAt(back, 3.5) || tryAt(back, -3.5)) return true;
   }
   return false;
 }

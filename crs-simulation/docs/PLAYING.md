@@ -1,9 +1,9 @@
-# Jouer à CRS Simulation France — mode d'emploi (assemblage 1)
+# Jouer à CRS Simulation France — mode d'emploi (assemblage 2)
 
-Premier jeu jouable : la page d'accueil, le chargement du vrai Paris, un personnage incarné à hauteur d'homme
-avec son unité, une manifestation qui se rassemble, la circulation autour, les objets, le gaz lacrymogène, le HUD, les
-cartes, la pause et les paramètres. L'IA des unités de police, le mobilier visible, les incidents et les missions
-arrivent avec les modules suivants — voir la fin.
+Le jeu jouable : la page d'accueil, le chargement du vrai Paris, un personnage incarné dans sa compagnie, des unités
+qui manœuvrent sur ordre (commandant IA, ou vous si vous commandez), une manifestation qui se rassemble, la circulation
+autour, le mobilier urbain et les vitrines, les objets, le gaz lacrymogène, les incidents annoncés à la radio, le HUD,
+les cartes, la pause et les paramètres. Le cadre de mission (objectifs, fin automatique) n'existe pas encore — voir la fin.
 
 ## Lancer le jeu
 
@@ -28,7 +28,8 @@ Paramètres → Commandes.
 |---|---|---|---|
 | Se déplacer | Z Q S D | stick gauche | joystick virtuel à gauche |
 | Regarder, viser | souris (cliquer dans la vue pour la capturer) ou flèches | stick droit | glisser à droite de l'écran |
-| Sprinter | Maj gauche | clic du stick gauche | pousser le joystick à fond |
+| Marcher / trottiner (bascule) | touche à gauche de X (« W » en AZERTY, « Z » en QWERTY) — on marche par défaut | inclinaison du stick | inclinaison du joystick |
+| Sprinter | Maj gauche (tenir) | clic du stick gauche | pousser le joystick à fond |
 | S'accroupir / sauter, enjamber | C / Espace | B / A | boutons |
 | Action principale (lancer, tirer, frapper) | clic gauche — maintenir pour doser un lancer, relâcher pour lancer | gâchette droite | bouton « Action » |
 | Action secondaire (lever le bouclier, épauler) | clic droit | gâchette gauche | bouton « Viser » |
@@ -37,10 +38,10 @@ Paramètres → Commandes.
 | Vue à la première / troisième personne | V | clic du stick droit | bouton |
 | Masque à gaz / visière | G / H | croix bas / gauche | boutons |
 | Radio / roue d'ordres | T / F | croix haut / droite | boutons |
-| Plan de Paris / carte tactique | M / Tab | Select / bouton du HUD | boutons |
+| Plan de Paris / carte tactique | M / Tab | Select (un appui : plan ; deux : carte tactique ; trois : retour au jeu) — ou menu de pause | boutons |
 | Zoom | + / − | — | — |
 | Pause | Échap ou P | Start | bouton |
-| Avance rapide | . (point) | — | bouton |
+| Avance rapide ×4 (bascule) | . (point) | — | bouton |
 
 En véhicule : avancer / reculer = accélérer / freiner, gauche / droite = volant, Espace = frein à main,
 R = sirène, B = gyrophares, N = klaxon, V = vue intérieure / extérieure, E = descendre.
@@ -53,7 +54,7 @@ R = sirène, B = gyrophares, N = klaxon, V = vue intérieure / extérieure, E = 
 | `?autostart=test` ou `&map=test` | quartier d'essai au lieu de Paris |
 | `&place=Place de la République` | lieu de départ (nom connu de la carte) ; ou `&x=…&z=…` |
 | `&role=crs&rank=gardien&poste=lanceur` | rôle, grade, poste du joueur (`&variante=samu`, `radical`… pour les rôles civils) |
-| `&camera=tps` | départ en vue à la troisième personne (défaut : première personne) |
+| `&camera=tps` ou `fps` | vue de départ imposée (défaut : première personne, troisième si des collègues bouchent la vue) |
 | `&time=21.5&weather=pluie` | heure (0 à 24) et météo (clair, nuageux, couvert, pluie, averse, brouillard, orage) |
 | `&quality=bas` | qualité graphique : bas, moyen, haut, ultra (enregistrée comme réglage) |
 | `&passants=0` | nombre de passants autour du lieu (10 par défaut) |
@@ -66,51 +67,59 @@ Console du navigateur : `__CRS.summary()`, `__CRS.step(secondes)`, `__CRS.telepo
 
 ## Ce qui est jouable aujourd'hui
 
-Vérifié dans le navigateur (`tests/e2e/game.mjs`, captures regardées) ou, quand c'est précisé, dans les tests
-d'intégration sans rendu (`tests/unit/integration.session.test.ts`).
+Vérifié dans le navigateur (`tests/e2e/game.mjs` et scripts `tests/e2e/verif-*.mjs`, captures regardées) ou, quand
+c'est précisé, dans les tests d'intégration sans rendu (`tests/unit/integration.*.test.ts`).
 
-- **Page d'accueil** (souris, clavier, doigt) : rôle, grade, poste, lieu sur le plan, lancement ; paramètres.
-  Un seul chef : la tuile « Commissaire » a disparu, le **commandant** porte l'écharpe et prononce les sommations.
+- **Page d'accueil** (souris, clavier, doigt, manette) : rôle, grade, poste, lieu sur le plan, affluence, tension,
+  **moyens engagés**, lancement ; paramètres. Un seul chef : le **commandant** porte l'écharpe et prononce les sommations.
 - **Chargement** du vrai Paris autour du lieu choisi, avec une barre de progression réelle (dispositif, monuments, ville).
-- **En jeu, tous les rôles** donnent un personnage en tenue avec sa dotation, placé face au lieu (testé pour les
-  seize combinaisons rôle / poste, sans rendu) : CRS (six postes), chef de groupe ou de section, commandant (une section
-  et son véhicule de commandement), BRAV-M, équipages du Centaure et du canon à eau, télépilote, street medic, pompier
-  ou SAMU, journaliste, manifestant. Les collègues sont en ligne (boucliers devant), les véhicules stationnés derrière,
-  quelques passants autour. Les dix lieux proposés par la page d'accueil donnent une mise en place valide.
-- **Se déplacer** : au clavier, « avancer » donne la course légère (≈ 2,5 m/s avec l'équipement), Maj le sprint ; la
-  marche s'obtient au stick ou au joystick à mi-course, et d'office bouclier levé ou accroupi. On bute sur la grille
-  de l'obélisque et on la contourne, on ne traverse pas les murs. **Vues** à la première et à la troisième personne (V).
+- **Moyens engagés** : ce que règle la page d'accueil est réellement en jeu — compagnie de 1 à 8 sections, un fourgon
+  par groupe dans la limite demandée, véhicule de commandement, engin lanceur d'eau, Centaure, BRAV-M, équipe drone
+  (vérifié : 4 sections · 12 fourgons · canon à eau · BRAV-M · drone = 100 agents et 22 véhicules place de la Concorde).
+  Le joueur CRS, chef de groupe, chef de section ou commandant tient son poste dans cette compagnie.
+- **Dispositif à l'écart** : les forces de l'ordre sont placées à une centaine de mètres du rassemblement, hors du
+  parcours, face au lieu ; leurs véhicules sont garés derrière elles, nez vers la sortie (les dix lieux de l'accueil
+  sont vérifiés sans rendu).
+- **Unités qui manœuvrent** : le commandant IA déploie la compagnie (barrages, protection de sites, réserve), les
+  unités rendent compte à la radio ; le joueur chef de groupe donne ses ordres par la roue (F) ou la carte tactique et
+  ses équipiers les exécutent (vérifié sans rendu : « avancer » de 20 m). Dans une compagnie menée par l'IA, le chef
+  de section envoie d'abord le groupe à son poste — suivez-le ; votre ordre prime ensuite le sien : le groupe se
+  reforme sur vous puis rejoint le point (35 s si vous y marchez ; il vous attend et avance au ralenti si vous restez
+  sur place). Un simple équipier reçoit les ordres : la touche F le lui dit.
+- **Départ** : dans une compagnie, le joueur d'un rang intérieur est posé au bout du premier rang, la vue et le
+  passage dégagés ; il peut prendre le volant d'un véhicule de son unité (le conducteur IA lui cède la place).
+- **Se déplacer** : au clavier on MARCHE (≈ 1,25 m/s, le souffle se refait) ; la touche d'allure bascule vers la petite
+  foulée (≈ 2,8 m/s) ; Maj tenu = sprint (≈ 4,4 m/s, qui épuise). On bute sur les grilles, le mobilier et les troncs
+  d'arbres. **Vues** à la première et à la troisième personne (V). **Avance rapide** ×4 (touche « . »).
+- **Mobilier urbain, vitrines, barricades** dessinés (candélabres, bancs, abribus, terrasses, devantures avec leur enseigne).
+- **Monuments visibles de loin** : la tour Eiffel se voit du Trocadéro et de la Concorde en qualité basse.
 - **Manifestation** : la foule arrive par vagues (bouches de métro), se rassemble sur le lieu, puis suit son
-  déroulé (phase et tension affichées au HUD, parcours sur la mini-carte) ; affluence, cause, tension et durée de la
-  page d'accueil sont prises en compte (en qualité basse l'effectif est divisé par deux). Vérifié : rassemblement
-  place de la Concorde dans le navigateur ; trois minutes de simulation sans rendu avec 240 personnes.
-- **Circulation** : voitures et piétons civils autour du lieu (comptés dans les tests, non regardés un à un).
+  déroulé (phase et tension affichées au HUD, parcours sur la mini-carte) ; les groupes radicaux sont pilotés par leur
+  module (signes avant-coureurs, bloc, casse) — vus dans les tests du module, pas encore regardés dans le navigateur.
+- **Incidents** (feu, blessé, automobiliste bloqué…) détectés, annoncés à la radio, délégués par le commandant IA ;
+  pompiers et SAMU sur appel ; médecins de rue. Vu dans le navigateur : un « automobiliste bloqué » annoncé et traité.
 - **Objets** : barre d'objets, mise en main (1 à 9), lancer dosé au clic maintenu. La grenade lacrymogène part, ses
-  palets diffusent un nuage de gaz visible qui dérive avec le vent, la foule le ressent (la tension monte), l'emploi
-  de la force est jugé et consigné — sans sommation préalable, le jeu relève la faute.
-- **Véhicules** (sans rendu) : l'invite « Conduire — Fourgon de CRS » à la portière, la montée, la conduite ; au
-  Centaure, la tourelle suit le regard et la grenade part où l'on regarde.
-- **HUD** : heure et météo, boussole et secteur, état légal (sommations, force licite et autorisée), unité, santé et
-  souffle, barre d'objets, mini-carte. **Plan de Paris** (M), **carte tactique** (Tab), **pause** (P ou Échap),
-  **paramètres**, « Recommencer », compte rendu de fin de partie, retour à l'accueil.
+  palets diffusent un nuage de gaz visible, l'emploi de la force est jugé — sans sommation préalable, le jeu relève la
+  faute. Un collègue renversé en voiture est une faute relevée.
+- **HUD** : heure et météo, boussole et secteur, état légal, unité et ordre en cours, santé et souffle, barre
+  d'objets, mini-carte ; disposition compacte dans une petite fenêtre. **Plan de Paris**, **carte tactique** (unités,
+  ordres, incidents, rues fermées), **pause** (avec accès à la carte tactique), **paramètres**, « Recommencer », compte
+  rendu, retour à l'accueil.
 - **Téléphone** (844×390, paysage) : commandes tactiles, joystick virtuel, barre d'objets, pause au doigt.
-  En portrait, le jeu demande de tourner l'appareil.
+  En portrait, le jeu demande de tourner l'appareil et se met en pause.
 
-Branché mais non vérifié à l'œil ou à l'oreille ici : le son (aucune sortie audio sur la machine d'essai), la manette
-(vérifiée seulement dans le banc d'essai du module d'entrées), la toux et le voile d'écran sous le gaz, la conduite vue
-à l'écran, les rôles autres que CRS vus en 3D.
+Branché mais non vérifié à l'œil ou à l'oreille ici : le son (aucune sortie audio sur la machine d'essai), la capture
+réelle de la souris (refusée dans les tests : Chromium headless s'emballe sous capture), une vraie manette, la toux
+et le voile d'écran sous le gaz, la conduite vue à l'écran, les rôles autres que CRS vus en 3D, les affrontements.
 
 ## Ce qui ne l'est pas encore
 
-- **Les collègues ne bougent pas** : l'IA des unités de police n'est pas encore branchée ; ordres, roue d'ordres et
-  carte tactique s'ouvrent, mais aucune unité n'exécute. Face à une foule qui dégénère, le joueur est seul à agir.
-- **Mobilier urbain, vitrines, barricades : simulés mais invisibles** (rendu du décor en cours d'écriture) — on bute
-  donc parfois sur une poubelle ou un potelet que l'on ne voit pas.
 - **Pas d'objectifs ni de fin de mission automatique** : le cadre de mission n'existe pas encore (terminer par la
-  pause : « Terminer et voir le compte rendu »). Missions du catalogue, carrière, incidents à traiter, secours sur
-  appel, médias, campagne, école : modules non branchés.
-- **Tour Eiffel et monuments lointains** : masqués par la brume au-delà de la distance d'affichage (300 m en qualité
-  basse, 1 500 m en ultra).
-- **Trottoirs** : les pieds s'enfoncent de quelques centimètres dans les trottoirs surélevés.
-- La manifestation n'a été regardée que dans sa phase de rassemblement : cortège, affrontements, dispersion et
-  réactions fines de la foule tournent dans les tests du module de foule, pas encore à l'écran dans le jeu assemblé.
+  pause : « Terminer et voir le compte rendu »). Missions du catalogue, carrière, médias, campagne, école : non branchés.
+- **À-coups** : un monument détaillé est construit en une seule image quand on arrive près de lui (jusqu'à plus d'une
+  seconde sur une machine lente) ; la construction des tuiles de la ville dépasse parfois son budget (20 ms).
+- **Détails de rendu** : roues et mobilier dessinés 8 cm sous le niveau des trottoirs ; image peu définie sur
+  téléphone en qualité basse (échelle de rendu 70 %) ; un million de triangles par image avec la compagnie complète.
+- **Poste du commandant** : le choix « terrain / salle de commandement » n'est pas sur la page d'accueil.
+- La manifestation n'a été regardée à l'écran que dans sa phase de rassemblement : cortège, affrontements et
+  dispersion tournent dans les tests sans rendu.

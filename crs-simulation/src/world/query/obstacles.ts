@@ -143,6 +143,8 @@ export class BucketBuilder {
   private readonly tileRect: Bounds | null;
   private readonly polys: PolyDraft[] = [];
   private readonly barriers: BarrierDraft[] = [];
+  /** Troncs d'arbres : x, z, rayon, hauteur (quatre valeurs par arbre). */
+  private readonly trunks: number[] = [];
   private readonly deckCandidates: PolyDraft[] = [];
   private readonly segs: number[] = [];
   private readonly segHeights: number[] = [];
@@ -182,6 +184,15 @@ export class BucketBuilder {
   addBarrier(kind: BarrierKind, height: number, points: ArrayLike<number>): void {
     if (kind === 'gate' || points.length < 4) return; // un portail est franchissable
     this.barriers.push({ kind, height, points });
+  }
+
+  /**
+   * Tronc d'arbre : un disque plein de rayon `radius` (m). Il arrête les personnes, les véhicules et les
+   * projectiles, mais pas le regard. Représenté par un segment très court épaissi du rayon du tronc.
+   */
+  addTrunk(x: number, z: number, radius: number, height: number): void {
+    if (!(radius > 0) || !Number.isFinite(x) || !Number.isFinite(z)) return;
+    this.trunks.push(x, z, radius, height);
   }
 
   private addPoly(rings: readonly ArrayLike<number>[], kind: number, height: number): void {
@@ -509,6 +520,14 @@ export class BucketBuilder {
         if (b.points[i + 1] > maxZ) maxZ = b.points[i + 1];
       }
     }
+    const trunks = this.trunks;
+    for (let i = 0; i + 3 < trunks.length; i += 4) {
+      const r = trunks[i + 2];
+      if (trunks[i] - r < minX) minX = trunks[i] - r;
+      if (trunks[i] + r > maxX) maxX = trunks[i] + r;
+      if (trunks[i + 1] - r < minZ) minZ = trunks[i + 1] - r;
+      if (trunks[i + 1] + r > maxZ) maxZ = trunks[i + 1] + r;
+    }
     if (minX === Infinity) return out; // lot vide
     out.minX = minX - BUCKET_MARGIN;
     out.minZ = minZ - BUCKET_MARGIN;
@@ -534,6 +553,10 @@ export class BucketBuilder {
     }
     for (let q = 0; q < this.polys.length; q++) this.emitPolyWalls(this.polys[q], q, out);
     for (const b of this.barriers) this.emitBarrier(b, out);
+    for (let i = 0; i + 3 < trunks.length; i += 4) {
+      // segment de 4 cm (direction quelconque) épaissi du rayon du tronc : un disque à 2 cm près
+      this.pushSeg(trunks[i] - 0.02, trunks[i + 1], trunks[i] + 0.02, trunks[i + 1], 0, 1, trunks[i + 2], trunks[i + 3], KIND_BARRIER);
+    }
     indexSegments(out, this.segs, this.segHeights, this.segFlags);
     return out;
   }

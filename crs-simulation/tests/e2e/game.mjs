@@ -1,10 +1,13 @@
 // Bout en bout — LE VRAI JEU (index.html, vraie carte de Paris, tous les modules branchés).
 //
 //   Ordinateur (960×540, qualité « bas ») : page d'accueil → scénario CRS lanceur de grenades, place de la Concorde →
-//   affluence réduite → chargement → en jeu : manifestation qui se rassemble, vue à la première puis à la troisième personne, déplacement au clavier (≥ 60 m, sans
-//   traverser l'obélisque ni un mur), changement de caméra, lancer d'une grenade lacrymogène (projectile puis gaz),
-//   carte, pause, paramètres. Zéro erreur console sur tout le parcours. Mesures : chargement, appels de dessin,
-//   triangles, temps JavaScript par système, mémoire.
+//   affluence réduite, « Moyens engagés » par défaut → chargement → en jeu : compagnie et moyens d'appui à l'écart de la
+//   manifestation qui se rassemble, mobilier urbain dessiné, vues à la troisième puis à la première personne, marche,
+//   petite foulée et sprint au clavier (≥ 60 m, sans traverser un mur ni l'obélisque), avance rapide, lancer d'une
+//   grenade lacrymogène (projectile puis gaz), unités qui manœuvrent sur ordre du commandant IA, carte, carte tactique,
+//   pause, paramètres. Zéro erreur console sur tout le parcours. Mesures : chargement, appels de dessin, triangles,
+//   temps JavaScript par système, mémoire.
+//   La capture de la souris est REFUSÉE (pointerLock: false) : sous Chromium headless elle emballe le navigateur.
 //   Téléphone (844×390 tactile) : même parcours abrégé, commandes tactiles visibles.
 //
 // Usage : node tests/e2e/game.mjs [--only=bureau|telephone] [--quality=bas] [--size=960x540]
@@ -49,6 +52,7 @@ const state = (page) => page.evaluate(() => {
     x: p ? p.x : NaN, z: p ? p.z : NaN, heading: p ? p.heading : NaN, active: p ? p.active : -2,
     item: p && p.active >= 0 ? p.inventory[p.active].id : '', free: p ? ctx.world.isFree(p.x, p.z, 0.05) : false,
     inBuilding: p ? ctx.world.buildingHeightAt(p.x, p.z) > 0 : false, people: ctx.people.list.length,
+    speed: p ? Math.hypot(p.vx, p.vz) : 0,
     projectiles: ctx.projectiles.list.length, t: ctx.clock.now,
   };
 });
@@ -77,8 +81,16 @@ async function launchFromHome(page, { poste, tap }) {
   // affluence : 200 manifestants demandés (100 en qualité « bas », qui divise la foule par deux) — au clavier sur le curseur
   await click('[data-id="tab-foule"]');
   await page.locator('[data-id="affluence"]').focus();
-  await page.keyboard.press('Home');
-  for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowRight');
+  // Les menus lisent le clavier une fois par image : à moins d'une image par seconde (WebGL logiciel, machine
+  // chargée), une frappe brève se perd. Chaque touche est donc tenue pendant deux images.
+  const hold = async (code) => {
+    await page.keyboard.down(code);
+    await frames(page, 2);
+    await page.keyboard.up(code);
+    await frames(page, 1);
+  };
+  await hold('Home');
+  for (let i = 0; i < 4; i++) await hold('ArrowRight');
   await frames(page, 2);
   const t0 = Date.now();
   await click('[data-id="lancer"]');
@@ -88,7 +100,7 @@ async function launchFromHome(page, { poste, tap }) {
 // ═════════════════════════════════ ordinateur ═════════════════════════════════
 async function bureau(server) {
   console.log(`[game] ordinateur ${W}×${H}`);
-  const { browser, page, errors } = await openPage(`${server.url}?quality=${quality}`, { width: W, height: H });
+  const { browser, page, errors } = await openPage(`${server.url}?quality=${quality}`, { width: W, height: H, pointerLock: false });
   const r = { captures: [] };
   report.bureau = r;
   const capture = async (name) => {
@@ -124,19 +136,44 @@ async function bureau(server) {
       const p = c.player.person();
       const cfg = c.session.config;
       const mates = c.people.list.filter((q) => q.squadId === p.squadId && q.id !== p.id);
+      const police = c.people.list.filter((q) => q.faction === 'police');
+      const protesters = c.people.list.filter((q) => q.faction === 'protest');
+      let nearest = Infinity;
+      for (const m of protesters) for (const q of police) nearest = Math.min(nearest, Math.hypot(m.x - q.x, m.z - q.z));
+      const fx = Math.sin(s.heading), fz = Math.cos(s.heading);
+      const vans = c.vehicles.list.filter((v) => v.faction === 'police' && (v.kind === 'fourgon_crs' || v.kind === 'vl_commandement'));
+      const squad = c.squads.get(p.squadId);
+      const section = squad ? c.squads.get(squad.parentId) : undefined;
+      const company = section ? c.squads.get(section.parentId) : undefined;
       return {
         summary: s, kind: p.kind, poste: p.poste, rank: p.rank, role: c.player.state.role, place: cfg.place, quality: c.view.quality,
         inventory: p.inventory.map((i) => i.id), mates: mates.length, matesPostes: mates.map((m) => m.poste),
         vehicles: c.vehicles.list.map((v) => v.kind), obelisk: c.world.landmarks.find((l) => l.key === 'obelisque_concorde'),
-        sector: c.world.sectorName(p.x, p.z),
+        sector: c.world.sectorName(p.x, p.z), police: police.length, nearestProtester: nearest,
+        fromPlace: Math.hypot(s.x - cfg.x, s.z - cfg.z), moyens: cfg.extra ? cfg.extra.moyens : null,
+        unit: [squad?.name, section?.name, company?.name], companyKind: company?.kind ?? '',
+        vansBehind: vans.every((v) => (v.x - s.x) * fx + (v.z - s.z) * fz < -10),
+        vansFaceOut: vans.every((v) => Math.sin(v.heading) * fx + Math.cos(v.heading) * fz < -0.9),
+        propsDrawn: { ...(c.service('propsRender')?.stats ?? {}) },
       };
     });
     r.setup = setup;
     check(setup.role === 'crs' && setup.kind === 'crs' && setup.poste === 'lanceur', 'le joueur est un CRS lanceur de grenades', `${setup.kind} / ${setup.poste} / ${setup.rank}`);
     check(/concorde/i.test(setup.sector), 'il se trouve place de la Concorde', setup.sector);
     check(setup.quality === quality, `qualité « ${quality} »`);
-    check(setup.mates === 5, 'son groupe de six CRS est en place', setup.matesPostes.join(', '));
-    check(setup.vehicles.includes('fourgon_crs'), 'un fourgon de CRS est stationné');
+    check(setup.mates >= 5, 'il tient son poste dans un groupe de sa compagnie', `${setup.unit.join(' ← ')} ; équipiers : ${setup.matesPostes.join(', ')}`);
+    check(setup.companyKind === 'compagnie' && setup.summary.usedPoliceUnits, 'la compagnie est construite par le module de police (unités pilotées par l’IA)');
+    // « Moyens engagés » de la page d'accueil (défaut : 4 sections · 12 fourgons · canon à eau · BRAV-M · drone)
+    const m = setup.summary.means;
+    const asked = setup.moyens ?? {};
+    check(m.sections === asked.sections && m.fourgons === asked.fourgons && m.canon_eau === asked.canon_eau && m.bravm === asked.bravm && m.drone === asked.drone,
+      'les « Moyens engagés » réglés sur la page d’accueil sont réellement en jeu',
+      `demandés ${asked.sections} sections · ${asked.fourgons} fourgons · ${asked.canon_eau} canon à eau · ${asked.bravm} BRAV-M · ${asked.drone} drone ; en jeu ${m.sections} · ${m.fourgons} · ${m.canon_eau} · ${m.bravm} · ${m.drone} (${m.agents} agents)`);
+    check(setup.summary.offCrowd && setup.fromPlace >= 80 && setup.nearestProtester > 25, 'le dispositif est à l’écart du rassemblement',
+      `à ${setup.fromPlace.toFixed(0)} m du lieu ; manifestant le plus proche d’un policier : ${setup.nearestProtester.toFixed(0)} m`);
+    check(setup.vansBehind && setup.vansFaceOut, 'les fourgons sont garés derrière l’unité, nez vers la sortie');
+    check((setup.propsDrawn.props ?? 0) > 100 && (setup.propsDrawn.drawCalls ?? 0) > 0, 'le mobilier urbain est dessiné',
+      `${setup.propsDrawn.props} objets, ${setup.propsDrawn.shops} devantures, ${setup.propsDrawn.drawCalls} appel(s) de dessin, ${setup.propsDrawn.triangles} triangles`);
     check(setup.inventory.includes('grenade_lacrymo'), 'il a des grenades lacrymogènes', setup.inventory.join(', '));
     const demo = await page.evaluate(() => {
       const c = window.__CRS.ctx;
@@ -151,7 +188,28 @@ async function bureau(server) {
     check(demo.phase === 'rassemblement' && demo.manif > 10, 'une manifestation se rassemble', `phase « ${demo.phase} », ${demo.manif} manifestants sur place, ${demo.total} attendus, ${demo.metro} stations de métro`);
     check(demo.traffic, 'le service de circulation est branché');
     let s = await state(page);
-    check(s.camera === 'fps', 'vue de départ à la première personne');
+    // Le lanceur tient le second rang d'une compagnie menée par l'IA : il ne commence ni le nez dans le dos des
+    // collègues ni enfermé derrière les boucliers (il est posé au bout du premier rang) ; à défaut, vue à la
+    // troisième personne.
+    const depart = await page.evaluate(() => {
+      const c = window.__CRS.ctx;
+      const me = c.player.person();
+      const h = c.service('session.setup').summary.heading;
+      const fx = Math.sin(h), fz = Math.cos(h);
+      let devant = 0, proche = Infinity;
+      for (const p of c.people.list) {
+        if (p === me || p.dormant || p.vehicleId !== 0) continue;
+        const dx = p.x - me.x, dz = p.z - me.z;
+        const ahead = dx * fx + dz * fz, side = Math.abs(dx * -fz + dz * fx);
+        if (ahead > 0.4 && ahead < 3.2 && side < ahead * 0.7 + 0.3) devant++;
+        if (p.faction === 'police') proche = Math.min(proche, Math.hypot(dx, dz));
+      }
+      return { devant, proche };
+    });
+    r.depart = { ...depart, camera: s.camera };
+    check(depart.devant === 0 || s.camera === 'tps', 'au départ, aucun collègue ne bouche la vue ni le passage du joueur (ou vue à la troisième personne)',
+      `${depart.devant} personne(s) dans l’axe à moins de 3,2 m, vue « ${s.camera} »`);
+    check(depart.proche < 6, 'le joueur commence à côté de son unité', `collègue le plus proche à ${depart.proche.toFixed(1)} m`);
     check(s.screen === null && !s.modal, 'aucun écran ouvert en jeu', String(s.screen));
     check(await page.evaluate(() => {
       const hud = document.querySelector('.ui-hud');
@@ -159,17 +217,29 @@ async function bureau(server) {
     }), 'le HUD est affiché');
     check(await page.evaluate(() => document.querySelector('[data-id="minimap"]') !== null), 'la mini-carte est affichée');
 
-    // ── première personne : face à l'obélisque, puis un regard vers les collègues ──
+    // ── vue de départ, puis troisième personne : l'unité, face au lieu de rassemblement ──
     await step(page, 0.5);
-    await capture('game-fps');
-    // Capture de la souris par un clic sur la vue (le clic de capture ne déclenche aucune action). Le clic est donné
-    // dans le coin de la vue : sous capture, Chromium headless rapporte la POSITION du pointeur comme un déplacement à
-    // chaque événement de bouton (artefact des événements synthétiques) — en (2, 2) le regard ne bouge pas.
+    await capture('game-depart');
+    if (s.camera !== 'tps') {
+      await page.keyboard.press('KeyV');
+      await step(page, 0.4);
+      s = await state(page);
+      check(s.camera === 'tps', 'la touche V passe à la troisième personne', s.camera);
+    }
+    await capture('game-tps-depart');
+    // La capture de la souris est refusée dans ce test (voir lib.mjs) : le jeu passe en mode de repli, sans erreur.
     await page.mouse.move(2, 2);
     await page.mouse.click(2, 2);
     await frames(page, 2);
-    check(await page.evaluate(() => window.__CRS.ctx.input.pointerLocked), 'un clic dans la vue capture la souris');
-    // regard vers la droite (flèches du clavier) : la ligne de boucliers est devant-droite, le fourgon derrière
+    check(await page.evaluate(() => window.__CRS.ctx.input.pointerLocked === false && window.__CRS.ctx.service('input.pointer').fallback === true),
+      'capture de la souris refusée : le jeu passe en mode de repli (clic = action, flèches ou glisser = regard)');
+    // ── première personne ──
+    await page.keyboard.press('KeyV');
+    await step(page, 0.4);
+    s = await state(page);
+    check(s.camera === 'fps', 'la touche V passe à la première personne', s.camera);
+    await capture('game-fps');
+    // regard vers la droite (flèches du clavier)
     await page.keyboard.down('ArrowRight');
     await step(page, 0.55);
     await page.keyboard.up('ArrowRight');
@@ -178,11 +248,11 @@ async function bureau(server) {
     const yawTurned = (await state(page)).camYaw;
     check(Math.abs(yawTurned - s.camYaw) > 0.3, 'le regard tourne au clavier', `${s.camYaw.toFixed(2)} → ${yawTurned.toFixed(2)} rad`);
 
-    // ── troisième personne ──
+    // ── retour à la troisième personne ──
     await page.keyboard.press('KeyV');
     await step(page, 0.4);
     s = await state(page);
-    check(s.camera === 'tps', 'la touche V passe à la troisième personne', s.camera);
+    check(s.camera === 'tps', 'la touche V revient à la troisième personne', s.camera);
     await capture('game-tps-collegues');
     // retour face à l'obélisque : les flèches tournent aussi pendant les images réelles (durée variable sous WebGL
     // logiciel), on vérifie donc le sens du retour puis on recale le regard exactement dans l'axe de départ
@@ -199,63 +269,159 @@ async function bureau(server) {
     await step(page, 0.3);
     await capture('game-tps');
 
-    // ── déplacement : droit sur l'obélisque (on doit buter sur sa grille), puis contournement ──
+    // ── déplacement : marche par défaut, petite foulée par bascule, sprint tenu ; le souffle ne s'use pas en marchant ──
+    // On part sur le flanc de l'unité, dos au rassemblement (terrain dégagé derrière le dispositif).
+    await page.evaluate(() => {
+      const c = window.__CRS;
+      const s = c.ctx.service('session.setup').summary;
+      const fx = Math.sin(s.heading), fz = Math.cos(s.heading);
+      c.teleport(s.x + fz * 22 - fx * 2, s.z - fx * 22 - fz * 2);
+      c.ctx.player.state.camYaw = s.heading + Math.PI / 2;
+      c.ctx.player.state.camPitch = 0;
+    });
+    await step(page, 0.5);
+    const staminaOf = () => page.evaluate(() => window.__CRS.ctx.player.person().stamina);
     const start = await state(page);
+    const st0 = await staminaOf();
     await page.keyboard.down('KeyW');
-    await step(page, 3);
+    await step(page, 6);
     const walk = await state(page);
     const dWalk = Math.hypot(walk.x - start.x, walk.z - start.z);
-    // la boucle d'images fait aussi avancer la simulation en temps réel : la vitesse se mesure sur l'horloge simulée.
-    // Au clavier, « avancer » seul donne la course légère (allure 1, ≈ 2,5 m/s avec l'équipement) ; ici le joueur part
-    // du second rang et doit d'abord se glisser entre ses collègues, d'où une moyenne plus basse.
+    // la boucle d'images fait aussi avancer la simulation en temps réel : la vitesse se mesure sur l'horloge simulée
     const vWalk = dWalk / Math.max(0.1, walk.t - start.t);
-    check(vWalk > 0.8 && vWalk < 3.4, 'la touche « avancer » déplace le personnage à allure de course légère', `${dWalk.toFixed(1)} m en ${(walk.t - start.t).toFixed(1)} s simulées, soit ${vWalk.toFixed(2)} m/s`);
+    check(vWalk > 0.7 && vWalk < 1.9, 'au clavier, la touche « avancer » fait MARCHER', `${dWalk.toFixed(1)} m en ${(walk.t - start.t).toFixed(1)} s simulées, soit ${vWalk.toFixed(2)} m/s`);
+    check((await staminaOf()) >= st0 - 0.5, 'le souffle ne s’use pas en marchant', `${st0.toFixed(0)} → ${(await staminaOf()).toFixed(0)}`);
+    // bascule « marcher / trottiner » (touche physique KeyZ) : petite foulée
+    await page.keyboard.down('KeyZ');
+    await frames(page, 2);
+    await page.keyboard.up('KeyZ');
+    await step(page, 1);
+    // vitesse de pointe relevée par tranches d'une seconde (le mobilier urbain et les arbres du trottoir font dévier :
+    // la moyenne sur le trajet est plus basse que l'allure)
+    let vJog = 0;
+    let jog1 = await state(page);
+    for (let i = 0; i < 5; i++) {
+      await step(page, 1);
+      jog1 = await state(page);
+      vJog = Math.max(vJog, jog1.speed);
+    }
+    check(vJog > vWalk * 1.6 && vJog < 3.6, 'la bascule d’allure passe à la petite foulée', `${vJog.toFixed(2)} m/s en pointe`);
+    check((await page.evaluate(() => window.__CRS.ctx.service('ui.debug').notices())).some((t) => /Allure/.test(t)), 'le changement d’allure est annoncé au joueur');
     await page.keyboard.down('ShiftLeft');
-    let travelled = dWalk;
-    let last = walk;
-    let minObelisk = Infinity;
-    for (let i = 0; i < 12; i++) {
-      await step(page, 2);
+    let travelled = dWalk + Math.hypot(jog1.x - walk.x, jog1.z - walk.z);
+    let last = jog1;
+    let vSprint = 0;
+    for (let i = 0; i < 8; i++) {
+      await step(page, 1);
       const now = await state(page);
       travelled += Math.hypot(now.x - last.x, now.z - last.z);
-      minObelisk = Math.min(minObelisk, Math.hypot(now.x - setup.obelisk.x, now.z - setup.obelisk.z));
+      vSprint = Math.max(vSprint, now.speed);
       last = now;
       if (!now.free || now.inBuilding) break;
     }
-    await capture('game-contre-obelisque');
-    check(last.free && !last.inBuilding, 'après la course, le joueur n’est dans aucun obstacle');
-    // la trajectoire en ligne droite passait-elle par le monument ? distance du centre de l'obélisque à l'axe de départ
-    const ax = Math.sin(start.camYaw);
-    const az = Math.cos(start.camYaw);
-    const miss = Math.abs((setup.obelisk.x - start.x) * az - (setup.obelisk.z - start.z) * ax);
-    check(miss < 5, 'la course visait bien l’obélisque', `l’axe de départ passe à ${miss.toFixed(1)} m de son centre`);
-    check(minObelisk > 5, 'il n’a pas traversé l’obélisque : il a buté sur sa grille et l’a contournée', `distance minimale au centre ${minObelisk.toFixed(1)} m`);
-    const blockedAt = await state(page);
-    // on tourne d'un quart de tour et on repart en courant : la place est dégagée
+    check(vSprint > vJog * 1.2, 'Maj tenu : sprint', `${vSprint.toFixed(2)} m/s en pointe`);
+    await page.keyboard.up('ShiftLeft');
+    // on tourne d'un quart de tour et on repart en petite foulée
     await page.keyboard.down('ArrowLeft');
     await step(page, 0.75);
     await page.keyboard.up('ArrowLeft');
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 6; i++) {
       await step(page, 2);
       const now = await state(page);
       travelled += Math.hypot(now.x - last.x, now.z - last.z);
       last = now;
     }
-    await page.keyboard.up('ShiftLeft');
     await page.keyboard.up('KeyW');
     await step(page, 1);
     const end = await state(page);
     r.travelled = travelled;
     check(travelled >= 60, 'déplacement au clavier sur au moins 60 m', `${travelled.toFixed(0)} m parcourus`);
-    check(Math.hypot(end.x - blockedAt.x, end.z - blockedAt.z) > 20, 'la position a changé après le contournement', `${Math.hypot(end.x - blockedAt.x, end.z - blockedAt.z).toFixed(0)} m`);
     check(end.free && !end.inBuilding, 'à l’arrivée, le joueur n’est dans aucun obstacle');
     await capture('game-apres-course');
+    // retour à la marche pour la suite
+    await page.keyboard.down('KeyZ');
+    await frames(page, 2);
+    await page.keyboard.up('KeyZ');
 
-    // ── changement de caméra ──
+    // ── obstacle : droit sur l'obélisque depuis le nord — on bute sur sa grille, on ne le traverse pas ──
+    await page.evaluate((ob) => {
+      const c = window.__CRS;
+      c.teleport(ob.x, ob.z - 17);
+      c.ctx.player.state.camYaw = 0; // cap 0 = vers +z (sud) : droit sur l'obélisque
+      c.ctx.player.state.camPitch = 0;
+    }, setup.obelisk);
+    await step(page, 0.5);
+    let minObelisk = Infinity;
+    await page.keyboard.down('KeyW');
+    await page.keyboard.down('ShiftLeft');
+    for (let i = 0; i < 4; i++) {
+      await step(page, 1.5);
+      const now = await state(page);
+      minObelisk = Math.min(minObelisk, Math.hypot(now.x - setup.obelisk.x, now.z - setup.obelisk.z));
+      last = now;
+    }
+    await page.keyboard.up('ShiftLeft');
+    await page.keyboard.up('KeyW');
+    await capture('game-contre-obelisque');
+    check(last.free && !last.inBuilding, 'après la course, le joueur n’est dans aucun obstacle');
+    check(minObelisk > 5 && minObelisk < 14, 'il n’a pas traversé l’obélisque : il a buté sur sa grille', `distance minimale au centre ${minObelisk.toFixed(1)} m`);
+
+    // ── avance rapide (touche « . ») ──
+    const ts0 = await page.evaluate(() => window.__CRS.ctx.clock.timeScale);
+    await page.keyboard.down('Period');
+    await step(page, 0.2);
+    await page.keyboard.up('Period');
+    await step(page, 0.2);
+    const ts1 = await page.evaluate(() => window.__CRS.ctx.clock.timeScale);
+    await page.keyboard.down('Period');
+    await step(page, 0.2);
+    await page.keyboard.up('Period');
+    await step(page, 0.2);
+    const ts2 = await page.evaluate(() => window.__CRS.ctx.clock.timeScale);
+    check(ts0 === 1 && ts1 === 4 && ts2 === 1, 'la touche d’avance rapide bascule la vitesse de la simulation', `×${ts0} → ×${ts1} → ×${ts2}`);
+
+    // ── roue d'ordres pour un simple CRS : un message, pas un silence ──
+    await page.keyboard.down('KeyF');
+    await frames(page, 2);
+    await page.keyboard.up('KeyF');
+    await frames(page, 3);
+    check((await page.evaluate(() => window.__CRS.ctx.service('ui.debug').notices())).some((t) => /recevez les ordres/.test(t)), 'touche des ordres pour un équipier : « Vous recevez les ordres »');
+    check((await state(page)).screen === null, '… et aucun écran ne reste ouvert');
+
+    // ── les unités manœuvrent : le commandant IA déploie la compagnie (ordres, comptes rendus radio) ──
+    const unitsBefore = await page.evaluate(() => {
+      const c = window.__CRS.ctx;
+      return c.people.list.filter((q) => q.faction === 'police' && !q.isPlayer && q.vehicleId === 0).map((q) => ({ id: q.id, x: q.x, z: q.z }));
+    });
+    await step(page, 100);
+    const units = await page.evaluate((before) => {
+      const c = window.__CRS.ctx;
+      let moved = 0;
+      for (const b of before) {
+        const q = c.people.get(b.id);
+        if (q && Math.hypot(q.x - b.x, q.z - b.z) > 5) moved++;
+      }
+      const stuck = c.people.list.filter((q) => q.faction === 'police' && q.vehicleId === 0 && !c.world.isFree(q.x, q.z, 0.05)).length;
+      return { moved, total: before.length, stuck, radio: c.radio.log.length, last: c.radio.log.slice(-3).map((m) => `${m.from} : ${m.text.slice(0, 70)}`), command: c.service('police.command')?.commands?.[0]?.phase ?? '' };
+    }, unitsBefore);
+    r.units = units;
+    check(units.moved >= 10, 'les unités manœuvrent sur ordre du commandant IA', `${units.moved} agents sur ${units.total} se sont déplacés de plus de 5 m ; commandement « ${units.command} » ; ${units.radio} messages radio — ${units.last.join(' | ')}`);
+    check(units.stuck === 0, 'aucun agent dans un obstacle après la manœuvre');
+    await page.evaluate(() => {
+      const c = window.__CRS;
+      const s = c.ctx.service('session.setup').summary;
+      c.teleport(s.x - Math.sin(s.heading) * 3, s.z - Math.cos(s.heading) * 3);
+      c.ctx.player.state.camYaw = s.heading;
+      c.ctx.player.state.camPitch = 0;
+    });
+    await step(page, 0.5);
+    await capture('game-unites-en-manoeuvre');
+
+    // ── première personne pour le lancer ──
     await page.keyboard.press('KeyV');
     await step(page, 0.3);
     s = await state(page);
-    check(s.camera === 'fps', 'la touche V revient à la première personne', s.camera);
+    check(s.camera === 'fps', 'la touche V repasse à la première personne', s.camera);
 
     // ── grenade lacrymogène : sélection, lancer, projectile, gaz ──
     const slot = setup.inventory.indexOf('grenade_lacrymo') + 1;

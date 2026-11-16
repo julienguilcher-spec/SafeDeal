@@ -19,7 +19,10 @@ const MODULES = [world, roles, people, items, hazards, law, props, vehicles];
 
 describe('groupes radicaux — casse, pillage, barricade', () => {
   it('brise une vitrine qui est ensuite pillée, monte une barricade en travers de la rue et l\'incendie', async () => {
-    const t = createRadicalTest({ seed: 9, modules: MODULES });
+    // Graine 18 (au lieu de 9) depuis l'assemblage 2 : les troncs d'arbres sont devenus des obstacles, ce qui change
+    // le détail des trajets. Scénario émergent : sur 12 graines essayées avec les troncs (15 à 26), la barricade est
+    // incendiée 8 fois et une boutique pillée 10 fois ; les graines 18, 24, 25 et 26 donnent la chaîne complète.
+    const t = createRadicalTest({ seed: 18, modules: MODULES });
     const { ctx, watch } = t;
     const windows: { t: number; id: EntityId; state: string; by: string; category: string }[] = [];
     const loots: { t: number; id: EntityId; by: string }[] = [];

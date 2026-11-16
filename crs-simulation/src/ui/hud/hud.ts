@@ -11,7 +11,7 @@ import type { SeatRole } from '@/core/contracts';
 import type { HudSlot, HudWidget } from '@/core/extensions';
 import type { InputTouchApi } from '@/input/api';
 import { h } from '../core/dom';
-import { COMPACT_HEIGHT, touchScale } from './layout';
+import { isCompact, touchScale } from './layout';
 import { hudProfile } from './model';
 import type { HudEnv, HudPart, HudState, TouchMode } from './types';
 
@@ -245,7 +245,9 @@ export class Hud {
         room = 2 * Math.min(center - 12, rightEdge - center);
       }
       const width = Math.round(Math.max(200, Math.min(460, room)));
-      top = Math.round(top);
+      // jamais au milieu de l'écran, sur le réticule : au plus au tiers de la hauteur (petite fenêtre, panneau
+      // de gauche très haut) — quitte à passer devant le bas de ce panneau
+      top = Math.round(Math.min(top, s.height * 0.3));
       if (Math.abs(top - this.noticeTop) > 1 || width !== this.toastMax) {
         this.noticeTop = top;
         this.toastMax = width;
@@ -319,7 +321,7 @@ export class Hud {
       const hgt = this.root.clientHeight || (typeof window !== 'undefined' ? window.innerHeight : 720);
       s.width = w;
       s.height = hgt;
-      s.compact = hgt < COMPACT_HEIGHT;
+      s.compact = isCompact(w, hgt);
     }
     const touch = ctx.service<InputTouchApi>('input.touch');
     let mode: TouchMode = 'none';

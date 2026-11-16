@@ -51,6 +51,9 @@ export class Notices {
   private bannerLeft = 0;
   private bannerKey = '';
   private bannerAge = 1e9;
+  /** Un écran bloquant recouvre le jeu : les notifications antérieures sont masquées (voir setCovered). */
+  private covered = false;
+  private paused = false;
 
   constructor(layer: HTMLElement, private readonly options: NoticesOptions) {
     this.toastsEl = h('div', 'ui-toasts');
@@ -180,6 +183,24 @@ export class Notices {
       if (this.bannerLeft <= 0) this.bannerEl.hidden = true;
       else if (this.bannerLeft < 0.4) this.bannerEl.classList.add('is-out');
     }
+  }
+
+  /**
+   * Un écran bloquant vient de s'ouvrir par-dessus le jeu (`covered` = true) : les notifications DÉJÀ affichées
+   * sont masquées tant qu'il reste ouvert (leur minuterie continue de courir) ; celles qui arrivent ensuite —
+   * réponses aux gestes faits dans cet écran — s'affichent normalement. `covered` = false : tout réapparaît.
+   */
+  setCovered(covered: boolean): void {
+    if (covered === this.covered) return;
+    this.covered = covered;
+    for (const t of this.toasts) t.el.classList.toggle('is-covered', covered);
+  }
+
+  /** Partie en pause : les sous-titres en cours sont masqués (ils reviennent à la reprise s'ils n'ont pas expiré). */
+  setPaused(paused: boolean): void {
+    if (paused === this.paused) return;
+    this.paused = paused;
+    this.subsEl.classList.toggle('is-paused', paused);
   }
 
   /** Notifications et sous-titres présents à l'écran (le HUD les place alors à côté de ses éléments). */

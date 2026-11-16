@@ -26,7 +26,7 @@ import { loadMonumentColliders } from './monuments';
 import { BucketBuilder } from './obstacles';
 import { CODE_GRAVEL, CODE_PARK, CODE_VOID, GRID_SIZE, surfaceOfCode } from './raster';
 import type { TileGrid } from './raster';
-import { ROAD_ANY } from './roads';
+import { ROAD_ANY, ROAD_DRIVABLE } from './roads';
 import { DEFAULT_BASE_URL, FetchMapSource, createTestDistrictSource, testDistrictRaw } from './sources';
 import { findSpawnPoint } from './spawn';
 import { buildTileGrid, patchNeighbourGrid } from './surfaces';
@@ -299,6 +299,27 @@ export class WorldQueryImpl implements WorldQueryExt, TileHost {
     this.decodeMs += ms;
   }
 
+  /**
+   * Troncs des arbres de la tuile : obstacles pleins (on ne traverse plus un platane). Le rayon suit la règle du
+   * rendu (src/world/view/trees.ts, treeShape) : il ne dépend que de la hauteur et du rayon de couronne de la carte.
+   * Un arbre que la carte pose dans l'emprise roulable d'une voie est ignoré : il arrêterait la circulation.
+   */
+  private addTrunks(builder: BucketBuilder, trees: { count: number; x: ArrayLike<number>; z: ArrayLike<number>; height: ArrayLike<number>; crownRadius: ArrayLike<number> } | undefined): void {
+    if (!trees || trees.count === 0) return;
+    const roads = this.base.roads;
+    for (let i = 0; i < trees.count; i++) {
+      const x = trees.x[i], z = trees.z[i];
+      const h = Math.min(45, Math.max(2, trees.height[i]));
+      const r = Math.min(8, Math.max(0.8, trees.crownRadius[i]));
+      const radius = Math.min(0.42, Math.max(0.08, h * 0.012 + r * 0.012 + 0.03));
+      if (roads !== null && roads.nearest(x, z, 14, ROAD_DRIVABLE)) {
+        const edge = roads.edges[roads.snapEdge];
+        if (edge && roads.snapDist < edge.width * 0.5 + radius + 0.35) continue;
+      }
+      builder.addTrunk(x, z, radius, h);
+    }
+  }
+
   tileDecoded(entry: TileEntry): void {
     const tile = entry.tile;
     if (tile === null) return;
@@ -335,6 +356,7 @@ export class WorldQueryImpl implements WorldQueryExt, TileHost {
       }
     }
     for (const b of tile.barriers) builder.addBarrier(b.kind, b.height, b.points);
+    this.addTrunks(builder, tile.trees);
     const bucket = builder.build();
     this.collisionMs += now() - t0;
     // Les bâtiments de cette tuile qui débordent chez les voisines sont ajoutés à leurs grilles.

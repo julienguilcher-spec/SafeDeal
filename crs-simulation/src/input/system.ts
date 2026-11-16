@@ -263,6 +263,11 @@ export class InputSystem implements GameSystem {
     this.core.beginFrame(simRunning);
     if (this.kbm) this.kbm.enforceLockPolicy();
     this.touch.update(dt, this.core.device);
+    // Appareil tenu en portrait : le message « Tournez votre appareil » couvre tout l'écran et les commandes
+    // tactiles sont coupées — la partie ne doit pas continuer derrière. On demande la pause (une fois : autoPause
+    // ne fait rien hors du jeu ni quand un écran est déjà ouvert).
+    const overlay = this.touch.overlay;
+    if (overlay && overlay.visible && overlay.portrait) this.autoPause();
   }
 
   reset(): void {
@@ -479,6 +484,9 @@ export class InputSystem implements GameSystem {
     },
     request(): void {
       const ctx = self.ctx;
+      // La capture ne sert qu'au clavier-souris : quand on joue au doigt ou à la manette (« Reprendre » touché ou
+      // validé au bouton A), on ne capture pas une souris dont personne ne se sert.
+      if (self.core.device !== 'kbm') return;
       if (self.kbm && !ctx.ui.modal && ctx.session.phase !== 'paused') self.kbm.requestPointer();
     },
     release(): void {

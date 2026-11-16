@@ -1231,7 +1231,9 @@ export type Button =
   | 'item_next' | 'item_prev' | 'slot1' | 'slot2' | 'slot3' | 'slot4' | 'slot5' | 'slot6' | 'slot7' | 'slot8' | 'slot9'
   | 'radio' | 'orders' | 'map' | 'tactical' | 'camera' | 'pause' | 'flashlight' | 'mask' | 'visor'
   | 'siren' | 'beacons' | 'horn' | 'handbrake' | 'headlights' | 'megaphone' | 'fast_forward'
-  | 'zoom_in' | 'zoom_out' | 'ui_accept' | 'ui_back' | 'ui_up' | 'ui_down' | 'ui_left' | 'ui_right';
+  | 'zoom_in' | 'zoom_out' | 'ui_accept' | 'ui_back' | 'ui_up' | 'ui_down' | 'ui_left' | 'ui_right'
+  /** Bascule d'allure au clavier : marche (par défaut) ↔ petite foulée. Ajout de l'assemblage 2. */
+  | 'jog';
 
 export interface InputState {
   readonly device: InputDevice;

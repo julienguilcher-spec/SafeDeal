@@ -479,6 +479,27 @@ describe('droit — proportionnalité et moyens interdits', () => {
     expect(ctx.law.forceLog.length).toBe(n);
   });
 
+  it('collègue renversé par le conducteur d’un véhicule de police : relevé comme faute (recette du premier jeu assemblé)', async () => {
+    const law = await startLaw();
+    const { ctx } = law;
+    const conducteur = crs(ctx, 0, 0, { poste: 'conducteur' });
+    const collegue = crs(ctx, 0, 9, { poste: 'bouclier' });
+    const fourgon = ctx.vehicles.spawn('fourgon_crs', 0, 0, 0, { faction: 'police' });
+    ctx.vehicles.enter(conducteur, fourgon, 'driver');
+    const fautes: number[] = [];
+    ctx.events.on('law:force', (e) => { if (e.report.verdict.kind !== 'licite') fautes.push(e.report.verdict.severity); });
+    const n = ctx.law.forceLog.length;
+    ctx.events.emit('vehicle:collision', { vehicleId: fourgon.id, otherKind: 'person', otherId: collegue.id, speed: 9, x: 0, z: 8 });
+    expect(ctx.law.forceLog.length).toBe(n + 1);
+    const rec = ctx.law.forceLog.at(-1) as ForceRecord;
+    expect(rec.means).toBe('vehicule');
+    expect(rec.targetId).toBe(collegue.id);
+    expect(rec.verdict.kind).toBe('interdit');
+    expect(rec.verdict.severity).toBe(4);
+    expect(rec.verdict.reason).toContain('Collègue renversé');
+    expect(fautes).toEqual([4]);
+  });
+
   it('tir tendu au lanceur de grenades : interdit, constaté sur la vitesse du projectile', async () => {
     const law = await startLaw();
     const { ctx } = law;

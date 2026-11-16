@@ -26,6 +26,8 @@ export const WALL_HIDDEN = 2;
 
 /** Distance (m) à laquelle on cherche un voisin derrière un mur pour le dire mitoyen. */
 const PARTY_PROBE = 0.4;
+/** Part de la hauteur du mur que le voisin doit couvrir pour que ce mur soit dit mitoyen (aveugle). */
+const PARTY_MIN_COVER = 0.6;
 /** Distance (m) pour dire qu'un mur est réellement collé au voisin (donc invisible). */
 const HIDDEN_PROBE = 0.08;
 const GRID_CELL = 32;
@@ -390,6 +392,10 @@ function classifyWalls(p: PreparedTile): void {
           const px = ax + dx * t, pz = az + dz * t;
           const nb = neighborAt(p, px + nx * PARTY_PROBE, pz + nz * PARTY_PROBE, k);
           if (nb < 0) continue;
+          // Voisin nettement plus bas (boutique d'un étage, porche, aile basse devant un immeuble) : il ne masque que
+          // le pied du mur ; au-dessus, c'est une vraie façade, pas un pignon aveugle. Sans ce garde-fou, des pans
+          // gris sans fenêtres apparaissaient en pleine rue (rue Royale) entre deux façades détaillées.
+          if (p.baseY[nb] + p.wallH[nb] < p.baseY[k] + p.wallH[k] * PARTY_MIN_COVER) continue;
           hits++;
           if (p.baseY[nb] + p.wallH[nb] >= myTop - 0.25 && insideBuilding(p, nb, px + nx * HIDDEN_PROBE, pz + nz * HIDDEN_PROBE)) hidden++;
         }

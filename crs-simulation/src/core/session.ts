@@ -313,6 +313,7 @@ export class SessionController implements SessionApi {
       // point de départ
       let x = 0;
       let z = 0;
+      let unknownPlace = '';
       if (typeof cfg.x === 'number' && typeof cfg.z === 'number') {
         x = cfg.x;
         z = cfg.z;
@@ -322,7 +323,10 @@ export class SessionController implements SessionApi {
           x = place.x;
           z = place.z;
         } else {
-          if (cfg.place) console.warn(`[session] lieu inconnu « ${cfg.place} » : départ au centre du monde`);
+          if (cfg.place) {
+            console.warn(`[session] lieu inconnu « ${cfg.place} » : départ au centre du monde`);
+            unknownPlace = cfg.place;
+          }
           const b = ctx.world.bounds;
           if (b.minX > 0 || b.maxX < 0 || b.minZ > 0 || b.maxZ < 0) {
             x = (b.minX + b.maxX) * 0.5;
@@ -348,6 +352,10 @@ export class SessionController implements SessionApi {
         if (token !== this.token) return; // remplacée ou annulée pendant les préparations
       }
       this.setPhase('playing');
+      // le joueur doit savoir qu'il n'est pas là où il l'a demandé (une fois l'écran de chargement tombé)
+      if (unknownPlace !== '') {
+        ctx.ui.notify(`Lieu inconnu « ${unknownPlace} » : départ ${ctx.world.sectorName(x, z) || 'au centre de la carte'}.`, 'warn', 12);
+      }
     } catch (err) {
       // chargement impossible (ou, en mode strict, erreur d'un système ou d'un abonné) : retour au menu
       if (token === this.token) {

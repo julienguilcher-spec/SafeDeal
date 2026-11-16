@@ -149,7 +149,9 @@ export function wireEvents(k: Kernel): Unsubscribe[] {
     const driver = driverOf(ctx, v);
     if (!driver || driver === victim) return;
     if (driver.faction === 'police') {
-      if (victim.faction !== 'police') k.force.report(driver, 'vehicule', victim, e.x, e.z, true);
+      // personne renversée par un véhicule de police : relevé dans tous les cas — un collègue renversé est
+      // une faute de conduite, pas un emploi de la force, mais elle figure au journal et au compte rendu
+      k.force.report(driver, 'vehicule', victim, e.x, e.z, true);
     } else if (victim.faction === 'police') {
       k.attack.note(e.x, e.z);
       k.offenses.record(driver, 'violence_agent', e.x, e.z);

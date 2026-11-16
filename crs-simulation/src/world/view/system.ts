@@ -44,6 +44,11 @@ interface WorldDataLike extends Map2dSource {
 
 interface MonumentsLike { has(key: string): boolean }
 
+/** Clé numérique d'une tuile (indices de −2048 à 2047). */
+function tileIndexKey(tx: number, tz: number): number {
+  return (tx + 2048) * 4096 + (tz + 2048);
+}
+
 interface Slot {
   readonly tx: number;
   readonly tz: number;
@@ -94,6 +99,8 @@ export class WorldViewSystem implements GameSystem {
   private horizon: Horizon | null = null;
   private quality: QualityLevel = 'moyen';
   private readonly slots = new Map<string, Slot>();
+  /** Mêmes tuiles, par clé numérique : liftAt est appelé pour chaque personnage à chaque image, sans fabriquer de chaîne. */
+  private readonly slotsByIndex = new Map<number, Slot>();
   private readonly slotList: Slot[] = [];
   private queue: BuildJob[] = [];
   private active: ActiveJob | null = null;
@@ -179,6 +186,7 @@ export class WorldViewSystem implements GameSystem {
       if (slot.far) slot.far.dispose();
     }
     this.slots.clear();
+    this.slotsByIndex.clear();
     this.slotList.length = 0;
     this.queue.length = 0;
     if (this.horizon) this.horizon.dispose();
@@ -249,6 +257,7 @@ export class WorldViewSystem implements GameSystem {
           fetching: false, fetchFailed: 0, painted: false,
         };
         this.slots.set(slot.key, slot);
+        this.slotsByIndex.set(tileIndexKey(slot.tx, slot.tz), slot);
         this.slotList.push(slot);
       }
       if (this.options.horizon !== false) {
@@ -569,7 +578,8 @@ export class WorldViewSystem implements GameSystem {
   }
 
   private liftAt(x: number, z: number): number {
-    const slot = this.slots.get(`${Math.floor(x / TILE_SIZE)}_${Math.floor(z / TILE_SIZE)}`);
+    // clé numérique : aucune allocation (la fonction sert à poser chaque personnage sur le sol dessiné, à chaque image)
+    const slot = this.slotsByIndex.get(tileIndexKey(Math.floor(x / TILE_SIZE), Math.floor(z / TILE_SIZE)));
     return slot !== undefined && slot.detail !== null ? slot.detail.liftAt(x, z) : 0;
   }
 

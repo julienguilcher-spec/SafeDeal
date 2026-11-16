@@ -94,6 +94,10 @@ export class OrderWheelScreen implements ScreenInstance {
       const cap = el('div', 'cw-cap');
       cap.append(el('b', undefined, 'Roue d’ordres'), document.createTextNode('Aucune unité n’est sous vos ordres\u00a0: vous recevez les ordres, vous n’en donnez pas.'));
       this.root.appendChild(cap);
+      // Aucune roue à ce poste : on le DIT par une notification qui reste lisible quelques secondes (le message
+      // ci-dessus disparaissait au relâchement de la touche — invisible pour un appui bref ou un bouton tactile),
+      // sans bloquer les commandes du joueur. L'écran se referme à la première image.
+      ctx.ui.notify('Vous recevez les ordres : pas de roue d’ordres à ce poste. La carte tactique reste consultable.', 'info', 5);
       return;
     }
 
@@ -208,8 +212,8 @@ export class OrderWheelScreen implements ScreenInstance {
     this.ticks++;
     const wheel = this.wheel;
     if (!wheel) {
-      // simple message : il disparaît quand la touche est relâchée (ou après un court délai)
-      if ((this.held && !input.down('orders')) || this.age > 2.2) this.close();
+      // pas de roue à ce poste (notification déjà affichée) : rien à tenir ouvert
+      this.close();
       return;
     }
     if (input.device === 'gamepad') {
