@@ -62,12 +62,12 @@ describe('monter et descendre (API)', () => {
     const v = b.spawn('fourgon_crs', 0, 0, 0.4);
     const driver = b.driver(v);
     const riders: Person[] = [];
-    for (let i = 1; i < 6; i++) {
+    for (let i = 1; i < 9; i++) {
       const p = b.person('crs', 50, 50);
       expect(b.ctx.vehicles.enter(p, v, i)).toBe(true);
       riders.push(p);
     }
-    expect(b.ctx.vehicles.enter(b.person('crs', 0, 0), v)).toBe(false); // complet : 6 places
+    expect(b.ctx.vehicles.enter(b.person('crs', 0, 0), v)).toBe(false); // complet : 9 places (type Master)
     for (let i = 0; i < 30 * 8; i++) {
       v.cmd.throttle = 0.7;
       v.cmd.steer = Math.sin(i / 40) * 0.6;

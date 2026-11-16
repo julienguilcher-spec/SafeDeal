@@ -21,15 +21,20 @@ import { TimeWarpSystem } from './timewarp';
 
 import { FollowLeaderSystem } from './follow';
 import { PlayerOrdersSystem } from './orders';
+import { JourneeSystem } from './journee';
 export { FollowLeaderSystem } from './follow';
 export { ORDER_OBJECTIVE_ID, ORDERS_SERVICE, PlayerOrdersSystem } from './orders';
 export type { PlayerOrdersApi } from './orders';
+export { JOURNEE_OBJECTIVE_ID, JOURNEE_SERVICE, JourneeSystem } from './journee';
+export type { JourneeApi, JourneeStage } from './journee';
+export { SERVICE_BASE, isJournee } from './journee-data';
 
 /**
  * Systèmes : mise en place ('session.setup'), avance rapide ('session.timewarp', touche « . »), l'unité suit le joueur
- * ('session.follow', colonne de véhicules) et les ordres de la chaîne de commandement IA au joueur ('session.orders').
+ * ('session.follow', colonne de véhicules), les ordres de la chaîne de commandement IA au joueur ('session.orders') et la
+ * journée de service ('session.journee' : caserne, colonne, manifestation, retour).
  */
-export const createSystems: ModuleFactory = () => [new SessionSetupSystem(), new TimeWarpSystem(), new FollowLeaderSystem(), new PlayerOrdersSystem()];
+export const createSystems: ModuleFactory = () => [new SessionSetupSystem(), new TimeWarpSystem(), new FollowLeaderSystem(), new PlayerOrdersSystem(), new JourneeSystem()];
 
 export { SessionSetupSystem } from './setup';
 export { FAST_FORWARD_SCALE, TIME_WARP_SERVICE, TimeWarpSystem } from './timewarp';

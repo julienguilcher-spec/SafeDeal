@@ -292,6 +292,11 @@ export interface ConvoyDestination {
   lineHeading?: number;
   /** false : les unités restent à bord à l'arrivée (défaut true). */
   disembark?: boolean;
+  /**
+   * true : l'unité embarque d'abord (ordre « embarquer », retardataires, et le joueur s'il en fait partie : la colonne
+   * l'attend) ; la colonne ne part qu'ensuite. Défaut false : départ immédiat avec ceux qui sont à bord.
+   */
+  boardFirst?: boolean;
 }
 
 export interface ConvoyStatus {

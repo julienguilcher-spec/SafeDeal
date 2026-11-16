@@ -58,7 +58,7 @@ describe('définitions des véhicules', () => {
     expect(ele.mass).toBe(29000);
     expect(ele.seats.length).toBe(3);
     const fourgon = byKind.get('fourgon_crs')!;
-    expect(fourgon.seats.length).toBe(6); // un groupe
+    expect(fourgon.seats.length).toBe(9); // un groupe de sept et son chauffeur (fourgon 9 places)
     expect(fourgon.mass).toBe(3500);
     expect(byKind.get('car_crs')!.seats.length).toBe(50); // 1 + 49
     expect(byKind.get('moto_bravm')!.seats.map((s) => s.role)).toEqual(['driver', 'passenger']);

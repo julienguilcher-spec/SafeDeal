@@ -126,6 +126,12 @@ export class PlayerOrdersSystem implements GameSystem {
       return;
     }
     if (now - this.startedAt < FIRST_ORDER_DELAY) return;
+    // journée de service : pendant l'embarquement, la route et le retour, c'est le déplacement qui est l'ordre
+    const journee = ctx.service<{ travelling: boolean }>('session.journee');
+    if (journee && journee.travelling) {
+      if (this.cur) this.drop();
+      return;
+    }
 
     if (kind === 'crs') {
       this.mirrorGroup(me, now);

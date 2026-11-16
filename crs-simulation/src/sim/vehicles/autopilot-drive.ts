@@ -232,7 +232,8 @@ export class ApDriver {
         const dx = b.v.x - v.x;
         const dz = b.v.z - v.z;
         const lag = Math.sqrt(dx * dx + dz * dz) - rt.halfL - b.halfL - bap.followDist;
-        if (bap.mode === 'follow' && lag > bap.followDist * 2.5) vt = Math.min(vt, Math.max(1, vt * 0.4));
+        // la tête ralentit quand le suivant décroche, et s'arrête s'il est resté loin derrière (bloqué au départ)
+        if (bap.mode === 'follow' && lag > bap.followDist * 2.5) vt = Math.min(vt, lag > 70 ? 0 : Math.max(1, vt * 0.4));
       }
     }
     // rue fermée

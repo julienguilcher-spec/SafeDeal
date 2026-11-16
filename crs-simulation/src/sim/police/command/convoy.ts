@@ -12,7 +12,7 @@
  * ===================================================================================== */
 
 import type { OrderType, Vehicle } from '@/core/contracts';
-import { angleDiff } from '@/core/math';
+import { angleDiff, projectOnPolyline } from '@/core/math';
 import { agentOf } from '../brain';
 import { COMMAND_CONVOY_EVENT } from './api';
 import type { ConvoyDestination, ConvoyEvent, ConvoyStage, ConvoyStatus } from './api';
@@ -35,7 +35,16 @@ interface Convoy {
   orderDone: boolean;
   /** Instant où les retardataires ont commencé à rejoindre un véhicule (0 : pas encore). */
   stragglersAt: number;
+  /** Embarquement préalable en cours (arrive avec boardFirst) : la colonne n'est pas encore partie. */
+  boarding: boolean;
+  /** Attente du joueur (instant du début, 0 sinon) et du dernier rappel radio. */
+  waitSince: number;
+  remindAt: number;
 }
+
+/** Attente maximale du joueur avant que la colonne parte sans lui (s), et intervalle des rappels radio. */
+const PLAYER_WAIT = 300;
+const PLAYER_REMIND = 30;
 
 /** Rang d'un véhicule dans la colonne : commandement en tête, fourgons, puis le cellulaire en serre-file. */
 function columnRank(v: Vehicle): number {
@@ -45,6 +54,7 @@ function columnRank(v: Vehicle): number {
 export class ConvoyControl {
   readonly list: Convoy[] = [];
   private thinkAt = 0;
+  private readonly pathBuf: number[] = [];
 
   constructor(private readonly core: CommandCore) {}
 
@@ -83,7 +93,7 @@ export class ConvoyControl {
       c = {
         status: { squadId, stage: 'route', vehicles: 0, parked: 0, alignError: -1, headingError: -1, t0: this.core.now },
         vehicles: [], dest: { x: 0, z: 0, heading: 0 }, hasDest: false, exitX: 0, exitZ: 0, hasExit: false, stageT: this.core.now,
-        fromX: 0, fromZ: 0, orderDone: false, stragglersAt: 0,
+        fromX: 0, fromZ: 0, orderDone: false, stragglersAt: 0, boarding: false, waitSince: 0, remindAt: 0,
       };
       this.list.push(c);
     }
@@ -102,6 +112,91 @@ export class ConvoyControl {
   }
 
   /**
+   * Départ d'un stationnement : la colonne part dans l'ordre PHYSIQUE — d'abord le véhicule le plus proche de la
+   * sortie (le début de l'itinéraire vers la destination), sans quoi un fourgon attend celui qui le bloque et qui
+   * l'attend lui-même. Le véhicule de commandement reste en tête s'il n'est pas enfermé derrière les autres.
+   */
+  private orderForDeparture(c: Convoy, tx: number, tz: number): void {
+    const list = c.vehicles;
+    if (list.length < 2) return;
+    const ctx = this.core.ctx;
+    let cx = 0, cz = 0;
+    for (const v of list) { cx += v.x; cz += v.z; }
+    cx /= list.length;
+    cz /= list.length;
+    // direction de la sortie : point de l'itinéraire à ~40 m du stationnement (sinon, droit vers la destination)
+    let ex = tx - cx, ez = tz - cz;
+    const path = this.pathBuf;
+    path.length = 0;
+    try {
+      if (ctx.world.findPath(cx, cz, tx, tz, 'vehicle', path) && path.length >= 4) {
+        for (let i = 2; i < path.length; i += 2) {
+          const d = Math.hypot(path[i]! - cx, path[i + 1]! - cz);
+          ex = path[i]! - cx;
+          ez = path[i + 1]! - cz;
+          if (d > 40) break;
+        }
+      }
+    } catch {
+      // itinéraire indisponible : direction de la destination
+    }
+    const l = Math.hypot(ex, ez);
+    if (l < 1) return;
+    const fx = ex / l, fz = ez / l;
+    // abscisse le long de l'itinéraire quand il est connu (véhicules en file le long de la voie), sinon projection
+    const onPath = path.length >= 4;
+    const tmp = { x: 0, z: 0 };
+    const ahead = (v: Vehicle): number => (onPath ? projectOnPolyline(v.x, v.z, path, tmp) : (v.x - cx) * fx + (v.z - cz) * fz);
+    let front = -Infinity;
+    for (const v of list) if (ahead(v) > front) front = ahead(v);
+    // tête : le plus avancé vers la sortie (le véhicule de commandement s'il n'est pas enfermé)
+    let head = 0;
+    let best = -Infinity;
+    for (let i = 0; i < list.length; i++) {
+      const v = list[i]!;
+      const k = v.kind === 'vl_commandement' && ahead(v) > front - 4 ? 1e9 : ahead(v);
+      if (k > best) { best = k; head = i; }
+    }
+    // puis chacun suit son voisin immédiat : la file se défait dans l'ordre où elle est garée
+    const out: Vehicle[] = [list[head]!];
+    const rest = list.filter((_, i) => i !== head);
+    while (rest.length > 0) {
+      const last = out[out.length - 1]!;
+      let k = 0;
+      let kd = Infinity;
+      for (let i = 0; i < rest.length; i++) {
+        const d = Math.hypot(rest[i]!.x - last.x, rest[i]!.z - last.z) - ahead(rest[i]!) * 0.05;
+        if (d < kd) { kd = d; k = i; }
+      }
+      out.push(rest.splice(k, 1)[0]!);
+    }
+    for (let i = 0; i < out.length; i++) list[i] = out[i]!;
+  }
+
+  /**
+   * Avant le départ : chaque véhicule a un conducteur (un passager de l'IA prend le volant si le siège est vide) ;
+   * un véhicule resté vide est laissé sur place (il casserait la colonne : ceux qui le suivent l'attendraient).
+   */
+  private manVehicles(c: Convoy): void {
+    const ctx = this.core.ctx;
+    for (let i = c.vehicles.length - 1; i >= 0; i--) {
+      const v = c.vehicles[i]!;
+      if (v.seats[0] !== 0) continue;
+      let moved = false;
+      for (let s = 1; s < v.seats.length && !moved; s++) {
+        const p = v.seats[s] !== 0 ? ctx.people.get(v.seats[s]!) : undefined;
+        if (!p || p.isPlayer || p.custody !== 'free' || p.faction !== 'police') continue;
+        ctx.vehicles.exit(p);
+        moved = ctx.vehicles.enter(p, v, 0);
+        if (!moved) ctx.vehicles.enter(p, v, s);
+      }
+      if (!moved) c.vehicles.splice(i, 1);
+    }
+    c.status.vehicles = c.vehicles.length;
+  }
+
+
+  /**
    * Avant le départ de la colonne : les agents restés à pied près des véhicules (places de leur groupe déjà
    * prises) montent là où il reste de la place, fourgon cellulaire compris. Personne ne reste devant les roues.
    */
@@ -109,12 +204,14 @@ export class ConvoyControl {
     const core = this.core;
     const ctx = core.ctx;
     const n = core.members(c.status.squadId, core.people);
+    const reserved = this.reservedFor(c);
     for (let i = 0; i < n; i++) {
       const p = core.people[i];
       if (p.vehicleId !== 0 || p.isPlayer || p.posture === 'down' || p.custody !== 'free') continue;
       for (let k = c.vehicles.length - 1; k >= 0; k--) {
         const v = c.vehicles[k];
         if (Math.hypot(v.x - p.x, v.z - p.z) > 60) continue;
+        if (v.id === reserved && this.freeSeats(v) <= 1) continue;
         if (ctx.vehicles.enter(p, v, 'passenger')) break;
       }
     }
@@ -141,6 +238,18 @@ export class ConvoyControl {
       c.fromZ = lead.z;
     }
     const ap = core.autopilot;
+    c.boarding = false;
+    c.waitSince = 0;
+    if (dest.boardFirst && lead && ap) {
+      // embarquement d'abord : la colonne est « en route » pour le commandement (il attend), mais ne roule pas encore
+      c.boarding = true;
+      c.stragglersAt = 0;
+      c.status.stage = 'echec';
+      this.setStage(c, 'route');
+      core.issue(squadId, { type: 'embarquer', issuedBy: squad.leaderId });
+      core.say(squad.name, frame('À TOUS', squad.name, 'Embarquez, départ en colonne', false), 1, 'commandement', squad.leaderId);
+      return true;
+    }
     c.status.stage = 'echec';
     if (lead && ap) this.seatStragglers(c);
     if (lead && ap && ap.convoy(c.vehicles, dest.x, dest.z, { gap: core.tuning.convoyGap, speed: core.tuning.convoySpeed })) {
@@ -153,8 +262,88 @@ export class ConvoyControl {
     return lead !== undefined;
   }
 
+  /** Embarquement préalable : ordre exécuté, retardataires à bord, joueur à bord (ou attente épuisée) → départ. */
+  private thinkBoard(c: Convoy): void {
+    const core = this.core;
+    // le joueur est attendu (rappels radio) pendant tout l'embarquement, pas seulement à la fin
+    const waiting = this.awaitPlayer(c);
+    if (!c.orderDone && core.now - c.stageT < 200) return;
+    if (c.stragglersAt === 0) c.stragglersAt = core.now;
+    if (this.boardStragglers(c) > 0 && core.now - c.stragglersAt < 90) return;
+    if (waiting) return;
+    const ap = core.autopilot;
+    this.seatStragglers(c);
+    this.manVehicles(c);
+    this.orderForDeparture(c, c.dest.x, c.dest.z);
+    c.boarding = false;
+    c.stageT = core.now;
+    const squad = core.ctx.squads.get(c.status.squadId);
+    if (ap && c.vehicles.length > 0 && ap.convoy(c.vehicles, c.dest.x, c.dest.z, { gap: core.tuning.convoyGap, speed: core.tuning.convoySpeed, urgence: true })) {
+      if (squad) core.say(squad.name, frame('CENTRAL', squad.name, 'En route vers la zone de stationnement, ' + spell(c.vehicles.length) + ' véhicules en colonne', false), 1, 'commandement', squad.leaderId);
+      return;
+    }
+    this.beginDisembark(c);
+  }
+
+  private freeSeats(v: Vehicle): number {
+    let free = 0;
+    for (let s = 0; s < v.seats.length; s++) if (v.seats[s] === 0 && v.def.seats[s] && v.def.seats[s].role === 'passenger') free++;
+    return free;
+  }
+
+  /**
+   * Véhicule où une place reste réservée au joueur (celui de son groupe, à défaut le premier de la colonne) tant qu'il
+   * est à pied et fait partie de l'unité : les retardataires de l'IA ne la lui prennent pas. 0 si aucun.
+   */
+  private reservedFor(c: Convoy): number {
+    const core = this.core;
+    const ctx = core.ctx;
+    const pid = ctx.player.state.personId;
+    const p = pid !== 0 ? ctx.people.get(pid) : undefined;
+    if (!p || p.vehicleId !== 0 || c.vehicles.length === 0) return 0;
+    const n = core.members(c.status.squadId, core.people2);
+    let mine = false;
+    for (let i = 0; i < n; i++) if (core.people2[i] === p) { mine = true; break; }
+    if (!mine) return 0;
+    const own = p.squadId !== 0 ? ctx.squads.get(p.squadId) : undefined;
+    if (own && own.vehicleId !== 0) for (const v of c.vehicles) if (v.id === own.vehicleId) return v.id;
+    return c.vehicles[0].id;
+  }
+
+  /**
+   * Le joueur fait partie de l'unité et il est encore à pied : la colonne l'attend (rappels radio), cinq minutes au
+   * plus. Un joueur qui conduit son propre véhicule n'est pas attendu (il suit la colonne).
+   */
+  private awaitPlayer(c: Convoy): boolean {
+    const core = this.core;
+    const ctx = core.ctx;
+    const pid = ctx.player.state.personId;
+    const p = pid !== 0 ? ctx.people.get(pid) : undefined;
+    if (!p || p.vehicleId !== 0 || p.custody !== 'free' || p.posture === 'down' || ctx.health.isIncapacitated(p)) {
+      c.waitSince = 0;
+      return false;
+    }
+    const n = core.members(c.status.squadId, core.people);
+    let mine = false;
+    for (let i = 0; i < n; i++) if (core.people[i] === p) { mine = true; break; }
+    if (!mine) return false;
+    if (c.waitSince === 0) { c.waitSince = core.now; c.remindAt = core.now + 20; }
+    if (core.now - c.waitSince > PLAYER_WAIT) return false;
+    if (core.now >= c.remindAt) {
+      c.remindAt = core.now + PLAYER_REMIND;
+      const own = p.squadId !== 0 ? ctx.squads.get(p.squadId) : undefined;
+      const squad = ctx.squads.get(c.status.squadId);
+      core.say(squad ? squad.name : 'PC', `${own ? own.name : 'Unité'}, on n'attend plus que vous : embarquez !`, 2, 'unite');
+    }
+    return true;
+  }
+
   private thinkRoute(c: Convoy): void {
     const core = this.core;
+    if (c.boarding) {
+      this.thinkBoard(c);
+      return;
+    }
     const ap = core.autopilot;
     const lead = c.vehicles[0];
     if (!ap || !lead) {
@@ -289,6 +478,7 @@ export class ConvoyControl {
   private boardStragglers(c: Convoy): number {
     const core = this.core;
     const n = core.members(c.status.squadId, core.people);
+    const reserved = this.reservedFor(c);
     let walking = 0;
     for (let i = 0; i < n; i++) {
       const p = core.people[i];
@@ -308,6 +498,7 @@ export class ConvoyControl {
           const b = agentOf(core.people[j]);
           if (b && b.boardId === v.id && core.people[j].vehicleId === 0) free--;
         }
+        if (v.id === reserved) free--;
         if (free <= 0) continue;
         a.boardId = v.id;
         a.hasSlot = false;
@@ -321,12 +512,18 @@ export class ConvoyControl {
 
   private thinkEmbark(c: Convoy): void {
     const core = this.core;
+    const waiting = this.awaitPlayer(c);
     if (!c.orderDone && core.now - c.stageT < 200) return;
     // les retardataires montent où il reste de la place (une minute et demie au plus)
     if (c.stragglersAt === 0) c.stragglersAt = core.now;
     if (this.boardStragglers(c) > 0 && core.now - c.stragglersAt < 90) return;
+    if (waiting) return;
     const ap = core.autopilot;
-    if (c.hasExit && ap && c.vehicles.length > 0) this.seatStragglers(c);
+    if (c.hasExit && ap && c.vehicles.length > 0) {
+      this.seatStragglers(c);
+      this.manVehicles(c);
+      this.orderForDeparture(c, c.exitX, c.exitZ);
+    }
     if (c.hasExit && ap && c.vehicles.length > 0 && ap.convoy(c.vehicles, c.exitX, c.exitZ, { gap: core.tuning.convoyGap, speed: core.tuning.convoySpeed })) {
       this.setStage(c, 'depart');
     } else {
@@ -350,7 +547,8 @@ export class ConvoyControl {
   onPoliceDone(squadId: number, type: OrderType): void {
     const c = this.of(squadId);
     if (!c) return;
-    if ((c.status.stage === 'debarquement' && type === 'debarquer') || (c.status.stage === 'rembarquement' && type === 'embarquer')) c.orderDone = true;
+    if ((c.status.stage === 'debarquement' && type === 'debarquer') || (c.status.stage === 'rembarquement' && type === 'embarquer')
+      || (c.boarding && type === 'embarquer')) c.orderDone = true;
   }
 
   update(): void {

@@ -99,12 +99,16 @@ function fourgonCrs(): VehicleDef {
   return def('fourgon_crs', 'Fourgon de CRS', 'police', BLANC_POLICE,
     { length: 5.8, width: w, height: 2.55, mass: 3500, wheelbase: 3.45, top: 110, reverse: 20, accel: 2.2, brake: 7.0, steer: 0.62 },
     [
-      sideSeat('driver', -0.5, 1.05, 1.55, w),
-      sideSeat('passenger', 0.5, 1.05, 1.55, w),
+      // fourgon de 9 places (type Renault Master des CRS) : un groupe de sept tient dans son fourgon
+      sideSeat('driver', -0.55, 1.05, 1.55, w),
+      sideSeat('passenger', 0.6, 1.05, 1.55, w),
+      seat('passenger', 0.05, 1.05, 1.55, rearExit, 1.0),
       seat('passenger', -0.5, 1.0, 0.25, rearExit, 0.55),
       seat('passenger', 0.5, 1.0, 0.25, rearExit, 0.1),
       seat('passenger', -0.5, 1.0, -0.75, rearExit, -0.35),
       seat('passenger', 0.5, 1.0, -0.75, rearExit, -0.8),
+      seat('passenger', -0.5, 1.0, -1.75, rearExit, -1.3),
+      seat('passenger', 0.5, 1.0, -1.75, rearExit, -1.75),
     ], [], { siren: true });
 }
 
