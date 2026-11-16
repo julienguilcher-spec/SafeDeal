@@ -88,7 +88,7 @@ defineMaterial('x_verre_pyramide', () => {
   g.beginPath(); g.moveTo(0, 0); g.lineTo(0, 128); g.moveTo(128, 0); g.lineTo(128, 128);
   g.moveTo(-4, -4); g.lineTo(132, 132);          // u + v = 1 (la texture est retournée : v = 1 − y)
   g.stroke();
-  const m = litMaterial('x_verre_pyramide', { ...p, color: 0xffffff, night: 1.2, nightColor: 0xffe0a8 }, { map: texFrom(cv), bump: null });
+  const m = litMaterial('x_verre_pyramide', { ...p, color: 0xffffff, night: 2.8, nightColor: 0xffd890 }, { map: texFrom(cv), bump: null });
   m.userData.shadow = false;
   return m;
 });

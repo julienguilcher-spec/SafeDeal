@@ -30,17 +30,17 @@ describe('exploration', () => {
       if (collisions < 6) console.log(`COLLISION t=${b.ctx.clock.now.toFixed(1)} ${e.otherKind} speed=${e.speed.toFixed(1)}\n   ${desc(b.ctx.vehicles.get(e.vehicleId))}\n   ${desc(b.ctx.vehicles.get(e.otherId))}`);
     });
     let dumped = false;
-    for (let i = 0; i < 30 * 70; i++) {
+    for (let i = 0; i < 30 * 300; i++) {
       b.step(DT);
-      if (i % 300 === 299) {
+      if (i % 900 === 899) {
         const s = b.api.stats;
         let still = 0;
         for (const br of b.sys.cars.list) if (br.stillT > 8) still++;
         console.log(`t=${b.ctx.clock.now.toFixed(0)} veh=${s.vehicles}/${s.vehicleTarget} still>8s=${still} collisions=${collisions}`);
-        if (still >= 3 && !dumped) {
+        console.log(`      spawned=${s.spawned} despawned=${s.despawned} reroutes=${s.reroutes} uturns=${s.uturns} honks=${s.honks}`);
+        if (b.ctx.clock.now > 100 && !dumped) {
           dumped = true;
-          // autour du carrefour le plus encombré
-          for (const br of b.sys.cars.list) if (Math.hypot(br.v.x - 240, br.v.z - 120) < 30) console.log('   ' + desc(br.v));
+          for (const br of b.sys.cars.list) if (br.stillT > 25) console.log('   ' + desc(br.v));
         }
       }
     }

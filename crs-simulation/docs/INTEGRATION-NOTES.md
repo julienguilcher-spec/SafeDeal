@@ -76,3 +76,12 @@ Points à reprendre lors de l'assemblage, parce qu'ils ont été décidés aprè
   que le module d'interface est branché.
 - L'interface applique elle-même vent, coupure de circulation et fermeture de stations au démarrage (rayon 350 m) : à
   déplacer vers le cadre de mission quand il existera, pour éviter un double traitement.
+
+## Événements multiples (décision du 16/11)
+- Carte (plan et carte tactique) : afficher tous les événements en cours dans la ville (service à définir, ex.
+  `events.city` { list: { id, kind, x, z, size, phase, tension } }).
+- Déplacement : conduite uniquement (pas de téléportation, pas de déplacement rapide). Ordres à distance depuis le poste
+  de commandement.
+- Étape 1 : manifestation principale + événements secondaires (directeur / missions). Étape 2 : plusieurs manifestations
+  avec simulation à deux niveaux (foule lointaine agrégée, matérialisée à l'approche) — demande une évolution du module
+  de foule (plusieurs directeurs / zones).

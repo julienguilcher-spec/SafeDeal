@@ -567,8 +567,8 @@ export class CarThinker {
     // Engagé dans un carrefour et arrêté par un véhicule qui, lui, attend à sa ligne que je libère le carrefour :
     // personne ne bougerait plus. Celui qui attend passe d'abord (le pilote automatique sait contourner au pas
     // un véhicule arrêté mais « en route », pas un véhicule tenu à l'arrêt).
-    if (cause === 'file' && b.stillT >= 5 && b.mode === MODE_GO && this.aheadCar) {
-      const o = this.aheadCar;
+    const o = this.aheadCar as CarBrain | null;
+    if (cause === 'file' && b.stillT >= 5 && b.mode === MODE_GO && o) {
       if (o.mode === MODE_HOLD && o.holdCp && o.holdCause === 'carrefour') {
         o.holdCp.cleared = true;
         o.forceUntil = now + 9;

@@ -53,7 +53,7 @@ function build(site: MonumentSite, quality: QualityLevel) {
       // pavillons du bâtiment des voyageurs ; horloge du pavillon central
       for (const [x, w, extra, roofH, kind] of PAVILLONS) pavilion(b, { x, z: -8.1 + (x === 0.4 ? 0.9 : 0), w, d: 18.8, style: STYLE, extra, roof: kind, roofH, topScale: kind === 'imperiale' ? 0.36 : 0.4, base: H_FACADE, crest: 'plomb', lucarnes: !low && kind === 'imperiale' });
       b.with(pose(0.4, H_FACADE + 2.2, 2.3), () => clock(b, 1.9));
-      for (const s of [-1, 1]) b.with(pose(0.4 + s * 9, H_FACADE + 4.6, 1.2), () => flag(b, 5, 2.6));
+      b.with(pose(0.4, H_FACADE + 14.4, -7.2), () => flag(b, 5.5, 3));
       // halle des voies : six verrières à deux versants, perpendiculaires à la façade
       const ring = worldRingToLocal(rest[0] ?? p.ring, F.ox, F.oz, F.rot);
       const span = (F.half * 2 - 6) / 6, glass = new Geo(), gutters = new Geo();

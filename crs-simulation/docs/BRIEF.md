@@ -37,6 +37,17 @@ meilleur que les jeux « CRS simulation » existants. En priorité : **les manif
   - **Mode « salle de commandement »** (au choix sur la page d'accueil) : purement stratégique, façon préfet de police.
     Pas de personnage sur le terrain : la carte complète, les caméras et le drone. Les ordres partent directement ; les
     sommations sont prononcées sur son ordre par un officier présent sur place. Vue la plus complète, la moins immersive.
+- **Plusieurs événements dans Paris, visibles sur la carte** (décision du commanditaire) :
+  - La carte montre **tout ce qui se passe** dans la ville : manifestations en cours, rassemblements sauvages, pillages,
+    incendies, avec leur ampleur, leur phase et leur tension.
+  - **On s'y rend en conduisant** : véhicule de commandement ou fourgon, gyrophare et sirène, à travers le vrai Paris.
+    Pas de téléportation ni de déplacement rapide : choisir où aller a un prix, on ne peut pas être partout. Pour agir à
+    distance, le commandant a son **poste de commandement** (véhicule de commandement, ou mode « salle de commandement »)
+    d'où il donne ses ordres aux unités sur place.
+  - Mise en œuvre en deux temps : (1) une manifestation principale + des **événements secondaires** ailleurs dans Paris
+    (pillage, rassemblement sauvage, feu) sur lesquels on envoie des unités ou l'on se rend ; (2) ensuite, plusieurs
+    vraies manifestations simultanées — les lointaines évoluent de façon simplifiée (effectif, phase, tension) et
+    reprennent tout leur détail quand le joueur ou une caméra s'en approche.
 - **Modes** : Carrière (on progresse de grade en grade) ; **Mode libre** (on choisit son rôle, son grade — y compris
   commandant directement — et sa mission) ; Monde ouvert (patrouille libre) ; Éditeur de scénario (lieu, effectif,
   tension, météo, heure).

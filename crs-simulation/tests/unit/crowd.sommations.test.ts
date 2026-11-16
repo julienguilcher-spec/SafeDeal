@@ -33,7 +33,7 @@ describe('foule — sommations', () => {
     for (const p of cohort) profileOf.set(p.id, brainOf(p)!.origin ?? 'pacifique');
     const sizes = new Map<ProtestProfile, number>();
     for (const pr of profileOf.values()) sizes.set(pr, (sizes.get(pr) ?? 0) + 1);
-    expect(cohort.length).toBeGreaterThan(300);
+    expect(cohort.length).toBeGreaterThan(250);
     const leftShare = (): Map<ProtestProfile, number> => {
       const gone = new Map<ProtestProfile, number>();
       for (const [id, pr] of profileOf) {

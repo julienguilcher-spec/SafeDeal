@@ -175,7 +175,7 @@ function applyLights(): void {
     realSpot.position.set(l.x, l.y, l.z);
     realSpot.target.position.set(l.x + l.dirX, l.y + l.dirY, l.z + l.dirZ);
     realSpot.target.updateMatrixWorld();
-    realSpot.color.setHex(l.color); realSpot.intensity = l.intensity * 6; realSpot.distance = l.range; realSpot.angle = l.angle; realSpot.penumbra = l.penumbra;
+    realSpot.color.setHex(l.color); realSpot.intensity = l.intensity * 2.2; realSpot.distance = l.range; realSpot.angle = l.angle; realSpot.penumbra = l.penumbra;
     lightsLit++;
     break;
   }
