@@ -3,7 +3,7 @@
  * sont écrits en ESPACE CAMÉRA (le shader n'applique alors pas la matrice de vue : aucun décalage d'une
  * image entre la caméra et les bras). Logique pure. */
 
-import { BONE_CHEST, BONE_COUNT, BONE_STRIDE, CHEST_EYE_Y, CHEST_EYE_Z, LOCAL_SIZE } from './skeleton';
+import { BONE_CHEST, BONE_COUNT, BONE_STRIDE, LOCAL_SIZE } from './skeleton';
 import { TAU, ease, fsin } from './mathx';
 import { computePose, createPoseParams } from './pose';
 import { blendLocal, composePose, solveLocal } from './solve';
@@ -12,6 +12,10 @@ import {
   U_NONE, U_STRIKE, U_THROW, createPoseInput, type PoseInput,
 } from './poseparams';
 import type { AnimSample } from './animator';
+
+/** Position du thorax virtuel par rapport à l'œil : abaissement (m, à l'échelle 1) et recul. */
+const FP_CHEST_DROP = 0.38;
+const FP_CHEST_BACK = 0.02;
 
 export class FpRig {
   private readonly inp: PoseInput = createPoseInput();
@@ -110,9 +114,11 @@ export class FpRig {
     const w = speed > 2.2 ? 1.5 : speed / 1.5;
     const bobX = 0.006 * w * fsin(TAU * phase);
     const bobY = 0.011 * w * fsin(2 * TAU * phase);
+    // (le thorax virtuel est plus haut et plus avancé que le vrai : les mains entrent ainsi dans le champ
+    // sans tendre les bras, comme dans toute vue subjective)
     const cx = bobX - 0.085 * this.aimK;
-    const cy = -CHEST_EYE_Y * s - 0.045 + bobY + 0.085 * this.aimK;
-    const cz = CHEST_EYE_Z * s + 0.075 - 0.03 * this.aimK;
+    const cy = -FP_CHEST_DROP * s + bobY + 0.075 * this.aimK;
+    const cz = FP_CHEST_BACK - 0.02 * this.aimK;
     const co = BONE_CHEST * BONE_STRIDE;
     const dx = cx - tmp[co + 4], dy = cy - tmp[co + 5], dz = cz - tmp[co + 6];
     for (let b = 0; b < BONE_COUNT; b++) {

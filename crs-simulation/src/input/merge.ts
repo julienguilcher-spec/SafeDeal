@@ -2,8 +2,9 @@
  * Entrées — fusion des périphériques et choix du périphérique actif.
  *
  * Chaque source (clavier/souris, manette, tactile, script) remplit un `SourceAxes` à chaque
- * scrutation. La fusion additionne les déplacements (bornés au disque unité) et prend le maximum
- * des gâchettes : on peut conduire à la manette tout en gardant une main sur le clavier.
+ * scrutation. La fusion additionne les déplacements (norme bornée à 1 à pied, axes indépendants
+ * en véhicule) et prend le maximum des gâchettes : on peut conduire à la manette tout en gardant
+ * une main sur le clavier.
  * Le périphérique actif est le dernier utilisé de façon INTENTIONNELLE (seuils dans les sources),
  * avec un court délai entre deux bascules pour que les pictogrammes de l'interface ne clignotent pas.
  * Aucun accès au DOM, aucune allocation après la construction.
@@ -11,7 +12,6 @@
 
 import type { InputDevice } from '@/core/contracts';
 import { clamp } from './axes';
-import type { Axis2 } from './axes';
 
 /** Identifiants des sources (bits du masque de ButtonLatch). */
 export const SRC_KBM = 0;
@@ -41,10 +41,13 @@ export function clearSourceAxes(a: SourceAxes): void {
   a.brake = 0;
 }
 
-const tmp: Axis2 = { x: 0, y: 0 };
-
-/** Fusionne les sources dans `out` : déplacements additionnés et bornés, gâchettes au maximum. */
-export function mergeAxes(sources: readonly SourceAxes[], out: SourceAxes): void {
+/**
+ * Fusionne les sources dans `out` : déplacements additionnés, gâchettes au maximum.
+ * `disc = true` (à pied) : la norme du déplacement est bornée à 1 — on ne va pas plus vite en
+ * diagonale. `disc = false` (en véhicule) : chaque axe est borné séparément à [-1, 1], car
+ * moveX est alors le volant et moveY l'accélérateur : braquer à fond ne doit pas lever le pied.
+ */
+export function mergeAxes(sources: readonly SourceAxes[], out: SourceAxes, disc = true): void {
   let x = 0;
   let y = 0;
   let throttle = 0;
@@ -56,17 +59,21 @@ export function mergeAxes(sources: readonly SourceAxes[], out: SourceAxes): void
     if (s.throttle > throttle) throttle = s.throttle;
     if (s.brake > brake) brake = s.brake;
   }
-  const m2 = x * x + y * y;
-  if (m2 > 1) {
-    const k = 1 / Math.sqrt(m2);
-    tmp.x = x * k;
-    tmp.y = y * k;
+  if (x !== x) x = 0;
+  if (y !== y) y = 0;
+  if (disc) {
+    const m2 = x * x + y * y;
+    if (m2 > 1) {
+      const k = 1 / Math.sqrt(m2);
+      x *= k;
+      y *= k;
+    }
   } else {
-    tmp.x = x;
-    tmp.y = y;
+    x = clamp(x, -1, 1);
+    y = clamp(y, -1, 1);
   }
-  out.moveX = tmp.x === tmp.x ? tmp.x : 0;
-  out.moveY = tmp.y === tmp.y ? tmp.y : 0;
+  out.moveX = x;
+  out.moveY = y;
   out.throttle = clamp(throttle, 0, 1);
   out.brake = clamp(brake, 0, 1);
 }

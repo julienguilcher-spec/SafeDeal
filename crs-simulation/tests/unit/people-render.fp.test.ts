@@ -38,7 +38,7 @@ describe('rendu des personnages — première personne', () => {
     expect(l[2]).toBeLessThan(-0.25);
     expect(Math.abs(r[0])).toBeLessThan(0.15);  // proche du centre
     expect(r[1]).toBeGreaterThan(-0.25);        // sous l'œil mais dans le champ
-    expect(r[1]).toBeLessThan(0);
+    expect(r[1]).toBeLessThan(0.05);
   });
 
   it('bâton en main au repos : la main droite est remontée dans le champ, à droite', () => {

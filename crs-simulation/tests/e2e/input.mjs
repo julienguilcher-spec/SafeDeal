@@ -181,12 +181,19 @@ info.push(`capture de la souris dans Chromium headless : ${lockWorks ? 'accordé
 if (lockWorks) {
   check(count(s, 'simPressed', 'primary') === 0, 'le clic qui capture la souris ne déclenche pas l\'action principale');
   await resetCounts(page);
-  await page.mouse.move(760, 280, { steps: 6 });
+  // Sous capture, les déplacements injectés par le protocole de débogage s'annulent deux à deux
+  // (le navigateur headless recentre le curseur : +dx puis -dx). On envoie donc à la page des
+  // événements « mousemove » portant movementX / movementY, comme le fait un vrai pointeur capturé.
+  const yawBefore = (await snap(page)).yaw;
+  await page.evaluate(() => {
+    for (let i = 0; i < 6; i++) document.dispatchEvent(new MouseEvent('mousemove', { movementX: 10, movementY: i < 4 ? -5 : 0, bubbles: true }));
+  });
   await frames(page, 6);
   s = await snap(page);
-  near(s.sums.simLookX, 60 * 0.0022, 0.02, 'souris capturée : 60 px vers la droite (vue simulation)');
-  near(s.sums.frameLookX, 60 * 0.0022, 0.02, 'souris capturée : 60 px vers la droite (vue image)');
-  near(s.sums.simLookY, 20 * 0.0022, 0.012, 'souris capturée : 20 px vers le haut = lever le regard');
+  near(s.sums.simLookX, 60 * 0.0022, 1e-6, 'souris capturée : 60 px vers la droite (vue simulation)');
+  near(s.sums.frameLookX, 60 * 0.0022, 1e-6, 'souris capturée : 60 px vers la droite (vue image)');
+  near(s.sums.simLookY, 20 * 0.0022, 1e-6, 'souris capturée : 20 px vers le haut = lever le regard');
+  near(s.yaw - yawBefore, -60 * 0.0022, 1e-6, 'le cap du personnage d\'essai a tourné d\'autant (droite = cap décroissant)');
   await page.mouse.down();
   await page.mouse.down({ button: 'right' });
   await frames(page);
@@ -549,9 +556,12 @@ const fingerMove = async (id, x, y, steps = 5) => {
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: points() });
   }
 };
+// Avec ce Chromium, touchEnd relâche les points qu'on lui LISTE (et tous si la liste est vide).
 const fingerUp = async (id) => {
+  const p = fingers.get(id);
   fingers.delete(id);
-  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: points() });
+  const released = fingers.size > 0 && p ? [{ x: Math.round(p.x), y: Math.round(p.y), id, radiusX: 9, radiusY: 9, force: 1 }] : [];
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: released });
 };
 const tap = async (x, y, id = 9) => {
   await fingerDown(id, x, y);
@@ -569,7 +579,7 @@ const centerOf = async (key) => {
 const layoutProblems = (label) => mp.evaluate((name) => {
   const out = [];
   const els = [...document.querySelectorAll('.crs-touch .ct-c, .crs-touch .ct-item, .crs-touch .ct-stick')]
-    .filter((e) => getComputedStyle(e).display !== 'none');
+    .filter((e) => e.getClientRects().length > 0 && e.getBoundingClientRect().width > 0);
   const rects = els.map((e) => ({ r: e.getBoundingClientRect(), n: e.className.replace(/\s+/g, '.') }));
   const W = innerWidth;
   const H = innerHeight;

@@ -106,6 +106,8 @@ export class KbmSource {
   private lastX = NaN;
   private lastY = NaN;
   private dragging = false;
+  /** Une vraie souris a bougé pendant cette session (sinon, inutile de la capturer depuis le clavier). */
+  private mouseSeen = false;
   private wheelAcc = 0;
   private wheelIdle = 0;
   private pendingLock = false;
@@ -180,6 +182,7 @@ export class KbmSource {
     a.moveX = tmp.x;
     a.moveY = tmp.y;
     // Sans gâchette analogique : accélérateur et frein valent 0 ou 1 d'après avancer / reculer.
+    // (La diagonale est normalisée à la fusion, à pied seulement.)
     a.throttle = forward ? 1 : 0;
     a.brake = back ? 1 : 0;
 
@@ -425,7 +428,8 @@ export class KbmSource {
     this.env.activity();
     this.pressCode(code);
     // Reprise au clavier : la souris est recapturée sans attendre un clic (tentative discrète).
-    if (!this.locked && !this.fallback && this.env.canLock() && this.isGameplayCode(code)) this.requestPointer(true);
+    // Seulement si une souris a été vue : sur une tablette avec clavier, il n'y a rien à capturer.
+    if (!this.locked && !this.fallback && this.mouseSeen && this.env.canLock() && this.isGameplayCode(code)) this.requestPointer(true);
   };
 
   private readonly onKeyUp = (e: KeyboardEvent): void => {
@@ -500,6 +504,7 @@ export class KbmSource {
       if (this.dragging && e.buttons === 0) this.dragging = false;   // bouton relâché hors de la fenêtre
     }
     if (dx > MAX_MOVE || dx < -MAX_MOVE || dy > MAX_MOVE || dy < -MAX_MOVE) return;
+    if (dx !== 0 || dy !== 0) this.mouseSeen = true;
     this.travelPx += (dx < 0 ? -dx : dx) + (dy < 0 ? -dy : dy);
     if (this.locked || this.dragging) {
       this.accX += dx;

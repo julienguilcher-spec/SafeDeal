@@ -193,6 +193,20 @@ describe('entrées — système', () => {
     expect(t.input.down('sprint')).toBe(false);
   });
 
+  it('à pied la norme du déplacement est bornée à 1 ; en véhicule les axes sont indépendants', () => {
+    const t = setup(true);
+    t.tick(1);
+    t.script.setMove(0, 1);                        // « avancer » maintenu par ailleurs
+    t.gp.axes[0] = 1;                              // stick à droite toute
+    t.tick(1);
+    expect(Math.hypot(t.input.moveX, t.input.moveY)).toBeCloseTo(1, 9);
+    expect(t.input.moveX).toBeCloseTo(Math.SQRT1_2, 6);
+    t.controls.inVehicle = true;
+    t.tick(1);
+    expect(t.input.moveX).toBeCloseTo(1, 9);       // volant à fond
+    expect(t.input.moveY).toBeCloseTo(1, 9);       // accélérateur à fond
+  });
+
   it('sans navigateur (pas de frame) : les axes sont relus à chaque pas', () => {
     const t = setup();
     t.script.setMove(0, 1);

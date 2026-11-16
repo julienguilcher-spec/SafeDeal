@@ -32,7 +32,7 @@ defineMaterial('obelisque_schemas', () => {
   return litMaterial('obelisque_schemas', { color: 0xffffff, roughness: 0.6, night: 0.9 }, { map: texFrom(cv, { clamp: true }), bump: null });
 });
 
-const PEDESTAL_H = 6.2, SHAFT_H = 23, PYRAMIDION_H = 3.6, BASE_W = 2.42, TOP_W = 1.54;
+const PEDESTAL_H = 5.96, SHAFT_H = 23, PYRAMIDION_H = 3.6, BASE_W = 2.42, TOP_W = 1.54;
 
 export const def: MonumentDef = {
   key: 'obelisque_concorde',

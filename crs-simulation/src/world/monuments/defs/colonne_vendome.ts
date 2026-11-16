@@ -8,7 +8,7 @@ import {
 } from '../kit';
 import { rectRing } from '../shape2d';
 
-const TURNS = 22, STEPS_H = 0.5, PED_H = 6.6, BASE_H = 1.2, SHAFT_H = 26.3, CAP_H = 1.9, LANTERN_H = 3.6, STATUE_H = 3.95;
+const TURNS = 22, STEPS_H = 0.5, PED_H = 6.6, BASE_H = 1.2, SHAFT_H = 26.3, CAP_H = 1.9, LANTERN_H = 3.85, STATUE_H = 3.95;
 const R0 = 1.86, R1 = 1.68;
 
 /** Frise hélicoïdale : un tour par motif ; la bande de personnages est cisaillée d'un pas sur la largeur. */

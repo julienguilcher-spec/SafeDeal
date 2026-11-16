@@ -27,6 +27,10 @@ const BRISIS_RUN = 0.42;
 /** Épaisseur d'un acrotère et hauteur dont il dépasse du toit-terrasse (m). */
 const PARAPET_T = 0.3;
 const PARAPET_H = 0.5;
+/** Part des toits à deux pans couverts de tuiles (les autres sont en zinc : à Paris, la tuile est rare). */
+export const TILE_ROOF_SHARE = 0.12;
+/** Part des mansardes au brisis d'ardoise (les autres sont en zinc). */
+export const SLATE_ROOF_SHARE = 0.3;
 /** Période (m) des mitrons le long d'une souche. */
 export const POT_PERIOD_M = 0.7;
 
@@ -369,7 +373,7 @@ function emitMansard(m: MeshData, rail: MeshData | null, c: BuildCtx, es: EdgeSe
   for (let i = 0; i < n; i++) dist[i] = es.flag[i] === WALL_FREE ? run : 0;
   const factor = insetAll(c, dist, run);
   const nt = triangulatePoly(nr, total);
-  const slate = vhash(c.b.id, 61) < (c.style === 'monumental' ? 0.7 : 0.3);
+  const slate = vhash(c.b.id, 61) < (c.style === 'monumental' ? 0.7 : SLATE_ROOF_SHARE);
   const sloped = factor > 0 && !polyIsOrig;
   const dormers3d = c.detail.dormers && sloped && factor === 1 && !c.allBlank;
   emitBrisis(m, c, es, yEave, yTop, slate, sloped && !dormers3d && !c.allBlank);
@@ -507,7 +511,7 @@ function emitGabled(m: MeshData, c: BuildCtx, es: EdgeSet): void {
   const half = Math.max(p.halfSpan[k], 0.5);
   const slope = H / half;
   const sl = Math.sqrt(1 + slope * slope);
-  const tile = vhash(c.b.id, 67) < 0.35;
+  const tile = vhash(c.b.id, 67) < TILE_ROOF_SHARE;
   roofTint(m, c, tile ? 1 : 0.98);
   m.facade(tile ? LAYER_TUILE : LAYER_ZINC_BRISIS, NB_CONTINUOUS, 0, ALT_NONE);
   // versants : chaque triangle du plan est coupé par le faîtage, puis relevé

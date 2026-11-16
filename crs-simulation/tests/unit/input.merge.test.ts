@@ -21,6 +21,23 @@ describe('entrées — fusion des périphériques', () => {
     expect(out.moveY).toBeCloseTo(0.4, 9);
   });
 
+  it('à pied la diagonale du clavier est normalisée ; en véhicule volant et accélérateur restent indépendants', () => {
+    const kbm = createSourceAxes();
+    const out = createSourceAxes();
+    kbm.moveX = 1;
+    kbm.moveY = 1;                                   // Z + D
+    mergeAxes([kbm], out, true);
+    expect(out.moveX).toBeCloseTo(Math.SQRT1_2, 9);
+    expect(out.moveY).toBeCloseTo(Math.SQRT1_2, 9);
+    mergeAxes([kbm], out, false);
+    expect(out.moveX).toBe(1);                       // braquer à fond…
+    expect(out.moveY).toBe(1);                       // … sans lever le pied
+    const pad = createSourceAxes();
+    pad.moveX = 0.8;
+    mergeAxes([kbm, pad], out, false);
+    expect(out.moveX).toBe(1);                       // chaque axe reste dans [-1, 1]
+  });
+
   it('des directions opposées s\'annulent', () => {
     const a = createSourceAxes();
     const b = createSourceAxes();

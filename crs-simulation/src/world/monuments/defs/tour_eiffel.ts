@@ -9,7 +9,7 @@ import * as THREE from 'three';
 import type { QualityLevel } from '@/core/contracts';
 import type { MonumentDef } from '../types';
 import {
-  Builder, Geo, beam, box, cyl, farMaterial, finishFar, frustum, ironFence, polygon, prism, ribbon, sparklePoints, sphere,
+  Builder, Geo, beam, box, cyl, farMaterial, finishFar, frustum, ironFence, prism, ribbon, sparklePoints, sphere,
   updateSparkle, BRUN_EIFFEL,
 } from '../kit';
 import { rectRing } from '../shape2d';
@@ -252,8 +252,9 @@ function build(quality: QualityLevel): THREE.Group {
 
   // ── au sol : massifs de maçonnerie sous chaque arbalétrier, guichets, grilles ──
   for (let c = 0; c < 4; c++) {
-    const p = corner(c, 2.2);
-    stone.append(frustum(7.2, 7.2, 5.2, 5.2, 4.3).translate(p[0], 0, p[1]));
+    // massif de 7 m contenu dans le soubassement réel de 25 m (du demi-écart intérieur au demi-côté extérieur)
+    const p = corner(c, 2.2), lo = EIFFEL.IN0 + 3.5, hi = EIFFEL.OUT0 - 3.5;
+    stone.append(frustum(7, 7, 5.2, 5.2, 4.3).translate(Math.min(hi, Math.max(lo, p[0])), 0, Math.min(hi, Math.max(lo, p[1]))));
   }
   const mid = (EIFFEL.OUT0 + EIFFEL.IN0) / 2;
   stone.append(box(9, 3.4, 9).translate(mid, 0, mid));

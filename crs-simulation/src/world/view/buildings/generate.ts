@@ -16,7 +16,7 @@ import { MeshData } from './meshdata';
 import { WALL_FREE, neighborAt, prepareTile } from './prepare';
 import type { PreparedTile } from './prepare';
 import { hyp, ringArea, simplifyRing } from './rings';
-import { emitRoof } from './roofs';
+import { SLATE_ROOF_SHARE, TILE_ROOF_SHARE, emitRoof } from './roofs';
 import { triIndices, triangulate } from './triangulate';
 import { BuildCtx, EdgeSet, chooseDoor, emitLedges, emitWalls } from './walls';
 import type { DetailLevel } from './walls';
@@ -129,8 +129,8 @@ let farEnds = new Int32Array(16);
 /** Indice de matériau de couverture pour le shader lointain : 0 zinc, 1 ardoise, 2 terrasse, 3 tuile. */
 function farRoofKind(roof: string, id: number): number {
   if (roof === 'flat') return 2;
-  if (roof === 'gabled') return vhash(id, 67) < 0.35 ? 3 : 0;
-  return vhash(id, 61) < 0.3 ? 1 : 0;
+  if (roof === 'gabled') return vhash(id, 67) < TILE_ROOF_SHARE ? 3 : 0;
+  return vhash(id, 61) < SLATE_ROOF_SHARE ? 1 : 0;
 }
 
 /** Couleur de façade vue de loin (0..1), par style. */

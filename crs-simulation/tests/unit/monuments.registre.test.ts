@@ -13,7 +13,8 @@ const SITE = { footprint: [], height: 0 };
 const REAL: Record<string, { h: number; w?: number; d?: number; tol?: number }> = {
   // largeur : corniche en saillie de 1,55 m ; profondeur : piédestaux et groupes sculptés en saillie de 2,7 m
   arc_triomphe: { h: 49.54, w: 44.82 + 2 * 1.55, d: 22.21 + 2 * 2.7, tol: 0.06 },
-  tour_eiffel: { h: 330, w: 124.9 + 4, d: 124.9 + 4, tol: 0.03 },
+  // emprise : carré de 124,90 m, plus les grilles au pied des piliers (0,6 m)
+  tour_eiffel: { h: 330, w: 124.9 + 1.2, d: 124.9 + 1.2, tol: 0.03 },
   obelisque_concorde: { h: 33.37, tol: 0.03 },
   fontaines_concorde: { h: 9.2, tol: 0.12 },
   colonne_vendome: { h: 44.3, tol: 0.02 },

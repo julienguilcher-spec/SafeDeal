@@ -406,7 +406,14 @@ export class TouchOverlay {
         const h = spec.horizontal ? (spec.knob + 22) * s : w;
         this.stickEl.style.transform = `translate(${(this.stickCx - w / 2).toFixed(1)}px,${(this.stickCy - h / 2).toFixed(1)}px)`;
         const half = (spec.knob * s) / 2;
-        this.knobEl.style.transform = `translate(${(this.stick.knobX - half).toFixed(1)}px,${(this.stick.knobY - half).toFixed(1)}px)`;
+        let kx = this.stick.knobX;
+        let ky = this.stick.knobY;
+        if (spec.horizontal) {
+          // sur la piste du volant, le pommeau s'arrête au bord au lieu d'en dépasser
+          kx = (kx / (spec.radius * s)) * (spec.radius - spec.knob / 2 - 6) * s;
+          ky = 0;
+        }
+        this.knobEl.style.transform = `translate(${(kx - half).toFixed(1)}px,${(ky - half).toFixed(1)}px)`;
         this.stickEl.classList.toggle('is-full', this.layout === 'pied' && this.stickFinger >= 0 && this.stick.full);
         this.stickEl.classList.toggle('is-idle', this.stickFinger < 0);
         if (this.layout === 'pied') {

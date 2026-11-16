@@ -130,10 +130,10 @@ export class KeyLabels {
 // Gravures des trois grandes familles de manettes (indices du mapping standard, 0 = bouton du bas).
 // Les familles portent des noms neutres : aucune marque n'est affichée dans le jeu.
 const PAD_LETTRES: readonly string[] = [
-  'A', 'B', 'X', 'Y', 'LB', 'RB', 'LT', 'RT', 'Vue', 'Menu', 'L3', 'R3', 'Croix ↑', 'Croix ↓', 'Croix ←', 'Croix →', 'Accueil',
+  'A', 'B', 'X', 'Y', 'LB', 'RB', 'LT', 'RT', 'Select', 'Start', 'L3', 'R3', 'Croix ↑', 'Croix ↓', 'Croix ←', 'Croix →', 'Accueil',
 ];
 const PAD_FORMES: readonly string[] = [
-  '✕', '○', '□', '△', 'L1', 'R1', 'L2', 'R2', 'Partage', 'Options', 'L3', 'R3', 'Croix ↑', 'Croix ↓', 'Croix ←', 'Croix →', 'Accueil',
+  '✕', '○', '□', '△', 'L1', 'R1', 'L2', 'R2', 'Share', 'Options', 'L3', 'R3', 'Croix ↑', 'Croix ↓', 'Croix ←', 'Croix →', 'Accueil',
 ];
 const PAD_LETTRES_INVERSEES: readonly string[] = [
   'B', 'A', 'Y', 'X', 'L', 'R', 'ZL', 'ZR', '−', '+', 'L3', 'R3', 'Croix ↑', 'Croix ↓', 'Croix ←', 'Croix →', 'Accueil',

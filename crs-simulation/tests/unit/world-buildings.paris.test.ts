@@ -1,16 +1,24 @@
 // Vraies tuiles de Paris (si elles existent) : aucune ne doit planter ni dépasser les budgets.
 // Dossier lu : public/data/paris/tiles, ou celui de la variable d'environnement CRS_PARIS_TILES.
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { decodeTile } from '../../src/world/mapdata';
-import type { Tile } from '../../src/world/mapdata';
+import { decodeTerrain, decodeTile, sampleTerrain } from '../../src/world/mapdata';
+import type { Terrain, Tile } from '../../src/world/mapdata';
 import { DETAIL_TRIANGLE_BUDGET, FAR_TRIANGLE_BUDGET, generateTileFarMesh, generateTileMeshes } from '../../src/world/view/buildings/generate';
 import { MeshData } from '../../src/world/view/buildings/meshdata';
 
-const dir = process.env.CRS_PARIS_TILES ?? path.resolve(__dirname, '../../public/data/paris/tiles');
-const files = existsSync(dir) ? readdirSync(dir).filter((f) => /^t_-?\d+_-?\d+\.json$/.test(f)) : [];
-const flat = (): number => 0;
+// Accès au système de fichiers sans les types de Node (le projet ne les installe pas).
+interface NodeFs { existsSync(p: string | URL): boolean; readdirSync(p: string | URL): string[]; readFileSync(p: string | URL, enc: string): string }
+const nodeFs = 'node:fs';
+const fs = (await import(/* @vite-ignore */ nodeFs)) as NodeFs;
+const env = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {};
+const custom = env.CRS_PARIS_TILES;
+const base = custom ? (custom.endsWith('/') ? custom : custom + '/') : new URL('../../public/data/paris/tiles/', import.meta.url);
+const fileOf = (name: string): string | URL => (typeof base === 'string' ? base + name : new URL(name, base));
+const files = fs.existsSync(base) ? fs.readdirSync(base).filter((f) => /^t_-?\d+_-?\d+\.json$/.test(f)) : [];
+// relief réel s'il accompagne les tuiles
+const terrainUrl = typeof base === 'string' ? null : new URL('../terrain.json', base);
+const terrain: Terrain | null = terrainUrl && fs.existsSync(terrainUrl) ? decodeTerrain(JSON.parse(fs.readFileSync(terrainUrl, 'utf8'))) : null;
+const flat = (x: number, z: number): number => (terrain ? sampleTerrain(terrain, x, z) : 0);
 const never = (): boolean => false;
 
 function checkMesh(m: MeshData, label: string): void {
@@ -35,7 +43,7 @@ function countFlipped(m: MeshData): number {
 }
 
 describe.skipIf(files.length === 0)('génération des immeubles — vraies tuiles de Paris', () => {
-  const tiles: Tile[] = files.map((f) => decodeTile(JSON.parse(readFileSync(path.join(dir, f), 'utf8'))));
+  const tiles: Tile[] = files.map((f) => decodeTile(JSON.parse(fs.readFileSync(fileOf(f), 'utf8'))));
 
   it('version détaillée : toutes les tuiles, toutes les qualités, dans le budget', () => {
     const main = new MeshData(), rail = new MeshData();

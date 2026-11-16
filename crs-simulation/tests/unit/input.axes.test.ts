@@ -76,17 +76,15 @@ describe('entrées — zones mortes et courbes', () => {
     expect(analogButton(0.3, false)).toBe(false);    // ne s'enfonce pas entre les deux seuils
   });
 
-  it('déplacement au clavier : diagonale normalisée, touches opposées annulées', () => {
+  it('déplacement au clavier : axes à -1, 0 ou 1, touches opposées annulées, diagonale brute', () => {
     digitalMove(true, false, false, false, out);
     expect(out).toEqual({ x: 0, y: 1 });
     digitalMove(true, false, false, true, out);
-    expect(Math.hypot(out.x, out.y)).toBeCloseTo(1, 9);
-    expect(out.x).toBeCloseTo(Math.SQRT1_2, 9);
+    expect(out).toEqual({ x: 1, y: 1 });               // la normalisation se fait à la fusion, à pied
     digitalMove(true, true, true, true, out);
     expect(out).toEqual({ x: 0, y: 0 });
     digitalMove(false, true, true, false, out);
-    expect(out.x).toBeLessThan(0);
-    expect(out.y).toBeLessThan(0);
+    expect(out).toEqual({ x: -1, y: -1 });
   });
 
   it('borne au disque unité', () => {

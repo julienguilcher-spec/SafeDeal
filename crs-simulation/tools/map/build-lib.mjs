@@ -268,6 +268,55 @@ export function selfIntersectsAtFormatPrecision(ring) {
   return M.ringSelfIntersects(q);
 }
 
+/**
+ * Retire les « épines » d'un anneau : un sommet où le contour rebrousse chemin sur lui-même
+ * (aller-retour sans surface, artefact de saisie). Répété jusqu'à stabilité.
+ */
+export function removeSpikes(ring) {
+  let pts = Array.from(ring);
+  for (let pass = 0; pass < 8; pass++) {
+    const n = pts.length >> 1;
+    if (n <= 3) break;
+    const out = [];
+    let removed = false;
+    for (let i = 0; i < n; i++) {
+      const p = (i + n - 1) % n, q = (i + 1) % n;
+      const ax = pts[2 * i] - pts[2 * p], az = pts[2 * i + 1] - pts[2 * p + 1];
+      const bx = pts[2 * q] - pts[2 * i], bz = pts[2 * q + 1] - pts[2 * i + 1];
+      const la = Math.hypot(ax, az), lb = Math.hypot(bx, bz);
+      // Demi-tour : produit scalaire négatif et écart latéral inférieur à 8 % du plus court des deux côtés (au plus 15 cm).
+      if (la > 0 && lb > 0 && ax * bx + az * bz < 0 && Math.abs(ax * bz - az * bx) / Math.max(la, lb) < Math.min(0.15, 0.08 * Math.min(la, lb))) { removed = true; continue; }
+      out.push(pts[2 * i], pts[2 * i + 1]);
+    }
+    pts = out;
+    if (!removed) break;
+  }
+  return pts;
+}
+
+/** Enveloppe convexe d'un nuage de points plat (chaîne monotone d'Andrew), antihoraire vue de dessus. */
+export function convexHull(points) {
+  const pts = [];
+  for (let i = 0; i + 1 < points.length; i += 2) pts.push([points[i], points[i + 1]]);
+  pts.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lower = [], upper = [];
+  for (const p of pts) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop();
+    lower.push(p);
+  }
+  for (let i = pts.length - 1; i >= 0; i--) {
+    const p = pts[i];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop();
+    upper.push(p);
+  }
+  lower.pop();
+  upper.pop();
+  const out = [];
+  for (const p of lower.concat(upper)) out.push(p[0], p[1]);
+  return orient(out, true);
+}
+
 /** Rectangle englobant d'aire minimale : { cx, cz, ux, uz (grand axe unitaire), length, width }. */
 export function orientedBox(ring) {
   const n = ring.length >> 1;

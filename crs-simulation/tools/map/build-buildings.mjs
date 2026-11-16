@@ -10,6 +10,7 @@
 import {
   M, readLayer, projectRing, orient, signedArea, simplifyRing, dedupeRing, bboxOf, orientedBox, BoxGrid, SegGrid,
   median, clamp, round1, hasTile, T, isCommercialName, selfIntersectsAtFormatPrecision,
+  removeSpikes, convexHull,
 } from './build-lib.mjs';
 
 /** Tolérance de simplification des emprises (m). */
@@ -111,7 +112,7 @@ export function buildBuildings(ctx) {
     return l.length === 1 ? '' : l.join(',');
   };
   const out = [];
-  let droppedSmall = 0, droppedHoles = 0, vertsIn = 0, vertsOut = 0, outside = 0, relaxed = 0, namesRemoved = 0;
+  let droppedSmall = 0, droppedHoles = 0, vertsIn = 0, vertsOut = 0, outside = 0, relaxed = 0, namesRemoved = 0, spikes = 0, hulls = 0;
   for (const it of items) {
     const simplified = [];
     for (let r = 0; r < it.rings.length; r++) {
@@ -127,12 +128,20 @@ export function buildBuildings(ctx) {
           if (s[i] !== prev || s[i] !== next) must[i] = 1;
         }
       }
-      // Si la simplification fait se recouper l'anneau (au décimètre du format), on la relâche.
+      // Si la simplification fait se recouper l'anneau (au décimètre du format), on la relâche ;
+      // si la source elle-même se recoupe, on en retire les épines, et en dernier recours
+      // l'emprise devient son enveloppe convexe (polygones BD TOPO mêlant deux faces).
       let pts = ring.pts;
       for (const tol of [BUILDING_TOLERANCE, BUILDING_TOLERANCE / 3, 0.03]) {
         pts = dedupeRing(simplifyRing(ring.pts, tol, must), 0.05);
         if (!selfIntersectsAtFormatPrecision(pts)) break;
         if (tol === BUILDING_TOLERANCE) relaxed++;
+      }
+      if (selfIntersectsAtFormatPrecision(pts)) {
+        pts = dedupeRing(simplifyRing(removeSpikes(ring.pts), BUILDING_TOLERANCE), 0.05);
+        if (!selfIntersectsAtFormatPrecision(pts) && pts.length >= 6) spikes++;
+        else if (r === 0) { pts = convexHull(ring.pts); hulls++; }
+        else pts = [];
       }
       simplified.push(pts);
     }
@@ -167,6 +176,8 @@ export function buildBuildings(ctx) {
   report.droppedHoles = droppedHoles;
   report.outsideTiles = outside;
   report.simplificationRelaxed = relaxed;
+  report.spikesRemoved = spikes;
+  report.replacedByConvexHull = hulls;
   report.commercialNamesRemoved = namesRemoved;
   report.vertices = { before: vertsIn, after: vertsOut };
 

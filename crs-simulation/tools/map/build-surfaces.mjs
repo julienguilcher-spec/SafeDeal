@@ -15,7 +15,7 @@
 import {
   M, readLayer, projectPolygons, projectLine, simplifyRing, simplifyLine, dedupeRing, signedArea, polygonArea, bboxOf,
   ringCentroid, tilePolygon, tilePolyline, BoxGrid, pointInPoly, polylineLength, median, clamp, round1, clipStats,
-  selfIntersectsAtFormatPrecision,
+  selfIntersectsAtFormatPrecision, removeSpikes,
 } from './build-lib.mjs';
 
 /** Rang de superposition de l'eau : au-dessus de tout. */
@@ -53,7 +53,7 @@ function classify(p) {
 export function prepareAreas() {
   const fc = readLayer('areas');
   const list = [];
-  const report = { source: fc.features.length, droppedSmall: 0, droppedHoles: 0, simplificationRelaxed: 0, vertices: { before: 0, after: 0 }, byKind: {} };
+  const report = { source: fc.features.length, droppedSmall: 0, droppedHoles: 0, simplificationRelaxed: 0, spikesRemoved: 0, selfIntersectingKept: 0, vertices: { before: 0, after: 0 }, byKind: {} };
   for (const f of fc.features) {
     const p = f.properties;
     const c = classify(p);
@@ -68,6 +68,12 @@ export function prepareAreas() {
         outer = dedupeRing(simplifyRing(poly.outer, tol), 0.05);
         if (!selfIntersectsAtFormatPrecision(outer)) break;
         if (tol === c.tol) report.simplificationRelaxed++;
+      }
+      if (selfIntersectsAtFormatPrecision(outer)) {
+        // La source se recoupe (plan de voirie) : on retire les épines ; s'il en reste, le contour est gardé tel quel.
+        const cleaned = dedupeRing(simplifyRing(removeSpikes(poly.outer), c.tol), 0.05);
+        if (cleaned.length >= 6 && !selfIntersectsAtFormatPrecision(cleaned)) { outer = cleaned; report.spikesRemoved++; }
+        else report.selfIntersectingKept++;
       }
       if (outer.length < 6 || Math.abs(signedArea(outer)) < c.min) { report.droppedSmall++; continue; }
       const holes = [];

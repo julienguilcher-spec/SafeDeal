@@ -6,7 +6,7 @@
 import type { QualityLevel } from '@/core/contracts';
 import type { MonumentDef } from '../types';
 import {
-  Builder, Geo, basin, cyl, farMaterial, figureGeo, finishFar, jetArc, jetVertical, lathe, pedestalRound, pose, sphere, tube, vasque,
+  Builder, Geo, basin, cyl, farMaterial, figureGeo, finishFar, jetArc, jetVertical, lathe, pose, sphere, tube, vasque,
   waterfall,
 } from '../kit';
 

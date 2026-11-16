@@ -94,6 +94,7 @@ export const TOUCH_CSS = `
 .ct-rotate{position:absolute;inset:0;z-index:9999;display:none;pointer-events:auto;touch-action:none;
   flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:28px;text-align:center;background:rgba(8,12,22,.97)}
 .crs-touch.is-portrait .ct-rotate{display:flex}
+.crs-touch.is-portrait .ct-c,.crs-touch.is-portrait .ct-stick,.crs-touch.is-portrait .ct-items,.crs-touch.is-portrait .ct-zone{display:none!important}
 .ct-rotate svg{width:104px;height:104px;fill:none;stroke:#f4f7fb;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;
   animation:ct-turn 2.6s ease-in-out infinite}
 .ct-rotate b{font-size:21px;font-weight:700;letter-spacing:.01em}

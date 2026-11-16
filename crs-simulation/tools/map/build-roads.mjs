@@ -27,6 +27,8 @@ const MERGE_MAX_SPAN = 5;
 const SNAP_SIGNAL_DIST = 3;
 /** Tolérance de simplification des axes (m). */
 const ROAD_TOLERANCE = 0.25;
+/** Longueur totale (m) en dessous de laquelle un cheminement piéton isolé du reste du graphe est retiré. */
+const MIN_ISOLATED_FOOTPATH = 25;
 /** Part minimale des arêtes carrossables dans la plus grande composante connexe. */
 export const MIN_MAIN_COMPONENT = 0.97;
 
@@ -395,6 +397,32 @@ export function buildRoads(ctx) {
   }
   report.width = widthStats;
   report.sidewalk = swStats;
+
+  // Bouts de cheminements piétons isolés (amorce d'un passage intérieur, marche d'un perron) : sans
+  // lien avec le reste du graphe et trop courts pour servir, ils sont retirés.
+  {
+    const n = nodes.length;
+    const root = new Int32Array(n);
+    for (let i = 0; i < n; i++) root[i] = i;
+    const find2 = (i) => { while (root[i] !== i) { root[i] = root[root[i]]; i = root[i]; } return i; };
+    for (const ed of out) { const ra = find2(ed.a), rb = find2(ed.b); if (ra !== rb) root[Math.max(ra, rb)] = Math.min(ra, rb); }
+    const total = new Map(), drivable = new Set();
+    for (const ed of out) {
+      const c = find2(ed.a);
+      total.set(c, (total.get(c) ?? 0) + ed.length);
+      if (!ed.pedestrianOnly) drivable.add(c);
+    }
+    let removed = 0, removedLen = 0;
+    const kept = [];
+    for (const ed of out) {
+      const c = find2(ed.a);
+      if (!drivable.has(c) && total.get(c) < MIN_ISOLATED_FOOTPATH) { removed++; removedLen += ed.length; }
+      else kept.push(ed);
+    }
+    out.length = 0;
+    for (const ed of kept) out.push(ed);
+    report.isolatedFootpathsRemoved = { edges: removed, lengthM: Math.round(removedLen) };
+  }
 
   // ── G. Nœuds utilisés, limites de carte ──
   const used = new Int32Array(nodes.length).fill(-1);

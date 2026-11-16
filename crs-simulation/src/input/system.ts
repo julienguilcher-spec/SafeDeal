@@ -137,8 +137,8 @@ export class InputSystem implements GameSystem {
     this.sources.length = 0;
     if (this.kbm) this.sources.push(this.kbm.axes);
     if (this.pad) this.sources.push(this.pad.axes);
+    if (this.touch.overlay) this.sources.push(this.touch.overlay.axes);
     this.sources.push(this.script.axes);
-    // les axes du tactile sont ajoutés à la volée (la surcouche peut ne pas exister)
 
     this.cleanups.push(ctx.events.on('session:paused', (e) => {
       if (e.paused && this.kbm) this.kbm.releasePointer();
@@ -300,23 +300,8 @@ export class InputSystem implements GameSystem {
 
     const core = this.core;
     const merged = this.merged;
-    mergeAxes(this.sources, merged);
-    const ta = this.touch.axes;
-    if (ta.moveX !== 0 || ta.moveY !== 0 || ta.throttle !== 0 || ta.brake !== 0) {
-      // le tactile s'ajoute au reste (rare : tablette avec clavier ou manette)
-      let x = merged.moveX + ta.moveX;
-      let y = merged.moveY + ta.moveY;
-      const m2 = x * x + y * y;
-      if (m2 > 1) {
-        const k = 1 / Math.sqrt(m2);
-        x *= k;
-        y *= k;
-      }
-      merged.moveX = x;
-      merged.moveY = y;
-      if (ta.throttle > merged.throttle) merged.throttle = ta.throttle;
-      if (ta.brake > merged.brake) merged.brake = ta.brake;
-    }
+    // À pied, la norme du déplacement est bornée à 1 ; en véhicule, volant et accélérateur sont indépendants.
+    mergeAxes(this.sources, merged, this.ctx.player.vehicle() === null);
     core.moveX = merged.moveX;
     core.moveY = merged.moveY;
     core.throttle = merged.throttle;
@@ -362,7 +347,9 @@ export class InputSystem implements GameSystem {
   private vibrate(ms: number): void {
     if (this.headless || !(ms > 0)) return;
     try {
-      const nav = navigator as Navigator & { vibrate?: (pattern: number) => boolean };
+      const nav = navigator as Navigator & { vibrate?: (pattern: number) => boolean; userActivation?: { hasBeenActive: boolean } };
+      // Avant le premier geste complet de l'utilisateur, le navigateur refuse la vibration (et s'en plaint en console).
+      if (nav.userActivation && !nav.userActivation.hasBeenActive) return;
       if (typeof nav.vibrate === 'function') nav.vibrate(ms);
     } catch {
       // vibration interdite ou absente

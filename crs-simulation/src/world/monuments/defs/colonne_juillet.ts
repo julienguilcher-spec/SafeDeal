@@ -11,7 +11,7 @@ import {
 } from '../kit';
 import { ngonRing, rectRing } from '../shape2d';
 
-const RED_H = 0.85, WHITE_H = 3.0, SQUARE_H = 2.4, PED_H = 4.4, BASE_H = 1.0, SHAFT_H = 23, CAP_H = 2.8;
+const RED_H = 0.85, WHITE_H = 3.0, SQUARE_H = 2.6, PED_H = 4.95, BASE_H = 1.0, SHAFT_H = 23, CAP_H = 2.9;
 const R0 = 1.95, R1 = 1.7;
 
 defineMaterial('juillet_fut', () => litMaterial('juillet_fut', { color: 0xffffff, roughness: 0.5, metalness: 0.35, night: 0.9 }, inscriptionTex(0x3f4a3a, 0xd9b04a, 22, 91, [3.2, 6], 0.85))
@@ -97,14 +97,15 @@ export const def: MonumentDef = {
     b.add(farMaterial(0x8e4a3c), cyl(6.6, 6.6, RED_H, 12, { flat: true }));
     b.add(marble, cyl(5.8, 5.8, WHITE_H, 12, { flat: true }).translate(0, RED_H, 0));
     b.add(marble, box(6.7, SQUARE_H, 6.7).translate(0, RED_H + WHITE_H, 0));
-    b.add(bronze, box(4.7, PED_H, 4.7).translate(0, 6.25, 0));
-    b.add(bronze, cyl(R0, R1, SHAFT_H + BASE_H, 8, { top: false }).translate(0, 10.65, 0));
-    b.add(bronze, box(5.3, 1.6, 5.3, { bottom: true }).translate(0, 35.85, 0));
-    b.add(bronze, cyl(1.4, 0.9, 5, 6, { top: false }).translate(0, 37.45, 0));
+    const y1 = RED_H + WHITE_H + SQUARE_H, y2 = y1 + PED_H, y3 = y2 + BASE_H + SHAFT_H;
+    b.add(bronze, box(4.7, PED_H, 4.7).translate(0, y1, 0));
+    b.add(bronze, cyl(R0, R1, SHAFT_H + BASE_H, 8, { top: false }).translate(0, y2, 0));
+    b.add(bronze, box(5.3, 1.6, 5.3, { bottom: true }).translate(0, y3 + CAP_H - 1.6, 0));
+    b.add(bronze, cyl(1.4, 0.9, 5, 6, { top: false }).translate(0, y3 + CAP_H, 0));
     const gold = farMaterial(0xd8ab33, 1.2, 0xffd27a);
-    b.add(gold, cyl(0.8, 0.8, 1.5, 5).translate(0, 42.4, 0));
-    b.add(gold, cyl(0.7, 0.35, 5.2, 4).translate(0, 43.9, 0));
-    b.add(gold, box(3.6, 2.4, 0.2, { bottom: true }).translate(0, 46.2, -0.5));
+    b.add(gold, cyl(0.8, 0.8, 1.5, 5).translate(0, y3 + CAP_H + 4.95, 0));
+    b.add(gold, cyl(0.7, 0.35, 5.2, 4).translate(0, y3 + CAP_H + 6.4, 0));
+    b.add(gold, box(3.6, 2.4, 0.2, { bottom: true }).translate(0, y3 + CAP_H + 8.7, -0.5));
     return finishFar(b, 'colonne_juillet');
   },
 };

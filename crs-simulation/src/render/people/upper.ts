@@ -161,13 +161,13 @@ function holdPose(inp: PoseInput, P: Float64Array): void {
 
 /** Vue à la première personne : l'objet tenu est remonté dans le champ de vision. */
 function fpReady(inp: PoseInput, P: Float64Array): void {
-  armIK(P, R, 0.17, 0.02, 0.36, 0.6, -0.8, -0.2);
+  armIK(P, R, 0.21, 0.13, 0.40, 0.75, -0.65, -0.1);
   switch (inp.hold) {
-    case HOLD_STICK: handThumb(P, R, -0.2, 0.85, 0.48); break;
+    case HOLD_STICK: handThumb(P, R, -0.25, 0.8, 0.5); break;
     case HOLD_PISTOL: handAbs(P, R, -0.15, -0.3, 0.94, 0, 1, 0.3); break;
     case HOLD_SPRAY: handAbs(P, R, -0.05, 0.05, 1, 0, 1, 0); break;
-    case HOLD_MEGAPHONE: handAbs(P, R, -0.1, 0.1, 1, 0, 1, 0); break;
-    case HOLD_PHONE: handAbs(P, R, -0.8, 0.45, 0.4, 0, 1, 0); P[R + A_TY] = 0.18; break;
+    case HOLD_MEGAPHONE: handAbs(P, R, -0.1, 0.1, 1, 0, 1, 0); P[R + A_TY] = 0.06; break;
+    case HOLD_PHONE: handAbs(P, R, -0.8, 0.45, 0.4, 0, 1, 0); P[R + A_TY] = 0.2; break;
     case HOLD_REMOTE: handAbs(P, R, -0.5, 0.1, 0.85, -0.2, 0.9, -0.3); break;
     case HOLD_BAG: case HOLD_EXTINGUISHER: P[R + A_MODE] = 0; break;
     case HOLD_SMALL: default: handAbs(P, R, -0.2, 0.15, 1, 0.97, 0, 0.2); break;

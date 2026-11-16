@@ -102,17 +102,12 @@ export function clampUnit(x: number, y: number, out: Axis2): number {
 
 /**
  * Déplacement tiré de quatre touches : chaque axe vaut -1, 0 ou 1 (deux touches opposées
- * s'annulent) et la diagonale est normalisée (on ne va pas plus vite en biais).
+ * s'annulent). La diagonale n'est PAS normalisée ici : c'est la fusion qui borne la norme à 1
+ * quand on est à pied, et laisse les deux axes indépendants en véhicule (volant et accélérateur).
  */
 export function digitalMove(forward: boolean, back: boolean, left: boolean, right: boolean, out: Axis2): void {
-  let x = (right ? 1 : 0) - (left ? 1 : 0);
-  let y = (forward ? 1 : 0) - (back ? 1 : 0);
-  if (x !== 0 && y !== 0) {
-    x *= Math.SQRT1_2;
-    y *= Math.SQRT1_2;
-  }
-  out.x = x;
-  out.y = y;
+  out.x = (right ? 1 : 0) - (left ? 1 : 0);
+  out.y = (forward ? 1 : 0) - (back ? 1 : 0);
 }
 
 /** État d'un joystick virtuel tactile. */
