@@ -427,3 +427,17 @@ un téléphone lancé en portrait trouve désormais la session EN PAUSE (c'étai
   n'est libéré qu'au-delà de 2,4 × (`src/world/monuments/system.ts`, PREBUILD / RELEASE). L'à-coup de construction a lieu
   loin du monument et une seule fois par passage ; il n'est pas supprimé (construction synchrone). Non mesuré dans le
   navigateur après correction.
+
+## Cadre de mission (16/11) — LIVRÉ
+- `src/gameplay/missions/` : service 'missions' (catalogue pour l'accueil, mission en cours, compte rendu `result`),
+  branché dans `src/main.ts` ; `?autostart=paris&mission=<id>` lance une mission depuis l'URL.
+- `config.ts` : fiche → SessionConfig (lieu et parcours résolus sur la carte, familles ramenées à celles du module de
+  foule, cause, moyens engagés, vent).
+- `objectives.ts` : chaque ObjectiveKind est mesuré sur l'état du jeu ; « à préserver » jugés à la fin ; les 163 objectifs
+  « personnalise » ne sont pas mesurables et sont jugés sur l'issue de la mission (le compte rendu le dit).
+- `system.ts` : phases (bandeau + radio), déclencheurs temps / phase de foule / tension / objectif avec levée au bout de
+  300 s, échecs (hors combat, bavure, blessés, interpellé, site envahi, victime non secourue, temps), fin, note A-E.
+- Vérifié : `tests/unit/missions.engine.test.ts` (crs-01 joué 12 min sur Paris : 5 phases, compte rendu, écran
+  `debrief`) ; `tests/e2e/mission.mjs` dans le navigateur (bandeau, objectifs au HUD, zéro erreur console).
+- Limites : « ligne enfoncée » et conditions d'échec personnalisées non mesurées ; « publier » compté comme une prise de
+  vue (pas de module médias) ; aléas imposés par les phases (`events`) ignorés ; pas encore de carrière (déblocages).

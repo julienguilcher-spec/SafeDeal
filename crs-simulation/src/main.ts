@@ -40,6 +40,7 @@ import { createSystems as incidents } from '@/gameplay/incidents';   // incident
 import { createSystems as rescue } from '@/sim/roles/rescue';        // pompiers et SAMU sur appel
 import { createSystems as medics } from '@/sim/roles/medics';        // médecins de rue
 import { createSystems as session, installLoadingGate } from '@/gameplay/session'; // mise en place de la session
+import { createSystems as missions, missionById, missionConfig } from '@/gameplay/missions'; // cadre de mission
 import { createSystems as renderBase } from '@/render/base';         // renderer, ciel, caméra (fournit ctx.view)
 import { createSystems as worldView } from '@/world/view';           // maillages de la ville
 import { createSystems as monuments } from '@/world/monuments';      // monuments
@@ -56,7 +57,6 @@ import type { Map2dService } from '@/ui/maps/api';
 import type { Map2dApi } from '@/world/view/api';
 
 // ── modules qui n'existent pas encore (à brancher quand ils seront livrés) ──
-//   import { createSystems as missions } from '@/gameplay/missions';     // cadre de mission (remplacera gameplay/session)
 //   import { createSystems as career } from '@/gameplay/career';         // carrière, mode libre
 //   import { createSystems as media } from '@/gameplay/media';           // journalistes, image publique
 
@@ -180,7 +180,7 @@ const MODULES: ModuleFactory[] = [
   // (la circulation après les véhicules : elle attend leur pilote automatique)
   // (la police après la foule : à ordre égal, les manifestants décident avant les unités qui leur répondent)
   input, env, worldQuery, simRoles, simPeople, simVehicles, simTraffic, simCrowd, simPolice, simItems, simProps, simHazards,
-  law, radio, incidents, rescue, medics, session,
+  law, radio, incidents, rescue, medics, session, missions,
   // présentation — le rendu de base d'abord
   renderBase, worldView, map2dAdapter, monuments, monumentsClearAir, renderPeople, renderVehicles, renderProps, renderFx, ui, audio,
 ];
@@ -189,7 +189,10 @@ const MODULES: ModuleFactory[] = [
 
 /** Session lancée d'office par ?autostart= : configuration de l'URL, plus les clés lues par la mise en place. */
 function autostartConfig(launch: LaunchParams): SessionConfig {
-  const cfg = launchSessionConfig(launch);
+  let cfg = launchSessionConfig(launch);
+  // ?mission=… : la fiche de la mission fixe le scénario (les autres paramètres d'URL ne la remplacent pas)
+  const def = launch.mission ? missionById(launch.mission) : undefined;
+  if (def) cfg = { ...cfg, ...missionConfig(def, null), extra: { ...(cfg.extra ?? {}), ...(missionConfig(def, null).extra ?? {}) } };
   const extra: Record<string, unknown> = { ...(cfg.extra ?? {}) };
   const raw = launch.raw;
   if (raw['poste']) extra['poste'] = raw['poste'];
