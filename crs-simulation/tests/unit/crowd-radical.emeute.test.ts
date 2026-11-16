@@ -57,6 +57,7 @@ describe('groupes radicaux — émeute', () => {
     let scatterAt = -1;
     let teams = 0;
     let exits: number[] = [];
+    let routeAtScatter: number[] = [];
     let baseAtScatter = '';
     for (let s = 0; s < 520; s += 1) {
       t.run(1);
@@ -66,6 +67,7 @@ describe('groupes radicaux — émeute', () => {
         scatterAt = ctx.clock.now;
         // issues retenues à l'instant de la dispersion, et temps de la manifestation à cet instant
         exits = radical.bloc.exits.slice();
+        routeAtScatter = Array.from(core.route.points);
         baseAtScatter = core.director.base;
       }
       if (scatterAt > 0 && ctx.clock.now - scatterAt > 8 && ctx.clock.now - scatterAt < 10) {
@@ -101,11 +103,20 @@ describe('groupes radicaux — émeute', () => {
     console.log('[radicaux] dispersion à', scatterAt.toFixed(0), 's (temps de la manifestation :', baseAtScatter + ') | issues',
       exits.map((v) => v.toFixed(0)).join(' '), '| équipes par groupe', teams);
     expect(exits.length).toBeGreaterThanOrEqual(4);
-    // les issues sont des rues adjacentes, hors du parcours déclaré
+    // les issues sont des rues adjacentes, hors du parcours du cortège. Depuis que le cortège se détourne devant
+    // un barrage (rue fermée), ce parcours n'est plus l'avenue de départ : on mesure contre le tracé en vigueur à
+    // l'instant de la dispersion
+    expect(routeAtScatter.length).toBeGreaterThanOrEqual(4);
     for (let i = 0; i < exits.length; i += 2) {
-      // parcours de l'essai : l'avenue, de (50, 7) à (430, 7)
-      const cx = Math.min(430, Math.max(50, exits[i]!));
-      expect(Math.hypot(cx - exits[i]!, 7 - exits[i + 1]!)).toBeGreaterThan(30);
+      let d = Infinity;
+      for (let j = 0; j + 3 < routeAtScatter.length; j += 2) {
+        const ax = routeAtScatter[j]!, az = routeAtScatter[j + 1]!;
+        const dx = routeAtScatter[j + 2]! - ax, dz = routeAtScatter[j + 3]! - az;
+        const l2 = dx * dx + dz * dz;
+        const u = l2 > 1e-6 ? Math.max(0, Math.min(1, ((exits[i]! - ax) * dx + (exits[i + 1]! - az) * dz) / l2)) : 0;
+        d = Math.min(d, Math.hypot(exits[i]! - (ax + dx * u), exits[i + 1]! - (az + dz * u)));
+      }
+      expect(d).toBeGreaterThan(30);
       // et pas du côté des forces
       expect(Math.hypot(exits[i]! - 255, exits[i + 1]!)).toBeGreaterThan(45);
     }

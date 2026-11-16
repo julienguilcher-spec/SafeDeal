@@ -96,7 +96,7 @@ export class WorldBase {
     this.terrain = decoded.terrain;
     this.attribution = attributionText(decoded.manifest);
     this.roads = new RoadNetwork(decoded.roadGraph, decoded.terrain);
-    this.paths = new PathFinder(this.roads);
+    this.paths = new PathFinder(this.roads, decoded.manifest.bounds);
     this.placeIndex = new PlaceIndex(decoded.places, decoded.landmarks);
     this.store = new TileStore(decoded.source, decoded.manifest, host, loadRadius, unloadRadius);
     this.landmarkSet = { replaced: new Set<string>(), obstacles: [], fallback: [] };

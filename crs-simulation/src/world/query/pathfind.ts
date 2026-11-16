@@ -56,6 +56,9 @@ export interface PathStart {
   minWidth?: number;
 }
 
+/** Marge (m) à l'intérieur des limites du monde en deçà de laquelle une voie est tenue pour hors carte. */
+const EDGE_MARGIN = 5;
+
 export class PathFinder {
   private readonly net: RoadNetwork;
   // Adjacence compacte : pour le nœud n, les entrées [adjStart[n], adjStart[n + 1][.
@@ -92,13 +95,37 @@ export class PathFinder {
   /** Composante connexe (à pied) de chaque arête ; -1 pour un souterrain. */
   private readonly footComponent: Int32Array;
 
-  constructor(net: RoadNetwork) {
+  /**
+   * 1 pour les arêtes qui sortent de la carte (au-delà des limites du monde, moins une marge) : le graphe des voies
+   * déborde un peu de la zone jouable, où tout est « hors carte » pour les collisions — un itinéraire qui passait par
+   * là menait la tête d'une colonne droit dans le mur du bord de carte (boulevard Delessert, à l'ouest du Trocadéro).
+   * Aucun itinéraire, à pied ou en véhicule, ne les emprunte.
+   */
+  readonly outside: Uint8Array;
+  /** 1 pour les arêtes qu'aucun itinéraire n'emprunte : souterrains et voies hors carte. */
+  private readonly skip: Uint8Array;
+
+  constructor(net: RoadNetwork, bounds?: { minX: number; minZ: number; maxX: number; maxZ: number }) {
     this.net = net;
     const nn = net.nodes.length;
     const edges = net.graph.edges;
+    const skip = this.skip = new Uint8Array(edges.length);
+    this.outside = new Uint8Array(edges.length);
+    for (let e = 0; e < edges.length; e++) {
+      if (bounds) {
+        const pts = edges[e].points;
+        for (let i = 0; i + 1 < pts.length; i += 2) {
+          if (pts[i] < bounds.minX + EDGE_MARGIN || pts[i] > bounds.maxX - EDGE_MARGIN || pts[i + 1] < bounds.minZ + EDGE_MARGIN || pts[i + 1] > bounds.maxZ - EDGE_MARGIN) {
+            this.outside[e] = 1;
+            break;
+          }
+        }
+      }
+      skip[e] = net.edgeTunnel[e] === 1 || this.outside[e] === 1 ? 1 : 0;
+    }
     this.adjStart = new Int32Array(nn + 1);
     for (let e = 0; e < edges.length; e++) {
-      if (net.edgeTunnel[e] === 1) continue;
+      if (skip[e] === 1) continue;
       this.adjStart[edges[e].a + 1]++;
       this.adjStart[edges[e].b + 1]++;
     }
@@ -111,7 +138,7 @@ export class PathFinder {
     this.adjVehicle = new Float32Array(total);
     const cursor = this.adjStart.slice(0, nn);
     for (let e = 0; e < edges.length; e++) {
-      if (net.edgeTunnel[e] === 1) continue;
+      if (skip[e] === 1) continue;
       const ed = edges[e];
       const time = ed.length / Math.max(MIN_SPEED, ed.speedLimit);
       const drivable = !ed.pedestrianOnly;
@@ -182,12 +209,12 @@ export class PathFinder {
       return r;
     };
     for (let e = 0; e < edges.length; e++) {
-      if (this.net.edgeTunnel[e] === 1) continue;
+      if (this.skip[e] === 1) continue;
       const ra = find(edges[e].a), rb = find(edges[e].b);
       if (ra !== rb) parent[ra] = rb;
     }
     const size = new Int32Array(nn);
-    for (let e = 0; e < edges.length; e++) if (this.net.edgeTunnel[e] === 0) size[find(edges[e].a)]++;
+    for (let e = 0; e < edges.length; e++) if (this.skip[e] === 0) size[find(edges[e].a)]++;
     let mainFoot = -1, best = 0;
     for (let i = 0; i < nn; i++) {
       if (size[i] > best) {
@@ -196,7 +223,7 @@ export class PathFinder {
       }
     }
     for (let e = 0; e < edges.length; e++) {
-      if (this.net.edgeTunnel[e] === 1) continue;
+      if (this.skip[e] === 1) continue;
       const root = find(edges[e].a);
       this.footComponent[e] = root;
       if (root === mainFoot) this.footMain[e] = 1;
@@ -257,7 +284,7 @@ export class PathFinder {
     const sccSize = new Int32Array(sccCount);
     for (let e = 0; e < edges.length; e++) {
       const ed = edges[e];
-      if (this.net.edgeTunnel[e] === 1 || ed.pedestrianOnly) continue;
+      if (this.skip[e] === 1 || ed.pedestrianOnly) continue;
       if (scc[ed.a] === scc[ed.b]) sccSize[scc[ed.a]]++;
     }
     let mainScc = -1;
@@ -270,7 +297,7 @@ export class PathFinder {
     }
     for (let e = 0; e < edges.length; e++) {
       const ed = edges[e];
-      if (this.net.edgeTunnel[e] === 1 || ed.pedestrianOnly) continue;
+      if (this.skip[e] === 1 || ed.pedestrianOnly) continue;
       if (scc[ed.a] === mainScc && scc[ed.b] === mainScc) this.vehicleMain[e] = 1;
     }
   }
