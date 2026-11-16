@@ -15,6 +15,14 @@ export interface MonumentSite {
   height: number;
   /** Graine de variation déterministe (facultative). */
   seed?: number;
+  /**
+   * Altitude du sol (tablier de pont compris) au point LOCAL (x, z), RELATIVE à l'origine du monument (m).
+   * Fournie par le système dans le jeu ; absente dans les bancs d'essai et sous Node : le sol est alors plat (0).
+   * Sert aux ouvrages qui épousent le terrain (ponts, palais sur une pente, fontaines en contrebas).
+   */
+  groundAt?(x: number, z: number): number;
+  /** Niveau de l'eau de la Seine, RELATIF à l'origine du monument (m) ; absent si inconnu. */
+  waterY?: number;
 }
 
 /**

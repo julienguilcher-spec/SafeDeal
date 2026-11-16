@@ -173,7 +173,7 @@ export class Nav {
       this.rebuildExits(nearCrowd ? c.centerX : p.x, nearCrowd ? c.centerZ : p.z);
     }
     const g = b.group >= 0 ? core.groups[b.group] : undefined;
-    if (g && g.exit >= 0 && g.exit < this.exits.length && this.exits[g.exit]!.open) return g.exit;
+    if (g && g.exit >= 0 && g.exit < this.exits.length && this.exits[g.exit]!.open && b.dir !== b.dir) return g.exit;
     const exits = this.exits;
     const rng = core.rngThink;
     let best = -1;
@@ -185,6 +185,12 @@ export class Nav {
       const d = Math.hypot(e.x - p.x, e.z - p.z);
       let score = -d * (0.6 + rng.next() * 0.8);
       if (e.kind === 'metro') score += wantMetro && d <= T.LEAVE_METRO_RADIUS ? 400 : -500;
+      // on ne repart pas dans la direction où le passage vient de se révéler bouché
+      if (b.dir === b.dir && d > 1) {
+        const ax = e.x - p.x;
+        const az = e.z - p.z;
+        if (ax * Math.sin(b.dir) + az * Math.cos(b.dir) > 0.25 * d) score -= 500;
+      }
       // on ne part pas vers les forces de l'ordre ni vers un danger connu
       if (b.threatUntil > core.now) {
         const ax = e.x - p.x;

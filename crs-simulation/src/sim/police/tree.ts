@@ -87,6 +87,7 @@ export function syncTree(k: Kernel, force: boolean): boolean {
         a.thinkAt = k.now + a.seed * 0.25;
       }
       a.home = u;
+      if (p.poste === 'commandant_unite' || (p.look.sash && p.faction === 'police')) k.commander = p;
       // conducteurs et équipages restent à leur véhicule
       a.crew = u.squad.kind === 'equipage' || (p.poste === 'conducteur' && (p.vehicleId !== 0 || fleetNear(u)));
       classify(k, a);

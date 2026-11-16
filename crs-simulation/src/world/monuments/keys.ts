@@ -15,10 +15,41 @@ export const KEY_ALIASES: Readonly<Record<string, string>> = {
   statue_de_la_republique: 'statue_republique',
 };
 
+/**
+ * ALIAS DE CARTE : une clé de la carte → une définition existante (seconde fontaine de la Concorde, monument
+ * jumeau…). Déclarés soit par un fichier defs/<alias>.ts et collide/<alias>.ts qui exporte
+ * `export const alias = '<clé cible>'`, soit par registerAlias(). Table commune au registre et aux obstacles.
+ */
+const mapAliases = new Map<string, string>();
+
+function normalize(key: string): string {
+  return key.trim().toLowerCase().replace(/[-\s]+/g, '_');
+}
+
+/** Déclare qu'une clé de la carte utilise la définition (et les obstacles) d'une autre. Les chaînes d'alias sont suivies. */
+export function registerAlias(alias: string, target: string): void {
+  const a = normalize(alias), t = normalize(target);
+  if (a === '' || t === '' || a === t) return;
+  // pas de boucle : la cible ne doit pas mener à l'alias
+  let k = t;
+  for (let i = 0; i < 8; i++) { const n = mapAliases.get(k) ?? KEY_ALIASES[k]; if (n === undefined) break; if (n === a) return; k = n; }
+  mapAliases.set(a, t);
+}
+
+/** Alias de carte déclarés : [alias, cible] triés par alias. */
+export function listAliases(): [string, string][] {
+  return [...mapAliases.entries()].sort((p, q) => (p[0] < q[0] ? -1 : p[0] > q[0] ? 1 : 0));
+}
+
 /** Clé canonique d'un monument (résout les alias, tolère majuscules et tirets). */
 export function canonicalKey(key: string): string {
-  const k = key.trim().toLowerCase().replace(/[-\s]+/g, '_');
-  return KEY_ALIASES[k] ?? k;
+  let k = normalize(key);
+  for (let i = 0; i < 8; i++) {
+    const n = mapAliases.get(k) ?? KEY_ALIASES[k];
+    if (n === undefined || n === k) break;
+    k = n;
+  }
+  return k;
 }
 
 /** Clé d'un fichier « ./defs/arc_triomphe.ts » → « arc_triomphe ». */

@@ -59,7 +59,7 @@ export interface SayOptions {
   /**
    * Unité qui parle quand la phrase est dite par une unité : fournit l'indicatif, le lieu ({lieu}, si « at » est absent)
    * et la direction de face ({direction}). Pour une phrase dite par un autre rôle (commandant, salle, secours…),
-   * c'est l'unité concernée : elle ne fournit que le lieu, et l'indicatif du destinataire quand il est « unite ».
+   * c'est l'unité concernée : elle fournit le lieu et, sauf « to » ou paramètre « cible », l'indicatif du destinataire.
    */
   squad?: Squad | number;
   /** Position dont on parle : sert à nommer le secteur ({lieu}, {voie}) quand il n'est pas fourni. Prime sur l'unité. */

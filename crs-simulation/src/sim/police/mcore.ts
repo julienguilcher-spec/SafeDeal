@@ -196,7 +196,7 @@ export function formColumn(k: Kernel, u: Unit, hx: number, hz: number, tx: numbe
     path.push(hx + dx, hz + dz);
     count = 2;
   }
-  buildColumn(k, g, k.agentsTmp, n, hx, hz, dx, dz, files, u.squad.leaderId);
+  buildColumn(g, k.agentsTmp, n, hx, hz, dx, dz, files, u.squad.leaderId);
   setPath(g, path, count);
   adopt(g, k.agentsTmp, n);
   g.dirty = true;
@@ -355,7 +355,7 @@ export function reform(k: Kernel, u: Unit): void {
   else if (kind === F_TORTUE) buildTortue(k, g, agents, n, g.ax, g.az, g.ah);
   else if (kind === F_SCREEN) buildScreen(k, g, agents, n, g.ax, g.az, g.ah, g.radius);
   else if (kind === F_BOX) buildBox(k, g, agents, n, g.ax, g.az, g.ah, g.radius, Math.max(0.3, g.width / 2 - T.ESCORT_SIDE));
-  else if (kind === F_COLUMN) buildColumn(k, g, agents, n, g.ax, g.az, Math.sin(g.ah), Math.cos(g.ah), g.files, u.squad.leaderId);
+  else if (kind === F_COLUMN) buildColumn(g, agents, n, g.ax, g.az, Math.sin(g.ah), Math.cos(g.ah), g.files, u.squad.leaderId);
   else buildHold(g, agents, n);
   adopt(g, agents, n);
   g.moving = moving;

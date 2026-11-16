@@ -1,28 +1,32 @@
 // La ville en 3D : captures du banc d'essai harness/world.html et mesures.
 // Usage : node tests/e2e/world.mjs [qualité] [vues séparées par des virgules | tout] [paramètres d'URL supplémentaires]
-//   ex. : node tests/e2e/world.mjs haut champs,quai "dist=1200"
-// Captures : tests/e2e/out/world-<qualité>-<vue>.png ; rapport : tests/e2e/out/world-report.json
+//   sans argument : qualité moyenne, les huit vues demandées (et le pont), la carte 2D, les mesures, l'aller-retour mémoire
+//   ex. : node tests/e2e/world.mjs haut tout "dist=1300"        toutes les vues en qualité haute
+//         node tests/e2e/world.mjs moyen champs,quai,mesure      deux vues et les mesures
+//         node tests/e2e/world.mjs moyen tout "map=test"         sur le quartier d'essai
+// Captures : tests/e2e/out/world-<qualité>-<vue>.png ; rapport : tests/e2e/out/world-report-<qualité>.json
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { startServer, openPage, waitFor, shot, finish, OUT } from './lib.mjs';
 
-const quality = process.argv[2] ?? 'haut';
-const only = process.argv[3] && process.argv[3] !== 'tout' ? process.argv[3].split(',') : null;
-const extra = process.argv[4] ? '&' + process.argv[4] : '';
+const quality = process.argv[2] ?? 'moyen';
+const all = process.argv[3] === 'tout';
+const only = process.argv[3] && !all ? process.argv[3].split(',') : null;
+const extra = '&' + (process.argv[4] ?? 'dist=1000');
 
-// [nom de la capture, vue, heure, météo]
+// [nom de la capture, vue, heure, météo, vue supplémentaire (seulement avec « tout » ou si elle est nommée)]
 const SHOTS = [
-  ['champs', 'champs', 15, 'clair'],
-  ['concorde', 'concorde', 11, 'clair'],
-  ['rivoli', 'rivoli', 16, 'nuageux'],
-  ['marais', 'marais', 14, 'clair'],
-  ['quai', 'quai', 15.5, 'clair'],
-  ['pont', 'pont', 10, 'clair'],
-  ['etoile-ciel', 'etoile', 14, 'clair'],
-  ['concorde-ciel', 'ciel', 14, 'clair'],
-  ['nuit', 'chaussee', 22.5, 'clair'],
-  ['pluie', 'rivoli', 17, 'pluie'],
-  ['pluie-concorde', 'concorde', 13, 'averse'],
+  ['champs', 'champs', 15, 'clair', false],
+  ['concorde', 'concorde', 11, 'clair', false],
+  ['rivoli', 'rivoli', 16, 'nuageux', false],
+  ['marais', 'marais', 14, 'clair', false],
+  ['quai', 'quai', 15.5, 'clair', false],
+  ['pont', 'pont', 10, 'clair', false],
+  ['etoile-ciel', 'etoile', 14, 'clair', false],
+  ['nuit', 'chaussee', 22.5, 'clair', false],
+  ['pluie', 'rivoli', 17, 'pluie', false],
+  ['concorde-ciel', 'ciel', 14, 'clair', true],
+  ['pluie-concorde', 'concorde', 13, 'averse', true],
 ];
 
 const server = await startServer();
@@ -37,8 +41,8 @@ try {
   if (error) throw new Error(error);
   const first = await page.evaluate(() => window.__stats());
   console.log(`[world] prêt en ${((Date.now() - t0) / 1000).toFixed(1)} s — carte « ${first.source} », textures partagées peintes en ${first.paintMs.toFixed(0)} ms (${(first.sharedGpuBytes / 1048576).toFixed(1)} Mo sur la carte graphique)`);
-  for (const [name, vue, heure, meteo] of SHOTS) {
-    if (only && !only.includes(name)) continue;
+  for (const [name, vue, heure, meteo, optional] of SHOTS) {
+    if (only ? !only.includes(name) : optional && !all) continue;
     const t1 = Date.now();
     const st = await page.evaluate(([v, h, m]) => window.__goto(v, { heure: h, meteo: m }), [vue, heure, meteo]);
     const file = await shot(page, `world-${quality}-${name}`);

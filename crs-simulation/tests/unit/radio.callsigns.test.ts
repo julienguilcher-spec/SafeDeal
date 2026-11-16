@@ -94,6 +94,15 @@ describe('radio — indicatifs', () => {
     expect(calls.callsign(t2)).toBe('TRAMONTANE 2');
     expect(calls.callsign(t2b)).toBe('TRAMONTANE 2 BRAVO');
     expect(calls.callsign(zephyr)).toBe('ZÉPHYR 1');
+    // une section sans nom d'indicatif est numérotée dans SA compagnie, pas dans celle de la session
+    const m1 = ctx.squads.create('section', 'police', 'première section', mistral.id);
+    const t1 = ctx.squads.create('section', 'police', 'section', tramontane.id);
+    expect(calls.callsign(m1)).toBe('MISTRAL 1');
+    expect(calls.callsign(t1)).toBe('TRAMONTANE 2'); // deuxième section créée sous TRAMONTANE
+    expect(calls.callsign(ctx.squads.create('groupe', 'police', 'g', t1.id))).toBe('TRAMONTANE 2 ALFA');
+    // un cortège qui porterait un nom de vent n'est pas une compagnie
+    expect(calls.callsign(ctx.squads.create('cortege', 'protest', 'Mistral'))).toBe('MISTRAL');
+    expect(calls.callsign(ctx.squads.create('cortege', 'protest', 'Collectif des quais'))).toBe('COLLECTIF DES QUAIS');
     // le chef d'une compagnie parle sous l'indicatif de SA compagnie
     const chef = ctx.people.spawn({ kind: 'crs', x: 0, z: 0, rank: 'commandant', poste: 'commandant_unite', squadId: tramontane.id });
     expect(calls.callsign(chef)).toBe('TRAMONTANE');

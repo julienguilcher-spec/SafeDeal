@@ -5,10 +5,10 @@
  * réservation avant de s'engager.
  * ===================================================================================== */
 
-import type { RoadCache } from './graph';
-import { N_JUNCTION, N_SIGNAL } from './graph';
+import type { EdgePoint, RoadCache } from './graph';
+import { E_ONEWAY, N_JUNCTION, N_SIGNAL } from './graph';
 import type { SignalCtrl, Signals } from './signals';
-import { CLUSTER_REACH, SIGNAL_REACH, STOP_SETBACK } from './tuning';
+import { CLUSTER_REACH, FAR_STOP, NARROW_TWOWAY, SIGNAL_REACH, STOP_SETBACK } from './tuning';
 
 export const CP_SIGNAL = 1;
 export const CP_BOX = 2;
@@ -32,6 +32,31 @@ export class ControlPoint {
 }
 
 export interface RoutePoint { x: number; z: number; dx: number; dz: number }
+
+const scratch: EdgePoint = { x: 0, z: 0, dx: 0, dz: 1 };
+
+/**
+ * Distance entre le centre du carrefour et la ligne d'arrêt de l'approche qui arrive dans la direction (inDx, inDz) :
+ * demi-chaussée croisée + recul ; davantage sur une rue étroite à double sens (voir FAR_STOP).
+ */
+export function stopDistance(cache: RoadCache, node: number, inDx: number, inDz: number): number {
+  let dist = cache.nodeRadius[node]! + STOP_SETBACK;
+  // arête d'approche : celle qui part du nœud dans la direction opposée à l'arrivée
+  let best = -1;
+  let bestDot = 0.8;
+  for (let k = cache.adjStart[node]!; k < cache.adjStart[node + 1]!; k++) {
+    const e = cache.adjEdge[k]!;
+    if (!cache.isVehicle(e)) continue;
+    cache.dirFrom(e, node, scratch);
+    const dot = -(scratch.dx * inDx + scratch.dz * inDz);
+    if (dot > bestDot) {
+      bestDot = dot;
+      best = e;
+    }
+  }
+  if (best >= 0 && (cache.edgeFlags[best]! & E_ONEWAY) === 0 && cache.edgeWidth[best]! < NARROW_TWOWAY && dist < FAR_STOP) dist = FAR_STOP;
+  return dist;
+}
 
 export class CarRoute {
   readonly pts: number[] = [];
@@ -208,7 +233,7 @@ export class CarRoute {
         cp.kind = CP_BOX;
         this.dirAt(i, false, cp);
         this.dirAt(i, true, cp);
-        let stop = s - cp.radius - STOP_SETBACK;
+        let stop = s - stopDistance(cache, node, cp.inDx, cp.inDz);
         const lineAhead = pendingS >= 0 && s - pendingS <= SIGNAL_REACH;
         if (lineAhead || (flags & N_SIGNAL) !== 0) {
           const ctrl = signals.ctrlOf(node);

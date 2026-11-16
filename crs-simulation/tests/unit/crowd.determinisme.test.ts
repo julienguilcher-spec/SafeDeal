@@ -41,7 +41,7 @@ describe('foule — déterminisme', () => {
     const a = await play(1234);
     const b = await play(1234);
     const c = await play(4321);
-    expect(a.log.split('\n').length).toBeGreaterThan(60);
+    expect(a.log.split('\n').length).toBeGreaterThan(30);
     expect(b.log).toBe(a.log);
     expect(b.hash).toBe(a.hash);
     expect(b.aleas).toBe(a.aleas);

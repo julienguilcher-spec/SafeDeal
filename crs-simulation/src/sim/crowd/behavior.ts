@@ -130,11 +130,13 @@ export class Behavior {
       return;
     }
 
-    // ── 1. gaz : se couvrir le visage, sortir du nuage ──
+    // ── 1. gaz, feu : se couvrir le visage, sortir du nuage, s'écarter des flammes ──
     const hazards = core.ctx.hazards;
     const gasHere = hazards.gasAt(p.x, p.z);
-    if (p.gas > T.GAS_FEEL || gasHere > T.GAS_AIR) {
-      this.react.avoidGas(p, b, gasHere);
+    const fireHere = hazards.fireAt(p.x, p.z);
+    if (p.gas > T.GAS_FEEL || gasHere > T.GAS_AIR || fireHere > 0.04 || p.burning > 0.05) {
+      // même réflexe devant des flammes : s'en écarter tout de suite
+      this.react.avoidGas(p, b, gasHere, fireHere > 0.04 || p.burning > 0.05);
       return;
     }
     if (b.state === S.AVOID) {
@@ -331,6 +333,23 @@ export class Behavior {
     const sz = core.slot.z;
     const d = Math.hypot(sx - p.x, sz - p.z);
     const inPlace = b.state === S.MARCH || b.state === S.GATHER;
+    if (d > 4) {
+      // sa place est dans le gaz ou dans les flammes (ou le chemin y passe) : on attend à l'air libre
+      const hazards = core.ctx.hazards;
+      const mx = (sx + p.x) * 0.5;
+      const mz = (sz + p.z) * 0.5;
+      if (hazards.gasAt(sx, sz) > T.GAS_CLEAR || hazards.gasAt(mx, mz) > T.GAS_AIR || hazards.fireAt(sx, sz) > 0.02 || hazards.fireAt(mx, mz) > 0.02) {
+        this.setState(b, S.REGROUP);
+        b.stateSince = now;
+        b.tx = p.x;
+        b.tz = p.z;
+        b.path = null;
+        b.run = false;
+        b.lookX = sx;
+        b.lookZ = sz;
+        return;
+      }
+    }
     if (d > (inPlace ? 20 : 3.2)) {
       this.approach(p, b, now, d, sx, sz);
       return;

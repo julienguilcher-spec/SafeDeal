@@ -164,7 +164,8 @@ export class CarThinker {
       if (!this.cars.go(b)) b.replanAt = now + 2;
       return false;
     }
-    if (this.emergencyCount === 0 || b.mode === MODE_PARK) return false;
+    // déjà arrêté à une ligne (feu, carrefour) : il y reste, sur sa voie, sans avancer dans le carrefour
+    if (this.emergencyCount === 0 || b.mode === MODE_PARK || b.mode === MODE_HOLD) return false;
     const hx = Math.sin(v.heading);
     const hz = Math.cos(v.heading);
     for (let i = 0; i < this.emergencyCount; i++) {
@@ -178,11 +179,13 @@ export class CarThinker {
       if (lat > 7 || lat < -7) continue; // pas dans sa rue
       const same = hx * e.dx + hz * e.dz;
       if (same > -0.5 && same < 0.5) continue; // rue transversale : les feux et le carrefour s'en chargent
-      // jamais d'arrêt au milieu d'un carrefour
+      // jamais d'arrêt dans un carrefour ni entre sa ligne d'arrêt et lui : trop près, il continue (il s'arrêtera
+      // à la ligne si le feu ou la priorité le lui demandent)
       const r = b.route;
       if (r.cpNext < r.cpCount) {
         const cp = r.cps[r.cpNext]!;
-        if (r.s + b.halfL > cp.nodeS - cp.radius - 3 && r.s - b.halfL < cp.nodeS + cp.radius + 2) continue;
+        const need = Math.abs(v.speed) * 1.6 + 6 + b.halfL + 2;
+        if (r.s + need > cp.stopS && r.s - b.halfL < cp.nodeS + cp.radius + 2) continue;
       }
       if (same >= 0.5) {
         // même sens : il ne se range que si la chaussée laisse ensuite le passage ; sinon il dégage devant elle
@@ -260,6 +263,10 @@ export class CarThinker {
     if (b.replanAt >= 0) {
       if (now < b.replanAt) return;
       b.replanAt = -1;
+      if (b.tripDue) {
+        this.newTrip(b, now);
+        return;
+      }
       if (!cars.retarget(b, false) || !cars.drive(b)) {
         b.failures++;
         if (b.ambient && b.failures > 2 && !k.visible(v.x, v.z)) cars.despawn(b);
@@ -279,19 +286,6 @@ export class CarThinker {
         if (b.ambient && b.failures > 3 && !k.visible(v.x, v.z)) cars.despawn(b);
         else b.replanAt = now + 2 + b.failures;
         return;
-      }
-      // circulation d'ambiance : il ne s'arrête pas à destination ; hors champ il disparaît, sinon il poursuit
-      // vers une autre destination, choisie avant que le pilote ne commence à freiner
-      if (b.ambient && !b.hasVia && r.total - r.s < 48 && now >= b.viaAt) {
-        b.viaAt = now + 3;
-        if (!k.visible(v.x, v.z)) {
-          cars.despawn(b);
-          return;
-        }
-        const parking = cars.parking;
-        if (!(parking && k.rng.chance(k.tuning.parkShare))) {
-          if (cars.newDestination(b) && cars.retarget(b, false)) cars.drive(b);
-        }
       }
       // déviation : à l'approche du point de passage, on vise la suite avant que le pilote ne freine
       if (b.hasVia && r.total - r.s < 46 && now >= b.viaAt) {
@@ -351,8 +345,9 @@ export class CarThinker {
     for (let i = r.cpNext; i < r.cpCount; i++) {
       const cp = r.cps[i]!;
       const dStop = cp.stopS - front;
-      // hors de portée : on n'y pense pas encore (sauf si l'on est déjà tenu à cette ligne, dans la file)
-      if (dStop > reach && cp !== b.holdCp) break;
+      // hors de portée : on n'y pense pas encore (sauf si l'on est déjà tenu à cette ligne, dans la file, ou
+      // si le passage est acquis : la réservation doit être rappelée jusqu'au bout, même si l'on a ralenti)
+      if (dStop > reach && cp !== b.holdCp && !cp.cleared) break;
       // ligne d'arrêt dépassée : engagé, il ne s'arrête plus (un arrêt dans le carrefour le bloquerait)
       const inside = dStop < -1;
       if (cp.cleared) {
@@ -360,14 +355,16 @@ export class CarThinker {
           // arrêté devant un carrefour pourtant réservé (piéton, file) : on rend la place aux autres
           if (!inside && u < 0.3) b.waitBox += 0.25;
           else b.waitBox = 0;
-          if (now < b.forceUntil) {
-            k.boxes.request(cp.node, v.id, cp.inDx, cp.inDz, cp.outDx, cp.outDz, now);
+          if (inside || now < b.forceUntil) {
+            k.boxes.occupy(cp.node, v.id, cp.inDx, cp.inDz, cp.outDx, cp.outDz, now);
           } else if (b.waitBox > 3 && !inside) {
             b.waitBox = 0;
             k.boxes.release(cp.node, v.id);
             cp.cleared = false;
-          } else if (!k.boxes.request(cp.node, v.id, cp.inDx, cp.inDz, cp.outDx, cp.outDz, now) && !inside) {
-            cp.cleared = false;
+          } else if (!k.boxes.request(cp.node, v.id, cp.inDx, cp.inDz, cp.outDx, cp.outDz, now)) {
+            // réservation perdue : on s'arrête si on le peut encore, sinon on passe en occupant le carrefour
+            if (dStop > (u * u) / (2 * HARD_DECEL) + 1.5) cp.cleared = false;
+            else k.boxes.occupy(cp.node, v.id, cp.inDx, cp.inDz, cp.outDx, cp.outDz, now);
           }
         }
         if (cp.cleared) continue;
@@ -392,6 +389,11 @@ export class CarThinker {
   private permit(b: CarBrain, cp: ControlPoint, dStop: number, u: number, inside: boolean, now: number): boolean {
     const k = this.k;
     const v = b.v;
+    // la rue où mène ce carrefour est fermée : on n'y entre pas (sauf si l'on est déjà engagé)
+    if (cp === b.entryCp && !inside) {
+      this.holdCause = 'fermeture';
+      return false;
+    }
     if ((cp.kind & CP_SIGNAL) !== 0 && cp.ctrl !== null && dStop > -1.5) {
       const st = k.signals.state(cp.ctrl, cp.inDx, cp.inDz, now);
       if (st === RED) {
@@ -408,7 +410,7 @@ export class CarThinker {
     this.holdCause = 'carrefour';
     if (inside) {
       // déjà dans le carrefour : on ne s'y arrête pas, on dégage
-      k.boxes.request(cp.node, v.id, cp.inDx, cp.inDz, cp.outDx, cp.outDz, now);
+      k.boxes.occupy(cp.node, v.id, cp.inDx, cp.inDz, cp.outDx, cp.outDz, now);
       return true;
     }
     if (!this.junctionFree(b, cp)) return false;
@@ -457,7 +459,9 @@ export class CarThinker {
       const along = rx * p.dx + rz * p.dz;
       const lat = -rx * p.dz + rz * p.dx; // positif à droite
       const half = o.def.length * 0.5;
-      if (along > -(b.halfL + half + 1) && along < b.halfL + half + 4 && lat > -1.2 && lat < b.halfW + o.def.width * 0.5 + 2.2) {
+      if (along > -(b.halfL + half + 1) && along < b.halfL + half + 9 && lat > -3.2 && lat < b.halfW + o.def.width * 0.5 + 2.2) {
+        // à gauche de ma voie : seulement s'il roule dans mon sens (celui d'en face attend à sa ligne, c'est normal)
+        if (lat < -1.2 && Math.sin(o.heading) * p.dx + Math.cos(o.heading) * p.dz < 0.3) continue;
         // un véhicule garé le long du trottoir ne compte pas : seul celui qui est sur une voie gêne
         if (lat < b.halfW + o.def.width * 0.5 + 0.9 || mine) return false;
       }
@@ -492,6 +496,7 @@ export class CarThinker {
     b.blockS = cl.blockS;
     b.passS = cl.passS;
     b.passRec = cl.passRec;
+    cars.markEntry(b);
   }
 
   // ───────────────────────────── arrivée, stationnement ─────────────────────────────
@@ -512,20 +517,45 @@ export class CarThinker {
       cars.closeIncident(b, true);
       return;
     }
-    if (!k.visible(v.x, v.z)) {
+    // arrivé loin du joueur ou hors de sa vue : il sort de la zone simulée
+    if (k.distToFocus2(v.x, v.z) > 150 * 150 || !k.visible(v.x, v.z)) {
       cars.despawn(b);
       return;
     }
-    // arrêté à destination (il avait choisi de s'y garer) : une place libre devant lui ?
+    // sous les yeux du joueur : il se gare s'il trouve une place, sinon il marque l'arrêt (il dépose quelqu'un,
+    // cherche son chemin) puis repart droit devant vers une autre destination
     const parking = cars.parking;
-    if (parking && parking.offer(b)) return;
-    this.newTrip(b, now);
+    if (parking && k.rng.chance(k.tuning.parkShare * 2.5) && parking.offer(b)) return;
+    b.mode = MODE_HOLD;
+    b.holdCp = null;
+    b.holdCause = '';
+    b.failures = 0;
+    b.replanAt = now + 1 + k.rng.next() * 4;
+    b.tripDue = true;
   }
 
   /** Repart vers une autre destination. */
   private newTrip(b: CarBrain, now: number): void {
     const cars = this.cars;
-    if (cars.newDestination(b) && cars.retarget(b, false) && cars.drive(b)) return;
+    // toujours devant lui : pas de demi-tour en pleine rue pour un simple changement de destination
+    if (cars.newDestination(b, true)) {
+      if (cars.retarget(b, false) && cars.drive(b)) {
+        b.failures = 0;
+        b.tripDue = false;
+        return;
+      }
+    }
+    b.tripDue = true;
+    b.failures++;
+    // cul-de-sac sans issue : plutôt que de boucher la rue, il finit par disparaître (il s'est garé plus loin)
+    if (b.ambient && b.failures >= 4 && this.k.distToFocus2(b.v.x, b.v.z) > 60 * 60) {
+      cars.despawn(b);
+      return;
+    }
+    // en attendant, moteur tournant le long du trottoir
+    b.mode = MODE_HOLD;
+    b.holdCp = null;
+    b.holdCause = '';
     b.replanAt = now + 3;
   }
 
@@ -584,12 +614,21 @@ export class CarThinker {
         default: break;
       }
     }
-    const jam = cause === 'personne' || cause === 'obstacle' || cause === 'fermeture' || cause === 'mur';
+    const jam = jamCause(cause);
     if (jam && !moving) b.blockedT++;
     else if (b.movingT >= 2 || !jam) b.blockedT = b.blockedT > 3 ? b.blockedT - 3 : 0;
     b.cause = cause;
     b.status.cause = cause;
     b.status.blockedFor = b.blockedT;
+
+    // Immobile depuis très longtemps sans raison valable (ni feu, ni foule, ni barrage) : nœud de circulation
+    // que rien ne défera. Un véhicule d'ambiance s'efface, hors champ d'abord ; cela libère les autres.
+    if (b.ambient && b.stillT > 70 && cause !== 'feu' && cause !== 'sirene' && !jamCause(cause)) {
+      if (b.stillT > 150 || !k.visible(v.x, v.z)) {
+        cars.despawn(b);
+        return;
+      }
+    }
 
     // incident résolu : il roule de nouveau
     if (b.status.incidentId !== 0 && b.movingT >= 4) cars.closeIncident(b, true);
@@ -608,7 +647,7 @@ export class CarThinker {
         k.stats.honks++;
       }
       // patience épuisée : demi-tour ou contournement
-      if (b.blockedT > b.patience && now >= b.escapeAt && b.mode !== MODE_HOLD) {
+      if (b.blockedT > b.patience && now >= b.escapeAt && (b.mode !== MODE_HOLD || b.holdCause === 'fermeture')) {
         b.escapeAt = now + 10;
         this.escape(b, now);
       }
@@ -724,4 +763,9 @@ export class CarThinker {
       b.fleeing = false;
     }
   }
+}
+
+/** Causes d'immobilisation qui font un bouchon (par opposition à l'attente ordinaire à un feu ou dans une file). */
+function jamCause(cause: BlockCause): boolean {
+  return cause === 'personne' || cause === 'obstacle' || cause === 'fermeture' || cause === 'mur';
 }

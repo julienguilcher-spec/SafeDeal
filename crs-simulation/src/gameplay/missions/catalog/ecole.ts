@@ -4,7 +4,7 @@
  * ===================================================================================== */
 
 import type { MissionDef } from '../../../core/missions-schema';
-import { crowd, fail, forces, FIN, intel, mission, ob, os, ph, SOMMATIONS, T } from './dsl';
+import { crowd, fail, forces, FIN, intel, mission, OBJ, ob, os, ph, rad, SOMMATIONS, T, voix } from './dsl';
 import type { MissionSpec } from './dsl';
 
 const ELEVE: Pick<MissionSpec, 'role' | 'rank' | 'type' | 'duration' | 'chapter' | 'difficulty'> = {
@@ -28,12 +28,30 @@ export const ECOLE_01 = mission({
   intel: intel('Aucune foule : exercice à blanc.', 'Aucun signalement.', ['Place de l\'École Militaire'],
     ['Aligner son bouclier sur le voisin de droite', 'Tenir la ligne à soixante-dix centimètres', 'Obéir aux commandements à la voix']),
   phases: [
-    ph('mise-en-ligne', 'Mise en ligne', 'La section sort de la colonne et se met en ligne. Vous prenez votre place, bouclier joint à celui du voisin de droite, à soixante-dix centimètres de lui.', T(40),
-      [['MONITEUR', 'Section, en ligne ! Boucliers !']], []),
-    ph('tenue', 'Tenue de la ligne', 'Le moniteur passe derrière le rang et corrige les écarts. Une marque rouge apparaît au sol dès que vous sortez de l\'alignement de plus de trente centimètres.', T(80),
-      [['MONITEUR', 'Tenez l\'alignement. Regardez devant vous, pas vos pieds.']], ['Le moniteur fait reculer d\'un pas tout le rang']),
-    ph('manoeuvre', 'Avancée, halte, reformation', 'Trois évolutions à faire en ordre : la ligne avance au pas, s\'arrête net au commandement, puis se reforme après une rupture volontaire.', FIN,
-      [['MONITEUR', 'En avant, marche !'], ['MONITEUR', 'Halte ! Reformez !']], []),
+    ph('colonne', `De la colonne à la ligne`,
+      `Place de l'École Militaire, les seize élèves attendent en colonne par deux devant les fourgons alignés. Au commandement, la colonne s'ouvre et se déploie face à l'avenue : vous prenez votre créneau, bouclier joint à celui du voisin de droite.`,
+      T(30), [
+        voix('MONITEUR', `Section, en ligne ! Boucliers !`),
+        voix('MONITEUR', `Alignez-vous sur la droite. Soixante-dix centimètres entre deux épaules, pas un de plus.`),
+      ]),
+    ph('cordeau', `L'alignement au cordeau`,
+      `Le moniteur passe derrière le rang, d'un bout à l'autre de la place, et corrige chaque écart du plat de la main. Une marque rouge apparaît au sol dès que vous sortez de l'alignement de plus de trente centimètres.`,
+      T(40), [
+        voix('MONITEUR', `Regardez devant vous, pas vos pieds. C'est le voisin de droite qui donne la ligne.`),
+        voix('MONITEUR', `Tout le rang, un pas en arrière. Et on se réaligne sans se regarder.`),
+      ], [`Le moniteur fait reculer tout le rang d'un pas`]),
+    ph('evolutions', `En avant, halte, reformez`,
+      `La ligne quitte son emplacement et traverse la place au pas, vers la grille de l'École militaire. Trois commandements tombent sans prévenir : la marche, l'arrêt net, puis la reformation après une rupture voulue par le moniteur.`,
+      OBJ('o2'), [
+        voix('MONITEUR', `En avant, marche !`),
+        voix('MONITEUR', `Halte !`),
+        voix('MONITEUR', `Rompez. Trois secondes de désordre… Reformez !`),
+      ], [`Le voisin de gauche part avec un temps de retard`, `Le moniteur rompt la ligne sans prévenir`]),
+    ph('immobile', `Jusqu'au coup de sifflet`,
+      `Les trois commandements sont exécutés : la section revient face aux fourgons, au milieu de la place de l'École Militaire. Il reste à tenir l'alignement sans un mot, le regard droit devant, pendant que le moniteur compte les fautes de chacun.`,
+      FIN, [
+        voix('MONITEUR', `Les ordres, c'est acquis. Maintenant on ne bouge plus : bouclier vertical, jusqu'à mon coup de sifflet.`),
+      ], [`Un élève voisin laisse glisser son bouclier`]),
   ],
   objectives: [
     ob('o1', 'Rester aligné pendant deux minutes au total, avec un écart inférieur à trente centimètres', 'tenir_position', { place: 'Place de l\'École Militaire', seconds: 120 }),
@@ -63,12 +81,24 @@ export const ECOLE_02 = mission({
   intel: intel('Trente figurants lançant des projectiles de mousse.', 'Aucun signalement.', ['Champ-de-Mars'],
     ['Plier les jambes pour relever le bouclier', 'Baisser le menton', 'Parer sans riposter']),
   phases: [
-    ph('positions', 'Les trois positions', 'Le moniteur commande, vous prenez la position : haute, moyenne, basse. Il attend une seconde entre deux ordres, pas davantage.', T(40),
-      [['MONITEUR', 'Bouclier haut ! Moyen ! Bas !']], []),
-    ph('jets', 'Jets de mousse', 'Trente figurants lancent des blocs de mousse à quinze mètres. Vous parez pour vous et pour le collègue du second rang, qui ne voit pas partir les jets.', T(80),
-      [['MONITEUR', 'Couvrez le collègue derrière vous. Votre bouclier est aussi le sien.']], ['Un projectile de mousse touche un élève']),
-    ph('tortue', 'La tortue', 'Les deux rangs se serrent, les boucliers du second rang passent au-dessus des têtes. La tortue avance de dix mètres au pas, sans qu\'aucun bouclier se sépare du voisin.', FIN,
-      [['MONITEUR', 'Tortue ! En avant, au pas.']], []),
+    ph('prise-en-main', `Quatre kilos au bout du bras`,
+      `Sur la pelouse du Champ-de-Mars, le moniteur fait prendre le bouclier près du corps, coude plié. Vous enchaînez à son commandement les trois positions : haute pour ce qui retombe, moyenne face à la foule, basse pour ce qui roule au sol.`,
+      T(25), [
+        voix('MONITEUR', `Bouclier haut ! Moyen ! Bas !`),
+        voix('MONITEUR', `Près du corps, coude plié. À bout de bras, vous ne tiendrez pas trois minutes.`),
+      ]),
+    ph('mousse', `Quinze blocs de mousse`,
+      `Trente figurants alignés à quinze mètres, dos à la tour Eiffel, lancent des blocs de mousse : d'abord en cloche, puis au ras de la pelouse. Vous parez pour vous et pour le collègue du second rang, qui ne voit pas partir les jets.`,
+      OBJ('o1'), [
+        voix('MONITEUR', `Couvrez le collègue derrière vous. Votre bouclier est aussi le sien.`),
+        voix('MONITEUR', `Menton rentré derrière le bord. Pliez les jambes, pas le dos.`),
+      ], [`Les figurants lancent en cloche, puis au ras du sol`, `Un figurant lance plus fort que les autres`]),
+    ph('tortue', `La tortue sur dix mètres`,
+      `Quinze projectiles sont parés : le moniteur fait serrer les deux rangs au milieu du Champ-de-Mars, et les boucliers du second rang passent au-dessus des têtes. La tortue doit avancer de dix mètres au pas, sans qu'un seul bouclier se sépare de son voisin.`,
+      FIN, [
+        voix('MONITEUR', `Tortue ! Serrez, serrez encore !`),
+        voix('MONITEUR', `En avant, au pas. On avance ensemble ou on n'avance pas.`),
+      ], [`Les jets de mousse reprennent pendant la progression`]),
   ],
   objectives: [
     ob('o1', 'Parer au moins quinze projectiles avec le bouclier', 'personnalise', { target: 'projectile_pare', count: 15 }),
@@ -98,12 +128,30 @@ export const ECOLE_03 = mission({
   intel: intel('Quarante figurants qui jouent un attroupement.', 'Aucun signalement.', ['Esplanade des Invalides'],
     ['Apprendre le texte mot pour mot', 'Laisser quinze secondes entre deux formules', 'Montrer une issue ouverte avant de sommer']),
   phases: [
-    ph('ecoute', 'Écoute', 'Le moniteur ceint l\'écharpe, lève le mégaphone et dit les trois formules dans l\'ordre : l\'annonce, la première sommation, la dernière sommation. Vous écoutez sans prendre de notes.', T(40),
-      [['MONITEUR', SOMMATIONS.annonce], ['MONITEUR', SOMMATIONS.premiere], ['MONITEUR', SOMMATIONS.derniere]], []),
-    ph('repetition', 'Répétition', 'Vous répétez chaque formule après le moniteur, sans mégaphone. Il vous arrête au premier mot changé et vous fait reprendre la phrase entière.', T(50),
-      [['MONITEUR', 'À vous. Mot pour mot : la loi ne se résume pas.']], ['Le moniteur glisse une formule d\'avant 2021 pour voir si vous la relevez']),
-    ph('prononciation', 'Devant les figurants', 'Écharpe en bandoulière, mégaphone en main, vous montrez l\'issue ouverte puis vous prononcez les trois formules face aux quarante figurants, en laissant quinze secondes entre chacune.', FIN,
-      [['MONITEUR', 'L\'issue d\'abord, l\'annonce ensuite. Quinze secondes entre deux formules : comptez-les.']], []),
+    ph('ecoute', `Les trois formules, à l'oreille`,
+      `Esplanade des Invalides, dans la brume du matin. Le moniteur ceint l'écharpe tricolore, lève le mégaphone et dit les trois formules dans l'ordre devant les quarante figurants : vous écoutez sans prendre de notes.`,
+      T(40), [
+        voix('MONITEUR', SOMMATIONS.annonce),
+        voix('MONITEUR', SOMMATIONS.premiere),
+        voix('MONITEUR', SOMMATIONS.derniere),
+      ]),
+    ph('repetition', `Mot pour mot, sans mégaphone`,
+      `À l'écart des figurants, près des fourgons garés le long de l'esplanade, vous répétez chaque formule après le moniteur. Il vous arrête au premier mot changé et vous fait reprendre la phrase entière.`,
+      T(40), [
+        voix('MONITEUR', `À vous. Mot pour mot : la loi ne se résume pas.`),
+        voix('MONITEUR', `Celle-là, vous l'avez entendue où ? Elle est périmée depuis 2021. Reprenez.`),
+      ], [`Le moniteur glisse une formule d'avant 2021 pour voir si vous la relevez`]),
+    ph('devant-les-figurants', `L'issue d'abord, l'annonce ensuite`,
+      `Écharpe en bandoulière et mégaphone en main, vous faites face aux quarante figurants massés au milieu de l'esplanade des Invalides. Vous leur montrez d'abord par où partir, puis vous prononcez l'annonce et les deux sommations en laissant quinze secondes entre chacune.`,
+      OBJ('o1'), [
+        voix('MONITEUR', `Montrez l'issue, puis l'annonce. Quinze secondes entre deux formules : comptez-les dans votre tête.`),
+        voix('FIGURANT', `Et par où on sort, nous ? On n'entend rien dans ce brouillard !`),
+      ], [`Un figurant réclame la parole au milieu d'une formule`, `Le mégaphone grésille : la phrase est à reprendre en entier`]),
+    ph('fiche', `La fiche du moniteur`,
+      `Les trois formules sont dites dans l'ordre. Pendant que les figurants quittent l'esplanade par l'issue restée ouverte, le moniteur relit sa fiche à voix haute : mots manquants ou ajoutés, délais tenus ou non, issue montrée ou oubliée.`,
+      FIN, [
+        voix('MONITEUR', `Sur le terrain, c'est le commandant qui les prononce. Vous, vous saurez à l'oreille ce que l'unité a le droit de faire après chacune.`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Prononcer l\'annonce, la première puis la dernière sommation dans l\'ordre', 'sommations_regulieres', { count: 3 }),
@@ -133,12 +181,30 @@ export const ECOLE_04 = mission({
   intel: intel('Trois mannequins de secours.', 'Aucun signalement.', ['Place de Fontenoy'],
     ['Alerter avant tout', 'Protéger avant de soigner', 'Parler au blessé']),
   phases: [
-    ph('alerte', 'Alerte', 'Trois victimes au sol. Vous alertez par radio en donnant le lieu et le nombre de victimes, puis vous écartez les curieux pour protéger la zone.', T(40),
-      [['MONITEUR', 'Trois victimes. Avant de toucher qui que ce soit : qui prévenez-vous, et que dites-vous ?']], []),
-    ph('geste', 'Gestes de secours', 'Vous traitez dans l\'ordre : l\'inconscient qui respire est tourné sur le côté, la plaie est comprimée puis pansée, la main brûlée est refroidie à l\'eau.', T(90),
-      [['MONITEUR', 'Dans l\'ordre : celui qui ne répond pas, celui qui saigne, celui qui a mal.']], ['Le mannequin inconscient cesse de respirer si vous le laissez sur le dos']),
-    ph('bilan', 'Bilan aux secours', 'L\'ambulance arrive. Vous transmettez le bilan en moins de dix secondes : nombre de victimes, état de chacune, gestes faits, heure du premier geste.', FIN,
-      [['SANTÉ 1', 'CENTRAL ICI SANTÉ UN. Sur place, place de Fontenoy. Je prends le bilan du premier intervenant. TERMINÉ.']], []),
+    ph('alerte', `Alerter avant de toucher`,
+      `Place de Fontenoy, trois mannequins sont étendus sur l'aire d'exercice : un manifestant qui ne répond pas, un passant qui saigne de l'avant-bras, un agent brûlé à la main. Vous êtes le premier arrivé : la radio d'abord, puis les curieux à écarter.`,
+      T(30), [
+        voix('MONITEUR', `Trois victimes. Avant de toucher qui que ce soit : qui prévenez-vous, et que dites-vous ?`),
+        rad('CENTRAL', 'MISTRAL 1 ALFA', `Je vous reçois mal. Répétez le lieu et le nombre de victimes.`),
+      ], [`La radio grésille pendant l'alerte : le lieu est à répéter`]),
+    ph('inconscient', `Celui qui ne répond pas`,
+      `Le premier mannequin, couché sur le dos au pied d'un banc de la place, respire mais ne réagit ni à la voix ni au toucher. Vous devez le tourner sur le côté, tête basculée en arrière, avant de vous occuper des deux autres.`,
+      OBJ('o2'), [
+        voix('MONITEUR', `Dans l'ordre : celui qui ne répond pas, celui qui saigne, celui qui a mal.`),
+        voix('CURIEUX', `Il faut le relever, non ? Je vous aide à l'asseoir contre le banc ?`),
+      ], [`Un curieux veut relever le blessé inconscient`, `Le mannequin cesse de respirer s'il reste sur le dos`]),
+    ph('plaie-et-brulure', `Celui qui saigne, celui qui a mal`,
+      `L'inconscient est sur le côté et respire. À trois mètres, le passant se tient l'avant-bras : gants, compression directe, pansement. L'agent brûlé attend près du fourgon, la main à refroidir sous l'eau sans décoller le gant.`,
+      OBJ('o3'), [
+        voix('MONITEUR', `Parlez-leur. Dites qui vous êtes et ce que vous faites, même à un mannequin.`),
+        voix('MONITEUR', `Une quatrième victime sort des gaz, là, côté avenue. Vous en faites quoi ?`),
+      ], [`Le moniteur ajoute une quatrième victime, gênée par les gaz`]),
+    ph('bilan', `Le bilan en dix secondes`,
+      `L'hémorragie est arrêtée quand l'ambulance se range le long de la place de Fontenoy. L'équipage descend et vous regarde : nombre de victimes, état de chacune, gestes faits, heure du premier geste.`,
+      FIN, [
+        rad('SANTÉ 1', 'CENTRAL', `Sur place, place de Fontenoy. Je prends le bilan du premier intervenant.`, 'T'),
+        voix('MONITEUR', `Dix secondes, pas une de plus. Ce que vous oubliez de dire, ils devront le redécouvrir.`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Alerter les secours en moins de quarante secondes', 'personnalise', { target: 'alerte_secours', seconds: 40 }),

@@ -255,10 +255,14 @@ export const DENSITY_DANGER = 5;
 export const DENSITY_HOLD = 1.5;
 export const DENSITY_REARM = 30;
 /**
- * Les disques de 0,28 m de rayon de la locomotion ne se tassent pas au-delà de ≈ 3,7 personnes/m² : la
- * densité « équivalente » ajoute la compression mesurée par le module des personnes (0..1).
+ * Densité « équivalente ». La locomotion ne laisse pas les corps se chevaucher et chacun cesse de forcer quand
+ * on lui barre le passage : même paniquée, une foule simulée plafonne vers 3 personnes/m² (disques de 0,28 m
+ * de rayon). Une vraie foule immobile et pressée de l'arrière atteint 4 à 5 et plus. La densité équivalente
+ * majore donc la densité géométrique par la POUSSÉE : part des personnes de la cellule qui veulent avancer
+ * vite et n'avancent plus (ou compression mesurée par le module des personnes). Foule serrée mais calme :
+ * pas de majoration, pas d'alerte ; foule serrée qui pousse : jusqu'à × 1,6.
  */
-export const DENSITY_PRESSURE_K = 0.45;
+export const DENSITY_PRESSURE_K = 0.6;
 /** Au-delà de 5 : un blessé par compression toutes les 10 s par tranche de 50 personnes. */
 export const CRUSH_PER_PERSON = 1 / 500;
 export const DENSITY_TENSION = 0.06;

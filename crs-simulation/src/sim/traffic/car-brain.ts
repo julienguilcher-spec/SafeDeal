@@ -48,6 +48,8 @@ export class CarBrain {
   escapeAt = 0;
   replanAt = -1;
   failures = 0;
+  /** Arrêté à destination : au prochain réveil, il choisit une nouvelle destination devant lui. */
+  tripDue = false;
   /** Temps passé arrêté avant un carrefour pourtant réservé (s). */
   waitBox = 0;
   /** Passage imposé jusqu'à cet instant (sortie d'un blocage mutuel au carrefour). */
@@ -59,6 +61,8 @@ export class CarBrain {
   closureStamp = -1;
   graphStamp = -1;
   blockS = -1;
+  /** Carrefour par lequel l'itinéraire entre dans une rue fermée : on n'y entre pas, on attend à sa ligne. */
+  entryCp: ControlPoint | null = null;
   passS = -1;
   passRec: ClosureRec | null = null;
   passing = false;

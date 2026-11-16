@@ -35,7 +35,7 @@ describe('foule — performance et stabilité à 1 000 manifestants', () => {
         if (!Number.isFinite(p.x) || !Number.isFinite(p.z) || !Number.isFinite(p.cmd.moveX) || !Number.isFinite(p.cmd.moveZ) || !Number.isFinite(p.fear) || !Number.isFinite(p.anger)) invalid++;
         else if (!ctx.world.isFree(p.x, p.z, 0.05)) inside++;
         // empilement : distance au plus proche voisin debout
-        const n = ctx.people.queryRadius(p.x, p.z, 0.45, buf);
+        const n = ctx.people.queryRadius(p.x, p.z, 0.75, buf);
         for (let i = 0; i < n; i++) {
           const q = buf[i]!;
           if (q === p || q.posture === 'down' || p.posture === 'down' || q.vehicleId !== 0 || p.vehicleId !== 0) continue;

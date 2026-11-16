@@ -2,9 +2,8 @@
  * FOULE — densité et compression (bible F.2 ; docs/research/03 §5.5-5.6).
  *
  * Deux fois par seconde, toutes les personnes à pied sont comptées dans des cellules de 2,5 m. La densité
- * « équivalente » d'une cellule est sa densité géométrique, majorée par la compression mesurée par le
- * module des personnes quand il est branché : les disques de la locomotion (0,28 m de rayon) ne se
- * tassent pas au-delà de ≈ 3,7 personnes/m², alors qu'une vraie foule comprimée atteint 5 et plus.
+ * « équivalente » d'une cellule est sa densité géométrique majorée par la POUSSÉE (voir tuning.ts) : part de
+ * ceux qui veulent avancer vite et n'avancent plus, ou compression mesurée par le module des personnes.
  *   ≥ 3 : la peur monte ; ≥ 4 tenue 1,5 s : ALERTE (tension, radio, événement 'crowd:density') ;
  *   ≥ 5 : DANGER — blessures par écrasement (ctx.health.hurt, type 'crush'), incident « blessé ».
  * Les personnes prises dans une cellule en alerte cherchent l'issue : la direction la moins dense.
@@ -72,14 +71,22 @@ export class DensityWatch {
     const loco = core.ctx.service<LocomotionLike>('people.locomotion');
     const members = core.members;
     const brains = core.brains;
-    const dense = 3 * AREA;
-    // compression : seulement là où l'on est déjà serré
-    if (loco && typeof loco.pressureOf === 'function') {
-      for (let i = 0; i < members.length; i++) {
-        const p = members[i]!;
-        const s = grid.at(p.x, p.z);
-        if (s >= 0 && data[s * 3]! >= dense) data[s * 3 + 1] = data[s * 3 + 1]! + loco.pressureOf(p);
+    const dense = 2.2 * AREA;
+    // poussée : part de ceux qui veulent avancer vite et n'avancent plus (ils poussent ceux de devant) ;
+    // et compression mesurée par la locomotion quand elle est branchée. Seulement là où l'on est déjà serré.
+    const hasLoco = loco !== undefined && typeof loco.pressureOf === 'function';
+    for (let i = 0; i < members.length; i++) {
+      const p = members[i]!;
+      const s = grid.at(p.x, p.z);
+      if (s < 0 || data[s * 3]! < dense || p.posture === 'down') continue;
+      const c = p.cmd;
+      const want = Math.sqrt(c.moveX * c.moveX + c.moveZ * c.moveZ) * (c.gait === 0 ? p.speedWalk : c.gait === 1 ? p.speedRun : p.speedSprint);
+      let push = want > 1.6 && p.vx * p.vx + p.vz * p.vz < 0.2 ? 1 : 0;
+      if (hasLoco) {
+        const pr = loco!.pressureOf(p);
+        if (pr > push) push = pr;
       }
+      if (push > 0) data[s * 3 + 1] = data[s * 3 + 1]! + push;
     }
     let max = 0;
     for (let i = 0; i < grid.count; i++) {

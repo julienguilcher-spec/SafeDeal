@@ -24,6 +24,8 @@ const FIRST_MIN = 8;
 const FIRST_MAX = 16;
 /** Nouvel essai quand le canal est occupé (s). */
 const RETRY = 3;
+/** Nombre de départs de feu au sol gardés en mémoire (les plus récents). */
+const GROUND_FIRES = 16;
 
 export interface AmbientTopic {
   key: string;
@@ -183,6 +185,8 @@ export class RadioAmbient {
   private lastTopic = '';
   private rng: Rng;
   private readonly speakers: Squad[] = [];
+  /** Derniers départs de feu signalés par 'fire:started' [x0, z0, x1, z1, …] : les nappes au sol n'ont pas de liste. */
+  private readonly groundFires: number[] = [];
 
   constructor(
     private readonly ctx: GameContext,
@@ -198,7 +202,14 @@ export class RadioAmbient {
     const extra = this.ctx.session.config?.extra;
     this.enabled = !(extra && extra['radioAmbiance'] === false);
     this.lastTopic = '';
+    this.groundFires.length = 0;
     this.nextAt = this.ctx.clock.now + this.rng.range(FIRST_MIN, FIRST_MAX);
+  }
+
+  /** Mémorise un départ de feu (événement 'fire:started') : il ne sera annoncé que s'il brûle encore. */
+  noteFire(x: number, z: number): void {
+    if (this.groundFires.length >= GROUND_FIRES * 2) this.groundFires.splice(0, 2);
+    this.groundFires.push(x, z);
   }
 
   /** Prochain instant prévu (temps de session), pour les tests. */
@@ -246,6 +257,12 @@ export class RadioAmbient {
     for (let i = 0; i < shops.length && !fire; i++) {
       const s = shops[i]!;
       if (!s.dormant && s.burning > 0) fire = { x: s.x, z: s.z };
+    }
+    // nappes de feu au sol (engin incendiaire) : on relit les derniers départs signalés, du plus récent au plus ancien
+    for (let i = this.groundFires.length - 2; i >= 0 && !fire; i -= 2) {
+      const x = this.groundFires[i]!;
+      const z = this.groundFires[i + 1]!;
+      if (ctx.hazards.fireAt(x, z) > 0) fire = { x, z };
     }
     let rescue: WorldFacts['rescue'] = null;
     const vehicles = ctx.vehicles.list;

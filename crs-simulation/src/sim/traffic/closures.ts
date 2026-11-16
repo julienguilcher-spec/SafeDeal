@@ -18,7 +18,7 @@ import type { RadioPhrases } from '@/gameplay/radio/api';
 import { BARRED_EVENT, CLOSED_EVENT, GATE_EVENT, OPENED_EVENT } from './api';
 import type { ClosureEvent, TrafficTuning } from './api';
 import type { ChainInfo, EdgeHit, EdgePoint, RoadCache } from './graph';
-import { makeEdgeHit } from './graph';
+import { E_ONEWAY, makeEdgeHit } from './graph';
 import { BARRIER_LENGTH, CLOSURE_REACH } from './tuning';
 
 const RADIO_PHRASES = 'radio.phrases';
@@ -31,6 +31,8 @@ export class ClosureRec {
   dx = 0;
   dz = 1;
   width = 7;
+  /** Écart à l'axe de la voie de circulation (0 en sens unique). */
+  lane = 0;
   // barrières : identifiants et poses (fermée / rangée le long du trottoir)
   readonly barriers: EntityId[] = [];
   readonly lat: number[] = [];
@@ -285,6 +287,7 @@ export class Closures implements TrafficControlApi {
     rec.dx = pt.dx;
     rec.dz = pt.dz;
     rec.width = Math.max(3, c.edgeWidth[at]!);
+    rec.lane = (c.edgeFlags[at]! & E_ONEWAY) !== 0 ? 0 : Math.min(rec.width * 0.25, 3.2);
     rec.byId = byId;
     rec.total = Math.max(2, Math.ceil((rec.width - 0.2) / BARRIER_LENGTH));
     const pitch = rec.width / rec.total;
@@ -400,6 +403,7 @@ export class Closures implements TrafficControlApi {
     const reach = 30;
     const n = ctx.vehicles.queryRadius(cl.x, cl.z, reach, list);
     let want = now < rec.gateUntil;
+    let priority = false;
     let who = rec.gateFor;
     let onLine = false;
     for (let i = 0; i < n; i++) {
@@ -417,13 +421,15 @@ export class Closures implements TrafficControlApi {
       const closing = -(v.vx * rx + v.vz * rz);
       if (Math.abs(v.speed) > 0.4 && closing > 0) {
         want = true;
+        priority = true;
         who = v.id;
       }
     }
     list.length = 0;
+    // le barrage reste ouvert un instant après le passage, et jamais ne se referme sur un véhicule
+    if (priority) rec.gateUntil = Math.max(rec.gateUntil, now + 2.5);
     if (want && !rec.gateOpen) this.setGate(rec, true, who);
-    else if (want) rec.gateUntil = Math.max(rec.gateUntil, now + 2.5);
-    else if (rec.gateOpen && !onLine && now > rec.gateUntil) this.setGate(rec, false, 0);
+    else if (!want && rec.gateOpen && !onLine) this.setGate(rec, false, 0);
   }
 
   /** Un automobiliste autorisé approche : le barrage s'ouvre pour lui. */
@@ -437,7 +443,6 @@ export class Closures implements TrafficControlApi {
     const ctx = this.ctx;
     const cl = rec.closure;
     rec.gateOpen = open;
-    if (open) rec.gateUntil = Math.max(rec.gateUntil, ctx.clock.now + 2.5);
     const h = Math.atan2(rec.dx, rec.dz);
     let left = 0;
     let right = 0;
@@ -449,10 +454,12 @@ export class Closures implements TrafficControlApi {
       let z: number;
       let heading: number;
       if (open) {
-        // rangée le long du trottoir, de son côté, parallèle à la rue
+        // rangée sur le trottoir, de son côté, parallèle à la rue — assez loin de la voie pour que le pilote
+        // automatique d'un engin large (qui voit chaque objet comme un disque de 1,25 m) ne s'y arrête pas
         const side = lat >= 0 ? 1 : -1;
         const rank = side > 0 ? right++ : left++;
-        const off = side * (rec.width * 0.5 - 0.3);
+        const off = side * Math.max(rec.width * 0.5 + 0.6, rec.lane + 3.3);
+        p.blocksMove = false; // tenue ouverte : elle ne barre plus rien
         const fwd = 1.5 + rank * (BARRIER_LENGTH + 0.1);
         x = cl.x - rec.dz * off + rec.dx * fwd;
         z = cl.z + rec.dx * off + rec.dz * fwd;
@@ -461,6 +468,7 @@ export class Closures implements TrafficControlApi {
         x = cl.x - rec.dz * lat;
         z = cl.z + rec.dx * lat;
         heading = h;
+        p.blocksMove = true;
       }
       p.x = x;
       p.z = z;

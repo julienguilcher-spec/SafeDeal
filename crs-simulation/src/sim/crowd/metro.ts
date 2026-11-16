@@ -61,6 +61,13 @@ export interface StationRt extends MetroStation {
 
 interface Delayed { due: number; party: number; station: number }
 
+/** Insère dans une liste triée par échéance (les flux différés sont traités dans l'ordre). */
+function insertByDue(list: Delayed[], item: Delayed): void {
+  let i = list.length;
+  while (i > 0 && list[i - 1]!.due > item.due) i--;
+  list.splice(i, 0, item);
+}
+
 function norm(s: string): string {
   return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
@@ -213,10 +220,10 @@ export class Metro implements MetroApi {
         const K = core.timeScale;
         if (neighbours.length > 0 && core.rngArrive.next() < T.CLOSURE_SHARE) {
           const to = neighbours[i % neighbours.length]!;
-          this.delayed.push({ due: core.now + core.rngArrive.range(T.CLOSURE_DELAY_MIN, T.CLOSURE_DELAY_MAX) * K, party, station: to.id });
+          insertByDue(this.delayed, { due: core.now + core.rngArrive.range(T.CLOSURE_DELAY_MIN, T.CLOSURE_DELAY_MAX) * K, party, station: to.id });
           moved += size;
         } else {
-          this.foot.push({ due: core.now + core.rngArrive.range(T.CLOSURE_DELAY_MIN * 1.5, T.CLOSURE_DELAY_MAX * 1.5) * K, party, station: 0 });
+          insertByDue(this.foot, { due: core.now + core.rngArrive.range(T.CLOSURE_DELAY_MIN * 1.5, T.CLOSURE_DELAY_MAX * 1.5) * K, party, station: 0 });
         }
       }
       if (moved > 0 && neighbours.length > 0) this.emit('report', s, moved, neighbours[0]!.id);

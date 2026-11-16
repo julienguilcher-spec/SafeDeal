@@ -4,7 +4,7 @@
  * Publie :
  *   ctx.radio          RadioApi du contrat : say() avec files d'attente par canal, anti-répétition, voix stable
  *                      par émetteur, journal horodaté, événement 'radio:message' et sous-titre (priorité ≥ 1)
- *   'radio.phrases'    RadioPhrases : près de deux cents situations, 3 à 5 variantes chacune (voir PHRASES.md)
+ *   'radio.phrases'    RadioPhrases : deux cents situations environ, 3 à 5 variantes chacune (voir PHRASES.md)
  *   'radio.callsigns'  CallsignBook : indicatifs fictifs cohérents avec la bible (section E)
  *   'radio.control'    RadioControl : ambiance, sous-titres, statistiques et état des files
  *
@@ -34,6 +34,7 @@ export const createSystems: ModuleFactory = (): GameSystem[] => {
   let queue: RadioQueue | null = null;
   let rng: Rng | null = null;
   let radioCtx: GameContext | null = null;
+  let offFire: (() => void) | null = null;
 
   const log: (RadioMessage & { t: number })[] = [];
   const control = { ambient: true, subtitles: true };
@@ -119,6 +120,11 @@ export const createSystems: ModuleFactory = (): GameSystem[] => {
       ctx.provide(RADIO_CONTROL_SERVICE, ctl);
     },
 
+    init(ctx: GameContext): void {
+      // l'ambiance ne parle d'un feu au sol que s'il a été signalé et qu'il brûle encore
+      offFire = ctx.events.on('fire:started', (e) => ambient?.noteFire(e.x, e.z));
+    },
+
     update(): void {
       if (!queue || !ambient || !radioCtx) return;
       queue.update(radioCtx.clock.now);
@@ -132,6 +138,11 @@ export const createSystems: ModuleFactory = (): GameSystem[] => {
       if (!radioCtx) return;
       rng = radioCtx.rng.fork('radio');
       ambient?.reset(radioCtx.rng.fork('radio.ambiance'));
+    },
+
+    dispose(): void {
+      offFire?.();
+      offFire = null;
     },
   };
 

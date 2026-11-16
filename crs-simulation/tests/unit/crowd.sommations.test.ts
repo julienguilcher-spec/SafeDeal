@@ -89,8 +89,9 @@ describe('foule — sommations', () => {
     const before = ctx.director.stats.present;
     t.run(150);
     const stats = ctx.director.stats;
-    expect(stats.dispersed).toBeGreaterThan(cohort.length * 0.5);
+    expect(stats.dispersed).toBeGreaterThan(120);
     expect(stats.present).toBeLessThan(before);
-    expect(stats.present + stats.dispersed).toBe(stats.total);
+    // tout le monde est compté : présents, partis, et ceux qui ne sont pas encore arrivés
+    expect(stats.present + stats.dispersed + core.metro.pending).toBe(stats.total);
   }, 600_000);
 });

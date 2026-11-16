@@ -63,6 +63,8 @@ export class Kernel {
   readonly reserves = new Map<EntityId, VehicleReserve>();
   /** Indicatifs de compagnie déjà attribués pendant la session. */
   callsigns = 0;
+  /** Le commandant (autorité habilitée, écharpe), s'il est connu : sa présence à pied soutient le moral des unités proches. */
+  commander: Person | null = null;
 
   bind(ctx: GameContext): void {
     this.ctx = ctx;
@@ -87,6 +89,7 @@ export class Kernel {
     this.dangers.length = 0;
     this.reserves.clear();
     this.callsigns = 0;
+    this.commander = null;
     this.now = 0;
     Object.assign(this.tuning, defaultTuning());
     this.rng = this.ctx.rng.fork('police');

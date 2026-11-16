@@ -6,7 +6,7 @@ import { createSystems as people } from '@/sim/people';
 import { createSystems as items } from '@/sim/items';
 import { createSystems as hazards } from '@/sim/hazards';
 import { createSystems as law } from '@/gameplay/law';
-import { fitLine, frontRank, lineAngle, spawnProtesters, startPolice } from '@/sim/police/testkit';
+import { fitLine, frontRank, spawnProtesters, startPolice } from '@/sim/police/testkit';
 
 const MODULES = [world, people, items, hazards, law];
 const NORTH = Math.PI;

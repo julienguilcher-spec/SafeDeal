@@ -318,8 +318,8 @@ export class Cars {
       const a = c.edgeA[e]!;
       const b = c.edgeB[e]!;
       const len = c.edgeLen[e]!;
-      const clearA = (c.nodeFlags[a]! & N_JUNCTION) !== 0 ? c.nodeRadius[a]! + 26 : 1;
-      const clearB = (c.nodeFlags[b]! & N_JUNCTION) !== 0 ? c.nodeRadius[b]! + 26 : 1;
+      const clearA = (c.nodeFlags[a]! & N_JUNCTION) !== 0 ? c.nodeRadius[a]! + 36 : 1;
+      const clearB = (c.nodeFlags[b]! & N_JUNCTION) !== 0 ? c.nodeRadius[b]! + 36 : 1;
       if (len < clearA + clearB + 1) continue;
       c.pointAt(e, clearA + rng.next() * (len - clearA - clearB), 0, pt);
       const fx = pt.x - fromX;
@@ -331,8 +331,9 @@ export class Cars {
       const far = dx * dx + dz * dz >= min * min
         && ax * dx + az * dz <= 0.17 * Math.sqrt((ax * ax + az * az) * (dx * dx + dz * dz));
       if (!found || far) {
-        this.destX = pt.x;
-        this.destZ = pt.z;
+        // à 20 cm de l'axe (voir nudge) : droite de l'arête = (−dz, dx)
+        this.destX = pt.x - pt.dz * AXIS_NUDGE;
+        this.destZ = pt.z + pt.dx * AXIS_NUDGE;
         found = true;
       }
       if (far) return true;
@@ -340,13 +341,36 @@ export class Cars {
     return found;
   }
 
-  /** Donne une nouvelle destination à un automobiliste d'ambiance. */
-  newDestination(b: CarBrain): boolean {
-    if (!this.pickDestination(b.v.x, b.v.z)) return false;
-    b.destX = this.destX;
-    b.destZ = this.destZ;
-    b.hasVia = false;
-    return true;
+  /**
+   * Donne une nouvelle destination à un automobiliste d'ambiance. `ahead` : seulement une destination dont
+   * l'itinéraire part devant lui (pas de demi-tour en pleine rue pour un véhicule qui roule).
+   */
+  newDestination(b: CarBrain, ahead: boolean): boolean {
+    const v = b.v;
+    const hx = Math.sin(v.heading);
+    const hz = Math.cos(v.heading);
+    const buf = this.buf;
+    for (let attempt = 0; attempt < (ahead ? 4 : 1); attempt++) {
+      if (!this.pickDestination(v.x, v.z)) return false;
+      if (ahead) {
+        if (!this.path(b, this.destX, this.destZ)) continue;
+        // direction du premier tronçon utile de l'itinéraire
+        let forward = false;
+        for (let i = 2; i + 1 < buf.length; i += 2) {
+          const dx = buf[i]! - v.x;
+          const dz = buf[i + 1]! - v.z;
+          if (dx * dx + dz * dz < 36) continue;
+          forward = dx * hx + dz * hz > 0;
+          break;
+        }
+        if (!forward) continue;
+      }
+      b.destX = this.destX;
+      b.destZ = this.destZ;
+      b.hasVia = false;
+      return true;
+    }
+    return false;
   }
 
   /** Crée un véhicule, son conducteur, son itinéraire, et le confie au pilote automatique. */
@@ -366,8 +390,9 @@ export class Cars {
     const b = new CarBrain(v);
     b.driverId = driver.id;
     b.ambient = ambient;
-    b.destX = destX;
-    b.destZ = destZ;
+    this.nudge(destX, destZ);
+    b.destX = this.destX;
+    b.destZ = this.destZ;
     b.thinkT = k.rng.next() * CAR_THINK;
     b.patience = k.tuning.patience * (0.6 + k.rng.next() * 0.9);
     b.bornAt = ctx.clock.now;
@@ -447,10 +472,17 @@ export class Cars {
     r.buildControlPoints(k.cache, k.signals);
     for (let i = 0; i < r.cpCount; i++) {
       const cp = r.cps[i]!;
-      // carrefour déjà réservé (on repart d'une ligne d'arrêt) : la réservation suit le nouvel itinéraire
+      // carrefour déjà réservé (on repart d'une ligne d'arrêt) : la réservation est conservée telle quelle,
+      // avec la trajectoire du nouvel itinéraire (la rendre pour la redemander ferait perdre son tour)
       if ((cp.kind & CP_BOX) !== 0 && k.boxes.holds(cp.node, v.id, now)) {
-        k.boxes.release(cp.node, v.id);
-        cp.cleared = k.boxes.request(cp.node, v.id, cp.inDx, cp.inDz, cp.outDx, cp.outDz, now);
+        const engaged = cp.stopS - b.halfL < -1;
+        if (engaged || k.boxes.sameMovement(cp.node, v.id, cp.inDx, cp.inDz, cp.outDx, cp.outDz)) {
+          k.boxes.occupy(cp.node, v.id, cp.inDx, cp.inDz, cp.outDx, cp.outDz, now);
+          cp.cleared = true;
+        } else {
+          // le nouvel itinéraire tourne autrement à ce carrefour : la réservation ne vaut plus, on la redemandera
+          k.boxes.release(cp.node, v.id);
+        }
       }
     }
     k.closures.scan(r.pts, r.cum, r.n, 0, v);
@@ -458,6 +490,19 @@ export class Cars {
     b.passS = k.closures.passS;
     b.passRec = k.closures.passRec;
     b.holdCp = null;
+    this.markEntry(b);
+  }
+
+  /** Repère le dernier carrefour avant le barrage infranchissable de l'itinéraire : c'est là qu'on s'arrêtera. */
+  markEntry(b: CarBrain): void {
+    const r = b.route;
+    b.entryCp = null;
+    if (b.blockS < 0) return;
+    for (let i = r.cpNext; i < r.cpCount; i++) {
+      const cp = r.cps[i]!;
+      if (cp.nodeS >= b.blockS) break;
+      if ((cp.kind & CP_BOX) !== 0) b.entryCp = cp;
+    }
   }
 
   private path(b: CarBrain, x: number, z: number): boolean {
@@ -497,9 +542,13 @@ export class Cars {
           const idx = Math.max(1, Math.min(last, Math.round(last * FRACTIONS[f]!)));
           if (idx === prev) continue;
           prev = idx;
-          const via = nodes[idx]!;
-          const vx = c.nodeX[via]!;
-          const vz = c.nodeZ[via]!;
+          // point de passage au milieu de l'arête qui mène à ce nœud (jamais sur un carrefour : l'accroche de
+          // l'itinéraire y serait ambiguë), écarté de 20 cm de l'axe
+          const ve = c.edgeBetween(nodes[idx - 1]!, nodes[idx]!);
+          if (ve < 0) continue;
+          c.pointAt(ve, c.edgeLen[ve]! * 0.5, AXIS_NUDGE, this.dp);
+          const vx = this.dp.x;
+          const vz = this.dp.z;
           if (!this.path(b, vx, vz)) continue;
           this.install(b);
           if (!this.clean(b, avoid)) continue;
@@ -581,6 +630,21 @@ export class Cars {
     b.holdCp = null;
     b.replanAt = -1;
     return ap.driveTo(b.v, b.hasVia ? b.viaX : b.destX, b.hasVia ? b.viaZ : b.destZ, o);
+  }
+
+  /**
+   * Écarte de 20 cm de l'axe un point posé dessus (résultat dans destX / destZ). Une destination exactement
+   * sur l'axe d'une rue serait confondue avec le point d'accroche de l'itinéraire (voir holdAt) : le pilote
+   * automatique viendrait s'arrêter au milieu de la chaussée, face aux véhicules d'en face. Écarté, il
+   * s'arrête sur sa voie. Le sens de l'écart est indifférent.
+   */
+  nudge(x: number, z: number): void {
+    const road = this.road;
+    this.destX = x;
+    this.destZ = z;
+    if (!this.k.ctx.world.nearestRoad(x, z, road, 2) || road.dist > 0.06) return;
+    this.destX = x - Math.cos(road.heading) * AXIS_NUDGE;
+    this.destZ = z + Math.sin(road.heading) * AXIS_NUDGE;
   }
 
   /** Recalcule l'itinéraire depuis la position courante puis « roule » (départ d'une ligne d'arrêt). */

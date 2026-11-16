@@ -103,4 +103,66 @@ describe('police — ligne de barrage', () => {
     expect(end.error).toBeLessThan(0.5);
     expect(lineAngle(end.heading, NORTH + Math.PI / 2)).toBeLessThan(0.06);
   });
+
+  it('compagnie en ligne dans l\'avenue : les sections restent groupées, sans croisement, et la ligne se réaligne après une bousculade', async () => {
+    const pt = await startPolice(MODULES, { mode: 'test', x: -150, z: 0 });
+    const { ctx } = pt;
+    const WEST = -Math.PI / 2;
+    const cie = pt.units.createCompany({ x: -140, z: 0, heading: WEST, vehicles: false });
+    ctx.squads.issue(cie.squad.id, { type: 'ligne', x: -160, z: 0, heading: WEST, width: 0 });
+    pt.run(60, 0.5, () => pt.status.of(cie.squad.id)!.phase === 'en_place');
+    pt.step(2);
+    const info = pt.formation.of(cie.squad.id)!;
+    const front = frontRank(pt, cie.squad.id);
+    const fit = fitLine(front);
+    // section de chaque agent du premier rang, de gauche à droite : quatre blocs, jamais entremêlés
+    const sectionOf = (p: { squadId: number }): number => ctx.squads.get(p.squadId)!.parentId;
+    const runs: number[] = [];
+    for (const p of front) if (runs.length === 0 || runs[runs.length - 1] !== sectionOf(p)) runs.push(sectionOf(p));
+    console.log('compagnie en ligne — front', info.width.toFixed(1), 'm,', front.length, 'agents au premier rang, intervalle', info.spacing.toFixed(2),
+      'm, écart', fit.error.toFixed(3), 'm | sections de gauche à droite :', runs.map((id) => ctx.squads.get(id)!.name).join(', '));
+    expect(pt.status.of(cie.squad.id)!.phase).toBe('en_place');
+    expect(info.width).toBeGreaterThan(38); // avenue de 40 m entre façades
+    expect(info.spacing).toBeLessThanOrEqual(1.21);
+    expect(fit.error).toBeLessThan(0.5);
+    expect(lineAngle(fit.heading, WEST + Math.PI / 2)).toBeLessThan(0.05);
+    expect(runs.length).toBe(4);
+    expect(new Set(runs).size).toBe(4);
+    // second rang à 2 m derrière le premier, chefs de section plus loin, commandant derrière
+    const second = cie.people.filter((p) => p.poste === 'chef_groupe');
+    for (const p of second) expect(Math.abs(p.x - (fit.cx + 2))).toBeLessThan(0.4);
+    const cdt = cie.leader!;
+    expect(cdt.x - fit.cx).toBeGreaterThan(6);
+
+    // nouvelle ligne plus étroite, 12 m en avant : l'ordre latéral des agents restés au premier rang est conservé
+    const before = front.map((p) => p.id);
+    ctx.squads.issue(cie.squad.id, { type: 'ligne', x: -172, z: 0, heading: WEST, width: 26 });
+    pt.run(60, 0.5, () => pt.status.of(cie.squad.id)!.phase === 'en_place');
+    pt.step(2);
+    const after = frontRank(pt, cie.squad.id).map((p) => p.id);
+    const kept = before.filter((id) => after.includes(id));
+    const keptAfter = after.filter((id) => before.includes(id));
+    expect(kept.length).toBeGreaterThanOrEqual(20);
+    expect(keptAfter).toEqual(kept);
+    const info2 = pt.formation.of(cie.squad.id)!;
+    expect(info2.width).toBeCloseTo(26, 1);
+    expect(fitLine(frontRank(pt, cie.squad.id)).error).toBeLessThan(0.5);
+
+    // bousculade : cinq agents du premier rang sont projetés à deux mètres ; la ligne se reforme en quelques secondes
+    const line = frontRank(pt, cie.squad.id);
+    for (let i = 3; i < line.length; i += 6) {
+      line[i].x += 1.6 + (i % 2);
+      line[i].z += i % 2 ? 0.8 : -0.8;
+    }
+    ctx.people.rebuildIndex();
+    expect(fitLine(line).error).toBeGreaterThan(1);
+    // (les agents projetés se retrouvent derrière le second rang, qui s'ouvre pour les laisser regagner leur place)
+    const healTime = pt.run(10, 0.25, () => fitLine(frontRank(pt, cie.squad.id)).error < 0.3);
+    pt.step(1.5);
+    const healed = fitLine(frontRank(pt, cie.squad.id));
+    console.log('réalignement après bousculade — ligne reformée en', healTime.toFixed(1), 's, écart final', healed.error.toFixed(3), 'm');
+    expect(healTime).toBeLessThan(6);
+    expect(healed.error).toBeLessThan(0.3);
+    expect(frontRank(pt, cie.squad.id).map((p) => p.id)).toEqual(line.map((p) => p.id));
+  });
 });

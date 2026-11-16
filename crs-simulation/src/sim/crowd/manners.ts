@@ -36,6 +36,7 @@ export class Manners {
     b.run = p.fear > 0.55;
     b.speed = b.run ? 3 : T.WALK_MAX * b.pace * (p.fear > 0.3 ? 1.2 : 1);
     b.leaveAt = Math.min(b.leaveAt, now);
+    b.dir = NaN;
     this.mind.setState(b, S.LEAVE);
     core.nav.request(b);
     b.stuckX = p.x;
@@ -101,17 +102,23 @@ export class Manners {
       b.run = true;
       b.speed = 3;
     }
-    if (this.mind.stalled(p, b, now, 3.5) && d > 8) {
+    // passage bouché (barricade, cordon, cohue) : on renonce à cette direction et on cherche une autre issue
+    const crushed = b.density >= T.DENSITY_ALERT;
+    if (this.mind.stalled(p, b, now, crushed ? 1.5 : 3.5) && d > 8) {
       b.stuckSince = now;
       b.stuck++;
-      if (b.stuck >= 3) {
-        // décidément bloqué : changer d'issue
+      if (b.stuck >= 2 || crushed) {
         b.stuck = 0;
         const g = b.group >= 0 ? core.groups[b.group] : undefined;
         if (g) {
           g.exit = -1;
           g.path = null;
         }
+        // direction dans laquelle on butait : le prochain sommet de l'itinéraire, à défaut l'issue
+        const path = b.path;
+        const wx = path !== null && b.pathI * 2 + 1 < path.length ? path[b.pathI * 2]! : b.tx;
+        const wz = path !== null && b.pathI * 2 + 1 < path.length ? path[b.pathI * 2 + 1]! : b.tz;
+        b.dir = Math.atan2(wx - p.x, wz - p.z);
         const other = core.nav.chooseExit(p, b);
         if (other >= 0) {
           b.exit = other;
@@ -123,8 +130,6 @@ export class Manners {
       core.nav.request(b);
     }
   }
-
-
 
   ambient(p: Person, b: CrowdBrain, now: number, bystander: boolean): void {
     const core = this.core;

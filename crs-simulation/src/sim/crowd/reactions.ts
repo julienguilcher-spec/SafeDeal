@@ -29,20 +29,24 @@ export class Reactions {
   constructor(private readonly core: CrowdCore, private readonly mind: Behavior) {}
 
 
-  /** Sort du nuage : direction où le gaz est le moins dense, pas sous le vent, pas dans un mur. */
-  avoidGas(p: Person, b: CrowdBrain, gasHere: number): void {
+  /** Sort du nuage (ou s'écarte du feu) : direction où l'air est le plus sain, pas sous le vent, pas dans un mur. */
+  avoidGas(p: Person, b: CrowdBrain, gasHere: number, fire: boolean): void {
     const core = this.core;
     const ctx = core.ctx;
     const hazards = ctx.hazards;
     const now = core.now;
-    if (b.gasSince < 0) {
+    if (b.gasSince < 0 && !fire) {
       b.gasSince = now;
       b.dir = NaN;
       core.sense.gas.add(p.x, p.z, now);
     }
     if (b.state !== S.AVOID) {
       this.mind.setState(b, S.AVOID);
-      this.mind.gesture(p, b, A.COVER, 30);
+      if (!fire) this.mind.gesture(p, b, A.COVER, 30);
+      else {
+        b.dir = NaN;
+        if (p.fear < 0.5) p.fear = Math.min(1, p.fear + 0.2);
+      }
     }
     const env = ctx.env.state;
     const wind = Math.hypot(env.windX, env.windZ);
@@ -60,8 +64,14 @@ export class Reactions {
       let reach = 16;
       if (ctx.world.raycast(p.x, p.z, p.x + dx * 16, p.z + dz * 16, hit) && hit.hit) reach = hit.t * 16 - 0.8;
       if (reach < 4) continue;
-      const g1 = hazards.gasAt(p.x + dx * Math.min(7, reach), p.z + dz * Math.min(7, reach));
-      const g2 = hazards.gasAt(p.x + dx * reach, p.z + dz * reach);
+      const x1 = p.x + dx * Math.min(7, reach);
+      const z1 = p.z + dz * Math.min(7, reach);
+      let g1 = hazards.gasAt(x1, z1);
+      let g2 = hazards.gasAt(p.x + dx * reach, p.z + dz * reach);
+      if (fire) {
+        g1 += hazards.fireAt(p.x + dx * 3, p.z + dz * 3) * 4 + hazards.fireAt(x1, z1) * 3;
+        g2 += hazards.fireAt(p.x + dx * reach, p.z + dz * reach) * 2;
+      }
       // le nuage dérive avec le vent : on sort par le travers ou au vent, jamais sous le vent
       let score = -(g1 + g2 * 1.6) - Math.max(0, dx * wx + dz * wz) * 0.3 * Math.min(1, wind / 3) + reach * 0.004;
       if (police < 30 && dx * (sense.nearX - p.x) + dz * (sense.nearZ - p.z) > 0.5 * police) score -= 0.25;
@@ -80,7 +90,7 @@ export class Reactions {
     }
     b.dir = best;
     b.path = null;
-    b.run = gasHere > 0.15 || p.gas > 0.3;
+    b.run = fire || gasHere > 0.15 || p.gas > 0.3;
     b.speed = b.run ? 3.4 : 1.7;
     b.threatX = p.x;
     b.threatZ = p.z;

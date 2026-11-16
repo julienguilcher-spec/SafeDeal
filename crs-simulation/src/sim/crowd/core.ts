@@ -4,13 +4,12 @@
  * ===================================================================================== */
 
 import type {
-  CrowdPhase, EntityId, GameContext, Person, ProtestProfile, Rng, SessionConfig, Vec2,
+  EntityId, GameContext, Person, ProtestProfile, Rng, SessionConfig, Vec2,
 } from '@/core/contracts';
 import { EXT } from '@/core/extensions';
-import { CROWD_CORE, FAMILIES } from './api';
+import { CROWD_CORE } from './api';
 import type {
-  AleaInfo, BehaviorController, CrowdCause, CrowdCoreApi, CrowdExit, CrowdFamily, CrowdGroup, GroupKind,
-  PoliceSight, RoutePoint, SpawnOptions,
+  BehaviorController, CrowdCause, CrowdCoreApi, CrowdFamily, CrowdGroup, GroupKind, RoutePoint, SpawnOptions,
 } from './api';
 import { Voices } from './acts';
 import { Aleas } from './aleas';
@@ -21,11 +20,13 @@ import { DensityWatch } from './density';
 import { Director } from './director';
 import { Emotions } from './emotions';
 import { Formation } from './formation';
+import { buildFormation } from './formation-build';
 import type { SlotSample } from './formation';
 import { Metro } from './metro';
 import { Nav } from './nav';
 import { buildPlan, resolveCause, spawnEntry } from './population';
 import type { Plan, PlanEntry } from './population';
+import { createCoreApi } from './core-api';
 import { Corridor, chooseRoute } from './route';
 import type { ChosenRoute } from './route';
 import { Sense } from './sense';
@@ -103,7 +104,7 @@ export class CrowdCore {
   readonly v2: Vec2 = { x: 0, z: 0 };
   readonly buf: Person[] = [];
   readonly rand = (): number => this.rngArrive.next();
-  readonly api: CrowdCoreApi = this.makeApi();
+  readonly api: CrowdCoreApi = createCoreApi(this);
 
   provide(ctx: GameContext): void {
     this.ctx = ctx;
@@ -180,7 +181,7 @@ export class CrowdCore {
     const organised = plan.entries.some((e) => e.profile === 'service_ordre') || plan.entries.some((e) => e.family === 'syndical');
     const sonoWish = extra['crowd.sono'];
     const wantSono = sonoWish === true || (sonoWish !== false && organised && this.size >= T.SONO_MIN_CROWD && !this.isStatic);
-    this.entrySlot = this.formation.build(plan, this.corridor, this.cause, wantSono, this.rngSetup.fork('formation'));
+    this.entrySlot = buildFormation(this.formation, plan, this.corridor, this.cause, wantSono, this.rngSetup.fork('formation'));
     this.entryPerson = new Int32Array(plan.entries.length);
     this.active = true;
     this.makeGroups(plan);
@@ -522,76 +523,22 @@ export class CrowdCore {
     }
   }
 
-  // ───────────────────────────── service ─────────────────────────────
+  // ───────────────────────────── registre ─────────────────────────────
 
-  private makeApi(): CrowdCoreApi {
-    const core = this;
-    return {
-      get active(): boolean { return core.active; },
-      get members(): readonly Person[] { return core.members; },
-      get groups(): readonly CrowdGroup[] { return core.groups; },
-      get basePhase(): CrowdPhase { return core.director.base; },
-      get cause(): Readonly<CrowdCause> { return core.cause; },
-      get volatility(): number { return core.volatility; },
-      get timeScale(): number { return core.timeScale; },
-      get formation() { return core.formation; },
-      get metro() { return core.metro; },
-      get exits(): readonly CrowdExit[] { return core.nav.exits; },
-      get aleas(): readonly AleaInfo[] { return core.aleas.infos; },
-      brain: (p) => brainOf(p),
-      group: (id) => core.groups[id],
-      registerController(profile, controller) {
-        let list = core.registry.get(profile);
-        if (!list) {
-          list = [];
-          core.registry.set(profile, list);
-        }
-        if (list.indexOf(controller) < 0) list.push(controller);
-        core.rebuildMerged();
-        return () => {
-          const l = core.registry.get(profile);
-          const i = l ? l.indexOf(controller) : -1;
-          if (l && i >= 0) l.splice(i, 1);
-          core.rebuildMerged();
-        };
-      },
-      tensionAt: (x, z) => core.director.tensionAt(x, z),
-      legitimacyAt: (x, z) => core.emotions.legitAt(x, z),
-      cohesionAt: (x, z) => core.emotions.cohesionAt(x, z),
-      addLegitimacy: (x, z, d) => core.emotions.addLegit(x, z, d),
-      addCohesion: (x, z, d) => core.emotions.addCohesion(x, z, d),
-      stir: (x, z, r, fear, anger) => core.emotions.stir(x, z, r, fear, anger),
-      markViolence: (x, z) => core.sense.markViolence(x, z),
-      recentViolence: (x, z, r) => core.sense.recentViolence(x, z, r ?? T.JUSTIFY_RADIUS),
-      nearestPolice: (x: number, z: number, r: number, out: PoliceSight) => core.sense.nearestPolice(x, z, r, out),
-      coverAt: (x, z, r) => core.sense.coverAt(x, z, r),
-      densityAt: (x, z) => core.density.at(x, z),
-      routePoint: (s, out) => core.corridor.at(s, out),
-      goTo(p, x, z, speed, run) {
-        const b = brainOf(p);
-        if (!b || b.index < 0) return;
-        core.steering.goTo(p, b, x, z, speed ?? T.WALK_MAX, run === true);
-      },
-      leave(p, exit) {
-        const b = brainOf(p);
-        if (b && b.index >= 0) core.behavior.startLeaving(p, b, exit ?? -1);
-      },
-      release(p) {
-        const b = brainOf(p);
-        if (!b) return;
-        if (b.controller && b.controller.release) b.controller.release(p, b);
-        b.controller = null;
-        if (b.state === S.CUSTOM) b.state = S.REGROUP;
-        b.nextThink = 0;
-      },
-      spawn(profile, x, z, opts) {
-        return core.spawnExtra(profile, x, z, opts);
-      },
-      setProfile: (p, to) => core.emotions.setProfile(p, to),
-      createGroup: (kind, members) => core.createGroup(kind, members),
-      triggerAlea: (id) => core.aleas.trigger(id),
-      setLiaison: (active) => { core.director.liaison = active; },
-      announceDispersal: () => core.director.announceDispersal('organisateurs'),
+  /** Enregistre un contrôleur de comportement pour un profil ('*' : tous) ; retourne la fonction de retrait. */
+  register(profile: string, controller: BehaviorController): () => void {
+    let list = this.registry.get(profile);
+    if (!list) {
+      list = [];
+      this.registry.set(profile, list);
+    }
+    if (list.indexOf(controller) < 0) list.push(controller);
+    this.rebuildMerged();
+    return () => {
+      const l = this.registry.get(profile);
+      const i = l ? l.indexOf(controller) : -1;
+      if (l && i >= 0) l.splice(i, 1);
+      this.rebuildMerged();
     };
   }
 
@@ -623,7 +570,6 @@ export class CrowdCore {
       this.director.stats.total++;
       this.director.onArrived();
     }
-    void FAMILIES;
     return p;
   }
 

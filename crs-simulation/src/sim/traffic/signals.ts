@@ -359,6 +359,39 @@ export class Boxes {
     return true;
   }
 
+  /**
+   * Le véhicule est engagé dans le carrefour (ligne d'arrêt dépassée) : il l'occupe d'office, quelles que
+   * soient les autres trajectoires. Les autres attendront qu'il l'ait quitté.
+   */
+  occupy(node: number, car: number, inDx: number, inDz: number, outDx: number, outDz: number, now: number): void {
+    const b = this.box(node);
+    let mine: Reservation | null = null;
+    for (let i = 0; i < b.n; i++) if (b.res[i]!.car === car) mine = b.res[i]!;
+    if (!mine) {
+      mine = this.pool.pop() ?? new Reservation();
+      mine.car = car;
+      mine.since = now;
+      b.res[b.n++] = mine;
+    }
+    mine.inDx = inDx;
+    mine.inDz = inDz;
+    mine.outDx = outDx;
+    mine.outDz = outDz;
+    mine.granted = true;
+    mine.until = now + GRANT_TTL;
+  }
+
+  /** La réservation accordée au véhicule porte-t-elle (à peu près) cette trajectoire ? */
+  sameMovement(node: number, car: number, inDx: number, inDz: number, outDx: number, outDz: number): boolean {
+    const b = this.boxes.get(node);
+    if (!b) return false;
+    for (let i = 0; i < b.n; i++) {
+      const r = b.res[i]!;
+      if (r.car === car) return r.inDx * inDx + r.inDz * inDz > 0.8 && r.outDx * outDx + r.outDz * outDz > 0.8;
+    }
+    return false;
+  }
+
   /** Le véhicule tient-il une réservation accordée et valide ? */
   holds(node: number, car: number, now: number): boolean {
     const b = this.boxes.get(node);

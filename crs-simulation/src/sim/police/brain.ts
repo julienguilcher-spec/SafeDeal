@@ -104,6 +104,11 @@ export interface Agent {
   sideZ: number;
   sideUntil: number;
   sideCount: number;
+  /** Laisser passer : décalage momentané de l'emplacement (m), échéance, dernière demande de passage. */
+  yieldX: number;
+  yieldZ: number;
+  yieldUntil: number;
+  wayAt: number;
   /** Instant à partir duquel l'agent exécute l'ordre reçu (délai de réaction). */
   reactAt: number;
   thinkAt: number;
@@ -242,6 +247,8 @@ export interface Op {
   /** Unité qui a reçu l'ordre (ou pris l'initiative) : c'est elle qui rend compte. */
   owner: Unit;
   ordered: boolean;
+  /** Instant de l'ordre de tâche auquel l'opération répond (−1 : initiative). */
+  taskAt: number;
   stage: number;
   t0: number;
   stageT: number;
@@ -437,7 +444,7 @@ export function createAgent(p: Person, seed: number): Agent {
     tag: AGENT_TAG, p, home: null, root: null, group: null, baseCls: CLS_SECOND, cls: CLS_SECOND, shield: false,
     lx: 0, lf: 0, lh: 0, rank: 0, hasSlot: false, sx: p.x, sz: p.z, sh: p.heading, svx: 0, svz: 0, key: 0, lat: 0,
     vcap: 2.6, lim0: p.speedWalk, lim1: p.speedRun, lim2: p.speedSprint, limAt: -1, face: p.heading,
-    path: [], pathN: 0, pathI: 0, pathAt: -100, stuckT: 0, lastX: p.x, lastZ: p.z, sideX: 0, sideZ: 0, sideUntil: 0, sideCount: 0,
+    path: [], pathN: 0, pathI: 0, pathAt: -100, stuckT: 0, lastX: p.x, lastZ: p.z, sideX: 0, sideZ: 0, sideUntil: 0, sideCount: 0, yieldX: 0, yieldZ: 0, yieldUntil: 0, wayAt: -100,
     reactAt: 0, thinkAt: 0,
     alertUntil: 0, highGuard: false, crouch: false, maskAt: 0, maskOffAt: 0, avoidX: 0, avoidZ: 0, avoidUntil: 0, obX: 0, obZ: 0, obR: 0, jx: 0, jz: 0,
     op: null, opRole: 0, goalX: p.x, goalZ: p.z, goalRun: false, hold: false,
@@ -500,7 +507,7 @@ export function createUnit(squad: Squad): Unit {
 
 export function createOp(kind: number, root: Unit, owner: Unit, now: number): Op {
   return {
-    kind, root, owner, ordered: false, stage: 0, t0: now, stageT: now, nextAt: 0, tries: 0, targetId: 0, x: 0, z: 0,
+    kind, root, owner, ordered: false, taskAt: -1, stage: 0, t0: now, stageT: now, nextAt: 0, tries: 0, targetId: 0, x: 0, z: 0,
     lead: null, second: null, cover1: null, cover2: null, extra: [], destX: 0, destZ: 0, destId: 0, count: 0,
     done: false, ok: false, reason: '',
   };

@@ -181,6 +181,10 @@ describe('radio — bibliothèque de phrases', () => {
     expect(phrases.text('drone_batterie', { duree: 12 }, 0)).toContain('retour dans UN-DEUX minutes.');
     expect(phrases.text('canon_citerne_basse', { eau: 1 }, 0)).toContain('il reste UN litre.');
     expect(typo('UN personnes, UNE mètres, UN-DEUX personnes, UNE section')).toBe('UNE personne, UN mètre, UN-DEUX personnes, UNE section');
+    // une valeur qui ouvre la phrase prend la capitale ; une valeur fournie n'est pas retouchée ailleurs
+    expect(phrases.text('renfort_accorde', {}, 1)).toContain('ICI CENTRAL. Une section de réserve vous rejoint en renfort');
+    expect(phrases.text('renfort_accorde', { renfort: 'Épervier 3' }, 1)).toContain('ICI CENTRAL. ÉPERVIER TROIS vous rejoint en renfort');
+    expect(phrases.text('situation_ras', { lieu: 'bd. de la Madeleine' }, 0)).toContain('secteur bd. de la Madeleine.');
   });
 
   it('typographie française : espace insécable avant ; : ! ? et dans les guillemets', () => {
@@ -290,6 +294,12 @@ describe('radio — bibliothèque de phrases', () => {
     expect(got[0]!.channel).toBe('unite');
     expect(got[0]!.personId).toBeUndefined(); // ce n'est pas le chef de MISTRAL 3 qui parle
     expect(got[0]!.text).toBe('MISTRAL TROIS ICI MISTRAL. Charge de QUATRE-ZÉRO mètres, secteur rue Royale. Arrêt au coup de sifflet, puis repli au pas. PARLEZ.');
+    // sans « to », l'unité concernée par un ordre du commandant en est le destinataire ; son chef ne parle pas
+    phrases.say('ordre_tenir', { lieu: 'rue Royale', direction: 'sud' }, { squad: s3, variant: 0, channel: 'presse' });
+    expect(got[1]!.from).toBe('MISTRAL');
+    expect(got[1]!.personId).toBeUndefined();
+    expect(got[1]!.text).toBe('MISTRAL TROIS ICI MISTRAL. Tenez le secteur rue Royale, face sud. Riposte directe seulement. PARLEZ.');
+    got.splice(1, 1);
     // les pompiers disent une phrase écrite pour le SAMU, à l'unité qui les protège
     phrases.say('secours_attente_securisation', { lieu: 'rue Royale' }, { from: 'SAPEUR 1', squad: s3, variant: 1 });
     expect(got[1]!.from).toBe('SAPEUR 1');

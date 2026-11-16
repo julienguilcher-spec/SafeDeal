@@ -108,6 +108,7 @@ export function createCallsigns(ctx: GameContext): CallsignBook {
    * Retourne l'indicatif en capitales avec ses accents, ou null.
    */
   function planned(squad: Squad): string | null {
+    if (squad.faction !== 'police') return null;
     const raw = squad.name.trim().replace(/\s+/g, ' ');
     if (!raw) return null;
     const m = /^(\p{L}+)(?: (\d{1,2}))?(?: (\p{L}+))?$/u.exec(raw);
@@ -140,8 +141,14 @@ export function createCallsigns(ctx: GameContext): CallsignBook {
     switch (squad.kind) {
       case 'compagnie':
         return co;
-      case 'section':
-        return `${co} ${ordinal(squad, (s) => s.kind === 'section' && s.faction === 'police')}`;
+      case 'section': {
+        // section d'une compagnie : numérotée parmi ses sœurs, sous l'indicatif de SA compagnie
+        const parent = squad.parentId > 0 ? ctx.squads.get(squad.parentId) : undefined;
+        if (parent && parent.kind === 'compagnie') {
+          return `${ofSquad(parent)} ${ordinal(squad, (s) => s.kind === 'section' && s.parentId === squad.parentId)}`;
+        }
+        return `${co} ${ordinal(squad, (s) => s.kind === 'section' && s.faction === 'police' && s.parentId === squad.parentId)}`;
+      }
       case 'groupe': {
         const parent = squad.parentId > 0 ? ctx.squads.get(squad.parentId) : undefined;
         const base = parent ? ofSquad(parent) : co;

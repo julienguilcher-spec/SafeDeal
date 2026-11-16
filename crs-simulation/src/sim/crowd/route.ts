@@ -86,8 +86,9 @@ function matchesStart(ctx: GameContext, def: RouteDef, config: SessionConfig, sx
   const first = def.stops[0]!;
   const place = ctx.world.placeByName(first.name);
   if (!place || Math.hypot(place.x - first.x, place.z - first.z) > 400) return false; // autre carte
-  return Math.hypot(place.x - sx, place.z - sz) <= ROUTE_MATCH_RADIUS
-    || (config.place !== '' && ctx.world.placeByName(config.place) === place);
+  // la manifestation se tient là où la session commence : le lieu de départ du parcours doit être tout près
+  void config;
+  return Math.hypot(place.x - sx, place.z - sz) <= ROUTE_MATCH_RADIUS;
 }
 
 function isDestination(p: PlaceInfo): boolean {

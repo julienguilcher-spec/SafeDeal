@@ -120,21 +120,20 @@ function paramValue(name: string, params: PhraseParams, env: ComposeEnv): string
   return PARAM_DEFAULTS[name] ?? '';
 }
 
-/** Capitale au début de chaque phrase du corps (une valeur par défaut peut ouvrir une phrase). */
-function capitalizeSentences(text: string): string {
-  return capitalize(text).replace(/([.!?]\s+)(\p{Ll})/gu, (_all, sep: string, letter: string) => sep + letter.toUpperCase());
-}
-
 /** Compose le texte complet d'une variante (formule d'appel, corps, formule de fin), typographie française appliquée. */
 export function compose(def: PhraseDef, variant: number, params: PhraseParams, env: ComposeEnv): string {
   const n = def.variants.length;
   const template = def.variants[((variant % n) + n) % n]!;
-  const body = template.replace(/\{([a-z_]+)\}/g, (_all, name: string) => paramValue(name, params, env));
+  // une valeur qui ouvre une phrase du gabarit prend la capitale (« {renfort} vous rejoint » → « Une section… »)
+  const body = template.replace(/\{([a-z_]+)\}/g, (_all, name: string, offset: number) => {
+    const value = paramValue(name, params, env);
+    return offset === 0 || /[.!?]\s+$/.test(template.slice(0, offset)) ? capitalize(value) : value;
+  });
   const who = correspondents(def, params, env);
   const from = spokenCallsign(who.from);
   const head = def.reply ? `ICI ${from}. ` : `${spokenCallsign(who.to)} ICI ${from}. `;
   const end = def.end === 'parlez' ? ' PARLEZ.' : def.end === 'termine' ? ' TERMINÉ.' : '';
-  let text = capitalizeSentences(body.trim());
+  let text = capitalize(body.trim());
   if (end && !/[.!?]$/.test(text)) text += '.';
   return typo(`${head}${text}${end}`.replace(/\{[^}]*\}|[{}]/g, ''));
 }
@@ -225,7 +224,9 @@ export function createPhraseLibrary(deps: PhraseLibraryDeps): RadioPhrases {
     }
 
     const from = (options?.from ?? '').trim();
-    const to = targetCallsign(options?.to);
+    // destinataire imposé ; à défaut, un ordre adressé à « cible » va à l'unité concernée (options.squad)
+    let to = targetCallsign(options?.to);
+    if (!to && !speaks && def.to === 'cible' && squad && absent(params, 'cible')) to = calls.callsign(squad);
     const env: ComposeEnv = {
       company: calls.company,
       commandant: calls.commandant,

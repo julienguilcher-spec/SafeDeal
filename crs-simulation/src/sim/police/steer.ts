@@ -17,7 +17,7 @@ import type { Person } from '@/core/contracts';
 import { segmentVsObb } from '@/core/math';
 import type { SegmentCast } from '@/core/math';
 import type { Agent } from './brain';
-import { ACT_AIM } from './brain';
+import { ACT_AIM, F_COLUMN } from './brain';
 import type { Kernel } from './kernel';
 import * as T from './tuning';
 
@@ -248,6 +248,10 @@ export function navigate(k: Kernel, a: Agent, tx: number, tz: number, interval: 
   a.lastZ = p.z;
   if (d2 > 0.5 && mx * mx + mz * mz < T.STUCK_SPEED * interval * (T.STUCK_SPEED * interval) && p.stun <= 0) {
     a.stuckT += interval;
+    if (a.stuckT >= T.WAY_TIME && k.now - a.wayAt >= 1.2) {
+      a.wayAt = k.now;
+      askWay(k, a, tx, tz);
+    }
     if (a.stuckT >= T.STUCK_TIME) {
       a.stuckT = 0;
       // pas de côté : du même côté trois fois de suite (le temps de longer l'obstacle), puis de l'autre
@@ -324,4 +328,39 @@ export function distPP(a: Person, b: Person): number {
   const dx = a.x - b.x;
   const dz = a.z - b.z;
   return Math.sqrt(dx * dx + dz * dz);
+}
+
+/**
+ * Laisser passer : les collègues du bloc rangés entre l'agent et son but s'écartent un instant de part et
+ * d'autre de son trajet (les rangs s'ouvrent, puis se referment). L'écart décroît avec la distance au
+ * trajet : l'ordre latéral du rang est conservé et personne n'est comprimé.
+ */
+function askWay(k: Kernel, a: Agent, tx: number, tz: number): void {
+  const g = a.group;
+  if (!g || g.kind === F_COLUMN) return;
+  const fx = Math.sin(g.ah);
+  const fz = Math.cos(g.ah);
+  const p = a.p;
+  // repère du bloc : abscisse latérale (vers la droite) et profondeur (vers l'avant)
+  const la = (p.x - g.ax) * -fz + (p.z - g.az) * fx;
+  const fa = (p.x - g.ax) * fx + (p.z - g.az) * fz;
+  const lt = (tx - g.ax) * -fz + (tz - g.az) * fx;
+  const ft = (tx - g.ax) * fx + (tz - g.az) * fz;
+  const lo = (fa < ft ? fa : ft) + 0.25;
+  const hi = (fa < ft ? ft : fa) - 0.25;
+  if (hi <= lo) return;
+  const agents = g.agents;
+  const until = k.now + T.WAY_HOLD;
+  for (let i = 0, n = agents.length; i < n; i++) {
+    const b = agents[i];
+    if (b === a || !b.hasSlot || b.lf < lo || b.lf > hi) continue;
+    const cross = la + ((lt - la) * (b.lf - fa)) / (ft - fa);
+    const d = b.lx - cross;
+    const ad = d < 0 ? -d : d;
+    if (ad >= T.WAY_REACH) continue;
+    const shift = (d < 0 ? -1 : 1) * T.WAY_HALF * (1 - ad / T.WAY_REACH);
+    b.yieldX = -fz * shift;
+    b.yieldZ = fx * shift;
+    b.yieldUntil = until;
+  }
 }

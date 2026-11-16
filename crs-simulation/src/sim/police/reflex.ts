@@ -15,7 +15,8 @@
 import type { Person } from '@/core/contracts';
 import type { Agent, FormGroup, Unit } from './brain';
 import { ACT_NONE, CLS_FRONT, F_BOX, F_COLUMN, F_HOLD, F_SCREEN, F_TORTUE, OP_RESCUE, ROLE_COVER, ROLE_LEAD } from './brain';
-import { beginAct, lawful, recentViolence } from './force';
+import { lawful, recentViolence } from './force';
+import { beginAct } from './weapons';
 import type { Kernel } from './kernel';
 import { navigate, refreshLimits } from './steer';
 import * as T from './tuning';
@@ -23,7 +24,7 @@ import * as T from './tuning';
 const burningColleague = (p: Person): boolean => p.faction === 'police' && p.burning > 0.12;
 const civilian = (p: Person): boolean => p.faction !== 'police' && p.custody === 'free' && p.vehicleId === 0 && p.posture !== 'down';
 
-function hasCharge(k: Kernel, p: Person): boolean {
+function hasCharge(p: Person): boolean {
   const inv = p.inventory;
   for (let i = 0; i < inv.length; i++) if (inv[i].id === 'extincteur') return inv[i].count > 0 && inv[i].state > 0.02;
   return false;
@@ -116,7 +117,7 @@ function avoidDanger(k: Kernel, a: Agent, tx: number, tz: number): void {
 /** Le porte-extincteur éteint un collègue en feu à portée. */
 function quenchColleague(k: Kernel, a: Agent): boolean {
   const p = a.p;
-  if (a.act !== ACT_NONE || (a.op !== null && a.opRole === ROLE_LEAD) || !hasCharge(k, p)) return false;
+  if (a.act !== ACT_NONE || (a.op !== null && a.opRole === ROLE_LEAD) || !hasCharge(p)) return false;
   const n = k.ctx.people.queryRadius(p.x, p.z, 9, k.people2, burningColleague);
   let best: Person | null = null;
   let bestD = Infinity;

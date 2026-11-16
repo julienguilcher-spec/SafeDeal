@@ -250,6 +250,20 @@ describe('radio — ambiance', () => {
     step(900);
     expect(ctx.radio.log.slice(fin).some((m) => themeOf(m.text) === 'ambiance_foyers')).toBe(false);
 
+    // une nappe de feu au sol (engin incendiaire) est signalée par 'fire:started' : annoncée tant qu'elle brûle
+    let nappe = true;
+    ctx.hazards.fireAt = (x: number): number => (nappe && Math.abs(x - 900) < 3 ? 0.8 : 0);
+    ctx.events.emit('fire:started', { x: 900, z: 0, targetKind: 'ground', targetId: 0, sourceId: 0 });
+    const sol = ctx.radio.log.length;
+    step(900);
+    const nappes = ctx.radio.log.slice(sol).filter((m) => themeOf(m.text) === 'ambiance_foyers');
+    expect(nappes.length).toBeGreaterThan(0);
+    for (const m of nappes) expect(m.text).toContain('secteur rue du Temple');
+    nappe = false;
+    const eteint = ctx.radio.log.length;
+    step(900);
+    expect(ctx.radio.log.slice(eteint).some((m) => themeOf(m.text) === 'ambiance_foyers')).toBe(false);
+
     // une rue est coupée : les déviations entrent dans l'ambiance du cortège
     director.phase = 'cortege';
     director.tension = 0.3;

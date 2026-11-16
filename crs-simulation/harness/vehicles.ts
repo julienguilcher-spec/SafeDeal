@@ -367,27 +367,32 @@ if (view === 'alignement') {
   const page = Math.max(1, Math.min(PAGES.length, num('page', 1)));
   const kinds = params.get('kinds') ? params.get('kinds')!.split(',') : PAGES[page - 1]!;
   const cam = params.get('cam') ?? 'trois-quarts';
-  // rangés côte à côte le long de x, tous tournés vers +z (la caméra « face » les voit de face)
-  let x = 0;
-  const xs: number[] = [];
-  let maxLen = 0, maxH = 0;
+  // rangés côte à côte le long de x, tous tournés vers +z (la caméra « face » les voit de face) ; pour la vue de
+  // profil, ils sont rangés à la file le long de z, afin que la caméra latérale voie chaque silhouette entière
+  const file = cam === 'profil';
+  let cursor = 0;
+  const at: number[] = [];
+  let maxLen = 0, maxH = 0, maxW = 0;
   for (const k of kinds) {
     const def = ctx.vehicles.def(k)!;
-    const w = def.kind === 'helicoptere' ? 10.6 : Math.max(def.width, 1.0);
-    x += w / 2;
-    xs.push(x);
-    x += w / 2 + 1.9;
+    const w = file ? def.length : def.kind === 'helicoptere' ? 10.6 : Math.max(def.width, 1.0);
+    cursor += w / 2;
+    at.push(cursor);
+    cursor += w / 2 + 1.9;
     maxLen = Math.max(maxLen, def.length);
     maxH = Math.max(maxH, def.height);
+    maxW = Math.max(maxW, def.width);
   }
-  const total = x - 1.9;
+  const total = cursor - 1.9;
   for (let i = 0; i < kinds.length; i++) {
     const k = kinds[i]!;
     const def = ctx.vehicles.def(k)!;
-    const v = spawn(k, xs[i]! - total / 2, 0, 0);
+    const c = at[i]! - total / 2;
+    const v = file ? spawn(k, 0, -c, 0) : spawn(k, c, 0, 0);
     v.steerAngle = num('braq', 0) * DEG;
-    addHuman(xs[i]! - total / 2 + Math.max(def.width, 1) / 2 + 0.7, -def.length / 2 + 0.9);
-    addLabel(`${def.name} — ${def.length} × ${def.width} × ${def.height} m`, v.x, -0.05, def.length / 2 + 1.2);
+    if (file) addHuman(0, v.z - def.length / 2 - 0.85);
+    else addHuman(c + Math.max(def.width, 1) / 2 + 0.7, -def.length / 2 + 0.9);
+    addLabel(`${def.name} — ${def.length} × ${def.width} × ${def.height} m`, v.x, -0.05, file ? v.z : def.length / 2 + 1.2);
   }
   if (night) {
     // façade claire derrière l'alignement : les éclairs bleus doivent s'y voir
@@ -397,8 +402,8 @@ if (view === 'alignement') {
     world.add(wall);
   }
   setShadowArea(0, 0, Math.max(total, maxLen) / 2 + 4);
-  const span = cam === 'profil' ? maxLen + 2 : cam === 'dessus' ? Math.max(total, maxLen * 1.8) : cam === 'face' ? total + 2 : Math.hypot(total, maxLen) * 0.78;
-  camPreset(cam, 0, 0, span, maxH, cam === 'profil' ? total / 2 : 0, maxLen / 2);
+  const span = file ? total + 1.5 : cam === 'dessus' ? Math.max(total, maxLen * 1.8) : cam === 'face' ? total + 2 : Math.hypot(total, maxLen) * 0.78;
+  camPreset(cam, 0, 0, span, maxH, file ? maxW / 2 : 0, maxLen / 2);
 } else if (view === 'fiche' || view === 'etats') {
   const kind = params.get('kind') ?? 'fourgon_crs';
   const def = ctx.vehicles.def(kind)!;

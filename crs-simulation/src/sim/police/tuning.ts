@@ -100,6 +100,11 @@ export const FAR_DISTANCE = 90;
 /** Agent bloqué : vitesse (m/s) et durée (s) qui déclenchent un contournement (§E.8 : jamais bloqué plus de 3 s). */
 export const STUCK_SPEED = 0.25;
 export const STUCK_TIME = 1.6;
+/** Laisser passer : délai de piétinement avant de demander le passage (s), écart ouvert de chaque côté (m), portée latérale (m), durée (s). */
+export const WAY_TIME = 0.45;
+export const WAY_HALF = 0.6;
+export const WAY_REACH = 3;
+export const WAY_HOLD = 3;
 /** Intervalle minimal entre deux calculs d'itinéraire d'un même agent (s). */
 export const REPATH_INTERVAL = 2.0;
 

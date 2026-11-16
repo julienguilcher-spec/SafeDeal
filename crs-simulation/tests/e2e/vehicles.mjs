@@ -105,6 +105,21 @@ await capture('parc-150-sol', 'view=parc&n=150&cam=sol&pas=0.033', { frames: 30,
 await capture('parc-150-nuit', 'view=parc&n=150&nuit=1&pas=0.033', { frames: 30, timeout: 600000 });
 await capture('parc-150-bas', 'view=parc&n=150&qualite=bas&pas=0.033', { frames: 30, timeout: 600000, width: 844, height: 390 });
 
+// (i) contrôle d'intégration : vrai rendu de base + vraie simulation des véhicules + ce module. Ces deux captures
+// dépendent de modules voisins : un échec y est signalé sans faire échouer le test du module.
+for (const [name, query] of [['jeu-interieur', 'view=jeu&kind=fourgon_crs&cam=int'], ['jeu-tourelle', 'view=jeu&kind=centaure&cam=tourelle&site=30'], ['jeu-exterieur-nuit', 'view=jeu&kind=canon_eau&cam=ext&nuit=1']]) {
+  const before = allErrors.length;
+  try {
+    await capture(name, query + '&pas=0.033', { frames: 30, timeout: 240000 });
+  } catch (err) {
+    console.warn(`[vehicles] ${name} : contrôle d'intégration indisponible (${String(err && err.message ? err.message : err).split('\n')[0]})`);
+  }
+  if (allErrors.length > before) {
+    console.warn(`[vehicles] ${name} : erreurs relevées pendant le contrôle d'intégration (non bloquantes) :`);
+    for (const e of allErrors.splice(before)) console.warn('  - ' + e);
+  }
+}
+
 let ok = true;
 if (parc) {
   console.log(`[vehicles] parc de 150 : ${parc.moduleCalls} appels de dessin pour les véhicules (scène : ${parc.calls}), ${parc.moduleTriangles} triangles, `

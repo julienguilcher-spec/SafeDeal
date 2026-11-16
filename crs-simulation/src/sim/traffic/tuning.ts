@@ -62,6 +62,12 @@ export const CLOSURE_REACH = 6;
  * déborde de 2 à 3 m sur la voie d'en face en sortant d'un virage serré ; un véhicule arrêté trop près le bloquerait).
  */
 export const STOP_SETBACK = 7;
+/**
+ * Sur une rue à double sens de moins de NARROW_TWOWAY m, la voie d'en face est dans l'enveloppe de virage de
+ * ceux qui sortent du carrefour : la ligne d'arrêt recule jusqu'à FAR_STOP m du centre du carrefour.
+ */
+export const NARROW_TWOWAY = 10.5;
+export const FAR_STOP = 16;
 /** Un feu posé sur l'approche (nœud de degré 2) commande le carrefour situé à moins de cette distance (m). */
 export const SIGNAL_REACH = 45;
 /** Deux carrefours reliés par moins de cette longueur de chaussée forment un seul ensemble de feux (m). */

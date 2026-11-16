@@ -23,9 +23,9 @@ import {
 } from './mcore';
 import { appendPath, measure, placeGroup, settleSlots } from './place';
 import { ackBody, acknowledge, spell } from './radio';
+import { leavePost, progressEncircle, startEncircle } from './encircle';
 import {
-  leavePost, progressBarrage, progressBoarding, progressCrew, progressEncircle, progressRelief, startBarrage, startCrewOrder,
-  startDisembark, startEmbark, startEncircle, startRelief,
+  progressBarrage, progressBoarding, progressCrew, progressRelief, startBarrage, startCrewOrder, startDisembark, startEmbark, startRelief,
 } from './special';
 import * as T from './tuning';
 

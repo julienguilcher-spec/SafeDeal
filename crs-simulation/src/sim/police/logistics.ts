@@ -192,7 +192,15 @@ export function updateCondition(k: Kernel, u: Unit, dt: number): void {
   // moral : pertes, fatigue, violences subies sans pouvoir riposter
   const losses = total > 0 ? 1 - valid / total : 0;
   let morale = 1 - 0.7 * losses - 0.25 * u.fatigue - (attacked && forceCap(k, u) < 3 ? 0.15 : 0) - 0.1 * u.pressure;
+  // le commandant à pied, au contact de ses unités, soutient leur moral (BRIEF §1)
+  const cdt = k.commander;
+  if (cdt && cdt.vehicleId === 0 && cdt.posture !== 'down' && cdt.health > 0 && u.status.valid > 0) {
+    const dx = cdt.x - u.status.x;
+    const dz = cdt.z - u.status.z;
+    if (dx * dx + dz * dz < 50 * 50) morale += 0.08;
+  }
   if (morale < 0) morale = 0;
+  else if (morale > 1) morale = 1;
   const rate = morale < sq.morale ? 20 : 60;
   sq.morale += (morale - sq.morale) * (1 - Math.exp(-dt / rate));
   for (let i = 0; i < k.units.length; i++) {

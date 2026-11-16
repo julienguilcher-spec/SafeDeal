@@ -73,8 +73,9 @@ function byPromote(a: Agent, b: Agent): number {
   return promoteRank(a) - promoteRank(b) || a.p.id - b.p.id;
 }
 
+/** Unités rangées par échelon supérieur (barycentre, puis identité : deux sections ne s'entremêlent jamais), puis par barycentre propre. */
 function bySortLat(a: Unit, b: Unit): number {
-  return a.accLat - b.accLat || a.sortLat - b.sortLat || a.id - b.id;
+  return a.accLat - b.accLat || (a.parent ? a.parent.id : a.id) - (b.parent ? b.parent.id : b.id) || a.sortLat - b.sortLat || a.id - b.id;
 }
 
 const homes: Unit[] = [];
@@ -375,8 +376,7 @@ export function buildTortue(k: Kernel, g: FormGroup, agents: readonly Agent[], n
  * proches de la tête prennent les premiers rangs. `dx, dz` : direction de marche au départ.
  */
 export function buildColumn(
-  k: Kernel, g: FormGroup, agents: readonly Agent[], n: number, x: number, z: number, dx: number, dz: number, files: number,
-  leaderId: number,
+  g: FormGroup, agents: readonly Agent[], n: number, x: number, z: number, dx: number, dz: number, files: number, leaderId: number,
 ): void {
   const h = Math.atan2(dx, dz);
   // tri du plus avancé au moins avancé

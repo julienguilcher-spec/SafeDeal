@@ -26,7 +26,8 @@ import type { Agent, Op, Unit } from './brain';
 import {
   ACT_NONE, F_BOX, F_COLUMN, F_HOLD, F_LINE, F_NONE, F_SCREEN, F_TORTUE, OP_EXTINGUISH, OP_RESUPPLY, agentOf, isTaskOrder, unitOf,
 } from './brain';
-import { cancelAct, decideForce, senseUnit, updateAct } from './force';
+import { senseUnit } from './force';
+import { cancelAct, decideForce, updateAct } from './weapons';
 import { lineError } from './place';
 import { Kernel } from './kernel';
 import { statusOf, updateCondition } from './logistics';
@@ -36,7 +37,7 @@ import { measure, placeGroup } from './place';
 import { abortOps, autoOps, opReport, resupplyNext, startTask, updateOps } from './ops';
 import { ackBody, acknowledge, negative, spell } from './radio';
 import { looksAhead, thinkAgent } from './reflex';
-import { unjoin } from './special';
+import { unjoin } from './encircle';
 import { halt, steer } from './steer';
 import { eachDescendant, refreshFormable, resolveLeads, syncTree } from './tree';
 import * as T from './tuning';
@@ -281,14 +282,13 @@ export class PoliceSystem implements GameSystem {
 
   private handleOrder(u: Unit, o: SquadOrder): void {
     const k = this.k;
-    const prev = u.storeOrder;
-    u.storeOrder = o;
     const type = o.type;
     if (isTaskOrder(type)) {
       this.endTask(u, false);
       u.task = copyOrder(o);
-      // le niveau de force de la tâche vaut pour toute l'unité qui la reçoit, le temps de la tâche
-      u.restoreOrder = prev && prev !== o && !isTaskOrder(prev.type) ? prev : null;
+      // le niveau de force de la tâche vaut pour toute l'unité qui la reçoit, le temps de la tâche ;
+      // l'ordre de formation (dernier ordre du magasin qui ne soit pas une tâche) est rétabli ensuite
+      u.restoreOrder = u.storeOrder && u.storeOrder !== o ? u.storeOrder : null;
       u.placedOrder = o;
       eachDescendant(u, (d) => {
         if (d === u) return;
@@ -300,6 +300,8 @@ export class PoliceSystem implements GameSystem {
       });
       const dist = Math.hypot(o.x - u.status.x, o.z - u.status.z);
       const reason = startTask(k, u, u.task);
+      const ops = u.lead.ops;
+      for (let i = 0; i < ops.length; i++) if (ops[i].owner === u && ops[i].ordered && ops[i].taskAt < 0) ops[i].taskAt = o.issuedAt;
       if (reason !== '') {
         k.say(u, negative(u.squad.name, reason), 1, 'unite');
         if (type === 'interpeller') k.emit(ORDER_REFUSED_EVENT, { squadId: u.id, type, reason });
@@ -310,6 +312,7 @@ export class PoliceSystem implements GameSystem {
       }
       return;
     }
+    u.storeOrder = o;
     if (type === 'cesser') {
       abortOps(k, u.lead, u.isRoot && !u.joinedTo ? null : u, 'Action interrompue sur ordre.');
       this.endTask(u, false);
@@ -368,7 +371,8 @@ export class PoliceSystem implements GameSystem {
       return;
     }
     const task = owner.task;
-    if (!task) return;
+    // l'opération répondait à un ordre remplacé depuis : rien à clore
+    if (!task || (op.taskAt >= 0 && op.taskAt !== task.issuedAt)) return;
     if (op.kind === OP_RESUPPLY) {
       owner.man.volleys += op.count;
       if (resupplyNext(k, owner)) return;
@@ -482,6 +486,11 @@ export class PoliceSystem implements GameSystem {
       // sans emplacement (ou ordre pas encore pris en compte) : immobile, le regard où il était
       const cmd = p.cmd;
       if (cmd.moveX !== 0 || cmd.moveZ !== 0 || !a.hasSlot) halt(a, a.hasSlot ? p.cmd.aimYaw : a.face);
+      return;
+    }
+    if (now < a.yieldUntil) {
+      // laisser passer un collègue : pas de côté momentané, puis retour à l'emplacement
+      steer(k, a, a.sx + a.jx + a.yieldX, a.sz + a.jz + a.yieldZ, a.svx, a.svz, a.face, a.vcap, looksAhead(a));
       return;
     }
     steer(k, a, a.sx + a.jx, a.sz + a.jz, a.svx, a.svz, a.face, a.vcap, looksAhead(a));

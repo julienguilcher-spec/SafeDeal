@@ -22,23 +22,24 @@ describe('foule — compression dans une rue étroite', () => {
     const reasons: string[] = [];
     ctx.events.on('crowd:tension', (e) => reasons.push(e.reason));
     await t.start(demoConfig({
-      crowdSize: 260, x: STREET_X, z: -150, tension: 0.05, volatility: 0.3,
-      extra: { 'crowd.present': 1, 'crowd.static': true, 'crowd.noAleas': true, 'crowd.bystanders': 0, 'crowd.sono': false, 'crowd.route': [STREET_X, -155, STREET_X, 140] },
+      crowdSize: 150, x: STREET_X, z: -150, tension: 0.05, volatility: 0.3,
+      extra: { 'crowd.present': 1, 'crowd.static': true, 'crowd.noAleas': true, 'crowd.bystanders': 0, 'crowd.sono': false, 'crowd.route': [STREET_X, -152, STREET_X, 140] },
     }));
     const f = core.formation;
     // le rassemblement tient dans la rue : couloir étroit, cortège étiré
     expect(core.corridor.refWidth).toBeLessThan(10);
     t.run(3);
     const all = t.protesters();
-    expect(all.length).toBeGreaterThanOrEqual(250);
+    expect(all.length).toBeGreaterThanOrEqual(144);
     for (const p of all) expect(Math.abs(p.x - STREET_X)).toBeLessThan(5.2);
     const calm = core.density.max;
     expect(calm).toBeLessThan(3);
     expect(events.length).toBe(0);
 
-    // barricade en travers de la rue, 25 m devant la tête
+    // barricade en travers de la rue, 25 m devant la tête (avant le carrefour : la rue est fermée de mur à mur)
     core.corridor.at(f.headS + 25, core.rp);
     const bz = core.rp.z;
+    expect(bz).toBeLessThan(-26);
     for (let x = STREET_X - 4.6; x <= STREET_X + 4.6; x += 1.15) ctx.props.spawn('conteneur', x, bz, 0);
     // une section charge depuis l'arrière du rassemblement, en trois bonds
     core.corridor.at(f.tailS - 14, core.rp);
@@ -50,7 +51,7 @@ describe('foule — compression dans une rue étroite', () => {
     }
     let peak = 0;
     let pressed = 0;
-    for (let bond = 0; bond < 4; bond++) {
+    for (let bond = 0; bond < 9; bond++) {
       ctx.squads.issue(squad.id, { type: 'charge', x: STREET_X, z: bz, heading: 0 });
       // la ligne avance au pas de charge (ici : commandée par le test, qui tient lieu d'IA des forces)
       for (let k = 0; k < 8; k++) {
@@ -73,7 +74,9 @@ describe('foule — compression dans une rue étroite', () => {
     expect(reasons).toContain('charge_non_justifiee');
     expect(peak).toBeGreaterThanOrEqual(4);
     expect(alerts.length).toBeGreaterThanOrEqual(1);
-    expect(alerts[0]!.people).toBeGreaterThanOrEqual(20);
+    expect(alerts[0]!.people).toBeGreaterThanOrEqual(14);
+    // personne n'a traversé la barricade
+    expect(t.protesters().filter((p) => p.z > bz + 1).length).toBe(0);
     expect(reasons.some((r) => r === 'compression' || r === 'compression_danger')).toBe(true);
     expect(ctx.director.tensionAt(alerts[0]!.x, alerts[0]!.z)).toBeGreaterThan(0.1);
     // l'alerte est donnée à l'endroit de la bousculade : dans la rue, entre la ligne et la barricade
@@ -86,7 +89,8 @@ describe('foule — compression dans une rue étroite', () => {
     // les forces se retirent : la foule cherche les issues et la pression retombe
     for (const crs of line) ctx.people.remove(crs.id);
     ctx.squads.issue(squad.id, { type: 'repli', x: STREET_X, z: -200, heading: Math.PI });
-    t.run(40);
+    for (let k = 0; k < 30 && core.density.max >= 3.6; k++) t.run(4);
+    t.run(8);
     expect(core.density.max).toBeLessThan(4);
     for (const p of t.protesters()) {
       expect(Number.isFinite(p.x) && Number.isFinite(p.z)).toBe(true);

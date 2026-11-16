@@ -2,10 +2,10 @@
  * collide/<clé>.ts sont aussi chargés par la simulation sous Node. */
 import type { LandmarkInfo } from '@/core/contracts';
 import type { MonumentCollider, MonumentSite } from './types';
-import { canonicalKey, keyFromPath } from './keys';
+import { canonicalKey, keyFromPath, registerAlias } from './keys';
 import { ensureCCW, transformRing, worldRingToLocal } from './shape2d';
 
-type CollideModule = { colliders?: (site: MonumentSite) => MonumentCollider[] };
+type CollideModule = { colliders?: (site: MonumentSite) => MonumentCollider[]; alias?: string };
 
 const modules = import.meta.glob('./collide/*.ts', { eager: true }) as Record<string, CollideModule>;
 
@@ -13,7 +13,9 @@ const table = new Map<string, (site: MonumentSite) => MonumentCollider[]>();
 for (const path of Object.keys(modules)) {
   const fn = modules[path].colliders;
   if (typeof fn === 'function') table.set(keyFromPath(path), fn);
-  else console.error(`[monuments] collide/${keyFromPath(path)}.ts n'exporte pas « colliders »`);
+  // alias de carte : collide/<alias>.ts exporte `alias = '<clé cible>'` (mêmes obstacles que la cible)
+  else if (typeof modules[path].alias === 'string') registerAlias(keyFromPath(path), modules[path].alias as string);
+  else console.error(`[monuments] collide/${keyFromPath(path)}.ts n'exporte ni « colliders » ni « alias »`);
 }
 
 const NO_SITE: MonumentSite = { footprint: [], height: 0 };

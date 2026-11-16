@@ -43,7 +43,15 @@ describe('foule — gaz lacrymogène', () => {
     // le gaz a bien atteint la foule, et elle a réagi
     expect(peakExposed).toBeGreaterThan(8);
     expect(covered).toBeGreaterThan(5);
-    t.run(40);
+    // pendant que les palets fument encore : le nuage est vide, personne à leur contact
+    t.run(20);
+    const during = t.protesters();
+    expect(palets.length).toBeGreaterThan(4);
+    expect(ctx.projectiles.list.filter((q) => q.emitting).length).toBeGreaterThan(4);
+    const stillIn = during.filter((p) => ctx.hazards.gasAt(p.x, p.z) > 0.08).length;
+    expect(stillIn).toBeLessThan(peakExposed * 0.5);
+    expect(during.filter((p) => palets.some((q) => Math.hypot(p.x - q.x, p.z - q.z) < 3)).length).toBeLessThanOrEqual(3);
+    t.run(20);
     const now = t.protesters();
     const inCloud = now.filter((p) => ctx.hazards.gasAt(p.x, p.z) > 0.08);
     const cloudCells = [-12, -6, 0, 6, 12].flatMap((dx) => [-12, -6, 0, 6, 12].map((dz) => ctx.hazards.gasAt(gx + dx, gz + dz)));
@@ -52,9 +60,6 @@ describe('foule — gaz lacrymogène', () => {
     // le nuage existe encore (émission de 30 s) mais il est vide
     expect(Math.max(...cloudCells)).toBeGreaterThan(0.1);
     expect(inCloud.length).toBeLessThanOrEqual(Math.ceil(now.length * 0.03));
-    // plus personne au contact des palets
-    expect(palets.length).toBeGreaterThan(4);
-    expect(now.filter((p) => palets.some((q) => Math.hypot(p.x - q.x, p.z - q.z) < 4)).length).toBeLessThanOrEqual(2);
     // ceux qui étaient au cœur du nuage sont sortis sans se jeter sous le vent (vers l'est)
     let downwind = 0;
     let moved = 0;

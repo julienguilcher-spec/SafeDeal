@@ -245,6 +245,17 @@ export class RoadCache {
     return this.edgeA[e] === node ? this.edgeB[e]! : this.edgeA[e]!;
   }
 
+  /** Arête carrossable reliant deux nœuds voisins (la plus courte s'il y en a plusieurs), ou −1. */
+  edgeBetween(a: number, b: number): number {
+    let best = -1;
+    for (let k = this.adjStart[a]!; k < this.adjStart[a + 1]!; k++) {
+      const e = this.adjEdge[k]!;
+      if (!this.isVehicle(e) || this.other(e, a) !== b) continue;
+      if (best < 0 || this.edgeLen[e]! < this.edgeLen[best]!) best = e;
+    }
+    return best;
+  }
+
   /** Nœud situé à moins de `tol` m du point (sommet d'un itinéraire), ou −1. */
   nodeAt(x: number, z: number, tol = 0.3): number {
     if (this.nodeCount === 0) return -1;
