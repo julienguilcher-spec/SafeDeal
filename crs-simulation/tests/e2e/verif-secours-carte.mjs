@@ -22,7 +22,7 @@ try {
   await page.locator('[data-id="tac-rescue-pompiers"]').click();
   await new Promise((r) => setTimeout(r, 500));
   await shot(page, 'secours-carte-1');
-  const canvas = page.locator('canvas').last();
+  const canvas = page.locator('[data-id="tac-map"]');
   const box = await canvas.boundingBox();
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   await new Promise((r) => setTimeout(r, 1500));

@@ -288,15 +288,21 @@ async function bureau(server) {
     const staminaOf = () => page.evaluate(() => window.__CRS.ctx.player.person().stamina);
     const start = await state(page);
     const st0 = await staminaOf();
-    await page.keyboard.down('KeyW');
-    await step(page, 6);
+    // appuis de moins d'une seconde : on marche (tenue plus longtemps, la touche fait trottiner puis courir)
+    for (let i = 0; i < 6; i++) {
+      await page.keyboard.down('KeyW');
+      await step(page, 0.9);
+      await page.keyboard.up('KeyW');
+      await frames(page, 1);
+    }
     const walk = await state(page);
     const dWalk = Math.hypot(walk.x - start.x, walk.z - start.z);
     // la boucle d'images fait aussi avancer la simulation en temps réel : la vitesse se mesure sur l'horloge simulée
     const vWalk = dWalk / Math.max(0.1, walk.t - start.t);
     check(vWalk > 0.7 && vWalk < 1.9, 'au clavier, la touche « avancer » fait MARCHER', `${dWalk.toFixed(1)} m en ${(walk.t - start.t).toFixed(1)} s simulées, soit ${vWalk.toFixed(2)} m/s`);
     check((await staminaOf()) >= st0 - 0.5, 'le souffle ne s’use pas en marchant', `${st0.toFixed(0)} → ${(await staminaOf()).toFixed(0)}`);
-    // bascule « marcher / trottiner » (touche physique KeyZ) : petite foulée
+    // bascule « marcher / trottiner » (touche physique KeyZ) : petite foulée, même touche avant tenue
+    await page.keyboard.down('KeyW');
     await page.keyboard.down('KeyZ');
     await frames(page, 2);
     await page.keyboard.up('KeyZ');
@@ -514,11 +520,11 @@ async function bureau(server) {
     check(s.screen === null, 'la touche Tab referme la carte tactique', String(s.screen));
 
     // ── pause, paramètres ──
-    await page.keyboard.press('KeyP');
+    await page.keyboard.press('Escape');
     await frames(page, 4);
     await page.waitForTimeout(300);
     s = await state(page);
-    check(s.screen === 'pause' && s.phase === 'paused', 'la touche P met en pause', `${s.screen} / ${s.phase}`);
+    check(s.screen === 'pause' && s.phase === 'paused', 'la touche Échap met en pause', `${s.screen} / ${s.phase}`);
     const tPaused = s.t;
     await capture('game-pause');
     await page.locator('[data-id="pause-parametres"]').click();
@@ -629,7 +635,7 @@ async function bureau(server) {
         squads: c.squads.list.filter((q) => q.faction === 'police').length, all: c.people.list.length, geometries: m.geometries, textures: m.textures,
       };
     });
-    await page.keyboard.press('KeyP');
+    await page.keyboard.press('Escape');
     await waitFor(page, 'window.__CRS.ctx.ui.current === "pause"', 120000);
     await page.locator('[data-id="pause-recommencer"]').click();
     await page.locator('[data-id="dialog-confirm"]').click();
@@ -654,7 +660,7 @@ async function bureau(server) {
 
     // ── terminer : compte rendu, puis retour à l'accueil ──
     await step(page, 2);
-    await page.keyboard.press('KeyP');
+    await page.keyboard.press('Escape');
     await waitFor(page, 'window.__CRS.ctx.ui.current === "pause"', 120000);
     await page.locator('[data-id="pause-terminer"]').click();
     await page.locator('[data-id="dialog-confirm"]').click();

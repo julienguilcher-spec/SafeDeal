@@ -87,7 +87,7 @@ const combos = [
   ['Space', ['jump', 'handbrake']], ['KeyR', ['reload', 'siren']], ['KeyE', ['interact']], ['ShiftLeft', ['sprint']],
   ['KeyC', ['crouch']], ['Digit3', ['slot3']], ['KeyT', ['radio']], ['KeyF', ['orders']], ['KeyM', ['map']],
   ['Tab', ['tactical']], ['KeyV', ['camera']], ['KeyG', ['mask']], ['KeyH', ['visor']], ['KeyB', ['beacons']],
-  ['KeyN', ['horn']], ['Period', ['fast_forward']], ['KeyP', ['pause']], ['Enter', ['ui_accept']],
+  ['KeyN', ['horn']], ['Period', ['fast_forward']], ['Enter', ['ui_accept']],
   ['ArrowUp', ['ui_up']], ['KeyL', ['flashlight', 'headlights']],
 ];
 for (const [key, buttons] of combos) {

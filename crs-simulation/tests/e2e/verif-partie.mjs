@@ -248,7 +248,7 @@ try {
     await key.press('Escape'); await frames(page, 4); await page.waitForTimeout(400);
     const p1 = await scr();
     R.pauseEscape = p1; log('  Échap', J(p1));
-    if (p1.screen !== 'pause') { await key.press('KeyP'); await frames(page, 4); await page.waitForTimeout(300); R.pauseP = await scr(); }
+    if (p1.screen !== 'pause') { await key.press('Escape'); await frames(page, 4); await page.waitForTimeout(300); R.pauseP = await scr(); }
     await snap(page, `verif-${tag}-4-pause`);
     await click('[data-id="pause-parametres"]'); await frames(page, 4); await page.waitForTimeout(300);
     R.paramTabs = await ev(() => [...document.querySelectorAll('[data-id^="ptab-"]')].map((e) => e.getAttribute('data-id')));
@@ -270,7 +270,7 @@ try {
     R.sysErrors1 = await ev(() => window.__V.errors());
     R.mem1b = await memory();
     // retour en « bas » pour la suite
-    await key.press('KeyP'); await waitFor(page, 'window.__CRS.ctx.ui.current === "pause"', 120000);
+    await key.press('Escape'); await waitFor(page, 'window.__CRS.ctx.ui.current === "pause"', 120000);
     await click('[data-id="pause-parametres"]'); await frames(page, 3); await click('[data-id="ptab-graphismes"]'); await frames(page, 2);
     await click('[data-id="set-quality"] [data-value="bas"]'); await frames(page, 3);
     await click('[data-id="parametres-retour"]'); await frames(page, 3);
@@ -278,7 +278,7 @@ try {
 
   // ═══ 5. terminer → compte rendu → accueil ═══
   await section('fin1', async () => {
-    if ((await ev(() => window.__CRS.ctx.ui.current)) !== 'pause') { await key.press('KeyP'); await waitFor(page, 'window.__CRS.ctx.ui.current === "pause"', 120000); }
+    if ((await ev(() => window.__CRS.ctx.ui.current)) !== 'pause') { await key.press('Escape'); await waitFor(page, 'window.__CRS.ctx.ui.current === "pause"', 120000); }
     await click('[data-id="pause-terminer"]'); await click('[data-id="dialog-confirm"]');
     await waitFor(page, 'window.__CRS.ctx.session.phase === "debrief"', 120000);
     await frames(page, 3); await snap(page, `verif-${tag}-5-compte-rendu`);

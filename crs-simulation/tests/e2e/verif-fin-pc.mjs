@@ -259,10 +259,10 @@ try {
   C.check(ts0 === 1 && ts1 > 1 && ts2 === 1, 'touche « . » : avance rapide (bascule)', `×${ts0} → ×${ts1} → ×${ts2}`);
 
   // ── pause, paramètres, reprise ──
-  await hold(page, 'KeyP');
+  await hold(page, 'Escape');
   await page.waitForTimeout(400); await frames(page, 3);
   s = await state(page);
-  C.check(s.screen === 'pause' && s.phase === 'paused', 'touche P : pause', `${s.screen} / ${s.phase}`);
+  C.check(s.screen === 'pause' && s.phase === 'paused', 'touche Échap : pause', `${s.screen} / ${s.phase}`);
   await snap(page, tag + '-16-pause');
   await click('[data-id="pause-parametres"]');
   await frames(page, 4);

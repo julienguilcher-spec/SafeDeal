@@ -71,7 +71,7 @@ try {
     await step(page, 0.3); await frames(page, 3);
     R.qBas = await viewStats(); log('B bas', J(R.qBas));
     await snap(page, `verif-${tag}-B-bas`);
-    await tap('KeyP');
+    await tap('Escape');
     await waitFor(page, 'window.__CRS.ctx.ui.current === "pause"', 180000);
     await click('[data-id="pause-parametres"]');
     await waitFor(page, 'window.__CRS.ctx.ui.current === "parametres"', 180000);
@@ -97,7 +97,7 @@ try {
     R.frameMoyen = await ev(() => new Promise((resolve) => { const t = performance.now(); let n = 0; const f = () => (++n >= 3 ? resolve((performance.now() - t) / 3) : requestAnimationFrame(f)); requestAnimationFrame(f); }));
     R.sysB = await ev(() => window.__V.errors());
     // retour en « bas »
-    await tap('KeyP');
+    await tap('Escape');
     await waitFor(page, 'window.__CRS.ctx.ui.current === "pause"', 180000);
     await click('[data-id="pause-parametres"]');
     await waitFor(page, 'window.__CRS.ctx.ui.current === "parametres"', 180000);
@@ -115,7 +115,7 @@ try {
   // ═══ C. terminer → compte rendu → accueil ═══
   if (only.includes('C')) await section('C', async () => {
     R.memBeforeEnd = await memory();
-    await tap('KeyP');
+    await tap('Escape');
     await waitFor(page, 'window.__CRS.ctx.ui.current === "pause"', 180000);
     await click('[data-id="pause-terminer"]');
     await page.waitForSelector('[data-id="dialog-confirm"]', { timeout: 120000 });

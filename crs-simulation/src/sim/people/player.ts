@@ -494,7 +494,8 @@ export class PlayerController implements GameSystem {
         gait = 1;
         scale = 0.6 + 0.4 * (mag - T.STICK_WALK) / (1 - T.STICK_WALK);
       }
-      if (gait !== 2 && this.pushT > T.RUN_HOLD_DELAY && this.autoRun(p, gait)) {
+      // (petite foulée choisie au clavier : l'allure reste celle-là ; la course s'obtient alors avec Maj)
+      if (gait !== 2 && !(input.device === 'kbm' && this.jog) && this.pushT > T.RUN_HOLD_DELAY && this.autoRun(p, gait)) {
         gait = this.autoGait;
         scale = this.autoScale;
       }
