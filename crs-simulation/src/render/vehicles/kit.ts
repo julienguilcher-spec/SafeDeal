@@ -201,12 +201,32 @@ function quadNormal(p: number[], toward: readonly number[]): [number, number, nu
 /** Grille de protection (treillis à découpe alpha) à `off` devant un vitrage, avec son cadre. */
 export function grilleOver(g: Geo, pts: number[], n: readonly number[], off: number, frame = true): void {
   const p = offsetPts(pts, n, off);
-  const wM = Math.hypot(p[3]! - p[0]!, p[4]! - p[1]!, p[5]! - p[2]!);
-  const hM = Math.hypot(p[9]! - p[0]!, p[10]! - p[1]!, p[11]! - p[2]!);
-  // mailles de taille constante dans le monde : la tuile couvre 1,6 m × 0,8 m
-  const su = Math.min(1, wM / 1.6), sv = Math.min(1, hM / 0.8);
+  // Coordonnées de texture projetées sur les axes du panneau : les mailles restent droites et de taille constante
+  // même sur un pare-brise trapézoïdal (un placage coin à coin les tordrait le long de la diagonale).
+  let ux = p[3]! - p[0]!, uy = p[4]! - p[1]!, uz = p[5]! - p[2]!;
+  const ul = Math.hypot(ux, uy, uz) || 1;
+  ux /= ul; uy /= ul; uz /= ul;
+  // axe vertical du panneau : composante de (p3 − p0) orthogonale à l'axe horizontal
+  let vx = p[9]! - p[0]!, vy = p[10]! - p[1]!, vz = p[11]! - p[2]!;
+  const d = vx * ux + vy * uy + vz * uz;
+  vx -= ux * d; vy -= uy * d; vz -= uz * d;
+  const vl = Math.hypot(vx, vy, vz) || 1;
+  vx /= vl; vy /= vl; vz /= vl;
+  const us: number[] = [], vs: number[] = [];
+  let uMin = Infinity, uMax = -Infinity, vMin = Infinity, vMax = -Infinity;
+  for (let i = 0; i < 4; i++) {
+    const dx = p[i * 3]! - p[0]!, dy = p[i * 3 + 1]! - p[1]!, dz = p[i * 3 + 2]! - p[2]!;
+    const a = dx * ux + dy * uy + dz * uz, b = dx * vx + dy * vy + dz * vz;
+    us.push(a); vs.push(b);
+    if (a < uMin) uMin = a; if (a > uMax) uMax = a;
+    if (b < vMin) vMin = b; if (b > vMax) vMax = b;
+  }
+  // la tuile couvre 1,6 m × 0,8 m (mailles de 5 cm) ; un panneau plus grand agrandit un peu les mailles
+  const k = Math.max(1, (uMax - uMin) / 1.6, (vMax - vMin) / 0.8);
+  const st: number[] = [];
+  for (let i = 0; i < 4; i++) st.push((us[i]! - uMin) / (1.6 * k), (vs[i]! - vMin) / (0.8 * k));
   g.paint(0x2b2e33, SURF_METAL).tile(tile('grille'));
-  g.faceUv(p, [0, 0, su, 0, su, sv, 0, sv], n);
+  g.faceUv(p, st, n);
   g.tile(null);
   if (!frame) return;
   g.paint(0x25272b, SURF_METAL);

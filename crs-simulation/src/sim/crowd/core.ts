@@ -83,8 +83,8 @@ export class CrowdCore {
   readonly brains: CrowdBrain[] = [];
   readonly groups: CrowdGroup[] = [];
   /** Par entrée du plan : emplacement dans la formation, identifiant de la personne créée (0 sinon). */
-  entrySlot = new Int32Array(0);
-  entryPerson = new Int32Array(0);
+  entrySlot: Int32Array = new Int32Array(0);
+  entryPerson: Int32Array = new Int32Array(0);
   private spawning = false;
   private readonly adoptQueue: EntityId[] = [];
   private seedCursor = 1;
