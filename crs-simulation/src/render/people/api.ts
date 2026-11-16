@@ -3,6 +3,31 @@
 
 import type { EntityId, Vec3 } from '@/core/contracts';
 
+/*
+ * AIDE-MÉMOIRE POUR LES AUTRES MODULES
+ *
+ * Champs de Person lus à chaque image : x, y, z, heading, posture, upper, upperT, aimYaw, aimPitch, alt,
+ * inventory[active].id, gas, gasProtection, stun, burning, wet, injury, custody, vehicleId, seat, carrying,
+ * heldBy, dormant, look. (vx et vz ne servent qu'à la première image : la foulée suit le déplacement réel.)
+ *
+ * Champs de PersonLook pris en compte : height, build, skin, hair, hairStyle (0 rasé, 1 court, 2 mi-long,
+ * 3 long, 4 queue de cheval, 5 chignon, 6 volumineux, ≥ 7 chauve), top, bottom, shoes, outfit, headgear,
+ * visorDown, gasMask, faceCover, backText, sash, armband, vest, rankBars, backpack, extras.
+ * Les tenues officielles (crs_mo, crs_service, gendarme_mo, bravm, pompier, samu) imposent leurs couleurs
+ * réglementaires : top / bottom / shoes y sont ignorés.
+ *
+ * Clés reconnues dans PersonLook.extras (toutes facultatives) :
+ *   helmetColor, bandColor, packColor, coverColor, gloves : couleurs 0xRRGGBB (casque ou couvre-chef,
+ *     bandes du casque, sac à dos, foulard, gants) ;
+ *   jacket : 0 aucun, 1 blouson, 2 manteau ; sleeves : 0 = manches courtes ; shorts : 1 ; skirt : 1 ;
+ *   beard : 1 ; scarf : 0 / 1 ; goggles : 1 ; hoodDown : 0 / 1 (capuche rabattue dans le dos).
+ * Le rendu détecte un changement de look par ses champs ; pour un changement à l'intérieur de `extras`,
+ * remplacer l'objet extras ou appeler invalidate(id).
+ *
+ * Repères de temps des animations (Person.upperT, secondes) : voir l'en-tête de upper.ts
+ * (lancer : l'objet quitte la main vers 0,42 s ; coup de bâton : impact vers 0,28 s ; coup de pied : 0,26 s).
+ */
+
 /** Os auquel un modèle tenu est attaché. */
 export type HeldBone = 'handR' | 'handL' | 'chest' | 'head';
 

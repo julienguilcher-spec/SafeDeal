@@ -469,3 +469,143 @@ Secours officiels : ils n'entrent en zone dangereuse que sous protection polici�
 Résidus persistants : carcasse calcinée `#1A1A1A`, bitume noirci sur 1,5 fois l'emprise, débris, verre brisé `#CFE3EA` (nouveaux projectiles).
 
 ---
+
+## H. Interpellation, qualifications, discipline et sanctions
+### H.1 Règles d'interpellation
+1. **Fondement.** On n'interpelle qu'un personnage auquel un **fait daté** est rattaché (`Offense` vue par un agent ou une caméra) : délit flagrant, « qui se commet actuellement, ou qui vient de se commettre » (code de procédure pénale, art. 53, vérifié). Sans fait : interpellation abusive. Une simple contravention (manifestation interdite) se verbalise et ne s'interpelle pas ; participer à une manifestation seulement **non déclarée** n'est pas une infraction (jurisprudence de 2022 citée au dossier 01).
+2. **Séquence et durées (estimé).** Désignation avec 3 indices de signalement → sortie par une « porte » de 1,5 m → saisie à deux, amenée au sol sans coup → menottage 4 s → palpation de sécurité 5 s → retour derrière la ligne : **20 s hors de la ligne** au plus → remise à l'officier de police judiciaire au point de regroupement, avec la fiche : qualification, heure, lieu, fait et preuve. Durée totale : 60 s.
+3. **Garde à vue.** Décidée par un officier de police judiciaire ; 24 h, prolongeable de 24 h ; elle commence à **l'heure de l'interpellation**, qui doit être notée ; vérification d'identité : 4 h au plus (vérifié, dossier 01).
+4. **Menottes** seulement si la personne est dangereuse ou susceptible de fuir (art. 803, vérifié) ; la force cesse dès la maîtrise ; l'état de santé est vérifié après tout usage d'une arme (vérifié).
+5. **Interpellation différée** : possible après la dispersion, pour ne pas provoquer de mouvement de foule (pratique vérifiée dans une réponse ministérielle) ; en jeu, marquage par le drone valable 90 s hors champ (estimé).
+6. **Solidité de la procédure (estimé).** Fait filmé (drone, caméra-piéton, presse) : solide. Fait vu par un seul agent : fragile. Fiche incomplète ou mauvaise qualification : classée.
+### H.2 Qualifications (peines relues dans le code pénal consolidé du 20 octobre 2026 : vérifié, sauf mention)
+
+| Fait observable (`OffenseType`) | Texte | Peine encourue |
+|---|---|---|
+| Rester après les sommations (`attroupement_apres_sommations`) | art. 431-4 | 1 an et 15 000 € ; 3 ans et 45 000 € si le visage est dissimulé |
+| Visage dissimulé dans ou aux abords d'une manifestation troublée (`dissimulation_visage`) | art. 431-9-1 | 1 an et 15 000 € |
+| Arme dans un attroupement ou une manifestation (`port_arme`) | art. 431-5, 431-10 | 3 ans et 45 000 € ; 5 ans et 75 000 € après sommations ou visage dissimulé |
+| Jet de projectile ou coups sur un policier, un gendarme, un pompier (`jet_projectile`, `violence_agent`) | art. 222-14-5 | 5 ans et 75 000 € ; 7 ans et 100 000 € si l'incapacité dépasse 8 jours |
+| Vitrine, mobilier urbain (`degradation`) ; inscription (`tag`) | art. 322-1 | 2 ans et 30 000 € ; tag à dommage léger : 3 750 € et travail d'intérêt général |
+| Feu de poubelle, de barricade, de véhicule, engin incendiaire (`incendie`) | art. 322-6 | 10 ans et 150 000 € |
+| Transport de produits incendiaires en vue de ces faits | art. 322-11-1 | 7 ans et 100 000 € |
+| Pillage d'une boutique (`pillage`) | art. 311-4 : vol aggravé (en réunion, avec dégradation, dans un lieu d'entrepôt de marchandises, visage dissimulé) | 5 ans et 75 000 € ; 7 ans et 100 000 € pour deux circonstances ; 10 ans et 150 000 € pour trois |
+| Obstacle sur la chaussée (`barricade`, `entrave_circulation`) | code de la route, art. L. 412-1 | 2 ans et 4 500 € |
+| Résistance violente à l'interpellation (`rebellion`) | art. 433-6, 433-7 | 2 ans et 30 000 € ; 3 ans et 45 000 € en réunion |
+| Injure ou geste envers un agent (`outrage`) | art. 433-5 | 1 an et 15 000 € ; 2 ans et 30 000 € en réunion |
+| Groupement en vue de violences ou de dégradations | art. 222-14-2 | 1 an et 15 000 € |
+| Participer à une manifestation interdite ; l'organiser | art. R. 644-4 ; art. 431-9 | contravention de 4e classe : 750 € au plus (vérifié), 135 € en amende forfaitaire (estimé) ; 6 mois et 7 500 € |
+
+Suites simulées en fin de mission (estimé ; repère réel vérifié : 80 % de classements sans suite sur 785 gardes à vue parisiennes en une semaine de mars 2023) : aucun fait enregistré → classement 90 % ; fait vu par un seul agent → classement 50 %, convocation 30 %, déferrement 20 % ; fait filmé → déferrement 70 %, convocation 30 %.
+### H.3 Fautes, sanctions et effets en Carrière (échelle réelle : quatre groupes de l'art. L. 533-1 du code général de la fonction publique, vérifié au dossier 01 ; correspondance de jeu estimée)
+
+| `severity` | Exemples | Sanction | Effet en jeu |
+|---|---|---|---|
+| 1 | Geste hors cadre sans blessé, compte rendu incomplet, numéro masqué, caméra éteinte lors d'un tir | 1er groupe : avertissement, blâme | Mention au dossier ; note A inaccessible pendant 2 missions |
+| 2 à 3 | Blessé par un geste disproportionné, tir sans ordre, gaz sur des tiers protégés, force poursuivie après dispersion, ordre non exécuté sans objection | 2e groupe : exclusion de 4 à 15 jours, abaissement d'échelon, déplacement d'office | 1 ou 2 missions sautées ; avancement retardé d'un chapitre |
+| 4 | Blessé grave par usage illégal d'une arme (tir tendu, LBD pour disperser, tir à la tête), coup sur une personne menottée, mensonge démenti par les images | 3e groupe : **rétrogradation au grade immédiatement inférieur**, exclusion de 16 jours à 2 ans | Retour au chapitre précédent |
+| 5 | Mort ou mutilation imputable, arme de service hors légitime défense | 4e groupe : **révocation** ; poursuites pénales | Fin de la carrière ; le Mode libre reste ouvert |
+
+- Enquête (estimé) : suspension possible ; convocation devant l'inspection entre deux missions, avec les pièces : journal radio horodaté, caméra-piéton, images de presse et de téléphones, compte rendu. Avoir rendu compte, disposer d'une autorisation tracée et avoir formulé ses objections protège le joueur. L'inspection propose, l'autorité hiérarchique sanctionne. Délais réels : environ 1 an pour un blâme, plus de 3 ans pour les sanctions lourdes (estimé, presse) ; en jeu : verdict après 1 ou 2 missions.
+- Échecs immédiats (estimé) : mort imputable au joueur ; arme de service hors légitime défense ; trois actes hors cadre, ou un seul tir tendu ou tir de LBD pour disperser ; abandon de poste de plus de 90 s ; image publique de la mission sous 20 ; plus de la moitié de l'unité hors de combat.
+### H.4 Barème (estimé)
+- Quatre jauges de 0 à 100, pondérées pour les forces de l'ordre : Mission 35 %, Règle 30 %, Intégrité 20 %, Image 15 %. Lettres : A ≥ 85, B ≥ 70, C ≥ 55, D ≥ 40, E au-dessous. **Chaque point retiré est expliqué** (heure, lieu, acte, règle).
+- Jauge Règle : tir à la tête au LBD −60 ; tir tendu −40 ; coup après maîtrise −40 ; force sans sommation hors riposte directe −40 ; encerclement sans sortie −40 ; force sur journaliste, secouriste ou observateur −35 ; LBD hors cadre −30 ; attroupement qualifié à tort −30 ; interpellation sans fait −25 ; LBD à moins de 10 m −25 ; sommations sans issue libre −25 ; force poursuivie −20 ; tir sans ordre −15 ; sommations inaudibles pour plus de la moitié de la foule −15.
+- Image publique, de 0 à 100, départ 60 ; elle déplace la tension initiale de la mission suivante de −0,1 à +0,1. Une image n'existe que si un personnage filmait avec une ligne de vue (téléphone à moins de 15 m, journaliste à moins de 40 m) ; elle est publiée après 30 à 120 s. Sommations claires et dispersion sans blessé +4 ; feu éteint, blessé secouru +4 ; interpellation d'un auteur pris sur le fait +2 ; gaz sur des familles, une terrasse, un poste de soins −8 ; journaliste, observateur ou secouriste frappé −10 ; coup sur une personne à terre ou menottée −12 ; tir à la tête ou blessé grave −20. Malus doublé pour la BRAV-M.
+
+## I. Lieux
+Coordonnées de jeu `x ; z` en mètres (projection du BRIEF) ; dimensions et largeurs : open data de la Ville de Paris et OpenStreetMap (vérifié), sauf mention.
+### I.1 Places
+
+| Lieu | x ; z | Dimensions | Débouchés principaux (largeur) | Emploi |
+|---|---|---|---|---|
+| Place de la République | 3123 ; −208 | 283 × 119 | bd du Temple (36,5), bd Saint-Martin (33), bd Voltaire (30), bd de Magenta (30), av. de la République (30) | Départ des cortèges ; rassemblements quotidiens ; statue escaladée |
+| Place de la Bastille | 3542 ; 1395 | 215 × 150 | bd Beaumarchais (35), rue Saint-Antoine (21,5), rue de Lyon (30), bd Henri-IV (30), bd Richard-Lenoir (60) | Arrivée et dispersion ; à 250 m du bord est de la carte |
+| Place de la Concorde | −10 ; 15 | 360 × 210 | Champs-Élysées (70), rue Royale (22), rue de Rivoli (20,8), pont de la Concorde (36), cours la Reine (74) | Rassemblement spontané du soir ; périmètre interdit |
+| Place Charles-de-Gaulle (Étoile) | −1920 ; −906 | Ø 241 | 12 avenues de 36 à 120 | 12 barrages radiaux ; anneau pavé (projectiles) |
+| Place de l'Opéra | 811 ; −564 | 140 × 60 | bd des Capucines (35,4), av. de l'Opéra (30), rue de la Paix (22,5) | Arrivée des Grands Boulevards |
+| Place de la Madeleine | 239 ; −497 | 218 × 128 | rue Royale (22), bd de la Madeleine (43,3), bd Malesherbes (46) | Verrou vers la Concorde |
+| Esplanade des Invalides | −596 ; 626 | 487 × 275 | pont Alexandre-III (40), quai d'Orsay (29), rues de 10 | Dispersion, rassemblement statique |
+| Parvis de Chaillot (Trocadéro) | −2411 ; 387 | 120 × 60 (estimé) | place du Trocadéro, escaliers vers les jardins | Rassemblement statique ; 23 m de dénivelé vers la Seine |
+| Champ-de-Mars | −1686 ; 1089 | parc 964 × 442 ; pelouses 780 × 110 (estimé) | quai Jacques-Chirac (37), av. de La Bourdonnais (25), av. de Suffren (25) | Grands rassemblements statiques |
+| Parvis de l'Hôtel de Ville | 2211 ; 993 | 155 × 82 | rue de Rivoli (20,8), av. Victoria (30), pont d'Arcole (20) | Rassemblements catégoriels, soir |
+| Place du Châtelet | 1903 ; 916 | 79 × 40 | bd de Sébastopol (30), pont au Change (30), quai de la Mégisserie (23,2) | Groupes mobiles, pôle de transport |
+| Place Vendôme | 601 ; −204 | 213 × 124 | rue de la Paix (22,5), rue de Castiglione (22,5) | Deux accès seulement : nasse naturelle |
+
+Voirie : largeur médiane des 1 503 voies de l'emprise : 12 m (vérifié) ; Grands Boulevards 33 à 37 m ; percées de 30 m ; Champs-Élysées 70 m sur 1 910 m. Capacité (estimé) : 1,5 personne par m² pour une foule dense immobile, 0,5 pour un cortège en marche.
+### I.2 Parcours
+- **A** République → boulevards du Temple (405 m), des Filles-du-Calvaire (210 m), Beaumarchais (750 m) → Bastille : 1,5 km, 35 à 36,5 m de large.
+- **B** Opéra → boulevards des Capucines, des Italiens, Montmartre, Poissonnière, de Bonne-Nouvelle, Saint-Denis, Saint-Martin → République : 2,2 km. **A + B** enchaînés : 3,7 km.
+- **C** Bastille → République → Opéra → Madeleine → rue Royale → Concorde : 4,4 km ; parcours « contesté », la fin entre dans le périmètre interdit.
+- **D** Invalides → boulevard des Invalides (39 m) : 0,8 km jouable, sortie par le bord sud. **E** convergence sur l'Étoile et descente des Champs-Élysées : toujours non déclaré. **F** statiques : Trocadéro, Champ-de-Mars, Invalides, Hôtel de Ville, Châtelet.
+### I.3 Sites sensibles et périmètres
+
+| Site | x ; z | Dispositif |
+|---|---|---|
+| Palais de l'Élysée ; ministère de l'Intérieur (place Beauvau) | −334 ; −515 et −295 ; −700 | Rue du Faubourg-Saint-Honoré (14,5 m) fermée, barrières, guérites ; un seul îlot de protection |
+| Palais Bourbon (Assemblée nationale) | −222 ; 453 | Verrou sur le **pont de la Concorde** (36 m) : fourgons en travers, foule tenue à 200 m (estimé) |
+| Hôtel de Matignon | −40 ; 1247 | Rue de Varenne (10,3 m) : deux bouchons, aucune manœuvre de véhicule |
+| Préfecture de police ; Palais de Justice | 1869 ; 1253 et 1695 ; 1099 | Île de la Cité : ponts Saint-Michel et au Change (30 m) |
+| Hôtel de Ville | 2294 ; 1024 | Parvis ouvert, grilles aux portes |
+| Ambassade des États-Unis | −59 ; −229 | Angle de la Concorde ; protection permanente renforcée |
+| Conseil d'État, Conseil constitutionnel (Palais-Royal) | 1158 ; 272 | Barriérage haut lors des décisions sensibles |
+| Tour Eiffel | −1961 ; 816 | Enceinte de verre et de grilles, entrées contrôlées |
+
+- **Petit périmètre** (arrêté du 21 août 2020, vérifié) : Champs-Élysées de l'Étoile au Rond-point et rues perpendiculaires sur 100 m ; secteur Élysée – Beauvau – Concorde, soit environ x de −820 à +140 et z de −850 à +160 (estimé). **Grand périmètre** (arrêté de mars 2023, vérifié) : contour en 38 voies, de l'Étoile à Beaubourg et de la rive droite au boulevard des Invalides ; liste au dossier 04 §2.2.
+- **Seine** : eau à y ≈ 26,7 m, berges basses à 29 m, ville à 33–36 m (vérifié, IGN) ; 24 ponts, seuls passages. Verrous : Concorde 36 m, Alexandre-III 40 m, Iéna 35 m, Saint-Michel et au Change 30 m, Invalides et Royal 16 m.
+- **Couper la circulation** (demande du BRIEF ; estimé) : fermer une voie demande un véhicule en travers et 2 agents par tranche de 10 m de chaussée, ou 4 barrières ; mise en place en 30 à 60 s ; les véhicules civils font demi-tour ou prennent la déviation, un bouchon se forme en amont ; une rue non coupée où arrive un cortège expose des automobilistes bloqués. La préparation réelle du parcours (vérifié) comprend l'enlèvement des véhicules, la neutralisation des conteneurs à verre et des chantiers, la fermeture de stations de métro : elle réduit le stock de projectiles et de combustible.
+### I.4 Bases
+- **Poste de commandement proposé : Préfecture de police**, île de la Cité (1869 ; 1253), 128 × 96 m, cour centrale : briefings, salle de commandement, départ des rôles commissaire et télépilote.
+- Bases secondaires : caserne Vérines, place de la République (3152 ; −306) ; quartier des Célestins, près de la Bastille (3197 ; 1628) ; commissariat du 8e dans le Grand Palais (−692 ; −96).
+- Aucun cantonnement de CRS n'a été trouvé dans l'emprise : **les CRS partent d'une zone de stationnement sur voirie**, fourgons alignés. Zones proposées (estimé) : cours la Reine (74 m) et avenue Winston-Churchill (90 m) pour l'Élysée et la Concorde ; quai d'Orsay et esplanade des Invalides pour l'Assemblée ; avenue Foch (120 m) pour l'Étoile ; boulevard Richard-Lenoir (60 m) pour la Bastille ; abords de la caserne Vérines pour République ; boulevard du Palais pour la Cité.
+- Origine du monde : l'obélisque est à (−8 ; +17) dans OpenStreetMap, à 19 m de l'origine du BRIEF ; fontaines à (20 ; −40) et (−36 ; 75).
+
+## J. Incertitudes restantes et choix retenus par défaut
+### J.1 Contradictions entre dossiers, tranchées ici
+
+| Sujet | Versions en présence | Choix retenu |
+|---|---|---|
+| Section et groupe de CRS | 15 (encyclopédie), 16 et 6 (Cour des comptes), 18 et 7 (dossiers 01, 05, 06), 20, 35 | **16 et 6** ; lire 6, 16, 32, 70 partout où les dossiers 05 et 06 écrivent 7, 18, 36, 78 |
+| Nombre de compagnies | 60 ou 64 | 60 de service général (Cour des comptes) |
+| Escadron sur le terrain | 64 (dossier 05), 110 théorique, « 55 au sol » | 72, plancher 55 (instruction de 2022) |
+| Engin lanceur d'eau | 6 000 l et 20 l/s (01) ; 10 000 l et 15 l/s (02, 05) ; 8 000 l (06) | 10 000 l, 15 l/s, soit 11 min de jet ; variante « parc ancien » de 6 000 l |
+| Portée du mégaphone | 60 / 120 m (01) ; 150 à 300 m (02) ; 80 m (05) | 60 m intelligible et 120 m audible dans le bruit ; 150 / 300 m pour le haut-parleur de véhicule |
+| Encerclement | annonce toutes les 120 s, 300 s (01) ; toutes les 60 s, 20 min (06) | annonce toutes les 60 s, réévaluation toutes les 300 s, levée à 1 200 s |
+| Allure du cortège | 1,1 km/h (03) ; 2 à 3 km/h (04) | 0,8 m/s en marche, 0,3 m/s arrêts compris ; tronçon de 500 à 700 m en durée standard |
+| Longueur Bastille → République → Opéra | 4,4 km (03, 05) ; 1,5 + 2,2 km (04) | 3,7 km ; 4,4 km est la longueur jusqu'à la Concorde |
+| Galons | convention simplifiée (02) ; texte réglementaire repris par un site de concours (01) | Description du dossier 01 (table D) ; la convention du dossier 02 est abandonnée |
+| Couleurs de l'écharpe | `#000091` / `#E1000F` (01) ; `#0055A4` / `#EF4135` (02, 06) | `#0055A4` / `#EF4135`, plus lisibles sur une tenue sombre |
+| Hauteur du Centaure | 3,82 m ; 3,0 à 3,3 m par déduction | 3,82 m hors tout (dossier de presse), caisse à 3,0 m |
+| Images de drone | sans enregistrement et floutées (fiche de 2020) ; enregistrement autorisé (loi et arrêtés) | Enregistrement autorisé, sans son ni reconnaissance faciale ; masque sur les fenêtres |
+| Durées de soin | rinçage 6 ou 8 s ; évaluation 5 ou 15 s | 6 s ; 5 s sommaire et 15 s complète |
+| Manifestation non déclarée | « contravention » (note de l'instruction de 2022) ; aucune infraction (jurisprudence) | Aucune infraction pour le participant ; contravention seulement si la manifestation est interdite |
+| Délai de déclaration à Paris | « 1 mois » (site d'information administrative) ; « 48 h » | 3 jours francs au moins, 15 au plus, à la préfecture de police (art. L. 211-2, vérifié) |
+| Rayon de contagion ; barème photo | 5 ou 8 m ; deux barèmes (05, 06) | 5 m ; barème sur 1 000 points du dossier 05 §3.1 |
+
+### J.2 Points non trouvés et valeurs par défaut
+
+| Point | État | Défaut |
+|---|---|---|
+| Sens de port de l'écharpe du commissaire, bras du brassard | Aucun texte (art. R. 211-12 muet) ; « en ceinture » dans une encyclopédie, sans source | Bandoulière épaule droite → hanche gauche, bleu vers le col ; brassard au bras gauche |
+| Délais entre sommations, fusée rouge, portée du haut-parleur | Aucun chiffre officiel | Tables A.5 et B |
+| Géométrie des manœuvres, commandements à la voix, sifflet | Seulement nommés ; sifflet attesté par un article | Table E.8 |
+| Répartition des postes, grenades emportées, poids de l'équipement | Non trouvé | Table E.2 ; 12 grenades par lanceur ; 20 kg |
+| Indicatifs et phraséologie réels | Non trouvés | Plan fictif E.5 ; ne jamais présenter un indicatif comme réel |
+| Casque : teinte de la coque, largeur des bandes | Non trouvé | Coque `#0F1420`, bandes de 18 mm espacées de 20 mm |
+| BRAV-M : taille d'une unité, armement | Non trouvé | 18 motos, 36 agents ; 1 LBD et grenades à main par groupe |
+| Centaure : nombre de tubes, cadence, portée | « 1 à 30 tirs » officiel ; le reste non trouvé | 30 tubes, 0,3 s, 50 à 200 m, une recharge |
+| Engins lanceurs d'eau en service : débit, portée, équipage, livrée | Chiffres de constructeur seulement | Table C |
+| Grenades actuelles : dimensions, niveau sonore ; statut de 2025-2026 | Presse : assourdissante suspendue en 2026, nouveaux modèles depuis juillet 2025 | Dotation de la table B ; option de scénario « assourdissante suspendue » |
+| Aérosols, bâton, masque, bouclier rond | Modèles de dotation non trouvés | Table B |
+| Tous les coefficients de foule, de blessure, d'image et de tension | Conception pure | Tables F, G, H, à régler par essais de jeu |
+| Dispositif de secours en manifestation, organisation des street medics | Reportages seulement | G.3 |
+| État 2026 des chantiers (Concorde, Notre-Dame, Centre Pompidou fermé jusqu'en 2030) | Partiel | « Paris de référence » sans chantiers ; option « 2026 » |
+| Droit en mouvement | Propositions du Sénat d'octobre 2026 (délit de participation à une manifestation interdite ou non déclarée) : non adoptées à ce jour | Droit en vigueur au 14 novembre 2026 |
+
+### J.3 Écarts avec `src/core/contracts.ts`, à signaler à son responsable (fichier non modifié)
+- `SommationStage` (0 à 3) n'a pas d'étape de **réitération** : le module de droit doit garder un indicateur « dernière sommation réitérée » pour ouvrir `E4`.
+- `ForceMeans` ne distingue pas la lacrymogène **à la main** de la lacrymogène **au lanceur**, alors que la licéité diffère (A.4) ; pas de moyen « assourdissante ».
+- `PolicePoste` n'a ni superviseur, ni secouriste d'unité, ni chef d'engin ; `PoliceRank` n'a pas d'entrée pour le capitaine des 4 premières années (2 barrettes).
+- `ItemId` `lanceur_cougar` porte un nom de modèle commercial (cité tel quel par l'instruction de 2017) : garder l'identifiant, afficher « Lanceur 56 ».
+### J.4 Durée et Mode libre : recommandation
+Durée standard de 25 min, réglable (10, 25, 45 min, temps réel) ; la mission dure tant que la manifestation n'est pas terminée (F.2). Mode libre entièrement ouvert dès la première partie : les 12 rôles, tous les grades, **commandant et commissaire compris**, les 84 missions du dossier 05 ou une session libre sur un lieu, avec le réglage « Qui dérape » (F.1). Un commandant débutant reçoit les propositions d'ordre de son adjoint, qu'il valide d'une touche.
