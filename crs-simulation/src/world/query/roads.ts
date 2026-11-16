@@ -157,7 +157,7 @@ export class RoadNetwork {
         this.segEdge[k] = e;
         this.segS0[k] = s;
         this.segFlags[k] = flags;
-        s += Math.hypot(bx - ax, bz - az);
+        s += Math.sqrt((bx - ax) * (bx - ax) + (bz - az) * (bz - az));
         if (ax < minX) minX = ax;
         if (bx < minX) minX = bx;
         if (ax > maxX) maxX = ax;

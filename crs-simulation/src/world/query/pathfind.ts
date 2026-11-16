@@ -39,6 +39,9 @@ export class PathFinder {
   private readonly adjFlags: Uint8Array;
   private readonly adjFoot: Float32Array;
   private readonly adjVehicle: Float32Array;
+  // Coordonnées des nœuds, à plat (l'heuristique les lit à chaque arête développée).
+  private readonly nodeX: Float64Array;
+  private readonly nodeZ: Float64Array;
   // État de la recherche (réinitialisé paresseusement par tampon de génération).
   private readonly g: Float32Array;
   private readonly seen: Uint32Array;
@@ -97,6 +100,12 @@ export class PathFinder {
       this.adjFlags[k] = drivable && !ed.oneway ? ADJ_VEHICLE : 0;
       this.adjFoot[k] = ed.length;
       this.adjVehicle[k] = time;
+    }
+    this.nodeX = new Float64Array(nn);
+    this.nodeZ = new Float64Array(nn);
+    for (let n = 0; n < nn; n++) {
+      this.nodeX[n] = net.nodes[n].x;
+      this.nodeZ[n] = net.nodes[n].z;
     }
     this.g = new Float32Array(nn);
     this.seen = new Uint32Array(nn);
@@ -251,6 +260,12 @@ export class PathFinder {
     hf[i] = f;
   }
 
+  /** Distance à vol d'oiseau du nœud à l'arrivée. */
+  private heuristic(node: number, endX: number, endZ: number): number {
+    const dx = this.nodeX[node] - endX, dz = this.nodeZ[node] - endZ;
+    return Math.sqrt(dx * dx + dz * dz);
+  }
+
   /** Retire et retourne le nœud de plus petit f (le tas ne doit pas être vide). */
   private pop(): number {
     const hn = this.heapNode, hf = this.heapF;
@@ -341,7 +356,7 @@ export class PathFinder {
 
     const gen = ++this.generation;
     const g = this.g, seen = this.seen, closed = this.closed, parentNode = this.parentNode, parentAdj = this.parentAdj;
-    const nodes = net.nodes;
+    const nodeX = this.nodeX, nodeZ = this.nodeZ;
     this.heapSize = 0;
     this.expanded = 0;
 
@@ -352,7 +367,7 @@ export class PathFinder {
       seen[nb] = gen;
       parentNode[nb] = -1;
       parentAdj[nb] = FROM_START_FORWARD;
-      this.push(nb, g[nb] + Math.hypot(nodes[nb].x - endX, nodes[nb].z - endZ) * hRate);
+      this.push(nb, g[nb] + this.heuristic(nb, endX, endZ) * hRate);
       if (startBackOk) {
         const na = es.a;
         const cost = startS * startRate;
@@ -361,7 +376,7 @@ export class PathFinder {
           seen[na] = gen;
           parentNode[na] = -1;
           parentAdj[na] = FROM_START_BACKWARD;
-          this.push(na, cost + Math.hypot(nodes[na].x - endX, nodes[na].z - endZ) * hRate);
+          this.push(na, cost + this.heuristic(na, endX, endZ) * hRate);
         }
       }
     }
@@ -401,7 +416,8 @@ export class PathFinder {
         seen[to] = gen;
         parentNode[to] = n;
         parentAdj[to] = k;
-        this.push(to, cost + Math.hypot(nodes[to].x - endX, nodes[to].z - endZ) * hRate);
+        const hx = nodeX[to] - endX, hz = nodeZ[to] - endZ;
+        this.push(to, cost + Math.sqrt(hx * hx + hz * hz) * hRate);
       }
     }
     if (bestEnd === -1) return false;
@@ -467,7 +483,7 @@ export class PathFinder {
       let s = 0;
       for (let i = 0; i + 1 < np; i++) {
         const x0 = pts[2 * i], z0 = pts[2 * i + 1], x1 = pts[2 * i + 2], z1 = pts[2 * i + 3];
-        const len = Math.hypot(x1 - x0, z1 - z0);
+        const len = Math.sqrt((x1 - x0) * (x1 - x0) + (z1 - z0) * (z1 - z0));
         const e = s + len;
         if (e >= lo && s <= hi && len > 0) {
           const ta = lo > s ? (lo - s) / len : 0;
@@ -480,11 +496,14 @@ export class PathFinder {
     } else {
       // Sens inverse : on parcourt les segments du dernier au premier.
       let total = 0;
-      for (let i = 0; i + 1 < np; i++) total += Math.hypot(pts[2 * i + 2] - pts[2 * i], pts[2 * i + 3] - pts[2 * i + 1]);
+      for (let i = 0; i + 1 < np; i++) {
+        const dx = pts[2 * i + 2] - pts[2 * i], dz = pts[2 * i + 3] - pts[2 * i + 1];
+        total += Math.sqrt(dx * dx + dz * dz);
+      }
       let e = total;
       for (let i = np - 2; i >= 0; i--) {
         const x0 = pts[2 * i], z0 = pts[2 * i + 1], x1 = pts[2 * i + 2], z1 = pts[2 * i + 3];
-        const len = Math.hypot(x1 - x0, z1 - z0);
+        const len = Math.sqrt((x1 - x0) * (x1 - x0) + (z1 - z0) * (z1 - z0));
         const s = e - len;
         if (e >= lo && s <= hi && len > 0) {
           const ta = lo > s ? (lo - s) / len : 0;

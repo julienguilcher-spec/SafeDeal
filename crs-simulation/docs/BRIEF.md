@@ -36,6 +36,19 @@ meilleur que les jeux « CRS simulation » existants. En priorité : **les manif
     qu'il faut dégager, **boutiques attaquées** (vitrines brisées au marteau, rideaux de fer forcés, pillage, incendie),
     banques et panneaux publicitaires ciblés, véhicules retournés et incendiés, barricades enflammées. L'intensité se règle
     (tension et propension à dégénérer) et dépend aussi de ce que fait le joueur.
+- **Des formations impeccables** (demande explicite du commanditaire) : les unités manœuvrent **en ordre**, comme en vrai.
+  Lignes de barrage rectilignes, boucliers jointifs, intervalles réguliers ; colonnes par deux ou par trois qui se
+  déplacent au pas ; deuxième rang (lanceurs, LBD, chef de groupe) derrière les boucliers ; tortue ; bond offensif puis
+  réalignement ; relève d'une ligne par une autre ; débarquement des fourgons et mise en place ordonnée. Les BRAV-M
+  roulent en colonne de binômes puis mettent pied à terre ensemble ; les gendarmes mobiles avancent derrière le
+  Centaure ; les véhicules stationnent alignés. Une unité ne redevient désordonnée que sous une vraie pression (charge
+  subie, panique, pertes) et se reforme dès que possible.
+- **Le métro comme source d'affluence** (demande explicite du commanditaire) : on ne joue pas dans le métro, mais les
+  **bouches de métro** de la carte sont des points d'arrivée — les manifestants en sortent par vagues, surtout au
+  rassemblement, puis par renforts quand la mobilisation grossit — et des points de départ à la dispersion ou pour fuir.
+  L'affluence dépend de la taille de la manifestation et de l'heure. Comme en vrai, le commandement peut demander la
+  **fermeture de stations** (ce qui tarit l'arrivée par cet endroit et déplace le flux vers les stations voisines), et des
+  unités peuvent filtrer ou contrôler une sortie.
 - **Tout le matériel** : bouclier, tonfa / bâton de défense, gazeuse, grenades lacrymogènes à main et au lanceur
   (Cougar), grenades de désencerclement, LBD 40, extincteur, menottes, radio, mégaphone, arme de service
   (légitime défense uniquement). **Véhicules conduisibles** : fourgon CRS, car de transport, véhicule de commandement,

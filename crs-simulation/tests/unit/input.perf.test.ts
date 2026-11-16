@@ -13,8 +13,10 @@ describe('entrées — performance', () => {
     const axes = [0, 0, 0, 0];
     const pad = { id: 'Manette d\'essai', index: 0, connected: true, mapping: 'standard', axes, buttons } as PadLike;
     const pads: (PadLike | null)[] = [pad];
-    let t = 0;
-    const sys = new InputSystem({ now: () => t, getPads: () => pads });
+    // Horloge du test dans un tableau typé : un nombre flottant rangé dans une variable de fermeture
+    // serait réalloué par le moteur JavaScript à chaque incrément et fausserait la mesure.
+    const clock = new Float64Array(1);
+    const sys = new InputSystem({ now: () => clock[0]!, getPads: () => pads });
     sys.provide(fake.ctx);
     sys.init(fake.ctx);
     const input = fake.ctx.input;
@@ -23,7 +25,7 @@ describe('entrées — performance', () => {
     let hits = 0;
     const run = (frames: number): void => {
       for (let f = 0; f < frames; f++) {
-        t += 16.6;
+        clock[0] += 16.6;
         // entrées qui changent sans cesse : sticks, gâchettes, boutons de manette et appuis simulés
         axes[0] = ((f % 200) - 100) / 100;
         axes[1] = ((f % 140) - 70) / 70;
