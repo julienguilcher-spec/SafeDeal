@@ -18,8 +18,18 @@ export function sortObjectives(list: readonly Objective[]): Objective[] {
   return list.map((o, i) => ({ o, i })).sort((a, b) => rank(a.o) - rank(b.o) || a.i - b.i).map((x) => x.o);
 }
 
+/** Objectifs déjà présentés par la carte « Ma mission » (service 'session.mission') : la liste ne les répète pas. */
+function coveredIds(env: HudEnv): readonly string[] {
+  const brief = env.ctx.service<{ active: boolean; covered: readonly string[] }>('session.mission');
+  return brief && brief.active ? brief.covered : NONE;
+}
+const NONE: readonly string[] = [];
+
 export function createObjectivesPart(env: HudEnv): HudPart {
   const store = env.objectives;
+  /** Liste affichée : celle du service, moins ce que la carte « Ma mission » montre déjà. */
+  let covered: readonly string[] = NONE;
+  const shownList = (): readonly Objective[] => (covered.length === 0 ? store.list : store.list.filter((o) => covered.indexOf(o.id) < 0));
   const root = h('div', 'hud-objw');
   const full = h('div', 'hud-box hud-obj');
   const line = h('div', 'hud-box hud-obj1');
@@ -41,11 +51,12 @@ export function createObjectivesPart(env: HudEnv): HudPart {
   function rebuild(): void {
     clear(full);
     dists = [];
-    const sorted = sortObjectives(store.list);
+    const list = shownList();
+    const sorted = sortObjectives(list);
     activeCount = 0;
-    for (const o of store.list) if (o.state === 'actif') activeCount++;
+    for (const o of list) if (o.state === 'actif') activeCount++;
     const title = h('div', 'hud-obj__title');
-    title.append(h('span', 'hud-cap', 'Objectifs'), h('span', 'hud-cap', `${store.list.length - activeCount}/${store.list.length}`));
+    title.append(h('span', 'hud-cap', 'Objectifs'), h('span', 'hud-cap', `${list.length - activeCount}/${list.length}`));
     full.append(title);
     const shown = sorted.slice(0, MAX_OBJECTIVE_ROWS);
     for (const o of shown) {
@@ -102,7 +113,9 @@ export function createObjectivesPart(env: HudEnv): HudPart {
       return s.compact ? 'top' : 'top-right';
     },
     visible(s: HudState): boolean {
-      return s.profile.objectives && store.list.length > 0;
+      if (!s.profile.objectives || store.list.length === 0) return false;
+      const c = coveredIds(env);
+      return c.length === 0 || store.list.some((o) => c.indexOf(o.id) < 0);
     },
     tick(s: HudState): void {
       if (compact !== s.compact) {
@@ -110,8 +123,10 @@ export function createObjectivesPart(env: HudEnv): HudPart {
         full.hidden = compact;
         line.hidden = !compact;
       }
-      if (version !== store.version) {
+      const c = coveredIds(env);
+      if (version !== store.version || c !== covered) {
         version = store.version;
+        covered = c;
         rebuild();
         distances(s);
       } else if (ticks % 4 === 0) {

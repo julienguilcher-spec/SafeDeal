@@ -25,13 +25,20 @@ export class RadioLogView {
   /** Canal affiché seul (null = tous les canaux audibles). */
   filter: RadioChannel | null = null;
   private filterKey = '';
+  /** Trafic des autres unités replié (joueur exécutant : filtre d'écoute de la radio). */
+  private readonly hiddenRow: HTMLDivElement;
+  private hidden = 0;
 
   constructor(private readonly core: CommandCore, host: HTMLElement, className = 'ct-pane ct-scroll') {
     this.root = el('div', className);
     this.root.dataset.id = 'radio-log';
     this.list = el('div', 'ct-log');
     this.empty = el('div', 'ct-empty', 'Aucun message pour l’instant. Les ordres donnés et les comptes rendus des unités s’inscrivent ici, horodatés.');
-    this.root.append(this.empty, this.list);
+    this.hiddenRow = el('div', 'ct-empty', '');
+    this.hiddenRow.dataset.id = 'radio-hidden';
+    this.hiddenRow.style.opacity = '0.6';
+    this.hiddenRow.style.display = 'none';
+    this.root.append(this.empty, this.hiddenRow, this.list);
     host.appendChild(this.root);
   }
 
@@ -44,6 +51,7 @@ export class RadioLogView {
     if (log.length < this.shown || log[0] !== this.first || key !== this.channelsKey || fkey !== this.filterKey) {
       this.list.textContent = '';
       this.shown = 0;
+      this.hidden = 0;
       this.first = log[0];
       this.channelsKey = key;
       this.filterKey = fkey;
@@ -54,10 +62,15 @@ export class RadioLogView {
     }
     const stick = this.root.scrollHeight - this.root.scrollTop - this.root.clientHeight < 40;
     const me = this.core.ctx.player.state.personId;
+    const listen = this.core.ctx.service<{ muted?(msg: RadioMessage): boolean }>('radio.control');
     for (let i = this.shown; i < log.length; i++) {
       const m = log[i]!;
       if (channels.indexOf(m.channel) < 0) continue;
       if (this.filter && m.channel !== this.filter) continue;
+      if (listen && listen.muted && listen.muted(m)) {
+        this.hidden++;
+        continue;
+      }
       const row = el('div', 'ct-msg p' + m.priority + (m.personId !== undefined && m.personId === me && me !== 0 ? ' is-me' : ''));
       const head = el('div', 'ct-msg-h');
       head.append(el('span', undefined, logTime(m.t)), el('b', undefined, m.from), el('i', 'c-' + m.channel, CHANNEL_LABELS[m.channel] ?? m.channel));
@@ -66,6 +79,8 @@ export class RadioLogView {
       this.list.appendChild(row);
     }
     this.shown = log.length;
+    this.hiddenRow.textContent = this.hidden > 0 ? `Trafic radio des autres unités masqué (${this.hidden})` : '';
+    this.hiddenRow.style.display = this.hidden > 0 ? '' : 'none';
     while (this.list.childElementCount > MAX_SHOWN && this.list.firstChild) this.list.removeChild(this.list.firstChild);
     this.empty.style.display = this.list.childElementCount === 0 ? '' : 'none';
     if (stick) this.root.scrollTop = this.root.scrollHeight;

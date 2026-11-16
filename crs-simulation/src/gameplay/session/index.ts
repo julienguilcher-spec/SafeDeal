@@ -23,6 +23,7 @@ import { FollowLeaderSystem } from './follow';
 import { PlayerOrdersSystem } from './orders';
 import { JourneeSystem } from './journee';
 import { EnginsSystem } from './engins';
+import { MissionBriefSystem } from './mission';
 export { FollowLeaderSystem } from './follow';
 export { ORDER_OBJECTIVE_ID, ORDERS_SERVICE, PlayerOrdersSystem } from './orders';
 export type { PlayerOrdersApi } from './orders';
@@ -31,13 +32,20 @@ export type { JourneeApi, JourneeStage } from './journee';
 export { SERVICE_BASE, SERVICE_BASES, basePreload, baseOf, serviceBaseFor, isJournee } from './journee-data';
 export type { ServiceBase } from './journee-data';
 export { EnginsSystem } from './engins';
+export { MissionBriefSystem } from './mission';
+export { MISSION_OBJECTIVE_ID, MISSION_SERVICE } from './mission-api';
+export type { MissionBrief, MissionChief, MissionFamily } from './mission-api';
+export {
+  chainLabel, chiefLabel, isExecutantRole, plainOrder, rankLabel, resolveInstruction, strayed, surname, REGROUP_FAR, REGROUP_NEAR,
+} from './executant';
+export type { Instruction, InstructionInputs, InstructionSource, InstructionTarget, PlainOrder } from './executant';
 
 /**
  * Systèmes : mise en place ('session.setup'), avance rapide ('session.timewarp', touche « . »), l'unité suit le joueur
  * ('session.follow', colonne de véhicules), les ordres de la chaîne de commandement IA au joueur ('session.orders') et la
  * journée de service ('session.journee' : caserne, colonne, manifestation, retour).
  */
-export const createSystems: ModuleFactory = () => [new SessionSetupSystem(), new TimeWarpSystem(), new FollowLeaderSystem(), new PlayerOrdersSystem(), new JourneeSystem(), new EnginsSystem()];
+export const createSystems: ModuleFactory = () => [new SessionSetupSystem(), new TimeWarpSystem(), new FollowLeaderSystem(), new PlayerOrdersSystem(), new JourneeSystem(), new EnginsSystem(), new MissionBriefSystem()];
 
 export { SessionSetupSystem } from './setup';
 export { FAST_FORWARD_SCALE, TIME_WARP_SERVICE, TimeWarpSystem } from './timewarp';

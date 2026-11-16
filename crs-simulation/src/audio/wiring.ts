@@ -71,6 +71,9 @@ export function wireEvents(ctx: GameContext, parts: WiringParts): Unsubscribe[] 
   // ── voix ──
   offs.push(ev.on('radio:message', (p) => {
     const m = p.msg;
+    // écoute filtrée du joueur exécutant (module radio) : le trafic des autres unités n'est pas dit
+    const listen = ctx.service<{ muted?(msg: typeof m): boolean }>('radio.control');
+    if (listen && listen.muted && listen.muted(m)) return;
     speech.enqueue({
       text: m.text, mode: 'radio', voice: m.voice !== undefined ? m.voice : hashString(m.from) % 6,
       volume: 1, spatial: false, x: 0, y: 0, z: 0, priority: m.priority,

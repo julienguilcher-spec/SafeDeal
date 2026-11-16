@@ -38,6 +38,9 @@ export const createSystems: ModuleFactory = (): GameSystem[] => {
 
   const log: (RadioMessage & { t: number })[] = [];
   const control = { ambient: true, subtitles: true };
+  /** Filtre d'écoute du joueur (RadioControl.listen) et messages qu'il a écartés. */
+  let listen: ((msg: RadioMessage) => boolean) | null = null;
+  let muted = new WeakSet<RadioMessage>();
 
   const radio: GameSystem = {
     id: 'radio',
@@ -51,9 +54,23 @@ export const createSystems: ModuleFactory = (): GameSystem[] => {
       const q = new RadioQueue((msg, now, duration) => {
         const out: RadioMessage = msg.voice === undefined ? { ...msg, voice: calls.voiceOf(msg.from) } : msg;
         trimLog(log, LOG_MAX);
-        log.push({ ...out, t: now });
+        const entry = { ...out, t: now };
+        log.push(entry);
+        // écoute filtrée (joueur exécutant) : le message reste au journal, sans sous-titre ni voix
+        let heard = true;
+        if (listen) {
+          try {
+            heard = listen(out);
+          } catch (err) {
+            console.error('[radio] filtre d\'écoute', err);
+          }
+        }
+        if (!heard) {
+          muted.add(out);
+          muted.add(entry);
+        }
         ctx.events.emit('radio:message', { msg: out, t: now });
-        if (control.subtitles && out.priority >= 1) ctx.ui.subtitle(out.from, out.text, duration + SUBTITLE_EXTRA);
+        if (heard && control.subtitles && out.priority >= 1) ctx.ui.subtitle(out.from, out.text, duration + SUBTITLE_EXTRA);
       });
       queue = q;
 
@@ -113,6 +130,13 @@ export const createSystems: ModuleFactory = (): GameSystem[] => {
         pending: (channel) => q.pending(channel),
         busyUntil: (channel) => q.busyUntil(channel),
         flush: () => q.flush(),
+        get listen(): ((msg: RadioMessage) => boolean) | null {
+          return listen;
+        },
+        set listen(fn: ((msg: RadioMessage) => boolean) | null) {
+          listen = fn;
+        },
+        muted: (msg: RadioMessage) => muted.has(msg),
       };
 
       ctx.provide(RADIO_CALLSIGNS_SERVICE, calls);
@@ -135,6 +159,7 @@ export const createSystems: ModuleFactory = (): GameSystem[] => {
       // le journal et les files sont aussi vidés par ctx.radio.clear() appelé par la session
       log.length = 0;
       queue?.reset();
+      muted = new WeakSet<RadioMessage>();
       if (!radioCtx) return;
       rng = radioCtx.rng.fork('radio');
       ambient?.reset(radioCtx.rng.fork('radio.ambiance'));
@@ -153,3 +178,5 @@ export type {
   CallsignBook, PhraseEnd, PhraseInfo, PhraseParam, PhraseParams, PhraseRole, RadioControl, RadioPhrases, RadioStats, SayOptions,
 } from './api';
 export { RADIO_CALLSIGNS_SERVICE, RADIO_CONTROL_SERVICE, RADIO_PHRASES_SERVICE } from './api';
+export { CENTRAL_CALLSIGN, DEFAULT_EXECUTANT_FILTER, ExecutantRadioFilter, canonicalCallsign, classifyRadio, listenForRole, parseRadioHeader, radioBody } from './relevance';
+export type { ChannelListen, ExecutantFilterConfig, RadioHeader, RadioRelevance, RadioScope } from './relevance';

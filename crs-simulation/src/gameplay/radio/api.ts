@@ -8,7 +8,7 @@
  * Et ctx.radio (RadioApi du contrat) : say(), log, clear().
  * ===================================================================================== */
 
-import type { EntityId, Person, RadioChannel, Squad } from '@/core/contracts';
+import type { EntityId, Person, RadioChannel, RadioMessage, Squad } from '@/core/contracts';
 
 export const RADIO_PHRASES_SERVICE = 'radio.phrases';
 export const RADIO_CALLSIGNS_SERVICE = 'radio.callsigns';
@@ -127,4 +127,12 @@ export interface RadioControl {
   busyUntil(channel: RadioChannel): number;
   /** Vide les files d'attente (sans toucher au journal). */
   flush(): void;
+  /**
+   * Filtre d'écoute du joueur (exécutant : seulement ce qui concerne son groupe, voir relevance.ts). Appelé une fois
+   * par message, quand il passe sur les ondes : un message refusé reste au journal et part dans 'radio:message', mais
+   * n'est ni sous-titré ni dit, et le journal de l'exécutant le replie. null : tout est entendu (commandant).
+   */
+  listen: ((msg: RadioMessage) => boolean) | null;
+  /** Ce message (objet de 'radio:message' ou entrée du journal) a-t-il été écarté par le filtre d'écoute ? */
+  muted(msg: RadioMessage): boolean;
 }

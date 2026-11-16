@@ -39,6 +39,7 @@ import { createCenter } from '../hud/center';
 import { createCompass } from '../hud/compass';
 import { createItemBar, createPrompt, createTouchFeed } from '../hud/items';
 import { createMarkers } from '../hud/markers';
+import { createMissionCard } from '../hud/mission';
 import { createObjectivesPart } from '../hud/objectives';
 import { createFps, createSituation } from '../hud/situation';
 import { createStatus } from '../hud/status';
@@ -215,6 +216,7 @@ export class UiSystem implements GameSystem {
       createCompass(env),
       createDroneBand(env),
       createObjectivesPart(env),
+      createMissionCard(env),
       createStatus(env),
       createVehicleHud(env),
       createPrompt(env),

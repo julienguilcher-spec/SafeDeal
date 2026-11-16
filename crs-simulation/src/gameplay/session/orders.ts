@@ -134,6 +134,11 @@ export class PlayerOrdersSystem implements GameSystem {
     }
 
     if (kind === 'crs') {
+      // la carte « Ma mission » (session.mission) tient l'ordre du groupe, en mots simples, avec son propre GPS
+      if (ctx.service('session.mission') !== undefined) {
+        if (this.cur) this.drop();
+        return;
+      }
       this.mirrorGroup(me, now);
       return;
     }
