@@ -126,7 +126,12 @@ export class Thinker {
           break;
       }
       // clôture automatique : tous les membres ont disparu
-      if (e.presentCount() === 0) {
+      const present = e.presentCount();
+      if (present !== e.lastCount) {
+        if (e.lastCount >= 0 && present > 0) relabel(k.ctx, e);
+        e.lastCount = present;
+      }
+      if (present === 0) {
         e.goneFor += dt;
         if (e.goneFor >= hold) {
           this.closeGone(e, lapseFails);

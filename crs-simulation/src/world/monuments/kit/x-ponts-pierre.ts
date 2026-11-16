@@ -11,7 +11,7 @@ import * as THREE from 'three';
 import type { QualityLevel } from '@/core/contracts';
 import { Builder } from './builder';
 import { Geo, pose } from './geo';
-import { box, boxAt, cyl, lathe, prism, sweep } from './shapes';
+import { box, boxAt, cyl, lathe, prism, sector, sweep } from './shapes';
 import { archBlock, archivolt, type ArchOpening } from './arch';
 import { canvas2d, css, mixHex, paintBumpBase, paintMatter, rngOf, texFrom } from './canvas';
 import { defineMaterial, litMaterial } from './materials';
@@ -120,12 +120,7 @@ function orient(g: Geo, a: number[], b: number[], c: number[], out: number[]): v
 
 /** Demi-disque horizontal (dessus), de rayon r, du côté `side` (±1) de l'axe X. */
 function halfDisc(r: number, seg: number, y: number, side: number): Geo {
-  const g = new Geo();
-  const c = g.vert(0, y, 0, 0, 1, 0, 0, 0);
-  const start = side > 0 ? 0 : Math.PI;
-  for (let i = 0; i <= seg; i++) { const a = start + (i / seg) * Math.PI; g.vert(r * Math.sin(a), y, r * Math.cos(a), 0, 1, 0, r * Math.sin(a), r * Math.cos(a)); }
-  for (let i = 0; i < seg; i++) g.tri(c, c + 1 + i, c + 2 + i);
-  return g;
+  return sector(r, seg, y, true, side > 0 ? 0 : Math.PI, Math.PI);
 }
 
 /**

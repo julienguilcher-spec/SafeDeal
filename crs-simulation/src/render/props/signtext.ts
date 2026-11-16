@@ -75,7 +75,7 @@ const AWNINGS: readonly number[] = [0x7a1f1f, 0x1f3d2b, 0xe8dcc0, 0x1e2f4a, 0xb3
 
 /** Habillage déterministe de la devanture d'un commerce. */
 export function shopStyle(category: string, seed: number): ShopStyle {
-  const pal = pick(PALETTES[category] ?? PALETTES.autre!, h32(seed, 1));
+  const pal = pick(Object.prototype.hasOwnProperty.call(PALETTES, category) ? PALETTES[category]! : PALETTES.autre!, h32(seed, 1));
   const r2 = h32(seed, 2), r3 = h32(seed, 3), r4 = h32(seed, 4), r5 = h32(seed, 5);
   let font: 0 | 1 | 2 | 3 = 1;
   let upper = true;

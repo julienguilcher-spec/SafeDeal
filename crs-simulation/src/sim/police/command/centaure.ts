@@ -15,7 +15,7 @@
 import type { OrderType, Person, Prop, Squad, SquadOrder, Vehicle } from '@/core/contracts';
 import { FORCE_USED_EVENT } from '../api';
 import type { CommandCore } from './core';
-import { isProtester, notPolice } from './core';
+import { isPoliceOnFoot, isProtester, notPolice } from './core';
 import type { Picture } from './picture';
 import { SpecialUnit } from './special';
 import { received, refused, report, spell } from './texts';
@@ -49,6 +49,10 @@ export class CentaureUnit extends SpecialUnit {
   private cleared = false;
   private burning = false;
   private aimAt = 0;
+  private pushX = 0;
+  private pushZ = 0;
+  private stallSince = 0;
+  private backUntil = 0;
   private readonly people: Person[] = [];
 
   constructor(core: CommandCore, pic: Picture, squad: Squad) {
@@ -200,7 +204,7 @@ export class CentaureUnit extends SpecialUnit {
       return;
     }
     // zone d'arrivée : pas sur les collègues
-    if (ctx.people.countIn(o.x, o.z, 18, (p) => p.faction === 'police' && p.vehicleId === 0) > 0) {
+    if (ctx.people.countIn(o.x, o.z, 18, isPoliceOnFoot) > 0) {
       this.say(refused(this.squad.name, 'Des agents sont dans la zone d’arrivée'));
       this.refuse(o, 'Agents dans la zone d’arrivée.');
       this.setStage('repos');
@@ -349,16 +353,69 @@ export class CentaureUnit extends SpecialUnit {
 
   /** Personnes dans l'obstacle ou derrière lui, dans le couloir de poussée. */
   private peopleBehind(): number {
+    return this.peopleBehindOf(this.propX, this.propZ);
+  }
+
+  private peopleBehindOf(x: number, z: number): number {
     const core = this.core;
-    const n = core.ctx.people.queryRadius(this.propX + this.dirX * 4, this.propZ + this.dirZ * 4, 9, this.people, notPolice);
+    const n = core.ctx.people.queryRadius(x + this.dirX * 4, z + this.dirZ * 4, 9, this.people, notPolice);
     let m = 0;
     for (let i = 0; i < n; i++) {
       const p = this.people[i];
-      const fwd = (p.x - this.propX) * this.dirX + (p.z - this.propZ) * this.dirZ;
-      const lat = Math.abs((p.x - this.propX) * -this.dirZ + (p.z - this.propZ) * this.dirX);
+      const fwd = (p.x - x) * this.dirX + (p.z - z) * this.dirZ;
+      const lat = Math.abs((p.x - x) * -this.dirZ + (p.z - z) * this.dirX);
       if (fwd > -2.5 && fwd < 11 && lat < 3.2) m++;
     }
     return m;
+  }
+
+  /** Arrêt de l'engin par son pilote. */
+  private brake(v: Vehicle): void {
+    v.cmd.throttle = 0;
+    v.cmd.brake = 1;
+    v.cmd.steer = 0;
+    v.cmd.handbrake = true;
+  }
+
+  /**
+   * Poussée à la lame : le pilote conduit lui-même (commande du véhicule, comme le ferait un joueur), droit
+   * sur l'obstacle, à 5–8 km/h. Appelé à chaque pas.
+   */
+  override step(): void {
+    if (this.status.stage !== 'poussee') return;
+    const v = this.core.ctx.vehicles.get(this.squad.vehicleId);
+    if (!v || !this.seated(v, 'driver')) return;
+    const want = Math.atan2(this.dirX, this.dirZ);
+    let err = want - v.heading;
+    while (err > Math.PI) err -= 2 * Math.PI;
+    while (err < -Math.PI) err += 2 * Math.PI;
+    // cap croissant = virage à gauche = volant négatif
+    let steer = -err * 2.5;
+    if (steer > 0.6) steer = 0.6;
+    else if (steer < -0.6) steer = -0.6;
+    const cmd = v.cmd;
+    const now = this.core.now;
+    cmd.handbrake = false;
+    cmd.brake = 0;
+    if (now < this.backUntil) {
+      // l'obstacle a tenu : quelques mètres de recul pour reprendre de l'élan
+      cmd.steer = 0;
+      cmd.throttle = v.speed > -1.2 ? -0.7 : 0;
+      this.stallSince = 0;
+      return;
+    }
+    cmd.steer = steer;
+    cmd.throttle = v.speed < this.core.tuning.centaurePush ? 1 : 0;
+    // engin calé contre l'obstacle depuis deux secondes : recul, puis nouvelle poussée
+    if (v.speed < 0.3 && this.sinceStage() > 2) {
+      if (this.stallSince === 0) this.stallSince = now;
+      else if (now - this.stallSince > 2) {
+        this.stallSince = 0;
+        this.backUntil = now + 2.2;
+      }
+    } else {
+      this.stallSince = 0;
+    }
   }
 
   private thinkClear(v: Vehicle): void {
@@ -404,29 +461,33 @@ export class CentaureUnit extends SpecialUnit {
         return;
       }
       this.say(report(this.superior(), this.squad.name, 'Obstacle vérifié, personne derrière. Je pousse'));
-      if (!ap.driveTo(v, this.propX + this.dirX * 9, this.propZ + this.dirZ * 9, { speed: core.tuning.centaurePush, pushThrough: true })) {
-        this.finish(false, 'Aucun itinéraire.');
-        this.setStage('repos');
-        return;
-      }
+      // le pilote pousse lui-même, lame basse, droit sur l'obstacle (voir step) : le pilote automatique s'efface
+      ap.stop(v);
+      this.pushX = v.x;
+      this.pushZ = v.z;
+      this.stallSince = 0;
+      this.backUntil = 0;
       this.setStage('poussee');
       return;
     }
     if (stage === 'poussee') {
-      const gone = !prop || !prop.blocksMove || Math.hypot(prop.x - this.propX, prop.z - this.propZ) > 3;
-      const st = ap.status(v);
+      // dégagée : disloquée par la lame (elle ne barre plus), ou repoussée d'au moins une longueur d'engin
+      const gone = !prop || !prop.blocksMove || Math.hypot(prop.x - this.propX, prop.z - this.propZ) > 7;
+      const advanced = Math.hypot(v.x - this.pushX, v.z - this.pushZ);
       if (this.cleared || gone) {
-        ap.stop(v);
+        this.brake(v);
         this.say(report(this.superior(), this.squad.name, 'Barricade dégagée, passage ouvert' + (this.burning ? '. Foyers dispersés, demande l’engin lanceur d’eau' : '')));
         this.finish(true, '');
         this.setStage('repos');
-      } else if (this.peopleBehind() > 0 && Math.hypot(this.propX - v.x, this.propZ - v.z) > v.def.length * 0.5 + 1.5) {
+      } else if (prop && this.peopleBehindOf(prop.x, prop.z) > 0) {
         // quelqu'un est revenu derrière l'obstacle : halte immédiate, nouvelle vérification
-        ap.stop(v);
+        this.brake(v);
+        this.propX = prop.x;
+        this.propZ = prop.z;
         this.warned = false;
         this.setStage('verification');
-      } else if (st.state === 'echec' || this.sinceStage() > 30 || ((st.state === 'arrive' || st.mode === 'idle') && this.sinceStage() > 3)) {
-        ap.stop(v);
+      } else if (this.sinceStage() > 45 || advanced > 40) {
+        this.brake(v);
         this.say(report(this.superior(), this.squad.name, 'Obstacle trop lourd pour la lame'));
         this.finish(false, 'Obstacle non dégagé.');
         this.setStage('repos');

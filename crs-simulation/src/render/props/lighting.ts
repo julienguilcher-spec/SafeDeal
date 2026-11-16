@@ -21,7 +21,7 @@ import type { ShopGlow } from './shopfront';
 
 /** Gains accordés à l'exposition du jeu : halo (cœur brillant) et tache au sol (lueur discrète). */
 const HALO_GAIN = 2.6;
-const POOL_GAIN = 0.34;
+const POOL_GAIN = 0.26;
 /** Intensité d'une vraie lumière de candélabre (cd), portée (m) — ordres de grandeur du rendu de base. */
 const LAMP_RANGE = 26;
 const LAMP_REACH = 46;
@@ -101,10 +101,10 @@ export class LightRig {
         const lx = n === 1 ? 0 : -p.halfX + ((k + 0.5) * 2 * p.halfX) / n;
         const x = p.x + lx * c, z = p.z - lx * s;
         const ph = (phase + k * 0.37) % 1;
-        rec.halos.push(this.halos.add(x, p.y + Math.min(1.5, 0.4 + p.height * 0.6), z, size, 0xff7a1a, 0.9 * HALO_GAIN * 0.5, FX_FIRE, ph, false));
-        if (!low || k === 0) rec.halos.push(this.pool(x, z, p.y, size * 2.4 + 1.6, 0xff6a12, 1.5, FX_FIRE, ph));
+        rec.halos.push(this.halos.add(x, p.y + Math.min(1.0, 0.25 + p.height * 0.45), z, size * 1.25, 0xff7a1a, 0.5, FX_FIRE, ph, false));
+        if (!low || k === 0) rec.halos.push(this.pool(x, z, p.y, size * 2.4 + 1.6, 0xff6a12, 0.8, FX_FIRE, ph));
       }
-      this.fires.set(rec.id, { x: p.x, y: p.y + 1, z: p.z, cd: rec.barricade ? 150 : 40 + 30 * size, range: rec.barricade ? 28 : 16 });
+      this.fires.set(rec.id, { x: p.x, y: p.y + 1.5, z: p.z, cd: rec.barricade ? 110 : 30 + 20 * size, range: rec.barricade ? 28 : 16 });
     }
     if (rec.barricade) return;
     const tpl = lib.get(rec.kind, 1, variant, rec.skin, rec.panes);
@@ -141,7 +141,7 @@ export class LightRig {
       const x = s.x + g.x * c + g.z * sn, z = s.z - g.x * sn + g.z * c;
       if (g.ground) rec.halos.push(this.pool(x, z, s.y, g.radius, g.color, g.intensity / POOL_GAIN, g.gate, phase));
       else rec.halos.push(this.halos.add(x, s.y + g.y, z, g.radius, g.color, g.intensity, g.gate, phase, false));
-      if (g.gate === FX_FIRE && !g.ground) this.fires.set(rec.id, { x, y: s.y + 1.6, z, cd: 150, range: 28 });
+      if (g.gate === FX_FIRE && !g.ground) this.fires.set(rec.id, { x, y: s.y + 1.8, z, cd: 110, range: 28 });
     }
   }
 
@@ -155,7 +155,7 @@ export class LightRig {
   }
 
   /** Donne les vraies lumières aux candélabres allumés et aux feux les plus proches de la caméra. */
-  update(camX: number, camY: number, camZ: number, lampsOn: number): void {
+  update(camX: number, camY: number, camZ: number, lampsOn: number, night: number): void {
     this.lit = 0;
     if (!this.lights) return;
     const nl = this.cfg.lamps, nf = this.cfg.fires;
@@ -209,7 +209,8 @@ export class LightRig {
       const f = bf[i];
       if (f) {
         l.x = f.x; l.y = f.y; l.z = f.z;
-        l.intensity = f.cd;
+        // en plein jour un feu éclaire peu son entourage
+        l.intensity = f.cd * (0.05 + 0.95 * night);
         l.range = f.range;
         l.enabled = true;
         this.lit++;

@@ -145,9 +145,13 @@ async function bureau(server) {
     // ── première personne : face à l'obélisque, puis un regard vers les collègues ──
     await step(page, 0.5);
     await capture('game-fps');
-    // capture de la souris par un clic sur la vue (le clic de capture ne déclenche aucune action)
-    await page.mouse.click(W / 2, H * 0.42);
-    await frames(page, 3);
+    // Capture de la souris par un clic sur la vue (le clic de capture ne déclenche aucune action). Le clic est donné
+    // dans le coin de la vue : sous capture, Chromium headless rapporte la POSITION du pointeur comme un déplacement à
+    // chaque événement de bouton (artefact des événements synthétiques) — en (2, 2) le regard ne bouge pas.
+    await page.mouse.move(2, 2);
+    await page.mouse.click(2, 2);
+    await frames(page, 2);
+    check(await page.evaluate(() => window.__CRS.ctx.input.pointerLocked), 'un clic dans la vue capture la souris');
     // regard vers la droite (flèches du clavier) : la ligne de boucliers est devant-droite, le fourgon derrière
     await page.keyboard.down('ArrowRight');
     await step(page, 0.55);
@@ -193,7 +197,12 @@ async function bureau(server) {
     }
     await capture('game-contre-obelisque');
     check(last.free && !last.inBuilding, 'après la course, le joueur n’est dans aucun obstacle');
-    check(minObelisk > 2.2, 'il n’a pas traversé l’obélisque (arrêté par le socle ou la grille)', `distance minimale au centre ${minObelisk.toFixed(1)} m`);
+    // la trajectoire en ligne droite passait-elle par le monument ? distance du centre de l'obélisque à l'axe de départ
+    const ax = Math.sin(start.camYaw);
+    const az = Math.cos(start.camYaw);
+    const miss = Math.abs((setup.obelisk.x - start.x) * az - (setup.obelisk.z - start.z) * ax);
+    check(miss < 5, 'la course visait bien l’obélisque', `l’axe de départ passe à ${miss.toFixed(1)} m de son centre`);
+    check(minObelisk > 5, 'il n’a pas traversé l’obélisque : il a buté sur sa grille et l’a contournée', `distance minimale au centre ${minObelisk.toFixed(1)} m`);
     const blockedAt = await state(page);
     // on tourne d'un quart de tour et on repart en courant : la place est dégagée
     await page.keyboard.down('ArrowLeft');
@@ -229,6 +238,7 @@ async function bureau(server) {
     check(s.item === 'grenade_lacrymo', `la touche ${slot} met la grenade lacrymogène en main`, s.item);
     await capture('game-grenade-en-main');
     const before = await page.evaluate(() => ({ n: window.__CRS.ctx.projectiles.list.length, count: window.__CRS.ctx.actions.has(window.__CRS.ctx.player.person(), 'grenade_lacrymo') }));
+    const aimBefore = await state(page);
     await page.mouse.down();
     await step(page, 0.7); // charge du lancer
     const charge = await page.evaluate(() => window.__CRS.ctx.player.state.charge);
@@ -241,6 +251,7 @@ async function bureau(server) {
       return { n: c.projectiles.list.length, mine: pr.map((q) => ({ id: q.id, kind: q.kind, x: q.x, y: q.y, z: q.z })), count: c.actions.has(me, 'grenade_lacrymo') };
     });
     check(charge > 0.2, 'le lancer se charge en maintenant le clic', `charge ${charge.toFixed(2)}`);
+    check(Math.abs((await state(page)).camYaw - aimBefore.camYaw) < 0.05, 'le regard ne bouge pas pendant le lancer');
     check(thrown.mine.length >= 1 && /lacrymo/.test(thrown.mine[0]?.kind ?? ''), 'un projectile apparaît', JSON.stringify(thrown.mine[0] ?? null));
     check(thrown.count === before.count - 1, 'une grenade a quitté la dotation', `${before.count} → ${thrown.count}`);
     await capture('game-grenade-en-vol');
@@ -316,29 +327,128 @@ async function bureau(server) {
     check(s.phase === 'playing' && s.screen === null, '« Reprendre » relance le jeu', `${s.phase} / ${s.screen}`);
 
     // ── mesures (vue à la première personne, place de la Concorde) ──
+    // Le joueur revient à sa place de départ (groupe, obélisque et fontaine dans le champ), vue à la troisième personne.
+    // Temps JavaScript : 40 images complètes (un pas de simulation de 1/30 s + frame() de chaque système) enchaînées
+    // par game.frame(), chronométrées une à une. Médiane = coût typique ; minimum = coût sans préemption (la machine
+    // d'essai est chargée) ; le tramage logiciel (SwiftShader) n'est pas du JavaScript et n'y figure pas.
+    await page.evaluate(() => {
+      const c = window.__CRS;
+      const s = c.ctx.service('session.setup').summary;
+      c.teleport(s.x - Math.sin(s.heading) * 4, s.z - Math.cos(s.heading) * 4);
+      c.ctx.player.state.camYaw = s.heading;
+      c.ctx.player.state.camPitch = 0;
+      c.ctx.player.setCameraMode('tps');
+    });
     await step(page, 1);
-    await page.waitForTimeout(3000); // quelques dizaines d'images pour les moyennes glissantes
+    await frames(page, 2);
     r.perf = await page.evaluate(() => {
       const c = window.__CRS;
       const ctx = c.ctx;
       const perf = ctx.service('perf');
+      const N = 40;
+      const total = [];
+      const sim = [];
+      const present = [];
+      const per = perf.systems.map(() => ({ update: [], frame: [] }));
+      for (let k = 0; k < N + 5; k++) {
+        const t = performance.now();
+        c.game.frame(1 / 30);
+        const ms = performance.now() - t;
+        if (k < 5) continue; // mise en train
+        total.push(ms);
+        sim.push(perf.stats.simMs);
+        present.push(perf.stats.presentMs);
+        perf.systems.forEach((x, i) => {
+          per[i].update.push(x.updateMs);
+          per[i].frame.push(x.frameMs);
+        });
+      }
+      const med = (a) => { const b = a.slice().sort((p, q) => p - q); return b[b.length >> 1]; };
+      const min = (a) => Math.min(...a);
+      const max = (a) => Math.max(...a);
       const info = ctx.view.renderer.info;
       const base = ctx.service('render.base').stats;
       const mem = performance.memory ? { usedMB: performance.memory.usedJSHeapSize / 1048576, totalMB: performance.memory.totalJSHeapSize / 1048576 } : null;
+      const city = ctx.service('world.view')?.stats?.() ?? null;
+      const mon = ctx.service('monuments')?.stats?.() ?? null;
+      const ppl = ctx.service('peopleRender')?.stats ?? null;
+      const veh = ctx.service('vehiclesRender')?.stats ?? null;
       return {
         drawCalls: info.render.calls, triangles: info.render.triangles, geometries: info.memory.geometries, textures: info.memory.textures,
-        renderMs: base.renderMs, prepareMs: base.prepareMs, buffer: `${base.width}×${base.height}`,
-        fps: perf.stats.fps, frameMs: perf.stats.avgFrameMs, simMs: perf.stats.simMs, presentMs: perf.stats.presentMs,
-        systems: perf.systems.map((x) => ({ id: x.id, update: x.avgUpdateMs, frame: x.avgFrameMs, errors: x.errors, disabled: x.disabled })),
+        buffer: `${base.width}×${base.height}`,
+        frameMs: med(total), frameMinMs: min(total), frameMaxMs: max(total), simMs: med(sim), presentMs: med(present),
+        systems: perf.systems.map((x, i) => ({
+          id: x.id, update: med(per[i].update), frame: med(per[i].frame), min: min(per[i].update) + min(per[i].frame),
+          max: max(per[i].update.map((u, k) => u + per[i].frame[k])), errors: x.errors, disabled: x.disabled,
+        })),
         people: ctx.people.list.length, props: ctx.props.list.length, shops: ctx.props.shops.length, vehicles: ctx.vehicles.list.length,
         memory: mem,
+        parts: {
+          ville: city ? { triangles: city.triangles, drawCalls: city.drawCalls, immeubles: city.buildingTriangles, detail: city.detailTiles, lointaines: city.farTiles } : null,
+          monuments: mon ? { triangles: mon.triangles + mon.horizonTriangles, drawCalls: mon.drawCalls + mon.horizonDrawCalls, detailed: mon.detailed, distant: mon.distant } : null,
+          personnages: ppl ? { near: ppl.near, mid: ppl.mid, far: ppl.far, drawCalls: ppl.drawCalls } : null,
+          vehicules: veh ? { triangles: veh.triangles, drawCalls: veh.drawCalls, near: veh.near, far: veh.far } : null,
+        },
       };
     });
+    // cadence réelle (tramage logiciel compris), sur quelques images de la boucle normale
+    r.perf.realFrameMs = await page.evaluate(() => new Promise((resolve) => {
+      const t0 = performance.now();
+      let n = 0;
+      const f = () => (++n >= 4 ? resolve((performance.now() - t0) / 4) : requestAnimationFrame(f));
+      requestAnimationFrame(f);
+    }));
     const slow = r.perf.systems.filter((x) => x.update + x.frame > 4);
-    console.log(`  rendu : ${r.perf.drawCalls} appels de dessin, ${Math.round(r.perf.triangles / 1000)} k triangles, tampon ${r.perf.buffer}`);
-    console.log(`  JavaScript par image : ${r.perf.frameMs.toFixed(1)} ms (simulation ${r.perf.simMs.toFixed(1)}, présentation ${r.perf.presentMs.toFixed(1)} dont renderer.render ${r.perf.renderMs.toFixed(1)})`);
-    for (const x of r.perf.systems) if (x.update + x.frame > 0.3) console.log(`    ${x.id.padEnd(22)} update ${x.update.toFixed(2)} ms  frame ${x.frame.toFixed(2)} ms${x.update + x.frame > 4 ? '   ← plus de 4 ms' : ''}`);
+    console.log(`  rendu : ${r.perf.drawCalls} appels de dessin, ${Math.round(r.perf.triangles / 1000)} k triangles, tampon ${r.perf.buffer}, ${r.perf.geometries} géométries, ${r.perf.textures} textures`);
+    console.log(`  JavaScript par image : médiane ${r.perf.frameMs.toFixed(1)} ms, minimum ${r.perf.frameMinMs.toFixed(1)} ms, pire ${r.perf.frameMaxMs.toFixed(1)} ms (simulation ${r.perf.simMs.toFixed(2)}, présentation ${r.perf.presentMs.toFixed(1)}) ; ${r.perf.realFrameMs.toFixed(0)} ms réels par image avec le tramage logiciel`);
+    for (const x of r.perf.systems) if (x.update + x.frame > 0.1) console.log(`    ${x.id.padEnd(22)} update ${x.update.toFixed(2)} ms  frame ${x.frame.toFixed(2)} ms  (min ${x.min.toFixed(2)}, max ${x.max.toFixed(1)})${x.update + x.frame > 4 ? '   ← plus de 4 ms' : ''}`);
+    for (const [name, part] of Object.entries(r.perf.parts)) if (part) console.log(`    ${name} : ${JSON.stringify(part)}`);
     if (r.perf.memory) console.log(`  mémoire JavaScript : ${r.perf.memory.usedMB.toFixed(0)} Mo utilisés`);
+    await capture('game-mesures');
+
+    // ── recommencer : la session repart de zéro, sans fuite (mêmes effectifs, ressources graphiques stables) ──
+    const before2 = await page.evaluate(() => {
+      const c = window.__CRS.ctx;
+      const m = c.view.renderer.info.memory;
+      return { people: c.people.list.length, vehicles: c.vehicles.list.length, squads: c.squads.list.length, props: c.props.list.length, geometries: m.geometries, textures: m.textures };
+    });
+    await page.keyboard.press('KeyP');
+    await waitFor(page, 'window.__CRS.ctx.ui.current === "pause"', 120000);
+    await page.locator('[data-id="pause-recommencer"]').click();
+    await page.locator('[data-id="dialog-confirm"]').click();
+    await waitFor(page, 'window.__CRS.ctx.session.phase === "playing" && window.__CRS.ctx.clock.now < 5', 300000);
+    await frames(page, 3);
+    const after2 = await page.evaluate(() => {
+      const c = window.__CRS.ctx;
+      const m = c.view.renderer.info.memory;
+      const p = c.player.person();
+      return {
+        people: c.people.list.length, vehicles: c.vehicles.list.length, squads: c.squads.list.length, props: c.props.list.length, geometries: m.geometries, textures: m.textures,
+        player: !!p && p.isPlayer, screen: c.ui.current, projectiles: c.projectiles.list.length, forceLog: c.law.forceLog.length, gas: p ? c.hazards.gasAt(p.x, p.z) : -1,
+      };
+    });
+    r.restart = { before: before2, after: after2 };
+    check(after2.player && after2.screen === null, '« Recommencer » relance la partie, joueur incarné');
+    check(after2.people === before2.people && after2.vehicles === before2.vehicles && after2.squads === before2.squads, 'mêmes effectifs après redémarrage (rien ne survit de la partie précédente)', `${after2.people} personnes, ${after2.vehicles} véhicule(s), ${after2.squads} unité(s)`);
+    check(after2.projectiles === 0 && after2.forceLog === 0, 'projectiles et journal de la force remis à zéro');
+    check(after2.geometries <= before2.geometries * 1.1 + 10 && after2.textures <= before2.textures + 6, 'pas de fuite de ressources graphiques au redémarrage', `géométries ${before2.geometries} → ${after2.geometries}, textures ${before2.textures} → ${after2.textures}`);
+
+    // ── terminer : compte rendu, puis retour à l'accueil ──
+    await step(page, 2);
+    await page.keyboard.press('KeyP');
+    await waitFor(page, 'window.__CRS.ctx.ui.current === "pause"', 120000);
+    await page.locator('[data-id="pause-terminer"]').click();
+    await page.locator('[data-id="dialog-confirm"]').click();
+    await waitFor(page, 'window.__CRS.ctx.session.phase === "debrief"', 120000);
+    await frames(page, 3);
+    s = await state(page);
+    check(s.screen === 'debrief', 'terminer la partie ouvre le compte rendu', String(s.screen));
+    await capture('game-compte-rendu');
+    await page.locator('[data-id="debrief-accueil"]').click();
+    await waitFor(page, 'window.__CRS.ctx.session.phase === "menu"', 120000);
+    await frames(page, 3);
+    s = await state(page);
+    check(s.screen === 'menu_principal', 'retour à la page d’accueil', String(s.screen));
     r.slowSystems = slow.map((x) => x.id);
     check(r.perf.systems.every((x) => !x.disabled && x.errors === 0), 'aucun système en erreur ni désactivé', r.perf.systems.filter((x) => x.disabled || x.errors).map((x) => x.id).join(', '));
   } catch (err) {

@@ -5,8 +5,9 @@
  * Conventions écrites dans Vehicle :
  *   - cmd.throttle : 1 = accélérer, −1 = marche arrière ; reculer en roulant = freiner d'abord ;
  *   - cmd.steer : −1 gauche … 1 droite (= InputState.moveX) ;
- *   - turretYaw : angle AJOUTÉ au cap du véhicule (même sens que le cap : positif = vers la gauche
- *     du véhicule) ; turretPitch : positif = vers le haut ; tous deux bornés par TurretDef ;
+ *   - turretYaw : gisement dans le repère du véhicule, positif = vers la DROITE du véhicule (convention
+ *     de src/sim/vehicles et de src/render/vehicles : cap monde de la tourelle = heading − turretYaw) ;
+ *     turretPitch : positif = vers le haut ; tous deux bornés par TurretDef ;
  *   - engin volant : throttle = avancer/reculer, strafe = translation latérale (1 = droite),
  *     lift = monter (1) / descendre (−1), steer = rotation vers le cap de la caméra.
  * ===================================================================================== */
@@ -117,7 +118,9 @@ export class VehicleControl {
     const def = v.def.turrets[turret];
     if (!def) return;
     // lacet : relatif au cap du véhicule, borné
-    let wantYaw = wrapAngle(st.camYaw - v.heading);
+    // gisement positif vers la droite : cap monde de la tourelle = heading − turretYaw (aligné à l'assemblage sur
+    // src/sim/vehicles et src/render/vehicles ; l'ancien signe faisait partir la tourelle en miroir du regard)
+    let wantYaw = wrapAngle(v.heading - st.camYaw);
     const limited = def.yawMax - def.yawMin < FULL_TURN;
     if (limited) wantYaw = wantYaw < def.yawMin ? def.yawMin : wantYaw > def.yawMax ? def.yawMax : wantYaw;
     const cur = v.turretYaw[turret] ?? 0;

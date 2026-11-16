@@ -21,8 +21,8 @@ const EXTRA = {
   palais_chaillot: [['parvis', -122, 5.6, -56, -122, 6, 60], ['statues', -118, 5.5, -52, -97, 9, -28], ['ensemble', -122, 150, 330, -122, 0, 20], ['jardins', -122, -12, 150, -122, 10, -20]],
   palais_chaillot_passy: [['statues', 118, 5.5, -52, 97, 9, -28], ['pavillon', 74, -3.5, 40, 74, 12, -10]],
   fontaine_varsovie: [['canons', 0, 6, 75, 0, 3, -30], ['haut', 30, 22, -95, 0, -2, 20]],
-  porte_saint_denis: [['sous-arche', 0, 1.7, 22, 0, 8, 0]],
-  porte_saint_martin: [['sous-arche', 0, 1.7, 18, 0, 6, 0]],
+  porte_saint_denis: [['face', 0, 9, 46, 0, 12, 0], ['sous-arche', 0, 1.7, 22, 0, 8, 0]],
+  porte_saint_martin: [['face', 0, 7, 36, 0, 9, 0], ['sous-arche', 0, 1.7, 18, 0, 6, 0]],
 };
 const args = process.argv.slice(2);
 const only = args.filter((a) => !a.startsWith('--'));

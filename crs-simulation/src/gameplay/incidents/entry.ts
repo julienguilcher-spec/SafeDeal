@@ -88,6 +88,7 @@ export class Entry implements Incident {
   closedAt = -1;
   /** Ordre donné à l'unité (type et horodatage) ; appel de secours lié. */
   orderType = '';
+  orderTarget: EntityId = 0;
   orderAt = -1;
   callId = 0;
   /** L'unité a rendu compte de la fin de sa tâche à cet instant (−1 sinon). */
@@ -102,6 +103,8 @@ export class Entry implements Incident {
   /** Dernier pilleur ou suspect connu. */
   suspectId: EntityId = 0;
   thinkAt = 0;
+  /** Nombre de membres présents au dernier examen (le libellé en dépend : « 2 blessés », « Véhicules en feu »). */
+  lastCount = -1;
   record: IncidentRecord;
   task: PlayerTaskRecord | null = null;
 

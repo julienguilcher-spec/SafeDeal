@@ -406,6 +406,11 @@ export interface Unit {
   windReportAt: number;
   /** Tortue réflexe (mortiers) jusqu'à cet instant. */
   duckUntil: number;
+  /**
+   * Jusqu'à cet instant, les colonnes de l'unité marchent au trot (bible §E.8 : 2,3 m/s) et non au pas :
+   * posé par le commandement (src/sim/police/command) pour un mouvement urgent de la réserve.
+   */
+  trotUntil: number;
   shieldsUntil: number;
 
   // ── logistique ──
@@ -504,7 +509,7 @@ export function createUnit(squad: Squad): Unit {
     own: [], agents: [], groups: [], order: null, task: null, storeOrder: squad.order, restoreOrder: null, placedOrder: null, phase: 'repos', phaseT: 0, formDeadline: 0, man: createManeuver(), pending: null,
     ackAt: 0, ackText: '', reported: true,
     sense: createSense(), thinkAt: 0, warnedAt: -100, volleyAt: 0, masksAt: 0, lbdAt: 0, attackReportAt: -100, windReportAt: -100,
-    duckUntil: 0, shieldsUntil: 0,
+    duckUntil: 0, trotUntil: 0, shieldsUntil: 0,
     fatigue: 0, pressure: 0, disorder: 0, reliefAt: -1000, needsRelief: false, arrests: 0, ops: [], formed: 0, reformAt: 0,
     exits: [], joined: [], status, info, statusAt: -100,
   };

@@ -188,6 +188,12 @@ export class GeoBuilder {
     return this;
   }
 
+  /** Opacité des sommets à venir, sans changer de tampon (décalcomanies fondues écrites en mode « plume »). */
+  alpha(a: number): this {
+    this.ca = Math.max(0, Math.min(255, Math.round(a * 255)));
+    return this;
+  }
+
   solid(): this {
     this.cur = this.main;
     this.ca = 255;

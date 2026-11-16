@@ -66,7 +66,7 @@ export const poubelle: ModelFn = (b, lod) => {
     b.part(P_SOFT).c(0xa9cc9c).lathe(bag, 6);
   }
   // calcinée : résidu fondu au pied
-  b.part(P_ASH).c(C.SUIE).push().move(0, 0.02, 0).scale(1, 0.22, 1).ball(0, 0, 0, 0.24, 7, 3).pop();
+  b.part(P_ASH).c(C.SUIE).push().move(0, 0.05, 0).scale(1, 0.2, 1).ball(0, 0, 0, 0.24, 7, 3).pop();
 };
 
 /** Bac roulant de 660 l (1,26 × 0,77 × 1,22) : cuve, couvercle de couleur, quatre roues. */
@@ -92,7 +92,7 @@ export const conteneur: ModelFn = (b, lod, skin) => {
     b.box(0.64, 0.96, 0, 0.05, 0.05, 0.5);
     b.box(-0.64, 0.96, 0, 0.05, 0.05, 0.5);
     // axe d'accrochage au camion
-    b.c(C.ACIER).bar(-0.5, 1.0, 0.41, 0.5, 1.0, 0.41, 0.014);
+    b.c(C.ACIER).bar(-0.5, 1.0, 0.372, 0.5, 1.0, 0.372, 0.014);
   }
   // roues (caoutchouc : disparaissent au feu)
   b.part(P_SOFT).c(C.PNEU);
@@ -106,8 +106,8 @@ export const conteneur: ModelFn = (b, lod, skin) => {
   if (lod === 0) for (const x of [-0.46, 0.46]) for (const z of [-0.25, 0.25]) b.box(x, 0.15, z, 0.07, 0.04, 0.07);
   b.tagSpot(0, 0.62, 0.352, 0.74, 0.42);
   // calciné : flaque de plastique fondu teintée par le couvercle
-  b.part(P_ASH).c(C.SUIE).push().move(0, 0.01, 0).scale(1.25, 0.14, 0.85).ball(0, 0, 0, 0.6, 9, 3).pop();
-  b.c(lid).push().move(0.2, 0.05, 0.1).scale(1, 0.12, 0.7).ball(0, 0, 0, 0.3, 6, 3).pop();
+  b.part(P_ASH).c(C.SUIE).push().move(0, 0.082, 0).scale(1.25, 0.14, 0.85).ball(0, 0, 0, 0.6, 9, 3).pop();
+  b.c(lid).push().move(0.2, 0.15, 0.1).scale(1, 0.12, 0.7).ball(0, 0, 0, 0.3, 6, 3).pop();
 };
 
 /** Barrière de police dite « Vauban » : 2,50 × 1,10 m, 18 barreaux, pieds plats, acier galvanisé. */
@@ -315,7 +315,7 @@ export const debris: ModelFn = (b, lod, skin) => {
   for (let i = 0; i < n; i++) {
     const a = r() * PI * 2, d = r() * 0.3;
     const sx = 0.1 + r() * 0.22, sy = 0.06 + r() * 0.16, sz = 0.1 + r() * 0.2;
-    b.c(cols[i % cols.length]!).push().move(Math.cos(a) * d, sy * 0.45, Math.sin(a) * d).rotY(r() * 3).rotX((r() - 0.5) * 0.7);
+    b.c(cols[i % cols.length]!).push().move(Math.cos(a) * d, sy * 0.5 + 0.06, Math.sin(a) * d).rotY(r() * 3).rotX((r() - 0.5) * 0.7);
     b.box(0, 0, 0, sx, sy, sz).pop();
   }
   if (lod === 0) {
@@ -335,7 +335,7 @@ export const pile_paves: ModelFn = (b, lod, skin) => {
   const cols = [C.GRANIT, C.GRANIT_BLEU, 0x7a7d80, 0x64676b];
   for (let i = 0; i < n; i++) {
     const a = r() * PI * 2, d = r() * (i < n / 2 ? 0.22 : 0.42);
-    const y = i < n / 2 ? 0.37 + r() * 0.06 : 0.07;
+    const y = i < n / 2 ? 0.37 + r() * 0.06 : 0.115;
     b.c(cols[i % 4]!).push().move(Math.cos(a) * d, y, Math.sin(a) * d).rotY(r() * 3).rotX((r() - 0.5) * 0.5).rotZ((r() - 0.5) * 0.5);
     b.box(0, 0, 0, 0.14, 0.14, 0.2).pop();
   }

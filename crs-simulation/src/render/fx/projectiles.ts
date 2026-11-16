@@ -156,6 +156,8 @@ export class ProjectileRenderer {
   private readonly trackList: Track[] = [];
   private readonly points: number;
   private stamp = 0;
+  /** Part d'émission de chaque palet (1 pour un palet isolé, ≈ 0,12 pour une salve de trente grenades). */
+  private paletShare = 1;
 
   constructor(private readonly core: FxCore) {
     const cap = core.budget.maxProjectiles;
@@ -232,6 +234,7 @@ export class ProjectileRenderer {
     const points = this.points;
     this.stamp++;
     let n = 0;
+    let palets = 0;
     for (let i = 0; i < list.length; i++) {
       const p = list[i]!;
       const dx = p.x - camX;
@@ -300,7 +303,7 @@ export class ProjectileRenderer {
       }
       const tr = this.track(p.id);
       if (flying && time >= tr.sampleAt) {
-        tr.sampleAt = time + 0.035;
+        tr.sampleAt = time + 0.055;
         const h = tr.head;
         tr.hist[h * 3] = p.x; tr.hist[h * 3 + 1] = p.y; tr.hist[h * 3 + 2] = p.z;
         tr.head = (h + 1) % points;
@@ -312,13 +315,13 @@ export class ProjectileRenderer {
       if (flying && style.trail !== 0 && tr.len >= 2 && sp.count + tr.len < sp.capacity) {
         const r = linR(style.trail), g = linG(style.trail), b = linB(style.trail);
         let px = p.x, py = p.y, pz = p.z;
-        const w = 0.05 * projectileScale(dist);
+        const w = 0.075 * projectileScale(dist);
         for (let k = 1; k <= tr.len; k++) {
           const h = (tr.head - k + points * 2) % points;
           const qx = tr.hist[h * 3]!, qy = tr.hist[h * 3 + 1]!, qz = tr.hist[h * 3 + 2]!;
           const f = 1 - (k - 1) / tr.len;
           sp.push((px + qx) * 0.5, (py + qy) * 0.5, (pz + qz) * 0.5, w * (0.6 + 0.8 * f), px - qx, py - qy, pz - qz, 0,
-            r, g, b, 0.34 * f, TILE_STREAK, KIND_ALPHA + 4 * MODE_AXIS, NO_FLOOR, 0);
+            r, g, b, 0.5 * f, TILE_STREAK, KIND_ALPHA + 4 * MODE_AXIS, NO_FLOOR, 0);
           px = qx; py = qy; pz = qz;
         }
       }
@@ -328,9 +331,10 @@ export class ProjectileRenderer {
           break;
         case FX_PALET:
           if (p.emitting) {
-            // jet sifflant : dense et rapide au ras du palet
-            const rate = dist < detailD * 0.6 ? 9 : 4;
-            this.emitSmoke(p, tr, rate, 0.84, 0.85, 0.82, 0.5, 0.22, 1.6, 1.5);
+            // jet sifflant au ras du palet ; plus il y a de palets, moins chacun émet (le nuage du champ prend le relais)
+            palets++;
+            const rate = (dist < detailD * 0.25 ? 7 : dist < detailD * 0.6 ? 3.5 : 1.2) * this.paletShare;
+            this.emitSmoke(p, tr, rate, 0.84, 0.85, 0.82, 0.5, 0.22, 1.6, 1.3);
           }
           break;
         case FX_SMOKE:
@@ -388,6 +392,7 @@ export class ProjectileRenderer {
       }
       k++;
     }
+    this.paletShare = 1 / (1 + palets / 24);
     this.mesh.count = n;
     this.mesh.visible = n > 0;
     if (n > 0) {

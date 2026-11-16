@@ -29,7 +29,8 @@ function build(quality: QualityLevel) {
     piers.push([s * (sideX + sideW / 2 + (W / 2 - sideX - sideW / 2) / 2), W / 2 - sideX - sideW / 2]);
   }
   for (const [x, w] of piers) plinth(b, rectRing(x, 0, w, D), 0, 0.9, 0.22, { mat: TRIM, closed: true });
-  band(b, outer, sideH - sideW / 2 - 0.45, 0.45, 0.2, { mat: TRIM, closed: true });
+  // imposte : autour de chaque pile (un bandeau continu barrerait les arches)
+  for (const [x, w] of piers) band(b, rectRing(x, 0, w, D), sideH - sideW / 2 - 0.45, 0.45, 0.2, { mat: TRIM, closed: true });
   entablature(b, outer, entabY, entabTop - entabY, 0.95, { mat: TRIM, closed: true });
   const cons = new Geo(), trim = new Geo();
   if (quality !== 'bas') {

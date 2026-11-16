@@ -280,3 +280,10 @@ export function hash01(n: number): number {
   h ^= h >>> 16;
   return (h >>> 0) / 4294967296;
 }
+
+const hasOwn = Object.prototype.hasOwnProperty;
+
+/** Valeur d'une table pour une clé venue des données (jamais une propriété héritée d'Object.prototype). */
+export function own<T>(table: Readonly<Record<string, T>>, key: string): T | undefined {
+  return hasOwn.call(table, key) ? table[key] : undefined;
+}

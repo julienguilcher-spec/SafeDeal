@@ -45,43 +45,38 @@ interface Opening { x0: number; x1: number; sill: number; door: boolean }
 const openings: Opening[] = [];
 for (let i = 0; i < 12; i++) openings.push({ x0: 0, x1: 0, sill: 0, door: false });
 
+/** Découpe l'intervalle [a, b] en baies vitrées d'au plus 2,5 m ; retourne le nouveau nombre d'ouvertures. */
+function splitSpan(a: number, b: number, sill: number, out: Opening[], n: number): number {
+  const span = b - a;
+  if (span <= 0.35) return n;
+  const mull = 0.07;
+  const bays = Math.max(1, Math.min(out.length - n, Math.ceil(span / 2.5)));
+  const bw = (span - (bays - 1) * mull) / bays;
+  for (let i = 0; i < bays; i++) {
+    const o = out[n++]!;
+    o.x0 = a + i * (bw + mull);
+    o.x1 = o.x0 + bw;
+    o.sill = sill;
+    o.door = false;
+  }
+  return n;
+}
+
 /** Découpe la largeur utile en une porte et des baies vitrées ; retourne le nombre d'ouvertures. */
 export function layoutOpenings(width: number, style: ShopStyle, out: Opening[] = openings): number {
   const W = Math.max(0.6, width - 2 * PIL);
   const x0 = -W / 2, x1 = W / 2;
-  let n = 0;
   const doorW = W >= 2.6 ? 0.95 : W >= 1.7 ? 0.85 : 0;
   const mull = 0.07;
-  let a = x0, b = x1;
-  if (doorW > 0) {
-    let d0: number;
-    if (style.doorSide < 0) { d0 = x0; a = x0 + doorW + mull; } else if (style.doorSide > 0) { d0 = x1 - doorW; b = x1 - doorW - mull; } else { d0 = -doorW / 2; }
-    const o = out[n++]!;
-    o.x0 = d0; o.x1 = d0 + doorW; o.sill = 0.06; o.door = true;
-    if (style.doorSide === 0) {
-      // porte au centre : une baie de chaque côté
-      const half = (W - doorW) / 2 - mull;
-      if (half > 0.35) {
-        let o2 = out[n++]!;
-        o2.x0 = x0; o2.x1 = x0 + half; o2.sill = style.sill; o2.door = false;
-        o2 = out[n++]!;
-        o2.x0 = x1 - half; o2.x1 = x1; o2.sill = style.sill; o2.door = false;
-      }
-      return n;
-    }
-  }
-  const span = b - a;
-  if (span > 0.35) {
-    const bays = Math.max(1, Math.min(out.length - n, Math.ceil(span / 2.5)));
-    const bw = (span - (bays - 1) * mull) / bays;
-    for (let i = 0; i < bays; i++) {
-      const o = out[n++]!;
-      o.x0 = a + i * (bw + mull);
-      o.x1 = o.x0 + bw;
-      o.sill = style.sill;
-      o.door = false;
-    }
-  }
+  if (doorW === 0) return splitSpan(x0, x1, style.sill, out, 0);
+  const d0 = style.doorSide < 0 ? x0 : style.doorSide > 0 ? x1 - doorW : -doorW / 2;
+  const o = out[0]!;
+  o.x0 = d0;
+  o.x1 = d0 + doorW;
+  o.sill = 0.06;
+  o.door = true;
+  let n = splitSpan(x0, d0 - mull, style.sill, out, 1);
+  n = splitSpan(d0 + doorW + mull, x1, style.sill, out, n);
   return n;
 }
 
@@ -206,7 +201,7 @@ export function buildShopfront(
     if (!closed) {
       if (broken) {
         // trou : on voit l'intérieur, sombre ; dents de verre au bord ; éclats sur le trottoir
-        b.c(looted ? 0x8f8f8f : 0xb0b0b0).texRegion(display);
+        b.c(looted ? 0x6a6a6a : 0x7c7c7c).texRegion(display);
         if (burning) b.emit(FX_FIRE, 0.95, hash01(seed + i));
         else if (lit) b.emit(FX_NIGHT, 0.55);
         b.quadZ(xc, yc, 0.03, ow, hh, false, u0, 0, u1, 1).emit(0).tex('');
@@ -289,14 +284,26 @@ export function buildShopfront(
     b.c(0xffffff).tex('ardoise').quadZ(-w / 2 + PIL / 2, 1.45, DEPTH + 0.02, 0.17, 0.42).tex('');
   }
 
-  // ── suie au-dessus des baies ──
-  if (burnt || burning) {
-    b.c(0xffffff).tex('suie');
-    b.quadZ(0, SHOP_HEIGHT + 1.3, 0.03, w * 1.05, 3.4);
-    if (burnt) b.quadZ(0, 2.9, 0.166, w, 1.0);
-    b.tex('');
-  }
   if (burnt && detail) b.c(0xffffff).tex('dechets').quadY(0, 0.013, 0.9, Math.min(w, 4), 1.5).tex('');
+}
+
+/** La devanture porte-t-elle des traces de suie (elle brûle ou a brûlé) ? */
+export function hasSoot(st: ShopState): boolean {
+  return st.burnt || st.burning > 0.05;
+}
+
+/**
+ * Traînées de suie au-dessus des baies d'une boutique qui brûle ou a brûlé : quads à l'opacité en
+ * dégradé, destinés au lot fondu (transparence vraie), dans le repère donné par `m`.
+ */
+export function buildShopSoot(dst: MeshBuf, m: Mat, width: number, st: ShopState): void {
+  if (!hasSoot(st)) return;
+  const w = Math.max(1.0, width);
+  const b = W.begin(dst, m);
+  b.c(0xffffff).alpha(st.burnt ? 0.95 : 0.7).tex('suie_mur');
+  b.quadZ(0, SHOP_HEIGHT + 1.2, 0.035, w * 0.98, 2.6);
+  b.quadZ(0, 2.96, 0.168, w * 0.92, 0.62);
+  b.tex('').alpha(1);
 }
 
 function isBoarded(st: ShopState): boolean {
@@ -321,8 +328,8 @@ export function shopGlows(glows: ShopGlow[], width: number, style: ShopStyle, st
   glows.length = 0;
   const w = Math.max(1.0, width);
   if (isBurning(st)) {
-    glows.push({ x: 0, y: 1.6, z: 0.6, radius: Math.min(4, 1.5 + w * 0.4), color: 0xff7a1a, intensity: 1.1, gate: FX_FIRE, ground: false });
-    glows.push({ x: 0, y: 0, z: 2.0, radius: 4 + w * 0.6, color: 0xff6a12, intensity: 0.55, gate: FX_FIRE, ground: true });
+    glows.push({ x: 0, y: 1.6, z: 0.6, radius: Math.min(4, 1.5 + w * 0.4), color: 0xff7a1a, intensity: 0.6, gate: FX_FIRE, ground: false });
+    glows.push({ x: 0, y: 0, z: 2.0, radius: 4 + w * 0.6, color: 0xff6a12, intensity: 0.3, gate: FX_FIRE, ground: true });
   } else if (isLit(st, style)) {
     glows.push({ x: 0, y: 0, z: 1.3, radius: Math.min(5.5, 1.6 + w * 0.5), color: 0xffe8c4, intensity: 0.2, gate: FX_NIGHT, ground: true });
   }

@@ -5,7 +5,7 @@
  * ===================================================================================== */
 
 import type { MissionDef } from '../../../core/missions-schema';
-import { crowd, fail, forces, FIN, FOULE, intel, mission, ob, os, ph, scene, T, TENS } from './dsl';
+import { crowd, fail, forces, FIN, FOULE, intel, mission, OBJ, ob, os, ph, rad, scene, SOMMATIONS, T, TENS, voix } from './dsl';
 import type { MissionSpec } from './dsl';
 import { CDT_08, CDT_09, CDT_11 } from './commandant';
 import { CRS_09 } from './crs';
@@ -32,13 +32,30 @@ export const POMP_01 = mission({
     'Une soixantaine d\'individus déterminés.', ['Avenue de l\'Opéra', 'Place de l\'Opéra'],
     ['Demander un couloir', 'Avancer derrière les boucliers', 'Rendre compte']),
   phases: [
-    ph('alerte', 'Alerte', 'Vous apprenez qu\'une victime est à terre.', T(60),
-      [['SANTÉ 1', 'CENTRAL ICI SANTÉ UN. Victime à terre, avenue de l\'Opéra. Demande un couloir. PARLEZ.']], []),
-    ph('couloir', 'Couloir', 'Les forces de l\'ordre ouvrent un couloir de trois mètres cinquante.', T(180),
-      [['MISTRAL 1', 'SANTÉ UN ICI MISTRAL UN. Couloir pour SANTÉ UN, axe véhicules, largeur TROIS mètres CINQ-ZÉRO. TERMINÉ.']], ['Un projectile tombe à dix mètres']),
-    ph('extraction', 'Extraction', 'Vous atteignez la victime et l\'évacuez.', TENS(0.65),
-      [['SANTÉ 1', 'CENTRAL ICI SANTÉ UN. Victime sur brancard, retour. PARLEZ.']], []),
-    ph('fin', 'Retour', 'Vous revenez à l\'engin.', FIN, [['SANTÉ 1', 'CENTRAL ICI SANTÉ UN. Victime évacuée. PARLEZ.']], []),
+    ph('appel', `Une victime dans la zone des jets`,
+      `Avenue de l'Opéra, votre fourgon est à l'arrêt à trois cents mètres de la place de l'Opéra, moteur tournant, derrière les lignes. Un manifestant est tombé inconscient au milieu de la chaussée, dans la zone où pleuvent les projectiles. Sans couloir ni protection, vous n'irez pas : un pompier blessé, c'est une victime de plus.`,
+      T(40), [
+        rad('CENTRAL', 'SAPEUR 1', `Victime inconsciente avenue de l'Opéra, à CENT mètres devant la ligne de MISTRAL UN. Zone non sécurisée. Prenez contact avec lui pour un couloir.`),
+        voix('CHEF D\'AGRÈS', `Casque, visière, veste fermée. On prend le brancard et le sac, rien d'autre. Et on ne force rien.`),
+      ], [`Un projectile rebondit sur le fourgon`]),
+    ph('couloir', `Cent mètres derrière les boucliers`,
+      `La ligne de CRS s'ouvre sur trois mètres cinquante et un groupe vous encadre, boucliers levés. Cent mètres à pied sur l'avenue de l'Opéra, au rythme des porteurs de bouclier, jusqu'à l'homme étendu : contrôle de la respiration, collier cervical, brancard, et retour par le même couloir.`,
+      OBJ('o1'), [
+        rad('MISTRAL 1', 'SAPEUR 1', `Couloir ouvert, largeur TROIS mètres CINQ-ZÉRO. Un groupe vous escorte. Vous avancez à mon rythme, pas au vôtre.`),
+        voix('ÉQUIPIER', `Il respire. Pas de réponse à la voix. Je prends la tête, tu prends les pieds.`),
+      ], [`Un projectile tombe à dix mètres du brancard`, `La ligne recule de dix mètres pendant l'approche`, `Un manifestant propose d'aider à porter`]),
+    ph('retour', `Le retour, brancard chargé`,
+      `La victime est sur le brancard. Reste à refaire les cent mètres en sens inverse, deux porteurs, les mains prises, sous la protection de boucliers qui encaissent pour vous. À l'arrière, l'ambulance du SAMU s'est avancée jusqu'à l'angle de la rue des Pyramides.`,
+      T(150), [
+        rad('SANTÉ 1', 'SAPEUR 1', `En attente angle rue des Pyramides. Annoncez-moi le bilan avant d'arriver : conscience, respiration, lésions.`),
+        voix('CHEF D\'AGRÈS', `On ne court pas avec un brancard. Si ça tombe, on pose, on se baisse, on repart.`),
+      ], [`La victime reprend conscience et s'agite`]),
+    ph('transmission', `La transmission au SAMU`,
+      `Le brancard passe du fourgon rouge à l'ambulance, à l'angle de la rue des Pyramides, et le médecin du SAMU écoute votre bilan sans lever les yeux de la victime. Derrière vous, la ligne s'est refermée sur l'avenue de l'Opéra. Il reste à rendre compte, à nettoyer le brancard, et à se tenir prêt pour le suivant.`,
+      FIN, [
+        rad('CENTRAL', 'SAPEUR 1', `Rendez compte de votre intervention, puis remettez-vous en attente. D'autres appels arrivent sur le secteur.`),
+        voix('CHEF D\'AGRÈS', `Tout le monde est entier ? Montrez-moi vos casques.`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Obtenir un couloir et atteindre la victime en moins de quatre minutes', 'secourir', { target: 'urgence_absolue', count: 1, seconds: 240 }),
@@ -72,13 +89,30 @@ export const POMP_02 = mission({
     'Aucun radical.', ['Boulevard Saint-Germain', 'Rue de Rennes'],
     ['Éteindre à la lance', 'Évacuer par l\'escalier', 'Porter l\'appareil respiratoire']),
   phases: [
-    ph('alerte', 'Alerte', 'La poubelle brûle contre la façade.', T(60),
-      [['SANTÉ 1', 'CENTRAL ICI SANTÉ UN. Départ pour feu de façade, boulevard Saint-Germain. PARLEZ.']], []),
-    ph('extinction', 'Extinction', 'Vous attaquez la base des flammes.', T(180),
-      [['SANTÉ 1', 'CENTRAL ICI SANTÉ UN. Feu attaqué, lance en place. PARLEZ.']], ['Une fenêtre éclate']),
-    ph('evacuation', 'Évacuation', 'Vous montez chercher les deux habitants.', TENS(0.4),
-      [['SANTÉ 1', 'CENTRAL ICI SANTÉ UN. DEUX personnes évacuées. PARLEZ.']], []),
-    ph('fin', 'Reconnaissance', 'Vous inspectez le bâtiment.', FIN, [['SANTÉ 1', 'CENTRAL ICI SANTÉ UN. Feu éteint, bâtiment sain. PARLEZ.']], []),
+    ph('facade', `Une poubelle contre la pierre`,
+      `Boulevard Saint-Germain, vingt heures. Les manifestants sont partis en laissant des feux derrière eux ; l'un d'eux, une poubelle renversée, brûle contre la façade d'un immeuble ancien, à l'angle de la rue de Rennes. La fumée monte le long de la pierre et entre par une fenêtre du deuxième étage, où deux habitants font des signes.`,
+      T(50), [
+        rad('CENTRAL', 'SAPEUR 1', `Feu de poubelle contre façade, boulevard Saint-Germain, angle rue de Rennes. Deux personnes signalées aux fenêtres. Zone calme, une patrouille sécurise la rue.`),
+        voix('CHEF D\'AGRÈS', `Lance en eau, on attaque la base. Binôme d'exploration : appareil respiratoire, prêts à monter.`),
+      ]),
+    ph('base-des-flammes', `La base des flammes`,
+      `La lance se déroule sur le trottoir du boulevard Saint-Germain. Jet diffusé à la base, pas dans les flammes, et jamais vers la gouttière où court un câble électrique ; la poubelle fond en une flaque noire qui coule vers la porte cochère. Au-dessus, une vitre éclate sous la chaleur.`,
+      OBJ('o1'), [
+        voix('ÉQUIPIER', `Câble électrique sur la façade, à gauche de la fenêtre ! Garde ton jet à droite !`),
+        voix('RIVERAINE', `On ne peut pas descendre, la cage d'escalier est pleine de fumée !`),
+      ], [`Une fenêtre éclate sous la chaleur`, `Un autre départ de feu est signalé à cinquante mètres`]),
+    ph('escalier', `Deux habitants au deuxième étage`,
+      `Le foyer est noyé, mais l'escalier de l'immeuble du boulevard Saint-Germain est plein d'une fumée âcre de plastique brûlé. Appareil respiratoire sur le dos, vous montez avec un collègue jusqu'au deuxième étage, à tâtons, la main sur la rampe : deux habitants à faire descendre, dont un qui ne veut pas laisser son chat.`,
+      OBJ('o2'), [
+        voix('RIVERAIN', `Je ne pars pas sans lui ! Il est sous le lit, il a peur, laissez-moi le chercher !`),
+        rad('MISTRAL 2', 'SAPEUR 1', `Je tiens la rue devant l'immeuble. Des curieux reviennent, je les garde à distance de vos tuyaux.`),
+      ], [`Un habitant refuse de descendre`, `Des curieux reviennent vers l'immeuble`]),
+    ph('reconnaissance', `La reconnaissance, étage par étage`,
+      `Les deux habitants sont sur le trottoir, une couverture sur les épaules. Il reste à faire ce que personne ne voit : remonter, ouvrir les fenêtres, passer la main sur les murs, vérifier que rien ne couve derrière un volet ou sous un plancher, du rez-de-chaussée aux combles de cet immeuble du boulevard Saint-Germain.`,
+      FIN, [
+        voix('CHEF D\'AGRÈS', `Reconnaissance complète. Tu touches les murs : si c'est chaud, tu m'appelles. Personne ne remonte chez lui avant mon feu vert.`),
+        rad('CENTRAL', 'SAPEUR 1', `Rendez compte en fin de reconnaissance. Un autre feu de poubelle vous attend rue du Four.`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Éteindre la poubelle avant qu\'elle ne gagne le balcon', 'eteindre', { target: 'poubelle', place: 'Boulevard Saint-Germain', count: 1 }),
@@ -112,13 +146,37 @@ export const POMP_03 = mission({
     'Aucun radical.', ['Place de la Concorde', 'Rue Royale'],
     ['Trier par couleur', 'Évacuer les rouges d\'abord', 'Garder le poste ouvert']),
   phases: [
-    ph('arrivee', 'Arrivée des victimes', 'Douze victimes sont amenées au poste.', T(120),
-      [['SANTÉ 1', 'CENTRAL ICI SANTÉ UN. UN-DEUX victimes, poste avancé en place. PARLEZ.']], []),
-    ph('tri', 'Tri', 'Vous triez par couleur.', T(300),
-      [['SANTÉ 1', 'CENTRAL ICI SANTÉ UN. Tri : QUATRE rouges, QUATRE jaunes, QUATRE verts. PARLEZ.']], ['Un vert s\'aggrave']),
-    ph('evacuation', 'Évacuations', 'Les ambulances arrivent une à une.', TENS(0.35),
-      [['CENTRAL', 'SANTÉ UN ICI CENTRAL. Première ambulance à DEUX minutes. PARLEZ.']], []),
-    ph('fin', 'Fin', 'Toutes les victimes sont évacuées.', FIN, [['SANTÉ 1', 'CENTRAL ICI SANTÉ UN. Poste vidé. PARLEZ.']], []),
+    ph('douze-victimes', `Douze victimes au pied de l'obélisque`,
+      `Vingt-deux heures, place de la Concorde. Des pétards, un cri, une foule qui court : douze personnes sont à terre ou assises près de l'obélisque, piétinées, tombées, choquées. Le poste de secours avancé, c'est vous : une bâche, des bracelets de trois couleurs, et dix minutes avant la première ambulance.`,
+      T(90), [
+        rad('CENTRAL', 'SAPEUR 1', `Mouvement de foule place de la Concorde, UN-DEUX victimes signalées. Vous êtes poste avancé. Première ambulance dans UN-ZÉRO minutes.`),
+        voix('CHEF D\'AGRÈS', `Bracelets : rouge, jaune, vert. Tu tries, tu ne soignes pas encore. Trente secondes par victime.`),
+      ], [`Des victimes sont amenées par des passants`]),
+    ph('tri', `Rouge, jaune, vert`,
+      `Elles arrivent portées par des inconnus, soutenues par des amis, ou sur leurs deux jambes en se tenant un poignet. Celle qui hurle a une cheville cassée ; celui qui ne dit rien, assis contre le socle d'une fontaine de la place de la Concorde, respire trop vite et trop court. Douze bracelets à poser, et l'ordre dans lequel on les pose compte déjà.`,
+      OBJ('o1'), [
+        voix('PROCHE', `C'est mon fils ! Il s'est fait marcher dessus ! Pourquoi vous regardez les autres avant lui ?`),
+        voix('ÉQUIPIER', `Le monsieur silencieux, là-bas : il est gris. Regarde-le avant la cheville.`),
+      ], [`Un proche exige que son fils passe en premier`, `Une victime silencieuse respire de plus en plus mal`]),
+    ph('ordre-des-departs', `L'ordre des départs`,
+      `Douze bracelets posés, quatre rouges. Les ambulances arrivent une à une par la rue Royale, et chacune n'emporte qu'une victime couchée. Les rouges d'abord, dans l'ordre de gravité, quoi que disent ceux qui crient le plus fort ; pendant ce temps, quelqu'un doit continuer à regarder les verts.`,
+      OBJ('o2'), [
+        rad('SANTÉ 1', 'SAPEUR 1', `Première ambulance sur place par la rue Royale. Je prends une victime couchée. Laquelle ?`),
+        rad('SANTÉ 2', 'SAPEUR 1', `Deuxième ambulance retardée : CINQ minutes de plus.`),
+        voix('ÉQUIPIER', `Le vert au poignet, il vient de vomir. Il se plaint de la tête, maintenant.`),
+      ], [`Une ambulance est en retard`, `Un cas classé vert s'aggrave`, `Panne de radio pendant une transmission`]),
+    ph('poste-ouvert', `Le poste reste ouvert`,
+      `Les quatre rouges sont partis. Sous la bâche, il reste huit personnes : des jaunes à surveiller, des verts qui veulent rentrer chez eux, des proches qui veulent des nouvelles. La place de la Concorde s'est vidée autour du poste ; il ne fermera que lorsque la dernière victime aura une destination.`,
+      T(200), [
+        voix('PROCHE', `Où est-ce qu'ils l'ont emmenée ? Quel hôpital ? On ne me dit rien !`),
+        rad('CENTRAL', 'SAPEUR 1', `Deux ambulances supplémentaires pour vos jaunes dans HUIT minutes. Gardez le poste ouvert.`),
+      ], [`Un proche cherche où a été emmenée une victime`]),
+    ph('registre', `Le registre du poste`,
+      `La dernière ambulance quitte la place de la Concorde par la rue Royale. On replie la bâche, on ramasse les emballages. Reste le registre : douze lignes, une couleur, une heure de départ, une destination ; s'il y a une erreur dans l'ordre, c'est là qu'elle se lira.`,
+      FIN, [
+        rad('CENTRAL', 'SAPEUR 1', `Transmettez le registre du poste avancé : victimes, catégories, heures de départ, destinations.`),
+        voix('CHEF D\'AGRÈS', `Relis-moi l'ordre des départs. Le premier parti, c'était bien le plus grave ?`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Trier les douze victimes par couleur', 'soigner', { target: 'victime', count: 12 }),
@@ -152,13 +210,36 @@ export const POMP_04 = mission({
     'Une trentaine d\'individus déterminés.', ['Rue du Temple', 'Rue Rambuteau'],
     ['Se replier en marche arrière', 'Demander la protection', 'Ne pas répondre']),
   phases: [
-    ph('extinction', 'Extinction', 'Vous attaquez le feu de voiture.', T(90),
-      [['SANTÉ 1', 'CENTRAL ICI SANTÉ UN. Feu de voiture attaqué, rue du Temple. PARLEZ.']], []),
-    ph('projectiles', 'Projectiles', 'Un groupe lance des projectiles sur l\'engin.', TENS(0.7),
-      [['SANTÉ 1', 'CENTRAL ICI SANTÉ UN. URGENT. Pris à partie, demande protection. PARLEZ.']], ['Une vitre de l\'engin est brisée']),
-    ph('repli', 'Repli', 'Vous reculez avec l\'engin.', FOULE('dispersion'),
-      [['MISTRAL 1', 'SANTÉ UN ICI MISTRAL UN. Protection en route, TROIS minutes. PARLEZ.']], []),
-    ph('retour', 'Retour sous protection', 'Vous revenez derrière la ligne de CRS.', FIN, [['SANTÉ 1', 'CENTRAL ICI SANTÉ UN. De retour, feu éteint. PARLEZ.']], []),
+    ph('feu-de-voiture', `Une voiture en travers de la rue`,
+      `Vingt et une heures, rue du Temple. Une voiture brûle en travers de la chaussée, entre deux façades étroites. Votre fourgon est en station à vingt mètres, la lance en eau ; sur les trottoirs, une trentaine de silhouettes regardent travailler les pompiers, capuches relevées, sans rien dire.`,
+      TENS(0.7), [
+        rad('CENTRAL', 'SAPEUR 1', `Feu de véhicule rue du Temple. Pas d'unité de police sur place pour l'instant : MISTRAL UN est à CINQ minutes.`),
+        voix('CHEF D\'AGRÈS', `On attaque, mais vous gardez un œil derrière. Je n'aime pas ceux qui nous regardent.`),
+      ], [`Des individus encapuchonnés observent l'intervention`]),
+    ph('projectiles', `Les projectiles sur l'engin rouge`,
+      `La tension monte d'un coup dans la rue du Temple : une bouteille, puis des pavés, sur le fourgon et sur vous. Une vitre de la cabine éclate, un collègue prend un pavé sur le casque et met un genou à terre. On ne répond pas, on ne défend pas un véhicule avec des hommes : on coupe la lance et on dégage.`,
+      T(60), [
+        voix('CHEF D\'AGRÈS', `On coupe ! Lance à terre, tout le monde derrière l'engin ! On ne répond pas !`),
+        voix('ÉQUIPIER', `Il a pris un pavé ! Le casque a tenu, mais il voit trouble !`),
+      ], [`Une vitre de l'engin est brisée`, `Un collègue est touché au casque`]),
+    ph('repli', `Cinquante mètres en marche arrière`,
+      `Tuyaux abandonnés sur la chaussée, l'engin recule de cinquante mètres dans la rue du Temple, en marche arrière, guidé à la voix. La voiture brûle toujours, et le feu commence à lécher un scooter garé contre un mur. Sur la fréquence, une seule demande : une protection, tout de suite.`,
+      T(120), [
+        rad('CENTRAL', 'SAPEUR 1', `Reçu : pris à partie. MISTRAL UN arrive par la rue Rambuteau, TROIS minutes. Restez à distance, ne vous réengagez pas seuls.`),
+        voix('CHEF D\'AGRÈS', `On attend la ligne. Je sais, ça brûle. On attend quand même.`),
+      ], [`Le feu gagne un scooter`, `La ligne de CRS est en retard`]),
+    ph('sous-les-boucliers', `Retour sous les boucliers`,
+      `Les CRS débouchent de la rue Rambuteau et se mettent en ligne entre vous et le groupe. À l'abri des boucliers, l'engin revient à vingt mètres de la voiture ; on récupère les tuyaux, on remet en eau, et on attaque de nouveau, par l'arrière du véhicule, jamais par l'avant.`,
+      OBJ('o2'), [
+        rad('MISTRAL 1', 'SAPEUR 1', `En ligne devant vous, rue du Temple. Vous pouvez revenir. Restez derrière mes boucliers, je vous couvre.`),
+        voix('ÉQUIPIER', `Les pneus vont péter. On se met de trois quarts, pas dans l'axe.`),
+      ], [`Un pneu éclate avec une détonation`, `Le feu repart sous le capot`]),
+    ph('constat', `La vitre, le casque, le compte rendu`,
+      `La voiture n'est plus qu'une carcasse fumante au milieu de la rue du Temple, et le groupe s'est dissous derrière la ligne. Il reste une vitre de cabine en miettes, un casque fendu, un collègue à faire examiner : tout cela se déclare, avec l'heure et le lieu.`,
+      FIN, [
+        rad('CENTRAL', 'SAPEUR 1', `Rendez compte des dégâts sur l'engin et de l'état de l'équipage. Une plainte sera déposée pour les violences.`),
+        voix('CHEF D\'AGRÈS', `Toi, tu montes dans l'ambulance, je ne veux pas discuter. Les autres : on roule les tuyaux.`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Replier l\'engin et l\'équipe sans perte', 'survivre'),
@@ -188,13 +269,31 @@ export const POMP_05 = mission({
     'Trente individus déterminés près de la statue.', ['Place de la République', 'Boulevard du Temple'],
     ['Deux équipes, deux couloirs', 'Neutralité absolue', 'Quatre minutes maximum']),
   phases: [
-    ph('alerte', 'Alerte', 'Deux victimes sont signalées.', T(60),
-      [['SANTÉ 1', 'CENTRAL ICI SANTÉ UN. DEUX victimes, UN policier brûlé, UN manifestant blessé à la tête. Demande deux couloirs. PARLEZ.']], []),
-    ph('couloirs', 'Couloirs', 'Les forces de l\'ordre ouvrent deux couloirs.', T(180),
-      [['MISTRAL 1', 'SANTÉ UN ICI MISTRAL UN. Couloir pour SANTÉ UN, axe véhicules, largeur TROIS mètres CINQ-ZÉRO. TERMINÉ.']], ['Un projectile tombe à dix mètres']),
-    ph('soins', 'Soins', 'Vous soignez les deux victimes.', TENS(0.55),
-      [['SANTÉ 1', 'CENTRAL ICI SANTÉ UN. Brûlure refroidie, hémorragie contrôlée. PARLEZ.']], []),
-    ph('fin', 'Évacuation', 'Les deux victimes sont évacuées.', FIN, [['SANTÉ 1', 'CENTRAL ICI SANTÉ UN. Deux victimes évacuées. PARLEZ.']], []),
+    ph('deux-appels', `Deux appels, cinquante mètres d'écart`,
+      `Dix-neuf heures, place de la République, à l'heure des sommations. Votre fourgon est à l'angle du boulevard du Temple. Deux appels tombent ensemble : un policier brûlé par un engin incendiaire, côté statue ; un manifestant blessé à la tête par un pavé, cinquante mètres plus loin, de l'autre côté de la ligne.`,
+      T(40), [
+        rad('CENTRAL', 'SAPEUR 1', `Deux victimes place de la République : UN agent brûlé derrière la ligne, UN manifestant blessé à la tête devant la ligne. Il vous faut deux couloirs.`),
+        voix('CHEF D\'AGRÈS', `Deux équipes. La une sur le policier, la deux sur le manifestant. Le plus grave part le premier, c'est tout.`),
+        voix('COMMANDANT', SOMMATIONS.premiere),
+      ]),
+    ph('deux-couloirs', `Deux couloirs à la fois`,
+      `La première équipe atteint le policier en trente secondes : il est derrière les boucliers. Pour le manifestant, il faut que la ligne s'ouvre, et que ceux d'en face cessent de lancer le temps de passer. Refroidir la brûlure à l'eau, comprimer la plaie de la tête ; deux gestes, deux endroits de la place de la République, au même moment.`,
+      OBJ('o1'), [
+        rad('MISTRAL 1', 'SAPEUR 1', `Couloir ouvert pour votre seconde équipe, à gauche de la statue. Faites vite : la dernière sommation arrive.`),
+        voix('MANIFESTANT', `Les pompiers ! Par ici ! Et dites aux flics de ne pas tirer pendant que vous êtes là !`),
+      ], [`Un projectile tombe à dix mètres d'un pompier`, `Un camp réclame d'être secouru le premier`]),
+    ph('ordre-de-gravite', `Par ordre de gravité`,
+      `Les deux victimes sont entre vos mains. Une seule ambulance est là ; l'autre est bloquée par un fourgon de CRS boulevard Voltaire. Brûlure du cou, ou plaie du crâne avec perte de connaissance : celle qui part en premier est celle qui risque le plus, et autour de vous chaque camp regarde lequel vous choisissez.`,
+      FOULE('dispersion'), [
+        rad('SANTÉ 2', 'SAPEUR 1', `Bloqué boulevard Voltaire par un fourgon en travers. Je cherche un autre accès, TROIS minutes.`),
+        voix('CRS', `C'est notre collègue, il part le premier, non ? Vous n'allez pas le faire attendre pour l'autre ?`),
+      ], [`Une ambulance est bloquée`, `Un journaliste filme le choix de la première évacuation`]),
+    ph('deux-departs', `Deux départs`,
+      `La dispersion bat son plein sur la place de la République quand la seconde ambulance arrive enfin, par la rue du Faubourg du Temple. Les deux victimes quittent les lieux l'une après l'autre ; le fourgon se remet en attente à l'angle du boulevard du Temple, portes ouvertes.`,
+      FIN, [
+        rad('CENTRAL', 'SAPEUR 1', `Rendez compte : heure de prise en charge de chaque victime, ordre des départs, motif de l'ordre.`),
+        voix('CHEF D\'AGRÈS', `Si on nous demande pourquoi celui-là d'abord, on répond avec le bilan, pas avec l'uniforme.`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Prendre en charge les deux victimes en moins de quatre minutes', 'secourir', { count: 2, seconds: 240 }),
@@ -224,13 +323,36 @@ export const POMP_06 = mission({
     'Aucun radical.', ['Quai d\'Orsay', 'Pont de l\'Alma', 'Quai Branly'],
     ['Évacuer les péniches', 'Écarter les curieux', 'Annoncer le niveau de l\'eau']),
   phases: [
-    ph('alerte', 'Alerte', 'La crue gagne les berges.', T(120),
-      [['SANTÉ 1', 'CENTRAL ICI SANTÉ UN. Départ bateau de sauvetage, quai d\'Orsay. PARLEZ.']], []),
-    ph('evacuation', 'Évacuation des péniches', 'Vous évacuez deux péniches.', T(360),
-      [['SANTÉ 1', 'CENTRAL ICI SANTÉ UN. Première péniche évacuée, DEUX riverains. PARLEZ.']], ['Un chien tombe à l\'eau']),
-    ph('pic', 'Pic de la crue', 'Un curieux tombe à l\'eau.', TENS(0.3),
-      [['SANTÉ 1', 'CENTRAL ICI SANTÉ UN. URGENT. UN homme à l\'eau, pont de l\'Alma. PARLEZ.']], []),
-    ph('fin', 'Décrue', 'Le niveau stagne puis baisse.', FIN, [['SANTÉ 1', 'CENTRAL ICI SANTÉ UN. Évacuation terminée. PARLEZ.']], []),
+    ph('embarcation', `L'embarcation à l'eau`,
+      `Neuf heures, quai d'Orsay, sous la pluie. La Seine a recouvert les berges basses et tire sur les amarres des péniches. Votre équipe met l'embarcation de sauvetage à l'eau depuis une rampe à moitié noyée ; au-dessus, derrière les parapets, des centaines de curieux regardent le courant.`,
+      T(100), [
+        rad('CENTRAL', 'SAPEUR 1', `Deux péniches à évacuer quai Branly, quatre personnes à bord. La police écarte les curieux et vous garde l'accès par la rue de l'Université.`),
+        voix('CHEF D\'AGRÈS', `Gilets de sauvetage pour tout le monde, nous compris. Le courant est fort : on reste reliés à la berge par la ligne de vie.`),
+      ], [`La rampe d'accès est glissante`]),
+    ph('peniches', `Quatre personnes sur deux péniches`,
+      `L'embarcation accoste la première péniche, quai Branly, dans le clapot. Un couple âgé attend sur le pont avec deux sacs ; sur la seconde, un homme refuse de quitter le bateau où il vit depuis trente ans, et son chien tourne en rond sur le plat-bord. Quatre personnes à faire passer, une par une, gilet attaché.`,
+      OBJ('o1'), [
+        voix('RIVERAIN', `Trente ans que je vis là-dessus ! Elle a tenu toutes les crues, je ne la laisse pas !`),
+        rad('CENTAURE 1', 'SAPEUR 1', `Je suis sur la chaussée inondée du quai Branly. Je peux prendre vos évacués à mon bord dès que vous les déposez.`),
+      ], [`Un riverain refuse de quitter sa péniche`, `Un chien tombe à l'eau`, `Une amarre lâche`]),
+    ph('homme-a-l-eau', `Un homme à l'eau`,
+      `Les quatre riverains sont à terre. Un cri au-dessus : sur la rampe du quai d'Orsay, un curieux descendu photographier a glissé et vient de partir dans le courant, vers le pont de l'Alma. Une personne à l'eau passe avant tout le reste : cap sur lui, bouée prête, par le plus court.`,
+      OBJ('o2'), [
+        rad('CENTRAL', 'SAPEUR 1', `URGENT. Homme à l'eau quai d'Orsay, il dérive vers le pont de l'Alma. Vous êtes la seule embarcation sur zone.`),
+        voix('ÉQUIPIER', `Je le vois ! Trente mètres, il se débat. Je lance la bouée dès qu'on est à portée.`),
+      ], [`Un curieux tombe dans la Seine`, `Le moteur de l'embarcation cale`]),
+    ph('pic', `Le pic de la crue`,
+      `L'homme est repêché, enveloppé dans une couverture, grelottant. L'eau gagne encore dix centimètres et atteint le haut du quai Branly ; un morceau de berge s'affaisse d'un coup. À la radio, on vous demande le niveau à chaque passage devant l'échelle du pont de l'Alma.`,
+      T(240), [
+        rad('CENTRAL', 'SAPEUR 1', `Annoncez-moi le niveau à l'échelle du pont de l'Alma à chaque passage. Le périmètre recule.`),
+        rad('SANTÉ 1', 'SAPEUR 1', `Je prends votre repêché à la rampe du quai d'Orsay. Hypothermie ? Annoncez.`),
+      ], [`Un morceau de quai s'effondre`, `Un enfant s'approche du bord`]),
+    ph('decrue', `Le niveau baisse d'un doigt`,
+      `Vers midi, le niveau stagne, puis baisse d'un doigt à l'échelle du pont de l'Alma. Les curieux se lassent. Votre embarcation fait une dernière ronde le long du quai Branly, vérifie les amarres, puis remonte la rampe : il faudra revenir demain, et le surlendemain.`,
+      FIN, [
+        rad('CENTRAL', 'SAPEUR 1', `Fin d'intervention sur l'eau. Rendez compte : évacués, repêché, état de l'embarcation.`),
+        voix('RIVERAIN', `Je pourrai remonter à bord quand ? Vous me le direz, vous ?`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Évacuer les riverains des deux péniches', 'evacuer', { target: 'riverain', count: 4 }),
@@ -260,13 +382,36 @@ export const POMP_07 = mission({
     'Aucun groupe organisé.', ['Quai de Conti', 'Pont Neuf', 'Quai des Grands Augustins'],
     ['Demander un couloir', 'Prévoir le bateau', 'Surveiller la densité']),
   phases: [
-    ph('malaises', 'Premiers malaises', 'Plusieurs malaises sont signalés.', T(180),
-      [['SANTÉ 1', 'CENTRAL ICI SANTÉ UN. Malaise, quai de Conti. PARLEZ.']], []),
-    ph('eau', 'Homme à l\'eau', 'Un fêtard tombe dans la Seine.', T(420),
-      [['SANTÉ 1', 'CENTRAL ICI SANTÉ UN. URGENT. UN homme à l\'eau, pont Neuf. PARLEZ.']], ['Un malaise dans la foule dense']),
-    ph('densite', 'Compression', 'La foule se serre sur le pont.', TENS(0.5),
-      [['ICARE', 'SANTÉ UN ICI ICARE. Densité critique sur le pont Neuf. PARLEZ.']], []),
-    ph('fin', 'Fin', 'Les quais se vident.', FIN, [['SANTÉ 1', 'CENTRAL ICI SANTÉ UN. Quais libres. PARLEZ.']], []),
+    ph('ronde', `La ronde le long du quai`,
+      `Une heure du matin, quai de Conti. Deux mille personnes sur les quais et le pont des Arts, de la musique partout, des bouteilles par terre. Votre équipe marche le long du parapet avec un sac et un brancard pliant ; le fourgon est resté en haut, rue Dauphine, là où il peut encore manœuvrer.`,
+      T(120), [
+        rad('CENTRAL', 'SAPEUR 1', `Fin de soirée sur les quais. Réseau téléphonique saturé : vous n'aurez les appels que par radio. Premier malaise signalé près du pont des Arts.`),
+        voix('CHEF D\'AGRÈS', `On reste ensemble. Le brancard ne reste jamais seul, et on ne s'enfonce pas dans le dense sans savoir par où ressortir.`),
+      ], [`Le réseau téléphonique est saturé`]),
+    ph('trois-malaises', `Trois malaises à contre-courant`,
+      `Une jeune femme inconsciente au pied de l'escalier du quai de Conti, un homme pris de vomissements contre le parapet, un adolescent assis par terre qui ne sait plus où il est. Pour atteindre chacun, il faut remonter la foule à contre-courant, à la voix, brancard levé ; pour en ressortir, il faut qu'elle s'ouvre.`,
+      OBJ('o1'), [
+        voix('FÊTARD', `Hé, les pompiers ! Par là, elle est tombée d'un coup ! Poussez-vous, laissez-les passer !`),
+        rad('MISTRAL 1', 'SAPEUR 1', `Je vous ouvre un couloir de TROIS mètres CINQ-ZÉRO jusqu'à l'escalier. Dites-moi quand vous ressortez.`),
+      ], [`Un malaise survient dans la zone la plus dense`, `Un parent cherche son enfant dans la foule`, `Un pétard éclate près du brancard`]),
+    ph('seine', `Un homme dans la Seine`,
+      `Trois malaises pris en charge. Un cri, puis des dizaines de téléphones tournés vers l'eau : un fêtard est tombé du quai de Conti et s'accroche à un anneau d'amarrage, le courant dans les jambes. La vedette fluviale est à quatre minutes ; vous, vous êtes à dix mètres, avec une corde et une bouée.`,
+      OBJ('o2'), [
+        rad('CENTRAL', 'SAPEUR 1', `URGENT. Homme à l'eau quai de Conti. La vedette fluviale est à QUATRE minutes. Faites ce que vous pouvez depuis le quai.`),
+        voix('ÉQUIPIER', `Il tient l'anneau ! Je lui lance la bouée, tu assures la corde. Personne ne saute !`),
+      ], [`Un fêtard tombe dans la Seine`, `Des fêtards veulent sauter pour aider`]),
+    ph('pont-neuf', `La barrière du Pont Neuf`,
+      `L'homme est sur le quai, vivant, trempé. Au même moment, la foule reflue vers le Pont Neuf et se comprime contre une barrière, à l'entrée du pont : des personnes sont pressées contre le métal, d'autres tombent. C'est là qu'on vous appelle, avant même que quelqu'un ait eu le temps de crier.`,
+      FOULE('dispersion'), [
+        rad('ICARE', 'SAPEUR 1', `Compression à l'entrée du Pont Neuf, côté quai de Conti. Plusieurs personnes au sol contre la barrière.`),
+        rad('MISTRAL 2', 'SAPEUR 1', `Je fais retirer la barrière. Il me faut vos équipes ici dans la minute.`),
+      ], [`Des personnes sont pressées contre une barrière`, `Un camion de livraison bloque l'accès du fourgon`]),
+    ph('fin-de-fete', `Ivresse, entorse, hypothermie`,
+      `Les quais se vident vers le métro et la rue Dauphine. Restent ceux que la fête laisse derrière elle : une cheville tordue sur les pavés du quai de Conti, deux ivresses, un repêché qui grelotte sous une couverture. Pas une de ces victimes ne partira sans un bilan transmis.`,
+      FIN, [
+        rad('CENTRAL', 'SAPEUR 1', `Bilan par victime avant tout départ. Deux ambulances vous rejoignent rue Dauphine.`),
+        voix('CHEF D\'AGRÈS', `On refait le tour du quai avant de plier. Celui qui dort sur un banc, on vérifie qu'il dort.`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Traiter trois malaises en moins de quatre minutes chacun', 'soigner', { target: 'malaise', count: 3, seconds: 240 }),
@@ -296,13 +441,36 @@ export const POMP_08 = mission({
     'Aucun radical.', ['Rue Saint-Antoine'],
     ['Suivre les agents', 'Dresser l\'échelle', 'Évacuer par l\'escalier']),
   phases: [
-    ph('route', 'Approche', 'Vous suivez les agents dans la rue encombrée.', T(120),
-      [['MISTRAL 1', 'SANTÉ UN ICI MISTRAL UN. Couloir ouvert dans l\'axe de la rue, largeur TROIS mètres CINQ-ZÉRO. Avancez au pas, nous tenons les bords. PARLEZ.']], []),
-    ph('attaque', 'Attaque du feu', 'Vous attaquez le feu à la lance.', T(300),
-      [['SANTÉ 1', 'CENTRAL ICI SANTÉ UN. Feu attaqué, premier étage. PARLEZ.']], ['Une personne âgée est coincée à l\'étage']),
-    ph('evacuation', 'Évacuation', 'Vous évacuez les habitants.', FOULE('dispersion'),
-      [['SANTÉ 1', 'CENTRAL ICI SANTÉ UN. DEUX riverains évacués. PARLEZ.']], []),
-    ph('fin', 'Extinction', 'Le feu est éteint.', FIN, [['SANTÉ 1', 'CENTRAL ICI SANTÉ UN. Feu éteint. PARLEZ.']], []),
+    ph('deux-cents-metres', `Pare-chocs contre la foule`,
+      `Quinze heures, rue Saint-Antoine. Votre fourgon est arrêté à deux cents mètres de l'immeuble qui fume, pare-chocs contre une foule de curieux qui filment le premier étage. Devant vous, six gardiens de la paix écartent les gens à la voix ; le deux-tons ne sert plus à rien, tout le monde l'a entendu, personne ne bouge.`,
+      T(100), [
+        rad('MISTRAL 1', 'SAPEUR 1', `J'ouvre un couloir de TROIS mètres CINQ-ZÉRO jusqu'à la façade. Avancez au pas derrière mes agents.`),
+        voix('CHEF D\'AGRÈS', `Au pas, et tu regardes tes rétroviseurs. Un badaud sous une roue, et on n'éteindra rien du tout.`),
+      ], [`Un curieux se plante au milieu du couloir`]),
+    ph('mise-en-station', `L'échelle contre la façade`,
+      `Le fourgon avance mètre par mètre dans le couloir ouvert par les agents, rétroviseurs rabattus. Au pied de l'immeuble de la rue Saint-Antoine : cales, stabilisateurs, échelle. La bouche d'incendie la plus proche est sous une voiture mal garée ; il faut une autre prise d'eau, et vite.`,
+      OBJ('o1'), [
+        voix('ÉQUIPIER', `La bouche est sous la berline grise ! Je tire une ligne depuis celle du carrefour, cinquante mètres de plus.`),
+        voix('RIVERAINE', `Il y a ma voisine au deuxième ! Elle a quatre-vingts ans, elle ne descend plus les escaliers !`),
+      ], [`La bouche d'incendie est masquée par une voiture`, `Une bouteille de gaz est signalée au premier étage`]),
+    ph('escalier', `Quatre riverains à faire descendre`,
+      `La lance attaque le feu par la fenêtre du premier étage. Dans la cage d'escalier, la fumée descend ; quatre riverains sont à sortir, dont une femme âgée au deuxième. Les agents les prennent au bas des marches, dans la rue Saint-Antoine, et les éloignent du couloir.`,
+      OBJ('o2'), [
+        voix('CHEF D\'AGRÈS', `Binôme d'exploration : deuxième étage, la dame âgée d'abord. Chaise portoir.`),
+        rad('MISTRAL 1', 'SAPEUR 1', `Mes agents sont au pied de l'escalier. On prend vos évacués et on les emmène vers la Bastille.`),
+      ], [`Une personne âgée est bloquée au deuxième étage`, `Un riverain veut remonter chercher ses papiers`]),
+    ph('tuyaux', `Les curieux sur les tuyaux`,
+      `Les quatre riverains sont dehors. Le feu recule, mais la rue Saint-Antoine se referme : les curieux reviennent, enjambent les tuyaux, se penchent pour voir. Un tuyau écrasé, c'est une lance sans pression au premier étage ; le couloir doit tenir jusqu'à la dernière braise.`,
+      T(200), [
+        voix('ÉQUIPIER', `Pression qui chute ! Quelqu'un marche sur la ligne !`),
+        rad('MISTRAL 1', 'SAPEUR 1', `Je repousse les curieux derrière vos tuyaux. Dites-moi combien de temps il vous faut encore.`),
+      ], [`Un tuyau est écrasé par des curieux`, `Un chat s'est réfugié sur le toit`]),
+    ph('deblai', `Le déblai`,
+      `Plus de flammes à la fenêtre du premier étage, seulement de la vapeur. On déblaie, on dégarnit, on vérifie le plancher du dessus. Dans la rue Saint-Antoine, les agents rouvrent une voie ; le fourgon repartira par où il est venu, dans une rue redevenue large.`,
+      FIN, [
+        rad('CENTRAL', 'SAPEUR 1', `Rendez compte : feu, victimes, relogement à prévoir. La police rouvre la rue derrière vous.`),
+        voix('CHEF D\'AGRÈS', `Deux cents mètres de foule, c'est ce qui nous a coûté le plus cher aujourd'hui. Note-le dans le compte rendu.`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Atteindre l\'immeuble et attaquer le feu', 'eteindre', { place: 'Rue Saint-Antoine', target: 'immeuble', count: 1 }),
@@ -336,13 +504,26 @@ export const POMP_09 = mission({
     'Une trentaine d\'individus déterminés.', ['Avenue de la République'],
     ['Placer l\'engin à vingt mètres', 'Surveiller les pneus', 'Écarter les curieux']),
   phases: [
-    ph('alerte', 'Alerte', 'La voiture est embrasée.', T(60),
-      [['SANTÉ 1', 'CENTRAL ICI SANTÉ UN. Voiture embrasée, avenue de la République. PARLEZ.']], []),
-    ph('extinction', 'Extinction', 'Vous attaquez la voiture à la lance.', T(240),
-      [['SANTÉ 1', 'CENTRAL ICI SANTÉ UN. Voiture attaquée en jet diffus. PARLEZ.']], ['Un pneu éclate']),
-    ph('refroidissement', 'Refroidissement', 'Vous refroidissez le scooter.', TENS(0.55),
-      [['SANTÉ 1', 'CENTRAL ICI SANTÉ UN. Scooter refroidi. PARLEZ.']], []),
-    ph('fin', 'Fin', 'Les feux sont éteints.', FIN, [['SANTÉ 1', 'CENTRAL ICI SANTÉ UN. Voiture éteinte. PARLEZ.']], []),
+    ph('attaque', `Quatre mètres de flammes`,
+      `Vingt et une heures trente, avenue de la République. Une voiture retournée brûle en travers de la chaussée, flammes à quatre mètres ; deux gardiens de la paix ont vidé leurs extincteurs dessus, sans effet. L'engin se place à vingt mètres, jamais dans l'axe : lance en jet diffusé, attaque de trois quarts arrière, l'habitacle d'abord, le moteur ensuite.`,
+      OBJ('o1'), [
+        rad('CENTRAL', 'SAPEUR 1', `Feu de véhicule avenue de la République. Une unité de police est sur place et tient les curieux.`),
+        voix('CRS', `On a vidé deux extincteurs, ça n'a rien fait ! C'est à vous !`),
+        voix('CHEF D\'AGRÈS', `De trois quarts arrière ! Jamais par l'avant : si un vérin de pare-chocs part, il traverse une jambe.`),
+        voix('ÉQUIPIER', `Pneu !… Deuxième pneu ! Il en reste deux.`),
+      ], [`Un pneu éclate avec une détonation`, `Les curieux se rapprochent à moins de vingt mètres`, `Un projectile est lancé sur l'engin`]),
+    ph('scooter', `Le scooter et la voiture d'à côté`,
+      `La voiture ne flambe plus. Le scooter couché près d'elle, lui, a pris : réservoir, selle, carénage, et la chaleur cloque déjà la peinture d'une voiture en stationnement de l'avenue de la République, à deux mètres. Refroidir, écarter, surveiller ; un feu de véhicule se propage par ce qu'on a oublié de mouiller.`,
+      T(180), [
+        rad('MISTRAL 2', 'SAPEUR 1', `Je garde les curieux à QUATRE-ZÉRO mètres. Un autre départ de feu est signalé plus haut sur l'avenue.`),
+        voix('CHEF D\'AGRÈS', `Mouille la voiture d'à côté avant qu'elle prenne. Le scooter ensuite.`),
+      ], [`Le feu menace une voiture en stationnement`, `Un autre départ de feu est signalé`]),
+    ph('carcasse', `La carcasse et le bitume noirci`,
+      `Il reste une carcasse noire, un scooter fondu et une tache de bitume cloqué au milieu de l'avenue de la République. On noie les points chauds, on débranche ce qui reste de batterie. Les agents regardent leurs extincteurs vides : la prochaine fois, ils appelleront plus tôt.`,
+      FIN, [
+        rad('CENTRAL', 'SAPEUR 1', `Rendez compte en fin d'extinction. Enlèvement de la carcasse demandé à la voirie.`),
+        voix('CRS', `On pensait que deux extincteurs suffiraient. C'est noté pour la prochaine fois.`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Éteindre la voiture embrasée', 'eteindre', { target: 'voiture', count: 1 }),

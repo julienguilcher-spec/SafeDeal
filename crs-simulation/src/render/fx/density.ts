@@ -7,16 +7,16 @@
  * 2 m traversées à la suite masquent exactement autant qu'une bouffée de 4 m. Regarder à travers
  * 10 m de nuage donne donc la même opacité quel que soit le niveau de détail.
  *
- * Coefficients : la fumée reprend celui de la simulation (visibility : 0,55 par mètre et par unité) ;
- * le lacrymogène est bien plus couvrant à l'œil (0,85) qu'il n'est gênant pour la visée des IA (0,14),
- * parce qu'un nuage doit se LIRE de loin et que le champ reste dilué dès qu'il y a du vent (repères :
- * 0,1 = bord du nuage, 0,5 = près d'un palet ; 0,12 au plus par vent de 18 km/h).
+ * Coefficients : volontairement plus couvrants que ceux de la simulation pour la visée des IA
+ * (visibility : 0,55 par mètre et par unité de fumée, 0,14 pour le gaz au-dessus de 0,12), parce qu'un
+ * nuage doit se LIRE de loin et que le champ reste dilué dès qu'il y a du vent (repères du gaz :
+ * 0,05 = perceptible, 0,1 = bord du nuage, 0,5 = près d'un palet ; 0,12 au plus par vent de 18 km/h).
  * ===================================================================================== */
 
 /** Extinction du lacrymogène (par mètre et par unité de concentration). */
 export const GAS_SIGMA = 0.85;
 /** Extinction de la fumée (par mètre et par unité de densité). */
-export const SMOKE_SIGMA = 0.55;
+export const SMOKE_SIGMA = 0.9;
 /** Concentration sous laquelle rien n'est dessiné. */
 export const GAS_VISIBLE_MIN = 0.015;
 export const SMOKE_VISIBLE_MIN = 0.015;

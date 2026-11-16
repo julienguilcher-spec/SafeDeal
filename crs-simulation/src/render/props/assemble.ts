@@ -7,14 +7,14 @@
 import type { PropAtlas } from './atlas';
 import { region } from './atlas-layout';
 import type { Region } from './atlas-layout';
-import { FX_FIRE, FX_TL_R, GeoBuilder } from './geo';
+import { FX_TL_R, GeoBuilder } from './geo';
 import { stateCode } from './mapping';
 import { emitBuf, emitQuad, hash01, matIdentity, matNew, matRotY, matScale, matTranslate } from './meshbuf';
 import type { MeshBuf } from './meshbuf';
 import { ModelLibrary, V_BURNING, V_BURNT } from './models';
 import { partMatrix, propMatrix } from './placement';
 import type { PropRec, ShopRec } from './records';
-import { buildShopfront } from './shopfront';
+import { buildShopSoot, buildShopfront } from './shopfront';
 
 const TAG_REGIONS: Region[] = [];
 for (let i = 0; i < 8; i++) TAG_REGIONS.push(region('tag_' + i));
@@ -89,7 +89,7 @@ export class Assembler {
         const part = parts[i]!;
         const tpl = this.lib.get(part.kind, lod, variant, rec.id + i, 9);
         if (tpl.o.nv === 0) continue;
-        emitBuf(dst, tpl.o, partMatrix(this.m2, base, part, i, rec.id));
+        emitBuf(dst, tpl.o, partMatrix(this.m2, base, part, i, rec.id, parts, p.height, variant === V_BURNT));
       }
     }
     if (lod <= 1) {
@@ -129,6 +129,15 @@ export class Assembler {
     buildShopfront(dst, m, s.width, s.category, rec.style, rec.state, lod, sign, rec.seed);
   }
 
+  /** Traînées de suie d'une boutique (lot fondu), en coordonnées monde. */
+  shopSoot(blend: MeshBuf, rec: ShopRec): void {
+    const s = rec.shop;
+    const m = matIdentity(this.m1);
+    matTranslate(m, s.x, s.y, s.z);
+    matRotY(m, s.heading);
+    buildShopSoot(blend, m, s.width, rec.state);
+  }
+
   releaseSign(rec: ShopRec): void {
     if (!rec.signHeld) return;
     this.atlas.releaseSign(rec.shop.name, rec.style);
@@ -137,4 +146,3 @@ export class Assembler {
   }
 }
 
-export { FX_FIRE };

@@ -73,6 +73,8 @@ export class ShopRec implements Slot {
   signHeld = false;
   sign: Region | null = null;
   wasBurning = false;
+  /** La devanture avait des traînées de suie au dernier dessin. */
+  wasSooty = false;
   readonly halos: number[] = [];
   readonly state: ShopState = {
     window: 'intact', shutter: 0, stock: 1, burning: 0, forced: false, burnt: false, boards: false, tags: 0, hasShutter: true,

@@ -7,7 +7,8 @@
  *     tricolores (cycle calculé dans le shader), lueur d'incendie vacillante, clignotant ;
  *   - la brillance : faux reflets de ciel, de façades et de lampes sur les vitrines et le métal.
  * Rien n'est recalculé par image côté JavaScript : seuls quatre uniformes changent.
- * Un second matériau, transparent, sert au verre (abribus, sac des corbeilles).
+ * Un second matériau, transparent, sert au verre (abribus, sac des corbeilles) et aux décalcomanies
+ * fondues (traînées de suie sur les façades).
  * ===================================================================================== */
 
 import * as THREE from 'three';
@@ -86,7 +87,7 @@ ${GATE_GLSL}`)
     // puissances : lanterne 7, intérieur éclairé 1,6, écran 1,4, feu tricolore 5 (lentille éteinte : 0,04)
     float crsPower = crsKind < 1.5 ? 7.0 : crsKind < 2.5 ? 1.6 : crsKind < 3.5 ? 1.4 : crsKind < 7.5 ? 5.0 : crsKind < 8.5 ? 3.0 : 4.0;
     float crsFloor = ( crsKind > 3.5 && crsKind < 6.5 ) || crsKind > 8.5 ? 0.04 : 0.0;
-    vPFx = vec3( ( crsFloor + crsG.x * crsPower ) * aFx.y, crsG.y * 2.4 * aFx.y, aFx.w );
+    vPFx = vec3( ( crsFloor + crsG.x * crsPower ) * aFx.y, crsG.y * 0.36 * aFx.y * aFx.y, aFx.w );
   }`);
   let f = shader.fragmentShader
     .replace('#include <common>', `#include <common>
@@ -94,6 +95,10 @@ varying vec3 vPFx;
 uniform vec3 uPSky;
 uniform vec3 uPWarm;
 uniform float uPLamps;`)
+    .replace('#include <map_fragment>', `#ifdef USE_MAP
+  // léger biais vers le niveau de mip plus fin : enseignes lisibles et motifs ajourés plus francs
+  diffuseColor *= texture2D( map, vMapUv, -0.7 );
+#endif`)
     .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
   totalEmissiveRadiance += diffuseColor.rgb * vPFx.x + vec3( 1.0, 0.36, 0.06 ) * vPFx.y;`);
   if (standard) {
@@ -105,7 +110,7 @@ uniform float uPLamps;`)
     vec3 crsV = normalize( vViewPosition );
     vec3 crsR = reflect( -crsV, normal );
     vec3 crsW = normalize( ( vec4( crsR, 0.0 ) * viewMatrix ).xyz );
-    float crsF = 0.05 + 0.95 * pow( 1.0 - saturate( dot( normal, crsV ) ), 4.0 );
+    float crsF = 0.13 + 0.87 * pow( 1.0 - saturate( dot( normal, crsV ) ), 4.0 );
     vec3 crsEnv = mix( uPSky * 0.16, uPWarm, smoothstep( -0.2, 0.03, crsW.y ) );
     crsEnv = mix( crsEnv, uPSky, smoothstep( 0.2, 0.55, crsW.y ) );
     float crsA = atan( crsW.x, crsW.z );
@@ -127,27 +132,28 @@ export interface PropMaterials {
 }
 
 /**
- * Crée les matériaux du module. `lambert` : éclairage diffus seul (qualité basse) ; `coverage` :
- * découpes adoucies par l'anticrénelage matériel quand il existe.
+ * Crée les matériaux du module. `lambert` : éclairage diffus seul (qualité basse) ; `hashed` :
+ * découpe hachée des motifs ajourés (qualités moyenne et plus).
  */
-export function createMaterials(atlas: THREE.Texture, u: PropUniforms, lambert: boolean, coverage: boolean): PropMaterials {
-  const common = { map: atlas, vertexColors: true, alphaTest: 0.5 };
+export function createMaterials(atlas: THREE.Texture, u: PropUniforms, lambert: boolean, hashed: boolean): PropMaterials {
+  // Découpe : en qualité basse, seuil franc ; sinon découpe « hachée » (alphaHash) — une grille ou un filet
+  // vus de loin deviennent une trame semi-transparente au lieu de disparaître ou de se boucher.
+  const common = { map: atlas, vertexColors: true, alphaTest: lambert ? 0.4 : 0.1 };
   const opaque: THREE.Material = lambert
     ? new THREE.MeshLambertMaterial(common)
-    : new THREE.MeshStandardMaterial({ ...common, roughness: 0.82, metalness: 0 });
+    : new THREE.MeshStandardMaterial({ ...common, roughness: 0.82, metalness: 0, alphaHash: hashed });
   opaque.name = 'decor';
-  opaque.alphaToCoverage = coverage;
   opaque.onBeforeCompile = (shader) => patch(shader as unknown as Shader, u, !lambert, false);
-  opaque.customProgramCacheKey = () => 'crs-decor-' + (lambert ? 'l' : 's');
+  opaque.customProgramCacheKey = () => 'crs-decor-' + (lambert ? 'l' : 's') + (hashed ? 'h' : '');
 
   const glass: THREE.Material = lambert
-    ? new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, depthWrite: false })
-    : new THREE.MeshStandardMaterial({ vertexColors: true, transparent: true, depthWrite: false, roughness: 0.1, metalness: 0 });
+    ? new THREE.MeshLambertMaterial({ map: atlas, vertexColors: true, transparent: true, depthWrite: false })
+    : new THREE.MeshStandardMaterial({ map: atlas, vertexColors: true, transparent: true, depthWrite: false, roughness: 0.6, metalness: 0 });
   glass.name = 'decor-verre';
   glass.onBeforeCompile = (shader) => patch(shader as unknown as Shader, u, !lambert, true);
   glass.customProgramCacheKey = () => 'crs-decor-verre-' + (lambert ? 'l' : 's');
 
-  const depth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: atlas, alphaTest: 0.5 });
+  const depth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: atlas, alphaTest: 0.4 });
   return { opaque, glass, depth };
 }
 

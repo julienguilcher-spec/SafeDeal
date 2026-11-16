@@ -163,12 +163,13 @@ void main() {
 		float w = 0.82 * pow( max( 0.0, 1.0 - y ), 0.55 ) * sqrt( smoothstep( 0.0, 0.16, y ) );
 		float body = 1.0 - ( x * x ) / max( 0.002, w * w );
 		float heat = body * ( 1.0 - 0.62 * pow( y, 1.25 ) ) - ( n2 * 0.75 + n3 * 0.35 - 0.34 ) * ( 0.25 + 0.95 * y );
-		float f = clamp( heat * 1.5, 0.0, 1.0 );
-		vec3 ramp = mix( vec3( 0.55, 0.035, 0.0 ), vec3( 1.0, 0.3, 0.015 ), smoothstep( 0.05, 0.4, f ) );
-		ramp = mix( ramp, vec3( 1.0, 0.66, 0.14 ), smoothstep( 0.4, 0.75, f ) );
-		ramp = mix( ramp, vec3( 1.0, 0.9, 0.55 ), smoothstep( 0.8, 1.0, f ) );
-		alpha = smoothstep( 0.0, 0.3, f ) * 0.94 * min( 1.0, vColor.a );
-		col = ramp * vColor.rgb * ( 0.95 + 1.5 * f ) * max( 1.0, vColor.a );
+		float f = clamp( heat * 1.2, 0.0, 1.0 );
+		// du rouge sombre des pointes au jaune du cœur : jamais blanc, une flamme de rue est orangée
+		vec3 ramp = mix( vec3( 0.5, 0.03, 0.0 ), vec3( 1.0, 0.24, 0.01 ), smoothstep( 0.04, 0.38, f ) );
+		ramp = mix( ramp, vec3( 1.0, 0.5, 0.06 ), smoothstep( 0.38, 0.7, f ) );
+		ramp = mix( ramp, vec3( 1.0, 0.78, 0.24 ), smoothstep( 0.72, 1.0, f ) );
+		alpha = smoothstep( 0.0, 0.26, f ) * 0.94 * min( 1.0, vColor.a );
+		col = ramp * vColor.rgb * ( 0.85 + 0.75 * f ) * max( 1.0, vColor.a );
 	} else if ( kind < 2.5 ) {
 		// lumière additive
 		float g = texture2D( uAtlas, vTileUv ).a;

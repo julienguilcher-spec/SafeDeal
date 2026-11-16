@@ -371,17 +371,7 @@ describe('catalogue de missions : réalisme, cadre légal et vocabulaire', () =>
   });
 });
 
-/*
- * Critères du DÉROULÉ (phases, déclencheurs, messages) que le catalogue ne remplit pas encore : relevés à la relecture
- * du 16 novembre 2026. À transformer en tests réels quand le déroulé des 129 missions aura été réécrit.
- */
-describe('catalogue de missions : déroulé à réécrire (critères de recette)', () => {
-  it.todo('chaque texte de phase décrit la scène en deux phrases au moins, lieu compris (relevé : 479 phases sur 504 en une seule phrase, médiane de 39 caractères)');
-  it.todo('aucun titre de phase passe-partout n\'est repris plus de trois fois (relevé : « Fin » 14 fois, « Départ » 11, « Évacuation » 11, « Dispersion » 10)');
-  it.todo('dans chaque mission, une phase au moins se termine sur un objectif atteint (relevé : aucun déclencheur « objectif » ; 100 missions sur 129 suivent deux gabarits temps / tension / foule)');
-  it.todo('aucun message écrit d\'avance n\'annonce un résultat qui dépend du joueur (« feu éteint », « place dégagée », nombre d\'interpellés…)');
-  it.todo('chaque mission compte au moins six messages et trois aléas de phase (relevé : un message par phase dans 492 phases sur 504, aucun aléa dans 336)');
-});
+/* Les critères de recette du DÉROULÉ (phases, déclencheurs, messages, aléas de phase) sont dans missions-catalog.deroule.test.ts. */
 
 describe('catalogue de missions : missions miroirs', () => {
   const miroirs = MISSIONS.filter((m) => m.mirrorOf !== '');

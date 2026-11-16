@@ -63,8 +63,8 @@ export const abribus: ModelFn = (b, lod, skin) => {
       // bandeau lumineux sous le toit
       b.c(0xfff2d0).emit(FX_NIGHT, 0.9).box(0, 2.462, -0.3, 3.4, 0.02, 0.12).emit(0);
       // signal d'arrêt
-      b.c(0x1f8f6a).box(-1.55, 2.72, 0.88, 0.8, 0.26, 0.05);
-      b.c(0xf2f2f2).box(-1.55, 2.66, 0.907, 0.7, 0.05, 0.002);
+      b.c(0x1f8f6a).box(-1.55, 2.69, 0.88, 0.8, 0.22, 0.05);
+      b.c(0xf2f2f2).box(-1.55, 2.64, 0.907, 0.7, 0.05, 0.002);
     }
     // banc
     b.c(0x8a6a45).box(-0.5, 0.46, -0.5, 2.2, 0.05, 0.3);
@@ -85,7 +85,7 @@ export const abribus: ModelFn = (b, lod, skin) => {
     }
     b.part(P_PANE + 3).glass(0.3).c(C.VERRE).gloss(0.9).quadX(-1.95, 1.25, -0.08, 1.2, 1.9, true).solid();
     b.part(P_SHARD + 3).c(0xffffff).gloss(0.7).tex('verre_bords').quadX(-1.95, 1.25, -0.08, 1.2, 1.9, true);
-    b.tex('eclats_sol').quadY(-1.9, 0.012, -0.05, 0.9, 1.2).tex('');
+    b.tex('eclats_sol').quadY(-1.75, 0.012, -0.05, 0.9, 1.2).tex('');
     b.part(P_BODY).gloss(0);
     b.halo(0, 2.4, -0.1, 0.3, 0xfff0d0, 0.45, FX_NIGHT, 3.6);
     b.tagSpot(0, 1.15, -0.725, 1.0, 0.5);
@@ -174,10 +174,10 @@ export const colonne_morris: ModelFn = (b, lod, skin) => {
   b.part(P_BODY).emit(0).gloss(0.15).tex('').c(C.VERT_PARIS);
   if (lod === 0) for (let k = 0; k < 4; k++) b.push().rotY((k / 4) * PI * 2 + PI / 4).box(0, 1.76, 0.625, 0.05, 2.57, 0.03).pop();
   // marquise hexagonale
-  b.cyl(0, 3.05, 0, 0.66, 0.92, 0.12, 6, 0, true).cyl(0, 3.17, 0, 0.92, 0.92, 0.1, 6, 1, true);
+  b.cyl(0, 3.05, 0, 0.66, 0.88, 0.12, 6, 0, true).cyl(0, 3.17, 0, 0.88, 0.88, 0.1, 6, 1, true);
   if (lod === 0) {
     b.c(C.OR_FRISE);
-    for (let k = 0; k < 6; k++) b.push().rotY((k / 6) * PI * 2).box(0.9, 3.2, 0, 0.07, 0.09, 0.09).pop();
+    for (let k = 0; k < 6; k++) b.push().rotY((k / 6) * PI * 2).box(0.855, 3.2, 0, 0.07, 0.09, 0.09).pop();
     b.c(C.VERT_PARIS);
   }
   // dôme à écailles, flèche
@@ -332,7 +332,7 @@ export const jardiniere: ModelFn = (b, lod) => {
   }
   if (lod === 0) {
     const fl = [0xd94f6a, 0xf2d14a, 0xf2f2f2, 0xb565d9];
-    for (let i = 0; i < 8; i++) b.c(fl[i % 4]!).box(-0.6 + i * 0.17, 0.74 + (i % 3) * 0.02, (i % 2 ? 0.14 : -0.12), 0.05, 0.05, 0.05);
+    for (let i = 0; i < 8; i++) b.c(fl[i % 4]!).box(-0.6 + i * 0.17, 0.72 + (i % 3) * 0.02, (i % 2 ? 0.14 : -0.12), 0.05, 0.05, 0.05);
   }
   b.tagSpot(0, 0.22, 0.29, 0.9, 0.3);
 };

@@ -17,12 +17,13 @@ import type { EntityId, EntityKind, Person } from '@/core/contracts';
 import type { Entry } from './entry';
 import { injuryRank } from './entry';
 import type { Kernel } from './kernel';
+import { relabel } from './labels';
 import type { Sense } from './sense';
 import type { Thinker } from './think';
 import { FAM_BARRICADE, FAM_FIRE, FAM_ISOLATED, FAM_MOTORIST, FAM_OFFICER, FAM_VICTIM } from './tuning';
 
 interface GroundFire { x: number; z: number; t: number }
-interface DownWatch { id: EntityId; t: number; confirm: number }
+interface DownWatch { id: EntityId; t: number; confirm: number; called: boolean }
 
 const PROPS_PER_STEP = 256;
 const VEHICLES_PER_STEP = 24;
@@ -32,6 +33,11 @@ const POLICE_PER_STEP = 4;
 const PENDING_MAX = 48;
 /** Agent à terre sans blessure grave : signalé plus vite qu'un civil (s). */
 const OFFICER_CONFIRM = 4;
+/**
+ * Blessé sérieux : il reste sonné jusqu'à une dizaine de secondes puis se relève souvent seul ; il n'est signalé
+ * que s'il est toujours à terre après ce délai (s). Une urgence absolue, elle, est signalée tout de suite.
+ */
+const SERIOUS_CONFIRM = 12;
 
 export class Detector {
   private readonly ground: GroundFire[] = [];
@@ -119,7 +125,7 @@ export class Detector {
 
     ev.onAny('crowd:help', (payload) => {
       const d = payload as { personId: EntityId } | null;
-      if (d && k.tuning.detection) this.watchDown(d.personId, 0);
+      if (d && k.tuning.detection) this.watchDown(d.personId, 0, true);
     });
 
     ev.on('person:treated', (e) => {
@@ -255,15 +261,17 @@ export class Detector {
     }
   }
 
-  private watchDown(id: EntityId, confirm: number): void {
+  /** `called` : quelqu'un appelle les secours pour cette personne (pas de délai de confirmation). */
+  private watchDown(id: EntityId, confirm: number, called = false): void {
     const downs = this.downs;
     for (let i = 0; i < downs.length; i++) {
       if (downs[i].id === id) {
         if (confirm < downs[i].confirm) downs[i].confirm = confirm;
+        if (called) downs[i].called = true;
         return;
       }
     }
-    if (downs.length < PENDING_MAX) downs.push({ id, t: this.k.now, confirm });
+    if (downs.length < PENDING_MAX) downs.push({ id, t: this.k.now, confirm, called });
   }
 
   // ───────────────────────────── à chaque pas ─────────────────────────────
@@ -313,11 +321,15 @@ export class Detector {
           drop = true;
         } else {
           const rank = injuryRank(p.injury);
-          if (rank >= 2 || now - w.t >= w.confirm) {
+          const need = !w.called && !officer && rank === 2 && w.confirm < SERIOUS_CONFIRM ? SERIOUS_CONFIRM : w.confirm;
+          if (rank >= 3 || (officer && rank >= 2) || now - w.t >= need) {
             const urgency: 1 | 2 | 3 = rank >= 3 ? 3 : officer ? (rank >= 2 ? 3 : 2) : rank === 2 ? 2 : 1;
             const inc = k.open(officer ? 'agent_a_terre' : 'blesse', p.x, p.z, 'person', p.id, urgency, false);
             const m = inc.member(p.id);
-            if (m) m.injury = rank;
+            if (m && m.injury !== rank) {
+              m.injury = rank;
+              relabel(ctx, inc);
+            }
             drop = true;
           }
         }

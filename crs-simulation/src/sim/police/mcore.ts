@@ -312,8 +312,11 @@ export function stepFrame(g: FormGroup, dt: number): boolean {
 export function stepColumn(g: FormGroup, dt: number): boolean {
   const left = g.total - g.s;
   let cohesion = 1 - (g.errAll - 0.6) / 1.6;
+  // au trot (mouvement urgent ordonné par le commandement), la colonne n'attend pas un retardataire resté
+  // derrière elle : il ne pourrait pas la remonter, et recolle à l'arrêt
+  const floor = g.speed > T.SPEED_PACE * 1.4 ? 0.55 : 0.2;
   if (cohesion > 1) cohesion = 1;
-  else if (cohesion < 0.2) cohesion = 0.2;
+  else if (cohesion < floor) cohesion = floor;
   let want = g.speed * cohesion;
   const stop = Math.sqrt(2 * T.FRAME_DECEL * (left > 0 ? left : 0));
   if (want > stop) want = stop;

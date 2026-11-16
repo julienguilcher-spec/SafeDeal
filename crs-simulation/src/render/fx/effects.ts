@@ -314,9 +314,9 @@ export class Effects {
       if (idx < 0) break;
       p.x[idx] = x; p.y[idx] = y; p.z[idx] = z;
       p.vx[idx] = Math.cos(a) * h * v; p.vy[idx] = u * v + 1; p.vz[idx] = Math.sin(a) * h * v;
-      p.s0[idx] = 0.3; p.s1[idx] = 0.12;
+      p.s0[idx] = 0.42; p.s1[idx] = 0.14;
       p.life[idx] = life * (0.7 + 0.6 * rng.next());
-      p.r[idx] = r; p.g[idx] = g; p.b[idx] = b; p.a[idx] = 4.5;
+      p.r[idx] = r + 0.05; p.g[idx] = g + 0.05; p.b[idx] = b + 0.05; p.a[idx] = 3.2;
       p.drag[idx] = 2.4;
       p.grav[idx] = 0.22;
       p.stretch[idx] = 0.07;

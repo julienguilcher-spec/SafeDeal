@@ -27,7 +27,8 @@ varying float vGround;
 ${GATE_GLSL}
 void main() {
   vec2 g = crsGate( floor( iData.z + 0.5 ), iData.w );
-  float on = g.x + g.y;
+  // un feu éclaire peu en plein jour
+  float on = g.x + g.y * ( 0.06 + 0.94 * uPNight );
   vCol = iColor.rgb * on;
   vQ = position.xy;
   vec4 mvPosition;
@@ -110,6 +111,8 @@ export class HaloBatch {
       vertexShader: VERT,
       fragmentShader: FRAG,
       blending: THREE.AdditiveBlending,
+      // les taches au sol sont vues de dessus comme de dessous d'un pont : pas d'élimination des faces
+      side: THREE.DoubleSide,
       depthWrite: false,
       depthTest: true,
       transparent: true,

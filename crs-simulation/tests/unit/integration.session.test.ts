@@ -19,6 +19,7 @@ import type { SessionSetupApi } from '@/gameplay/session';
 import { createSystems as input } from '@/input';
 import type { InputScriptApi } from '@/input';
 import type { InteractionOption } from '@/core/contracts';
+import { DEFAULT_PLACES } from '@/ui/screens/catalog';
 
 const SIM = [world, roles, people, vehicles, items, props, hazards, law, radio, session];
 
@@ -318,6 +319,74 @@ describe('intégration : mise en place de session', () => {
     console.log(`conduite : ${driven.toFixed(1)} m en 6 s, vitesse ${van.speed.toFixed(1)} m/s`);
     expect(driven).toBeGreaterThan(8);
     expect(ctx.world.isFree(van.x, van.z, 0.5)).toBe(true);
+  });
+
+  it('tireur du Centaure : la tourelle suit le regard du joueur sans effet miroir, et la grenade part où il regarde', async () => {
+    const t = createTestContext({ seed: 31, modules: [input, ...SIM] });
+    await t.start({ mode: 'test', role: 'gendarme_centaure', x: 0, z: 0, extra: { poste: 'operateur', passants: 0 } });
+    const { ctx } = t;
+    const script = ctx.require<InputScriptApi>('input.script');
+    const me = ctx.player.person()!;
+    const v = ctx.vehicles.list.find((q) => q.kind === 'centaure')!;
+    expect(v).toBeDefined();
+    expect(ctx.vehicles.enter(me, v, 'gunner')).toBe(true);
+    t.step(0.5);
+    expect(ctx.player.state.cameraMode).toBe('turret');
+    const turret = v.def.turrets.findIndex((d) => d.kind === 'lance_grenades');
+    expect(turret).toBeGreaterThanOrEqual(0);
+    // regard vers la droite (lookX > 0 diminue le cap), un peu levé
+    ctx.player.state.camYaw = v.heading;
+    script.look(0.5, 0.2);
+    t.step(3);
+    const cam = ctx.player.state.camYaw;
+    const worldYaw = v.heading - v.turretYaw[turret]!; // convention de sim/vehicles et du rendu
+    const diff = Math.atan2(Math.sin(worldYaw - cam), Math.cos(worldYaw - cam));
+    console.log(`Centaure : cap ${v.heading.toFixed(2)}, regard ${cam.toFixed(2)}, gisement ${v.turretYaw[turret]!.toFixed(2)} → tourelle ${worldYaw.toFixed(2)} (écart ${diff.toFixed(3)} rad)`);
+    const turned = Math.atan2(Math.sin(cam - (v.heading - 0.5)), Math.cos(cam - (v.heading - 0.5)));
+    expect(Math.abs(turned)).toBeLessThan(0.02);
+    expect(Math.abs(diff)).toBeLessThan(0.03);
+    expect(v.turretYaw[turret]!).toBeGreaterThan(0.4);
+    // tir : la grenade part du côté où regarde le joueur (vitesse relevée à la création : elle s'ouvre ensuite
+    // en palets qui se dispersent dans toutes les directions)
+    const shots: { kind: string; vx: number; vz: number }[] = [];
+    const off = ctx.events.on('projectile:spawned', (ev) => {
+      const q = ctx.projectiles.get(ev.id);
+      if (q && ev.ownerId === me.id) shots.push({ kind: q.kind, vx: q.vx, vz: q.vz });
+    });
+    script.tap('primary');
+    t.step(0.2);
+    off();
+    expect(shots.length).toBeGreaterThanOrEqual(1);
+    const shot = shots[0]!;
+    const hv = Math.hypot(shot.vx, shot.vz);
+    const dot = (shot.vx * Math.sin(cam) + shot.vz * Math.cos(cam)) / Math.max(1e-6, hv);
+    console.log(`tir : ${shot.kind}, vitesse horizontale ${hv.toFixed(1)} m/s, alignement sur le regard ${dot.toFixed(3)}`);
+    expect(dot).toBeGreaterThan(0.95);
+  });
+
+  it('chaque lieu proposé par la page d’accueil donne une mise en place valide sur la vraie carte', async () => {
+    const t = createTestContext({ seed: 13, modules: SIM });
+    for (const place of DEFAULT_PLACES) {
+      await t.start({ mode: 'libre', role: 'chef_groupe', place: place.name, x: place.x, z: place.z, extra: { poste: 'chef_section' } });
+      const { ctx } = t;
+      const s = setupOf(ctx).summary!;
+      const me = ctx.player.person();
+      expect(me, place.name).not.toBeNull();
+      const far = Math.hypot(s.x - place.x, s.z - place.z);
+      const police = ctx.people.list.filter((p) => p.faction === 'police');
+      // la section tient dans un rayon raisonnable autour du joueur (personne n'a été rejeté au loin par un obstacle)
+      let spread = 0;
+      for (const p of police) spread = Math.max(spread, Math.hypot(p.x - s.x, p.z - s.z));
+      console.log(`${place.name.padEnd(28)} joueur à ${far.toFixed(0).padStart(3)} m du lieu, cap ${(s.heading * 57.3).toFixed(0).padStart(4)}°, « ${ctx.world.sectorName(s.x, s.z)} », section étalée sur ${spread.toFixed(1)} m, ${s.vehicleIds.length} véhicule(s), ${s.bystanders} passant(s)`);
+      expect(police.length, place.name).toBe(16);
+      expect(far, place.name).toBeLessThan(150);
+      expect(spread, place.name).toBeLessThan(45);
+      expect(s.vehicleIds.length, place.name).toBeGreaterThanOrEqual(1);
+      expect(stuck(ctx), place.name).toBe(0);
+      for (const v of ctx.vehicles.list) expect(ctx.world.isFree(v.x, v.z, 0.8), place.name).toBe(true);
+      t.step(1);
+      expect(stuck(ctx), place.name).toBe(0);
+    }
   });
 
   it('relancer une session repart de zéro : mêmes effectifs, même mise en place pour la même graine', async () => {

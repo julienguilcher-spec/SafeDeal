@@ -4,7 +4,10 @@
 // balistiques, réserve de lumières. Les effets sont demandés par les VRAIS événements du contrat
 // ('fx', 'explosion', 'projectile:impact') et par l'état des magasins du cœur (burning, projectiles).
 //
-// Paramètres d'URL : scene=gaz|feu|salve|mortier|jet|barricade|divers|dessus ; nuit=1 ;
+// La scène « reel » est un contrôle d'intégration : les VRAIS modules de simulation des dangers et des objets
+// sont chargés à la demande (gaz, feu et projectiles réels) ; les autres scènes n'en dépendent pas.
+//
+// Paramètres d'URL : scene=gaz|feu|salve|mortier|jet|barricade|divers|dessus|reel ; nuit=1 ;
 // qualite=bas|moyen|haut|ultra ; t=secondes simulées avant la première image ; vent=x,z ; pas=0.0333 ;
 // cam=x,y,z,ciblex,cibley,ciblez ; aide=0.
 import * as THREE from 'three';
@@ -462,6 +465,7 @@ function simProjectiles(dt: number): void {
   }
 }
 
+const real = sceneName === 'reel';
 const bench: GameSystem = {
   id: 'banc.fx',
   order: SystemOrder.HAZARDS,
@@ -474,12 +478,19 @@ const bench: GameSystem = {
   update(dt: number): void {
     simTime += dt;
     script(simTime, dt);
+    if (real) return;
     simProjectiles(dt);
     for (const f of field.fires) (f as { age: number }).age += dt;
     field.step(dt);
   },
 };
 game.addSystem(bench);
+if (real) {
+  // ajoutés APRÈS le banc : leur service 'hazards.field' remplace le champ factice
+  const [hz, it] = await Promise.all([import('@/sim/hazards/index'), import('@/sim/items/index')]);
+  game.addModule(hz.createSystems);
+  game.addModule(it.createSystems);
+}
 game.addModule(createSystems);
 await game.boot();
 await ctx.session.start(defaultSessionConfig({ timeOfDay: night ? 22.5 : 15.5, x: 0, z: 0 }));
@@ -572,10 +583,14 @@ const scenes: Record<string, () => void> = {
     car(15, 2.2, Math.PI / 2 + 0.15, 0x1c1b1a);
     const v = ctx.vehicles.spawn('voiture', 15, 2.2, Math.PI / 2 + 0.15);
     v.burning = 1; v.state = 'burning';
-    car(-6, -8.5, Math.PI / 2, 0x6f7b86);
+    car(-9, -8.5, Math.PI / 2, 0x6f7b86);
     policeLine(-26);
-    const s1 = smokeFrom(4, -8.3, 0.25), s2 = smokeFrom(7.2, -8.3, 0.3), s3 = smokeFrom(15, 2.2, 0.5);
-    script = (_t, dt) => { s1(dt); s2(dt); s3(dt); };
+    // boutique incendiée : flammes dans la vitrine, suie sur la façade
+    const shop = ctx.props.addShop({ category: 'mode', x: -2.5, z: -11, heading: 0, width: 5 });
+    shop.window = 'broken';
+    shop.burning = 1;
+    const s1 = smokeFrom(4, -8.3, 0.25), s2 = smokeFrom(7.2, -8.3, 0.3), s3 = smokeFrom(15, 2.2, 0.5), s4 = smokeFrom(-2.5, -9.6, 0.3);
+    script = (_t, dt) => { s1(dt); s2(dt); s3(dt); s4(dt); };
     camPos.set(-3.5, 2.1, 12.5); camTarget.set(9, 2.6, -3);
   },
   // salve de trente grenades de 56 mm tirées en cloche par la ligne
@@ -594,7 +609,7 @@ const scenes: Record<string, () => void> = {
         fired++;
       }
     };
-    camPos.set(-22, 5.5, 26); camTarget.set(6, 3.5, -3);
+    camPos.set(-17, 3.4, 17.5); camTarget.set(7, 4.2, -3);
   },
   // tirs de mortier d'artifice à tir tendu, fusée rouge de sommation
   mortier() {
@@ -627,14 +642,24 @@ const scenes: Record<string, () => void> = {
     box(1.3, 1.15, 0.8, 0x2f5a3a, 9, 0.58, -1.5); box(1.2, 0.15, 1.0, 0x8a6a3a, 10.6, 0.1, -0.6); box(1.2, 0.15, 1.0, 0x8a6a3a, 10.4, 0.28, -0.9, 0.3);
     burnProp('conteneur', 9, -1.5, 0, 0.65, 0.4, 1.15);
     burnProp('palette', 10.5, -0.75, 0.2, 0.7, 0.6, 0.4);
+    const burning = [...ctx.props.list];
     const fire = field.ignite(9.6, -1.1, 1.6, 1);
     policeLine(-34);
     const s1 = smokeFrom(9.6, -1.2, 0.35);
     let acc = 0, acc2 = 0;
     const nozzle = { x: -21.2, y: 3.7, z: 0.5 };
+    let out = false;
     script = (t, dt) => {
-      s1(dt);
-      if (t < 0.6) return;
+      if (!out) s1(dt);
+      if (t < 0.6 || t > 12.6) return;
+      // feu noyé : les objets sont éteints (carcasses encore chaudes), la nappe disparaît
+      if (!out && t > 11.2) {
+        out = true;
+        for (const p of burning) { p.burning = 0; p.state = 'burnt'; }
+        field.fires.length = 0;
+        ctx.events.emit('fire:out', { x: 9.6, z: -1.1, targetKind: 'ground', targetId: 0, byId: 0 });
+        emitFx('trace_brulure', 9.6, 0, -1.1, { size: 2.6 });
+      }
       // visée : le pied du feu, en tir tendu
       const tx = 9.4, tz = -1.1;
       const dx = tx - nozzle.x, dz = tz - nozzle.z;
@@ -650,6 +675,7 @@ const scenes: Record<string, () => void> = {
         emitFx('eclaboussure', tx + (rnd() - 0.5) * 1.5, 0.05, tz + (rnd() - 0.5) * 1.5, { size: 1.4 });
         // le feu faiblit sous l'eau, de la vapeur claire s'élève
         (fire as { intensity: number }).intensity = Math.max(0.12, fire.intensity - 0.012);
+        for (const p of burning) if (p.burning > 0) p.burning = Math.max(0.15, p.burning - 0.012);
         field.emitSmoke(tx, tz, 0.05, 2.5, 0xd8d8d8);
       }
     };
@@ -719,6 +745,32 @@ const scenes: Record<string, () => void> = {
     };
     camPos.set(0.5, 3.6, 14.5); camTarget.set(1.5, 1.2, -4);
   },
+  // contrôle d'intégration : vrais modules des dangers et des objets (champ, feux, grenades, mortier, engin incendiaire)
+  reel() {
+    ctx.env.setWind(1.4, 0.2);
+    policeLine(-12);
+    protesters(26, 20);
+    let step = 0;
+    script = (t) => {
+      const at = (k: number, when: number, fn: () => void): void => { if (step === k && t > when) { step++; fn(); } };
+      at(0, 0.2, () => {
+        for (let k = 0; k < 5; k++) {
+          const flight = 2.4 + k * 0.1;
+          const tx = 2 + k * 5, tz = -4 + (k * 3.7) % 8;
+          ctx.projectiles.spawn('grenade_lacrymo_56', 0, -11, 1.6, -4 + k * 2, (tx + 11) / flight, 0.5 * 9.81 * flight - 1.6 / flight, (tz + 4 - k * 2) / flight);
+        }
+        ctx.projectiles.spawn('fumigene', 0, 26, 1.6, 2, -6, 5, -1.5);
+      });
+      at(1, 1.0, () => {
+        ctx.projectiles.spawn('molotov', 0, 24, 1.8, -1, -9, 6, 0.5);
+        ctx.projectiles.spawn('mortier', 0, 26, 1.5, 3, -30, 6, -1);
+        ctx.projectiles.spawn('pave', 0, 25, 1.8, -3, -11, 6, 0.8);
+        ctx.hazards.ignite(12, -6.5, 1.6, 1, 0);
+      });
+      at(2, 4.0, () => { ctx.projectiles.spawn('gm2l', 0, -11, 1.6, 0, 14, 9, 0.5); });
+    };
+    camPos.set(-8, 2.6, 15); camTarget.set(10, 2.4, -3);
+  },
   // nuage vu de dessus (carte tactique, drone)
   dessus() {
     scenes.gaz!();
@@ -775,7 +827,7 @@ function info(): Record<string, unknown> {
     scene: sceneName, qualite: quality, nuit: night, t: Math.round(simTime * 100) / 100, images: frames,
     appelsModule: s.drawCalls, trianglesModule: s.triangles, quads: s.sprites, particules: s.particles, bouffees: s.puffs, cellules: s.cells,
     surcharge: s.lodBias, flammes: s.flames, foyers: s.fires, decalques: s.decals, projectiles: s.projectiles, jets: s.jets, lumieres: s.lights,
-    cpuMoy: Math.round(avg * 1000) / 1000, cpuP95: Math.round((sorted[Math.floor(sorted.length * 0.95)] ?? 0) * 1000) / 1000,
+    cpuMoy: Math.round(avg * 1000) / 1000, cpuMed: Math.round((sorted[sorted.length >> 1] ?? 0) * 1000) / 1000, cpuP95: Math.round((sorted[Math.floor(sorted.length * 0.95)] ?? 0) * 1000) / 1000,
     cpuMax: Math.round((sorted[sorted.length - 1] ?? 0) * 1000) / 1000,
     evenementsPerdus: s.eventsDropped, particulesRefusees: s.particlesDropped, quadsRefuses: s.spritesDropped,
     appelsScene: renderer.info.render.calls, trianglesScene: renderer.info.render.triangles, secousses: W.__shakes ?? 0,
@@ -810,6 +862,8 @@ const api = {
   },
   draw(): void { draw(); showHud(); },
   info, measure,
+  /** Série des temps CPU du module, image par image (ms). */
+  series(): number[] { return cpu.map((v) => Math.round(v * 1000) / 1000); },
   resetCpu(): void { cpu.length = 0; slow.length = 0; fx.stats.cpuMsMax = 0; },
   camera(x: number, y: number, z: number, tx: number, ty: number, tz: number): void { camPos.set(x, y, z); camTarget.set(tx, ty, tz); },
   emit: emitFx,

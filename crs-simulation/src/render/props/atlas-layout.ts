@@ -46,6 +46,7 @@ export const POSTER_COUNT = 8;
 export const GRAFFITI_COUNT = 8;
 
 const table: Record<string, Region> = {};
+const hasOwn = Object.prototype.hasOwnProperty;
 
 // ── étalages : 2 rangées de 8 cellules de 256 × 192 ──
 for (let i = 0; i < DISPLAY_CATEGORIES.length; i++) {
@@ -90,6 +91,8 @@ table['feuillage'] = mk(1472, 832, 64, 64);
 table['osier'] = mk(1536, 832, 64, 64);
 table['bois'] = mk(1600, 832, 64, 64);
 table['toilettes'] = mk(1664, 832, 128, 64);
+/** Traînée de suie sur un mur, au-dessus d'une baie qui a brûlé (alpha en dégradé). */
+table['suie_mur'] = mk(1792, 832, 128, 64, 2);
 /** Pavé blanc opaque : coordonnées de texture de toute la géométrie non texturée. */
 table['blanc'] = mk(1984, 832, 64, 64, 16);
 
@@ -101,12 +104,13 @@ export const WHITE_V = (WHITE.v0 + WHITE.v1) * 0.5;
 
 /** Région par nom ; le pavé blanc si le nom est inconnu (jamais d'exception pendant le rendu). */
 export function region(name: string): Region {
-  return table[name] ?? WHITE;
+  return hasOwn.call(table, name) ? table[name]! : WHITE;
 }
 
 /** Région de l'étalage d'une catégorie de commerce. */
 export function displayRegion(category: string): Region {
-  return table['etal_' + category] ?? table['etal_autre']!;
+  const key = 'etal_' + category;
+  return hasOwn.call(table, key) ? table[key]! : table['etal_autre']!;
 }
 
 // ───────────────────────────── cellules d'enseigne ─────────────────────────────

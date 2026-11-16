@@ -65,15 +65,7 @@ export class Assigner {
     const k = this.k;
     const ev = k.ctx.events;
     ev.on('order:issued', (o) => {
-      if (this.issuing) return;
-      const entries = k.entries;
-      for (let i = 0; i < entries.length; i++) {
-        const e = entries[i];
-        if (!e.active || e.squadId !== o.squadId || !isUnitMeans(e.means)) continue;
-        const t = o.order.type;
-        // un autre ordre de tâche, « cesser », ou tout nouvel ordre quand la tâche était une protection : contre-ordre
-        if (t === 'cesser' || isTaskOrder(t) || !isTaskOrder(e.orderType)) this.reopen(e);
-      }
+      if (!this.issuing) this.counterOrder(o.squadId, o.order, null);
     });
     ev.onAny('police:order_done', (payload) => {
       const d = payload as { squadId: number; type: string; ok: boolean } | null;
@@ -87,6 +79,29 @@ export class Assigner {
         else this.reopen(e); // l'unité a déjà dit pourquoi à la radio
       }
     });
+  }
+
+  /**
+   * Un ordre vient d'être donné à une unité : qu'advient-il des incidents dont elle était chargée ?
+   *   - la même tâche redonnée par celui qui commande (il confie l'incident, puis donne lui-même l'ordre) : on suit le sien ;
+   *   - « cesser », une autre tâche, ou tout nouvel ordre quand la tâche était une protection : contre-ordre, l'incident
+   *     est de nouveau à confier ;
+   *   - un ordre de formation (se porter en colonne vers l'incident, tenir une ligne) n'interrompt pas une tâche.
+   * `except` : l'incident pour lequel ce module vient lui-même de donner l'ordre.
+   */
+  private counterOrder(squadId: number, order: SquadOrder, except: Entry | null): void {
+    const entries = this.k.entries;
+    const t = order.type;
+    for (let i = 0; i < entries.length; i++) {
+      const e = entries[i];
+      if (e === except || !e.active || e.squadId !== squadId || !isUnitMeans(e.means)) continue;
+      if (!except && t === e.orderType && (order.targetId === e.orderTarget || Math.hypot(order.x - e.x, order.z - e.z) < 25)) {
+        e.orderAt = order.issuedAt;
+        e.doneAt = -1;
+        continue;
+      }
+      if (t === 'cesser' || isTaskOrder(t) || !isTaskOrder(e.orderType)) this.reopen(e);
+    }
   }
 
   reset(): void {
@@ -196,7 +211,10 @@ export class Assigner {
       this.issuing = false;
     }
     e.orderType = order.type;
+    e.orderTarget = order.targetId ?? 0;
     e.orderAt = squad.order.type === order.type ? squad.order.issuedAt : k.now;
+    // une unité ne mène qu'une tâche à la fois : ses autres incidents sont de nouveau à confier
+    this.counterOrder(squad.id, squad.order, e);
     e.doneAt = -1;
     this.setAssigned(e, means, squad.id);
     return true;
@@ -407,6 +425,7 @@ export class Assigner {
     e.squadId = 0;
     e.progress = 0;
     e.orderType = '';
+    e.orderTarget = 0;
     e.orderAt = -1;
     e.callId = 0;
     e.doneAt = -1;
@@ -476,6 +495,17 @@ export class Assigner {
     return null;
   }
 
+  /** L'unité (ou l'une de ses subordonnées : une section n'a de membres que dans ses groupes) a-t-elle encore du monde ? */
+  private manned(squad: Squad, depth: number): boolean {
+    if (squad.members.length > 0) return true;
+    if (depth >= 3) return false;
+    const list = this.k.ctx.squads.list;
+    for (let i = 0; i < list.length; i++) {
+      if (list[i].parentId === squad.id && this.manned(list[i], depth + 1)) return true;
+    }
+    return false;
+  }
+
   /** Suivi d'un incident affecté : arrivée sur place, avancement, fin de tâche, moyen perdu. */
   track(e: Entry, dt: number, _treating: boolean): void {
     if (e.state === 'ouvert' || !e.active) return;
@@ -519,7 +549,7 @@ export class Assigner {
       }
     } else {
       const s = ctx.squads.get(e.squadId);
-      if (!s || s.members.length === 0) {
+      if (!s || !this.manned(s, 0)) {
         this.reopen(e);
         return;
       }

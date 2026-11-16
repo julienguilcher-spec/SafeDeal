@@ -10,7 +10,7 @@ import {
 import type { HaloSpec, Part, Tpl } from './geo';
 import { kindInfo, modelFor, MODEL_KEYS } from './mapping';
 import type { KindInfo } from './mapping';
-import { MeshBuf, hash01 } from './meshbuf';
+import { MeshBuf, hash01, own } from './meshbuf';
 import * as A from './models-a';
 import * as B from './models-b';
 import * as M from './models-c';
@@ -39,13 +39,13 @@ const REGISTRY: Readonly<Record<string, ModelFn>> = {
 
 /** Le type a-t-il un modèle propre (la barricade est un assemblage, pas un modèle) ? */
 export function hasModel(kind: string): boolean {
-  return REGISTRY[kind] !== undefined;
+  return own(REGISTRY, kind) !== undefined;
 }
 
 /** Construit le modèle intact d'un type à un niveau de détail donné. */
 export function buildBase(kind: string, lod: number, skin: number): Tpl {
   const key = modelFor(kind);
-  const fn = REGISTRY[key] ?? REGISTRY.autre!;
+  const fn = own(REGISTRY, key) ?? REGISTRY.autre!;
   const b = new GeoBuilder(lod, skin);
   fn(b, lod, skin);
   return b.finish();
@@ -122,9 +122,11 @@ export function deriveVariant(base: Tpl, info: KindInfo, variant: number, panesL
     // lueur d'incendie plus forte vers le bas, couleurs qui commencent à noircir
     for (let i = 0; i < o.nv; i++) {
       const y = pos[i * 3 + 1]!;
-      col[i * 4] = col[i * 4]! * 0.62;
-      col[i * 4 + 1] = col[i * 4 + 1]! * 0.55;
-      col[i * 4 + 2] = col[i * 4 + 2]! * 0.5;
+      // noircissement qui gagne par le haut (la suie monte)
+      const soot = 0.5 - 0.3 * Math.min(1, Math.max(0, y / Math.max(0.4, H)));
+      col[i * 4] = col[i * 4]! * soot;
+      col[i * 4 + 1] = col[i * 4 + 1]! * soot * 0.9;
+      col[i * 4 + 2] = col[i * 4 + 2]! * soot * 0.8;
       if (fx[i * 4] === FX_NONE) {
         const s = 1 - Math.min(1, Math.max(0, y / Math.max(0.4, H))) * 0.7;
         fx[i * 4] = FX_FIRE;
@@ -163,7 +165,12 @@ export function deriveVariant(base: Tpl, info: KindInfo, variant: number, panesL
           pos[i * 3] = x * spread;
           pos[i * 3 + 1] = y * k;
           pos[i * 3 + 2] = z * spread;
-          nrm[i * 3 + 1] = Math.min(127, nrm[i * 3 + 1]! + 70);
+          // surface affaissée : normales relevées
+          const nx = nrm[i * 3]!, ny = nrm[i * 3 + 1]! + 70, nz = nrm[i * 3 + 2]!;
+          const nl = 127 / (Math.hypot(nx, ny, nz) || 1);
+          nrm[i * 3] = nx * nl;
+          nrm[i * 3 + 1] = ny * nl;
+          nrm[i * 3 + 2] = nz * nl;
         } else if (info.burn === 'tord') {
           // cadre tordu par la chaleur : vrillé, penché, affaissé
           const t = y / Math.max(0.3, H);
@@ -230,6 +237,7 @@ export class ModelLibrary {
   private readonly index = new Map<string, number>();
   /** Nombre de modèles construits (états compris). */
   built = 0;
+  private warmAt = 0;
 
   constructor() {
     for (let i = 0; i < MODEL_KEYS.length; i++) this.index.set(MODEL_KEYS[i]!, i);
@@ -256,9 +264,30 @@ export class ModelLibrary {
     return t;
   }
 
+  /**
+   * Préparation en arrière-plan : construit à l'avance, quelques-uns par appel, les modèles intacts de tous
+   * les types aux trois niveaux — pour qu'un premier passage près d'un objet ne coûte rien. Retourne false
+   * quand tout est prêt.
+   */
+  warm(budgetMs: number): boolean {
+    if (this.warmAt >= MODEL_KEYS.length * 3) return false;
+    const t0 = Date.now();
+    do {
+      const kind = MODEL_KEYS[Math.floor(this.warmAt / 3)]!;
+      // d'abord les niveaux lointain et moyen (présents partout), puis le détaillé
+      const lod = 2 - (this.warmAt % 3);
+      this.warmAt++;
+      if (kind === 'barricade') continue;
+      const info = kindInfo(kind);
+      for (let skin = 0; skin < info.skins; skin++) this.get(kind, lod, V_INTACT, skin, info.panes);
+    } while (this.warmAt < MODEL_KEYS.length * 3 && Date.now() - t0 < budgetMs);
+    return true;
+  }
+
   clear(): void {
     this.bases.clear();
     this.variants.clear();
     this.built = 0;
+    this.warmAt = 0;
   }
 }

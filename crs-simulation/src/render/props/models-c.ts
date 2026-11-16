@@ -43,10 +43,12 @@ export const echafaudage: ModelFn = (b, lod) => {
     for (let k = 1; k < 7; k++) b.bar(3.3, k * 0.32, 0.2 - k * 0.071, 3.7, k * 0.32, 0.2 - k * 0.071, 0.012, 3);
   }
   // filet de protection côté rue, à partir du premier plancher
-  b.part(P_SOFT).gloss(0).c(0xdfe8e2).tex('filet');
+  b.part(P_SOFT).gloss(0).c(0xdfe8e2);
   if (lod === 2) {
-    b.quadZ(0, 5.575, 0.58, 7.9, 6.75, true);
+    // de loin, un filet de chantier est un voile opaque
+    b.c(0xc9d3cc).quadZ(0, 5.575, 0.58, 7.9, 6.75, true);
   } else {
+    b.tex('filet');
     for (let i = 0; i < 4; i++) for (let j = 0; j < 3; j++) b.quadZ(-2.9625 + i * 1.975, 3.325 + j * 2.25, 0.58, 1.975, 2.25, true);
   }
   b.tex('').part(P_BODY);
@@ -57,25 +59,25 @@ export const sanisette: ModelFn = (b, lod) => {
   const seg = S(lod, 8, 5, 3);
   b.c(0x9a9c97);
   if (lod === 2) {
-    b.box(0, 1.2, 0, 3.1, 2.4, 1.96, NO_BOTTOM);
-    b.c(C.ACIER_SOMBRE).box(0, 2.5, 0, 3.3, 0.2, 2.1);
+    b.box(0, 1.2, 0, 3.0, 2.4, 1.96, NO_BOTTOM);
+    b.c(C.ACIER_SOMBRE).box(0, 2.5, 0, 3.2, 0.2, 2.1);
     return;
   }
-  b.box(0, 1.2, 0, 2.2, 2.4, 2.0, NO_BOTTOM | 1 | 2 | 4);
-  b.arc(1.1, 0, 0, 1.0, 2.4, -PI / 2, PI / 2, seg).arc(-1.1, 0, 0, 1.0, 2.4, PI / 2, PI * 1.5, seg);
+  b.box(0, 1.2, 0, 1.2, 2.4, 2.0, NO_BOTTOM | 1 | 2 | 4);
+  b.arc(0.6, 0, 0, 1.0, 2.4, -PI / 2, PI / 2, seg).arc(-0.6, 0, 0, 1.0, 2.4, PI / 2, PI * 1.5, seg);
   // toit débordant
-  b.c(C.ACIER_SOMBRE).box(0, 2.499, 0, 2.2, 0.198, 2.1);
-  b.cyl(1.1, 2.4, 0, 1.05, 1.05, 0.2, seg * 2, 3).cyl(-1.1, 2.4, 0, 1.05, 1.05, 0.2, seg * 2, 3);
+  b.c(C.ACIER_SOMBRE).box(0, 2.499, 0, 1.2, 0.198, 2.1);
+  b.cyl(0.6, 2.4, 0, 1.05, 1.05, 0.2, seg * 2, 3).cyl(-0.6, 2.4, 0, 1.05, 1.05, 0.2, seg * 2, 3);
   // porte, bandeau, voyants
   b.c(0xb8bcc0).gloss(0.45).box(0, 1.1, 1.0, 1.0, 2.0, 0.04).gloss(0);
   b.c(0xffffff).tex('toilettes').emit(FX_NIGHT, 0.7).quadZ(0, 2.24, 1.025, 1.0, 0.24).tex('').emit(0);
   if (lod === 0) {
     b.c(0x21c45d).emit(FX_ON, 1).box(0.62, 1.3, 1.005, 0.05, 0.05, 0.02).emit(0);
-    b.c(0xe9ecef).box(0.86, 1.45, 1.0, 0.34, 0.5, 0.02);
+    b.c(0xe9ecef).box(0.4, 1.9, 1.03, 0.16, 0.12, 0.01);
     b.c(0x2c3035).box(0.62, 1.15, 1.0, 0.1, 0.16, 0.03);
   }
   b.push().rotY(PI).tagSpot(0, 1.2, 1.005, 1.5, 0.6).pop();
-  b.tagSpot(-0.8, 1.1, 1.005, 0.5, 0.5);
+  b.push().rotY(PI / 2).tagSpot(0, 1.2, 1.605, 1.2, 0.6).pop();
   b.halo(0, 2.2, 1.2, 0.4, 0xf0f4ff, 0.3, FX_NIGHT, 2.4);
 };
 

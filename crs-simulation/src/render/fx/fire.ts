@@ -346,7 +346,7 @@ export class FireRenderer {
       const hf = h * (0.62 + 0.5 * hj) * breathe;
       const w = Math.max(0.5, hf * (mat === MAT_BATTERY ? 0.42 : mat === MAT_VEHICLE ? 0.62 : 0.72)) * (0.85 + 0.3 * hk);
       const by = s.y + base * (0.6 + 0.6 * hk);
-      const bright = (0.8 + 0.4 * I) * (mat === MAT_BATTERY ? 1.25 : 1);
+      const bright = (0.8 + 0.4 * I) * (mat === MAT_BATTERY ? 1.35 : 1);
       const cr = 1;
       const cb = mat === MAT_BATTERY ? 1.12 : 1;
       if (top) {
@@ -457,7 +457,7 @@ export class FireRenderer {
   private crackle(s: FireSource, base: number): void {
     const core = this.core;
     const rng = core.rng;
-    s.crackleAt = core.time + 0.07 + rng.next() * rng.next() * 0.7;
+    s.crackleAt = core.time + 0.12 + rng.next() * rng.next() * 1.1;
     const n = Math.max(2, Math.round((3 + rng.next() * 7) * core.budget.emission));
     const y = s.y + base + 0.2;
     for (let k = 0; k < n; k++) {
@@ -468,7 +468,7 @@ export class FireRenderer {
       core.spark(PRIO_MID, s.x, y, s.z, Math.cos(a) * ch * v, up * v, Math.sin(a) * ch * v, 0.05, 0.35 + rng.next() * 0.5, 0.85, 0.93, 1.0, 5);
     }
     core.glow(PRIO_MID, s.x, y + 0.2, s.z, 0.9 + rng.next() * 0.9, 0.4, 0.07, 0.85, 0.93, 1.0, 4.5, TILE_FLASH, F_FLASH);
-    core.lights.flash(s.x, y + 0.4, s.z, 0xdcecff, 160, 9, 0.09);
+    core.lights.flash(s.x, y + 0.4, s.z, 0xeaf2ff, 70, 8, 0.08);
   }
 
   /** Carcasse encore chaude : rougeoiement lent, filet de fumée. */

@@ -68,9 +68,11 @@ export interface PartLike {
 }
 
 const SYNTH_KINDS: readonly string[] = [
-  'conteneur', 'barriere_vauban', 'poubelle', 'palette', 'velo', 'barriere_chantier', 'table_terrasse', 'chaise',
-  'conteneur', 'trottinette', 'poubelle', 'palette', 'chaise', 'velo',
+  'conteneur', 'barriere_vauban', 'palette', 'velo', 'poubelle', 'chaise', 'conteneur', 'barriere_chantier', 'table_terrasse',
+  'trottinette', 'poubelle', 'palette', 'conteneur', 'velo', 'barriere_vauban', 'chaise',
 ];
+/** Rangs de la liste où une composition peut commencer : toujours par un bac roulant. */
+const SYNTH_STARTS: readonly number[] = [0, 6, 12];
 
 /**
  * Composition plausible d'une barricade quand la simulation n'en fournit pas le détail : bacs et
@@ -80,7 +82,7 @@ const SYNTH_KINDS: readonly string[] = [
 export function synthParts(id: number, halfX: number, halfZ: number): PartLike[] {
   const parts: PartLike[] = [];
   let x = -halfX + 0.3;
-  let i = Math.floor(hash01(id) * SYNTH_KINDS.length);
+  let i = SYNTH_STARTS[Math.floor(hash01(id) * SYNTH_STARTS.length)]!;
   let guard = 0;
   while (x < halfX - 0.2 && guard++ < 40) {
     const kind = SYNTH_KINDS[i % SYNTH_KINDS.length]!;
@@ -95,27 +97,80 @@ export function synthParts(id: number, halfX: number, halfZ: number): PartLike[]
     const r1 = hash01(id * 31 + i * 7), r2 = hash01(id * 17 + i * 13);
     const heading = (r1 - 0.5) * 1.3 + (hx < hz ? HALF_PI : 0);
     const along = Math.abs(Math.cos(heading)) * hx + Math.abs(Math.sin(heading)) * hz;
-    parts.push({ kind, lx: x + along * 0.8, lz: (r2 - 0.5) * halfZ * 0.9, heading, halfX: hx, halfZ: hz, height: h });
-    x += along * 1.25;
+    parts.push({ kind, lx: x + along * 0.7, lz: (r2 - 0.5) * halfZ * 0.9, heading, halfX: hx, halfZ: hz, height: h });
+    // les éléments se chevauchent : un tas, pas un alignement
+    x += along * (info.size === 0 ? 0.55 : 0.95);
   }
   return parts;
 }
 
+/** Hauteur d'appui offerte par un élément couché (bac, corbeille) aux objets jetés par-dessus. */
+function supportHeight(part: PartLike): number {
+  return part.kind === 'conteneur' || part.kind === 'poubelle' ? part.height : 0;
+}
+
 /**
- * Matrice d'un élément de barricade : repère de la barricade (`base`) puis position, cap, renversement
- * et un léger déséquilibre — les objets s'appuient les uns sur les autres.
+ * Matrice d'un élément de barricade : repère de la barricade (`base`), puis une pose de TAS —
+ *   - bacs et corbeilles couchés au sol, comme les a laissés la simulation ;
+ *   - barrières dressées de biais, appuyées sur le tas ; palettes calées debout ;
+ *   - vélos, trottinettes, tables et chaises jetés par-dessus l'appui le plus proche, de travers.
+ * `height` : hauteur de la barricade (sommet visé du tas) ; `burnt` : barricade calcinée (le plastique
+ * fondu n'est plus couché ni empilé). Déterministe pour une graine donnée.
  */
-export function partMatrix(m: Mat, base: Mat, part: PartLike, index: number, seed: number): Mat {
+export function partMatrix(
+  m: Mat, base: Mat, part: PartLike, index: number, seed: number, parts: readonly PartLike[], height: number, burnt = false,
+): Mat {
   const info = kindInfo(part.kind);
   m.set(base);
+  if (burnt && info.burn === 'fond') {
+    // plastique fondu : une flaque au sol, à l'endroit de l'objet
+    matTranslate(m, part.lx, 0, part.lz);
+    matRotY(m, part.heading);
+    return m;
+  }
   const r1 = hash01(seed * 7 + index * 11), r2 = hash01(seed * 13 + index * 5), r3 = hash01(seed * 3 + index * 17);
-  // un élément léger sur trois est juché sur ses voisins
-  const light = info.size === 0 || part.kind === 'palette' || part.kind === 'velo' || part.kind === 'barriere_vauban';
-  const lift = light && index % 3 === 1 ? 0.18 + r3 * 0.3 : 0;
-  matTranslate(m, part.lx, lift, part.lz);
+  const kind = info.model;
+  if (kind === 'barriere_vauban' || kind === 'barriere_chantier') {
+    // dressée, penchée de 35 à 55° vers l'un ou l'autre côté ; une grande grille est couchée plus bas
+    const side = index % 2 === 0 ? 1 : -1;
+    const lean = (kind === 'barriere_chantier' ? 0.7 : 0.5) + r1 * 0.3;
+    matTranslate(m, part.lx, 0, part.lz - side * Math.sin(lean) * info.h * 0.42);
+    matRotY(m, part.heading + (r2 - 0.5) * 0.3);
+    matRotX(m, side * lean);
+    matRotZ(m, (r3 - 0.5) * 0.18);
+    return m;
+  }
+  if (kind === 'palette') {
+    // calée debout contre le tas
+    const side = index % 2 === 0 ? -1 : 1;
+    const lean = 0.5 + r1 * 0.6;
+    matTranslate(m, part.lx, 0.38 * Math.cos(lean) + 0.05, part.lz + side * 0.25);
+    matRotY(m, part.heading + (r2 - 0.5) * 0.5);
+    matRotX(m, side * (Math.PI / 2 - lean));
+    return m;
+  }
+  const light = kind === 'velo' || kind === 'trottinette' || kind === 'chaise' || kind === 'table_terrasse' || kind === 'cone';
+  let lx = part.lx, lift = 0;
+  if (light) {
+    // posé sur l'appui le plus proche (à moins de 1,6 m), sinon sur ses voisins à mi-hauteur
+    let best = 1.6, bestH = 0, bestX = lx;
+    for (let i = 0; i < parts.length; i++) {
+      const h = supportHeight(parts[i]!);
+      const d = Math.abs(parts[i]!.lx - lx);
+      if (h > 0 && d < best) { best = d; bestH = h; bestX = parts[i]!.lx; }
+    }
+    if (bestH > 0 && !burnt) {
+      lx = bestX + (r2 - 0.5) * 0.5;
+      lift = bestH * (0.75 + r3 * 0.25);
+    } else {
+      lift = Math.max(0, height - part.height) * (0.25 + r3 * 0.3);
+    }
+    lift = Math.min(lift, Math.max(0, height - part.height * 0.5));
+  }
+  matTranslate(m, lx, lift, part.lz * (light ? 0.5 : 1));
   matRotY(m, part.heading);
-  matRotX(m, (r1 - 0.5) * (lift > 0 ? 0.6 : 0.16));
-  matRotZ(m, (r2 - 0.5) * (lift > 0 ? 0.5 : 0.12));
+  matRotX(m, (r1 - 0.5) * (light ? 0.9 : 0.16));
+  matRotZ(m, (r2 - 0.5) * (light ? 0.7 : 0.12));
   const axis = fallAxis(info, part.halfX, part.halfZ, part.height);
   if (axis !== FALL_NONE) layDown(m, info, axis, r3 < 0.5);
   return m;

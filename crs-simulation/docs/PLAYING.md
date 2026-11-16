@@ -65,25 +65,33 @@ Console du navigateur : `__CRS.summary()`, `__CRS.step(secondes)`, `__CRS.telepo
 
 ## Ce qui est jouable aujourd'hui
 
-- **Page d'accueil** complète (souris, clavier, manette, doigt) : rôle, grade, poste, mode, lieu sur le plan, heure,
-  météo, vent, scénarios enregistrés, « Surprends-moi », paramètres (graphismes, commandes, son, sauvegarde), crédits.
+Vérifié dans le navigateur (`tests/e2e/game.mjs`, captures regardées) ou, quand c'est précisé, dans les tests
+d'intégration sans rendu (`tests/unit/integration.session.test.ts`).
+
+- **Page d'accueil** (souris, clavier, doigt) : rôle, grade, poste, lieu sur le plan, lancement ; paramètres.
   Un seul chef : la tuile « Commissaire » a disparu, le **commandant** porte l'écharpe et prononce les sommations.
-- **Chargement** du vrai Paris autour du lieu choisi (barre de progression réelle : dispositif, monuments, ville).
-- **En jeu, tous les rôles** donnent un personnage en tenue avec sa dotation, placé face au lieu : CRS (six postes),
-  chef de groupe ou de section, commandant (une section et son véhicule de commandement), BRAV-M, équipages du
-  Centaure et du canon à eau, télépilote, street medic, pompier ou SAMU, journaliste, manifestant.
-  Les collègues de l'unité sont en ligne (boucliers devant), les véhicules stationnés derrière, quelques passants autour.
-- **Se déplacer** : marche, course, accroupi, saut ; collisions avec les immeubles, les grilles, les monuments, le
-  mobilier, les véhicules ; endurance. **Vues** à la première et à la troisième personne.
-- **Objets** : bouclier, bâton, gazeuse, grenades à main, lanceur de 56 mm, LBD, extincteur, menottes, mégaphone…
-  Lancer dosé au clic maintenu ; la grenade lacrymogène roule, s'ouvre et diffuse un gaz qui dérive avec le vent et
-  fait tousser ; l'emploi de la force est jugé et consigné (sommations, niveau licite et autorisé affichés au HUD).
-- **Véhicules** : monter (E près d'une portière), conduire le fourgon, le véhicule de commandement, le Centaure, le
-  canon à eau, les motos ; sirène, gyrophares, tourelles.
-- **HUD** : heure et météo, boussole et secteur, état légal, unité, santé et souffle, barre d'objets, mini-carte,
-  invites d'interaction, sous-titres radio. **Plan de Paris** (M) avec recherche et repère GPS, **carte tactique**
-  (Tab), **pause**, **paramètres**, compte rendu de fin de session.
-- **Son** : ambiance de la ville selon l'heure et la météo, pas selon le sol, objets, radio, voix de synthèse.
+- **Chargement** du vrai Paris autour du lieu choisi, avec une barre de progression réelle (dispositif, monuments, ville).
+- **En jeu, tous les rôles** donnent un personnage en tenue avec sa dotation, placé face au lieu (testé pour les
+  seize combinaisons rôle / poste, sans rendu) : CRS (six postes), chef de groupe ou de section, commandant (une section
+  et son véhicule de commandement), BRAV-M, équipages du Centaure et du canon à eau, télépilote, street medic, pompier
+  ou SAMU, journaliste, manifestant. Les collègues sont en ligne (boucliers devant), les véhicules stationnés derrière,
+  quelques passants autour. Les dix lieux proposés par la page d'accueil donnent une mise en place valide.
+- **Se déplacer** : marche (≈ 1,4 m/s), course ; on bute sur la grille de l'obélisque et on la contourne, on ne
+  traverse pas les murs. **Vues** à la première et à la troisième personne (V).
+- **Objets** : barre d'objets, mise en main (1 à 9), lancer dosé au clic maintenu. La grenade lacrymogène part, ses
+  palets diffusent un gaz (concentration mesurée au point de chute), l'emploi de la force est jugé et consigné —
+  sans sommation préalable, le jeu relève la faute.
+- **Véhicules** (sans rendu) : l'invite « Conduire — Fourgon de CRS » à la portière, la montée, la conduite ; au
+  Centaure, la tourelle suit le regard et la grenade part où l'on regarde.
+- **HUD** : heure et météo, boussole et secteur, état légal (sommations, force licite et autorisée), unité, santé et
+  souffle, barre d'objets, mini-carte. **Plan de Paris** (M), **carte tactique** (Tab), **pause** (P ou Échap),
+  **paramètres**, « Recommencer », compte rendu de fin de partie, retour à l'accueil.
+- **Téléphone** (844×390, paysage) : commandes tactiles, joystick virtuel, barre d'objets, pause au doigt.
+  En portrait, le jeu demande de tourner l'appareil.
+
+Branché mais non vérifié à l'œil ou à l'oreille ici : le son (aucune sortie audio sur la machine d'essai), la manette
+(vérifiée seulement dans le banc d'essai du module d'entrées), la toux et le voile d'écran sous le gaz, la conduite vue
+à l'écran, les rôles autres que CRS vus en 3D.
 
 ## Ce qui ne l'est pas encore
 

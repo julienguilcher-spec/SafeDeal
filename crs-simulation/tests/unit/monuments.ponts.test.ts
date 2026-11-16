@@ -14,7 +14,7 @@ import { getColliders, getWorldColliders, listColliderKeys, siteOfLandmark } fro
 import { canonicalKey, registerAlias } from '@/world/monuments/keys';
 import { EXTRA_LANDMARKS, extraLandmarksIn, lonLatToXZ, mergeLandmarks } from '@/world/monuments/extra';
 import { HORIZON } from '@/world/monuments/horizon';
-import { hazesOf, statsOf } from '@/world/monuments/kit';
+import { cyl, hazesOf, statsOf } from '@/world/monuments/kit';
 import { isSimpleRing, pointInRing, ringBounds, signedArea } from '@/world/monuments/shape2d';
 import { PASS_UNDER_Y, type MonumentCollider, type MonumentSite } from '@/world/monuments/types';
 import { PA3, PA3_PYLONS, PETIT_BRAS_ARCHES, PONT_NEUF, PONT_NEUF_ARCHES, PONT_NEUF_PETIT_BRAS, HENRI_IV, archLayout, bridgeFrame, deckPoint, deckY, type BridgeDesign } from '@/world/monuments/x-ponts-plan';
@@ -454,6 +454,19 @@ describe('portes Saint-Denis et Saint-Martin', () => {
     expect(sm.x).toBeGreaterThan(sd.x);
     const p = lonLatToXZ(2.321236, 48.865633);
     expect(Math.hypot(p.x, p.z)).toBeLessThan(1e-6);
+  });
+});
+
+describe('kit : corrections du lot', () => {
+  it('cyl() en portion d\'arc : le chapeau demandé explicitement est posé (il était ignoré), jamais par défaut', () => {
+    const open = cyl(2, 2, 1, 8, { start: 0, sweep: Math.PI }), capped = cyl(2, 2, 1, 8, { start: 0, sweep: Math.PI, top: true, bottom: true });
+    expect(open.triangleCount).toBe(16);
+    expect(capped.triangleCount).toBe(16 + 8 + 8);
+    expect(cyl(2, 2, 1, 8).triangleCount).toBe(16 + 8);                    // tour complet : inchangé
+    // le chapeau du haut regarde vers le haut, celui du bas vers le bas, dans le demi-espace x ≥ 0
+    for (let i = 0; i < capped.vertexCount; i++) expect(capped.pos[3 * i]).toBeGreaterThan(-1e-9);
+    expect(capped.nor.filter((_, i) => i % 3 === 1 && capped.nor[i] === 1).length).toBe(10);
+    expect(capped.nor.filter((_, i) => i % 3 === 1 && capped.nor[i] === -1).length).toBe(10);
   });
 });
 

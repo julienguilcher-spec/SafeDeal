@@ -253,7 +253,7 @@ function startColumn(k: Kernel, u: Unit, x: number, z: number, files: number): v
     hz = k.v2.z;
   }
   const col = formColumn(k, u, hx, hz, x, z, files);
-  col.speed = k.tuning.pace;
+  col.speed = k.now < u.trotUntil ? k.tuning.trot : k.tuning.pace;
   setStep(k, u, 0);
   setPhase(k, u, 'mise_en_place');
 }
@@ -496,7 +496,7 @@ export function progress(k: Kernel, u: Unit, dt: number): void {
             measure(g);
             if (g.errAll <= 0.9 || k.now - m.stepT > 10) {
               g.moving = true;
-              g.speed = k.tuning.pace;
+              g.speed = k.now < u.trotUntil ? k.tuning.trot : k.tuning.pace;
               setStep(k, u, 1);
               setPhase(k, u, 'mouvement');
             }

@@ -13,7 +13,7 @@ import { appliedObelisk, inscriptionPlate } from '../kit/x-ponts-portes';
 import { PSD } from '../collide/porte_saint_denis';
 import { rectRing } from '../shape2d';
 
-inscriptionPlate('porte_ludovico', 'LUDOVICO MAGNO', 13.5 / 1.25);
+inscriptionPlate('porte_ludovico', 'LUDOVICO MAGNO', 13.5 / 1.02, 0xe0cfa8, 0xf0c63c);
 const WALL = 'pierre_blonde', TRIM = 'pierre_lisse';
 
 function build(quality: QualityLevel) {
@@ -39,7 +39,8 @@ function build(quality: QualityLevel) {
     const turn = t > 0 ? 0 : Math.PI;
     // clef, inscription de la frise, bas-relief au-dessus de l'arche
     trim.append(box(1.2, 1.9, 0.6).translate(0, archH - 0.2, hd + 0.05).rotateY(turn));
-    const fy = entabY + (entabTop - entabY) * 0.32, fh = (entabTop - entabY) * 0.3;
+    // la frise occupe 30 à 62 % de la hauteur de l'entablement
+    const fy = entabY + (entabTop - entabY) * 0.31, fh = (entabTop - entabY) * 0.3;
     b.add('porte_ludovico', quadFit(-6.75, fy, hd + 0.09, 6.75, fy, hd + 0.09, 6.75, fy + fh, hd + 0.09, -6.75, fy + fh, hd + 0.09).rotateY(turn));
     b.with(pose(0, archH + 0.55, t * hd, turn), () => reliefPanel(b, { width: archW + 1.6, height: entabY - archH - 1.0, frame: TRIM, shift: t > 0 ? 0 : 3 }));
     for (const s of [-1, 1]) {

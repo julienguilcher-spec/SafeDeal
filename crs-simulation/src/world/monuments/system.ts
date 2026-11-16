@@ -63,6 +63,10 @@ export class MonumentSystem implements GameSystem {
   private slots: Slot[] = [];
   private horizon: HorizonSlot[] = [];
   private horizonChecked = false;
+  private merged: readonly LandmarkInfo[] = [];
+  private mergedFrom: readonly LandmarkInfo[] | null = null;
+  private mergedCount = -1;
+  private mergedStamp = NaN;
   private signature = NaN;
   private time = 0;
   private scanTimer = 0;
@@ -94,11 +98,17 @@ export class MonumentSystem implements GameSystem {
     ctx.provide<WorldMonumentsApi>('world.monuments', this.worldApi);
   }
 
-  /** Repères de la carte + repères supplémentaires situés dans l'emprise (liste recalculée si la carte change). */
+  /** Repères de la carte + repères supplémentaires situés dans l'emprise (liste recalculée seulement si la carte change). */
   private landmarks(): readonly LandmarkInfo[] {
     const ctx = this.ctx;
     if (!ctx) return EXTRA_LANDMARKS.slice(0, 0);
-    return mergeLandmarks(ctx.world.landmarks, ctx.world.bounds);
+    const base = ctx.world.landmarks, b = ctx.world.bounds;
+    const stamp = b ? b.minX * 3 + b.minZ * 5 + b.maxX * 7 + b.maxZ * 11 : NaN;
+    if (base !== this.mergedFrom || base.length !== this.mergedCount || !Object.is(stamp, this.mergedStamp)) {
+      this.mergedFrom = base; this.mergedCount = base.length; this.mergedStamp = stamp;
+      this.merged = mergeLandmarks(base, b);
+    }
+    return this.merged;
   }
 
   /** Emprise d'un repère supplémentaire modélisé, ou obstacle plein d'un monument de la carte, en ce point ? */
@@ -180,10 +190,10 @@ export class MonumentSystem implements GameSystem {
     if (this.horizonChecked) return;
     const ctx = this.ctx!;
     const b = ctx.world.bounds;
-    if (!ctx.world.ready && !b) return;
+    const paris = !!b && Number.isFinite(b.maxX - b.minX + b.maxZ - b.minZ) && b.maxX - b.minX >= HORIZON_MIN_SPAN && b.minX < 0 && b.maxX > 0 && b.minZ < 0 && b.maxZ > 0;
+    // tant que le monde n'est pas chargé, son emprise n'est qu'un bouche-trou : on reviendra
+    if (!paris) { if (ctx.world.ready) this.horizonChecked = true; return; }
     this.horizonChecked = true;
-    if (!b || !Number.isFinite(b.maxX - b.minX + b.maxZ - b.minZ)) return;
-    if (b.maxX - b.minX < HORIZON_MIN_SPAN || b.minX > 0 || b.maxX < 0 || b.minZ > 0 || b.maxZ < 0) return;
     for (const def of HORIZON) {
       // dans l'emprise (ce ne serait plus un repère lointain) : la carte devrait alors fournir un vrai monument
       if (def.x > b.minX && def.x < b.maxX && def.z > b.minZ && def.z < b.maxZ) continue;

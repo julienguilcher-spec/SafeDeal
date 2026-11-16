@@ -5,7 +5,7 @@
  * ===================================================================================== */
 
 import type { MissionDef } from '../../../core/missions-schema';
-import { crowd, fail, forces, FIN, FOULE, intel, mission, ob, os, ph, scene, T, TENS } from './dsl';
+import { crowd, fail, forces, FIN, FOULE, intel, mission, OBJ, ob, os, ph, rad, scene, T, voix } from './dsl';
 import type { MissionSpec } from './dsl';
 import { CDT_02 } from './commandant';
 import { CRS_05 } from './crs';
@@ -30,12 +30,30 @@ export const DRONE_01 = mission({
   intel: intel('Périmètre autorisé de trois cents mètres, plafond de cent mètres.', 'Aucun signalement.', ['Esplanade des Invalides'],
     ['Vérifier batterie et météo', 'Rester dans le périmètre', 'Rentrer sous vingt pour cent de batterie']),
   phases: [
-    ph('decollage', 'Décollage', 'Contrôles et décollage autorisé.', T(45),
-      [['ICARE', 'CENTRAL ICI ICARE. Décollage, périmètre vérifié. PARLEZ.']], []),
-    ph('balises', 'Trois balises', 'Vous survolez les trois balises du parcours.', T(120),
-      [['ICARE', 'CENTRAL ICI ICARE. Balise UN, RAS. PARLEZ.']], ['Un coup de vent déporte le drone']),
-    ph('retour', 'Retour', 'Vous revenez poser le drone.', FIN,
-      [['CENTRAL', 'ICARE ICI CENTRAL. Atterrissage autorisé. PARLEZ.']], []),
+    ph('arrete', `Lire l'arrêté avant de décoller`,
+      `Esplanade des Invalides, un matin clair. Sur la tablette, l'arrêté préfectoral du jour se dessine en surbrillance : un périmètre de trois cents mètres autour de l'esplanade, cent mètres de plafond, une plage horaire. Hors de ce polygone, le drone n'a pas le droit d'exister ; dedans, il ne filme ni les fenêtres ni les entrées d'immeubles.`,
+      T(30), [
+        voix('MONITEUR', `Périmètre, plafond, horaires. Vous me les récitez avant de toucher aux manettes.`),
+        voix('ASSISTANT DE VOL', `Batterie à cent pour cent, vent d'ouest à deux mètres par seconde, douze satellites. Prêt quand tu veux.`),
+      ]),
+    ph('trois-balises', `Trois balises sous le plafond`,
+      `Décollage vertical jusqu'à quatre-vingts mètres, puis cap sur la première des trois balises posées sur les pelouses de l'esplanade des Invalides. La limite du périmètre apparaît en rouge dans le viseur, du côté de la rue de l'Université ; un coup de vent suffit à y pousser l'appareil.`,
+      OBJ('o1'), [
+        rad('CENTRAL', 'ICARE', `Décollage autorisé. Annoncez chaque balise survolée.`),
+        voix('ASSISTANT DE VOL', `Rafale ! Tu dérives vers la limite, trente mètres. Corrige.`),
+      ], [`Un coup de vent déporte le drone vers la limite du périmètre`, `Un oiseau croise la trajectoire`, `Le signal faiblit derrière un immeuble`]),
+    ph('batterie', `Vingt pour cent, on rentre`,
+      `Trois balises survolées. La jauge de batterie descend plus vite avec le vent de face : à vingt pour cent, on ne discute pas, on rentre. Retour en ligne droite au-dessus de l'esplanade des Invalides, sans couper par-dessus les immeubles.`,
+      T(50), [
+        voix('ASSISTANT DE VOL', `Vingt-quatre pour cent. Vingt-deux. Tu rentres maintenant, ou tu poses où tu peux dans une minute.`),
+        voix('MONITEUR', `Un drone qui tombe faute de batterie, c'est deux kilos sur la tête de quelqu'un.`),
+      ]),
+    ph('releve', `Poser, puis passer la main`,
+      `L'appareil se pose sur son tapis, hélices arrêtées, au bord de l'esplanade des Invalides. Changement de batterie, relève du télépilote : on transmet l'état de l'appareil, ce qu'on a vu, et l'heure exacte à laquelle l'autorisation de vol prend fin.`,
+      FIN, [
+        rad('CENTRAL', 'ICARE', `Posé, reçu. Rendez compte : balises, altitude maximale, batterie restante.`),
+        voix('MONITEUR', `Sur une vraie manifestation, il vous arrivera de voir quelque chose juste de l'autre côté de la limite. Vous n'irez pas.`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Survoler les trois balises sans sortir du périmètre', 'reperer_signaux', { count: 3 }),
@@ -64,13 +82,36 @@ export const DRONE_02 = mission({
     'Une centaine d\'individus déterminés en noir, avec parapluies.', ['Boulevard du Temple', 'Rue de Turbigo', 'Rue du Temple'],
     ['Voler à soixante mètres', 'Annoncer nature, volume, attitude', 'Marquer les individus, pas la foule']),
   phases: [
-    ph('attente', 'Surveillance du rassemblement', 'Vous survolez le rassemblement de la place de la République.', T(240),
-      [['ICARE', 'CENTRAL ICI ICARE. Fumigène noir, parapluies ouverts, changements de tenue : un bloc se forme à hauteur du kiosque. PARLEZ.']], []),
-    ph('depart', 'Départ', 'Le précortège avance sans attendre le camion sono.', TENS(0.45),
-      [['ICARE', 'CENTRAL ICI ICARE. Nébuleuse de tête : QUATRE-ZÉRO-ZÉRO personnes devant la banderole, visages qui se couvrent. PARLEZ.']], ['Dépavage à l\'angle du boulevard']),
-    ph('affrontement', 'Affrontement', 'Le bloc attaque la ligne.', FOULE('dispersion'),
-      [['ICARE', 'CENTRAL ICI ICARE. Barrières de chantier tirées en travers, UN-CINQ individus. PARLEZ.']], []),
-    ph('fin', 'Dispersion', 'Le précortège reflue.', FIN, [['ICARE', 'CENTRAL ICI ICARE. Dispersion visible vers le canal. PARLEZ.']], []),
+    ph('rassemblement', `La place vue de soixante mètres`,
+      `Soixante mètres au-dessus de la place de la République. Le cortège du « Front commun des Ateliers » se forme derrière sa banderole : chasubles, ballons, camion sono. D'en haut, on voit autre chose : des gens qui marchent à contre-courant, des sacs trop lourds, un groupe qui se rassemble sans drapeau du côté du boulevard du Temple.`,
+      FOULE('depart'), [
+        rad('MISTRAL', 'ICARE', `Vous êtes mes yeux sur la tête de cortège. Ce qui se prépare, je veux le savoir avant que ça parte : nature, volume, attitude.`),
+        voix('ASSISTANT DE VOL', `Fumigène orange à gauche : c'est le camion sono, c'est festif. Ne me le signale pas comme un signe.`),
+      ], [`Un fumigène de couleur festif part du camion sono`]),
+    ph('signes', `Cinq signes à lire`,
+      `Le précortège s'engage sur le boulevard du Temple, en avant de la banderole. Les signes sont là pour qui sait les lire : un fumigène noir, des parapluies ouverts sans pluie, des gens qui se changent derrière, une banderole renforcée, du mobilier qu'on déplace. Trois signalements justes sont attendus avant le premier jet ; un simple vêtement noir n'en est pas un.`,
+      OBJ('o1'), [
+        rad('MISTRAL', 'ICARE', `Qu'est-ce que vous voyez devant la banderole ? Je n'ai que des rapports de sections, rien de précis.`),
+        voix('ASSISTANT DE VOL', `Parapluies, là. Il ne pleut pas. Et derrière, ils sortent des affaires des sacs.`),
+      ], [`Des parapluies s'ouvrent au-dessus d'un groupe qui se change`, `Des pavés sont descellés à l'angle du boulevard`, `Une averse fait ouvrir des parapluies dans tout le cortège`]),
+    ph('bloc', `Donner un contour au bloc`,
+      `Les signes sont signalés. Maintenant le bloc existe : une centaine de silhouettes en noir, serrées derrière une banderole renforcée, sur le boulevard du Temple, à cent cinquante mètres de la ligne. Le commandant veut un contour, pas une impression : où il commence, où il finit, combien, et ce qui le sépare des familles.`,
+      OBJ('o2'), [
+        rad('MISTRAL', 'ICARE', `Désignez-moi le bloc : position, volume, distance à ma ligne, distance au cortège déclaré. J'en ai besoin pour décider.`),
+        rad('MISTRAL 2', 'ICARE', `Je vois des barrières tirées en travers devant moi. Vous confirmez d'en haut ?`),
+      ], [`Des barrières de chantier sont tirées en travers de la chaussée`, `La batterie passe sous trente pour cent`]),
+    ph('marques', `Marquer cinq individus, pas un de plus`,
+      `Le bloc est désigné et le commandant a ses cartes en main. Les premiers projectiles partent sur le boulevard du Temple ; à vous de marquer, cinq individus au plus, ceux dont vous avez vu le geste : le marteau sur la vitrine, la bouteille lancée. Marquer une silhouette parce qu'elle est en noir, c'est envoyer une colonne sur quelqu'un qui n'a rien fait.`,
+      T(240), [
+        rad('MISTRAL', 'ICARE', `Marquez les auteurs que vous voyez agir. Je les ferai interpeller plus tard, sur vos images.`),
+        voix('ASSISTANT DE VOL', `Batterie à dix-huit pour cent. Si on change maintenant, on perd deux minutes d'image. À toi de voir.`),
+      ], [`Deux agences bancaires sont attaquées au marteau`, `La batterie doit être changée`, `Un drone privé gêne le vol`]),
+    ph('suivi', `Suivre ceux qu'on a marqués`,
+      `Le précortège reflue et se défait dans les rues latérales du boulevard du Temple. Ceux que vous avez marqués se changent sous les porches et ressortent en tenue claire ; le drone les suit tant qu'ils restent dans le périmètre de vol, et pas un mètre au-delà.`,
+      FIN, [
+        rad('MISTRAL', 'ICARE', `Gardez vos marqués en visuel jusqu'à la limite de votre périmètre, puis passez le relais au sol.`),
+        rad('FAUCON 1', 'ICARE', `En attente rue du Temple. Donnez-moi un marqué à la fois : tenue actuelle, direction, distance.`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Repérer trois signes avant-coureurs avant le premier jet', 'reperer_signaux', { count: 3 }),
@@ -100,13 +141,36 @@ export const DRONE_03 = mission({
     'Une trentaine d\'individus déterminés au nord du boulevard.', ['Boulevard Beaumarchais', 'Place de la Bastille'],
     ['Voler à soixante mètres', 'Annoncer lieu, nombre, attitude', 'Ne pas se focaliser sur un point']),
   phases: [
-    ph('survol', 'Survol de la tête de cortège', 'Vous suivez la tête depuis la Bastille.', T(180),
-      [['ICARE', 'CENTRAL ICI ICARE. Tête de cortège à DEUX-ZÉRO-ZÉRO mètres, calme apparent. PARLEZ.']], []),
-    ph('signes', 'Premiers signes', 'Parapluies et changements de tenue en tête.', TENS(0.55),
-      [['ICARE', 'CENTRAL ICI ICARE. Parapluies ouverts, changements de tenue, TROIS-ZÉRO individus. PARLEZ.']], ['Un groupe sort des sacs à dos']),
-    ph('alerte', 'Alerte', 'Vous alertez avant le premier jet.', TENS(0.5),
-      [['CENTRAL', 'ICARE ICI CENTRAL. Reçu, nous mettons le dispositif en alerte. PARLEZ.']], []),
-    ph('fin', 'Après les jets', 'Vous suivez la réaction de la section.', FIN, [['ICARE', 'CENTRAL ICI ICARE. Reflux des individus vers le nord. PARLEZ.']], []),
+    ph('tete', `La tête de cortège depuis la Bastille`,
+      `Soixante mètres au-dessus du boulevard Beaumarchais. Le cortège déclaré remonte de la place de la Bastille vers le boulevard des Filles du Calvaire ; en dessous, une section de CRS tient sa ligne, un lanceur au second rang. Vous voyez les deux à la fois, et ce qui s'approche de l'une comme de l'autre.`,
+      T(150), [
+        rad('CENTRAL', 'ICARE', `Surveillance de la tête de cortège, boulevard Beaumarchais. Tout signe avant-coureur m'est signalé dans les TROIS-ZÉRO secondes.`),
+        voix('ASSISTANT DE VOL', `Vent d'ouest, trois mètres par seconde, mais il tourne. Regarde les drapeaux : ils ne pointent plus du même côté.`),
+      ]),
+    ph('sacs-a-dos', `Ce qui sort des sacs`,
+      `À hauteur de la rue du Pasteur Wagner, un groupe d'une quarantaine de personnes s'arrête en plein boulevard Beaumarchais. Des sacs à dos passent de main en main ; il en sort des masques, des gants, des objets que la caméra ne nomme pas. Derrière eux, des familles et des poussettes marchent encore sans rien remarquer.`,
+      OBJ('o1'), [
+        voix('ASSISTANT DE VOL', `Ils sortent des trucs des sacs. Zoome. Ce sont des bouteilles, ou des gourdes ?`),
+        rad('MISTRAL 1', 'ICARE', `J'ai un groupe arrêté à CENT mètres devant ma ligne. Qu'est-ce qu'ils font ?`),
+      ], [`Un groupe sort du matériel de ses sacs à dos`, `Des parapluies s'ouvrent en tête de cortège`, `Un coup de vent déporte le drone`]),
+    ph('premier-jet', `Ce que le lanceur ne voit pas`,
+      `Trois signes signalés. Les premières bouteilles partent du groupe vers la ligne, et le commandant sort avec son mégaphone. Au-dessus du boulevard Beaumarchais, vous êtes le seul à voir ce que le lanceur de la section ne voit pas : où sont les familles, où s'arrête le cortège déclaré, et dans quel sens le vent emportera un nuage.`,
+      T(180), [
+        rad('MISTRAL', 'ICARE', `Je vais sommer. Dites-moi où finit le cortège déclaré et où sont les familles, au mètre près.`),
+        rad('MISTRAL 1', 'ICARE', `Mon lanceur est prêt. Zone désignée : carrefour Pasteur Wagner. Y a-t-il des tiers dedans ?`),
+      ], [`Jets de bouteilles sur la ligne`, `Une famille traverse la zone que la section va désigner`]),
+    ph('nuage', `Le nuage et le vent`,
+      `Les grenades tombent en cloche sur le carrefour et le nuage s'étale. Puis le vent tourne : la fumée blanche glisse le long du boulevard Beaumarchais vers la ligne et vers une terrasse restée ouverte. Vous le voyez dix secondes avant ceux qui sont dessous.`,
+      FOULE('dispersion'), [
+        voix('ASSISTANT DE VOL', `Le nuage revient sur les collègues. Et il y a du monde en terrasse, à droite. Préviens !`),
+        rad('MISTRAL', 'ICARE', `Où part mon gaz ? Je ne vois plus rien depuis le sol.`),
+      ], [`Le vent tourne et ramène le nuage sur la ligne`, `La batterie baisse vite`]),
+    ph('reflux', `Suivre le reflux jusqu'à la limite`,
+      `Le groupe reflue vers la place de la Bastille et se disloque. Le drone le suit jusqu'au bord de son périmètre de vol, puis fait demi-tour au-dessus du boulevard Beaumarchais : ce que vous avez signalé, et quand, figure seconde par seconde dans le journal de la salle.`,
+      FIN, [
+        rad('CENTRAL', 'ICARE', `Fin de mission. Vos signalements sont horodatés : ils seront comparés à l'heure du premier jet.`),
+        voix('ASSISTANT DE VOL', `Batterie à quinze. On rentre, on pose, et on relit la bande ensemble.`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Signaler trois signes avant-coureurs avant le premier jet', 'reperer_signaux', { count: 3 }),
@@ -136,13 +200,36 @@ export const DRONE_04 = mission({
     'Une soixantaine d\'individus encagoulés.', ['Boulevard Montmartre', 'Boulevard des Italiens', 'Rue de la Paix'],
     ['Voler à cinquante mètres', 'Désigner avec le marquage', 'Prévenir des impasses']),
   phases: [
-    ph('suivi', 'Suivi du groupe', 'Vous suivez le groupe depuis le ciel.', T(180),
-      [['ICARE', 'FAUCON UN ICI ICARE. Groupe de HUIT-ZÉRO, tenue noire, carrefour dans TROIS-ZÉRO-ZÉRO mètres. PARLEZ.']], []),
-    ph('guidage', 'Guidage de la colonne', 'Vous guidez les motos par les ruelles.', TENS(0.65),
-      [['ICARE', 'FAUCON UN ICI ICARE. Tournez à gauche, rue de Richelieu, groupe à TROIS-ZÉRO mètres. PARLEZ.']], ['Une impasse bloque la colonne']),
-    ph('designation', 'Désignation', 'Vous désignez les trois cibles.', FOULE('dispersion'),
-      [['ICARE', 'FAUCON DEUX ICI ICARE. Cible désignée, veste verte, à CINQ-ZÉRO mètres. PARLEZ.']], []),
-    ph('fin', 'Fin du guidage', 'Le groupe est dispersé.', FIN, [['ICARE', 'CENTRAL ICI ICARE. Groupe dispersé. PARLEZ.']], []),
+    ph('par-dessus-les-toits', `Par-dessus les toits des boulevards`,
+      `Cinquante mètres au-dessus du boulevard Montmartre, de nuit. Quatre-vingts silhouettes en noir remontent vers l'ouest en étoilant des vitrines ; cinquante mètres derrière, six motos en colonne. Les motards ne voient que des dos et des façades : vous seul voyez les rues latérales, les passages couverts, et ce qui les attend au prochain carrefour.`,
+      T(120), [
+        rad('FAUCON 1', 'ICARE', `On les suit à CINQ-ZÉRO mètres. Annoncez-moi leur direction à chaque carrefour, et ce qu'il y a devant eux.`),
+        voix('ASSISTANT DE VOL', `Passe en thermique, on y verra mieux. Les vitrines éclairées nous brûlent l'image.`),
+      ], [`Un feu de poubelle masque la vue`]),
+    ph('guidage', `La voix dans l'oreillette des motards`,
+      `La colonne décroche pour prendre de l'avance par la rue du Quatre Septembre, parallèle aux boulevards. À vous de la guider : deuxième à droite, quatre-vingts mètres, attention au sens interdit. Le groupe, lui, s'engouffre dans le passage des Panoramas et disparaît dix secondes sous la verrière.`,
+      OBJ('o1'), [
+        rad('FAUCON 1', 'ICARE', `Je suis rue du Quatre Septembre. Où sont-ils ? Donnez-moi la prochaine à droite qui ressort devant eux.`),
+        voix('ASSISTANT DE VOL', `Tu les as perdus sous la verrière. Reste sur la sortie, ils vont ressortir de l'autre côté.`),
+      ], [`Le groupe disparaît dans un passage couvert`, `Une impasse bloque la colonne`]),
+    ph('trois-cibles', `Trois cibles, sans erreur`,
+      `La colonne est devant le groupe, pied à terre, boulevard des Italiens. Trois individus viennent de mettre le feu à un conteneur ; l'un d'eux passe sous un porche et en ressort avec une autre veste. Le sac, lui, est le même, et un passant porte exactement le même. Une désignation erronée envoie six policiers sur un innocent.`,
+      OBJ('o2'), [
+        rad('FAUCON 2', 'ICARE', `Je suis à pied, à TROIS-ZÉRO mètres du groupe. Désignez-moi les auteurs : tenue, position, direction.`),
+        voix('ASSISTANT DE VOL', `Deux sacs kaki, à trois mètres l'un de l'autre. Lequel est le bon ? Ne dis rien tant que tu n'es pas sûr.`),
+      ], [`Une cible change de veste sous un porche`, `Deux personnes portent le même sac`]),
+    ph('limite', `La limite du périmètre`,
+      `Trois désignations justes. Ce qui reste du cortège sauvage file vers la rue de la Paix, et la limite de votre périmètre de vol coupe la place de l'Opéra en deux. Au-delà, le drone n'a plus le droit de suivre : il faut passer le relais au sol, avec une description assez précise pour que les motards n'aient plus besoin de vous.`,
+      T(150), [
+        rad('FAUCON 1', 'ICARE', `Ils partent vers la rue de la Paix. Vous les gardez ?`),
+        rad('CENTRAL', 'ICARE', `Rappel : votre périmètre s'arrête à la place de l'Opéra.`, 'T'),
+      ], [`Le groupe sort du périmètre de vol`, `La batterie baisse vite`]),
+    ph('relais-au-sol', `Le relais au sol`,
+      `Le drone s'immobilise à la verticale de la limite, au-dessus de la place de l'Opéra, et regarde le groupe s'éloigner sans lui. Sur la fréquence, les motards répètent votre dernière description. La nuit, c'est ainsi que finit un guidage : quelqu'un d'autre voit à votre place.`,
+      FIN, [
+        rad('FAUCON 1', 'ICARE', `Relais pris à la limite. On continue à vue, sans vous.`, 'T'),
+        voix('ASSISTANT DE VOL', `Batterie à douze. On rentre au point de pose, je prépare la suivante.`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Guider la colonne jusqu\'au groupe sans perdre le contact plus de dix secondes', 'guider_unite', { target: 'colonne_bravm', seconds: 10 }),
@@ -176,13 +263,36 @@ export const DRONE_05 = mission({
     'Une soixantaine d\'individus déterminés autour des foyers.', ['Rue Saint-Antoine', 'Boulevard Henri IV'],
     ['Hiérarchiser les foyers', 'Utiliser la caméra thermique', 'Signaler le vent']),
   phases: [
-    ph('inventaire', 'Inventaire des foyers', 'Vous comptez les foyers.', T(180),
-      [['ICARE', 'CENTRAL ICI ICARE. TROIS foyers actifs, fumée épaisse, visibilité réduite. PARLEZ.']], []),
-    ph('hierarchie', 'Hiérarchie', 'Vous les classez par danger.', T(360),
-      [['ICARE', 'CENTRAL ICI ICARE. Priorité : camionnette en feu, rue de Birague. PARLEZ.']], ['Un nouveau foyer s\'allume']),
-    ph('orientation', 'Orientation des secours', 'Vous guidez pompiers et canon à eau.', TENS(0.7),
-      [['SANTÉ 1', 'ICARE ICI SANTÉ UN. Nous suivons votre marquage. PARLEZ.']], []),
-    ph('fin', 'Fin', 'Les foyers sont éteints un à un.', FIN, [['ICARE', 'CENTRAL ICI ICARE. Tous les foyers sont marqués et traités. PARLEZ.']], []),
+    ph('inventaire', `Douze taches blanches`,
+      `Minuit, quatre-vingts mètres au-dessus de la rue Saint-Antoine. En thermique, le quartier est une carte grise piquée de taches blanches : poubelles, scooters, barricades, une camionnette. Douze foyers dans un rayon de quatre cents mètres, à localiser et à marquer un par un ; une tache blanche peut aussi être un groupe de personnes serrées.`,
+      OBJ('o1'), [
+        rad('CENTRAL', 'ICARE', `Les pompiers hésitent à s'engager. Il me faut la carte des foyers : position, nature, ce qui est menacé.`),
+        voix('ASSISTANT DE VOL', `Celui-là, c'est un brasero de terrasse, pas un feu. Regarde la forme avant de marquer.`),
+      ], [`Un brasero de terrasse est pris pour un foyer`, `Un nouveau foyer s'allume`, `La fumée masque la caméra`]),
+    ph('classement', `Classer par danger`,
+      `Douze foyers marqués. Tous ne se valent pas : une poubelle isolée au milieu de la chaussée peut brûler seule ; la camionnette garée sous un arbre, contre une façade du boulevard Henri IV, ne le peut pas. Les trois plus dangereux d'abord, avec pour chacun la direction du vent et celle de la fumée.`,
+      OBJ('o2'), [
+        rad('SAPEUR 1', 'ICARE', `J'ai trois engins. Donnez-moi vos trois priorités, dans l'ordre, avec ce qu'il y a autour.`),
+        voix('ASSISTANT DE VOL', `Vent du sud-ouest, deux mètres par seconde. La fumée de la camionnette part sur les immeubles d'en face.`),
+      ], [`Une camionnette brûle sous un arbre, contre une façade`, `Un tir de feu d'artifice vise le drone`]),
+    ph('orientation', `Trois engins, trois itinéraires`,
+      `Les priorités sont données. Trois fourgons de pompiers s'engagent depuis la place de la Bastille, chacun avec son escorte ; depuis le sol, ils ne voient ni la barricade qui barre la rue des Tournelles ni le groupe qui les attend derrière. Vous leur donnez l'itinéraire, rue par rue, et les groupes à éviter.`,
+      T(300), [
+        rad('SAPEUR 2', 'ICARE', `Je m'engage rue Saint-Antoine. Qu'est-ce que j'ai devant moi ?`),
+        rad('MISTRAL 2', 'ICARE', `J'escorte SAPEUR TROIS. Groupe hostile signalé sur notre route : confirmez position et volume.`),
+      ], [`Une barricade invisible depuis le sol barre un itinéraire`, `Un groupe attend les pompiers derrière un angle`]),
+    ph('verification', `Vérifier ce qui est froid`,
+      `Les lances travaillent le long de la rue Saint-Antoine. Sur l'écran, les taches blanches pâlissent l'une après l'autre ; certaines repartent, là où une batterie ou un pneu couve encore. En thermique, froid veut dire gris : vous repassez sur chacun des douze, et vous le dites.`,
+      FOULE('dispersion'), [
+        rad('SAPEUR 1', 'ICARE', `Foyer de la camionnette : je crois l'avoir. Dites-moi d'en haut s'il reste un point chaud.`),
+        voix('ASSISTANT DE VOL', `Le numéro sept reblanchit. Une batterie, sûrement. Signale-le.`),
+      ], [`Un foyer repart après le passage des pompiers`, `La batterie baisse vite`]),
+    ph('dernier-passage', `Le dernier passage en thermique`,
+      `Les groupes quittent le quartier et la rue Saint-Antoine se vide. Dernier passage en thermique, de la place de la Bastille à la station Saint-Paul : il reste des points tièdes, des carcasses, des pompiers qui roulent leurs tuyaux. Le drone rentre avec ce qu'il lui reste de batterie.`,
+      FIN, [
+        rad('CENTRAL', 'ICARE', `Dernier passage, puis posez. Transmettez la carte finale des foyers, avec l'heure de chaque marquage.`),
+        rad('SAPEUR 1', 'ICARE', `On roule les tuyaux. Gardez-nous à l'œil jusqu'au départ du dernier engin.`, 'T'),
+      ]),
   ],
   objectives: [
     ob('o1', 'Localiser et marquer douze foyers', 'reperer_signaux', { count: 12 }),
@@ -216,13 +326,36 @@ export const DRONE_06 = mission({
     'Aucun radical.', ['Champ-de-Mars', 'Avenue de la Bourdonnais', 'Quai Branly'],
     ['Mesurer la densité par carré', 'Annoncer les issues libres', 'Guider les secours']),
   phases: [
-    ph('arrivee', 'Arrivée de la foule', 'La foule grossit sous la Tour Eiffel.', T(240),
-      [['ICARE', 'CENTRAL ICI ICARE. Densité élevée sous la Tour, TROIS personnes au mètre carré. PARLEZ.']], []),
-    ph('compression', 'Compression', 'Une sortie de métro déverse une vague.', TENS(0.4),
-      [['ICARE', 'CENTRAL ICI ICARE. Densité critique devant le barrage, plus de QUATRE personnes au mètre carré, aucune issue ouverte. PARLEZ.']], ['Une barrière cède']),
-    ph('ouverture', 'Ouverture d\'une issue', 'Vous proposez l\'ouverture d\'une barrière.', FOULE('dispersion'),
-      [['CENTRAL', 'ICARE ICI CENTRAL. Barrière ouverte, avenue de la Bourdonnais. PARLEZ.']], []),
-    ph('fin', 'Retour au calme', 'La foule s\'écoule.', FIN, [['ICARE', 'CENTRAL ICI ICARE. Densité normale. PARLEZ.']], []),
+    ph('carte-de-densite', `Vert, orange, rouge`,
+      `Vingt-deux heures, quatre-vingts mètres au-dessus du Champ-de-Mars. Trois mille personnes attendent le feu d'artifice sur les pelouses, face à la tour Eiffel. Sur l'écran, la foule est une carte : vert sous deux personnes au mètre carré, orange jusqu'à quatre, rouge au-delà. Pour l'instant, tout est vert et orange.`,
+      T(200), [
+        rad('CENTRAL', 'ICARE', `Surveillance de densité sur le Champ-de-Mars. Toute zone rouge m'est signalée dans la minute, avec l'issue la plus proche.`),
+        voix('ASSISTANT DE VOL', `On reste à quatre-vingts mètres. Jamais au-dessus des têtes à moins de cinquante.`),
+      ], [`Un drone civil non autorisé vole au-dessus des pelouses`]),
+    ph('vague', `La vague de l'avenue de la Bourdonnais`,
+      `Une rame vient d'arriver : par l'avenue de la Bourdonnais, une vague de plusieurs centaines de personnes entre sur le Champ-de-Mars par un passage que des barrières resserrent. L'orange vire au rouge à l'entrée, puis au pied d'un écran géant, puis contre une barrière qui plie.`,
+      OBJ('o1'), [
+        voix('ASSISTANT DE VOL', `Rouge à l'entrée Bourdonnais. Et là, contre la barrière, ils sont à cinq ou six au mètre carré.`),
+        rad('MISTRAL 1', 'ICARE', `Je suis à l'entrée Bourdonnais, je ne vois que des dos. C'est grave, d'en haut ?`),
+      ], [`Une vague sort du métro par l'avenue de la Bourdonnais`, `Une barrière cède sous la pression`, `Un malaise dans la zone la plus dense`]),
+    ph('issue', `Proposer une issue`,
+      `Les zones rouges sont signalées. Elles ne se videront pas seules : il faut ouvrir. Au-dessus du Champ-de-Mars, on voit ce que personne ne voit au sol : la barrière qu'on peut retirer, l'allée vide derrière elle, le chemin que pourrait prendre une ambulance. Proposer une ouverture, c'est donner une direction à trois mille personnes.`,
+      OBJ('o2'), [
+        rad('CENTRAL', 'ICARE', `Quelle issue me proposez-vous ? Je peux faire retirer des barrières : dites-moi lesquelles, et vers où ça débouche.`),
+        rad('SANTÉ 2', 'ICARE', `J'ai un malaise à prendre au milieu des pelouses. Par où j'entre sans traverser la foule ?`),
+      ], [`Un enfant perdu est signalé près des barrières`, `La fumée du feu d'artifice gêne la caméra`]),
+    ph('bouquet', `Le bouquet final, puis tout le monde part`,
+      `Le feu d'artifice commence : trois mille visages levés, plus personne ne regarde où il met les pieds. Au bouquet final, tout le monde voudra quitter le Champ-de-Mars en même temps, par le quai Branly et le pont d'Iéna. C'est là que se formeront les prochaines zones rouges, et vous les verrez naître.`,
+      FOULE('dispersion'), [
+        rad('CENTRAL', 'ICARE', `Fin du feu d'artifice dans DEUX minutes. Annoncez-moi les flux de sortie et les goulots dès qu'ils se forment.`),
+        voix('ASSISTANT DE VOL', `Fausse alerte côté tour : quelqu'un a crié, ça court sur vingt mètres. Regarde si ça se propage.`),
+      ], [`Un mouvement de foule part d'une fausse alerte`, `La batterie baisse vite`]),
+    ph('ecoulement', `L'écoulement vers le pont`,
+      `La foule s'écoule du Champ-de-Mars vers le quai Branly et le pont d'Iéna, en rubans orange qui s'amincissent. Dernier tour au-dessus des pelouses, à la recherche de ce qui reste : un enfant seul, une personne assise, un sac. Puis le retour, batterie presque vide.`,
+      FIN, [
+        rad('CENTRAL', 'ICARE', `Dispersion en cours. Dernier passage sur les pelouses, puis posez. Rendez compte de vos signalements.`),
+        rad('MISTRAL 1', 'ICARE', `L'enfant signalé tout à l'heure : vous l'avez encore à l'image ?`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Signaler toutes les zones à plus de quatre personnes au mètre carré', 'reperer_signaux', { count: 3 }),
@@ -256,13 +389,36 @@ export const DRONE_07 = mission({
     'Une centaine d\'individus déterminés.', ['Place de la République', 'Boulevard de Magenta'],
     ['Surveiller la limite en rouge', 'Annoncer le départ du groupe', 'Demander l\'extension par écrit']),
   phases: [
-    ph('vol', 'Vol dans le périmètre', 'Vous surveillez la place.', T(240),
-      [['ICARE', 'CENTRAL ICI ICARE. Place sous surveillance, périmètre respecté. PARLEZ.']], []),
-    ph('depart', 'Départ du groupe', 'Un groupe quitte la place par le nord.', TENS(0.6),
-      [['ICARE', 'CENTRAL ICI ICARE. Groupe sort de mon périmètre, direction nord. PARLEZ.']], ['La salle réclame de suivre le groupe']),
-    ph('extension', 'Demande d\'extension', 'Vous demandez par écrit l\'extension du périmètre.', FOULE('dispersion'),
-      [['CENTRAL', 'ICARE ICI CENTRAL. Extension en cours d\'instruction. Restez dans le périmètre. PARLEZ.']], []),
-    ph('fin', 'Fin', 'Le groupe disparaît.', FIN, [['ICARE', 'CENTRAL ICI ICARE. Groupe hors de portée. PARLEZ.']], []),
+    ph('polygone', `Un polygone de quatre cents mètres`,
+      `Seize heures, au-dessus de la place de la République. L'arrêté préfectoral dessine un polygone de quatre cents mètres autour de la statue ; sa limite nord, en rouge sur l'écran, coupe le boulevard de Magenta à la hauteur de la rue du Château d'Eau. Sur la place, sept cents personnes, dont un groupe en noir qui regarde vers le nord.`,
+      T(200), [
+        rad('CENTRAL', 'ICARE', `Surveillance de la place de la République. Suivez en priorité le groupe en tenue noire, UN-ZÉRO-ZÉRO individus.`),
+        voix('ASSISTANT DE VOL', `Limite nord à cent vingt mètres. Je te l'annonce tous les vingt mètres quand on s'en approche.`),
+      ], [`Une rafale de vent pousse le drone vers la limite`]),
+    ph('depart-du-groupe', `Le groupe part vers le nord`,
+      `Le groupe en noir quitte la place d'un bloc et s'engage sur le boulevard de Magenta, au pas de course. Il renverse des poubelles, brise un abribus. Dans trente secondes, il aura passé la limite de votre périmètre ; ce que vous pouvez encore faire, c'est le dire, avec la direction, l'allure et le nombre.`,
+      OBJ('o2'), [
+        voix('ASSISTANT DE VOL', `Ils sortent par le nord. Quatre-vingts mètres avant la limite. Soixante.`),
+        rad('MISTRAL', 'ICARE', `Où va le groupe noir ? Je n'ai personne sur le boulevard de Magenta.`),
+      ], [`Un groupe violent quitte la place par le boulevard de Magenta`, `Un abribus est brisé`]),
+    ph('pression', `La salle demande de jeter un œil`,
+      `Le départ est signalé. Le drone est immobile à la verticale de la limite, et le groupe rapetisse sur le boulevard de Magenta. Sur la fréquence, la salle insiste : cent mètres de plus, trente secondes, personne n'en saura rien. L'arrêté, lui, ne connaît pas les trente secondes.`,
+      T(180), [
+        rad('CENTRAL', 'ICARE', `Suivez-les encore un peu. CENT mètres, TROIS-ZÉRO secondes : j'ai besoin de savoir où ils tournent.`),
+        voix('ASSISTANT DE VOL', `Si on passe la ligne, c'est dans le journal de vol, à la seconde. Et c'est toi qui tiens les manettes.`),
+      ], [`La salle réclame de suivre le groupe hors du périmètre`, `Un témoin filme le drone à la limite de la zone`]),
+    ph('extension', `Demander l'extension, par écrit`,
+      `Il existe une voie régulière : demander l'extension du périmètre, formellement, par un message écrit et horodaté, et attendre la réponse. En attendant, le drone reste dans son polygone et donne ce qu'il peut donner de là : le dernier cap du groupe, vu de loin, au zoom, sans filmer les fenêtres du boulevard de Magenta.`,
+      T(200), [
+        rad('CENTRAL', 'ICARE', `Toute demande d'extension passe par l'autorité préfectorale. Délai inconnu. En attendant, restez dans votre périmètre.`),
+        rad('FAUCON 1', 'ICARE', `Je pars sur le boulevard de Magenta. Dernière position connue du groupe ?`),
+      ], [`La batterie baisse vite`, `Un drone privé gêne le vol`]),
+    ph('journal-de-vol', `Ce que dira le journal de vol`,
+      `Le groupe a disparu vers la gare de l'Est et les motos ont pris le relais au sol. Sur la place de la République, le rassemblement se défait. Le drone rentre ; son journal de vol sera relu demain, trace par trace, et la limite rouge y figurera, avec tout ce qui s'en est approché.`,
+      FIN, [
+        rad('CENTRAL', 'ICARE', `Fin de vol. Votre journal sera versé au dossier, trace par trace.`),
+        voix('ASSISTANT DE VOL', `On pose. Pour ce que ça vaut : je mettrai dans mon compte rendu ce que tu as décidé, et pourquoi.`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Ne jamais franchir la limite du périmètre de vol', 'personnalise', { target: 'perimetre_vol' }),
@@ -296,13 +452,30 @@ export const DRONE_08 = mission({
     'Aucun radical.', ['Quai de Gesvres', 'Pont d\'Arcole'],
     ['Utiliser le thermique', 'Balayer en zigzag', 'Signaler les bouteilles de gaz']),
   phases: [
-    ph('recherche', 'Recherche du blessé', 'Vous balayez la zone en zigzag.', T(240),
-      [['ICARE', 'CENTRAL ICI ICARE. Recherche en cours, fumée épaisse. PARLEZ.']], []),
-    ph('trouve', 'Blessé repéré', 'Un point chaud au sol, silhouette humaine.', T(420),
-      [['ICARE', 'CENTRAL ICI ICARE. URGENT. UN blessé au sol, immobile, à QUATRE-ZÉRO mètres. PARLEZ.']], ['Une bouteille de gaz explose']),
-    ph('guidage', 'Guidage des secours', 'Vous guidez le SAMU.', TENS(0.5),
-      [['SANTÉ 1', 'ICARE ICI SANTÉ UN. Nous suivons votre marquage. PARLEZ.']], []),
-    ph('fin', 'Évacuation', 'Le blessé est évacué.', FIN, [['SANTÉ 1', 'ICARE ICI SANTÉ UN. Blessé évacué. PARLEZ.']], []),
+    ph('zigzag', `Quatre minutes pour un point chaud`,
+      `Deux heures du matin, quarante mètres au-dessus du quai de Gesvres. Le feu d'une barricade a gagné un entrepôt de livraison et la fumée noire couche sur le quai. Quelque part là-dessous, un homme s'est effondré et personne ne le voit. En thermique, un foyer est une flaque blanche ; un blessé a des épaules et des jambes.`,
+      OBJ('o1'), [
+        rad('SAPEUR 1', 'ICARE', `On nous signale un homme à terre dans la fumée, quai de Gesvres. Mes gars ne le trouvent pas. Vous avez QUATRE minutes avant que ça devienne grave.`),
+        voix('ASSISTANT DE VOL', `Balaye en zigzag, du parapet vers les façades. Un point chaud isolé, allongé : c'est lui.`),
+      ], [`La fumée masque la caméra`, `Un curieux allongé derrière un muret est pris pour le blessé`]),
+    ph('guidage-du-brancard', `Guider le brancard`,
+      `Il est là : une silhouette couchée entre deux voitures, sur le quai de Gesvres, à trente mètres de l'entrepôt. Les secours sont à cent mètres et marchent dans le noir, masque sur le visage. La voie la plus courte longe le parapet ; l'autre passe devant une porte de l'entrepôt où la caméra montre trois bouteilles de gaz.`,
+      T(180), [
+        rad('SANTÉ 1', 'ICARE', `Je pars à pied avec le brancard. Guidez-moi : je ne vois pas à trois mètres.`),
+        voix('ASSISTANT DE VOL', `Trois cylindres chauds devant la porte de l'entrepôt. Des bouteilles de gaz. Fais-les passer par le parapet.`),
+      ], [`Des bouteilles de gaz chauffent devant l'entrepôt`, `Un second blessé apparaît près du pont d'Arcole`]),
+    ph('trois-foyers', `Trois foyers et des façades`,
+      `Le brancard repart vers le pont d'Arcole. Reste l'incendie : trois foyers actifs, dont un lèche déjà le mur d'un immeuble d'habitation du quai de Gesvres. Les pompiers veulent savoir par où il progresse, ce qui chauffe derrière les murs, et où ne pas mettre un homme.`,
+      OBJ('o2'), [
+        rad('SAPEUR 1', 'ICARE', `Localisez-moi les foyers actifs et dites-moi lequel menace les habitations. Et vos bouteilles de gaz : où exactement ?`),
+        voix('ASSISTANT DE VOL', `Distance de sécurité : trente mètres des bouteilles. On recule et on zoome.`),
+      ], [`Une bouteille de gaz explose`, `La batterie baisse vite`]),
+    ph('veille', `Jusqu'à ce que l'écran refroidisse`,
+      `Les trois foyers sont localisés et les lances les attaquent l'un après l'autre. Sur l'écran, le blanc recule ; au-dessus du quai de Gesvres, le brouillard reprend la place de la fumée. Le drone reste en veille tant qu'il a de la batterie : un point chaud qui repart, ici, c'est un mur qui cède.`,
+      FIN, [
+        rad('SAPEUR 1', 'ICARE', `Restez au-dessus de nous tant que vous pouvez. Signalez-moi toute reprise.`),
+        rad('SANTÉ 1', 'ICARE', `Victime chargée dans l'ambulance. Je vous tiens au courant de son état.`, 'T'),
+      ]),
   ],
   objectives: [
     ob('o1', 'Retrouver le blessé en moins de quatre minutes', 'secourir', { target: 'blesse_au_sol', count: 1, seconds: 240 }),
@@ -336,13 +509,36 @@ export const DRONE_09 = mission({
     'Aucun radical.', ['Boulevard Beaumarchais', 'Place de la République'],
     ['Compter par blocs de cent', 'Mesurer la longueur', 'Signaler les goulots']),
   phases: [
-    ph('depart', 'Départ', 'Le cortège s\'ébranle de la Bastille.', T(240),
-      [['ICARE', 'CENTRAL ICI ICARE. Tête de cortège en mouvement, calme. PARLEZ.']], []),
-    ph('comptage', 'Comptage', 'Vous comptez par blocs.', T(480),
-      [['ICARE', 'CENTRAL ICI ICARE. Premier comptage : TROIS MILLE à hauteur du boulevard des Filles-du-Calvaire. PARLEZ.']], ['Un goulot au carrefour']),
-    ph('compression', 'Points de compression', 'Vous signalez deux goulots.', FOULE('dispersion'),
-      [['ICARE', 'CENTRAL ICI ICARE. Compression à hauteur du boulevard du Temple. PARLEZ.']], []),
-    ph('fin', 'Rapport', 'Vous remettez votre estimation.', FIN, [['ICARE', 'CENTRAL ICI ICARE. Effectif estimé, DIX MILLE, longueur UN-ZÉRO-ZÉRO-ZÉRO mètres. PARLEZ.']], []),
+    ph('deux-chiffres', `Quinze mille ou dix mille`,
+      `Quinze heures, cent mètres au-dessus de la place de la Bastille. Le cortège s'ébranle vers le boulevard Beaumarchais. Les organisateurs annoncent quinze mille personnes, la préfecture dix mille ; le chiffre que vous donnerez sera public, et il n'appartient ni aux uns ni aux autres.`,
+      FOULE('cortege'), [
+        rad('CENTRAL', 'ICARE', `Comptage du cortège, de la Bastille à la République. Méthode : blocs de UN-ZÉRO-ZÉRO personnes sur UN-ZÉRO points de repère. Je veux une estimation, pas une impression.`),
+        voix('ASSISTANT DE VOL', `On ne vole pas au-dessus des têtes : on se décale au-dessus des toits et on compte en biais.`),
+      ], [`Un ballon du cortège masque la vue`]),
+    ph('dix-reperes', `Dix points de repère`,
+      `Le cortège remplit le boulevard Beaumarchais d'un trottoir à l'autre. Dix repères ont été fixés le long du parcours : à chacun, on fige l'image, on compte un bloc, on mesure la longueur entre deux balises, on en tire une densité. La tête n'est pas la queue : elle est serrée, la queue s'étire, et les trottoirs ne sont pas vides.`,
+      OBJ('o1'), [
+        voix('ASSISTANT DE VOL', `Repère trois : je compte quatre-vingt-dix dans le carré. Toi ?`),
+        rad('LIAISON', 'CENTRAL', `Les organisateurs demandent quel chiffre le drone va donner. Ils disent qu'ils ont leur propre comptage.`),
+      ], [`Les organisateurs font pression sur le chiffre`, `Un drone privé gêne le vol`]),
+    ph('goulots', `Deux goulots sur le parcours`,
+      `Dix repères comptés. À l'entrée du boulevard des Filles du Calvaire, la chaussée se resserre autour d'un chantier et le cortège s'y comprime ; même chose plus loin, à l'approche de la place de la République. Un comptage sert aussi à cela : dire où la foule s'entasse avant que ceux qui sont dedans ne le sentent.`,
+      OBJ('o2'), [
+        rad('MISTRAL', 'ICARE', `Le cortège ralentit sans raison apparente. Vous voyez un bouchon quelque part ?`),
+        voix('ASSISTANT DE VOL', `Regarde la densité au chantier : ça passe de deux à quatre au mètre carré en vingt mètres.`),
+      ], [`Un goulot se forme au droit d'un chantier`, `La batterie baisse vite`]),
+    ph('chiffre', `Un seul chiffre, et sa marge`,
+      `Les deux goulots sont signalés. Reste à produire le chiffre avant que le cortège ne se disperse place de la République : longueur, largeur occupée, densité moyenne, marge d'erreur. La salle le veut rond et tout de suite ; les organisateurs le voudront plus haut, la préfecture plus bas. Vous ne devez à personne autre chose que votre calcul.`,
+      FOULE('dispersion'), [
+        rad('CENTRAL', 'ICARE', `J'attends votre estimation. La presse appelle. Un chiffre et une marge.`),
+        rad('CENTRAL', 'ICARE', `On me dit que DIX MILLE arrangerait tout le monde. Je vous transmets, je ne vous demande rien.`, 'T'),
+      ], [`La salle transmet le chiffre que chacun espère`]),
+    ph('rapport', `Le chiffre rendu public`,
+      `Le cortège se disperse place de la République ; sa queue quitte à peine le boulevard du Temple. Le drone fait un dernier passage pour mesurer la longueur totale, puis rentre. Votre estimation part à la salle avec sa méthode : c'est elle qui sera citée ce soir, et contestée demain.`,
+      FIN, [
+        rad('CENTRAL', 'ICARE', `Joignez à votre estimation la méthode et les dix images de comptage : elles seront publiées avec le chiffre.`),
+        voix('ASSISTANT DE VOL', `Quel que soit le chiffre, quelqu'un dira qu'on a triché. Garde les images.`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Estimer l\'effectif à dix pour cent près', 'personnalise', { target: 'comptage', count: 10 }),

@@ -1,11 +1,14 @@
 // Sonde rapide (outil de mise au point de l'assemblage) : ouvre le vrai jeu avec une URL donnée, attend __CRS.ready,
-// affiche le résumé et prend une capture. Usage : node tests/e2e/game-sonde.mjs "<paramètres d'URL>" [nom] [largeur] [hauteur]
-import { startServer, openPage, waitFor, shot, finish } from './lib.mjs';
+// affiche le résumé et prend une capture. Usage : node tests/e2e/game-sonde.mjs "<paramètres d'URL>" [nom] [largeur] [hauteur] ["<code>"]
+// Le code facultatif est évalué dans la page avant la capture (c = window.__CRS), par exemple pour tourner la caméra :
+//   node tests/e2e/game-sonde.mjs "autostart=paris&quality=bas&nomenu=1&camera=tps" derriere 960 540 "c.ctx.player.state.camYaw += Math.PI" 
+import { startServer, openPage, waitFor, shot, finish, OUT } from './lib.mjs';
 
 const query = process.argv[2] ?? 'autostart=paris&quality=bas&nomenu=1';
 const name = process.argv[3] ?? 'game-sonde';
 const width = Number(process.argv[4] ?? 960);
 const height = Number(process.argv[5] ?? 540);
+const code = process.argv[6] ?? '';
 const server = await startServer();
 const t0 = Date.now();
 const { browser, page, errors } = await openPage(`${server.url}?${query}`, { width, height });
@@ -28,8 +31,13 @@ try {
     };
   });
   console.log(JSON.stringify(s, null, 1));
-  await page.waitForTimeout(1500);
-  console.log('capture :', await shot(page, name));
+  if (code) {
+    const out = await page.evaluate((src) => { const c = window.__CRS; const r = (0, eval)(`(function (c) { ${src} })`)(c); c.step(0.2); return r === undefined ? null : JSON.stringify(r); }, code);
+    if (out) console.log('code →', out);
+  }
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(r)))));
+  await page.screenshot({ path: `${OUT}/${name}.png`, timeout: 240000 });
+  console.log('capture :', `${OUT}/${name}.png`);
 } catch (err) {
   ok = false;
   console.error(String(err));

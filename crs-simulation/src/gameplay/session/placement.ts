@@ -21,6 +21,10 @@ const LANDMARK_REACH = 130;
 /** Distances d'essai au point de mire (m), de la préférée à la moins bonne. */
 const RINGS: readonly number[] = [40, 48, 34, 56, 28, 66];
 const DIRECTIONS = 16;
+/** Rayon d'emprise au-delà duquel un repère est un grand édifice (on reste alors sur le lieu demandé). */
+const COMPACT_REACH = 35;
+/** On ne s'éloigne jamais de plus de cette distance du lieu demandé (m). */
+const MAX_FROM_PLACE = 110;
 /** Demi-largeur de front à garder libre (m) et recul du second rang. */
 const FRONT_HALF = 4;
 export const RANK_DEPTH = 1.6;
@@ -80,12 +84,21 @@ export function chooseStand(ctx: GameContext, x: number, z: number, rand: () => 
   if (lm) {
     let best: Stand | null = null;
     let bestScore = -Infinity;
-    for (let r = 0; r < RINGS.length; r++) {
-      const ring = RINGS[r]! + Math.max(0, Math.sqrt(lm.footprint.length / 2) - 2);
+    // rayon de l'emprise du repère : on se place à distance de ses murs, pas de son centre
+    let reach = 0;
+    for (let i = 0; i + 1 < lm.footprint.length; i += 2) {
+      const d = Math.hypot(lm.footprint[i]! - lm.x, lm.footprint[i + 1]! - lm.z);
+      if (d > reach && Number.isFinite(d)) reach = d;
+    }
+    // un grand édifice (palais, église) se regarde depuis le lieu lui-même : pas de ronde autour de ses murs
+    const compact = reach <= COMPACT_REACH;
+    for (let r = 0; compact && r < RINGS.length; r++) {
+      const ring = RINGS[r]! + reach;
       for (let k = 0; k < DIRECTIONS; k++) {
         const a = (k / DIRECTIONS) * Math.PI * 2;
         const cx = lm.x + Math.sin(a) * ring;
         const cz = lm.z + Math.cos(a) * ring;
+        if (Math.hypot(cx - x, cz - z) > MAX_FROM_PLACE) continue;
         const ground = WALKABLE[world.surfaceAt(cx, cz)];
         if (!(ground > 0) || !world.isFree(cx, cz, 0.6)) continue;
         const heading = a + Math.PI; // on regarde le repère

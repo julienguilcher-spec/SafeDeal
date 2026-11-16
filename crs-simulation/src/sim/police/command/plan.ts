@@ -33,15 +33,24 @@ const CLASS_WEIGHT: Readonly<Record<RoadClass, number>> = {
   motorway: 3, primary: 3, secondary: 2.5, tertiary: 2, residential: 1.5, pedestrian: 1, service: 0.6, footway: 0.4,
 };
 
-/** Rayon du lieu de rassemblement autour de (gx, gz) : celui de la place qui le contient, sinon 45 m. */
-export function gatherRadius(core: CommandCore, gx: number, gz: number): number {
+/**
+ * Lieu de rassemblement autour de (gx, gz) : la place qui contient le point (son centre et son rayon), sinon
+ * le point lui-même avec un rayon de 45 m. Centre écrit dans core.v2 ; retourne le rayon.
+ */
+export function gatherPlace(core: CommandCore, gx: number, gz: number): number {
   const places = core.ctx.world.places;
   let best = 0;
+  core.v2.x = gx;
+  core.v2.z = gz;
   for (let i = 0; i < places.length; i++) {
     const p = places[i];
     if (p.kind !== 'square') continue;
     const d = Math.hypot(p.x - gx, p.z - gz);
-    if (d <= p.radius && p.radius > best && p.radius <= 160) best = p.radius;
+    if (d <= p.radius && p.radius > best && p.radius <= 160) {
+      best = p.radius;
+      core.v2.x = p.x;
+      core.v2.z = p.z;
+    }
   }
   return best > 0 ? best : GATHER_RADIUS;
 }
@@ -113,7 +122,9 @@ export function planPosts(core: CommandCore, pic: Picture, gx: number, gz: numbe
   out.length = 0;
   const world = core.ctx.world;
   const hasRoute = pic.route.length >= 4;
-  const rg = gatherRadius(core, gx, gz);
+  const rg = gatherPlace(core, gx, gz);
+  gx = core.v2.x;
+  gz = core.v2.z;
   const count = world.nodeCount;
   // emprise utile : le parcours et le lieu de rassemblement, avec une marge
   let minX = gx - rg - 20;

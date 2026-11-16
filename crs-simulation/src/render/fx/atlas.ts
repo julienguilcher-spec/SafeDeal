@@ -110,8 +110,12 @@ function drawVolume(out: Uint8Array, W: number, ox: number, oy: number, T: numbe
         }
         const n1 = fbm(u * 2.7 + sx, v * 2.7 + sy, 3, seed);
         const n2 = fbm(u * 6.2 + sy, v * 6.2 + sx, 2, seed + 9);
-        d = smoothstep(0.08, 0.78, (1 - keep) * (0.62 + 0.8 * n1));
-        d *= 0.82 + 0.3 * n2;
+        // un fond rond comble les creux entre les lobes : la volute reste une masse, pas une grappe d'anneaux
+        const r = Math.sqrt(u * u + v * v);
+        const core = smoothstep(0.78, 0.1, r) * 0.75;
+        const lob = 1 - keep;
+        d = smoothstep(0.06, 0.85, (lob > core ? lob : core) * (0.6 + 0.8 * n1));
+        d *= 0.84 + 0.26 * n2;
       } else {
         const r = Math.sqrt(u * u + v * v);
         const f1 = style === 'dust' ? 2.4 : 1.1;
@@ -128,7 +132,7 @@ function drawVolume(out: Uint8Array, W: number, ox: number, oy: number, T: numbe
       dens[j * T + i] = d < 0 ? 0 : d > 1 ? 1 : d;
     }
   }
-  const relief = style === 'mist' ? 1.2 : style === 'dust' ? 3.2 : 4.2;
+  const relief = style === 'mist' ? 1.2 : style === 'dust' ? 3.2 : 3.2;
   for (let j = 0; j < T; j++) {
     const v = ((j + 0.5) / T) * 2 - 1;
     for (let i = 0; i < T; i++) {

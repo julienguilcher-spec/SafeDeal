@@ -38,7 +38,7 @@ function henriIV(b: Builder, quality: QualityLevel): void {
   const s = 1.55;
   bronze.append(horseGeo({ scale: s, gait: 0.18, lod }).translate(0, y + 0.16, -0.1));
   // le roi : en armure, tête laurée, bâton de commandement dans la main droite, rênes dans la gauche
-  const H = 2.95;
+  const H = 3.35;
   const king = figureGeo({
     height: H, lod, fly: true, hat: 'couronne', lean: -0.04,
     legL: { e: 0.95, a: 0.55, e2: 0.12, a2: 0.2 }, legR: { e: 0.95, a: 0.55, e2: 0.12, a2: 0.2 },

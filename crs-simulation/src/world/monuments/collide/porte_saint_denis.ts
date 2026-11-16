@@ -4,7 +4,7 @@ import type { MonumentCollider, MonumentSite } from '../types';
 import { rectRing } from '../shape2d';
 
 /** Cotes réelles (Blondel, 1672) : 24,65 m de haut, 25 m de large, 5 m d'épaisseur ; arche de 8 m sur 15,35 m sous clef. */
-export const PSD = { W: 25, H: 24.65, D: 5, archW: 8, archH: 15.35, doorX: 8.6, doorW: 1.7, doorH: 3.6, entabY: 18.4, entabTop: 21.2 } as const;
+export const PSD = { W: 25, H: 24.65, D: 5, archW: 8, archH: 15.35, doorX: 8.6, doorW: 1.7, doorH: 3.6, entabY: 18.0, entabTop: 21.4 } as const;
 
 export function colliders(_site: MonumentSite): MonumentCollider[] {
   const out: MonumentCollider[] = [];

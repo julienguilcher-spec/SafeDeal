@@ -10,6 +10,8 @@
  *   - signatures d'état (un entier par objet ou vitrine) pour ne réécrire que ce qui change.
  * ===================================================================================== */
 
+import { own } from './meshbuf';
+
 export type Quality = 'bas' | 'moyen' | 'haut' | 'ultra';
 
 export type BurnMode = 'fond' | 'tord' | 'charbon' | 'aucune';
@@ -110,7 +112,7 @@ const ALIASES: Readonly<Record<string, string>> = {
 /** Modèle d'un type d'objet : lui-même s'il est connu, son alias, sinon « autre ». */
 export function modelFor(kind: string): string {
   if (TABLE.has(kind)) return kind;
-  const alias = ALIASES[kind];
+  const alias = own(ALIASES, kind);
   return alias !== undefined ? alias : 'autre';
 }
 
@@ -130,7 +132,10 @@ export interface LodConfig {
   readonly d2: number;
   /** Au-delà : rien (distance horizontale). */
   readonly cap: number;
-  /** Les morceaux de niveau ≤ shadowLevel projettent une ombre (-1 = aucun). */
+  /**
+   * Les morceaux de niveau ≤ shadowLevel projettent une ombre (-1 = aucun). Chaque morceau qui projette
+   * coûte un appel de dessin par cascade d'ombre : seuls les plus proches le font.
+   */
   readonly shadowLevel: number;
   /** Nombre maximal d'objets en mouvement redessinés à chaque image. */
   readonly maxDynamic: number;
@@ -144,12 +149,12 @@ export interface LodConfig {
 export const LOD_CONFIGS: Readonly<Record<Quality, LodConfig>> = {
   bas: { d0: 0, d1: 50, d2: 140, cap: 300, shadowLevel: -1, maxDynamic: 32, lamps: 2, fires: 1, atlas: 1024 },
   moyen: { d0: 20, d1: 95, d2: 220, cap: 450, shadowLevel: 0, maxDynamic: 64, lamps: 4, fires: 2, atlas: 2048 },
-  haut: { d0: 38, d1: 150, d2: 320, cap: 600, shadowLevel: 1, maxDynamic: 96, lamps: 6, fires: 3, atlas: 2048 },
+  haut: { d0: 38, d1: 150, d2: 320, cap: 600, shadowLevel: 0, maxDynamic: 96, lamps: 6, fires: 3, atlas: 2048 },
   ultra: { d0: 60, d1: 210, d2: 430, cap: 700, shadowLevel: 1, maxDynamic: 128, lamps: 8, fires: 4, atlas: 2048 },
 };
 
 export function lodConfig(quality: string): LodConfig {
-  return LOD_CONFIGS[quality as Quality] ?? LOD_CONFIGS.moyen;
+  return own(LOD_CONFIGS, quality) ?? LOD_CONFIGS.moyen;
 }
 
 /** Marge d'hystérésis : un morceau garde son niveau détaillé jusqu'à 12 % au-delà du seuil. */
@@ -235,7 +240,7 @@ export function fallAxis(info: KindInfo, halfX: number, halfZ: number, height: n
 const STATE_CODES: Readonly<Record<string, number>> = { intact: 0, damaged: 1, broken: 2, burning: 3, burnt: 4 };
 
 export function stateCode(state: string): number {
-  return STATE_CODES[state] ?? 0;
+  return own(STATE_CODES, state) ?? 0;
 }
 
 /** Entier qui change dès que l'aspect d'un objet doit être redessiné (hors position). */
@@ -247,7 +252,7 @@ export function propSignature(state: string, toppled: boolean, tags: number, car
 const WINDOW_CODES: Readonly<Record<string, number>> = { intact: 0, tagged: 1, cracked: 2, broken: 3, boarded: 4 };
 
 export function windowCode(w: string): number {
-  return WINDOW_CODES[w] ?? 0;
+  return own(WINDOW_CODES, w) ?? 0;
 }
 
 /** Pas de quantification du rideau de fer (61 positions : ~4 cm par pas sur une vitrine). */

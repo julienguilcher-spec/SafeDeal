@@ -621,12 +621,13 @@ describe('en véhicule', () => {
     expect(ctx.player.state.cameraMode).toBe('turret');
     expect(control.turretIndex).toBe(0);
     // regard d'un quart de tour à gauche et levé : la tourelle suit, sans téléportation
+    // (gisement positif vers la DROITE, convention de sim/vehicles : à gauche, il est négatif)
     input.look(-Math.PI / 2, 0.5);
     tick(r);
-    expect(v.turretYaw[0]).toBeGreaterThan(0);
-    expect(v.turretYaw[0]).toBeLessThan(0.1);
+    expect(v.turretYaw[0]).toBeLessThan(0);
+    expect(v.turretYaw[0]).toBeGreaterThan(-0.1);
     r.t.step(2, DT);
-    expect(v.turretYaw[0]).toBeCloseTo(Math.PI / 2, 5);
+    expect(v.turretYaw[0]).toBeCloseTo(-Math.PI / 2, 5);
     expect(v.turretPitch[0]).toBeCloseTo(0.5, 5);
     input.look(0, 2); // au-delà de la butée haute
     r.t.step(1.5, DT);

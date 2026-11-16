@@ -5,7 +5,7 @@
  * ===================================================================================== */
 
 import type { MissionDef } from '../../../core/missions-schema';
-import { crowd, fail, forces, FIN, FOULE, intel, mission, OBJ, ob, os, ph, rad, SOMMATIONS, T, TENS, voix } from './dsl';
+import { crowd, fail, forces, FIN, intel, mission, OBJ, ob, os, ph, rad, SOMMATIONS, T, TENS, voix } from './dsl';
 import type { MissionSpec } from './dsl';
 
 const OPE: Pick<MissionSpec, 'role' | 'rank' | 'poste'> = { role: 'operateur_canon_eau', rank: 'gardien', poste: 'operateur' };

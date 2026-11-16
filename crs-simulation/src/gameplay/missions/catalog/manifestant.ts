@@ -6,12 +6,12 @@
  * ===================================================================================== */
 
 import type { MissionDef } from '../../../core/missions-schema';
-import { crowd, fail, forces, FIN, FOULE, intel, mission, ob, os, ph, scene, SOMMATIONS, T, TENS } from './dsl';
+import { crowd, fail, forces, FIN, FOULE, intel, mission, OBJ, ob, os, ph, scene, SOMMATIONS, T, TENS, voix } from './dsl';
 import type { MissionSpec } from './dsl';
-import { CDT_01, CDT_02, CDT_04, CDT_06, CDT_11 } from './commandant';
+import { CDT_01, CDT_06 } from './commandant';
 import { CG_05 } from './chef-groupe';
-import { BRAVM_02 } from './bravm';
 import { EAU_02 } from './canon-eau';
+import { MF_10, MF_11, MF_12, MF_13, MF_14, MF_15, MF_16, MF_17 } from './manifestant-radical';
 
 const base = (profile: NonNullable<MissionSpec['profile']>): Pick<MissionSpec, 'role' | 'rank' | 'poste' | 'profile'> =>
   ({ role: 'manifestant', rank: null, poste: null, profile });
@@ -32,13 +32,36 @@ export const MF_01 = mission({
     'Aucun signalement.', ['Place de la République', 'Boulevard Beaumarchais', 'Place de la Bastille'],
     ['Rester avec ses amis', 'Charger son téléphone', 'Choisir un point de rendez-vous']),
   phases: [
-    ph('depart', 'Départ', 'Vous retrouvez vos amis et prenez place.', T(240),
-      [['AMI', 'Je suis derrière le camion, tu me rejoins ?']], []),
-    ph('marche', 'En marche', 'Le cortège descend le boulevard en chantant.', T(480),
-      [['AMI', 'On reprend le slogan « Horizon, c\'est non ! ».']], ['Un ami s\'arrête pour acheter une boisson']),
-    ph('ralentissement', 'Ralentissement', 'Le cortège s\'arrête près du boulevard du Temple.', FOULE('dispersion'),
-      [['AMI', 'On reste ensemble, ça pousse un peu.']], []),
-    ph('fin', 'Arrivée à la Bastille', 'Vous rejoignez le point de rendez-vous.', FIN, [['AMI', 'Ça y est, on est arrivés.']], []),
+    ph('rendez-vous', `Le rendez-vous sous la statue`,
+      `Samedi, quatorze heures, place de la République. Vos deux amis vous attendent quelque part au pied de la statue, parmi neuf cents personnes, des ballons turquoise et l'odeur des merguez. C'est votre première manifestation : le plus difficile, pour l'instant, est de retrouver quelqu'un dans une foule où tout le monde lève son téléphone.`,
+      FOULE('depart'), [
+        voix('AMIE', `On est côté métro, sous le lampadaire avec l'autocollant ! Lève le bras, je ne te vois pas !`),
+        voix('MÉGAPHONE', `On se met en place derrière la banderole ! Départ dans cinq minutes, direction Bastille !`),
+      ], [`Un vendeur de ballons traverse la foule`]),
+    ph('slogans', `Derrière le camion sono`,
+      `Le cortège s'ébranle sur le boulevard du Temple, derrière le camion sono du « Front commun des Ateliers ». On avance au pas, on s'arrête, on repart ; les slogans montent de l'avant et il faut les attraper au vol. Sur les trottoirs, des gens regardent passer, certains applaudissent, un touriste demande ce qui se passe.`,
+      OBJ('o2'), [
+        voix('SONO', `Horizon, c'est non ! Horizon, c'est non ! Plus fort, derrière, on ne vous entend pas !`),
+        voix('AMI', `Attends-moi, je prends une bouteille d'eau au kiosque. Deux minutes !`),
+      ], [`Un ami s'arrête pour acheter une boisson`, `Une fanfare rejoint le cortège`, `Un touriste demande ce qui se passe`]),
+    ph('arret', `Le cortège s'arrête sans prévenir`,
+      `Dix slogans dans la gorge. À l'entrée du boulevard des Filles du Calvaire, tout s'arrête : le camion sono ne repart pas, la musique se tait, et les rangs se resserrent sans que personne sache pourquoi. Votre ami veut aller voir devant ; à cent mètres, au bout d'une rue, on aperçoit des casques.`,
+      T(200), [
+        voix('AMI', `Viens, on va voir ce qui bloque ! Il paraît qu'il y a des CRS au carrefour.`),
+        voix('SERVICE D\'ORDRE', `On patiente, s'il vous plaît ! Le camion est en panne, on nous ouvre un autre passage. On ne pousse pas !`),
+      ], [`Le camion sono tombe en panne`, `Averse de deux minutes`]),
+    ph('bastille', `La colonne de Juillet au bout du boulevard`,
+      `Le cortège est reparti et descend le boulevard Beaumarchais. Au bout, la colonne de Juillet grandit à chaque pas. Le point de rendez-vous est place de la Bastille, côté rue Saint-Antoine ; encore faut-il y arriver à trois, dans une foule qui s'étire et qui s'éparpille déjà.`,
+      OBJ('o1'), [
+        voix('AMIE', `On ne se lâche pas jusqu'à la colonne. Si on se perd : côté rue Saint-Antoine, devant la bouche de métro.`),
+        voix('MANIFESTANT', `C'est votre première ? Ça se voit, vous souriez encore. Vous verrez, on y prend goût.`),
+      ], [`La foule sépare votre groupe un instant`]),
+    ph('dispersion', `On rentre par la rue Saint-Antoine`,
+      `Place de la Bastille, les organisateurs remercient tout le monde au micro et annoncent la fin. Vous êtes trois, les pieds en compote, la voix cassée. Autour, les banderoles se roulent, les chasubles disparaissent dans les sacs ; la foule repart par la rue Saint-Antoine et les bouches du métro.`,
+      FIN, [
+        voix('MÉGAPHONE', `Merci à toutes et à tous ! La manifestation est terminée, on se disperse dans le calme, par la rue Saint-Antoine et le métro !`),
+        voix('AMIE', `Alors, ta première manif ? On boit un verre et tu me racontes.`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Arriver place de la Bastille avec ses deux amis', 'atteindre', { place: 'Place de la Bastille', target: 'amis', count: 2 }),
@@ -72,19 +95,43 @@ export const MF_02 = mission({
     'Une trentaine d\'individus encagoulés en tête.', ['Boulevard Beaumarchais', 'Boulevard du Temple'],
     ['Rester au milieu du cortège', 'Garder un point de rendez-vous', 'Éviter la tête']),
   phases: [
-    ph('depart', 'Départ', 'Vous prenez place avec vos amis.', T(240),
-      [['AMI', 'On est cinq, on reste groupés.']], []),
-    ph('marche', 'En marche', 'Le cortège avance ; la tête s\'agite.', T(420),
-      [['AMI', 'Là-bas, des gens se couvrent le visage.']], ['Un ami veut aller voir devant']),
-    ph('tension', 'Tension', 'Des projectiles volent à l\'avant ; le cortège ralentit.', TENS(0.45),
-      [['AMI', 'On recule, on prend la rue latérale.']], []),
-    ph('fin', 'Arrivée', 'Vous rejoignez le point de rendez-vous.', FIN, [['AMI', 'Tout le monde est là.']], []),
+    ph('milieu-du-cortege', `Six au milieu du cortège`,
+      `Seize heures, place de la Bastille. Vous êtes six, serrés au milieu du cortège du « Collectif Lumière Pour Tous », qui s'engage sur le boulevard Beaumarchais. Le point de rendez-vous, si l'on se perd, est fixé à l'entrée du boulevard du Temple. Loin devant, des silhouettes en noir marchent plus vite que tout le monde.`,
+      T(200), [
+        voix('AMIE', `On reste au milieu, d'accord ? Pas devant. Et si ça tourne mal, rendez-vous à l'entrée du boulevard du Temple.`),
+        voix('SONO', `La lumière pour tous ! La lumière pour tous !`),
+      ], [`Un vieil homme ralentit votre groupe`]),
+    ph('tete-agitee', `La tête s'agite`,
+      `Le cortège avance par à-coups. À l'avant, on entend des pétards, puis des cris ; une fumée noire monte au-dessus des têtes. L'un de vos amis veut aller voir, « juste deux minutes » ; un autre regarde déjà les rues latérales du boulevard Beaumarchais.`,
+      TENS(0.45), [
+        voix('AMI', `Je vais voir devant, je reviens ! Deux minutes, je veux juste comprendre ce qui se passe.`),
+        voix('MANIFESTANTE', `Ça chauffe devant, il y en a qui cassent. Ne restez pas là, avec vos amis, reculez un peu.`),
+      ], [`Un ami veut aller voir à l'avant`, `Un fumigène noir monte en tête de cortège`]),
+    ph('projectiles', `Ce qui tombe à l'avant`,
+      `La tension vient de monter : des projectiles partent de la tête, des boucliers apparaissent au bout du boulevard Beaumarchais, et tout le cortège recule d'un coup, comme une vague. Une amie s'est figée, les yeux écarquillés. Lui prendre la main, lui parler, reculer au pas vers une rue latérale : courir, ici, c'est tomber.`,
+      T(180), [
+        voix('AMIE', `Je… je ne peux pas bouger. Ils vont charger ? Dis-moi qu'ils ne vont pas charger.`),
+        voix('SERVICE D\'ORDRE', `On recule calmement ! Par la rue du Pas de la Mule, à droite ! Ne courez pas !`),
+      ], [`Une panique soudaine traverse le cortège`, `Une amie se fige`, `Retour de gaz sur le milieu du cortège`]),
+    ph('point-de-rendez-vous', `Le rendez-vous du boulevard du Temple`,
+      `Le cortège s'est disloqué en trois morceaux. Deux amis ont été emportés par le reflux. Le rendez-vous est à l'entrée du boulevard du Temple, à trois cents mètres ; on peut y aller par le boulevard des Filles du Calvaire, où ça fume encore, ou par les petites rues, plus longues et plus calmes.`,
+      OBJ('o5'), [
+        voix('AMI', `On est dans une rue derrière, je ne sais pas laquelle ! Il y a des gaz, on n'y voit rien. On vous rejoint au rendez-vous !`),
+        voix('AMIE', `Par les petites rues. C'est plus long, mais je ne repasse pas dans la fumée.`),
+      ], [`Deux amis sont séparés du groupe`]),
+    ph('se-compter', `Se compter sous l'abribus`,
+      `À l'entrée du boulevard du Temple, sous un abribus, on se compte. Les yeux rouges, les voix qui tremblent un peu, quelqu'un rit trop fort. Ce n'était pas votre affrontement, et pourtant vous étiez dedans ; ce que chacun racontera ce soir dépendra de ceux qui manquent, ou non, à l'appel.`,
+      FIN, [
+        voix('AMIE', `Un, deux, trois, quatre… Attends, je recompte.`),
+        voix('AMI', `La prochaine fois, on se donne deux points de rendez-vous. Et personne ne va voir devant.`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Arriver avec ses cinq amis', 'proteger_les_siens', { target: 'amis', count: 5 }),
     ob('o2', 'Ne laisser personne de son groupe blessé', 'proteger_les_siens', { target: 'amis', max: 0 }),
     os('o3', 'Reprendre dix slogans', 'personnalise', { target: 'slogan', count: 10 }),
     os('o4', 'Éviter la tête du cortège', 'personnalise', { target: 'presence_en_tete', max: 0 }),
+    ob('o5', 'Rejoindre le point de rendez-vous, à l\'entrée du boulevard du Temple', 'atteindre', { place: 'Boulevard du Temple' }),
   ],
   failures: [fail('personnalise', 'Groupe dispersé.'), fail('joueur_hors_combat', 'Vous êtes blessé et devez quitter les lieux.')],
   randomEvents: ['Un ami veut aller voir devant', 'Une panique soudaine', 'Retour de gaz', 'Un vieil homme ralentit le groupe'],
@@ -112,13 +159,30 @@ export const MF_03 = mission({
     'Aucun signalement.', ['Boulevard Saint-Germain', 'Rue de Rennes'],
     ['Coordonner les virages', 'Serrer les poings dans le vent', 'Garder le rythme']),
   phases: [
-    ph('depart', 'Départ', 'Vous prenez la banderole avec votre camarade.', T(180),
-      [['CAMARADE', 'On tend, on avance.']], []),
-    ph('droite', 'Ligne droite', 'La banderole flotte sous le vent.', T(360),
-      [['CAMARADE', 'Tiens bon, ça claque.']], ['Une rafale arrache le coin du tissu']),
-    ph('virage', 'Virage', 'Le cortège tourne dans la rue de Rennes.', T(540),
-      [['CAMARADE', 'Virage dans dix secondes.']], []),
-    ph('fin', 'Arrivée', 'Vous posez la banderole.', FIN, [['CAMARADE', 'On l\'a fait.']], []),
+    ph('six-metres-de-tissu', `Six mètres de tissu peint`,
+      `Quinze heures, place Saint-Michel. La banderole de tête de la « Coordination Étudiante Rive Gauche » fait six mètres de long : « Parcours pour tous ! », en lettres vertes. Vous tenez la hampe de gauche, votre camarade celle de droite, à trois mètres l'un de l'autre ; le vent d'ouest s'engouffre dans le tissu comme dans une voile.`,
+      FOULE('depart'), [
+        voix('CAMARADE', `Tends plus ! Si elle fait le ventre, le vent nous l'arrache. On marche au même pas, tu comptes avec moi.`),
+        voix('MÉGAPHONE', `La banderole devant, s'il vous plaît ! On démarre !`),
+      ], [`Un photographe se place devant la banderole`]),
+    ph('ligne-droite', `La ligne droite, vent de face`,
+      `Le boulevard Saint-Germain s'ouvre devant vous, tout droit, et la banderole tire sur les bras à chaque rafale. Derrière, huit cents personnes règlent leur pas sur le vôtre. Un coin du tissu se déchire à l'œillet ; votre camarade trébuche sur une plaque de chantier et se rattrape de justesse.`,
+      T(300), [
+        voix('CAMARADE', `Le coin lâche ! Tiens bon, je refais le nœud en marchant.`),
+        voix('MANIFESTANT', `Plus haut, la banderole ! On ne lit rien, derrière !`),
+      ], [`Une rafale arrache un coin du tissu`, `La camarade trébuche`, `Un chien traverse devant la banderole`]),
+    ph('virage', `Le virage de la rue de Rennes`,
+      `Le cortège doit tourner dans la rue de Rennes. Une banderole ne tourne pas comme une personne : le côté extérieur accélère, l'intérieur marque le pas, le tissu reste tendu, et tout cela se dit en deux mots par-dessus le bruit. Le vent, dans l'angle, vous prend de travers.`,
+      OBJ('o1'), [
+        voix('CAMARADE', `Virage ! Toi, tu accélères, moi je ralentis. Maintenant !`),
+        voix('SERVICE D\'ORDRE', `Doucement dans le virage, la banderole ! Il y a des poussettes juste derrière vous.`),
+      ], [`Le vent prend la banderole de travers dans l'angle`]),
+    ph('tissu-roule', `Le tissu roulé`,
+      `Un quart d'heure, le tissu tendu d'un bout à l'autre. Rue de Rennes, le cortège ralentit et les organisateurs annoncent l'arrivée. On pose les hampes, on roule la banderole à deux, bord à bord ; vous avez les épaules en feu et de la peinture verte sur les mains.`,
+      FIN, [
+        voix('CAMARADE', `Mes bras ! Je ne les sens plus. Tu la reprends, la prochaine fois ?`),
+        voix('MÉGAPHONE', `Merci aux porteurs de la banderole ! On se disperse par la rue de Rennes, dans le calme !`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Garder la banderole tendue pendant tout le parcours', 'rester_dans_cortege', { seconds: 900 }),
@@ -148,19 +212,45 @@ export const MF_04 = mission({
     'Aucun radical.', ['Place du Palais Bourbon', 'Rue de l\'Université'],
     ['Mémoriser le numéro de son avocat', 'Ne pas résister physiquement', 'Choisir avant la dernière sommation']),
   phases: [
-    ph('sit-in', 'Sit-in', 'Vous vous installez, assis, bras liés.', T(180),
-      [['MILITANT', 'On reste assis, on chante.']], []),
-    ph('sommations', 'Sommations', 'Le commandant prononce l\'annonce puis les sommations.', T(360),
-      [['HAUT-PARLEUR', SOMMATIONS.annonce]], ['Un voisin se lève pour partir']),
-    ph('decision', 'Décision', 'Vous restez ou vous partez.', TENS(0.5),
-      [['HAUT-PARLEUR', SOMMATIONS.derniere]], []),
-    ph('fin', 'Évacuation', 'Les CRS évacuent ceux qui restent.', FIN, [['MILITANT', 'On est portés un par un.']], []),
+    ph('assis', `Assis, bras liés`,
+      `Quatorze heures, place du Palais Bourbon. Vous êtes assis sur le pavé avec cent cinquante autres, devant la grille de l'Assemblée nationale, le bras droit passé sous celui d'une inconnue, le gauche sous celui d'un étudiant. On chante contre le projet de loi « Vigilance ». En face, une ligne de CRS se met en place, sans hâte.`,
+      T(150), [
+        voix('VOISINE', `C'est votre premier sit-in ? Moi aussi. On ne lâche pas les bras, quoi qu'il arrive, c'est ça ?`),
+        voix('MILITANT', `Rappel pour tout le monde : on ne résiste pas, on ne frappe pas, on se laisse porter. Et vous avez le numéro de l'avocat sur le bras.`),
+      ], [`Un journaliste filme les premiers rangs`]),
+    ph('sommations', `Trois phrases au mégaphone`,
+      `Un officier ceint d'une écharpe tricolore s'avance sur la place du Palais Bourbon et lève un mégaphone. Trois phrases, à quelques dizaines de secondes d'intervalle, que tout le monde écoute en silence. Après la troisième, rester devient un choix qui a un prix ; partir par la rue de l'Université en est un autre, et personne, ici, ne vous jugera.`,
+      OBJ('o5'), [
+        voix('COMMANDANT', SOMMATIONS.annonce),
+        voix('COMMANDANT', SOMMATIONS.premiere),
+        voix('COMMANDANT', SOMMATIONS.derniere),
+        voix('VOISINE', `Je… je crois que je vais partir. J'ai mes enfants ce soir. Vous restez, vous ?`),
+      ], [`Un voisin se lève pour partir`, `Une personne âgée cherche de l'aide pour se relever`]),
+    ph('portage', `Ceux qu'on emporte`,
+      `Le choix est fait. Sur la place du Palais Bourbon, les agents s'avancent par deux et emportent ceux qui sont restés, un par un, sous les aisselles et sous les genoux. Chaque départ est salué par un chant. Rester passif, c'est ne pas aider et ne pas résister : un poids mort, les yeux ouverts.`,
+      T(300), [
+        voix('CRS', `Monsieur, madame, on va vous porter. Laissez-vous faire, on ne vous fera pas mal. Vous pouvez encore vous lever.`),
+        voix('MILITANT', `On ne résiste pas ! On les regarde, on chante, c'est tout !`),
+      ], [`Un voisin panique au moment d'être saisi`, `Un agent saisit un manifestant brutalement`, `Un malaise dans le groupe assis`]),
+    ph('identite', `Le contrôle, au bord de la place`,
+      `Au bord de la place, rue de Bourgogne, ceux qui ont été portés attendent debout, en file, sous l'œil de quatre agents. On demande les pièces d'identité ; un gradé explique, d'une voix fatiguée, ce qui peut suivre et ce qui ne suivra pas. Ceux qui sont partis d'eux-mêmes regardent depuis le trottoir d'en face.`,
+      FOULE('dispersion'), [
+        voix('CRS', `Pièce d'identité, s'il vous plaît. Ceux qui étaient assis jusqu'au bout, par ici : on relève les identités, vous serez informés des suites.`),
+        voix('VOISINE', `Je suis restée de l'autre côté de la rue, je n'ai pas osé partir tout à fait. Vous avez vu comme ils les emportaient, un par un ?`),
+      ], [`Un policier s'adresse à vous personnellement`]),
+    ph('apres', `Ce que chacun a choisi`,
+      `La place du Palais Bourbon se vide. Le pavé est jonché de tracts et de bouteilles d'eau ; les caméras rangent leurs pieds. Parti à temps ou porté jusqu'au bout, vous avez le numéro de l'avocat sur l'avant-bras et, pour la première fois, une idée précise de ce que pèse une sommation.`,
+      FIN, [
+        voix('MILITANT', `Ceux qui ont été contrôlés : vous nous appelez ce soir, tous, même si tout va bien.`),
+        voix('VOISINE', `On se revoit à la prochaine ? Je resterai peut-être, cette fois. Ou pas.`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Rester assis jusqu\'à la dernière sommation ou partir à temps', 'ne_pas_etre_interpelle', { place: 'Place du Palais Bourbon' }),
     ob('o2', 'Ne résister physiquement à aucun moment', 'personnalise', { target: 'resistance_physique', max: 0 }),
     os('o3', 'Mémoriser le numéro d\'un avocat', 'personnalise', { target: 'avocat' }),
     os('o4', 'Aider une personne âgée à partir', 'proteger_les_siens', { target: 'personne_agee' }),
+    ob('o5', 'Faire son choix avant la dernière sommation : rester assis ou partir par la rue de l\'Université', 'personnalise', { target: 'choix_assume', count: 1 }),
   ],
   failures: [fail('interpelle', 'Interpellé sans l\'avoir choisi.'), fail('joueur_hors_combat', 'Vous êtes blessé et devez quitter les lieux.')],
   randomEvents: ['Un voisin se lève pour partir', 'Un journaliste filme de près', 'Un policier s\'adresse à vous', 'Un malaise dans le groupe'],
@@ -184,13 +274,36 @@ export const MF_05 = mission({
     'Une trentaine d\'individus lanceurs de bouteilles.', ['Place de la Bastille', 'Rue de Lyon'],
     ['Rester à plus de cinq mètres', 'Filmer en paysage', 'Sauvegarder aussitôt']),
   phases: [
-    ph('sommations', 'Sommations', 'Les sommations sont prononcées.', T(180),
-      [['HAUT-PARLEUR', SOMMATIONS.derniere]], []),
-    ph('interpellation', 'Interpellation', 'Une interpellation a lieu devant vous.', T(360),
-      [['VOUS', 'Interpellation en cours, je filme.']], ['Un policier vous demande de reculer']),
-    ph('suite', 'Suite', 'Vous continuez à filmer.', TENS(0.6),
-      [['VOUS', 'Séquence en cours, aucune violence apparente.']], []),
-    ph('fin', 'Publication', 'Vous publiez la vidéo.', FIN, [['VOUS', 'Vidéo publiée.']], []),
+    ph('contre-le-mur', `Dos au mur, téléphone à l'horizontale`,
+      `Place de la Bastille, dix-neuf heures. La manifestation est finie, mais quatre cents personnes restent, et un engin lanceur d'eau attend derrière la ligne. Vous vous adossez à un mur, à l'angle de la rue de Lyon, le téléphone à l'horizontale : si quelque chose se passe, quelqu'un doit pouvoir le montrer.`,
+      T(120), [
+        voix('AMIE', `Tu filmes ? Dis l'heure et le lieu à voix basse, au début. Sinon ça ne prouve rien.`),
+        voix('COMMANDANT', SOMMATIONS.derniere),
+      ], [`Un autre témoin filme à côté de vous`]),
+    ph('interpellation', `Une interpellation à trente mètres`,
+      `À trente mètres, sur la place de la Bastille, trois policiers sortent du rang et saisissent un homme en veste rouge, qui se débat. Il tombe, on le menotte, on le relève. Tout tient dans votre cadre, si vous ne tremblez pas, si vous ne vous approchez pas à moins de cinq mètres, et si personne ne vient se mettre devant.`,
+      OBJ('o1'), [
+        voix('MANIFESTANT', `Filmez ! Filmez, ils le tabassent ! Mettez-le sur les réseaux, vite !`),
+        voix('CRS', `Vous, avec le téléphone ! Reculez. Vous pouvez filmer, mais reculez de cinq mètres.`),
+      ], [`Un policier vous demande de reculer`, `Un manifestant hurle à côté de votre micro`]),
+    ph('eau', `L'eau sur la place`,
+      `La scène est dans votre téléphone. L'engin lanceur d'eau s'est avancé ; une pluie fine, puis un jet, balaient les premiers rangs de la place de la Bastille. Les embruns arrivent jusqu'à vous, sur l'écran, sur les doigts. Ceux qui lançaient des bouteilles reculent, et ceux qui regardaient reculent avec eux.`,
+      T(180), [
+        voix('HAUT-PARLEUR DE L\'ENGIN', `Attention, usage du canon à eau. Reculez.`),
+        voix('AMIE', `Mets-le dans ta poche, il va prendre l'eau ! On recule vers la rue de Lyon, viens !`),
+      ], [`Un jet d'eau mouille votre téléphone`, `Un manifestant glisse sur le pavé mouillé`]),
+    ph('publier', `Publier telle quelle, ou couper`,
+      `Sous un porche de la rue de Lyon, vous regardez votre vidéo. Une minute douze. On y voit la saisie, pas ce qui l'a précédée ; on entend quelqu'un crier « ils le tabassent » alors que l'image montre autre chose. La publier telle quelle, avec l'heure et le lieu, ou la couper : c'est vous qui signez.`,
+      OBJ('o2'), [
+        voix('AMIE', `Tu la mets entière. Si tu coupes, on dira que tu as triché. Et écris ce que tu as vu, pas ce que le type criait.`),
+        voix('MANIFESTANT', `Envoyez-la-moi, je la poste avec un titre qui tape !`),
+      ], [`Un inconnu vous demande la vidéo pour la republier`]),
+    ph('vues', `Ce que devient une vidéo`,
+      `La vidéo est en ligne. La place de la Bastille se vide, luisante, et votre téléphone vibre sans arrêt : des partages, des commentaires, un message d'un journaliste qui demande à vous parler, un autre d'un inconnu qui vous insulte. Vous n'avez rien fait d'autre que tenir un téléphone droit.`,
+      FIN, [
+        voix('AMIE', `Deux mille vues en dix minutes. Il y a un journaliste qui te cherche. Tu lui réponds ?`),
+        voix('JOURNALISTE', `Bonjour, c'est vous qui avez filmé l'interpellation de la Bastille ? Vous avez la séquence complète ?`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Filmer l\'interpellation à plus de cinq mètres', 'filmer', { target: 'interpellation', count: 1 }),
@@ -220,19 +333,43 @@ export const MF_06 = mission({
     'Soixante individus déterminés dans l\'îlot.', ['Rue de Turbigo', 'Rue Rambuteau'],
     ['Repérer la sortie', 'Demander le passage', 'Garder son calme']),
   phases: [
-    ph('bouclage', 'Bouclage', 'La police ferme les rues autour de vous.', T(180),
-      [['HAUT-PARLEUR', 'Vous êtes retenus le temps d\'un contrôle. La sortie se fait par la rue Rambuteau, une personne à la fois. Cette annonce sera répétée toutes les minutes.']], []),
-    ph('attente', 'Attente', 'Vous attendez votre tour.', T(420),
-      [['COMPAGNE', 'Il pleure, on sort quand ?']], ['Un groupe violent passe près de vous']),
-    ph('sortie', 'Sortie', 'Vous atteignez le contrôle.', TENS(0.6),
-      [['GARDIEN DE LA PAIX', 'Avancez avec la poussette, madame, monsieur. Vous pouvez sortir.']], []),
-    ph('fin', 'Dehors', 'Vous êtes sortis.', FIN, [['COMPAGNE', 'On est dehors.']], []),
+    ph('rues-fermees', `Les rues se ferment`,
+      `Dix-sept heures, rue de Turbigo. Vous êtes venus à trois soutenir les « Blouses Claires » : votre compagne, votre fils de deux ans dans sa poussette, et vous. D'un coup, des boucliers ferment la rue devant, puis derrière. Autour de vous, des gens en noir courent, des soignantes en blouse lèvent les mains, et personne ne comprend.`,
+      T(120), [
+        voix('COMPAGNE', `Ils ferment tout ! Pourquoi ils ferment ? On n'a rien fait, nous !`),
+        voix('MÉGAPHONE', `Vous êtes retenus pour une durée limitée. Une sortie est ouverte rue Rambuteau. Présentez-vous un par un.`),
+      ], [`Un groupe d'individus en noir passe en courant près de la poussette`]),
+    ph('trois-rues', `Trois rues, une seule ouverte`,
+      `Rue de Turbigo : fermée. Rue Saint-Denis : fermée, et c'est par là que ça lance. Reste la rue Rambuteau, à cent mètres, de l'autre côté d'une foule compacte. Pousser une poussette là-dedans sans pousser personne, sans courir, en tenant la main de votre compagne : la panique est le seul vrai danger.`,
+      TENS(0.6), [
+        voix('COMPAGNE', `Il pleure. Prends-le dans tes bras, je pousse la poussette vide. Non, attends, garde-le attaché, c'est plus sûr.`),
+        voix('MANIFESTANTE', `Vous avez un petit ? Passez devant, passez ! Laissez passer la poussette, s'il vous plaît !`),
+      ], [`L'enfant se met à pleurer`, `Un mouvement de foule vous sépare un instant`]),
+    ph('nuage', `Le nuage, côté rue Saint-Denis`,
+      `La tension monte : une grenade lacrymogène roule à dix mètres, côté rue Saint-Denis, et le nuage s'étale. Tourner la poussette dos à la fumée, baisser la capote, couvrir le visage de l'enfant avec un linge, et s'éloigner au pas, sous le vent. Un inconnu ouvre la porte d'un hall et fait signe d'entrer.`,
+      T(150), [
+        voix('INCONNU', `Par ici ! Il y a un poste de soins dans le hall, entrez avec le petit, vite !`),
+        voix('COMPAGNE', `Ses yeux ! Il se frotte les yeux ! Qu'est-ce qu'on fait ?`),
+      ], [`Une grenade lacrymogène tombe à proximité`, `Un inconnu propose l'abri d'un hall`]),
+    ph('sortie', `La porte de la rue Rambuteau`,
+      `La sortie est là, rue Rambuteau : deux mètres de large entre deux rangées de boucliers, quatre agents, une file qui avance lentement. On y passe un par un, on montre ses papiers. Vous êtes un homme de trente ans au milieu d'un groupe où l'on cherche des hommes de trente ans ; ce qui vous distingue, c'est une poussette.`,
+      OBJ('o5'), [
+        voix('CRS', `Avancez. La poussette, par ici. Vous êtes ensemble ? Pièce d'identité, monsieur. Madame, passez avec l'enfant.`),
+        voix('COMPAGNE', `Je ne passe pas sans lui. On sort tous les trois, ou on reste tous les trois.`),
+      ], [`Un agent demande votre pièce d'identité`, `On vous retient un instant pour vérification`]),
+    ph('dehors', `De l'autre côté des boucliers`,
+      `Rue Rambuteau, de l'autre côté des boucliers, la ville continue comme si de rien n'était : des terrasses, des vélos, une boulangerie ouverte. Derrière vous, le mégaphone répète la même phrase ; vous restez un moment sans parler, la main sur la poignée de la poussette.`,
+      FIN, [
+        voix('COMPAGNE', `On s'assoit cinq minutes ? J'ai les jambes qui tremblent.`),
+        voix('PASSANTE', `Vous venez de là-dedans ? Avec un bébé ? Mon Dieu. Asseyez-vous, je vous apporte de l'eau.`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Sortir de l\'îlot avec sa compagne et son enfant', 'proteger_les_siens', { target: 'famille', count: 2 }),
     ob('o2', 'Ne pas pousser ni courir pendant toute l\'attente', 'personnalise', { target: 'calme_conserve' }),
     os('o3', 'Éviter les groupes violents', 'personnalise', { target: 'proximite_groupe_violent', max: 0 }),
     os('o4', 'Sortir en moins de vingt minutes', 'duree', { seconds: 1200 }),
+    ob('o5', 'Atteindre la sortie contrôlée de la rue Rambuteau', 'atteindre', { place: 'Rue Rambuteau' }),
   ],
   failures: [fail('personnalise', 'Panique : l\'enfant est blessé.'), fail('interpelle', 'Interpellé par erreur.')],
   randomEvents: ['Un groupe violent passe près de vous', 'L\'enfant pleure', 'Une grenade tombe à proximité', 'Un agent demande votre pièce d\'identité'],
@@ -260,13 +397,36 @@ export const MF_07 = mission({
     'Une trentaine de personnes déterminées en tête.', ['Boulevard Richard-Lenoir', 'Place de la Bastille'],
     ['Tenir la chaîne', 'Parler aux automobilistes', 'Signaler tout incident']),
   phases: [
-    ph('installation', 'Mise en place', 'Vous prenez place dans la chaîne.', T(180),
-      [['RESPONSABLE', 'Chaîne en place à l\'angle.']], []),
-    ph('virage', 'Le virage', 'Le cortège tourne ; la poussée est forte.', T(420),
-      [['RESPONSABLE', 'Tenez la chaîne, ça pousse.']], ['Une voiture approche']),
-    ph('automobiliste', 'Automobiliste', 'Un automobiliste klaxonne et avance.', TENS(0.4),
-      [['VOUS', 'Voiture à l\'angle, je parle au conducteur.']], []),
-    ph('fin', 'Fin du virage', 'Le dernier char passe.', FIN, [['RESPONSABLE', 'Virage terminé.']], []),
+    ph('chaine', `Dix bras liés à l'angle`,
+      `Quinze heures trente, boulevard Richard-Lenoir. Le cortège du « Front commun des Ateliers » va tourner vers la place de la Bastille, et l'angle est le point faible : une rue adjacente y débouche, que personne n'a barrée. Vous êtes dix du service d'ordre, brassard au bras, à fermer ce débouché avec vos corps, bras liés.`,
+      T(150), [
+        voix('RESPONSABLE', `Dix à l'angle, bras liés, dos au cortège. On ne touche personne, on parle. S'il y a un problème, vous m'appelez au talkie.`),
+        voix('CAMARADE', `Je n'ai jamais fait ça. S'il y en a un qui fonce, on fait quoi ?`),
+      ], [`Un camarade arrive en retard à son poste`]),
+    ph('poussee', `La poussée du virage`,
+      `La tête du cortège arrive sur le boulevard Richard-Lenoir et tourne. Dans un virage, une foule se tasse à l'intérieur et déborde à l'extérieur : la poussée vient dans votre dos, par vagues, et la chaîne plie sans rompre. Devant vous, dans la rue adjacente, trois voitures se sont arrêtées ; la première avance d'un mètre, puis d'un autre.`,
+      TENS(0.4), [
+        voix('RESPONSABLE', `Tenez l'angle ! Le camion sono arrive, il lui faut toute la largeur !`),
+        voix('AUTOMOBILISTE', `J'ai un rendez-vous, moi ! Laissez-moi passer, je roule au pas, je ne vais écraser personne !`),
+      ], [`Une voiture avance vers la chaîne`, `La poussée du cortège fait plier la chaîne`]),
+    ph('automobiliste', `Trois minutes à demander`,
+      `La tension monte à l'angle du boulevard Richard-Lenoir : l'automobiliste a baissé sa vitre et klaxonne, la main à plat. Derrière lui, la file s'allonge et s'énerve. Vous n'êtes pas policier : vous ne pouvez ni le toucher ni lui donner un ordre, seulement lui parler, lui demander trois minutes, et prévenir le responsable s'il avance encore.`,
+      OBJ('o1'), [
+        voix('AUTOMOBILISTE', `Trois minutes, trois minutes ! Ça fait dix minutes que j'attends ! Vous n'avez aucun droit de me bloquer !`),
+        voix('CAMARADE', `Il avance ! Il touche presque mes genoux. On appelle la police, non ?`),
+      ], [`Un automobiliste klaxonne et avance au contact`, `Un groupe du cortège veut s'en prendre à la voiture`, `Le talkie-walkie tombe en panne`]),
+    ph('dernier-char', `Le dernier char`,
+      `Dix minutes de chaîne. La queue du cortège passe l'angle du boulevard Richard-Lenoir : des retraités, des poussettes, le dernier char avec ses ballons. Deux gardiens de la paix sont venus se poster devant les voitures. Vos bras sont engourdis ; il faut tenir jusqu'à ce que la dernière personne ait tourné.`,
+      T(180), [
+        voix('RESPONSABLE', `Encore deux minutes, la queue arrive. Après, vous décrochez et vous remontez sur le flanc.`),
+        voix('GARDIEN DE LA PAIX', `On prend les voitures. Vous, vous restez avec votre cortège.`),
+      ], [`Deux gardiens de la paix viennent se poster devant les voitures`]),
+    ph('bras-delies', `Les bras déliés`,
+      `Le virage est passé. La chaîne se défait, on secoue les bras, on rit de soulagement. Boulevard Richard-Lenoir, les voitures repartent une à une derrière le cortège ; l'automobiliste de tout à l'heure passe au pas, vitre baissée, sans regarder personne.`,
+      FIN, [
+        voix('RESPONSABLE', `Tout le monde a ses dix doigts ? Bien. On remonte en queue de cortège, et vous me racontez l'histoire de la voiture.`),
+        voix('CAMARADE', `J'ai cru qu'il allait me rouler dessus. Moi, à ta place, je l'aurais insulté.`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Tenir la chaîne pendant tout le virage', 'proteger_les_siens', { target: 'chaine', seconds: 600 }),
@@ -300,13 +460,36 @@ export const MF_08 = mission({
     'Une centaine d\'individus encagoulés.', ['Boulevard Voltaire'],
     ['Tenir le flanc du carré', 'Parler au précortège', 'Appeler un renfort']),
   phases: [
-    ph('depart', 'Départ', 'Le carré se forme.', T(180),
-      [['RESPONSABLE', 'Carré en place, chaîne sur les flancs.']], []),
-    ph('poussee', 'Poussée', 'Le précortège pousse sur le carré.', TENS(0.5),
-      [['RESPONSABLE', 'Poussée sur le flanc nord, tenez.']], ['Un individu insiste']),
-    ph('desescalade', 'Désescalade', 'Vous calmez le précortège.', FOULE('dispersion'),
-      [['VOUS', 'Individus calmés, carré préservé.']], []),
-    ph('fin', 'Arrivée', 'Le carré arrive à la Nation.', FIN, [['RESPONSABLE', 'Carré intact.']], []),
+    ph('carre-de-tete', `La chaîne devant le carré de tête`,
+      `Quatorze heures trente, place de la République. Derrière la banderole, les responsables du « Front commun des Ateliers » forment le carré de tête ; autour d'eux, le service d'ordre fait la chaîne, bras liés, brassard au bras. Vous tenez le flanc gauche. Devant, hors de la chaîne, un précortège se rassemble déjà, que personne n'a invité.`,
+      FOULE('depart'), [
+        voix('RESPONSABLE', `Flanc gauche, serrez. On garde trente mètres avec ceux de devant. Personne ne lâche les bras sans me prévenir.`),
+        voix('CAMARADE', `Ils sont combien, devant ? Deux cents ? Ils ne vont pas nous laisser défiler tranquilles.`),
+      ], [`Un précortège se rassemble devant la banderole`]),
+    ph('trente-metres', `Trente mètres d'écart`,
+      `Le cortège s'engage sur le boulevard Voltaire. Trente mètres séparent votre banderole du précortège : assez pour qu'on ne vous confonde pas, à condition de les tenir. Quand ceux de devant ralentissent, il faut ralentir ; quand ils s'arrêtent, s'arrêter, et expliquer aux milliers de personnes de derrière pourquoi on n'avance plus.`,
+      TENS(0.5), [
+        voix('RESPONSABLE', `Ils ralentissent exprès. On s'arrête. Je préviens le camion sono.`),
+        voix('MANIFESTANTE', `Pourquoi on s'arrête encore ? Avancez, on étouffe derrière !`),
+      ], [`Le précortège ralentit pour se faire rattraper`, `Un fumigène est jeté vers le carré`]),
+    ph('vingt-perturbateurs', `Vingt qui veulent entrer`,
+      `La tension monte sur le boulevard Voltaire. Une vingtaine d'individus masqués quittent le précortège et reviennent vers vous : ils veulent passer derrière votre chaîne, se fondre dans le carré, s'abriter derrière les retraités. Vous ne pouvez ni les frapper ni les retenir par la force : seulement tenir les bras, et parler.`,
+      T(200), [
+        voix('INDIVIDU MASQUÉ', `Laissez-nous passer, camarades ! On est du même côté, non ? Ou vous faites la police, maintenant ?`),
+        voix('RESPONSABLE', `On ne les laisse pas entrer. Poliment, fermement. Si un coup part, vous reculez et vous m'appelez.`),
+      ], [`Vingt individus masqués tentent d'entrer dans le carré`, `Un militant du service d'ordre veut en découdre`, `Un journaliste se glisse dans le carré`]),
+    ph('delestage', `Demander un autre chemin`,
+      `Le précortège ne décollera plus, et devant lui des boucliers barrent le boulevard Voltaire. Rester là, c'est offrir tout le cortège aux gaz des autres. Le responsable cherche l'équipe de liaison de la police ; en attendant, la chaîne doit tenir autour du carré, un quart d'heure en tout depuis le départ.`,
+      OBJ('o1'), [
+        voix('RESPONSABLE', `J'ai la liaison au téléphone. Ils proposent de nous ouvrir une rue à droite pour contourner. Tenez la chaîne pendant que je négocie.`),
+        voix('CAMARADE', `Ça gaze devant ! Le vent nous le ramène. Je ne vois plus rien, mais je ne lâche pas.`),
+      ], [`Retour de gaz sur le carré de tête`, `Un militant âgé s'effondre dans le carré`]),
+    ph('contournement', `Le cortège contourne`,
+      `Un quart d'heure, et le carré n'a pas été traversé. Sur un signe de la liaison, la banderole tourne à droite dans une rue que les policiers viennent d'ouvrir, et le cortège suit, laissant le boulevard Voltaire au précortège et aux boucliers. La chaîne se défait d'elle-même, un bras après l'autre.`,
+      FIN, [
+        voix('RESPONSABLE', `On passe par la droite, tout le monde suit la banderole ! Service d'ordre, vous fermez la marche et vous comptez vos camarades.`),
+        voix('MANIFESTANTE', `C'est vous qui teniez la chaîne ? Merci. Mon père est dans le carré, il a quatre-vingts ans.`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Protéger le carré de tête jusqu\'à l\'arrivée', 'proteger_les_siens', { target: 'carre', seconds: 900 }),
@@ -340,13 +523,30 @@ export const MF_09 = mission({
     'Une cinquantaine d\'individus encagoulés.', ['Rue de Rivoli', 'Rue de Castiglione'],
     ['Prendre les trois militants à part', 'Écouter avant de parler', 'Proposer une alternative']),
   phases: [
-    ph('contact', 'Contact', 'Vous repérez les trois militants.', T(120),
-      [['RESPONSABLE', 'Trois des nôtres s\'éloignent vers Rivoli.']], []),
-    ph('discussion', 'Discussion', 'Vous parlez aux trois militants.', T(300),
-      [['VOUS', 'Je les ai pris à part.']], ['L\'un d\'eux hausse le ton']),
-    ph('decision', 'Décision', 'Les militants hésitent.', TENS(0.5),
-      [['VOUS', 'Deux restent, un hésite.']], []),
-    ph('fin', 'Fin', 'La casse est terminée.', FIN, [['RESPONSABLE', 'Retour au calme.']], []),
+    ph('trois-jeunes', `Trois jeunes et un téléphone`,
+      `Dix-sept heures trente, rue de Rivoli. Le cortège syndical se disperse. Trois jeunes militants de votre organisation se sont arrêtés autour d'un téléphone : des images de vitrines brisées, tournées il y a deux minutes, à deux cents mètres d'ici, rue de Castiglione. Ils rangent leurs chasubles dans leurs sacs. Vous êtes responsable du service d'ordre local.`,
+      T(100), [
+        voix('JEUNE MILITANT', `Regarde ça ! Eux, au moins, ils font quelque chose. Nous, on marche depuis trois heures et tout le monde s'en fiche.`),
+        voix('CAMARADE', `Ils vont y aller. Si tu veux les retenir, c'est maintenant, et ce n'est pas en leur criant dessus.`),
+      ], [`Un message en ligne appelle à rejoindre la casse`]),
+    ph('ecouter', `Écouter d'abord`,
+      `Les prendre à part, sous une arcade de la rue de Rivoli, et commencer par se taire. Ils ont vingt ans, de la colère, et l'impression que marcher ne sert à rien. Leur dire qu'on comprend, sans mentir ; leur dire ce que coûte une interpellation, sans faire la morale ; leur proposer autre chose que de rentrer chez eux.`,
+      OBJ('o2'), [
+        voix('JEUNE MILITANTE', `Tu vas nous dire que c'est mal, c'est ça ? Tu vas nous parler de notre casier ? On le sait déjà, tout ça.`),
+        voix('JEUNE MILITANT', `Donne-moi une seule raison de rester. Une seule. Et ne me dis pas que ça changera plus tard.`),
+      ], [`L'un des trois hausse le ton`, `Un policier passe à proximité et les dévisage`]),
+    ph('deux-cents-metres', `Deux cents mètres plus loin`,
+      `Ils vous ont écouté. Rue de Castiglione, on entend des détonations, des sirènes, puis les motos de la police qui remontent la rue de Rivoli en colonne. Les trois regardent passer les gyrophares en silence ; l'un d'eux a toujours la main sur la bretelle de son sac, et un pied dans cette direction.`,
+      FOULE('dispersion'), [
+        voix('JEUNE MILITANT', `Tu vois, ils arrivent. Ceux qui y sont vont se faire attraper… Mon cousin y est, je crois.`),
+        voix('CAMARADE', `Reste avec eux. Je vais chercher des cafés. Tant qu'ils parlent, ils ne partent pas.`),
+      ], [`Des motos de police remontent la rue`, `Un ami de l'organisation arrive en renfort`]),
+    ph('apres-la-casse', `Ce qu'on se dit après`,
+      `La rue de Rivoli se vide. Là-bas, la casse a pris fin ; il en reste des vitrines à terre et, dit-on, des gardes à vue. Les jeunes militants sont assis sur un rebord, un gobelet à la main. Ce que vous leur avez promis tout à l'heure, il faudra le tenir : c'est à cela qu'ils jugeront si vous leur avez parlé, ou si vous les avez seulement retenus.`,
+      FIN, [
+        voix('JEUNE MILITANTE', `Tu avais dit qu'on en reparlerait en réunion, de ce qu'on peut faire d'autre. C'est vrai, ou c'était pour qu'on reste ?`),
+        voix('RESPONSABLE', `Ils sont encore là ? Dis-moi comment ça s'est passé, ça m'intéresse.`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Retenir au moins deux des trois militants', 'proteger_les_siens', { target: 'militants', count: 2 }),
@@ -360,309 +560,7 @@ export const MF_09 = mission({
   tags: ['service-ordre', 'dialogue'],
 });
 
-export const MF_10 = mission({
-  ...base('meneur'), ...scene(CDT_02), difficulty: 4, chapter: 13, mirrorOf: CDT_02.id, altRoles: ['commandant'],
-  id: 'manifestant-10-le-signal',
-  title: 'Le signal',
-  pitch: 'En tête du précortège, vous donnez le signal : quelques minutes pour agir puis se fondre dans la foule avant l\'arrivée des forces de l\'ordre.',
-  briefing: [
-    `Boulevard du Temple, journée nationale d'action. Vous faites partie d'un petit groupe déterminé, en tête du cortège. Vous êtes noir de la tête aux pieds, avec un sac à dos. Un chef vous a désigné pour donner le signal du changement de comportement.`,
-    `Votre mission est de rester dans le groupe, de donner le signal aux autres au bon moment, d'agir pendant quelques dizaines de secondes puis de vous replier et de vous fondre dans la foule avant l'arrivée des CRS. Vous jouez un rôle de meneur radical, dont les conséquences sont montrées.`,
-    `Rassemblez-vous avec le groupe. Vérifiez vos protections. Au signal, avancez ensemble. Après trente à quatre-vingt-dix secondes, repliez-vous par les rues latérales. Changez de tenue à couvert. Rejoignez le cortège principal.`,
-    `Le drone vous suit : chaque mouvement est observé. Une interpellation vous exposera à des poursuites. Ne vous séparez jamais du groupe pendant le repli. Le prix de chaque geste vous sera montré à la fin.`,
-  ],
-  intel: intel(
-    'Huit mille marcheurs déclarés ; un précortège de trois cents personnes.',
-    'Une centaine d\'individus déterminés dont vous faites partie.', ['Boulevard du Temple', 'Rue de Turbigo'],
-    ['Rester groupé', 'Se replier avant les CRS', 'Se changer à couvert']),
-  phases: [
-    ph('formation', 'Formation du bloc', 'Le groupe se forme en tête du cortège.', T(240),
-      [['CHEF', 'On se regroupe, parapluies ouverts.']], []),
-    ph('signal', 'Le signal', 'Vous donnez le signal ; le groupe avance.', TENS(0.5),
-      [['CHEF', 'Signal ! On y va ensemble.']], ['Les CRS sortent en ligne']),
-    ph('repli', 'Repli', 'Le groupe se replie par les rues latérales.', FOULE('dispersion'),
-      [['CHEF', 'Repli par la rue de Turbigo, on se change.']], []),
-    ph('fin', 'Fondu dans la foule', 'Vous vous mêlez au cortège principal.', FIN, [['CHEF', 'Dispersion, chacun rentre.']], []),
-  ],
-  objectives: [
-    ob('o1', 'Donner le signal au bon moment', 'personnalise', { target: 'signal', count: 1 }),
-    ob('o2', 'Se replier et se changer avant l\'arrivée des CRS', 'ne_pas_etre_interpelle'),
-    os('o3', 'Rester avec le groupe pendant tout le repli', 'proteger_les_siens', { target: 'groupe' }),
-    os('o4', 'Ne pas être repéré par le drone', 'ne_pas_etre_interpelle', { target: 'drone' }),
-  ],
-  failures: [fail('interpelle', 'Interpellé : suites judiciaires.'), fail('joueur_hors_combat', 'Vous êtes blessé et devez quitter les lieux.')],
-  randomEvents: ['Les CRS sortent en ligne', 'Un camarade est interpellé', 'Un drone passe au-dessus', 'Un journaliste vous suit'],
-  unique: 'Vous passez de l\'autre côté de la ligne : comprendre l\'avant-garde radicale, avec ses conséquences.',
-  tags: ['radical', 'bloc', 'miroir'],
-});
-
-export const MF_11 = mission({
-  ...base('radical'), ...scene(CDT_04), difficulty: 4, chapter: 13, mirrorOf: CDT_04.id, altRoles: ['commandant'],
-  id: 'manifestant-11-la-barricade',
-  title: 'La barricade',
-  pitch: 'Dresser un obstacle avec le mobilier disponible avant l\'arrivée de la ligne, sans mettre un riverain en danger.',
-  briefing: [
-    `Rue Saint-Honoré, nuit tombante. Vous êtes avec un petit groupe qui veut ralentir l'avancée des CRS. Le mobilier de la rue offre ce qu'il faut : poubelles, barrières, vélos en libre-service, palettes. La ligne arrive dans quatre minutes.`,
-    `Votre mission est de dresser un obstacle en travers de la rue avec le mobilier disponible, avant l'arrivée de la ligne, sans mettre de riverain en danger. Il faut aussi éviter qu'un feu ne gagne une façade. Vous mesurerez les conséquences à la fin.`,
-    `Rassemblez le mobilier. Placez les barrières en travers, puis les poubelles. Évitez de placer l'obstacle contre une façade. Si vous mettez le feu, gardez dix mètres de distance avec les immeubles. Prévenez les riverains aux fenêtres.`,
-    `Un feu de barricade peut gagner un immeuble habité : c'est la limite. Les batteries de vélos électriques s'embrasent violemment : gardez vos distances. Une fois la ligne arrivée, repliez-vous.`,
-  ],
-  intel: intel(
-    'Cinq cents personnes ; la ligne arrive dans quatre minutes.',
-    'Une quarantaine d\'individus encagoulés.', ['Rue Saint-Honoré', 'Place Vendôme'],
-    ['Rassembler le mobilier', 'Éviter les façades', 'Se replier à l\'arrivée de la ligne']),
-  phases: [
-    ph('materiel', 'Rassembler le mobilier', 'Vous réunissez poubelles, barrières, vélos.', T(120),
-      [['CHEF', 'On barre la rue, vite.']], []),
-    ph('construction', 'Construction', 'Vous dressez l\'obstacle.', T(300),
-      [['CHEF', 'Les CRS arrivent dans deux minutes.']], ['Un riverain crie depuis sa fenêtre']),
-    ph('feu', 'Le feu', 'La barricade est enflammée ; la ligne approche.', TENS(0.6),
-      [['CHEF', 'On recule, ils arrivent.']], []),
-    ph('fin', 'Repli', 'Le groupe se disperse.', FIN, [['CHEF', 'Dispersion, chacun rentre.']], []),
-  ],
-  objectives: [
-    ob('o1', 'Dresser l\'obstacle avant l\'arrivée de la ligne', 'personnalise', { target: 'barricade', count: 1 }),
-    ob('o2', 'Ne mettre aucun riverain en danger', 'limiter_blesses', { target: 'riverain', max: 0 }),
-    os('o3', 'Éviter que le feu gagne une façade', 'limiter_degats', { target: 'facade', max: 0 }),
-    os('o4', 'Se replier avant d\'être interpellé', 'ne_pas_etre_interpelle'),
-  ],
-  failures: [fail('personnalise', 'Feu gagnant une façade habitée.'), fail('interpelle', 'Interpellé : suites judiciaires.')],
-  randomEvents: ['Un riverain crie depuis sa fenêtre', 'Une batterie de trottinette s\'embrase', 'Un pompier arrive', 'Le drone vous suit'],
-  unique: 'La barricade vue de l\'intérieur : on mesure la responsabilité d\'un feu en pleine ville.',
-  tags: ['radical', 'barricade', 'miroir', 'nuit'],
-});
-
-export const MF_12 = mission({
-  ...base('radical'), ...scene(BRAVM_02), difficulty: 3, chapter: 13, mirrorOf: BRAVM_02.id, altRoles: ['bravm', 'telepilote'],
-  id: 'manifestant-12-chat-et-souris',
-  title: 'Chat et souris',
-  pitch: 'Un cortège sauvage de quatre-vingts personnes poursuivi par des motos : atteindre trois cibles sans se faire prendre.',
-  briefing: [
-    `Boulevard Montmartre, la nuit. Vous êtes avec un groupe mobile d'une quatre-vingtaine de personnes, tenue sombre, sac à dos. Le groupe remonte les Grands Boulevards. Des motos de police suivent à distance et un drone vole au-dessus.`,
-    `Votre mission est d'atteindre trois cibles désignées par le groupe (deux banques, une bijouterie) sans vous faire interpeller, en échappant aux motos et au drone. Vous êtes un manifestant radical dans un cortège sauvage.`,
-    `Restez au centre du groupe. Changez de rue quand les motos s'approchent. Utilisez les passages couverts. Évitez les rues larges. Changez de vêtements à l'abri. Séparez-vous dès que le chef en donne l'ordre.`,
-    `Les motos peuvent descendre vite et interpeller : ne restez jamais en queue de groupe. Le drone voit les couleurs : changez de veste. Ne mettez pas en danger les passants.`,
-  ],
-  intel: intel(
-    'Quatre-vingts personnes en groupe mobile ; trois cibles.',
-    'Soixante individus encagoulés.', ['Boulevard Montmartre', 'Boulevard des Italiens', 'Rue de la Paix'],
-    ['Rester au centre du groupe', 'Changer de rue', 'Changer de tenue']),
-  phases: [
-    ph('depart', 'Départ', 'Le groupe remonte les boulevards.', T(180),
-      [['CHEF', 'On remonte, première cible dans deux minutes.']], []),
-    ph('poursuite', 'Poursuite', 'Les motos s\'approchent.', TENS(0.65),
-      [['CHEF', 'Motos derrière, on tourne à gauche.']], ['Un camarade est interpellé']),
-    ph('dispersion', 'Dispersion', 'Le groupe se divise.', FOULE('dispersion'),
-      [['CHEF', 'On se disperse, chacun par une rue.']], []),
-    ph('fin', 'Retour', 'Vous rentrez chez vous.', FIN, [['CHEF', 'Fin de la nuit.']], []),
-  ],
-  objectives: [
-    ob('o1', 'Atteindre deux des trois cibles', 'personnalise', { target: 'cible_atteinte', count: 2 }),
-    ob('o2', 'Échapper aux motos et au drone', 'ne_pas_etre_interpelle'),
-    os('o3', 'Changer de tenue avant la dispersion', 'personnalise', { target: 'changement_tenue' }),
-    os('o4', 'Ne pas mettre un passant en danger', 'limiter_blesses', { target: 'passant', max: 0 }),
-  ],
-  failures: [fail('interpelle', 'Interpellé : suites judiciaires.'), fail('joueur_hors_combat', 'Vous êtes blessé et devez quitter les lieux.')],
-  randomEvents: ['Un camarade est interpellé', 'Une moto surgit d\'une rue latérale', 'Un passant se plante devant le groupe', 'Un drone passe au-dessus'],
-  unique: 'Le chat et la souris : la ville devient un jeu d\'évitement, de la nuit tombante à l\'aube.',
-  tags: ['radical', 'cortege-sauvage', 'miroir', 'nuit'],
-});
-
-export const MF_13 = mission({
-  ...base('radical'), ...scene(CDT_11), difficulty: 3, chapter: 13, mirrorOf: CDT_11.id, altRoles: ['commandant', 'secouriste'],
-  id: 'manifestant-13-le-palet',
-  title: 'Le palet',
-  pitch: 'Renvoyer ou éloigner des palets fumants pour dégager un groupe pris dans le gaz.',
-  briefing: [
-    `Place de la République, à l'heure des sommations. Vous êtes avec un groupe de trente personnes au pied de la statue. Des grenades lacrymogènes tombent près de vous. Votre groupe est pris dans le nuage, avec des enfants et des personnes âgées en périphérie.`,
-    `Votre mission est d'éloigner les palets fumants du groupe ou de les renvoyer vers la ligne, de dégager les personnes les plus exposées et d'éviter de vous brûler. Vous êtes radical : vous acceptez le contact, mais pas la blessure.`,
-    `Approchez-vous d'un palet qui fume, ramassez-le et choisissez : l'écarter du groupe ou le renvoyer vers la ligne. Guidez d'abord les enfants et les personnes âgées vers l'air libre. Sortez vous-même du nuage dès que votre vue se brouille.`,
-    `Un palet brûle : chaque seconde passée à le tenir vous blesse davantage. Le renvoi vers la ligne peut aggraver la situation et vous exposer à des poursuites. Vous en mesurerez la conséquence.`,
-  ],
-  intel: intel(
-    'Quatre cents personnes ; nuage lacrymogène sur la place.',
-    'Trente individus déterminés près de la statue.', ['Place de la République', 'Boulevard du Temple'],
-    ['Mettre des gants épais', 'Éloigner plutôt que renvoyer', 'Aider les personnes exposées']),
-  phases: [
-    ph('gaz', 'Le nuage', 'Les grenades tombent près du groupe.', T(120),
-      [['CAMARADE', 'On est pris dans le gaz, faut dégager !']], []),
-    ph('palets', 'Les palets', 'Vous saisissez les palets fumants.', T(300),
-      [['VOUS', 'J\'en éloigne deux, aide-moi.']], ['Un palet brûle les gants']),
-    ph('degagement', 'Dégagement', 'Le groupe se dégage du nuage.', TENS(0.55),
-      [['CAMARADE', 'Les enfants sont sortis.']], []),
-    ph('fin', 'Fin', 'Le nuage se dissipe.', FIN, [['CAMARADE', 'Tout le monde est sorti.']], []),
-  ],
-  objectives: [
-    ob('o1', 'Éloigner au moins trois palets du groupe', 'proteger_les_siens', { target: 'palet', count: 3 }),
-    ob('o2', 'Dégager les personnes exposées', 'proteger_les_siens', { target: 'personne_exposee', count: 5 }),
-    os('o3', 'Ne pas se brûler les mains', 'survivre'),
-    os('o4', 'Ne pas être interpellé', 'ne_pas_etre_interpelle'),
-  ],
-  failures: [fail('joueur_hors_combat', 'Brûlure grave ou malaise.'), fail('interpelle', 'Interpellé : suites judiciaires.')],
-  randomEvents: ['Un palet brûle les gants', 'Retour de gaz', 'Un enfant tousse', 'Un journaliste filme de près'],
-  unique: 'Renvoyer ou éloigner : la mission raconte la physique des gaz, de l\'autre côté du nuage.',
-  tags: ['radical', 'gaz', 'miroir'],
-});
-
-export const MF_14 = mission({
-  ...base('radical'), type: 'manifestation_interdite', difficulty: 3, chapter: 13,
-  id: 'manifestant-14-disparaitre',
-  title: 'Disparaître',
-  pitch: 'Après une action, sortir du périmètre sans être désigné par le drone.',
-  briefing: [
-    `Boulevard Poissonnière, une manifestation interdite se disperse. Vous venez de participer à une action collective qui a causé des dégâts. Vous êtes en tenue sombre, capuche, sac à dos. Un drone de la préfecture vole au-dessus de la zone.`,
-    `Votre mission est de sortir du périmètre sans être désigné par le drone, de ne pas être interpellé, de vous changer à couvert et de rejoindre le métro. La clé est de ne pas courir : la course attire.`,
-    `Marchez. Changez de veste dans un porche. Retirez la capuche. Mêlez-vous à un groupe de passants. Évitez les rues larges. Prenez le métro à une station éloignée.`,
-    `Le drone voit les couleurs : changer de veste est essentiel. Ne regardez pas en l'air. Ne vous retournez pas. Si un policier vous interpelle, restez calme et demandez un avocat.`,
-  ],
-  place: 'Boulevard Poissonnière', timeOfDay: 18, weather: 'couvert', windFrom: 250, windSpeed: 3,
-  crowd: crowd(400, 'libertes', 0.45, 0.55, 0.15, { gilets_jaunes: 0.25, black_bloc: 0.15, militants: 0.2, curieux: 0.4 },
-    ['Boulevard Poissonnière', 'Boulevard de Bonne Nouvelle', 'Rue du Faubourg Poissonnière'], 0.5),
-  forces: forces({ sections: 2, fourgons: 6, drone: true, bravm: 2, pompiers: 1, samu: 1 }),
-  intel: intel(
-    'Quatre cents personnes en dispersion ; un drone survole la zone.',
-    'Une soixantaine d\'individus ont participé à l\'action.', ['Boulevard Poissonnière', 'Boulevard de Bonne Nouvelle'],
-    ['Marcher sans courir', 'Changer de veste à couvert', 'Prendre le métro loin']),
-  phases: [
-    ph('apres-action', 'Après l\'action', 'Vous quittez le lieu à pas rapides.', T(120),
-      [['CAMARADE', 'Marche, ne cours pas.']], []),
-    ph('changement', 'Changement de tenue', 'Vous vous changez dans un porche.', T(300),
-      [['CAMARADE', 'Veste retournée, capuche baissée.']], ['Un drone passe au-dessus']),
-    ph('metro', 'Vers le métro', 'Vous rejoignez la station.', TENS(0.5),
-      [['CAMARADE', 'Station Grands Boulevards, on y va.']], []),
-    ph('fin', 'Disparition', 'Vous vous fondez dans la foule du métro.', FIN, [['CAMARADE', 'On est passés.']], []),
-  ],
-  objectives: [
-    ob('o1', 'Sortir du périmètre sans être désigné par le drone', 'ne_pas_etre_interpelle', { target: 'drone' }),
-    ob('o2', 'Atteindre la station de métro', 'atteindre', { place: 'Grands Boulevards' }),
-    os('o3', 'Se changer à couvert', 'personnalise', { target: 'changement_tenue' }),
-    os('o4', 'Ne jamais courir', 'personnalise', { target: 'course', max: 0 }),
-  ],
-  failures: [fail('interpelle', 'Interpellé : suites judiciaires.'), fail('personnalise', 'Désigné par le drone.')],
-  randomEvents: ['Un drone passe au-dessus', 'Une patrouille de la BRAV-M apparaît', 'Un policier demande vos papiers', 'La station est fermée'],
-  unique: 'La disparition : la ville est un labyrinthe dans lequel la seule règle est d\'avoir l\'air ordinaire.',
-  tags: ['radical', 'fuite'],
-});
-
-export const MF_15 = mission({
-  ...base('radical'), type: 'emeute_nocturne', difficulty: 4, chapter: 13,
-  id: 'manifestant-15-ligne-rouge',
-  title: 'Ligne rouge',
-  pitch: 'Votre groupe veut s\'en prendre aux pompiers : refuser, s\'interposer ou partir.',
-  briefing: [
-    `Rue Saint-Antoine, la nuit. Votre groupe a allumé plusieurs feux. Un fourgon de sapeurs-pompiers de Paris arrive pour éteindre. Quelques individus, hors de contrôle, veulent s'en prendre à lui : lancer des projectiles et bloquer la lance.`,
-    `Votre mission est de choisir : refuser, vous interposer ou partir. Une ligne rouge est franchie si les secours sont agressés. Vous êtes radical, mais pas prêt à tout.`,
-    `Parlez au chef : « Pas les pompiers. » Placez-vous entre le fourgon et les individus. Faites reculer. Si le groupe insiste, partez. Aidez les pompiers à passer s'ils le demandent.`,
-    `Les pompiers n'ont pas d'armes : ce sont des secours. S'en prendre à eux est impardonnable : l'image du groupe et la vôtre en dépendent. Les conséquences judiciaires sont lourdes.`,
-  ],
-  place: 'Rue Saint-Antoine', timeOfDay: 23, weather: 'clair', windFrom: 240, windSpeed: 2,
-  crowd: crowd(250, '', 0.65, 0.8, 0.4, { black_bloc: 0.4, fetards: 0.3, curieux: 0.3 },
-    ['Rue Saint-Antoine', 'Place de la Bastille'], 0.1),
-  forces: forces({ sections: 2, fourgons: 6, pompiers: 2, samu: 1 }),
-  intel: intel(
-    'Deux cent cinquante personnes ; plusieurs feux allumés.',
-    'Une centaine d\'individus encagoulés.', ['Rue Saint-Antoine', 'Place de la Bastille'],
-    ['Protéger les pompiers', 'S\'interposer ou partir', 'Convaincre le chef']),
-  phases: [
-    ph('arrivee', 'Arrivée des pompiers', 'Le fourgon approche ; le groupe s\'agite.', T(120),
-      [['CHEF', 'Les pompiers arrivent, on les bloque.']], []),
-    ph('decision', 'Votre décision', 'Vous refusez, vous interposez ou vous partez.', T(300),
-      [['VOUS', 'Pas les pompiers, on ne touche pas.']], ['Un individu lance une bouteille vers le fourgon']),
-    ph('suite', 'Suite', 'Les pompiers éteignent ; le groupe se divise.', TENS(0.75),
-      [['SECOURS', 'Merci, nous passons.']], []),
-    ph('fin', 'Fin', 'Les feux sont éteints.', FIN, [['SECOURS', 'Feux éteints.']], []),
-  ],
-  objectives: [
-    ob('o1', 'Empêcher toute agression contre les pompiers', 'proteger_les_siens', { target: 'pompiers' }),
-    ob('o2', 'Choisir : refuser, s\'interposer ou partir', 'personnalise', { target: 'choix_ligne_rouge' }),
-    os('o3', 'Convaincre le chef du groupe', 'personnalise', { target: 'persuasion' }),
-    os('o4', 'Ne pas être interpellé', 'ne_pas_etre_interpelle'),
-  ],
-  failures: [fail('personnalise', 'Secours agressés.'), fail('interpelle', 'Interpellé : suites judiciaires.')],
-  randomEvents: ['Un individu lance une bouteille vers le fourgon', 'Le chef vous insulte', 'Un pompier est touché', 'Un policier approche'],
-  unique: 'La ligne rouge : on découvre que la violence a des limites, et que c\'est à chacun de les fixer.',
-  tags: ['radical', 'ligne-rouge', 'nuit'],
-});
-
-export const MF_16 = mission({
-  ...base('radical'), type: 'emeute_nocturne', difficulty: 3, chapter: 13,
-  id: 'manifestant-16-le-prix',
-  title: 'Le prix',
-  pitch: 'Jouer une séquence d\'affrontement, puis découvrir l\'écran des suites judiciaires : toutes les fins sont montrées.',
-  briefing: [
-    `Place du Châtelet, en fin d'après-midi. Vous participez à un affrontement avec des CRS : jets de projectiles, repli, retour. Vous êtes un manifestant radical. Cette mission est pédagogique : elle vous fait jouer l'affrontement puis découvrir ses suites, quelle que soit votre fin.`,
-    `Votre mission est de jouer la séquence : participer à l'affrontement, vous replier ou être interpellé. Quoi que vous fassiez, un écran vous montre ensuite les suites : garde à vue, jugement, casier, conséquences pour les proches.`,
-    `Avancez avec le groupe. Restez en retrait ou allez au contact : c'est vous qui décidez jusqu'où vous suivez. Repliez-vous à l'ordre. Si vous êtes interpellé, vous êtes mis en garde à vue. Lisez ensuite l'écran des suites.`,
-    `Tous les chemins mènent à un écran de conséquences : amende, condamnation, mention au casier, perte d'emploi. C'est le prix. La mission ne juge pas : elle montre.`,
-  ],
-  place: 'Place du Châtelet', timeOfDay: 18, weather: 'nuageux', windFrom: 260, windSpeed: 3,
-  crowd: crowd(400, 'libertes', 0.6, 0.7, 0.3, { black_bloc: 0.3, gilets_jaunes: 0.25, militants: 0.2, curieux: 0.25 },
-    ['Place du Châtelet', 'Boulevard de Sébastopol'], 0.4),
-  forces: forces({ sections: 3, fourgons: 9, drone: true, pompiers: 1, samu: 1 }),
-  intel: intel(
-    'Quatre cents personnes ; un affrontement prévisible.',
-    'Cent vingt individus déterminés.', ['Place du Châtelet', 'Boulevard de Sébastopol'],
-    ['Suivre le groupe', 'Se replier à l\'ordre', 'Lire l\'écran des suites']),
-  phases: [
-    ph('depart', 'Départ', 'Le groupe se forme à la place.', T(180),
-      [['CHEF', 'On y va ensemble, on garde le rythme.']], []),
-    ph('affrontement', 'Affrontement', 'Jets de projectiles et repli.', TENS(0.7),
-      [['CHEF', 'Repli ! On se dégage par le quai.']], ['Un camarade tombe à terre']),
-    ph('suites', 'Suites', 'Vous découvrez les suites de vos choix.', FOULE('dispersion'),
-      [['AVOCAT', 'Vos choix ont des conséquences, regardons-les.']], []),
-    ph('fin', 'Écran des suites', 'Garde à vue, jugement, casier : toutes les fins sont montrées.', FIN, [['AVOCAT', 'Voilà ce que coûte une soirée. La suite se décidera devant le tribunal.']], []),
-  ],
-  objectives: [
-    ob('o1', 'Participer à la séquence d\'affrontement jusqu\'au repli', 'personnalise', { target: 'presence_dans_le_groupe', seconds: 300 }),
-    ob('o2', 'Lire l\'écran des suites judiciaires', 'personnalise', { target: 'ecran_suites' }),
-    os('o3', 'Ne pas blesser un tiers', 'limiter_blesses', { target: 'tiers', max: 0 }),
-    os('o4', 'Se replier à l\'ordre', 'personnalise', { target: 'repli_a_l_ordre', count: 1 }),
-  ],
-  failures: [fail('temps', 'Séquence abandonnée avant la fin : l\'écran des suites est montré quand même.', 900)],
-  randomEvents: ['Un camarade tombe à terre', 'Un drone passe au-dessus', 'Retour de gaz', 'Un journaliste filme de près'],
-  unique: 'La seule mission où il n\'y a pas d\'échec : toutes les fins mènent à l\'écran des conséquences.',
-  tags: ['radical', 'pedagogique', 'suites-judiciaires'],
-});
-
-export const MF_17 = mission({
-  ...base('opportuniste'), type: 'manifestation_declaree', difficulty: 4, chapter: 13,
-  id: 'manifestant-17-demi-tour',
-  title: 'Demi-tour',
-  pitch: 'Dans un cortège qui bascule, vous pouvez suivre les autres ou faire demi-tour : le moment où l\'on choisit.',
-  briefing: [
-    `Boulevard Saint-Martin, un cortège déclaré se disloque. Vous êtes opportuniste : venu par curiosité, vous suivez un groupe qui s'enhardit. Des vitrines brisées, des cris, des projectiles. Le moment de la bascule est là.`,
-    `Votre mission est de choisir : suivre le groupe ou faire demi-tour. Vous pouvez rester spectateur, participer ou vous éloigner. Chaque choix a ses conséquences et ses scènes.`,
-    `Regardez autour de vous. Écoutez ce que vous ressentez. Décidez en trente secondes. Si vous suivez, vous participez à une dégradation. Si vous faites demi-tour, rejoignez la sortie. Si vous restez, vous risquez d'être pris dans une nasse.`,
-    `Un demi-tour n'est pas une lâcheté : c'est une décision. Une fois au contact, difficile de revenir. Le jeu ne vous jugera pas, il vous montrera.`,
-  ],
-  place: 'Boulevard Saint-Martin', timeOfDay: 17, weather: 'couvert', windFrom: 260, windSpeed: 3,
-  crowd: crowd(600, 'libertes', 0.5, 0.65, 0.12, { gilets_jaunes: 0.25, black_bloc: 0.12, syndical: 0.2, curieux: 0.43 },
-    ['Boulevard Saint-Martin', 'Place de la République'], 0.45),
-  forces: forces({ sections: 2, fourgons: 6, drone: true, pompiers: 1, samu: 1 }),
-  intel: intel(
-    'Six cents personnes ; un cortège qui se disloque.',
-    'Une soixantaine d\'individus déterminés.', ['Boulevard Saint-Martin', 'Place de la République'],
-    ['Choisir en trente secondes', 'Repérer la sortie', 'Éviter la nasse']),
-  phases: [
-    ph('curiosite', 'Curiosité', 'Vous suivez le cortège par curiosité.', T(180),
-      [['AMI', 'Viens, on va voir ce qui se passe devant.']], []),
-    ph('bascule', 'Bascule', 'Le groupe se durcit autour de vous.', TENS(0.6),
-      [['AMI', 'Ça part en vrille, on suit ou on part ?']], ['Une vitrine est brisée devant vous']),
-    ph('choix', 'Votre choix', 'Vous suivez, vous restez ou vous partez.', FOULE('dispersion'),
-      [['AMI', 'Décide-toi, vite.']], []),
-    ph('fin', 'Suites', 'Vous mesurez les conséquences de votre décision.', FIN, [['AMI', 'Voilà ce que ça donne.']], []),
-  ],
-  objectives: [
-    ob('o1', 'Prendre une décision avant l\'arrivée des CRS', 'personnalise', { target: 'decision', seconds: 30 }),
-    ob('o2', 'Ne pas être interpellé', 'ne_pas_etre_interpelle'),
-    os('o3', 'Rejoindre la sortie par la rue latérale', 'atteindre', { place: 'Boulevard Saint-Martin' }),
-    os('o4', 'Retrouver son ami', 'proteger_les_siens', { target: 'ami' }),
-  ],
-  failures: [fail('interpelle', 'Interpellé : suites judiciaires.'), fail('joueur_hors_combat', 'Vous êtes blessé et devez quitter les lieux.')],
-  randomEvents: ['Une vitrine est brisée devant vous', 'Un ami veut suivre le groupe', 'Les CRS arrivent', 'Une grenade tombe près de vous'],
-  unique: 'Le moment du choix : l\'opportuniste découvre que rester ou partir est la vraie mission.',
-  tags: ['opportuniste', 'bascule'],
-});
+export { MF_10, MF_11, MF_12, MF_13, MF_14, MF_15, MF_16, MF_17 };
 
 export const MANIFESTANT: MissionDef[] = [
   MF_01, MF_02, MF_03, MF_04, MF_05, MF_06, MF_07, MF_08, MF_09,

@@ -37,6 +37,8 @@ export class Picture {
   /** Une manifestation est suivie par le directeur de foule. */
   active = false;
   phase: CrowdPhase = 'aucune';
+  /** Phase du déroulé, sans les états superposés « tension » et « affrontement » (égale à `phase` sans module de foule). */
+  basePhase: CrowdPhase = 'aucune';
   tension = 0;
   route: readonly number[] = [];
   routeLength = 0;
@@ -64,6 +66,7 @@ export class Picture {
     this.nextId = 1;
     this.active = false;
     this.phase = 'aucune';
+    this.basePhase = 'aucune';
     this.tension = 0;
     this.route = [];
     this.routeLength = 0;
@@ -93,6 +96,7 @@ export class Picture {
       this.routeLength = len;
     }
     this.headS = d.headProgress;
+    this.basePhase = core.crowd && core.crowd.active ? core.crowd.basePhase : d.phase;
     const f = core.crowd && core.crowd.active ? core.crowd.formation : null;
     this.tailS = f ? f.tailS : this.headS - 150;
     this.present = d.stats.present;

@@ -71,8 +71,27 @@ export function cyl(r0: number, r1: number, h: number, seg = 16, o: CylOpts = {}
       else g.tri(k, k + 2, k + 1);
     }
   }
-  if (o.top !== false && r1 > 0 && sweep >= TAU - 1e-6) g.append(disc(r1, seg, h, true, start));
-  if (o.bottom === true && r0 > 0 && sweep >= TAU - 1e-6) g.append(disc(r0, seg, 0, false, start));
+  const full = sweep >= TAU - 1e-6;
+  if (o.top !== false && r1 > 0 && full) g.append(disc(r1, seg, h, true, start));
+  if (o.bottom === true && r0 > 0 && full) g.append(disc(r0, seg, 0, false, start));
+  // portion d'arc : un chapeau n'est posé que s'il est demandé EXPLICITEMENT (secteur en éventail) — auparavant
+  // `top: true` était ignoré sans rien dire dès que `sweep` était donné
+  if (!full && o.top === true && r1 > 0) g.append(sector(r1, seg, h, true, start, sweep));
+  if (!full && o.bottom === true && r0 > 0) g.append(sector(r0, seg, 0, false, start, sweep));
+  return g;
+}
+
+/** Secteur de disque horizontal (éventail autour de l'axe) à l'altitude y : chapeau d'une portion de cylindre. */
+export function sector(r: number, seg: number, y: number, up: boolean, start: number, sweep: number): Geo {
+  const g = new Geo();
+  const ny = up ? 1 : -1;
+  const c = g.vert(0, y, 0, 0, ny, 0, 0, 0);
+  for (let i = 0; i <= seg; i++) {
+    const a = start + (i / seg) * sweep;
+    const x = r * Math.sin(a), z = r * Math.cos(a);
+    g.vert(x, y, z, 0, ny, 0, x, z);
+  }
+  for (let i = 0; i < seg; i++) { if (up) g.tri(c, c + 1 + i, c + 2 + i); else g.tri(c, c + 2 + i, c + 1 + i); }
   return g;
 }
 

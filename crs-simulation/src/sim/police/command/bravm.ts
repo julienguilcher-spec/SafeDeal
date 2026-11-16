@@ -51,7 +51,6 @@ export class BravmUnit extends SpecialUnit {
   private standX = 0;
   private standZ = 0;
   private slow = false;
-  private slowAt = 0;
   private convoyAt = -100;
   private clearSince = 0;
   private watchAt = 0;
@@ -61,6 +60,7 @@ export class BravmUnit extends SpecialUnit {
   /** Ordre à exécuter une fois le pied à terre fait (manœuvre à pied laissée au module de police). */
   private after: SquadOrder | null = null;
   private handoverSet = false;
+  private policeReported = false;
 
   constructor(core: CommandCore, pic: Picture, squad: Squad) {
     super(core, pic, squad, 'bravm');
@@ -299,7 +299,6 @@ export class BravmUnit extends SpecialUnit {
       this.clearSince = now;
       if (!this.slow && now - this.convoyAt > 1) {
         this.slow = true;
-        this.slowAt = now;
         this.convoy(core.tuning.bravmSlow);
       }
     } else if (this.slow && now - this.clearSince > 3 && now - this.convoyAt > 2) {
@@ -515,7 +514,17 @@ export class BravmUnit extends SpecialUnit {
   }
 
   private complete(ok: boolean, reason: string): void {
-    this.finish(ok, reason);
+    const o = this.order;
+    if (o && o.type === 'interpeller' && this.policeReported) {
+      // le module de police a déjà rendu compte de l'interpellation ('police:order_done') : seule la fin de
+      // l'intervention de l'unité (retour en selle) reste à signaler
+      this.order = null;
+      this.status.order = '';
+      this.emitStage('termine', ok, reason);
+    } else {
+      this.finish(ok, reason);
+    }
+    this.policeReported = false;
     this.setStage(this.mountedOperators() > 0 || this.motos.length === 0 ? 'repos' : 'a_pied');
   }
 
@@ -525,6 +534,7 @@ export class BravmUnit extends SpecialUnit {
       this.watchAt = 0;
       this.setStage('constat');
     } else if (stage === 'interpellation' && type === 'interpeller') {
+      this.policeReported = true;
       this.arrestOk = ok;
       this.arrestReason = ok ? '' : reason;
       if (ok) this.arrested++;

@@ -181,7 +181,10 @@ export function chaillotWing(b: Builder, plan: WingPlan, quality: QualityLevel, 
   {
     const [x, z] = C.group;
     const y = groundAt(x, z);
-    stone.append(box(4.2, C.groupPedH + 1.2, 4.2).translate(x, y - 1.2, z)).append(box(4.7, 0.5, 4.7).translate(x, y + C.groupPedH, z));
+    // pylône : socle, fût élancé à refends, tailloir
+    stone.append(box(4.4, 2.4, 4.4).translate(x, y - 1.2, z)).append(box(3.3, C.groupPedH - 1.2, 3.3).translate(x, y + 1.2, z));
+    for (let k = 1; k < 5; k++) stone.append(box(3.42, 0.14, 3.42).translate(x, y + 1.2 + (k * (C.groupPedH - 1.2)) / 5, z));
+    stone.append(box(4.5, 0.5, 4.5).translate(x, y + C.groupPedH, z));
     const yb = y + C.groupPedH + 0.5;
     const bronze = new Geo();
     // Hercule et le taureau (Paris) ; Apollon musagète (Passy)
@@ -299,8 +302,9 @@ export function varsovieFountain(b: Builder, quality: QualityLevel, groundAt: (x
   const gold = new Geo(), ped = new Geo(), figs = new Geo();
   V.animals.forEach(([x, z], i) => {
     const y = groundAt(x, z);
-    ped.append(box(3.0, 3.6, 5.6).translate(x, y - 0.4, z)).append(box(3.4, 0.3, 6.0).translate(x, y + 3.2, z));
-    const top = y + 3.5;
+    // socle un peu plus haut et plus large que le bâtiment générique de 3,5 m que la carte place au même endroit
+    ped.append(box(3.4, 4.2, 6.0).translate(x, y - 0.4, z)).append(box(3.8, 0.3, 6.4).translate(x, y + 3.8, z));
+    const top = y + 4.1;
     if (i === 0) {
       gold.append(lionGeo('debout', 2.3, lod).translate(x, top, z + 0.6));
       gold.append(horseGeo({ scale: 0.75, gait: 0.3, lod }).translate(x + 0.2, top, z - 1.7));

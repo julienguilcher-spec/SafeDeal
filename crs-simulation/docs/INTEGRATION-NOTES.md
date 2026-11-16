@@ -107,3 +107,108 @@ Ne lancer aucun chantier du point 3 avant que le point 1 soit jouable.
 - `interactions.startVerb` du cœur neutre ne transmet pas `targetId` à `find()` ; le vrai module des personnes le fait.
 - `findPath` ne sait pas exclure une rue fermée : le pilote automatique gère lui-même les fermetures (EXT.traffic).
 - Services : 'vehicles.autopilot' (driveTo, follow, convoy, park, parkRow, stop, status) et 'vehicles.ext'.
+
+## Assemblage 1 (16/11) — premier jeu jouable
+
+Mode d'emploi du jeu : `docs/PLAYING.md`. Tests : `tests/e2e/game.mjs` (vrai jeu, ordinateur et téléphone),
+`tests/e2e/game-dist.mjs` (jeu construit servi sous un sous-chemin), `tests/unit/integration.session.test.ts`.
+
+### Modules branchés (`src/main.ts`, tableau MODULES)
+`input`, `env`, `world/query`, `sim/roles` (archétypes), `sim/people`, `sim/vehicles`, `sim/items`, `sim/props`,
+`sim/hazards`, `gameplay/law`, `gameplay/radio`, `gameplay/session` (nouveau), puis la présentation : `render/base`
+(en premier : à ordre égal les systèmes s'exécutent dans l'ordre d'ajout), `world/view`, l'adaptateur `main.map2d`,
+`world/monuments`, `render/people`, `render/vehicles`, `ui` (qui agrège `ui/maps` et `ui/command`), `audio`.
+`render/vehicles` figurait parmi les modules « en cours » : il compilait, ses 68 tests passaient et aucun de ses
+fichiers n'avait changé depuis plus de 20 minutes au moment du branchement.
+
+### Laissés de côté (encore modifiés pendant l'assemblage — à brancher à l'assemblage 2)
+- `sim/crowd`, `sim/police`, `sim/traffic` : fichiers modifiés dans les dernières minutes (et, à 03 h 53, `tsc` signalait
+  `src/sim/police/command/command.ts` : module './adjoint' introuvable). Conséquences : pas de foule, collègues immobiles,
+  pas de circulation ; les services `crowd.metro`, `traffic.control`, `police.units` sont absents.
+- `render/props`, `render/fx` : en cours d'écriture. Conséquences : mobilier, vitrines, barricades, projectiles, gaz,
+  fumée et feu sont SIMULÉS mais INVISIBLES (on bute sur des poubelles que l'on ne voit pas).
+- `gameplay/missions/catalog` : données seules (pas de système), en cours de relecture. `gameplay/incidents`,
+  `sim/roles/rescue`, `sim/roles/medics` : dossiers absents à ce jour.
+Les lignes d'import correspondantes sont prêtes, en commentaire, dans `src/main.ts`.
+
+### Ajouts compatibles au cœur
+- `src/core/session.ts` : `SessionController.addPreparation(fn)` (+ type `SessionPreparation`, constante
+  `SESSION_PREPARATION_TIMEOUT_MS`). Tâches asynchrones attendues APRÈS `session:started` et AVANT la phase « playing » :
+  la phase reste « loading » (écran de chargement) pendant que la présentation construit la ville. Sans préparation
+  enregistrée (tests headless), le déroulement de `start()` est inchangé. Une préparation en erreur ou muette plus de
+  90 s n'empêche pas de jouer. Accès : `getCore(ctx).session.addPreparation(...)`.
+- `contracts.ts` et `extensions.ts` : aucun changement.
+
+### Nouveau module `src/gameplay/session/` (cadre de mission provisoire)
+- `setup.ts` — système `session.setup`, ordre `SystemOrder.RULES − 100`, simulation pure. Sur `session:started` :
+  emplacement de départ (`placement.ts` : à 30–65 m du repère le plus proche du lieu, face à lui, sol dégagé, sinon
+  sur place dans l'axe de la rue ; repli `world.randomFreePoint`), distribution selon le rôle (`roster.ts`, compositions
+  de `roles.spawn.policeUnit`), véhicules stationnés derrière le front, unités `ctx.squads` avec chefs et hiérarchie
+  (groupe ; section + groupes A et B ; compagnie + section pour le commandant), `ctx.player.possess`, caméra (première
+  personne par défaut, `extra.camera = 'tps'`), 10 passants immobiles (`extra.passants`), puis vent / circulation
+  coupée / métro fermé du scénario. AUCUN manifestant n'est créé (sauf le joueur s'il en est un).
+  Service `session.setup` (`SessionSetupApi` : résumé, identifiants créés) ; événements libres `ui:loading` et
+  `session:setup`. Si le service `police.units` est présent (rôles CRS et chef de groupe), c'est lui qui construit
+  l'unité (`createGroup` / `createSection`, disposition « ligne ») — chemin testé avec un service factice seulement.
+- `loading.ts` — `installLoadingGate(ctx)`, appelé par `main.ts` : préparation de fin de chargement (monuments proches
+  par `MonumentsApi.prewarm`, un par image ; ville par `WorldViewApi.flush` jusqu'à file vide, 60 s au plus ; trois
+  images de compilation). Mesures dans le service `session.loading`.
+- À remplacer par le vrai cadre de mission : reprendre alors l'application du vent / circulation / métro.
+
+### Défauts d'assemblage corrigés
+1. **Fond de carte, conventions divergentes** (`world.map2d`) : pour `world/view`, `rotation` est le cap placé en haut
+   (nord en haut = π) et les options sont `{ names, landmarks, complete }` ; `ui/maps`, `ui/command` et le mini-plan de
+   l'accueil appellent avec 0 = nord en haut et `{ labels, detail, pixelRatio }`, et attendent un champ `revision`.
+   Sans correction : carte tête en bas, `labels: false` ignoré (noms sur la mini-carte), cache jamais rafraîchi.
+   Corrigé par l'adaptateur `main.map2d` de `src/main.ts` (service d'origine conservé sous `world.map2d.native`).
+   Les noms de lieux ne sont plus géants : le service de la ville borne déjà la police (9–13 px), filtre par importance
+   et évite les recouvrements ; l'adaptateur dessine en pixels CSS (contexte mis à l'échelle de la densité d'écran).
+   Le repli `src/ui/maps/basemap.ts` (noms géants relevés le 16/11) ne sert plus dès que `world/view` est branché ;
+   il n'a pas été retouché.
+2. **Tourelle en miroir** : `sim/people/player-vehicle.ts` écrivait `turretYaw` positif vers la gauche, alors que
+   `sim/vehicles` et `render/vehicles` le lisent positif vers la droite (cap monde = heading − turretYaw). Signe aligné
+   dans le contrôleur du joueur ; test `people.player` mis à jour ; vérifié avec les vrais modules (tir du Centaure
+   aligné sur le regard, `integration.session`).
+3. **Commandant unique** : tuile « Commissaire » retirée de la page d'accueil (`ui/screens/home-panes-a.ts`) ; un
+   brouillon qui porte le rôle `commissaire` (scénario enregistré, « Surprends-moi ») devient le commandant
+   (`unifyCommander` dans `ui/screens/home.ts`). Le rôle reste valide dans le contrat et par l'URL (même personnage).
+   `tests/e2e/ui.mjs` (parcours) aligné. Le choix du poste du commandant (terrain / salle) reste à faire.
+4. **Double traitement du scénario** : `ui/core/system.ts` n'applique plus vent / circulation / métro quand le service
+   `session.setup` existe (la mise en place le fait sur `session:started`).
+5. **Panneau de diagnostic** retiré de `src/main.ts` (il aurait recouvert la page d'accueil). Sans WebGL, une
+   notification l'explique.
+6. **Prewarm des monuments** : fait pendant l'écran de chargement (voir `loading.ts`).
+
+### Vérifié en jeu (captures regardées)
+Page d'accueil, chargement avec progression réelle, vues à la première et à la troisième personne place de la
+Concorde (pavés, obélisque et sa grille, fontaine, hôtels de Gabriel, arbres, ciel, groupe de six CRS, HUD, mini-carte),
+marche et course, collision avec la grille de l'obélisque, grenade lacrymogène en main puis lancée (projectile, gaz,
+faute relevée par le droit : emploi sans sommation), plan de Paris orienté nord en haut, carte tactique avec l'unité,
+pause, paramètres, commandes tactiles sur téléphone. Zéro erreur console.
+
+### Défauts connus après l'assemblage 1
+- **Tour Eiffel / monuments lointains invisibles** : `render/base` règle le brouillard sur la distance d'affichage
+  (FogExp2, 92 % à `drawDistance` : 300 m en bas, 500 en moyen, 900 en haut, 1 500 en ultra). `camera.far` vaut 8 000 m,
+  mais les silhouettes de `world/monuments` (matériau `farMaterial`, sensible au brouillard) sont effacées au-delà
+  d'environ 1,5 × la distance d'affichage ; depuis la Concorde la Tour est à 2 125 m. Piste : donner aux silhouettes
+  de la carte le voile propre que le module des monuments vient d'écrire pour ses repères d'horizon
+  (`horizonMaterial`, insensible au brouillard de scène) — fichiers en cours de modification, non touchés ici —
+  ou plafonner le brouillard de scène par temps clair dans `render/base` (uniforme partagé à ajouter aux matériaux).
+- **Trottoirs** : le sol dessiné est 8 cm au-dessus de `world.heightAt` (13 cm sur les pelouses) ; personnages et
+  véhicules ne lisent pas `world.view.liftAt` : pieds et roues s'y enfoncent d'autant. `liftAt` fabrique une chaîne par
+  appel : prévoir une variante sans allocation avant de l'appeler pour chaque personnage.
+- **HUD en petite fenêtre (960 px de large)** : la jauge de santé passe sous la barre d'objets à neuf cases, et la
+  boussole touche le panneau de situation. Correct à 1 280 px et sur téléphone.
+- **Charge de triangles en qualité basse** : environ 650 000 triangles par image place de la Concorde (ville et arbres
+  surtout) ; trop pour un téléphone modeste — à réduire dans `world/view` (rayon détaillé, arbres) à l'optimisation.
+- **Hors navigateur**, la carte de Paris n'est lue qu'au premier démarrage hors mode test : `placeByName` ne connaît pas
+  encore le lieu quand le cœur calcule le point de départ (repli sur l'origine, avec un avertissement). Dans le
+  navigateur la carte est lue pendant `init()`, le lieu est trouvé. Les tests headless passent `x`/`z`.
+- **Souris capturée sous Chromium headless** : chaque événement de bouton synthétique rapporte la position du pointeur
+  comme un déplacement (le regard saute). Artefact d'outillage : `tests/e2e/game.mjs` clique en (2, 2).
+- **Premier clic** : le déverrouillage du son (premier geste) coûte quelques secondes d'images très lentes sous WebGL
+  logiciel et machine chargée ; non mesurable sur du vrai matériel ici.
+- Mur aveugle à texture étirée (`buildings-haut-street-15.png`) : pas retrouvé place de la Concorde ; non recherché
+  ailleurs.
+- Indicatif radio « AUTORITÉ » du droit contre « MISTRAL 0 » de la radio, sous-titres radio possibles en double
+  (`ui` et `gameplay/radio` appellent tous deux `ui.subtitle`) : non traités, à voir avec l'IA des unités.

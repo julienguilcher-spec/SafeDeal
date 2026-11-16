@@ -64,7 +64,7 @@ export function roadClosed(from: string, street: string, ahead: boolean): string
 }
 
 export function stationClosed(from: string, station: string): string {
-  return frame(CENTRAL, from, 'Renforts hostiles par le métro. Demande fermeture de la station ' + station + '. PARLEZ.', false).replace(' TERMINÉ.', '');
+  return frame(CENTRAL, from, 'Renforts hostiles par le métro. Demande fermeture de la station ' + station, true);
 }
 
 export function stationReopened(from: string, station: string): string {

@@ -102,4 +102,82 @@ describe('incidents — feux', () => {
     expect(incidents.get(inc.id)).toBeUndefined();
     expect(records.all.length).toBe(1);
   });
+
+  it('doublons : trois bacs en feu côte à côte et la nappe au sol font UN incident ; un feu plus loin en fait un autre', async () => {
+    const { t, ctx, incidents, records, ext } = await start(12);
+    const at = roadPoint(ctx, 0, -230);
+    const bins: Prop[] = [];
+    for (let i = 0; i < 3; i++) bins.push(ctx.props.spawn('conteneur', at.x + (i - 1) * 2.4, at.z, 0));
+    const far = ctx.props.spawn('poubelle', at.x, at.z + 45, 0);
+    for (const b of bins) expect(ext.ignite(b, 0)).toBe(true);
+    expect(ext.ignite(far, 0)).toBe(true);
+    // un engin incendiaire tombe au pied des bacs : même feu
+    ctx.hazards.ignite(at.x + 0.5, at.z + 1, 1.25, 1, 0);
+    t.step(12);
+    const active = incidents.list.filter((i) => i.state === 'ouvert');
+    console.log('[incidents] feux :', active.map((i) => `« ${i.label} » (${i.targetKind} ${i.targetId}) gravité ${i.severity.toFixed(2)}`).join(' | '));
+    expect(active.length).toBe(2);
+    const group = active.find((i) => Math.hypot(i.x - at.x, i.z - at.z) < 6)!;
+    const single = active.find((i) => i !== group)!;
+    expect(records.of(group.id)!.merged).toBe(2);
+    expect(records.of(single.id)!.merged).toBe(0);
+    expect(single.targetId).toBe(far.id);
+    // trois foyers pèsent plus lourd qu'un seul au même âge
+    expect(group.severity).toBeGreaterThan(single.severity);
+    // éteindre un seul bac ne clôt pas l'incident ; les éteindre tous, si
+    for (let i = 0; i < 80 && bins[0].state === 'burning'; i++) {
+      ctx.hazards.douse(bins[0].x, bins[0].z, 0.8, 0.2);
+      t.step(0.1);
+    }
+    t.step(4);
+    expect(group.state).toBe('ouvert');
+    for (let i = 0; i < 400 && bins.some((b) => b.state === 'burning'); i++) {
+      for (const b of bins) ctx.hazards.douse(b.x, b.z, 1.5, 0.3);
+      t.step(0.1);
+    }
+    t.step(5);
+    expect(bins.every((b) => b.state !== 'burning')).toBe(true);
+    expect(group.state).toBe('resolu');
+    expect(single.state).toBe('ouvert');
+  });
+
+  it('feu au sol : signalé seulement s\'il dure ; non traité, un feu qui se propage est porté « aggravé » au journal', async () => {
+    const { t, ctx, incidents, records, ext } = await start(13);
+    const at = roadPoint(ctx, 0, -230);
+    // nappe au sol (engin incendiaire) : rien pendant les premières secondes
+    ctx.hazards.ignite(at.x, at.z, 1.25, 1, 0);
+    t.step(3);
+    expect(incidents.list.length).toBe(0);
+    t.step(4);
+    expect(incidents.list.length).toBe(1);
+    const ground = incidents.list[0];
+    expect(ground.kind).toBe('feu_poubelle');
+    expect(ground.targetKind).toBe('place');
+    expect(ground.label.startsWith('Feu sur la chaussée')).toBe(true);
+    // elle s'éteint d'elle-même en une demi-minute : clos sans traitement (personne n'a rien fait)
+    t.step(50);
+    expect(ground.state).toBe('echoue');
+    expect(records.of(ground.id)!.outcome).toBe('cause_disparue');
+
+    // une poubelle brûle contre un conteneur : le feu gagne le voisin
+    const bin = ctx.props.spawn('poubelle', at.x, at.z + 30, 0);
+    const bac = ctx.props.spawn('conteneur', at.x + 1.65, at.z + 30, 0);
+    expect(ext.ignite(bin, 0)).toBe(true);
+    t.step(2);
+    const inc = incidents.list.find((i) => i.targetId === bin.id)!;
+    let spread = -1;
+    for (let i = 0; i < 140 && spread < 0; i++) {
+      t.step(1);
+      if (bac.state === 'burning') spread = i;
+    }
+    expect(spread).toBeGreaterThan(20);
+    t.step(3);
+    const rec = records.of(inc.id)!;
+    console.log(`[incidents] propagation au conteneur après ${spread} s : aggravations ${rec.aggravations}, gravité ${rec.severityStart.toFixed(2)} → ${inc.severity.toFixed(2)}, urgence ${inc.urgency}`);
+    expect(rec.merged).toBe(1);
+    expect(rec.aggravated).toBe(true);
+    expect(inc.severity).toBeGreaterThan(rec.severityStart + 0.2);
+    expect(records.stats().aggravated).toBe(1);
+    expect(records.summary().some((l) => /aggravé/.test(l))).toBe(true);
+  });
 });
