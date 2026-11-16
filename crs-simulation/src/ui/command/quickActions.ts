@@ -51,6 +51,13 @@ function ensureQuickStyle(): void {
 .cq-prop b{display:block;color:#ffc440;font-size:11px;letter-spacing:.04em;margin-bottom:3px}
 .cq-prop .cq-row{display:flex;gap:6px;margin-top:6px}
 .cq-prop .cm-btn{min-height:30px;font-size:12px;padding:4px 10px}
+/* écran tactile : la carte tactique a déjà son bouton (« TACTIQUE ») — on ne garde ici que des boutons compacts, qui ne
+   passent plus sur la mini-carte */
+.ui-hud:not([data-touch="none"]) .cq .cq-map{display:none}
+.ui-hud:not([data-touch="none"]) .cq{gap:4px;margin-top:4px}
+.ui-hud:not([data-touch="none"]) .cq .cm-btn{min-height:30px;padding:4px 9px;font-size:11px;border-radius:8px}
+.ui-hud:not([data-touch="none"]) .cq .cq-key{display:none}
+.ui-hud:not([data-touch="none"]) .cq-prop{max-width:230px;font-size:11px;padding:6px 8px}
 .cq-prop .cq-ok{border-color:rgba(64,200,120,.6)}
 .cq .cq-samu{border-color:rgba(80,160,255,.55)}
 .cq .cm-btn.is-off{display:none}
@@ -95,6 +102,7 @@ export class QuickActionsHud implements HudWidget {
     this.root = el('div', 'cq is-off');
     this.root.dataset.id = 'hud-quick';
     this.mapBtn = button('Carte tactique', () => this.openMap(), { icon: 'layers', id: 'quick-map', title: 'Ouvrir la carte (Tab / M)' });
+    this.mapBtn.classList.add('cq-map');
     this.mapLabel = this.mapBtn.querySelector('.cm-btn-t') as HTMLElement;
     const key = el('span', 'cq-key', 'Tab');
     this.mapBtn.appendChild(key);

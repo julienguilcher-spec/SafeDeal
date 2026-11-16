@@ -295,8 +295,10 @@ export const CSS_HUD = `
 .ui-subs { position: absolute; left: calc(50% + var(--ui-sub-shift, 0px)); bottom: calc(var(--ui-sub-bottom, 28px) + var(--ui-safe-b)); transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 4px;
   width: max-content; max-width: var(--ui-sub-max, min(720px, 74vw)); pointer-events: none; }
 .ui-subs.is-paused { display: none; }
-.ui-sub-line { padding: 5px 12px; border-radius: 6px; background: rgba(4, 8, 16, .78); font-size: 15.5px; font-weight: 500; line-height: 1.35; text-align: center; text-shadow: 0 1px 2px #000; animation: ui-fade .15s ease-out; }
-.ui-sub-line__who { font-size: 11.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--ui-yellow); margin-right: 9px; }
+/* messages radio et répliques : texte discret, borné à trois lignes (le texte complet reste dans le journal radio) */
+.ui-sub-line { padding: 4px 11px; border-radius: 6px; background: rgba(4, 8, 16, .72); font-size: 13.5px; font-weight: 500; line-height: 1.3; text-align: center; text-shadow: 0 1px 2px #000; animation: ui-fade .15s ease-out;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+.ui-sub-line__who { font-size: 10.5px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; color: var(--ui-yellow); margin-right: 7px; }
 .ui-banner { position: absolute; left: 50%; top: 19%; transform: translateX(-50%); display: grid; justify-items: center; gap: 7px; text-align: center; padding: 12px 34px 14px;
   background: linear-gradient(to right, rgba(6, 11, 21, 0), rgba(6, 11, 21, .82) 18%, rgba(6, 11, 21, .82) 82%, rgba(6, 11, 21, 0)); animation: ui-rise .3s ease-out; transition: opacity .4s;
   width: max-content; max-width: 86vw; pointer-events: none; }
@@ -304,16 +306,30 @@ export const CSS_HUD = `
 .ui-banner__title { font-size: 26px; font-weight: 750; letter-spacing: .14em; text-transform: uppercase; color: #fff; text-shadow: 0 2px 8px rgba(0, 0, 0, .8); }
 .ui-banner__sub { font-size: 15px; color: #dfe6f2; text-shadow: 0 1px 3px #000; }
 @media (max-height: 520px) {
-  .ui-sub-line { font-size: 13px; padding: 3px 10px; }
+  .ui-sub-line { font-size: 11px; padding: 2px 8px; }
   .ui-banner { top: 24%; padding: 8px 26px 10px; gap: 5px; }
   .ui-banner__title { font-size: 19px; }
   .ui-banner__sub { font-size: 13px; }
-  .ui-toast { font-size: 12.5px; padding: 5px 12px 5px 8px; }
+  .ui-toast { font-size: 11.5px; padding: 4px 10px 4px 7px; }
+  .ui-toast .ui-ic { width: 14px; height: 14px; }
 }
 @media (max-height: 600px) {
   /* écran bas (téléphone, petite fenêtre) : une seule notification visible, la plus récente, sur trois lignes */
   .ui-toast:nth-last-child(n+2) { display: none; }
   .ui-toast__text { -webkit-line-clamp: 3; }
+  /* messages radio : un seul à la fois (le plus récent), deux lignes au plus, étroit — ils ne couvrent plus le jeu */
+  .ui-subs { max-width: min(var(--ui-sub-max, 74vw), 440px); gap: 2px; }
+  .ui-sub-line:nth-last-child(n+2) { display: none; }
+  .ui-sub-line { font-size: 11.5px; line-height: 1.25; padding: 2px 9px; background: rgba(4, 8, 16, .6); -webkit-line-clamp: 2; }
+  .ui-sub-line__who { font-size: 9.5px; margin-right: 6px; }
+}
+@media (max-width: 600px) {
+  /* téléphone tenu debout : même sobriété */
+  .ui-subs { max-width: min(var(--ui-sub-max, 86vw), 86vw); gap: 2px; }
+  .ui-sub-line:nth-last-child(n+2) { display: none; }
+  .ui-sub-line { font-size: 11.5px; line-height: 1.25; padding: 2px 9px; background: rgba(4, 8, 16, .6); -webkit-line-clamp: 2; }
+  .ui-sub-line__who { font-size: 9.5px; margin-right: 6px; }
+  .ui-toast { font-size: 12px; padding: 5px 11px 5px 8px; }
 }
 @media (max-height: 420px) {
   /* téléphone en paysage : deux lignes, pour ne pas couvrir l'en-tête de la carte tactique ni le haut du jeu */
