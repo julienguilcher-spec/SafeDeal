@@ -193,7 +193,7 @@ function build(site: MonumentSite, quality: QualityLevel): Builder {
   }
   // rampes carrossables du pavillon de l'Empereur (ouest) : deux rampes en pente adossées à la rotonde, parapet plein
   for (const t of [-1, 1]) {
-    const ramp = slabXY([0, 0, 9.5, 0, 9.5, 3.4, 8.6, 3.4, 0, 0.5], 2.6).rotateY(t > 0 ? -Math.PI / 2 : Math.PI / 2);
+    const ramp = slabXY([0, 0, 9.5, 0, 9.5, 3.4, 8.6, 3.4, 0, 0.5], 2.6).rotateY(t > 0 ? Math.PI / 2 : -Math.PI / 2);
     stone.append(ramp.translate(-49.2, 0, 5.6 + t * (9.4 + 9.5)));
   }
   stone.append(boxAt(-52, 0, 5.6 - 9.4, -47.6, 3.4, 5.6 + 9.4));

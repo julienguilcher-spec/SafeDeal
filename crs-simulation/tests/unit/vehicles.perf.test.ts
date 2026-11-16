@@ -120,6 +120,7 @@ describe('performances des véhicules', () => {
     const cost = measure(b, 3000, redispatch);
     const awake = b.ctx.vehicles.list.filter((v) => !b.ext.dynamics(v).asleep).length;
     const rolling = moving.filter((v) => Math.abs(v.speed) > 0.5).length;
+    console.log('DBG ' + moving.map((v) => { const st = b.autopilot.status(v); return `${v.id}:${st.state}/${st.reason}@(${v.x.toFixed(0)},${v.z.toFixed(0)})h${v.heading.toFixed(1)}`; }).join(' '));
     console.log(`[perf] 150 véhicules en ville (${awake} éveillés, ${rolling} roulent, ${arrivals} trajets terminés) : ${cost.toFixed(3)} ms de processeur par pas (référence ${ref.toFixed(0)} ms)`);
     expect(rolling).toBeGreaterThan(12);
     expect(arrivals).toBeGreaterThan(10);
