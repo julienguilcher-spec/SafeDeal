@@ -166,3 +166,147 @@ Condition légale : codes de A.2 (« `E3`+ » = `E3`, `E4`, `R`, `LD`). Quantit�
 **Sirènes deux tons (vérifié, arrêté de 1987 lu par deux sources secondaires concordantes).** Police : 435 Hz / 580 Hz, 50 à 60 cycles par minute. Gendarmerie : 435 / 732 Hz, 50 à 60. Pompiers : 435 / 488 Hz, **25 à 30** (lent). SAMU : 435 / 651 Hz, 50 à 60. Feux d'urgence : toujours bleus `#1E5BFF`, 2 à 4 éclats par seconde (estimé) ; orange = voirie.
 
 ---
+
+## D. Apparence de chaque catégorie de personnage
+
+Objectif : unité reconnaissable à 30 m, grade lisible à 5 m. Entre parenthèses : `OutfitId` et `HeadgearId` du contrat.
+
+| Catégorie | Palette | Signes distinctifs |
+|---|---|---|
+| **CRS, socle commun à tous les grades** (`crs_mo`, `casque_crs`) | Tenue marine `#1A2238` ; protections `#15171A` ; casque `#0F1420` brillant ; bandes `#F5C400` ; écusson `#C8102E` ; lettres `#FFFFFF` | Casque sombre à **deux bandes jaunes horizontales** (vérifié), visière transparente, protège-nuque ; grand **écusson rouge « CRS »** (vérifié) ; épaulières, coudières, jambières portées sur la tenue ; gilet ; gants ; dos : « POLICE » + **code de groupe « 1A » à « 4C »** (vérifié) ; numéro individuel à 7 chiffres (vérifié), blanc sur bandeau noir `#111111`, sur la poitrine ; galons sur fourreaux d'épaule à **fond bleu clair `#8FA3BF` avec flambeau** (vérifié) |
+| CRS, gardien stagiaire | galon argent `#C9CED6` | 1 chevron de 8 mm (vérifié) ; jamais au LBD (vérifié) |
+| CRS, gardien de la paix | idem | 2 chevrons emboîtés, 18 mm (vérifié) ; 3 chevrons, 28 mm, à partir du 6e échelon ; postes : bouclier, lanceur, LBD, extincteur, interpellation, conducteur |
+| CRS, brigadier-chef | argent + raie `#D0021B` | 1 barrette argent de 10 mm à raie rouge de 1 mm (vérifié) ; chef de groupe : radio, caméra-piéton ; lettre du groupe à l'arrière du casque (convention de jeu, estimé) |
+| CRS, major | idem | Même barrette + liseré argent de 2 mm placé à 4 mm (vérifié) ; chef de section : pas de bouclier, deux radios |
+| CRS, capitaine | blanc `#F4F4F4` | 2 barrettes blanches de 10 mm pendant les 4 premières années (appelé « lieutenant »), puis 3 barrettes de 8 mm (vérifié) ; chef de section ou adjoint |
+| CRS, commandant | idem | 4 barrettes blanches de 7 mm, 3 serrées + 1 séparée de 4 mm (vérifié) ; ni bouclier ni lanceur ; mention « CDT » à l'arrière du casque (convention de jeu, estimé). **Aucune « bande de grade » sur le casque n'est documentée** |
+| **Autorité civile** (`commissaire`) | Tenue de service marine ou costume sombre `#1F2430` ; écharpe `#0055A4` `#FFFFFF` `#EF4135`, franges `#C9CED6` | Seul personnage à insigne tricolore : **écharpe en bandoulière de l'épaule droite à la hanche gauche, bleu vers le col** (convention de jeu, estimé) ou **brassard tricolore** au bras gauche, 0,10 de haut (estimé) ; mégaphone ; deux radios ; casque sombre sans bandes ou tête nue ; galon : branche de 5 feuilles de chêne et 1 gland (vérifié) ; l'insigne n'est porté que pendant l'exercice |
+| **Gendarme mobile** (`gendarme_mo`, `casque_gendarme`) | Casque `#2F55A4` ; tenue `#0E1220` ; insignes or `#C9A227` | Casque **entièrement bleu** (vérifié) avec grenade stylisée à l'avant ; galons **dorés** (vérifié) ; « GENDARMERIE » en blanc dans le dos ; mêmes protections ; bouclier rectangulaire transparent |
+| Compagnie d'intervention parisienne (PNJ) | Casque sombre, bande `#2D6CDF` | Casque à bande bleue (estimé, d'après photos) ; « POLICE » ; galons argent sur fond bleu nuit |
+| **BRAV-M** (`bravm`, `casque_moto`) | Noir `#0B0B0D` ; casque `#111111` | Tenue noire, protections lourdes, **casque de moto gardé à pied** (estimé) ; « POLICE » dans le dos ; toujours par deux ; bâton, aérosol, menottes |
+| **Policier en civil** (`police_civil`) | Vêtements civils ; brassard `#FF6A00`, lettres noires | **Brassard « POLICE » obligatoire** (estimé) ; sans brassard, les PNJ et la presse le traitent en inconnu ; casque de moto possible |
+| **Pompier** (`pompier`, `casque_pompier`) | Tenue `#1B2440`, bandes `#E6D200` ; casque `#C8CCD2` ; engins `#C8102E` | Casque chromé, veste à bandes rétroréfléchissantes, « SAPEURS-POMPIERS DE PARIS » dans le dos (estimé) ; lance, extincteur |
+| **SAMU** (`samu`) | Blanc `#F4F4F4`, bleu `#003DA5`, fluo `#DFFF00` | Tenue blanche et bleue à bandes fluo, « SAMU » dans le dos, sac rouge, brancard (estimé) |
+| **Street medic** (`street_medic`, `casque_medic`) | Blanc `#F5F5F5`, croix `#D62828` ou `#1D4E89` | Tee-shirt ou brassard à croix, casque de skate, masque, lunettes, sac à dos ; par équipes de 2 ou 3 (estimé) |
+| **Journaliste** (`presse`, `casque_presse`) | Casque noir ou blanc ; brassard `#FFFFFF` | Casque et brassard « PRESSE », gilet, masque, appareil à téléobjectif ou caméra d'épaule ; **aucun signe n'est obligatoire** (vérifié) : un journaliste sans marquage existe |
+| **Observateur** (`observateur`) | Chasuble `#F5F5F5`, casque `#2D6CDF` | Chasuble et casque siglés « OBSERVATEUR », par équipes de 3, carnet et téléphone (estimé) |
+| Manifestant, gilets jaunes (`gilet_fluo`) | `#DFFF00`, bandes `#C8CCD0` | Gilet de haute visibilité annoté au dos, bonnet ; pancarte : « On veut vivre, pas survivre » |
+| Manifestant, cortège syndical (`syndical`) | Chasubles `#D62828` `#F77F00` `#1D4E89` `#6A4C93` `#2A9D8F` `#F2C94C` | Chasuble d'une organisation fictive, drapeau de 1,0 × 1,5, ballon, camion sono ; « Retraites : ni report, ni recul » |
+| Service d'ordre | Brassard `#C1121F` | Brassard « SO », chaîne humaine de 5 à 12 personnes autour du carré de tête ; ne lance jamais |
+| Étudiants et lycéens | Jean `#3B5B8C`, sweat `#58C99B` | Sac à dos, carton peint, mégaphone ; « Notre avenir n'est pas à vendre » |
+| Militants climat | `#3C8D4B`, `#F2C94C` | Vêtements colorés, globe en carton ; « Il n'y a pas de planète B » |
+| Personnels soignants | Blouse `#F5F5F5`, `#A9CCE3` | Blouse blanche ; « Des lits, des bras, du temps pour soigner » |
+| Agriculteurs | Cotte `#4B6B3C`, paille `#C8A24A` | Cotte, bottes, tracteur en tête ; « Sans paysans, pas de pain » |
+| Retraités, familles | Tons `#B8A98A`, `#8A8D91` | Canne-siège, écharpe ; poussette, ballons, enfant sur les épaules ; « Pour l'école de nos enfants » |
+| **Black bloc** (`black_bloc`, `capuche`) | `#0B0B0D`, `#1C1C1F` | Noir de la tête aux pieds, capuche, visage masqué, lunettes, gants, sac à dos ; banderole renforcée en tête, parapluies ; **se change en 30 à 60 s à couvert** (estimé) et redevient visuellement un manifestant ordinaire |
+| Pilleur ; passant, touriste, commerçant (`civil`) | Sombre `#1C1C1F` ; palette neutre | Capuche, sac vide puis butin ; sacs de courses, téléphone levé ; tablier, rideau métallique |
+
+---
+
+## E. Organisation et commandement
+
+### E.1 Unités
+
+| Unité | Réel | Valeur de jeu retenue |
+|---|---|---|
+| Compagnie de CRS | 60 compagnies, 11 150 agents (vérifié) ; environ 130 agents par compagnie (estimé) ; commandée par un commandant de police ; 4 sections de service général + 1 section de commandement et de services ; 2 demi-compagnies « Alpha » et « Bravo » | **70 à pied** = commandement 6 (commandant, adjoint, 2 radios, opérateur vidéo, conducteur) + 4 sections de 16 ; 12 fourgons + 1 véhicule de commandement (estimé) |
+| Section | **16 agents** (vérifié, Cour des comptes) ; 3 groupes A, B, C, le C étant le commandement (estimé) | 16 = A 6 + B 6 + C 4 |
+| Groupe tactique | **6 agents** (vérifié) | 6 ; un fourgon par groupe |
+| Seuil d'emploi | Jamais moins de 2 sections, soit **32 agents**, pour une mission de maintien de l'ordre (vérifié) | Demi-compagnie = 32 : plus petite unité qu'un scénario peut engager seule face à une foule |
+| Escadron de gendarmerie mobile | 116 escadrons (vérifié) ; **72 militaires** engagés, 55 au minimum (vérifié) ; pelotons de 16 (vérifié) dont un peloton d'intervention | 72 = commandement 8 + 4 pelotons de 16 |
+| Compagnie d'intervention parisienne | 120 agents sur le terrain (vérifié) | 2 × 60, PNJ |
+| BRAV-M | Binômes pilote + opérateur ; sur le terrain sous l'autorité d'un commissaire (vérifié) ; taille d'une unité non trouvée | 18 motos, 36 agents, 3 groupes de 6 motos ; 1 pilote sur 3 garde les machines (estimé) |
+| Appuis | Engin lanceur d'eau : décision du préfet de zone (vérifié) ; blindé : décision gouvernementale (vérifié) | Appuis fixés par le scénario ; indisponibles sinon |
+
+### E.2 Postes d'une section de 16 (construction de jeu, estimé)
+
+| Groupe | Effectif | Postes (`PolicePoste`) |
+|---|---|---|
+| A, appui | 6 | chef de groupe et superviseur, 3 boucliers, 1 lanceur de grenades, 1 extincteur |
+| B, intervention | 6 | chef de groupe et superviseur, 2 boucliers, 1 LBD, 2 interpellateurs à petit bouclier |
+| C, commandement | 4 | chef de section, radio, secouriste-vidéo, lanceur de réserve |
+
+Front tenu (estimé) : 0,7 m par bouclier au coude à coude, 1,0 m en ligne lâche. Section : 7 boucliers, soit 4,9 m ou 7 m. Compagnie : **20 m serrés, 28 m lâches** ; au-delà, fourgons en travers (5,8 m chacun) et barrières.
+
+### E.3 Grades, postes et étendue du commandement
+
+| Grade (`PoliceRank`) | Poste type | Commande | Carte tactique |
+|---|---|---|---|
+| `gardien_stagiaire`, `gardien` | équipier | personne | lecture seule |
+| `brigadier` | grade supprimé le 1er août 2023 (vérifié) : option « avant 2023 » | — | — |
+| `brigadier_chef` | chef de groupe | 6 agents | ordres à son groupe |
+| `major` | chef de section | 16 agents | ordres à sa section |
+| `capitaine` | chef de section ou adjoint : demi-compagnie | 32 agents | ordres à sa demi-compagnie |
+| `commandant` | commandant de compagnie, « commandant de la force publique » | 70 agents + appuis affectés | toutes ses unités ; niveau de force plafonné par l'autorité civile |
+| `commissaire` | autorité civile, chef de secteur | ne commande pas la manœuvre : qualifie, somme, autorise, suspend | calque juridique : état, issues, couverture sonore |
+
+### E.4 Qui décide (vérifié : art. R. 211-14 et R. 211-21, schéma national, instruction de 2022)
+
+| Décision | Autorité civile | Commandant de compagnie |
+|---|---|---|
+| Qualifier l'attroupement, faire les sommations | oui (ou officier de police judiciaire qu'elle désigne, elle présente) | non |
+| Autoriser la force, puis les armes ; fixer moyens et limite | oui, ordre tracé | non : il propose et conseille |
+| Choisir la manœuvre, l'articulation, le rythme | non | oui |
+| Riposter à des violences contre l'unité | informée | oui, d'initiative |
+| Suspendre ou annuler | oui, à tout moment | exécute et rend compte |
+
+Chaîne parisienne : préfet de police → directeur du service d'ordre (salle de commandement) → chef de secteur (commissaire) → commandant d'unité → chef de section → chef de groupe.
+
+### E.5 Indicatifs (tous fictifs ; les indicatifs réels n'ont pas été trouvés)
+
+Salle : « CENTRAL ». Autorité civile du secteur n : « AUTORITÉ n ». Compagnies de CRS (noms de vents) : « MISTRAL », « TRAMONTANE », « SIROCCO », « ZÉPHYR » ; section n : « MISTRAL n » ; groupe : « MISTRAL n ALFA / BRAVO / CHARLIE ». Escadron : « ÉPERVIER », pelotons « ÉPERVIER 1 » à « 4 ». BRAV-M : « FAUCON 1 » à « 3 ». Engin lanceur d'eau : « NEPTUNE 1 ». Blindé : « CENTAURE 1 ». Drone : « ICARE ». Équipe de liaison : « LIAISON ». Secours : « SANTÉ 1 ».
+
+### E.6 Phraséologie (procédure radiotéléphonique française courante, source de formation non officielle : estimé)
+
+- Gabarit : `APPELÉ ICI APPELANT. Corps du message. PARLEZ` (réponse attendue) ou `TERMINÉ` (aucune réponse attendue).
+- Mots : « REÇU » (j'accuse réception), « APERÇU » (compris et en mesure d'exécuter), « FAITES L'APERÇU », « COLLATIONNEZ » (répétez tout), « RÉPÉTEZ », « ATTENDEZ », « NÉGATIF », « URGENT ».
+- Chiffres dits un par un, sauf les multiples exacts de mille : 45 → « QUATRE-CINQ » ; 5 000 → « CINQ MILLE ». Lettres en alphabet radio (ALFA, BRAVO, CHARLIE…).
+- Compte rendu de situation : **nature, volume, attitude**. Alternat : un seul locuteur par canal ; appuyer, attendre 1 s, parler ; message de 4 à 8 s.
+- Toute autorisation reçue est horodatée au journal : c'est la pièce relue en cas d'enquête.
+
+### E.7 Quarante messages prêts à l'emploi (textes de jeu, estimé)
+
+1. « CENTRAL ICI MISTRAL, CONTRÔLE RADIO, PARLEZ. » — « ICI CENTRAL, FORT ET CLAIR, TERMINÉ. »
+2. « CENTRAL ICI MISTRAL. Compagnie en zone de stationnement, cours la Reine. SEPT-ZÉRO à pied, UN-DEUX fourgons. Prêt. PARLEZ. »
+3. « MISTRAL ICI CENTRAL. Mission : INTERDIRE le pont de la Concorde. Cadre : manifestation interdite. AUTORITÉ DEUX est à vos côtés. FAITES L'APERÇU. » — « ICI MISTRAL. APERÇU. TERMINÉ. »
+4. « CENTRAL ICI MISTRAL. Barrage d'interdiction en place, face nord : deux sections en ligne, deux en réserve, véhicules en travers à TROIS-ZÉRO mètres. PARLEZ. »
+5. « MISTRAL UN ICI MISTRAL. Tenez l'angle de la rue de Rivoli, face est. Riposte directe seulement. PARLEZ. » — « ICI MISTRAL UN. REÇU, je tiens l'angle. TERMINÉ. »
+6. « CENTRAL ICI MISTRAL UN. Tête de cortège à DEUX-ZÉRO-ZÉRO mètres. Nature : cortège déclaré. Volume : TROIS MILLE. Attitude : calme, service d'ordre présent. PARLEZ. »
+7. « CENTRAL ICI ICARE. Nébuleuse de tête : QUATRE-ZÉRO-ZÉRO personnes devant la banderole, visages qui se couvrent. PARLEZ. »
+8. « CENTRAL ICI ICARE. Fumigène noir, parapluies ouverts, changements de tenue : un bloc se forme à hauteur du kiosque. PARLEZ. »
+9. « CENTRAL ICI MISTRAL TROIS. Chaussée dépavée à l'angle du boulevard du Temple, barrières de chantier tirées en travers. PARLEZ. »
+10. « CENTRAL ICI LIAISON. Les organisateurs annoncent la dispersion dans UN-ZÉRO minutes, sortie par la rue de Lyon. PARLEZ. »
+11. « CENTRAL ICI ICARE. Densité critique devant le barrage, plus de QUATRE personnes au mètre carré, aucune issue ouverte. PARLEZ. »
+12. « AUTORITÉ DEUX ICI MISTRAL. Jets de projectiles sur le barrage, dégradations en cours, refus de reculer. Je propose un refoulement jusqu'à la rue de la Paix. Demande sommations et emploi de la force. PARLEZ. »
+13. « ICI AUTORITÉ DEUX. NÉGATIF. Cortège pacifique, pas d'attroupement. Maintenez la distance. TERMINÉ. »
+14. « MISTRAL ICI AUTORITÉ DEUX. Je constate l'attroupement et je procède à l'annonce. Aucun emploi de la force avant mon ordre. TERMINÉ. »
+15. « CENTRAL ICI AUTORITÉ DEUX. Première sommation faite à UNE-SEPT heures ZÉRO-QUATRE. Issue ouverte : rue Saint-Antoine. TERMINÉ. »
+16. « MISTRAL ICI AUTORITÉ DEUX. Dernière sommation faite. Emploi de la force autorisé : refoulement, lacrymogènes à main. Limite : rue de la Paix. FAITES L'APERÇU. » — « ICI MISTRAL. APERÇU. TERMINÉ. »
+17. « MISTRAL ICI AUTORITÉ DEUX. Refoulement sans effet. Je réitère la dernière sommation. Usage des armes autorisé : lanceurs, tir courbe, CENT mètres. COLLATIONNEZ. » — « ICI MISTRAL. Je collationne : usage des armes autorisé, lanceurs, tir courbe, CENT mètres. TERMINÉ. »
+18. « MISTRAL ICI AUTORITÉ DEUX. Halte à l'emploi de la force : le trouble a cessé. TERMINÉ. »
+19. « CENTRAL ICI MISTRAL. Violences sur l'unité : mortiers et engins incendiaires. J'emploie la force d'initiative, cadre violences et voies de fait. Avertissement fait à la foule. PARLEZ. »
+20. « CENTRAL ICI MISTRAL. Ordre reçu de charger un cortège assis et calme. Je fais part de mes objections et je demande la confirmation de l'autorité. PARLEZ. »
+21. « MISTRAL DEUX ICI MISTRAL. Bond offensif, TROIS-ZÉRO mètres, en avant, puis halte et réalignement. PARLEZ. »
+22. « MISTRAL DEUX ICI MISTRAL. Chargez jusqu'à la rue Royale, arrêt au sifflet. PARLEZ. »
+23. « MISTRAL UN À QUATRE ICI MISTRAL. Refoulement, axe boulevard, limite place de la République, par bonds de CINQ-ZÉRO mètres. Issue libre devant la foule. TERMINÉ. »
+24. « MISTRAL TROIS ICI MISTRAL. Canalisez : débouchés latéraux fermés, parcours libre. PARLEZ. »
+25. « MISTRAL ICI CENTRAL. Ouvrez la rue de Turbigo au cortège : parcours de délestage. PARLEZ. »
+26. « MISTRAL UN ICI MISTRAL. Bouclage de l'îlot, sortie contrôlée rue Cambon, annonce aux personnes retenues toutes les minutes. PARLEZ. »
+27. « MISTRAL TROIS ICI MISTRAL. Relevez MISTRAL UN sur place, passage de ligne. PARLEZ. »
+28. « MISTRAL UN À QUATRE ICI MISTRAL. Rompez le contact, repli par échelons sur la ligne des véhicules. TERMINÉ. »
+29. « MISTRAL QUATRE ICI MISTRAL. Embarquez, rejoignez le point BRAVO par le quai, débarquez à CINQ-ZÉRO mètres de la foule. PARLEZ. »
+30. « MISTRAL TROIS ICI MISTRAL. Lacrymogènes à main sur le carrefour. Lanceurs : CENT mètres, tir courbe, sur mon ordre. PARLEZ. »
+31. « MISTRAL ICI MISTRAL TROIS. Vent de face, retour de gaz sur la ligne. Je suspends les tirs et je fais mettre les masques. PARLEZ. »
+32. « MISTRAL ICI MISTRAL QUATRE BRAVO. UN tir de lanceur de balles de défense, cadre riposte, objectif désigné, DEUX-CINQ mètres, impact à la jambe. Individu interpellé, état de santé vérifié. PARLEZ. »
+33. « NEPTUNE UN ICI MISTRAL. Éteignez la barricade en feu, puis jet diffus devant la ligne, sur mon ordre. PARLEZ. » — « ICI NEPTUNE UN. REÇU. Reste QUATRE MILLE litres. TERMINÉ. »
+34. « CENTAURE UN ICI ÉPERVIER. Vérifiez l'obstacle, puis dégagez la barricade. Salve de SIX, zone carrefour, tir courbe. FAITES L'APERÇU. » — « ICI CENTAURE UN. Obstacle vérifié, personne derrière. APERÇU. TERMINÉ. »
+35. « FAUCON DEUX ICI CENTRAL. Groupe de UN-CINQ individus, vitrines brisées, rue Saint-Honoré. Objectif désigné par ICARE. Interpellez sur fait constaté. PARLEZ. »
+36. « CENTRAL ICI MISTRAL QUATRE BRAVO. UN interpellé pour jet de projectile sur agents, heure UNE-SIX heures QUATRE-DEUX, fait filmé. Conduit au point de regroupement pour remise à l'officier de police judiciaire. PARLEZ. »
+37. « CENTRAL ICI MISTRAL DEUX. URGENT. UN manifestant blessé à la tête, conscient, angle rue Royale. Demande SANTÉ sur place, je sécurise. PARLEZ. »
+38. « MISTRAL UN ICI MISTRAL. Couloir pour SANTÉ UN, axe véhicules, largeur TROIS mètres CINQ-ZÉRO. TERMINÉ. »
+39. « CENTRAL ICI MISTRAL UN. DEUX journalistes identifiés demandent à passer derrière le cordon. Je les laisse passer. TERMINÉ. »
+40. « CENTRAL ICI MISTRAL. Dispersion effective, chaussée libre. Fin d'emploi de la force à UNE-SEPT heures ZÉRO-CINQ. Consommation : UN-DEUX lacrymogènes à main, SIX au lanceur, aucun tir de lanceur de balles de défense. UN agent blessé léger, DEUX interpellés. PARLEZ. »
+
+Commandements à la voix dans la section (estimé) : « Section, en ligne ! » ; « Boucliers ! » ; « En avant, marche ! » ; « Halte ! » ; « Porte ! » ; « Lanceurs, cent mètres, tir courbe, feu ! » ; « Halte au feu ! » ; « Couloir ! » ; « Reformez ! ». Fin de charge : coup de sifflet ; dépasser le sifflet de plus de 2 s est une faute (estimé).
+
+---

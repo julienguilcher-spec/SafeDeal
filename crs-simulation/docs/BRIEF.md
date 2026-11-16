@@ -49,6 +49,20 @@ meilleur que les jeux « CRS simulation » existants. En priorité : **les manif
   L'affluence dépend de la taille de la manifestation et de l'heure. Comme en vrai, le commandement peut demander la
   **fermeture de stations** (ce qui tarit l'arrivée par cet endroit et déplace le flux vers les stations voisines), et des
   unités peuvent filtrer ou contrôler une sortie.
+- **Couper la circulation** (demande explicite du commanditaire) : le joueur gradé (et l'IA du commandement) peut
+  **fermer une rue, un carrefour, un pont ou tout un périmètre** à la circulation, depuis la carte tactique ou sur place :
+  barrières et véhicules de police en travers, agents postés qui font faire demi-tour, déviation. Le trafic réagit pour de
+  vrai : les voitures ralentissent, sont déviées par un autre itinéraire, font demi-tour, klaxonnent, des bouchons se
+  forment en amont ; bus et taxis compris. Une rue non coupée où arrive un cortège met des automobilistes en danger
+  (véhicules bloqués, pris à partie, incendiés) : couper à temps fait partie du travail. On peut rouvrir.
+- **Barricades et feux de rue réalistes** (demande explicite du commanditaire) : les émeutiers construisent des barrages
+  avec ce qu'ils trouvent — poubelles et conteneurs renversés puis enflammés, barrières de chantier, palettes, mobilier de
+  terrasse, **vélos et trottinettes en libre-service**, scooters — et y mettent le feu. Chaque matériau brûle à sa façon :
+  plastique des poubelles qui fond avec une fumée noire épaisse, **batteries des vélos et trottinettes électriques** qui
+  s'embrasent violemment, crépitent, projettent des étincelles et peuvent se rallumer, pneus et deux-roues à fumée très
+  noire. Restent ensuite des carcasses calcinées, du bitume noirci et des débris. Les barricades gênent réellement la
+  progression des unités et des véhicules ; on les éteint (extincteur, canon à eau, pompiers) et on les dégage (à la
+  main, à la lame du Centaure).
 - **Tout le matériel** : bouclier, tonfa / bâton de défense, gazeuse, grenades lacrymogènes à main et au lanceur
   (Cougar), grenades de désencerclement, LBD 40, extincteur, menottes, radio, mégaphone, arme de service
   (légitime défense uniquement). **Véhicules conduisibles** : fourgon CRS, car de transport, véhicule de commandement,
