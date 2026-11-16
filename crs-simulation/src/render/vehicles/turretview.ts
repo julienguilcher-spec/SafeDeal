@@ -6,6 +6,8 @@
 
 import * as THREE from 'three';
 import type { GameContext, Vehicle, ViewApi } from '@/core/contracts';
+import type { VehiclesExtApi } from '@/sim/vehicles/api';
+import { VEHICLES_EXT_KEY } from './api';
 
 const VERT = /* glsl */`
 varying vec2 vUv;
@@ -137,10 +139,18 @@ export class TurretView {
     scene.add(this.mesh);
   }
 
-  /** Tourelle servie par le joueur : celle de son siège de tireur (le n-ième siège 'gunner' sert la n-ième tourelle). */
+  /**
+   * Tourelle servie par le joueur : celle que la simulation associe à son siège ('vehicles.ext', qui connaît les
+   * cas particuliers comme la caméra du mât du Centaure) ; à défaut, le n-ième siège 'gunner' sert la n-ième tourelle.
+   */
   private turretIndex(ctx: GameContext, v: Vehicle): number {
     const p = ctx.player.person();
     if (!p || p.vehicleId !== v.id || p.seat < 0) return 0;
+    const ext = ctx.service<VehiclesExtApi>(VEHICLES_EXT_KEY);
+    if (ext && typeof ext.turretOfSeat === 'function') {
+      const t = ext.turretOfSeat(v, p.seat);
+      if (t >= 0 && t < v.def.turrets.length) return t;
+    }
     let n = 0;
     for (let i = 0; i < v.def.seats.length; i++) {
       if (v.def.seats[i]!.role !== 'gunner') continue;
