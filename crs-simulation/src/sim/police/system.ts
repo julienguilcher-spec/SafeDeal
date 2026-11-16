@@ -39,7 +39,7 @@ import { ackBody, acknowledge, negative, spell } from './radio';
 import { looksAhead, thinkAgent } from './reflex';
 import { unjoin } from './encircle';
 import { halt, steer } from './steer';
-import { eachDescendant, refreshFormable, resolveLeads, syncTree } from './tree';
+import { eachDescendant, refreshFormable, resolveLeads, syncTree, ledByPlayer, playerDetached } from './tree';
 import * as T from './tuning';
 import { createBravm, createCompany, createEquipage, createGroup, createPeloton, createSection, membersOf } from './units';
 
@@ -336,6 +336,8 @@ export class PoliceSystem implements GameSystem {
     u.isRoot = true;
     eachDescendant(u, (d) => {
       if (d === u) return;
+      // l'unité du joueur garde ses propres ordres
+      if (playerDetached(k, d) && !ledByPlayer(k, u)) return;
       if (d.joinedTo) unjoin(k, d);
       // les opérations en cours des unités absorbées suivent leur nouvelle direction
       for (let i = 0; i < d.ops.length; i++) {

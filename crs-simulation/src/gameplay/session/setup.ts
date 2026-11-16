@@ -151,6 +151,14 @@ export class SessionSetupSystem implements GameSystem {
         ctx.player.setCameraMode(this.cameraOf(config, player, stand.heading));
         ctx.service<RenderCameraApi>('render.camera')?.cut();
         summary.playerId = player.id;
+        // le joueur chef d'une unité (groupe, section) : son unité le suit tant qu'il ne lui donne pas d'autre ordre
+        if (config.role !== 'commandant' && config.role !== 'commissaire') {
+          for (const s of ctx.squads.list) {
+            if (s.faction === 'police' && s.leaderId === player.id && s.members.length > 1) {
+              ctx.squads.issue(s.id, { type: 'suivre', targetId: player.id, issuedBy: player.id });
+            }
+          }
+        }
       } else {
         console.error('[session] aucun personnage n’a pu être créé pour le joueur');
       }

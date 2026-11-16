@@ -222,7 +222,7 @@ describe('intégration : forces de l’ordre réelles (assemblage 2)', () => {
     expect(errors).toEqual([]);
   }, 120000);
 
-  it('chef de groupe DANS une compagnie tenue par l’IA : son ordre prime celui du chef de section, le groupe se regroupe sur lui puis rejoint le point', async () => {
+  it('chef de groupe DANS une compagnie tenue par l’IA : le groupe reste avec le joueur, puis exécute son ordre sans traîner', async () => {
     const t = createTestContext({ seed: 7, modules: SIM });
     const errors = watch(t.ctx);
     await t.start(config('chef_groupe', CONCORDE, {}, { crowdSize: 120 }));
@@ -234,24 +234,26 @@ describe('intégration : forces de l’ordre réelles (assemblage 2)', () => {
     expect(ctx.squads.list.some((q) => q.kind === 'compagnie' && q.faction === 'police')).toBe(true);
     const mates = squad.members.map((id) => ctx.people.get(id)!).filter((p) => !p.isPlayer && p.vehicleId === 0);
     expect(mates.length).toBeGreaterThanOrEqual(5);
-    // le chef de section (IA) envoie d'abord le groupe à son poste : les équipiers partent sans attendre le joueur
-    t.step(16);
+    // 1. la compagnie se déploie (l'IA donne ses ordres aux sections) : le groupe du joueur ne part pas sans lui
+    t.step(60);
+    const near = mates.map((p) => Math.hypot(p.x - me.x, p.z - me.z));
+    console.log(`chef de groupe : après 60 s de déploiement, équipiers à ${near.map((d) => d.toFixed(0)).join(', ')} m du joueur ; ordre « ${squad.order.type} »`);
+    expect(squad.order.type).toBe('suivre');
+    for (const d of near) expect(d).toBeLessThan(15);
+    // 2. le joueur ordonne d'avancer de 25 m et y marche : le groupe y est en moins de 30 s
     const fx = Math.sin(s.heading), fz = Math.cos(s.heading);
-    const tx = me.x + fx * 20, tz = me.z + fz * 20;
-    const away = mates.map((p) => Math.hypot(p.x - tx, p.z - tz));
+    const tx = me.x + fx * 25, tz = me.z + fz * 25;
     ctx.squads.issue(squad.id, { type: 'avancer', x: tx, z: tz, heading: s.heading, issuedBy: me.id });
-    // le joueur marche vers le point qu'il a ordonné (1,4 m/s) ; son groupe se reforme sur lui puis s'y rend
-    for (let i = 0; i < 450; i++) {
+    for (let i = 0; i < 300; i++) {
       const d = Math.hypot(tx - me.x, tz - me.z);
       if (d > 0.3) { me.x += ((tx - me.x) / d) * 0.14; me.z += ((tz - me.z) / d) * 0.14; }
       t.step(0.1);
     }
     const left = mates.map((p) => Math.hypot(p.x - tx, p.z - tz));
-    console.log(`chef de groupe dans la compagnie : distance des équipiers au point ordonné ${away.map((d) => d.toFixed(0)).join(', ')} m → ${left.map((d) => d.toFixed(1)).join(', ')} m après 45 s ; ordre en cours « ${squad.order.type} »`);
-    // l'ordre du joueur n'a pas été remplacé par l'IA, et il est exécuté
+    console.log(`chef de groupe : distance des équipiers au point ordonné après 30 s : ${left.map((d) => d.toFixed(1)).join(', ')} m ; ordre « ${squad.order.type} »`);
     expect(squad.order.type).toBe('avancer');
     expect(squad.order.issuedBy).toBe(me.id);
-    for (const d of left) expect(d).toBeLessThan(5);
+    for (const d of left) expect(d).toBeLessThan(6);
     expect(errors).toEqual([]);
   }, 120000);
 

@@ -103,6 +103,21 @@ function fleetNear(u: Unit): boolean {
   return false;
 }
 
+/**
+ * Unité commandée par le joueur (il en est le chef) : elle manœuvre toujours de façon autonome, sur ses seuls ordres,
+ * et n'est jamais entraînée par l'ordre de son échelon supérieur (sinon un joueur chef de groupe verrait son groupe
+ * partir sans lui vers un poste choisi par l'IA).
+ */
+export function ledByPlayer(k: Kernel, u: Unit): boolean {
+  const pid = k.ctx.player.state.personId;
+  return pid !== 0 && u.squad.leaderId === pid;
+}
+
+/** Unité du joueur dont l'échelon supérieur n'est PAS aussi commandé par lui : elle manœuvre seule. */
+export function playerDetached(k: Kernel, u: Unit): boolean {
+  return ledByPlayer(k, u) && !(u.parent !== null && ledByPlayer(k, u.parent));
+}
+
 /** Recalcule qui dirige qui et l'effectif de chaque racine. */
 export function resolveLeads(k: Kernel): void {
   const units = k.units;
@@ -110,6 +125,10 @@ export function resolveLeads(k: Kernel): void {
   roots.length = 0;
   for (let i = 0; i < units.length; i++) {
     const u = units[i];
+    if (u.parent && playerDetached(k, u)) {
+      u.isRoot = true;
+      u.joinedTo = null;
+    }
     if (!u.parent && !u.joinedTo) u.isRoot = true;
     if (u.joinedTo && (!u.joinedTo.isRoot || units.indexOf(u.joinedTo) < 0)) {
       u.joinedTo = null;

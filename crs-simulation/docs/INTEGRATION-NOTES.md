@@ -413,3 +413,11 @@ un téléphone lancé en portrait trouve désormais la session EN PAUSE (c'étai
   commandant IA ; volatilité 0,05 → tension 0,08, aucune violence.
 - Reste : aucune vitrine attaquée ni pillage dans ce scénario (commerces du quartier d'essai hors parcours) — à vérifier
   sur Paris.
+
+## Chef de groupe joué dans une compagnie IA (16/11) — CORRIGÉ
+- Une unité dont le joueur est le chef (et dont l'échelon supérieur n'est pas aussi commandé par lui) manœuvre seule :
+  `playerDetached()` dans `src/sim/police/tree.ts` ; elle n'est plus absorbée par l'ordre de sa section, et le commandant
+  IA ne lui attribue plus de poste (`command.ts`, buildElements). À la mise en place, elle reçoit l'ordre « suivre » le
+  joueur (`gameplay/session/setup.ts`).
+- Mesuré (`integration.forces.test.ts`) : après 60 s de déploiement de la compagnie, équipiers à 1-2 m du joueur ; ordre
+  « avancer » de 25 m exécuté en moins de 30 s (équipiers à moins de 3,1 m du point).

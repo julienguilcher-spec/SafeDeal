@@ -319,8 +319,11 @@ export class Command {
         // de section) suit le premier d'entre eux
         let first: Squad | null = null;
         let command: Squad | null = null;
+        const pid = ctx.player.state.personId;
         for (let g = 0; g < groups.length; g++) {
           if (core.members(groups[g].id, core.people) === 0) continue;
+          // le groupe du joueur chef de groupe n'est pas un élément de manœuvre de l'IA : il obéit au joueur
+          if (pid !== 0 && groups[g].leaderId === pid) continue;
           if (!command && s.leaderId !== 0 && groups[g].members.indexOf(s.leaderId) >= 0) {
             command = groups[g];
             continue;
