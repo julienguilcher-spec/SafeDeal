@@ -8,7 +8,7 @@ import { TAU, ease, fsin } from './mathx';
 import { computePose, createPoseParams } from './pose';
 import { blendLocal, composePose, solveLocal } from './solve';
 import {
-  HOLD_LONG, POSTURE_STAND, P_CHEST, P_PX, P_PY, P_PZ, P_RX, P_RY, P_RZ, P_SPINE, U_AIM_LONG, U_AIM_PISTOL, U_BLOCK,
+  HOLD_LONG, HOLD_SHIELD, POSTURE_STAND, P_CHEST, P_PX, P_PY, P_PZ, P_RX, P_RY, P_RZ, P_SPINE, U_AIM_LONG, U_AIM_PISTOL, U_BLOCK,
   U_COUGH, U_COVER_FACE, U_MEGAPHONE, U_NONE, U_PHOTO, U_RADIO, U_STRIKE, U_THROW, createPoseInput, type PoseInput,
 } from './poseparams';
 import type { AnimSample } from './animator';
@@ -29,6 +29,12 @@ const FP_BLOCK_DROP = 0.2;
  */
 const FP_LONG_RAISE = 0.14;
 const FP_LONG_FORWARD = 0.07;
+/**
+ * Bouclier PORTÉ (non levé) : tenu le long du corps, il ne doit pas cacher le quart de l'écran (bandeau « POLICE »
+ * en miroir devant soi). Le thorax virtuel descend et part à gauche : on n'en voit plus que le bord, en bas à gauche.
+ */
+const FP_SHIELD_DROP = 0.2;
+const FP_SHIELD_LEFT = 0.16;
 
 export class FpRig {
   private readonly inp: PoseInput = createPoseInput();
@@ -47,6 +53,7 @@ export class FpRig {
   private faceK = 0;
   private blockK = 0;
   private portK = 0;
+  private shieldK = 0;
   private fresh = true;
 
   reset(): void {
@@ -104,6 +111,7 @@ export class FpRig {
       this.faceK = u0 === U_MEGAPHONE || u0 === U_RADIO || u0 === U_COUGH || u0 === U_COVER_FACE || u0 === U_PHOTO ? 1 : 0;
       this.blockK = u0 === U_BLOCK ? 1 : 0;
       this.portK = u0 === U_NONE && sm.hold === HOLD_LONG && !sm.alt ? 1 : 0;
+      this.shieldK = sm.hold === HOLD_SHIELD && u0 !== U_BLOCK ? 1 : 0;
     } else {
       if (sm.upper !== this.lastUpper || sm.hold !== this.lastHold || sm.upperT < this.lastUpperT - 0.05) {
         this.prev.set(this.last);
@@ -134,6 +142,7 @@ export class FpRig {
     // bouclier levé : il descend dans l'image ; arme longue au port : elle y monte
     this.blockK += ((u === U_BLOCK ? 1 : 0) - this.blockK) * (1 - Math.exp(-dt / 0.1));
     this.portK += ((u === U_NONE && sm.hold === HOLD_LONG && !long ? 1 : 0) - this.portK) * (1 - Math.exp(-dt / 0.12));
+    this.shieldK += ((sm.hold === HOLD_SHIELD && u !== U_BLOCK ? 1 : 0) - this.shieldK) * (1 - Math.exp(-dt / 0.12));
 
     const s = sm.scale;
     const tmp = this.tmp;
@@ -144,8 +153,8 @@ export class FpRig {
     const bobY = 0.011 * w * fsin(2 * TAU * phase);
     // (le thorax virtuel est plus haut et plus avancé que le vrai : les mains entrent ainsi dans le champ
     // sans tendre les bras, comme dans toute vue subjective)
-    const cx = bobX - 0.085 * this.aimK;
-    const cy = -(FP_CHEST_DROP + FP_FACE_DROP * this.faceK + FP_BLOCK_DROP * this.blockK - FP_LONG_RAISE * this.portK) * s + bobY + 0.05 * this.aimK;
+    const cx = bobX - 0.085 * this.aimK - FP_SHIELD_LEFT * this.shieldK * s;
+    const cy = -(FP_CHEST_DROP + FP_FACE_DROP * this.faceK + FP_BLOCK_DROP * this.blockK + FP_SHIELD_DROP * this.shieldK - FP_LONG_RAISE * this.portK) * s + bobY + 0.05 * this.aimK;
     // (z négatif = devant la caméra)
     const cz = FP_CHEST_BACK - 0.02 * this.aimK + 0.05 * this.faceK - FP_LONG_FORWARD * this.portK;
     const co = BONE_CHEST * BONE_STRIDE;
