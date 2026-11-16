@@ -257,6 +257,14 @@ export function buildOptions(model: HomeModel): HTMLElement {
   });
   sanctions.el.dataset.id = 'opt-sanctions';
 
+  const journee = widgets.toggle({
+    label: 'Journée de service (départ de la caserne)',
+    hint: 'Prise de service à la caserne de la Cité, puis trajet en colonne de fourgons, sirènes, jusqu’à la manifestation ; retour à la fin. Désactivé : vous commencez déjà sur place.',
+    value: d.options.journee,
+    onChange: (value: boolean) => model.update({ options: { ...model.draft.options, journee: value } }),
+  });
+  journee.el.dataset.id = 'opt-journee';
+
   const violenceHint = (v: ViolenceLevel): string => (v === 'sobre' ? 'Le sang est masqué ; les blessures restent signalées.' : 'Blessures représentées de façon réaliste, sans complaisance.');
   const violenceField = widgets.field('Violence affichée', null, { hint: violenceHint(ctx.settings.values.violence) });
   const violenceSeg = widgets.segmented<ViolenceLevel>({
@@ -307,7 +315,7 @@ export function buildOptions(model: HomeModel): HTMLElement {
   }, 'secondary', 'dice');
   seedField.el.insertBefore(el('div', 'ui-inline', reseed), seedField.el.lastElementChild);
 
-  root.append(sanctions.el, violenceField.el, trafficField.el, metroField.el, seedField.el);
+  root.append(journee.el, sanctions.el, violenceField.el, trafficField.el, metroField.el, seedField.el);
   return root;
 }
 

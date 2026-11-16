@@ -99,6 +99,11 @@ export interface ScenarioOptions {
   circulation: 'ouverte' | 'coupee';
   /** Stations de métro au départ autour du lieu. */
   metro: 'ouvert' | 'ferme';
+  /**
+   * Journée de service (rôles de police) : prise de service à la caserne de la Cité, trajet en colonne vers la
+   * manifestation, retour. false : les forces sont déjà en place près du rassemblement.
+   */
+  journee: boolean;
 }
 
 /**
@@ -124,6 +129,8 @@ export interface ScenarioExtra {
   derapage: Derapage;
   moyens: ScenarioMeans;
   options: ScenarioOptions;
+  /** Journée de service effective (option cochée, rôle et mode qui s'y prêtent) : lue par src/gameplay/session. */
+  journee: boolean;
 }
 
 /** Rayon (m) autour du lieu pour « circulation coupée » et « stations fermées » au départ. */

@@ -43,7 +43,8 @@ describe('ui/scénario — buildSessionConfig', () => {
     expect(e.vent).toEqual({ direction: 270, vitesse: 10 });
     expect(e.derapage).toBe('hasard');
     expect(e.moyens).toEqual({ sections: 4, fourgons: 12, centaure: 1, canon_eau: 1, bravm: 1, drone: 1, pompiers: 1, samu: 1, secours_sur_appel: true });
-    expect(e.options).toEqual({ sanctions: true, violence: 'realiste', circulation: 'coupee', metro: 'ouvert' });
+    expect(e.options).toEqual({ sanctions: true, violence: 'realiste', circulation: 'coupee', metro: 'ouvert', journee: true });
+    expect(e.journee).toBe(true);
     expect(Object.keys(e.composition).sort()).toEqual([...FAMILY_IDS].sort());
   });
 
@@ -171,7 +172,7 @@ describe('ui/scénario — relecture d’une configuration', () => {
       crowdSize: 1800, cause: 'climat', causeLabel: 'Climat', tension: 0.7, volatility: 0.85, derapage: 'les_deux', duration: 'longue', seed: 123456,
       composition: { familles: 5, gilets_jaunes: 45, syndical: 10, etudiants: 30, climat: 10, soignants: 0, agriculteurs: 0, retraites: 0, black_bloc: 12 },
       moyens: { sections: 6, fourgons: 18, centaure: 1, canon_eau: 2, bravm: 2, drone: 2, pompiers: 2, samu: 1, secours_sur_appel: false },
-      options: { sanctions: false, violence: 'sobre', circulation: 'coupee', metro: 'ferme' },
+      options: { sanctions: false, violence: 'sobre', circulation: 'coupee', metro: 'ferme', journee: false },
     });
     const c1 = buildSessionConfig(d);
     const c2 = buildSessionConfig(draftFromConfig(c1));

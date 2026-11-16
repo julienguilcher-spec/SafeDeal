@@ -8,6 +8,7 @@
  *   &nomenu=1              pas de menu principal (tests)
  *   &debug=1               journalisation bavarde
  *   &mode=carriere|libre|monde_ouvert|editeur|test   mode de jeu (défaut : monde_ouvert pour paris, test sinon)
+ *   &journee=1                                  journée de service (caserne de la Cité, trajet en colonne)
  *   &role=… &rank=… &time=… &weather=… &crowd=… &tension=… &volatility=… &mission=… &duration=…
  * Exemple, mode libre en commandant d'emblée :
  *   ?autostart=paris&mode=libre&role=commandant&mission=…&crowd=800&tension=0.4
@@ -147,5 +148,7 @@ export function launchSessionConfig(launch: LaunchParams): SessionConfig {
   if (launch.volatility !== null) cfg.volatility = Math.min(1, Math.max(0, launch.volatility));
   if (launch.mission) cfg.missionId = launch.mission;
   if (launch.duration) cfg.duration = launch.duration;
+  // &journee=1 : journée de service (prise de service à la caserne, trajet en colonne)
+  if (launch.raw['journee'] === '1') cfg.extra = { ...(cfg.extra ?? {}), journee: true };
   return cfg;
 }

@@ -108,7 +108,7 @@ export function defaultDraft(violence: ViolenceLevel = 'realiste'): ScenarioDraf
     derapage: 'hasard',
     duration: 'standard',
     moyens: defaultMeans(),
-    options: { sanctions: true, violence, circulation: 'ouverte', metro: 'ouvert' },
+    options: { sanctions: true, violence, circulation: 'ouverte', metro: 'ouvert', journee: true },
     seed: 1,
   };
 }
@@ -172,6 +172,7 @@ export function sanitizeDraft(input: Partial<ScenarioDraft> | null | undefined, 
     violence: o.violence === 'sobre' ? 'sobre' : 'realiste',
     circulation: o.circulation === 'coupee' ? 'coupee' : 'ouverte',
     metro: o.metro === 'ferme' ? 'ferme' : 'ouvert',
+    journee: typeof o.journee === 'boolean' ? o.journee : true,
   };
 
   const seed = num(d.seed, 1);
@@ -240,6 +241,8 @@ export function buildSessionConfig(draft: ScenarioDraft): SessionConfig {
     derapage: d.derapage,
     moyens: { ...d.moyens },
     options: { ...d.options },
+    // journée de service : en scénario libre ou en carrière, sans mission imposée (une mission a son propre déroulé)
+    journee: d.options.journee && d.mode !== 'monde_ouvert' && d.missionId === '',
   };
   const config: SessionConfig = {
     mode: d.mode as GameMode,
@@ -579,6 +582,7 @@ export function surpriseDraft(rng: Rng, sources: SurpriseSources = {}): Scenario
     violence: sources.violence ?? 'realiste',
     circulation: rng.chance(0.5) ? 'coupee' : 'ouverte',
     metro: rng.chance(0.25) ? 'ferme' : 'ouvert',
+    journee: true,
   };
   d.seed = rng.int(1, 1000000);
   return sanitizeDraft(d, base);

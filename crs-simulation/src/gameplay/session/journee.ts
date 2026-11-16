@@ -467,10 +467,12 @@ export class JourneeSystem implements GameSystem {
     return best;
   }
 
+  /** « fourgon de CRS MISTRAL 1 BRAVO » (seule l'initiale passe en minuscule : les sigles restent). */
   private vehicleLabel(v: Vehicle): string {
     const ctx = this.ctx!;
-    for (const s of ctx.squads.list) if (s.vehicleId === v.id) return `${v.def.name.toLowerCase()} ${s.name}`;
-    return v.def.name.toLowerCase();
+    const name = v.def.name.charAt(0).toLowerCase() + v.def.name.slice(1);
+    for (const s of ctx.squads.list) if (s.vehicleId === v.id) return `${name} ${s.name}`;
+    return name;
   }
 
   /** Sirènes et gyrophares de toute la colonne. */
