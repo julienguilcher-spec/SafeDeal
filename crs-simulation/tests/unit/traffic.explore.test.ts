@@ -1,64 +1,39 @@
 import { describe, expect, it } from 'vitest';
 import { createSystems as people } from '@/sim/people';
 import { createSystems as vehicles } from '@/sim/vehicles';
-import { S_CROSS, S_WAIT, S_CORNER, S_FLEE } from '@/sim/traffic/ped-brain';
-import { createGasHazards, createTown, createTrafficBench } from '@/sim/traffic/testkit';
-import type { GasHazards } from '@/sim/traffic/testkit';
+import { createTown, createTrafficBench } from '@/sim/traffic/testkit';
 
 const DT = 1 / 30;
 
-describe('exploration piétons', () => {
-  it('piétons d\'ambiance', async () => {
-    const town = createTown({ signals: [4], buildings: true });
-    let gas: GasHazards | null = null;
-    const b = await createTrafficBench({
-      world: town, modules: [vehicles, people], session: { x: town.centerX, z: town.centerZ }, ambient: true,
-      setup: (ctx) => { gas = createGasHazards(ctx.hazards); ctx.hazards = gas; },
-    });
+describe('exploration stationnement', () => {
+  it('stationnement et trafic', async () => {
+    const town = createTown({ signals: [4], width: 16, sidewalk: 4 });
+    const b = await createTrafficBench({ world: town, modules: [vehicles, people], session: { x: town.centerX, z: town.centerZ }, ambient: true });
     const t = b.api.tuning;
-    t.vehicleDensity = 1.5;
+    t.vehicleDensity = 2.5;
     t.spawnMin = 130; t.spawnMax = 250; t.despawn = 256;
-    t.parkedDensity = 0;
-    t.pedestrianDensity = 2;
+    t.parkedRadius = 230;
+    t.parkShare = 0.5;
+    t.pedestrianDensity = 0.5;
     t.pedSpawnMin = 10; t.pedSpawnMax = 200; t.pedDespawn = 240;
-    const count = new Map<number, number>();
-    const s0 = (): number => b.api.stats.spawned;
-    let onRoad = 0; let samples = 0; let roadWalk = 0;
-    const offenders = new Map<number, number>();
-    let hurts = 0; let hits = 0; let speedSum = 0; let speedN = 0; let inGas = 0; let gasSamples = 0; let fled = 0;
-    b.ctx.events.on('person:hurt', (e) => { hurts++; if (hurts < 5) console.log('HURT', e.info.kind, e.info.amount.toFixed(0), 't=' + b.ctx.clock.now.toFixed(0)); });
-    b.ctx.events.on('vehicle:collision', (e) => { if (e.otherKind === 'person') hits++; });
-    b.ctx.events.on('person:fled', () => fled++);
-    for (let i = 0; i < 30 * 180; i++) {
+    let collisions = 0; let parkedEvents = 0;
+    b.ctx.events.on('vehicle:collision', (e) => { collisions++; if (collisions < 5) { const v = b.ctx.vehicles.get(e.vehicleId)!; const o = b.ctx.vehicles.get(e.otherId); console.log(`COLLISION t=${b.ctx.clock.now.toFixed(0)} ${e.otherKind} ${e.speed.toFixed(1)} (${v.x.toFixed(1)},${v.z.toFixed(1)}) parked=${b.api.isParked(v)} other (${o?.x.toFixed(1)},${o?.z.toFixed(1)}) parked=${o ? b.api.isParked(o) : '-'}`); } });
+    b.ctx.events.onAny('traffic:motorist', (e) => { const ev = e as { state: string; x: number; z: number }; if (ev.state === 'gare') { parkedEvents++; if (parkedEvents < 4) console.log(`GARÉ t=${b.ctx.clock.now.toFixed(0)} en (${ev.x.toFixed(1)}, ${ev.z.toFixed(1)})`); } });
+    b.step(1);
+    const parked = b.sys.parking.list;
+    console.log('garés au départ', parked.length, parked.slice(0, 6).map((p) => `${p.v.kind}(${p.v.x.toFixed(1)},${p.v.z.toFixed(1)},h=${(p.v.heading * 57.3).toFixed(0)})`).join(' '));
+    let offRoad = 0;
+    for (const p of parked) if (town.surfaceAt(p.v.x, p.v.z) !== 'road') offRoad++;
+    console.log('hors chaussée', offRoad);
+    for (let i = 0; i < 30 * 240; i++) {
       b.step(DT);
-      if (i === 30 * 90) { gas!.clouds.push({ x: 120, z: 60, radius: 30, level: 0.8 }); console.log('GAZ en (120, 60), rayon 30'); }
-      if (i % 15 === 0) {
-        for (const br of b.sys.peds.list) {
-          const p = br.p;
-          samples++;
-          if (br.state === 0) { speedSum += Math.hypot(p.vx, p.vz); speedN++; }
-          if (gas!.clouds.length > 0) { gasSamples++; if (Math.hypot(p.x - 120, p.z - 60) < 28) inGas++; }
-          const s = town.surfaceAt(p.x, p.z);
-          if (s === 'road') {
-            onRoad++;
-            if (br.state !== S_CROSS && br.state !== S_WAIT) { roadWalk++; offenders.set(p.id, (offenders.get(p.id) ?? 0) + 1); }
-          }
-          count.set(br.state, (count.get(br.state) ?? 0) + 1);
-        }
-      }
-      if (i % 900 === 899) {
+      if (i % 1800 === 1799) {
         const s = b.api.stats;
-        let stuck = 0; let fleeing = 0;
-        for (const br of b.sys.peds.list) { stuck += br.stuckTotal; if (br.state === S_FLEE) fleeing++; }
-        console.log(`   vitesse moyenne en marche ${(speedSum / Math.max(1, speedN)).toFixed(2)} m/s, déblocages ${stuck}, blessures ${hurts}, chocs véhicule-piéton ${hits}, en fuite ${fleeing}, dans le gaz ${gasSamples ? (100 * inGas / gasSamples).toFixed(1) : '-'}%, réfugiés ${fled}, apparus ${s0()}`);
-        console.log(`t=${b.ctx.clock.now.toFixed(0)} peds=${s.pedestrians}/${s.pedestrianTarget} veh=${s.vehicles} onRoad=${(100 * onRoad / samples).toFixed(1)}% roadWalk=${(100 * roadWalk / samples).toFixed(2)}% states=${[...count.entries()].sort((a, c) => a[0] - c[0]).map(([k, v]) => `${k}:${(100 * v / samples).toFixed(0)}%`).join(' ')}`);
+        let maxStill = 0;
+        for (const br of b.sys.cars.list) maxStill = Math.max(maxStill, br.stillT);
+        console.log(`t=${b.ctx.clock.now.toFixed(0)} veh=${s.vehicles}/${s.vehicleTarget} parked=${s.parked} peds=${s.pedestrians} collisions=${collisions} garés=${parkedEvents} maxStill=${maxStill} despawned=${s.despawned}`);
       }
     }
-    let worst = 0; let worstId = 0;
-    for (const [id, n] of offenders) if (n > worst) { worst = n; worstId = id; }
-    const wb = b.sys.peds.byPerson.get(worstId);
-    if (wb) console.log(`pire : #${worstId} ${worst} relevés sur la chaussée hors traversée, à (${wb.p.x.toFixed(1)}, ${wb.p.z.toFixed(1)}) état ${wb.state} arête ${wb.edge} dir ${wb.dir} côté ${wb.side}`);
-    console.log('offenders', offenders.size, 'hurt?');
-    expect(samples).toBeGreaterThan(0);
+    expect(parked.length).toBeGreaterThan(0);
   }, 300000);
 });
