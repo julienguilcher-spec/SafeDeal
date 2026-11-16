@@ -157,7 +157,8 @@ export class CentaureUnit extends SpecialUnit {
       this.say(report(this.superior(), this.squad.name, 'Engin en position'));
       this.finish(true, '');
       this.setStage('repos');
-    } else if (st.state === 'echec' || (st.state === 'bloque' && st.blockedFor > 25)) {
+    } else if (st.state === 'echec' || (st.state === 'bloque' && st.blockedFor > (st.reason === 'personne' ? 120 : 25))) {
+      // (devant des personnes, l'engin insiste : avertisseur, la foule s'écarte, nouvel itinéraire — session/engins.ts)
       this.say(report(this.superior(), this.squad.name, st.reason === 'obstacle' ? 'Engin arrêté devant un obstacle, demande l’ordre de dégager' : 'Engin bloqué'));
       this.finish(false, 'Engin bloqué.');
       this.setStage('repos');
