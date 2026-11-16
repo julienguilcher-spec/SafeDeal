@@ -238,3 +238,11 @@ pause, paramètres, recommencer, compte rendu, commandes tactiles sur téléphon
 - **Bilan de l'option 1 (modèle léger)** : les deux livrables avaient un compte rendu inexact et ont demandé une
   relecture lourde (radio : corrigée ; missions : déroulé refait sur le modèle haut de gamme). À réserver désormais aux
   tâches purement mécaniques.
+
+## Mémoire (constat du 16/11, pendant l'assemblage)
+- Un Chromium de test faisant tourner le vrai jeu a été tué par le noyau à ~6 Go de mémoire (un autre tournait à 3,5 Go).
+  En WebGL logiciel les textures comptent dans la mémoire du processus, mais c'est un signal : mesurer
+  `renderer.info.memory` (textures, géométries) et le tas JS en jeu, par qualité ; suspects : textures de sol par tuile,
+  atlas des immeubles, nombre de tuiles détaillées chargées, cibles de rendu des ombres. Objectif : ≤ 1 Go en qualité
+  « bas » (téléphone), ≤ 2,5 Go en « haut ».
+- Ne pas lancer plusieurs tests e2e du vrai jeu en parallèle sur cette machine (limite commune de 15 Go).
