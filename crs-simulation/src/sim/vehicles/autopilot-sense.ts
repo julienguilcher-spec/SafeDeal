@@ -12,6 +12,9 @@ import { makeRayHit } from '@/core/null-services';
 import type { ApState, PathPoint } from './autopilot-state';
 import type { VehicleKernel, VehicleRt } from './runtime';
 
+/** Vitesse au-delà de laquelle on surveille aussi la trace d'un virage (m/s). */
+const WALKING_PACE = 2.2;
+
 export class ApSensor {
   private readonly people: Person[] = [];
   private readonly props: Prop[] = [];
@@ -78,7 +81,9 @@ export class ApSensor {
     // ── personnes sur la trajectoire d'un virage (passage piéton de la rue où l'on tourne) ──
     // Le couloir ci-dessus suit le braquage du moment : à l'entrée d'un virage, il regarde encore tout droit. On
     // suit donc aussi l'itinéraire lui-même, décalé sur la voie, jusqu'à l'horizon.
-    if (dir > 0 && ap.mode !== 'park' && ap.n >= 3 && (this.turnsAhead(ap, horizon) || v.steerAngle > 0.08 || v.steerAngle < -0.08)) {
+    // (au pas — camion sono dans le cortège, engin dans la foule — le couloir ordinaire suffit : la trace entière
+    // serait toujours occupée et l'arrêterait sans cesse)
+    if (dir > 0 && u > WALKING_PACE && ap.mode !== 'park' && ap.n >= 3 && (this.turnsAhead(ap, horizon) || v.steerAngle > 0.08 || v.steerAngle < -0.08)) {
       const pathBest = this.pathPeople(rt, ap, horizon, hw, u);
       if (pathBest < best) {
         best = pathBest;
