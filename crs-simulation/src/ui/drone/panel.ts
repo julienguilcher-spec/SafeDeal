@@ -147,7 +147,7 @@ export class FeedPanel {
 
     const tools = el('div', 'dv-tools');
     this.nextBtn = button('', () => actions.next(), { icon: 'chevron', id: 'drone-feed-next', title: 'Drone suivant' });
-    this.detectBtn = button('', () => actions.detect(), { icon: 'eye', id: 'drone-feed-detect', title: 'Détection des personnes', className: 'is-on' });
+    this.detectBtn = button('', () => actions.detect(), { icon: 'eye', id: 'drone-feed-detect', title: 'Détection des personnes' });
     this.zoomBtn = button('×1', () => actions.zoom(), { id: 'drone-feed-zoom', title: 'Zoom de la caméra' });
     const size = button('', () => actions.enlarge(), { icon: 'select', id: 'drone-feed-size', title: 'Agrandir ou réduire' });
     const close = button('', () => actions.close(), { icon: 'close', id: 'drone-feed-close', title: 'Fermer le retour vidéo (O)' });

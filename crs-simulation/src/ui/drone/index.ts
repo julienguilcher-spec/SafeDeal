@@ -73,8 +73,8 @@ export class DroneFeedSystem implements GameSystem, DroneFeedApi {
   /** Effectif de manifestants estimé dans le champ (dernier compte). */
   inView = 0;
   zoom = 1;
-  /** Repères de détection sur les manifestants. */
-  detect = true;
+  /** Repères de détection sur les manifestants (éteints par défaut : ils se voyaient à travers les toits). */
+  detect = false;
 
   private ctx: GameContext | null = null;
   private panel: FeedPanel | null = null;
@@ -425,6 +425,8 @@ export class DroneFeedSystem implements GameSystem, DroneFeedApi {
     let drawn = 0;
     for (let i = 0; i < n && drawn < 1500; i++) {
       const p = this.people[i]!;
+      // la caméra ne voit pas à travers les toits : personne masquée par un immeuble entre elle et le drone, pas de repère
+      if (!this.visibleFrom(ctx, cam.position.x, cam.position.y, cam.position.z, p.x, p.y + 1.2, p.z)) continue;
       const q = this.v3.set(p.x, p.y + 0.9, p.z).project(cam);
       if (q.z < -1 || q.z > 1 || q.x < -1 || q.x > 1 || q.y < -1 || q.y > 1) continue;
       const sx = (q.x * 0.5 + 0.5) * w;
@@ -433,6 +435,20 @@ export class DroneFeedSystem implements GameSystem, DroneFeedApi {
       drawn++;
     }
     g.fill();
+  }
+
+  /** Ligne de vue 3D du drone à un point : échantillons le long du segment, sous la hauteur du bâti = masqué. */
+  private visibleFrom(ctx: GameContext, ax: number, ay: number, az: number, bx: number, by: number, bz: number): boolean {
+    const world = ctx.world;
+    const d = Math.hypot(bx - ax, bz - az);
+    const steps = Math.min(40, Math.max(2, Math.ceil(d / 4)));
+    for (let k = 1; k < steps; k++) {
+      const t = k / steps;
+      const x = ax + (bx - ax) * t, z = az + (bz - az) * t, y = ay + (by - ay) * t;
+      const roof = world.buildingHeightAt(x, z);
+      if (roof > 0 && world.heightAt(x, z) + roof > y) return false;
+    }
+    return true;
   }
 
   private refreshInfo(ctx: GameContext, v: Vehicle, ids: readonly number[]): void {
