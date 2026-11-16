@@ -51,6 +51,7 @@ export class MonumentSystem implements GameSystem {
     keys: () => listMonuments().map((d) => d.key),
     collidersOf: (lm) => getWorldColliders(lm),
     stats: () => this.stats(),
+    prewarm: (keys) => this.prewarm(keys),
   };
 
   provide(ctx: GameContext): void {
@@ -60,6 +61,20 @@ export class MonumentSystem implements GameSystem {
   init(ctx: GameContext): void {
     this.ctx = ctx;
     this.unsub.push(ctx.events.on('settings:changed', (e) => { if (e.key === 'quality') this.dropDetailed(); }));
+  }
+
+  /** Construit puis relâche chaque modèle demandé : matériaux et textures partagés restent en cache. */
+  private prewarm(keys?: readonly string[]): void {
+    const ctx = this.ctx;
+    if (!ctx || !ctx.view) return;
+    const defs = keys ? keys.map((k) => getMonument(k)).filter((d): d is MonumentDef => d !== undefined) : listMonuments();
+    for (const def of defs) {
+      try {
+        disposeObject(def.build({ footprint: [], height: def.height }, ctx.view.quality));
+      } catch (err) {
+        console.error(`[monuments] préparation de « ${def.key} » impossible :`, err);
+      }
+    }
   }
 
   /** Reconstruit la liste des emplacements quand les repères de la carte changent (chargement différé). */

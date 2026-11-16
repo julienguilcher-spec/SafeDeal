@@ -24,4 +24,9 @@ export interface MonumentsApi {
   /** Obstacles au sol d'un monument de la carte, en coordonnées monde. */
   collidersOf(lm: LandmarkInfo): MonumentCollider[];
   stats(): MonumentsStats;
+  /**
+   * Prépare à l'avance les matériaux et textures des monuments donnés (toutes les définitions si omis) : à appeler
+   * pendant un écran de chargement pour éviter un à-coup à la première apparition. Sans effet en mode headless.
+   */
+  prewarm(keys?: readonly string[]): void;
 }

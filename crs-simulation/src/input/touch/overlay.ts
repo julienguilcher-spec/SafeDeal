@@ -71,6 +71,12 @@ function anchored(side: string, units: number): string {
   return `calc(env(safe-area-inset-${side}, 0px) + var(--s) * ${units}px)`;
 }
 
+/** Premier mot d'un nom d'objet, tronqué : « Grenade lacrymogène » → « Grenade ». */
+function shortName(name: string, max: number): string {
+  const first = name.trim().split(/[\s_-]/)[0] ?? '';
+  return first.slice(0, max);
+}
+
 export class TouchOverlay {
   readonly root: HTMLDivElement;
   readonly axes: SourceAxes = createSourceAxes();
@@ -181,10 +187,12 @@ export class TouchOverlay {
       const label = doc.createElement('span');
       label.className = 'ct-t';
       label.textContent = c.label;
-      if (c.shape === 'round') {
-        // le texte doit tenir dans la corde du cercle : la taille dépend de la longueur du mot le plus long
+      if (c.shape === 'round' || c.shape === 'chip') {
+        // le texte doit tenir dans le bouton (corde du cercle, largeur de la pastille) :
+        // sa taille dépend de la longueur du mot le plus long
         const longest = c.label.split(' ').reduce((m, w) => Math.max(m, w.length), 0);
-        const fs = Math.min(9.5, (c.w * 0.74) / (longest * 0.7));
+        const room = c.shape === 'round' ? c.w * 0.74 : c.w * 0.88;
+        const fs = Math.min(c.shape === 'round' ? 9.5 : 8.5, room / (longest * 0.7));
         label.style.fontSize = px(Math.round(fs * 10) / 10);
       }
       el.appendChild(label);
@@ -314,12 +322,12 @@ export class TouchOverlay {
       const icon = doc.createElement('span');
       const glyph = Array.from(it.icon).length <= 2;
       icon.className = glyph ? 'ct-item-ic' : 'ct-item-ic is-text';
-      icon.textContent = glyph ? it.icon : (it.label ?? it.icon).slice(0, 7);
+      icon.textContent = glyph ? it.icon : shortName(it.label ?? it.icon, 10);
       el.append(key, icon);
       if (glyph && it.label) {
         const l = doc.createElement('span');
         l.className = 'ct-item-l';
-        l.textContent = it.label.slice(0, 9);
+        l.textContent = shortName(it.label, 9);
         el.appendChild(l);
       }
       if (it.count !== undefined) {

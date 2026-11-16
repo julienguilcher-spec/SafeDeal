@@ -32,6 +32,24 @@ if (filter === 'detail') {
   await capture(name, 'view=detail&pas=0.033&' + q, { frames: 30, width: 1800, height: 560 });
   await finish({ browser: browserRef, server, errors: allErrors, label: 'people' });
 }
+/** Mesure du coût CPU du module seul (sans rendu) : N images simulées à 60 Hz dans la page. */
+async function measure(name, query, n = 600) {
+  if (filter && !name.includes(filter)) return null;
+  const { browser, page, errors } = await openPage(server.url + 'harness/people.html?' + query + '&mesure=' + n, { width: 480, height: 270 });
+  browserRef = browser;
+  try {
+    await waitFor(page, 'window.__mesure !== undefined', 600000);
+    const m = await page.evaluate(() => window.__mesure);
+    console.log(`[people] ${name} : ${m.personnes} personnes (${m.proches} proches, ${m.moyennes} moyennes, ${m.lointaines} lointaines, ${m.objets} objets), `
+      + `${m.posesParImage.toFixed(0)} poses/image — CPU par image : médiane ${m.mediane.toFixed(2)} ms, moyenne ${m.moyenne.toFixed(2)} ms, `
+      + `min ${m.min.toFixed(2)} ms, p95 ${m.p95.toFixed(2)} ms, max ${m.max.toFixed(2)} ms (sur ${m.images} images)`);
+    for (const e of errors) allErrors.push(name + ' : ' + e);
+    return m;
+  } finally {
+    await browser.close().catch(() => {});
+  }
+}
+
 // vues de détail de toutes les animations, trois par capture, sous trois angles
 const DETAILS = [
   ['p:stand,p:crouch,p:kneel', 0], ['p:sit,p:seated,p:prone', 0], ['p:down,stagger,burn', 0],
@@ -54,15 +72,25 @@ for (const de of [0, 4, 8, 12, 16, 18]) {
   await capture(`tenues-pres-${de}`, `view=tenues&pres=1&de=${de}&pas=0.033`);
   await capture(`tenues-pres-dos-${de}`, `view=tenues&pres=1&dos=1&de=${de}&pas=0.033`);
 }
+// niveaux de détail moyen et lointain vus de près (contrôle des silhouettes simplifiées)
+await capture('tenues-lod1-face', 'view=tenues&jeu=1&lod=1&pas=0.033');
+await capture('tenues-lod1-dos', 'view=tenues&jeu=2&lod=1&dos=1&pas=0.033');
+await capture('tenues-lod2-face', 'view=tenues&jeu=1&lod=2&pas=0.033');
+await capture('tenues-lod2-dos', 'view=tenues&jeu=2&lod=2&dos=1&pas=0.033');
+// occupants de véhicules (sièges) et repères d'os fournis par l'API
+await capture('vehicule', 'view=vehicule&pas=0.033&os=1', { frames: 16 });
 // (b) poses et animations (temps figé à plusieurs instants)
 for (let page = 1; page <= 4; page++) {
   await capture(`poses-${page}-t025`, `view=poses&page=${page}&t=0.25&pas=0.033`, { frames: 30 });
   await capture(`poses-${page}-t045`, `view=poses&page=${page}&t=0.45&pas=0.033`, { frames: 30 });
 }
-await capture('marche', 'view=marche&pas=0.033', { frames: 45 });
-await capture('marche-2', 'view=marche&pas=0.033', { frames: 52 });
-// (c) foule de 1 500 personnes
-const crowd = await capture('foule-1500', 'view=foule&n=1500&pas=0.033', { frames: 24, timeout: 900000 });
+await capture('marche', 'view=marche&pas=0.0167', { frames: 70, width: 1800, height: 520 });
+await capture('marche-2', 'view=marche&pas=0.0167', { frames: 84, width: 1800, height: 520 });
+// (c) foule de 1 500 personnes : mesures CPU (sans rendu) puis captures
+const mesure = await measure('mesure-1500-haut', 'view=foule&n=1500&qualite=haut');
+await measure('mesure-1500-sol', 'view=foule&n=1500&qualite=haut&cam=sol');
+await measure('mesure-300-bas', 'view=foule&n=300&qualite=bas&cam=sol');
+const crowd = await capture('foule-1500', 'view=foule&n=1500&pas=0.0167', { frames: 30, timeout: 900000 });
 await capture('foule-1500-sol', 'view=foule&n=1500&cam=sol&pas=0.033', { frames: 30, timeout: 600000 });
 await capture('foule-300-bas', 'view=foule&n=300&qualite=bas&pas=0.033', { frames: 30, timeout: 600000, width: 844, height: 390 });
 // (d) première personne
@@ -78,9 +106,10 @@ for (const [objet, anim, t, alt] of FP) {
 }
 
 let ok = true;
+if (mesure && mesure.mediane > 8) { ok = false; console.error('[people] coût CPU trop élevé : ' + mesure.mediane.toFixed(2) + ' ms'); }
 if (crowd) {
   // mesures : coût CPU par image du module (objectif < 4 ms) et appels de dessin de toute la scène (objectif < 40)
-  console.log(`[people] foule 1500 : CPU ${crowd.cpuMsAvg.toFixed(2)} ms/image, ${crowd.calls} appels de dessin, ${crowd.triangles} triangles`);
+  console.log(`[people] foule 1500 : CPU médian ${crowd.cpuMedian.toFixed(2)} ms/image (min ${crowd.cpuMin.toFixed(2)}, max ${crowd.cpuMax.toFixed(2)}), ${crowd.calls} appels de dessin, ${crowd.triangles} triangles`);
   if (crowd.calls >= 40) { ok = false; console.error('[people] trop d’appels de dessin : ' + crowd.calls); }
   if (crowd.near + crowd.mid + crowd.far < 600) { ok = false; console.error('[people] trop peu de personnes affichées'); }
 }

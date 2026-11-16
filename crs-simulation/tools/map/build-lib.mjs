@@ -261,6 +261,13 @@ export function dedupeRing(ring, eps = 0.01) {
   return out;
 }
 
+/** L'anneau se recoupe-t-il une fois arrondi au décimètre (la précision du format) ? */
+export function selfIntersectsAtFormatPrecision(ring) {
+  const q = new Array(ring.length);
+  for (let i = 0; i < ring.length; i++) q[i] = Math.round(ring[i] * 10) / 10;
+  return M.ringSelfIntersects(q);
+}
+
 /** Rectangle englobant d'aire minimale : { cx, cz, ux, uz (grand axe unitaire), length, width }. */
 export function orientedBox(ring) {
   const n = ring.length >> 1;
@@ -555,8 +562,16 @@ export function splitPolygon(poly, axis, c) {
       if (ev.length % 2 !== 0) return null;
       const nextOf = new Int32Array(list.length).fill(-1);
       for (let k = 0; k < ev.length; k += 2) {
-        const a = ev[k], b = ev[k + 1];
-        if (a.entry === b.entry) return null;
+        const a = ev[k];
+        let b = ev[k + 1];
+        if (a.entry === b.entry) {
+          // Deux événements au même endroit (sommet posé sur la droite) : l'ordre du tri est arbitraire, on essaie l'autre.
+          const c = ev[k + 2];
+          if (c === undefined || c.t !== b.t || c.entry === a.entry) return null;
+          ev[k + 1] = c;
+          ev[k + 2] = b;
+          b = c;
+        }
         const exit = a.entry ? b : a, entry = a.entry ? a : b;
         if (nextOf[exit.chain] !== -1) return null;
         nextOf[exit.chain] = entry.chain;
@@ -584,7 +599,6 @@ export function splitPolygon(poly, axis, c) {
     // Rattache chaque trou à l'anneau extérieur qui le contient.
     const polys = outers.map((outer) => ({ outer, holes: [] }));
     for (const h of holes) {
-      let placed = false;
       for (const p of polys) {
         // Un sommet du trou peut être sur le bord : on en essaie plusieurs.
         let inside = 0, tested = 0;
@@ -592,9 +606,8 @@ export function splitPolygon(poly, axis, c) {
           tested++;
           if (M.pointInRing(p.outer, h[i], h[i + 1])) inside++;
         }
-        if (inside * 2 > tested) { p.holes.push(h); placed = true; break; }
+        if (inside * 2 > tested) { p.holes.push(h); break; }
       }
-      if (!placed && polys.length > 0 && whole[side].length === 0 && false) return null;
     }
     result[side] = polys;
   }
@@ -708,4 +721,39 @@ export function createTiles() {
 
 export function log(...args) {
   console.log(...args);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────
+// Règle « aucune enseigne »
+// ─────────────────────────────────────────────────────────────────────────────────────
+
+/** Noms d'enseignes de la source (normalisés) -> nombre de locaux. Sert à écarter, jamais à publier. */
+export function loadBrandNames() {
+  const brands = new Map();
+  for (const f of readLayer('shops').features) {
+    const n = f.properties.name;
+    if (typeof n !== 'string' || n === '') continue;
+    const k = normName(n);
+    if (k.length >= 3) brands.set(k, (brands.get(k) ?? 0) + 1);
+  }
+  return brands;
+}
+
+/** Début de nom qui désigne un lieu ou un édifice public (sur un nom normalisé). */
+export const PUBLIC_PREFIX = /^(rue|avenue|boulevard|place|quai|pont|passerelle|square|jardin|jardins|passage|impasse|cite|villa|cour|cours|allee|galerie|port|promenade|esplanade|parvis|voie|carrefour|rond point|chemin|sentier|terrasse|parc|pelouse|bassin|fontaine|eglise|chapelle|cathedrale|temple|synagogue|mosquee|musee|theatre|opera|palais|hotel de|mairie|ministere|ambassade|consulat|gare|ecole|college|lycee|universite|institut|hopital|bibliotheque|mediatheque|tour|arc|colonne|statue|monument|porte|caserne|commissariat|prefecture|tribunal|centre|maison de|fondation|conservatoire|creche|gymnase|piscine|marche|halle|bourse|archives|cimetiere|couvent|abbaye|basilique|oratoire|pavillon)\b/;
+
+/** Marques déposées repérées dans des noms de musées ou de fondations (relevé à la lecture des données). */
+export const TRADEMARK_RE = /\b(yves saint laurent|fragonard|fondation cartier|le lido|lido de paris)\b/;
+
+/** Noms identiques à celui d'un commerce mais qui désignent bien un édifice ou une œuvre publics (relus un à un). */
+const PUBLIC_HOMONYMS = new Set(['jeanne d arc', 'la seine', 'diderot', 'missions etrangeres de paris', 'delegation de la polynesie francaise']);
+
+/**
+ * Vrai si le nom d'un bâtiment, d'un monument ou d'une institution doit être écarté : il contient
+ * une marque déposée, ou c'est exactement le nom d'un commerce sans être un toponyme public.
+ */
+export function isCommercialName(name, brands) {
+  const k = normName(name);
+  if (TRADEMARK_RE.test(k)) return true;
+  return brands.has(k) && !PUBLIC_PREFIX.test(k) && !PUBLIC_HOMONYMS.has(k);
 }

@@ -41,6 +41,8 @@ export const MINI_MAP = {
   pond: { minX: 200, minZ: 300, maxX: 260, maxZ: 340, pathX: 230 },
   /** Rivière (z 400..460) ; pont en x = 400 (chaussée 6 m + trottoirs 2 m : demi-tablier 5 m). */
   river: { north: 400, south: 460, bridgeX: 400, halfDeck: 5, bed: -5 },
+  /** Statue (monument sans bâtiment) : socle carré de 2 m centré ici, haut de 6 m. */
+  statue: { x: 60, z: 60, height: 6 },
 } as const;
 
 /**
@@ -72,7 +74,7 @@ export function miniMapRaw(): RawMapData {
   edge(n1, n4, { name: 'Rue Basse' });
   edge(n4, n5, { name: 'Allée du Bassin', pedestrianOnly: true, roadClass: 'footway', width: 2, lanesForward: 0, lanesBackward: 0 });
   edge(n5, n6, { name: 'Quai Nord' });
-  edge(n6, n7, { name: 'Pont Neuf Fictif', bridge: true, sidewalk: 2 });
+  edge(n6, n7, { name: 'Pont Neuf Fictif', bridge: true, sidewalk: 2, landmarkKey: 'pont_test' });
 
   const rect = (x0: number, z0: number, x1: number, z1: number): number[] => [x0, z0, x0, z1, x1, z1, x1, z0];
   const p = MINI_MAP;
@@ -118,7 +120,12 @@ export function miniMapRaw(): RawMapData {
     tiles: [rawTile],
     roadGraph: encodeRoadGraph({ nodes, edges }),
     places: encodePlaces([{ name: 'Place du Porche', kind: 'square', x: 120, z: 150, radius: 30, importance: 2, ref: '' }]),
-    landmarks: encodeLandmarks([]),
+    landmarks: encodeLandmarks([
+      // Une statue sans bâtiment dans la tuile : son emprise sert d'obstacle de secours.
+      { key: 'statue_test', name: 'Statue de test', x: p.statue.x, z: p.statue.z, y: 0, heading: 0, height: p.statue.height, footprint: rect(p.statue.x - 1, p.statue.z - 1, p.statue.x + 1, p.statue.z + 1) },
+      // Un pont modélisé à la main (clé portée par l'arête) : jamais un obstacle plein.
+      { key: 'pont_test', name: 'Pont de test', x: p.river.bridgeX, z: 430, y: 0, heading: 0, height: 8, footprint: rect(p.river.bridgeX - 5, p.river.north, p.river.bridgeX + 5, p.river.south) },
+    ]),
     terrain: encodeTerrain(terrain),
   };
 }

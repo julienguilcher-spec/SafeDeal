@@ -30,7 +30,7 @@ function build(quality: QualityLevel) {
     const f = figureGeo({
       height: 3.5, lod, seated: true, robe: i % 2 === 0, lean: -0.12,
       armL: { e: 0.9 + (i % 3) * 0.3, a: 0.8, e2: 1.3, a2: 0.2 }, armR: { e: 0.5, a: 1.2, e2: 0.9, a2: 0.4 },
-      itemL: i % 2 === 0 ? 'rameau' : 'couronne',
+      itemL: i % 2 === 0 ? undefined : 'couronne',
     });
     const m = pose(Math.sin(a) * 1.95, 1.15, Math.cos(a) * 1.95, a);
     figs.append(f.body, m);

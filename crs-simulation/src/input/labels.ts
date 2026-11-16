@@ -119,8 +119,8 @@ export class KeyLabels {
   /** Libellé des quatre touches de déplacement, collées si ce sont des lettres (« ZQSD »). */
   moveLabel(forward: string, left: string, back: string, right: string): string {
     const parts = [forward, left, back, right].map((c) => (c ? this.label(c) : ''));
-    if (parts.every((p) => p.length === 1)) return parts.join('');
     if (parts.every((p) => p === '↑' || p === '↓' || p === '←' || p === '→')) return 'Flèches';
+    if (parts.every((p) => p.length === 1)) return parts.join('');
     return parts.filter((p) => p).join(' ');
   }
 }

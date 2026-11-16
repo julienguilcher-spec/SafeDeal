@@ -18,7 +18,9 @@ export const SRC_KBM = 0;
 export const SRC_PAD = 1;
 export const SRC_TOUCH = 2;
 export const SRC_SCRIPT = 3;
-export const SOURCE_COUNT = 4;
+/** Appuis fabriqués par le module lui-même (mise en pause automatique). */
+export const SRC_SYSTEM = 4;
+export const SOURCE_COUNT = 5;
 
 /** Valeurs analogiques d'une source pour la scrutation courante. */
 export interface SourceAxes {

@@ -5,13 +5,12 @@
 import * as THREE from 'three';
 import type { GameContext, Person, PersonLook, QualityLevel, Vec3, ViewApi } from '@/core/contracts';
 import { BONE_CHEST, BONE_COUNT, BONE_HAND_L, BONE_HAND_R, BONE_HEAD, BONE_STRIDE, REF_HEIGHT } from './skeleton';
-import { hash32 } from './mathx';
+import { hash32, srgbToLinear } from './mathx';
 import { PeopleAnimator, createAnimSample, sampleFromPerson, type AnimSample } from './animator';
 import { FpRig } from './fp';
-import {
-  HOLD_NONE, POSTURE_DOWN, POSTURE_SEATED, U_CARRIED, U_CARRY_PERSON, U_DRAG, U_DRAGGED, U_DRIVE, U_NONE,
-  U_RIDE, upperId,
-} from './poseparams';
+import { HOLD_NONE, U_CARRIED, U_DRAGGED, U_NONE, U_RIDE } from './poseparams';
+import { Placement } from './placement';
+import { QUALITY } from './quality';
 import { LOOK_W, lookSignature, resolveLook } from './look';
 import { SLOGANS, TextAtlas, createBlobTexture } from './atlas';
 import {
@@ -31,28 +30,6 @@ const POSE_W = 2 + BONE_COUNT * 2;
 const POSE_STRIDE = POSE_W * 4;
 const LOOK_STRIDE = LOOK_W * 4;
 const FP_SLOT = 0;
-/** Hauteur d'assise de la posture « assis en véhicule » au-dessus de la racine (échelle 1). */
-const SEAT_HEIGHT = 0.45;
-
-interface QualityPreset {
-  near: number;
-  mid: number;
-  maxNear: number;
-  maxMid: number;
-  /** Niveaux de détail qui projettent une ombre réelle (0 = aucun, 1 = proche, 2 = proche et moyen). */
-  castLevels: number;
-  /** Intervalle minimal entre deux recalculs de pose (s) aux niveaux moyen et lointain. */
-  midInterval: number;
-  farInterval: number;
-  maxDistance: number;
-}
-
-const QUALITY: Record<QualityLevel, QualityPreset> = {
-  bas: { near: 7, mid: 26, maxNear: 16, maxMid: 140, castLevels: 0, midInterval: 1 / 24, farInterval: 1 / 12, maxDistance: 220 },
-  moyen: { near: 11, mid: 42, maxNear: 40, maxMid: 320, castLevels: 1, midInterval: 1 / 32, farInterval: 1 / 16, maxDistance: 320 },
-  haut: { near: 15, mid: 58, maxNear: 70, maxMid: 560, castLevels: 2, midInterval: 1 / 32, farInterval: 1 / 16, maxDistance: 400 },
-  ultra: { near: 20, mid: 80, maxNear: 110, maxMid: 900, castLevels: 2, midInterval: 1 / 40, farInterval: 1 / 20, maxDistance: 500 },
-};
 
 export class PeopleRenderer {
   readonly stats: PeopleRenderStats = { near: 0, mid: 0, far: 0, items: 0, posed: 0, cpuMs: 0, cpuMsAvg: 0, drawCalls: 0 };
@@ -129,10 +106,7 @@ export class PeopleRenderer {
   private growTo = 0;
   private shadowsOn = true;
 
-  // placement courant (résultat de place())
-  private px = 0; private py = 0; private pz = 0; private ph = 0;
-  private ppitch = 0; private proll = 0; private psteer = 0;
-  private pUpper = -1; private pPosture = -1; private pAttached = false; private pNoBlob = false;
+  private readonly placement = new Placement();
 
   constructor(ctx: GameContext, view: ViewApi) {
     this.ctx = ctx;
@@ -316,7 +290,7 @@ export class PeopleRenderer {
       const h = hash32(p.id * 2654435 + m.id * 97);
       if (m.colors) {
         const c = m.colors[h % m.colors.length];
-        r = srgb((c >> 16) & 255); g = srgb((c >> 8) & 255); b = srgb(c & 255);
+        r = srgbToLinear(((c >> 16) & 255) / 255); g = srgbToLinear(((c >> 8) & 255) / 255); b = srgbToLinear((c & 255) / 255);
       }
       if (m.text === 'slogan') cell = this.atlas.sloganBase + ((h >>> 8) % SLOGANS.length);
       else if (m.text === 'unit') {
@@ -356,59 +330,6 @@ export class PeopleRenderer {
     this.stateSig[slot] = state;
     this.lookDirty = true;
     if (m && m.text === 'unit') this.refreshItem(slot, p, m);
-  }
-
-  // ── placement (véhicule, personne portée) ─────────────────────────────────────────
-
-  private place(p: Person): void {
-    this.px = p.x; this.py = p.y; this.pz = p.z; this.ph = p.heading;
-    this.ppitch = 0; this.proll = 0; this.psteer = 0;
-    this.pUpper = -1; this.pPosture = -1; this.pAttached = false; this.pNoBlob = false;
-    if (p.vehicleId !== 0) {
-      const v = this.ctx.vehicles.get(p.vehicleId);
-      if (v) {
-        const seat = p.seat >= 0 ? v.def.seats[p.seat] : undefined;
-        const h = v.heading, sh = Math.sin(h), ch = Math.cos(h);
-        const s = p.look.height / REF_HEIGHT;
-        if (seat) {
-          // repère du véhicule : x à droite, y en haut, z vers l'avant
-          this.px = v.x + sh * seat.z - ch * seat.x;
-          this.pz = v.z + ch * seat.z + sh * seat.x;
-          this.py = v.y + seat.y - SEAT_HEIGHT * s;
-          if (seat.role === 'driver') {
-            const ms = v.def.maxSteer > 0 ? v.steerAngle / v.def.maxSteer : 0;
-            this.psteer = ms > 1 ? 1 : ms < -1 ? -1 : ms;
-          }
-        } else {
-          this.px = v.x; this.pz = v.z; this.py = v.y + 0.5 - SEAT_HEIGHT * s;
-        }
-        this.ph = h;
-        this.ppitch = -v.pitch;
-        this.proll = v.roll;
-        this.pPosture = POSTURE_SEATED;
-        const moto = v.kind.indexOf('moto') >= 0 || v.kind === 'scooter';
-        if (moto) this.pUpper = U_RIDE;
-        else if (seat && seat.role === 'driver') this.pUpper = U_DRIVE;
-        this.pAttached = true;
-        this.pNoBlob = true;
-      }
-    } else if (p.heldBy !== 0) {
-      const holder = this.ctx.people.get(p.heldBy);
-      if (holder && holder.carrying === p.id) {
-        const hu = upperId(holder.upper);
-        if (hu === U_CARRY_PERSON) {
-          this.px = holder.x; this.py = holder.y; this.pz = holder.z; this.ph = holder.heading;
-          this.pUpper = U_CARRIED;
-          this.pAttached = true;
-          this.pNoBlob = true;
-        } else if (hu === U_DRAG) {
-          const dx = p.x - holder.x, dz = p.z - holder.z;
-          if (dx * dx + dz * dz > 1e-4) this.ph = Math.atan2(dx, dz);
-          this.pUpper = U_DRAGGED;
-          this.pPosture = POSTURE_DOWN;
-        }
-      }
-    }
   }
 
   // ── image ─────────────────────────────────────────────────────────────────────────
@@ -491,6 +412,7 @@ export class PeopleRenderer {
     blob.count = 0;
     const pose = this.poseData;
     const sample = this.sample;
+    const place = this.placement;
     const frameNo = ++this.frameNo;
     let posed = 0;
     let fpPerson: Person | null = null;
@@ -512,14 +434,14 @@ export class PeopleRenderer {
       // position affichée (siège de véhicule, porteur) et élimination par distance / champ de vision
       let x = p.x, y = p.y, z = p.z;
       const special = p.vehicleId !== 0 || p.heldBy !== 0;
-      if (special) { this.place(p); x = this.px; y = this.py; z = this.pz; }
+      if (special) { place.resolve(ctx, p); x = place.x; y = place.y; z = place.z; }
       const dx = x - camX, dy = y + 0.9 - camY, dz = z - camZ;
       const d2 = dx * dx + dy * dy + dz * dz;
       const isFp = id === fpId;
       if (!isFp) {
         if (d2 > maxD2) continue;
         const cy = y + 0.9;
-        const rad = d2 < 900 ? 3.2 : 1.9;
+        const rad = d2 < 900 ? 3.2 : 2.4;
         if (planes[0] * x + planes[1] * cy + planes[2] * z + planes[3] < -rad
           || planes[4] * x + planes[5] * cy + planes[6] * z + planes[7] < -rad
           || planes[8] * x + planes[9] * cy + planes[10] * z + planes[11] < -rad
@@ -562,7 +484,7 @@ export class PeopleRenderer {
       const r = slot * POSE_STRIDE;
       let flag = FLAG_NORMAL;
       if (isFp) flag = FLAG_SHADOW_ONLY;
-      else if (special && this.pNoBlob) flag = FLAG_NO_BLOB;
+      else if (special && place.noBlob) flag = FLAG_NO_BLOB;
       pose[r] = x - ox; pose[r + 1] = y; pose[r + 2] = z - oz; pose[r + 3] = 0;
       pose[r + 4] = s; pose[r + 5] = look.build; pose[r + 6] = Math.sqrt(Math.sqrt(s)); pose[r + 7] = flag;
 
@@ -572,15 +494,17 @@ export class PeopleRenderer {
         if (!frozen || fresh) {
           sampleFromPerson(p, model ? model.hold : HOLD_NONE, sample);
           if (special) {
-            sample.x = x; sample.z = z; sample.heading = this.ph;
-            sample.pitch = this.ppitch; sample.roll = this.proll; sample.steer = this.psteer;
-            sample.attached = this.pAttached;
-            if (this.pPosture >= 0) sample.posture = this.pPosture;
-            if (this.pUpper >= 0 && (sample.upper === U_NONE || this.pUpper === U_CARRIED || this.pUpper === U_DRAGGED || this.pUpper === U_RIDE)) sample.upper = this.pUpper;
+            sample.x = x; sample.z = z; sample.heading = place.heading;
+            sample.pitch = place.pitch; sample.roll = place.roll; sample.steer = place.steer;
+            sample.attached = place.attached;
+            if (place.posture >= 0) sample.posture = place.posture;
+            if (place.upper >= 0 && (sample.upper === U_NONE || place.upper === U_CARRIED || place.upper === U_DRAGGED || place.upper === U_RIDE)) sample.upper = place.upper;
           }
           if (fresh) this.animator.markFresh(slot);
           this.animator.update(slot, sample, now, pose, r + 8);
-          this.lastPose[slot] = now;
+          // première pose : échéance décalée d'une fraction d'intervalle propre à l'emplacement, pour que
+          // les recalculs des personnages lointains se répartissent sur les images au lieu de tomber ensemble
+          this.lastPose[slot] = fresh ? now - ((slot * 0.6180339887) % 1) * Q.farInterval : now;
           posed++;
         }
       }
@@ -656,8 +580,7 @@ export class PeopleRenderer {
     if (model) {
       this.pushItem(this.items[model.family], FP_SLOT, model.id, this.itemCell[bodySlot], this.itemCol[bodySlot * 3], this.itemCol[bodySlot * 3 + 1], this.itemCol[bodySlot * 3 + 2]);
     }
-    const vz = this.visorOf[bodySlot];
-    if (vz === 2 && this.visorDown) this.pushItem(this.items[this.visorDown.family], FP_SLOT, this.visorDown.id, 0, 1, 1, 1);
+    // la visière baissée du joueur relève de l'effet d'écran (ViewApi.setScreenEffect), pas de ce module
   }
 
   private sweep(): void {
@@ -684,9 +607,3 @@ export class PeopleRenderer {
     this.blobTexture.dispose();
   }
 }
-
-function srgb(c: number): number {
-  const v = c / 255;
-  return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
-}
-

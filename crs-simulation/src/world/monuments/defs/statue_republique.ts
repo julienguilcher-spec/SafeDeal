@@ -39,15 +39,15 @@ function build(quality: QualityLevel) {
   const stone = new Geo();
   for (const s of seats) {
     const m = pose(Math.sin(s.a) * 3.55, y0, Math.cos(s.a) * 3.55, s.a);
-    stone.append(box(2.7, 1.5, 2.3).translate(0, 0, -0.35), m);
-    stone.append(box(2.3, 3.9, 0.7).translate(0, 1.5, -1.05), m);
+    stone.append(box(3.0, 1.6, 2.5).translate(0, 0, -0.3), m);
+    stone.append(box(2.6, 4.6, 0.7).translate(0, 1.6, -1.05), m);
     const f = figureGeo({
-      height: 4.9, lod, seated: true, robe: true, hat: s.kids ? 'aucun' : 'phrygien',
+      height: 5.8, lod, seated: true, robe: true, hat: s.kids ? 'aucun' : 'phrygien',
       armL: s.item === 'torche' ? { e: 1.5, a: 0.9, e2: 2.6, a2: 0.6 } : { e: 0.5, a: 0.9, e2: 1.1, a2: 0.2 },
       armR: s.item === 'drapeau' ? { e: 1.2, a: 0.9, e2: 1.9, a2: 0.4 } : { e: 0.55, a: 0.8, e2: 1.2, a2: 0.1 },
       itemL: s.item === 'torche' ? 'torche' : undefined, itemR: s.item === 'drapeau' ? 'drapeau' : s.item === 'rameau' ? 'rameau' : undefined,
     });
-    const fm = pose(Math.sin(s.a) * 3.75, y0 + 0.2, Math.cos(s.a) * 3.75, s.a);
+    const fm = pose(Math.sin(s.a) * 3.75, y0 + 0.05, Math.cos(s.a) * 3.75, s.a);
     stone.append(f.body, fm).append(f.items, fm);
     if (s.kids) {
       for (const side of [-1, 1]) {
@@ -87,10 +87,10 @@ export const def: MonumentDef = {
     const stone = farMaterial(0xe3dcc8), bronze = farMaterial(0x4c4030, 0.9);
     b.add(stone, cyl(6.4, 5.2, STEPS_H + DRUM_H, 12, { flat: true }));
     b.add(stone, cyl(3.4, 2.4, PIER_H, 10, { flat: true }).translate(0, STEPS_H + DRUM_H, 0));
-    for (const a of [Math.PI / 3, -Math.PI / 3, Math.PI]) b.add(stone, box(2.4, 5.0, 2.4).translate(Math.sin(a) * 3.6, STEPS_H + DRUM_H, Math.cos(a) * 3.6));
+    for (const a of [Math.PI / 3, -Math.PI / 3, Math.PI]) b.add(stone, box(2.6, 5.6, 2.4).rotateY(a).translate(Math.sin(a) * 3.6, STEPS_H + DRUM_H, Math.cos(a) * 3.6));
     b.add(bronze, cyl(1.3, 0.75, BODY_H * 0.86, 6, { top: false }).translate(0, 15.5, 0));
     b.add(bronze, cyl(0.5, 0.5, BODY_H * 0.14, 5).translate(0, 15.5 + BODY_H * 0.86, 0));
-    b.add(bronze, box(0.45, MARIANNE_H - BODY_H * 0.8, 0.45, { bottom: true }).translate(-1.25, 15.5 + BODY_H * 0.8, 0.3));
+    b.add(bronze, box(0.5, MARIANNE_H - BODY_H * 0.72, 0.5, { bottom: true }).translate(-0.95, 15.5 + BODY_H * 0.72, 0.2));
     b.add(bronze, box(1.4, 2.6, 3.2).translate(0, 1.1, 7.3));
     return finishFar(b, 'statue_republique');
   },

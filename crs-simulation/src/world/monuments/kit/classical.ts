@@ -292,3 +292,32 @@ export function ironFence(b: Builder, path: ArrayLike<number>, o: FenceOpts): vo
     b.add(o.matPost ?? 'fer_noir', g);
   }
 }
+
+export interface ReliefPanelOpts {
+  width: number;
+  height: number;
+  /** Matériau du bas-relief ('relief_pierre', 'relief_bronze'…) : une rangée de personnages sur la hauteur du panneau. */
+  mat?: MatRef;
+  /** Cadre mouluré autour du panneau (matériau) ; absent = pas de cadre. */
+  frame?: MatRef;
+  /** Décalage du motif le long de la frise (m), pour que deux panneaux voisins diffèrent. */
+  shift?: number;
+}
+
+/**
+ * Bas-relief suggéré par texture : panneau vertical dans le plan z = 0 (face vers +z), base sur y = 0, centré en x.
+ * Le motif garde ses proportions quelle que soit la taille du panneau.
+ */
+export function reliefPanel(b: Builder, o: ReliefPanelOpts): void {
+  const m = o.mat ?? 'relief_pierre';
+  const [tw, th] = tileOf(m);
+  const hw = o.width / 2, u0 = o.shift ?? 0, u1 = u0 + (o.width / (4 * o.height)) * tw;
+  b.add(m, new Geo().face(-hw, 0, 0.06, hw, 0, 0.06, hw, o.height, 0.06, -hw, o.height, 0.06, u0, 0, { u1, v1: th }));
+  if (o.frame !== undefined) {
+    const t = Math.max(0.12, Math.min(o.width, o.height) * 0.06), d = t * 0.9;
+    const g = new Geo();
+    g.append(box(o.width + 2 * t, t, d).translate(0, -t, d / 2)).append(box(o.width + 2 * t, t, d).translate(0, o.height, d / 2));
+    g.append(box(t, o.height, d).translate(-hw - t / 2, 0, d / 2)).append(box(t, o.height, d).translate(hw + t / 2, 0, d / 2));
+    b.add(o.frame, g);
+  }
+}

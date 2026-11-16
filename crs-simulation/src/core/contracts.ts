@@ -268,7 +268,10 @@ export interface PeopleStore {
   spawn(init: PersonInit): Person;
   remove(id: EntityId): void;
   clear(): void;
-  /** Requête spatiale : écrit dans `out` (vidé au préalable) et retourne le nombre trouvé. */
+  /**
+   * Requête spatiale : écrit dans `out` (tronqué au nombre trouvé) et retourne ce nombre. Les personnes `dormant`
+   * sont exclues. L'index reflète les positions au dernier rebuildIndex() (appelé par le moteur à chaque pas).
+   */
   queryRadius(x: number, z: number, r: number, out: Person[], filter?: (p: Person) => boolean): number;
   nearest(x: number, z: number, r: number, filter?: (p: Person) => boolean): Person | null;
   countIn(x: number, z: number, r: number, filter?: (p: Person) => boolean): number;
@@ -305,12 +308,31 @@ export type ItemCategory =
   | 'defense' | 'melee' | 'spray' | 'throwable' | 'launcher' | 'firearm' | 'restraint' | 'comms'
   | 'tool' | 'medical' | 'media' | 'sign' | 'loot';
 
-/** Niveau dans la gradation de l'emploi de la force (0 = aucun … 5 = arme à feu). */
+/**
+ * Niveau dans la gradation de l'emploi de la force :
+ * 0 aucun · 1 présence, contact (poussée au bouclier, maîtrise à mains nues) · 2 bâton, gazeuse à main ·
+ * 3 lacrymogène (grenades à main et au lanceur), canon à eau · 4 GM2L, désencerclement, LBD · 5 arme à feu.
+ */
 export type ForceLevel = 0 | 1 | 2 | 3 | 4 | 5;
 
 export type ForceMeans =
   | 'presence' | 'contact' | 'baton' | 'gazeuse' | 'lacrymo' | 'canon_eau' | 'gm2l'
   | 'desencerclement' | 'lbd' | 'arme_feu' | 'vehicule';
+
+/** Correspondance de référence entre un moyen et son niveau dans la gradation (droit, objets et IA l'utilisent tous). */
+export const FORCE_LEVEL_OF: Readonly<Record<ForceMeans, ForceLevel>> = {
+  presence: 1,
+  contact: 1,
+  baton: 2,
+  gazeuse: 2,
+  lacrymo: 3,
+  canon_eau: 3,
+  gm2l: 4,
+  desencerclement: 4,
+  lbd: 4,
+  arme_feu: 5,
+  vehicule: 4,
+};
 
 export interface ItemDef {
   id: ItemId;
@@ -399,7 +421,7 @@ export interface HealthApi {
   hurt(target: Person, d: DamageInfo): void;
   heal(target: Person, amount: number, byId: EntityId): void;
   /** Met à terre (blessé) ou relève. */
-  setDown(target: Person, down: boolean): void;
+  setDown(target: Person, down: boolean, sourceId?: EntityId): void;
   isIncapacitated(p: Person): boolean;
 }
 
@@ -480,7 +502,12 @@ export type SeatRole = 'driver' | 'gunner' | 'passenger';
 
 export interface SeatDef {
   role: SeatRole;
-  /** Position du siège dans le repère du véhicule (x droite, y haut, z avant). */
+  /**
+   * Position du siège dans le repère du véhicule : x = vers la DROITE du véhicule, y = haut, z = vers l'avant.
+   * Passage au monde : position + droite·x + avant·z, avec avant = (sin h, cos h) et droite = (−cos h, sin h).
+   * Attention côté rendu : avec object.rotation.y = h et un modèle regardant +z, l'axe +x local de Three.js est la
+   * GAUCHE du véhicule ; un siège se place donc à x local Three = −seat.x. Même convention pour TurretDef.
+   */
   x: number; y: number; z: number;
   /** Point de sortie au sol dans le repère du véhicule. */
   exitX: number; exitZ: number;
@@ -602,7 +629,8 @@ export interface VehicleApi {
   fireTurret(v: Vehicle, turret: number, byId: EntityId): boolean;
   /** Collision d'un disque avec les véhicules (repousse `pos`). */
   resolveCircle(pos: Vec2, radius: number, ignoreId?: EntityId): boolean;
-  raycast(ax: number, az: number, bx: number, bz: number, out: RayHit): boolean;
+  /** Les engins volants sont ignorés. */
+  raycast(ax: number, az: number, bx: number, bz: number, out: RayHit, mode?: 'move' | 'sight'): boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────
@@ -674,9 +702,27 @@ export interface Shop {
   dormant: boolean;
 }
 
+export interface ShopInit {
+  category: ShopCategory;
+  /** Milieu de la vitrine. */
+  x: number;
+  z: number;
+  /** Cap de la normale sortante de la façade. */
+  heading: number;
+  width: number;
+  /** Nom d'enseigne fictif (par défaut : libellé générique de la catégorie). */
+  name?: string;
+  stock?: number;
+  appeal?: number;
+  shutter?: number;
+}
+
 export interface PropApi {
   readonly list: readonly Prop[];
   readonly shops: readonly Shop[];
+  /** Crée une vitrine (le module du mobilier les crée depuis world.shopsInTile à l'arrivée d'une tuile). */
+  addShop(init: ShopInit): Shop;
+  removeShop(id: EntityId): void;
   get(id: EntityId): Prop | undefined;
   shop(id: EntityId): Shop | undefined;
   spawn(kind: PropKind, x: number, z: number, heading: number): Prop;
@@ -692,7 +738,8 @@ export interface PropApi {
   push(prop: Prop, dirX: number, dirZ: number, force: number, byId: EntityId): void;
   tag(target: Prop | Shop, byId: EntityId): void;
   resolveCircle(pos: Vec2, radius: number): boolean;
-  raycast(ax: number, az: number, bx: number, bz: number, out: RayHit): boolean;
+  /** mode 'move' : objets qui bloquent le passage ; 'sight' : objets qui bloquent la vue ; défaut : les deux. */
+  raycast(ax: number, az: number, bx: number, bz: number, out: RayHit, mode?: 'move' | 'sight'): boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────
@@ -910,7 +957,10 @@ export interface SquadApi {
   addMember(squadId: number, personId: EntityId): void;
   removeMember(personId: EntityId): void;
   setLeader(squadId: number, personId: EntityId): void;
-  /** Donne un ordre (joueur gradé, commandement IA ou script de mission). */
+  /**
+   * Donne un ordre (joueur gradé, commandement IA ou script de mission). Champs omis : point et cap du chef d'unité,
+   * maxForce = law.roe.authorizedForce, issuedBy = 0. Pas de cascade automatique vers les unités subordonnées.
+   */
   issue(squadId: number, order: Partial<SquadOrder> & { type: OrderType }): void;
   /** Unités subordonnées directes. */
   childrenOf(squadId: number): Squad[];
@@ -1060,8 +1110,11 @@ export interface InteractionOption {
 
 export interface InteractionHandler {
   verb: InteractVerb;
-  /** Meilleure cible disponible pour cet acteur, ou null. Appelé ~5 fois/s pour le joueur. */
-  find(actor: Person): InteractionOption | null;
+  /**
+   * Meilleure cible disponible pour cet acteur, ou null. Appelé ~5 fois/s pour le joueur.
+   * Si `targetId` est fourni (IA, startVerb), ne considérer que cette cible.
+   */
+  find(actor: Person, targetId?: EntityId): InteractionOption | null;
   /** Début de l'action. Retourner false pour refuser. */
   begin(actor: Person, opt: InteractionOption): boolean;
   /** Pendant l'action (durée > 0). Retourner false pour l'interrompre. */
@@ -1332,7 +1385,7 @@ export interface SessionConfig {
   missionId: string;
   role: PlayableRole;
   rank: PoliceRank | null;
-  /** Lieu de départ (nom de lieu connu du monde) ou coordonnées. */
+  /** Lieu de départ (nom de lieu connu du monde) ou coordonnées. x/z priment s'ils sont fournis ; après start(), ils sont toujours renseignés. */
   place: string;
   x?: number;
   z?: number;
@@ -1360,7 +1413,7 @@ export interface SessionApi {
 }
 
 export interface Clock {
-  /** Temps de session simulé (s), figé en pause. */
+  /** Temps de session simulé (s), figé en pause. Pendant update(dt), c'est l'instant de FIN du pas courant. */
   readonly now: number;
   /** Pas de simulation courant (s). */
   readonly dt: number;
@@ -1380,6 +1433,7 @@ export interface GameEvents {
   'session:started': { config: SessionConfig };
   'session:ended': { toDebrief: boolean };
   'session:paused': { paused: boolean };
+  'session:phase': { phase: SessionPhase; previous: SessionPhase };
   // monde
   'world:tile_loaded': { tx: number; tz: number };
   'world:tile_unloaded': { tx: number; tz: number };
@@ -1402,11 +1456,14 @@ export interface GameEvents {
   'projectile:spawned': { id: EntityId; kind: ProjectileKind; ownerId: EntityId };
   'projectile:impact': { id: EntityId; kind: ProjectileKind; ownerId: EntityId; x: number; y: number; z: number; hitKind: RayHit['kind'] | 'ground'; hitId: EntityId };
   'projectile:returned': { id: EntityId; byId: EntityId };
+  'projectile:removed': { id: EntityId };
   'explosion': { kind: ProjectileKind | 'vehicule'; x: number; y: number; z: number; radius: number; sourceId: EntityId };
   // dangers
   'fire:started': { x: number; z: number; targetKind: EntityKind | 'ground'; targetId: EntityId; sourceId: EntityId };
   'fire:out': { x: number; z: number; targetKind: EntityKind | 'ground'; targetId: EntityId; byId: EntityId };
   // décor
+  'prop:spawned': { id: EntityId };
+  'prop:removed': { id: EntityId };
   'prop:damaged': { id: EntityId; state: PropState; byId: EntityId };
   'prop:moved': { id: EntityId; byId: EntityId };
   'shop:window': { id: EntityId; state: WindowState; byId: EntityId };
@@ -1467,7 +1524,11 @@ export interface Rng {
   int(minInclusive: number, maxExclusive: number): number;
   chance(p: number): boolean;
   pick<T>(items: readonly T[]): T;
-  /** Générateur dérivé indépendant et déterministe. */
+  /**
+   * Générateur dérivé indépendant et déterministe : il ne dépend que de la graine d'origine et du label (il ne
+   * consomme pas le parent ; même label → même flux). ctx.rng est re-semé avec config.seed au début de chaque
+   * session, avant les reset() : créer ses dérivés dans reset() ou sur 'session:started', pas dans init().
+   */
   fork(label: string | number): Rng;
 }
 

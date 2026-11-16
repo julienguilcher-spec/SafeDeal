@@ -59,8 +59,8 @@ export function stoneWall(p: CellPainter, env: PaintEnv, w: number, h: number, s
     for (let s = -1; s < stones; s++) {
       const x = ((s + (r % 2) * 0.5) / stones) * w;
       const k = rnd() - 0.5;
-      p.rect(x, r * ch, w / stones, ch, k > 0 ? `rgba(255,250,235,${(k * 0.16).toFixed(3)})` : `rgba(70,50,20,${(-k * 0.13).toFixed(3)})`);
-      if (s === -1) p.rect(x + w, r * ch, w / stones, ch, k > 0 ? `rgba(255,250,235,${(k * 0.16).toFixed(3)})` : `rgba(70,50,20,${(-k * 0.13).toFixed(3)})`);
+      p.rect(x, r * ch, w / stones, ch, k > 0 ? `rgba(255,250,235,${(k * 0.13).toFixed(3)})` : `rgba(70,50,20,${(-k * 0.1).toFixed(3)})`);
+      if (s === -1) p.rect(x + w, r * ch, w / stones, ch, k > 0 ? `rgba(255,250,235,${(k * 0.13).toFixed(3)})` : `rgba(70,50,20,${(-k * 0.1).toFixed(3)})`);
     }
   }
   p.grain(env.blotch, 0.1, 'overlay');

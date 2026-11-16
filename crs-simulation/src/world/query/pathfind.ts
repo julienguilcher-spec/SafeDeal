@@ -53,6 +53,11 @@ export class PathFinder {
   private chain: Int32Array = new Int32Array(256);
   /** Nombre de nœuds développés par la dernière recherche (diagnostic). */
   expanded = 0;
+  /** 1 pour les arêtes du réseau principal de chaque mode (voir labelMainComponents). */
+  readonly footMain: Uint8Array;
+  readonly vehicleMain: Uint8Array;
+  /** Composante connexe (à pied) de chaque arête ; -1 pour un souterrain. */
+  private readonly footComponent: Int32Array;
 
   constructor(net: RoadNetwork) {
     this.net = net;
@@ -97,6 +102,128 @@ export class PathFinder {
     this.closed = new Uint32Array(nn);
     this.parentNode = new Int32Array(nn);
     this.parentAdj = new Int32Array(nn);
+    this.footMain = new Uint8Array(edges.length);
+    this.vehicleMain = new Uint8Array(edges.length);
+    this.footComponent = new Int32Array(edges.length).fill(-1);
+    this.labelMainComponents();
+  }
+
+  /**
+   * Repère le « réseau principal » de chaque mode, pour le repli des accroches :
+   *   - à pied : la plus grande composante connexe (sens ignorés) ;
+   *   - en véhicule : la plus grande composante FORTEMENT connexe (on peut y aller de partout à
+   *     partout malgré les sens uniques).
+   * Un bout d'allée isolé, ou un sens unique qui ne fait qu'entrer dans la carte, n'en font pas partie.
+   */
+  private labelMainComponents(): void {
+    const nn = this.net.nodes.length;
+    const edges = this.net.graph.edges;
+    if (nn === 0) return;
+    // À pied : union-find.
+    const parent = new Int32Array(nn);
+    for (let i = 0; i < nn; i++) parent[i] = i;
+    const find = (i: number): number => {
+      let r = i;
+      while (parent[r] !== r) r = parent[r];
+      while (parent[i] !== r) {
+        const next = parent[i];
+        parent[i] = r;
+        i = next;
+      }
+      return r;
+    };
+    for (let e = 0; e < edges.length; e++) {
+      if (this.net.edgeTunnel[e] === 1) continue;
+      const ra = find(edges[e].a), rb = find(edges[e].b);
+      if (ra !== rb) parent[ra] = rb;
+    }
+    const size = new Int32Array(nn);
+    for (let e = 0; e < edges.length; e++) if (this.net.edgeTunnel[e] === 0) size[find(edges[e].a)]++;
+    let mainFoot = -1, best = 0;
+    for (let i = 0; i < nn; i++) {
+      if (size[i] > best) {
+        best = size[i];
+        mainFoot = i;
+      }
+    }
+    for (let e = 0; e < edges.length; e++) {
+      if (this.net.edgeTunnel[e] === 1) continue;
+      const root = find(edges[e].a);
+      this.footComponent[e] = root;
+      if (root === mainFoot) this.footMain[e] = 1;
+    }
+
+    // En véhicule : composantes fortement connexes (Tarjan, itératif).
+    const index = new Int32Array(nn).fill(-1);
+    const low = new Int32Array(nn);
+    const onStack = new Uint8Array(nn);
+    const scc = new Int32Array(nn).fill(-1);
+    const stack = new Int32Array(nn);
+    const callNode = new Int32Array(nn);
+    const callEdge = new Int32Array(nn);
+    let stackTop = 0, counter = 0, sccCount = 0;
+    const adjStart = this.adjStart, adjTo = this.adjTo, adjFlags = this.adjFlags;
+    for (let root = 0; root < nn; root++) {
+      if (index[root] !== -1) continue;
+      let depth = 0;
+      callNode[0] = root;
+      callEdge[0] = adjStart[root];
+      index[root] = low[root] = counter++;
+      stack[stackTop++] = root;
+      onStack[root] = 1;
+      while (depth >= 0) {
+        const n = callNode[depth];
+        let k = callEdge[depth];
+        let descended = false;
+        for (const end = adjStart[n + 1]; k < end; k++) {
+          if ((adjFlags[k] & ADJ_VEHICLE) === 0) continue;
+          const to = adjTo[k];
+          if (index[to] === -1) {
+            callEdge[depth] = k + 1;
+            depth++;
+            callNode[depth] = to;
+            callEdge[depth] = adjStart[to];
+            index[to] = low[to] = counter++;
+            stack[stackTop++] = to;
+            onStack[to] = 1;
+            descended = true;
+            break;
+          }
+          if (onStack[to] === 1 && index[to] < low[n]) low[n] = index[to];
+        }
+        if (descended) continue;
+        if (low[n] === index[n]) {
+          for (;;) {
+            const m = stack[--stackTop];
+            onStack[m] = 0;
+            scc[m] = sccCount;
+            if (m === n) break;
+          }
+          sccCount++;
+        }
+        depth--;
+        if (depth >= 0 && low[n] < low[callNode[depth]]) low[callNode[depth]] = low[n];
+      }
+    }
+    const sccSize = new Int32Array(sccCount);
+    for (let e = 0; e < edges.length; e++) {
+      const ed = edges[e];
+      if (this.net.edgeTunnel[e] === 1 || ed.pedestrianOnly) continue;
+      if (scc[ed.a] === scc[ed.b]) sccSize[scc[ed.a]]++;
+    }
+    let mainScc = -1;
+    best = 0;
+    for (let c = 0; c < sccCount; c++) {
+      if (sccSize[c] > best) {
+        best = sccSize[c];
+        mainScc = c;
+      }
+    }
+    for (let e = 0; e < edges.length; e++) {
+      const ed = edges[e];
+      if (this.net.edgeTunnel[e] === 1 || ed.pedestrianOnly) continue;
+      if (scc[ed.a] === mainScc && scc[ed.b] === mainScc) this.vehicleMain[e] = 1;
+    }
   }
 
   // ─────────────────────────────── tas binaire ───────────────────────────────
@@ -154,12 +281,39 @@ export class PathFinder {
    */
   find(ax: number, az: number, bx: number, bz: number, vehicle: boolean, out: number[]): boolean {
     out.length = 0;
+    // 1. Accroche à la voie la plus proche de chaque extrémité.
+    if (this.search(ax, az, bx, bz, vehicle, out, false, false)) return true;
+    // 2. Repli : une extrémité accrochée hors du réseau principal (bout d'allée isolé, îlot desservi
+    //    par un souterrain, sens unique sans issue au bord de la carte) est raccrochée à celui-ci.
+    const main = vehicle ? this.vehicleMain : this.footMain;
+    const startOff = this.lastStartEdge >= 0 && main[this.lastStartEdge] === 0;
+    const endOff = this.lastEndEdge >= 0 && main[this.lastEndEdge] === 0;
+    if (!startOff && !endOff) return false;
+    if (startOff && endOff) {
+      return this.search(ax, az, bx, bz, vehicle, out, true, true);
+    }
+    return this.search(ax, az, bx, bz, vehicle, out, startOff, endOff);
+  }
+
+  private lastStartEdge = -1;
+  private lastEndEdge = -1;
+
+  /** Une recherche A* ; `startMain` / `endMain` : accrocher l'extrémité au réseau principal du mode. */
+  private search(ax: number, az: number, bx: number, bz: number, vehicle: boolean, out: number[], startMain: boolean, endMain: boolean): boolean {
+    out.length = 0;
     const net = this.net;
     const filter = vehicle ? ROAD_DRIVABLE : ROAD_ANY;
-    if (!net.nearest(ax, az, PATH_SNAP_DISTANCE, filter)) return false;
+    const main = vehicle ? this.vehicleMain : this.footMain;
+    this.lastStartEdge = -1;
+    this.lastEndEdge = -1;
+    if (!net.nearest(ax, az, PATH_SNAP_DISTANCE, filter, startMain ? main : null)) return false;
     const startEdge = net.snapEdge, startS = net.snapS, startX = net.snapX, startZ = net.snapZ;
-    if (!net.nearest(bx, bz, PATH_SNAP_DISTANCE, filter)) return false;
+    if (!net.nearest(bx, bz, PATH_SNAP_DISTANCE, filter, endMain ? main : null)) return false;
     const endEdge = net.snapEdge, endS = net.snapS, endX = net.snapX, endZ = net.snapZ;
+    this.lastStartEdge = startEdge;
+    this.lastEndEdge = endEdge;
+    // À pied, deux arêtes de composantes différentes ne sont reliées par rien : inutile de chercher.
+    if (!vehicle && this.footComponent[startEdge] !== this.footComponent[endEdge]) return false;
 
     const edges = net.graph.edges;
     const es = edges[startEdge], ee = edges[endEdge];

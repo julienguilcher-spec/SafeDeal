@@ -188,8 +188,19 @@ function build(quality: QualityLevel): THREE.Group {
       for (let q = 0; q < n; q++) spark.push((ring[2 * i] + ((ring[2 * j] - ring[2 * i]) * (q + 0.5)) / n) * k, y1 + 0.3, (ring[2 * i + 1] + ((ring[2 * j + 1] - ring[2 * i + 1]) * (q + 0.5)) / n) * k);
     }
   };
+  /** Solives apparentes sous un plancher (quadrillage de poutres), visibles quand on lève la tête. */
+  const joists = (half: number, y: number, n: number, hole = 0): void => {
+    for (let i = 0; i <= n; i++) {
+      const t = -half + (2 * half * i) / n;
+      if (Math.abs(t) < hole - 0.5) {
+        // de part et d'autre du vide central
+        for (const s of [-1, 1]) iron.append(beam(t, y, s * hole, t, y, s * half, 0.5, 0.9)).append(beam(s * hole, y, t, s * half, y, t, 0.9, 0.5));
+      } else iron.append(beam(t, y, -half, t, y, half, 0.5, 0.9)).append(beam(-half, y, t, half, y, t, 0.9, 0.5));
+    }
+  };
   // 1er étage : plancher évidé au centre, galerie à arcatures, pavillons vitrés
   deck(EIFFEL.P1, EIFFEL.F1, 0.9, 13);
+  joists(EIFFEL.P1 - 0.4, EIFFEL.F1 - 1.4, 10, 13);
   gallery(EIFFEL.P1, EIFFEL.F1, EIFFEL.F1 + 4.6, 4.6, 1.3);
   for (let k = 0; k < 4; k++) {
     glass.append(box(26, 4.2, 7.5).translate(0, EIFFEL.F1, 24.5).rotateY((k * Math.PI) / 2));
@@ -197,6 +208,7 @@ function build(quality: QualityLevel): THREE.Group {
   }
   // 2e étage : deux niveaux
   deck(EIFFEL.P2, EIFFEL.F2, 0.8);
+  joists(EIFFEL.P2 - 0.3, EIFFEL.F2 - 1.3, 8);
   gallery(EIFFEL.P2, EIFFEL.F2, EIFFEL.F2 + 4.4, 4.4, 1.0);
   deck(16.5, EIFFEL.F2 + 4.6, 0.5);
   gallery(16.5, EIFFEL.F2 + 4.6, EIFFEL.F2 + 6.0, 1.4, 0);

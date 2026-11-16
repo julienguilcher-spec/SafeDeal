@@ -52,7 +52,7 @@ export function updateBuildingUniforms(env: EnvState): void {
   let t = (d - 0.1) / 0.45;
   t = t < 0 ? 0 : t > 1 ? 1 : t;
   const night = 1 - t * t * (3 - 2 * t);
-  buildingUniforms.uLit.value.set(litFractionAt(env.timeOfDay), 0.2 + 1.9 * night, night, 0);
+  buildingUniforms.uLit.value.set(litFractionAt(env.timeOfDay), 0.2 + 1.5 * night, night, 0);
   const c = env.clouds < 0 ? 0 : env.clouds > 1 ? 1 : env.clouds;
   // ciel clair bleuté → ciel couvert gris ; la nuit, un reflet très faible
   const k = 0.42 * d;

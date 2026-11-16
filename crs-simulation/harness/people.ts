@@ -365,6 +365,56 @@ function viewDetail(): void {
   };
 }
 
+/** Véhicules factices : vérifie le placement des occupants sur les sièges (conducteur, passagers, motard). */
+function viewVehicles(): void {
+  const mkVehicle = (id: number, kind: string, x: number, z: number, heading: number, seats: { role: 'driver' | 'passenger'; x: number; y: number; z: number }[], size: [number, number, number], steer = 0, roll = 0): Vehicle => {
+    const v = {
+      id, kind, x, y: 0, z, heading, pitch: 0, roll, steerAngle: steer, speed: 0,
+      def: { kind, seats: seats.map((st) => ({ ...st, exitX: 0, exitZ: 0 })), maxSteer: 0.6 },
+    } as unknown as Vehicle;
+    vehicles.set(id, v);
+    // caisse filaire + repères des sièges (calculés indépendamment du module testé)
+    const box = new THREE.Mesh(new THREE.BoxGeometry(size[0], size[1], size[2]), new THREE.MeshStandardMaterial({ color: 0xdfe3e8, transparent: true, opacity: 0.28, depthWrite: false }));
+    box.position.set(x, size[1] / 2 + 0.25, z);
+    box.rotation.y = heading;
+    world.add(box);
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.15, 0.5, 8), new THREE.MeshStandardMaterial({ color: 0xd62828 }));
+    nose.position.set(x + Math.sin(heading) * (size[2] / 2 + 0.3), 0.3, z + Math.cos(heading) * (size[2] / 2 + 0.3));
+    nose.rotation.set(Math.PI / 2, 0, -heading, 'YXZ');
+    nose.rotation.y = heading;
+    world.add(nose);
+    for (const st of seats) {
+      const m = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), new THREE.MeshBasicMaterial({ color: st.role === 'driver' ? 0xffd400 : 0x00c2ff }));
+      // repère véhicule : x à droite, z vers l'avant ; avant = (sin h, cos h), droite = (-cos h, sin h)
+      m.position.set(x + Math.sin(heading) * st.z - Math.cos(heading) * st.x, st.y, z + Math.cos(heading) * st.z + Math.sin(heading) * st.x);
+      world.add(m);
+    }
+    return v;
+  };
+  const van = mkVehicle(9001, 'fourgon_crs', -2.2, 0, 0.5, [
+    { role: 'driver', x: -0.45, y: 0.95, z: 1.3 }, { role: 'passenger', x: 0.45, y: 0.95, z: 1.3 },
+    { role: 'passenger', x: -0.45, y: 0.95, z: 0.0 }, { role: 'passenger', x: 0.45, y: 0.95, z: 0.0 },
+  ], [1.9, 2.0, 5.2], 0.4);
+  const moto = mkVehicle(9002, 'moto_bravm', 2.6, 0.5, -0.4, [
+    { role: 'driver', x: 0, y: 0.82, z: 0.0 }, { role: 'passenger', x: 0, y: 0.88, z: -0.55 },
+  ], [0.5, 0.9, 2.1], -0.2, 0.25);
+  van.def.seats.forEach((_st, i) => {
+    const p = makePerson(0, 0, 0, { ...CRS, visorDown: false, headgear: i === 0 ? 'calot' : 'casque_crs' });
+    p.vehicleId = van.id; p.seat = i; p.posture = 'seated';
+  });
+  moto.def.seats.forEach((_st, i) => {
+    const p = makePerson(0, 0, 0, { outfit: 'bravm', headgear: 'casque_moto', backText: 'POLICE', height: 1.8 });
+    p.vehicleId = moto.id; p.seat = i; p.posture = 'seated';
+  });
+  label('fourgon : conducteur (jaune) à gauche, 3 passagers', -2.2, 3.1);
+  label('moto : pilote et passager, engin incliné', 2.6, 2.2);
+  camera.fov = 34;
+  camera.updateProjectionMatrix();
+  camera.position.set(1.5, 4.2, 9.5);
+  camera.lookAt(0, 0.9, 0.3);
+  setShadowArea(0, 0, 8);
+}
+
 function viewWalk(): void {
   const lanes: { name: string; speed: number; fwd: number; side: number; setup?: (p: Person) => void; look?: Partial<PersonLook> }[] = [
     { name: 'marche lente 0,8 m/s', speed: 0.8, fwd: 1, side: 0 },
@@ -377,21 +427,23 @@ function viewWalk(): void {
     { name: 'boiterie', speed: 0.9, fwd: 1, side: 0, setup: (p) => { p.injury = 'serious'; } },
     { name: 'menotté, escorté', speed: 1.1, fwd: 1, side: 0, setup: (p) => { p.custody = 'escorted'; } },
   ];
-  const sp = 1.5;
+  // chaque marcheur va vers +X sur une courte boucle ; la caméra les voit de profil, alignés
+  const sp = 2.3, span = 1.5;
   const walkers: { p: Person; lane: typeof lanes[number]; x0: number }[] = [];
   lanes.forEach((lane, i) => {
-    const z = (i - (lanes.length - 1) / 2) * sp;
-    // profil : les personnages se déplacent vers +X (cap π/2), la caméra regarde depuis +Z
-    const p = makePerson(-2, z, Math.PI / 2, lane.look ?? { ...civilLook(), headgear: 'none', backpack: false });
+    const x0 = (i - (lanes.length - 1) / 2) * sp;
+    const p = makePerson(x0 - span / 2 + (i * 0.37) % span, 0, Math.PI / 2, lane.look ?? { ...civilLook(), headgear: 'none', backpack: false });
     lane.setup?.(p);
-    walkers.push({ p, lane, x0: -2 });
-    label(lane.name, -3.4, z + 0.3);
+    walkers.push({ p, lane, x0 });
+    label(lane.name, x0, 0.9);
   });
-  camera.fov = 26;
+  camera.fov = 24;
   camera.updateProjectionMatrix();
-  camera.position.set(0.0, 6.5, 15);
-  camera.lookAt(0.0, 0.6, 0.4);
-  setShadowArea(0, 0, 9);
+  const th = Math.tan((camera.fov * Math.PI) / 360);
+  const dist = (lanes.length * sp / 2 + 0.6) / (th * camera.aspect);
+  camera.position.set(0.0, 1.0 + dist * 0.16, dist);
+  camera.lookAt(0.0, 0.95, 0);
+  setShadowArea(0, 0, 12);
   tick = (_t, dt) => {
     for (const w of walkers) {
       const p = w.p;
@@ -401,7 +453,7 @@ function viewWalk(): void {
       p.aimYaw = h;
       p.vx = w.lane.speed; p.vz = 0;
       p.x += w.lane.speed * dt;
-      if (p.x > 2.6) p.x -= 5.2;       // retour au départ (téléportation : ignorée par l'animation)
+      if (p.x > w.x0 + span / 2) p.x -= span;       // retour au départ (téléportation : ignorée par l'animation)
     }
   };
 }
@@ -542,10 +594,40 @@ const api = ctx.service<PeopleRenderApi>('peopleRender')!;
 switch (view) {
   case 'poses': viewPoses(); break;
   case 'detail': viewDetail(); break;
+  case 'vehicule': viewVehicles(); break;
   case 'marche': viewWalk(); break;
   case 'foule': viewCrowd(); break;
   case 'fps': viewFps(); break;
   default: viewOutfits(); break;
+}
+
+// options de mise au point : niveau de détail imposé (&lod=0|1|2), repères des os fournis par l'API (&os=1)
+if (params.has('lod')) {
+  const engine = (systems[0] as unknown as { engine: { forceLod: number } | null }).engine;
+  if (engine) engine.forceLod = parseInt(params.get('lod')!, 10);
+}
+const boneMarks: THREE.Mesh[] = [];
+const showBones = params.get('os') === '1';
+const boneTmp = { x: 0, y: 0, z: 0 };
+function placeBoneMarks(): void {
+  if (!showBones) return;
+  let k = 0;
+  const colors = [0xff3b30, 0x34c759, 0x0a84ff, 0xffd60a];
+  const names = ['head', 'chest', 'handR', 'handL'] as const;
+  for (const p of people) {
+    for (let b = 0; b < 4; b++) {
+      if (!api.bonePosition(p.id, names[b], boneTmp)) continue;
+      let m = boneMarks[k];
+      if (!m) {
+        m = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 6), new THREE.MeshBasicMaterial({ color: colors[b], depthTest: false }));
+        m.renderOrder = 50;
+        boneMarks[k] = m;
+        world.add(m);
+      }
+      m.position.set(boneTmp.x, boneTmp.y, boneTmp.z);
+      k++;
+    }
+  }
 }
 
 const hud = document.getElementById('hud')!;
@@ -555,6 +637,10 @@ let last = performance.now();
 let simT = 0;
 let frameMsAvg = 0;
 const step = params.has('pas') ? parseFloat(params.get('pas')!) : 0;
+const glVersion = String(renderer.getContext().getParameter(renderer.getContext().VERSION)).slice(0, 12);
+const cpuHist = new Float32Array(240);
+const cpuSorted = new Float32Array(240);
+let cpuN = 0;
 function loop(): void {
   const nowMs = performance.now();
   let dt = Math.min(0.1, (nowMs - last) / 1000);
@@ -566,6 +652,7 @@ function loop(): void {
   const t0 = performance.now();
   for (const s of systems) s.frame?.(dt);
   const cpu = performance.now() - t0;
+  placeBoneMarks();
   renderer.info.reset();
   renderer.render(scene, camera);
   placeLabels();
@@ -573,20 +660,54 @@ function loop(): void {
   const frameMs = performance.now() - nowMs;
   frameMsAvg = frameMsAvg === 0 ? frameMs : frameMsAvg * 0.9 + frameMs * 0.1;
   const st = api.stats;
-  const info = { frames, people: people.length, near: st.near, mid: st.mid, far: st.far, items: st.items, posed: st.posed,
-    cpuMs: cpu, cpuMsAvg: st.cpuMsAvg, calls: renderer.info.render.calls, triangles: renderer.info.render.triangles, frameMs: frameMsAvg };
-  win.__info = info;
+  cpuHist[cpuN % cpuHist.length] = cpu;
+  cpuN++;
   win.__frames = frames;
   if (frames > 3) win.__ready = true;
-  if (view === 'foule' || params.has('hud')) {
-    hud.textContent = `Personnes : ${people.length}  (proches ${st.near} · moyennes ${st.mid} · lointaines ${st.far})\n`
-      + `Objets tenus : ${st.items} · poses recalculées : ${st.posed}\n`
-      + `CPU personnages : ${st.cpuMsAvg.toFixed(2)} ms/image\n`
-      + `Appels de dessin (scène entière) : ${info.calls} · triangles : ${info.triangles}\n`
-      + `Image complète : ${frameMsAvg.toFixed(0)} ms (WebGL ${String(renderer.getContext().getParameter(renderer.getContext().VERSION)).slice(0, 12)})`;
-  } else {
-    hud.style.display = 'none';
+  // mesures : médiane, minimum et maximum du coût CPU du module sur les 240 dernières images
+  if (frames % 8 === 0 || frames < 6) {
+    const m = Math.min(cpuN, cpuHist.length);
+    for (let i = 0; i < m; i++) cpuSorted[i] = cpuHist[i];
+    const sorted = cpuSorted.subarray(0, m).sort();
+    const info = { frames, people: people.length, near: st.near, mid: st.mid, far: st.far, items: st.items, posed: st.posed,
+      cpuMs: cpu, cpuMsAvg: st.cpuMsAvg, cpuMedian: sorted[m >> 1], cpuMin: sorted[0], cpuMax: sorted[m - 1],
+      calls: renderer.info.render.calls, triangles: renderer.info.render.triangles, frameMs: frameMsAvg };
+    win.__info = info;
+    if (view === 'foule' || params.has('hud')) {
+      hud.textContent = `Personnes : ${people.length}  (proches ${st.near} · moyennes ${st.mid} · lointaines ${st.far})\n`
+        + `Objets tenus : ${st.items} · poses recalculées par image : ${st.posed}\n`
+        + `CPU personnages : médiane ${info.cpuMedian.toFixed(2)} ms/image (min ${info.cpuMin.toFixed(2)} · max ${info.cpuMax.toFixed(2)})\n`
+        + `Appels de dessin (scène entière, ombres comprises) : ${info.calls} · triangles : ${info.triangles}\n`
+        + `Image complète : ${frameMsAvg.toFixed(0)} ms (${glVersion}, rendu logiciel si SwiftShader)`;
+    } else {
+      hud.style.display = 'none';
+    }
   }
+}
+// Mesure du coût CPU du module seul (&mesure=N) : N images simulées à 60 Hz sans rendu, donc sans l'attente
+// du rasteriseur logiciel ; le résultat est exposé dans window.__mesure.
+if (params.has('mesure')) {
+  const nMes = parseInt(params.get('mesure')!, 10);
+  const samples = new Float32Array(nMes);
+  const posedSum = { v: 0 };
+  renderer.render(scene, camera);               // compile les programmes, crée les tampons
+  for (let i = 0; i < 60 + nMes; i++) {
+    simT += 1 / 60;
+    clock.now = simT; clock.dt = 1 / 60; clock.tick++;
+    tick(simT, 1 / 60);
+    const a = performance.now();
+    for (const sy of systems) sy.frame?.(1 / 60);
+    const c = performance.now() - a;
+    if (i >= 60) { samples[i - 60] = c; posedSum.v += api.stats.posed; }
+  }
+  const sorted = Float32Array.from(samples).sort();
+  let sum = 0;
+  for (let i = 0; i < nMes; i++) sum += samples[i];
+  win.__mesure = {
+    images: nMes, personnes: people.length, moyenne: sum / nMes, mediane: sorted[nMes >> 1], min: sorted[0],
+    p95: sorted[Math.floor(nMes * 0.95)], max: sorted[nMes - 1], posesParImage: posedSum.v / nMes,
+    proches: api.stats.near, moyennes: api.stats.mid, lointaines: api.stats.far, objets: api.stats.items,
+  };
 }
 renderer.info.autoReset = false;
 renderer.setAnimationLoop(loop);

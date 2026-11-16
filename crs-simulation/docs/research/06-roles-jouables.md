@@ -4,8 +4,8 @@
 > Public visé : développeurs gameplay / IA / interface / missions. Il complète les dossiers **01** (doctrine et droit), **02** (matériel, tenues, véhicules),
 > **03** (dynamique de la manifestation) et **04** (lieux) : les valeurs déjà établies là-bas sont rappelées par un renvoi « D01 §3.2 », jamais recopiées en entier.
 > Les passages entre guillemets « … » suivis de **[V]** sont des **textes exacts** lus dans un document officiel ; ceux marqués **[JEU]** sont des propositions de conception.
-> Conformément au BRIEF §4 : mouvements, syndicats et médias **fictifs** en jeu, **aucune personne réelle**, **aucune marque** (les noms de matériels cités ici servent à la traçabilité),
-> comportements violents décrits **au niveau du gameplay** uniquement.
+> Conformément au BRIEF §4 : causes réalistes présentées sans parti pris, organisations et médias aux **noms fictifs** en jeu, **aucune personne réelle**, **aucune marque** (les noms de matériels cités ici servent à la traçabilité),
+> comportements violents décrits **au niveau du gameplay** uniquement. La banque de missions détaillée est au dossier **05** §4 ; les missions listées ici sont des esquisses courtes par poste, à verser dans le même catalogue.
 
 ## Légende de fiabilité
 
@@ -185,7 +185,7 @@ Répartition proposée pour une section de 18 [JEU], compatible avec D01 §4.1 :
 
 - **Vue** : à travers la visière puis le bouclier, tous deux rayés et embués par le gaz : contraste réduit, halo autour des flammes. [JEU] flou léger permanent visière baissée, champ de vision −15 %, −30 % avec masque à gaz (D03 §6.3).
 - **Son** : slogans et huées en nappe ; chocs sourds des projectiles sur le polycarbonate ; « tac » sec du lanceur puis sifflement ; détonations de mortiers ; ordres brefs criés par le chef de groupe, doublés à la radio ; **sifflet** de fin de charge ; sommations au mégaphone, souvent peu audibles depuis la ligne (D01 §1.5).
-- **Information** : le CRS de base ne voit **pas** la carte d'ensemble ; il connaît son chef, ses voisins, la consigne du moment.
+- **Information** : sur le terrain, le CRS de base ne connaît que son chef, ses voisins et la consigne du moment ; en jeu, il peut ouvrir la **carte tactique en lecture seule** (BRIEF §1) : il y voit les unités et la foule, sans pouvoir donner d'ordre.
 
 ### 2.5 Procédures pas à pas [JEU, calées sur D01]
 | Procédure | Étapes | Durée |
@@ -197,6 +197,7 @@ Répartition proposée pour une section de 18 [JEU], compatible avec D01 §4.1 :
 | Tir au lanceur | Ordre du superviseur (portée, zone) → vérifier le vent et l'angle (≥ 30°) → tir → « Parti » → rechargement | 2 s + 4 s de rechargement |
 | Tir de LBD | Désignation → épauler → cible fixe ou lente, torse ou membres, 10 à 50 m → tir → compte rendu radio → fiche en fin de mission | 2 à 4 s |
 | Feu sur un agent | « Feu ! » → jet de 1 à 2 s sur la personne → reculer l'agent de deux rangs → secouriste | moins de 5 s |
+| Dégager un agent à terre | « Agent à terre ! » → deux boucliers couvrent → deux agents le tirent par les sangles du gilet derrière la ligne → secouriste | traction 0,6 m/s sur 5 à 10 m ; moins de 20 s |
 | Interpellation | Désignation avec signalement → porte → saisie → sol → menottes → palpation → retour → remise + fiche (D01 §6.3) | 20 s dehors, 60 s en tout |
 | Ouverture d'un couloir de secours | « Couloir ! » → deux agents pivotent, passage de 3,5 m → refermer | 6 s |
 
@@ -220,13 +221,13 @@ Répartition proposée pour une section de 18 [JEU], compatible avec D01 §4.1 :
 | « Vingt secondes » | Rue de Rivoli, arcades | Interpellation | Sortir trois fois, ramener trois auteurs filmés par le drone, remettre trois fiches justes | Deux procédures nulles ; binôme isolé |
 
 ### 2.8 Interface du CRS
-Viseur sobre ; **indicateur d'alignement** (deux chevrons qui verdissent quand on est dans l'axe de ses voisins) ; **ordre courant** en toutes lettres (« TENIR », « EN AVANT 20 m », « HALTE ») avec l'icône du sifflet ; **état de droit** (pastille : gris = cortège, orange = annonce faite, rouge = force autorisée, rouge cerclé = armes autorisées, éclair = riposte directe) ; alerte directionnelle de projectile (arc en haut de l'écran) ; pour les tireurs : cadre « DÉSIGNÉ » autour de l'objectif, télémètre (vert entre 10 et 50 m pour le LBD), indicateur d'angle de tir (rouge sous 30°), flèche de vent, compteur de munitions ; pour l'extincteur : jauge de charge ; pour l'interpellateur : chronomètre hors de la ligne et rappel du fait reproché ; pour le conducteur : distance à la section et itinéraire de repli.
+Viseur sobre ; **indicateur d'alignement** (deux chevrons qui verdissent quand on est dans l'axe de ses voisins) ; **ordre courant** en toutes lettres (« TENIR », « EN AVANT 20 m », « HALTE ») avec l'icône du sifflet ; **état de droit** (pastille : gris `#8E8E93` = cortège, orange `#FF9500` = annonce faite, rouge `#FF3B30` = force autorisée, rouge cerclé = armes autorisées, éclair jaune `#FFD60A` = riposte directe) ; alerte directionnelle de projectile (arc en haut de l'écran) ; pour les tireurs : cadre « DÉSIGNÉ » autour de l'objectif, télémètre (vert entre 10 et 50 m pour le LBD), indicateur d'angle de tir (rouge sous 30°), flèche de vent, compteur de munitions ; pour l'extincteur : jauge de charge ; pour l'interpellateur : chronomètre hors de la ligne et rappel du fait reproché ; pour le conducteur : distance à la section et itinéraire de repli ; pour tous : carte tactique en lecture seule sur une touche dédiée.
 
 > **Ce que le jeu doit reproduire — CRS, postes d'exécution**
 > - Six postes aux sensations différentes, choisis au briefing : encaisser (bouclier), doser (lanceur), s'abstenir puis tirer une fois (LBD), veiller (extincteur), sortir et rentrer (interpellation), protéger la retraite (conducteur).
 > - Aucun tir sans ordre ni désignation, sauf riposte directe : le superviseur PNJ parle au joueur, et inversement quand le joueur est chef.
 > - Le sifflet arrête la charge ; dépasser le sifflet de plus de 2 s est une faute, même sans contact.
-> - Le CRS de base n'a pas la vue d'ensemble : pas de carte tactique, seulement l'ordre courant et ses voisins.
+> - Le CRS de base **reçoit** les ordres : il consulte la carte tactique en lecture seule, mais n'agit que sur l'ordre courant, au milieu de ses voisins.
 > - La fatigue et les blessures de l'unité imposent des relèves ; une section à moins de 60 % de ses agents valides doit être relevée par le commandement.
 > - Le bilan de fin compte les munitions par type et relie chaque tir à un ordre, une désignation et une vidéo.
 
@@ -276,7 +277,7 @@ Roue d'ordres (un cran = un ordre, appliqué au groupe ou à la section) : « En
 | « Le flanc » | Boulevard de Sébastopol | Chef de section : un cortège sauvage arrive par la rue latérale pendant un refoulement ; réarticuler les trois groupes sans rompre | Section coupée en deux |
 
 ### 3.5 Interface
-Vue de dos de ses agents avec **étiquette de poste et de stress** au-dessus de chacun (vert / orange / rouge) ; roue d'ordres ; file des tirs en attente de désignation ; journal horodaté des ordres reçus et donnés ; compteur de munitions du groupe ; mini-carte de section (les trois groupes, les véhicules, le point de remise des interpellés) ; chronomètre de garde à vue pour chaque interpellé non encore remis.
+Vue de dos de ses agents avec **étiquette de poste et de stress** au-dessus de chacun (vert / orange / rouge) ; roue d'ordres ; file des tirs en attente de désignation ; journal horodaté des ordres reçus et donnés ; compteur de munitions du groupe ; mini-carte de section (les trois groupes, les véhicules, le point de remise des interpellés) ; **carte tactique** avec droit d'ordre limité à son groupe (chef de groupe) ou à sa section (chef de section), lecture seule au-delà ; chronomètre de garde à vue pour chaque interpellé non encore remis.
 
 > **Ce que le jeu doit reproduire — Chefs de groupe et de section**
 > - Le chef ne tire presque pas : il **regarde ses agents**, désigne, autorise, arrête.
@@ -307,16 +308,21 @@ Front tenu : un bouclier occupe 0,7 m au coude à coude, 1,0 m en ligne lâche. 
 |---|---|---|---|---|---|
 | **Barrage d'interdiction** | « MISTRAL 1 et 2 : barrage ferme, axe pont, face nord. » | 1 rang de boucliers, second rang à 3 m (tireurs, extincteur, chefs), véhicules en travers à 30 m derrière | aucun (posture statique) | La foule s'arrête à 10–20 m, proteste ; pression si le cortège pousse derrière | Compression de la foule si aucune déviation n'est ouverte |
 | **Barrage filtrant** | « Barrage filtrant, une porte, contrôle visuel. » | Idem, porte de 1,5 m, 4 personnes par 10 s | aucun | Laisse sortir, calme | Lent : 24 personnes par minute |
+| **Tenir la position** | « MISTRAL 1 : tenez l'angle, face est. » | Unité fixe sur un point ou une ligne tracée ; réalignement automatique ; riposte directe seulement | aucun | Stabilise ; dissuade par la seule présence | Unité fixée, contournable par les rues latérales |
 | **Canalisation** | « MISTRAL 3 et 4 : canalisez, rues latérales fermées, parcours libre. » | Demi-groupes aux débouchés latéraux, à 10 m en retrait de l'axe, jamais en travers du parcours | aucun | Cortège guidé, invisible pour les pacifiques | Sections dispersées, lentes à regrouper (60–90 s) |
 | **Bond offensif** | « MISTRAL 2 : bond offensif, trente mètres, en avant ! » | Ligne au trot (2,3 m/s) sur 20 à 40 m, arrêt, réalignement en 5 s ; pas de recherche du contact | `FORCE_AUTORISEE` ou riposte directe | Recul de la foule de 30–50 m, reprise d'un carrefour | Ligne distendue ; boucliers lents distancés |
 | **Charge** | « MISTRAL 2 : chargez jusqu'à la rue X, sifflet à mon ordre. » | Course 4 m/s sur 30 à 60 m, bâton, sifflet, repli au pas sur la ligne de départ | `FORCE_AUTORISEE` ou riposte directe | Dispersion brutale, fuite par les rues latérales ; forte hausse de tension si des pacifiques sont pris | Agents isolés, coups filmés, chute de personnes |
 | **Vague de refoulement** | « Compagnie : refoulement, axe boulevard, limite place Y, par bonds de cinquante. » | Ligne au pas (1,2 m/s), tronçons de 50 m, arrêt de 10 s, lacrymogènes à main en appui ; **issue libre devant la foule** | `FORCE_AUTORISEE` | Évacuation progressive de l'axe | Foule coincée si l'issue est fermée par une autre unité |
+| **Disperser au gaz** | « MISTRAL 3 : lacrymogènes à main sur le carrefour ; lanceurs, cent mètres, sur mon ordre. » | Zone cible tracée sur la carte ; grenades à main 10 à 30 m, lanceurs 50 / 100 / 200 m en cloche ; contrôle du vent avant le tir | `FORCE_AUTORISEE` (à main) ; `ARMES_AUTORISEES` (lanceurs) | La zone se vide en 20 à 60 s si une issue existe | Retour de gaz (D03 §4.3) ; gaz sur le cortège déclaré, une terrasse, les secours |
 | **Encerclement** | « Bouclage îlot Z, sortie contrôlée rue W. » | Toutes les issues tenues sauf une sortie contrôlée de 2 m au moins ; annonce toutes les 60 s ; 20 min au plus | violences graves et imminentes (D01 §2.6) | Fixe un groupe violent ; angoisse et colère des pacifiques pris dedans | Faute si aucune sortie ou durée excessive |
 | **Interpellation ciblée** | « MISTRAL 4 BRAVO : objectif désigné par ICARE, sortie flanc gauche. » | Binômes de la section d'intervention, 20 s hors de la ligne, appui d'un groupe | fait constaté | Retire un meneur violent ; bien acceptée si le fait était visible | Désarrestation, procédure nulle |
 | **Repli** | « Rompez le contact, repli par échelons sur la ligne des véhicules. » | Un groupe couvre (lacrymogènes à main) pendant que l'autre recule de 30 m ; véhicules cap vers la sortie | toujours permis | La foule avance, tension locale en baisse si la distance est rétablie | Véhicules abandonnés, blessé oublié |
 | **Relève** | « MISTRAL 3 relève MISTRAL 1 sur place, passage de ligne. » | Section fraîche à 10 m derrière, passage en 15 s, section relevée aux véhicules, récupération 120 s | aucun | Ligne à nouveau solide | Flottement de 15 s exploitable par la foule |
 | **Délestage** | « Ouvrez la rue V au cortège. » | Lever un barrage latéral pour dévier le flux bloqué | aucun | Chute rapide de la densité (D03 §1.4) | Le cortège change de parcours |
-| **Couloir de secours** | « Couloir pour SANTÉ 1, axe véhicules. » | Passage de 3,5 m tenu 30 à 90 s | aucun | Blessé évacué, image positive | Brèche dans la ligne |
+| **Protéger les secours** | « Couloir pour SANTÉ 1, axe véhicules. » | Couloir de 3,5 m tenu 30 à 90 s ; un groupe escorte l'équipe de secours | aucun | Blessé évacué, feu éteint, image positive | Brèche dans la ligne |
+| **Embarquer / débarquer** | « MISTRAL 4 : embarquez, rejoignez le point B. » | Une section dans ses fourgons en 20 s ; trajet par un itinéraire libre ; débarquement en 10 s, à 50 m au moins de la foule | aucun | Bascule rapide d'une section sur un autre axe | Fourgons pris dans la foule |
+
+Ces manœuvres sont les ordres de la **carte tactique de commandement** (BRIEF §1) : on sélectionne une ou plusieurs unités, on les place, on trace une ligne de barrage ou une zone, on désigne une cible ; l'IA des unités exécute et rend compte par radio. **Niveau de force** : pour chaque unité, le commandant fixe un plafond — 0 présence ; 1 bouclier et bâton ; 2 lacrymogènes à main ; 3 lanceurs et engin lanceur d'eau ; 4 grenades assourdissantes et de désencerclement — toujours **inférieur ou égal** au cadre accordé par l'autorité civile (§5.3) ; riposte directe et légitime défense restent hors plafond.
 
 ### 4.3 Boucle de jeu, score, échecs [JEU]
 1. **Lire** : carte tactique (positions des sections, cortège en densité, vent, retours du télépilote). 2. **Proposer** à l'autorité civile (PNJ ou joueur) : « Je propose un refoulement jusqu'à… ». 3. **Recevoir** l'autorisation ou le refus (délai 5 à 20 s ; 20 à 60 s si l'option « commandement centralisé » est active, D01 §4.4). 4. **Ordonner** : choisir une manœuvre, une ou plusieurs sections, un axe et une limite sur la carte. 5. **Suivre** l'exécution, réarticuler. 6. **Rendre compte** et relever.
@@ -340,11 +346,12 @@ Front tenu : un bouclier occupe 0,7 m au coude à coude, 1,0 m en ligne lâche. 
 | « Commandant d'un jour » (mode libre) | Au choix | Démarrer directement au grade de commandant avec une compagnie complète sur un scénario de l'éditeur | Note inférieure à D |
 
 ### 4.5 Interface
-Bascule instantanée `tps` ↔ **carte tactique** : sections en pions orientés (code « 1A »), effectif valide et munitions par pion, cortège en carte de densité, zones de gaz et vent, flammes, véhicules, issues ouvertes ou fermées, calque du drone (si un télépilote est en vol), limite autorisée par l'autorité civile en trait rouge ; panneau « Cadre en vigueur » avec l'heure de la dernière autorisation ; file radio (salle, autorité, sections) ; bouton « Proposer à l'autorité » ; alerte « relève conseillée » ; journal horodaté exportable au bilan.
+Bascule instantanée `tps` ↔ **carte tactique** (souris, manette ou doigt) : sélection simple ou multiple, placement au point, **tracé d'une ligne de barrage ou d'une zone**, curseur de niveau de force par unité, compte rendu radio à chaque ordre exécuté ; sections en pions orientés (code « 1A »), effectif valide et munitions par pion, cortège en carte de densité, zones de gaz et vent, flammes, véhicules, issues ouvertes ou fermées, calque du drone (si un télépilote est en vol), limite autorisée par l'autorité civile en trait rouge ; panneau « Cadre en vigueur » avec l'heure de la dernière autorisation ; file radio (salle, autorité, sections) ; bouton « Proposer à l'autorité » ; alerte « relève conseillée » ; journal horodaté exportable au bilan.
 
 > **Ce que le jeu doit reproduire — Commandant de compagnie**
 > - Le commandant **propose**, l'autorité civile **dispose** : sans autorisation, seules les postures statiques, le repli et la riposte directe sont disponibles.
-> - Douze manœuvres paramétrées (axe, limite, sections), exécutées par l'IA de section avec leurs délais et leurs défauts.
+> - Quinze manœuvres paramétrées (axe, limite, unités, niveau de force), données depuis la carte tactique et exécutées par l'IA des unités avec leurs délais, leurs défauts et un compte rendu radio.
+> - La même carte sert à tous les grades : lecture seule pour le CRS de base, son groupe pour le chef de groupe, sa section pour le chef de section, la compagnie et ses appuis (engin lanceur d'eau, Centaure, BRAV-M) pour le commandant.
 > - Le dilemme « interpeller ou tenir » est permanent : chaque binôme sorti affaiblit la ligne 20 à 60 s.
 > - Une compagnie ne barre que 25 à 36 m : la largeur réelle des voies (D04) impose véhicules, barrières et coordination avec d'autres unités.
 > - Le mode libre permet de démarrer directement commandant ; le mode Carrière ne l'ouvre qu'au grade correspondant.
@@ -465,7 +472,7 @@ Points : +15 par séquence close sans blessé grave ; +10 si 80 % des pacifiques
 | « Cortège sauvage » | Grands Boulevards, nuit | Suivre un groupe mobile de 80 personnes pendant 8 min, l'empêcher d'atteindre trois cibles, sans jamais rouler dans la foule | Piéton heurté ; deux cibles atteintes |
 | « Le pilote » | Quais de Seine → Hôtel de Ville | Jouer le pilote : mener la colonne par un itinéraire libre, garder les motos pendant l'intervention, repousser sans coup deux tentatives de vol | Moto perdue |
 | « Sous le regard » | Place de la Bastille | Toute l'intervention est filmée par cinq téléphones et une équipe d'observateurs : aucune faute, aucun mot de trop | Faute d'image supérieure à −10 |
-| « Isolés » | Rue Oberkampf | Le groupe est pris à partie à 400 m de tout renfort : rompre le contact, récupérer un agent tombé, rejoindre la ligne de CRS | Agent abandonné |
+| « Isolés » | Rue de Bretagne | Le groupe est pris à partie à 400 m de tout renfort : rompre le contact, récupérer un agent tombé, rejoindre la ligne de CRS | Agent abandonné |
 
 ### 6.5 Interface
 En selle : compteur de vitesse avec zone rouge près des piétons, GPS avec rues ouvertes ou barrées, position des autres motos de la colonne, objectif radio (flèche et distance), jauge d'« isolement ». À pied : chronomètre d'absence des motos, marqueur de l'objectif désigné, rappel du fait reproché, icônes des caméras qui filment, bouton « Retour aux motos ».
@@ -521,7 +528,7 @@ Boucle : attendre hors de vue → être engagé sur ordre → avancer avec les p
 ### 7.5 Cinq missions
 | Mission | Lieu | Siège | Objectif | Échec |
 |---|---|---|---|---|
-| « La lame » | Boulevard Saint-Michel | Pilote | Dégager trois barricades (dont une en feu) pour ouvrir l'axe aux pompiers | Poussée non vérifiée |
+| « La lame » | Boulevard de Strasbourg | Pilote | Dégager trois barricades (dont une en feu) pour ouvrir l'axe aux pompiers | Poussée non vérifiée |
 | « Une salve, pas trente » | Place de l'Étoile | Opérateur | Sur ordre, repousser un groupe de 200 violents avec le moins de coups possible, vent de travers | Gaz sur le cortège ; plus de 15 coups |
 | « Chef d'engin » | Avenue de la Grande-Armée | Chef | Coordonner pilote et opérateur PNJ, refuser un tir demandé hors cadre, couvrir un peloton | Tir hors cadre |
 | « Abri mobile » | Rue de Rivoli | Pilote | Avancer de 200 m sous jets avec 8 gendarmes derrière soi pour récupérer un blessé | Gendarme laissé à découvert plus de 10 s |
@@ -648,7 +655,7 @@ Vue caméra plein écran ; bandeau : altitude, batterie (minutes), liaison, vent
 | Statut | Pratique « en dehors de tout cadre légal » ; pas de diagnostic ; appel aux secours quand cela dépasse le premier secours | [S][R24] |
 | Organisation | Travail à deux ou trois, très rarement seul, notamment pour gérer la foule autour d'un blessé ; collectifs et groupes affinitaires (D03 §6.4) | [S][R25] |
 | Signes | Souvent discrets ; tee-shirts blancs à croix rouge ou bleue apparus en 2018-2019 ; casque de skate, masque, lunettes (D02 §6.2) | [S][R24] |
-| Matériel | Sérum physiologique en quantité, compresses, pansements, bandes, masques, sucre, eau, couverture de survie ; solution antiacide diluée en pulvérisateur, dont l'efficacité n'est confirmée par aucune source médicale | [S][R25] |
+| Matériel | Sérum physiologique en quantité, rouleaux de compresses absorbantes, pansements adhésifs, masques filtrants, sucre, quelques médicaments courants ; solution antiacide diluée en pulvérisateur, dont l'efficacité n'est confirmée par aucune source médicale | [S][R25] |
 | Geste central | Rincer abondamment les yeux ; un filet d'eau pure peut raviver la douleur ; faire retirer les lentilles ; sortir la personne du nuage (D03 §6.3) | [S][R25] |
 | Rapports avec la police | Matériel de protection et de soin confisqué lors de fouilles (signalé fin 2018) ; certains revendiquent une neutralité (soigner tout le monde), d'autres la refusent | [S][R24] |
 | Formation, nombre de personnes soignées par manifestation | **non trouvé** | [I] |
@@ -687,7 +694,7 @@ Point de rassemblement des victimes de jeu : derrière le dispositif, à 100–2
 | | Street medic | Secours officiels |
 |---|---|---|
 | Boucle | Marcher avec le cortège → entendre « Médic ! » → rejoindre → évaluer → geste → abriter → appeler → remettre → repartir | Attendre au point de rassemblement → alerte radio → demander protection et couloir → entrer → trier → geste vital → extraire → poste → évacuer ; ou : feu → extinction sous protection |
-| Dilemme | Rester près du danger ou accompagner le blessé ; soigner un policier ou non (choix moral noté par personne) | Entrer sans protection (rapide, risqué) ou attendre le couloir (sûr, lent) ; qui prendre d'abord |
+| Dilemme | Rester près du danger ou accompagner le blessé ; soigner un policier ou non (choix moral, jamais noté) | Entrer sans protection (rapide, risqué) ou attendre le couloir (sûr, lent) ; qui prendre d'abord |
 | Points | +3 par rinçage ; +8 par blessé stabilisé ; +10 par remise aux secours ; +5 par transmission exacte | +10 par urgence relative évacuée ; +25 par urgence absolue sauvée ; +12 par feu éteint ; +5 par tri juste |
 | Pénalités | Geste au-delà de sa compétence −15 ; blessé abandonné −20 ; sac vide −5 | Erreur de tri (rouge pris pour vert) −20 ; équipe blessée faute de protection −25 ; victime attendue plus de 4 min −10 |
 | Échec dur | Hors de combat ; interpellé | Mort évitable ; engin incendié |
@@ -707,7 +714,7 @@ Point de rassemblement des victimes de jeu : derrière le dispositif, à 100–2
 | Secours | « Les deux camps » | République | Un policier brûlé et un manifestant blessé à la tête au même moment : deux équipes, deux couloirs | Une des deux victimes non prise en 4 min |
 
 ### 10.6 Interface
-Icônes de victimes colorées (vert `#34C759`, jaune `#FFD60A`, rouge `#FF3B30`, noir `#1C1C1E`) visibles à 40 m ; fiche de victime en trois lignes (conscience, respiration, saignement) ; sac (doses de sérum, compresses, garrots) ; chronomètre par victime ; direction et distance de l'abri et du point de rassemblement ; bouton « Bilan » à gabarit ; pour les secours : état du couloir (ouvert, fermé, demandé), disponibilité des ambulances, hôpital de destination annoncé par la régulation ; zone de gaz et vent sur la mini-carte.
+Icônes de victimes colorées (vert `#34C759`, jaune `#FFD60A`, rouge `#FF3B30`, noir `#1C1C1E`) visibles à 40 m ; fiche de victime en trois lignes (conscience, respiration, saignement) ; sac (doses de sérum, compresses, garrots) ; chronomètre par victime ; direction et distance de l'abri et du point de rassemblement ; bouton « Bilan » à gabarit ; pour les secours : état du couloir (ouvert, fermé, demandé), disponibilité des ambulances, hôpital de destination annoncé par la régulation ; zone de gaz et vent sur la mini-carte ; chasubles de la chaîne de secours : jaune `#FFD60A` (commandement), rouge `#D62828` (ramassage), blanc `#F5F5F5` (poste médical), bleu `#1D4E89` (évacuation).
 
 > **Ce que le jeu doit reproduire — Médecin et secouristes**
 > - Deux métiers distincts : le bénévole **dans** la foule (rapide, léger, sans statut), le professionnel **derrière** le dispositif (lourd, protégé, coordonné).
@@ -722,7 +729,7 @@ Icônes de victimes colorées (vert `#34C759`, jaune `#FFD60A`, rouge `#FF3B30`,
 |---|---|---|
 | Droits | Circuler dans le dispositif, rester pendant la dispersion, porter des protections ; ni empêchement de filmer ni saisie du matériel (D01 §2.5) ; avancées « reconnues par la profession » | [V] D01 ; [V][R6] |
 | Identification | « l'identification des journalistes peut s'avérer complexe dans des environnements confus et violents, d'autant qu'aucun signe distinctif attestant de leur qualité n'est obligatoire » ; le Sénat propose de les rendre plus identifiables, de généraliser des boucles de messagerie entre journalistes et préfectures et de désigner un référent | [V][R6] |
-| Carte de presse | « carte d'identité des journalistes professionnels », délivrée par une commission paritaire, renouvelée chaque année ; il faut tirer l'essentiel de ses revenus du journalisme ; 35 294 cartes en 2016 ; elle « n'est pas obligatoire pour pratiquer le métier » ; brassard nominatif délivré par la même commission depuis 1981 | [S][R32] |
+| Carte de presse | « carte d'identité des journalistes professionnels », délivrée par la commission du même nom, renouvelée chaque année ; il faut tirer l'essentiel de ses revenus du journalisme ; 35 294 cartes en 2016 ; elle « n'est pas obligatoire pour pratiquer le métier » ; brassard nominatif délivré par la même commission depuis 1981 | [S][R32] |
 | Trois métiers | Photographe ; journaliste reporter d'images (tourne, prend le son, parfois monte, seul ou avec un rédacteur) ; équipe de direct (envoi par car satellite ou boîtier d'agrégation de réseaux mobiles) | [S][R33] |
 | Chaînes d'information | Leur présence rend chaque événement « hypermédiatisé » : « Cela a vraiment changé notre façon de faire et de réagir. » (directeur de l'ordre public) ; s'y ajoute « le passage en boucle de leurs images sur certaines chaînes d'information » (directrice centrale des CRS) | [V][R7] |
 | Équipement de terrain | Casque marqué « PRESSE », masque, lunettes, parfois coquille, protège-tibias, plastron ; l'appareil tenu devant le visage protège les yeux | [S][R31] |
@@ -783,11 +790,25 @@ Viseur (cadre, collimateur, focale 24 à 200 mm, indicateur de netteté, exposit
 | Comparution immédiate | Délits punis d'au moins deux ans (plus de six mois en flagrance) ; jugement le jour même **avec l'accord du prévenu en présence de son avocat**, sinon renvoi de droit ; environ 31 minutes par affaire dans une étude de 2008 | [S][R39] |
 | Peines encourues | Table D01 §6.4 : de la contravention (manifestation interdite) à 10 ans (incendie) ; maintien après sommations : 1 an et 15 000 € | [V] D01 |
 
+**Cause et famille visuelle** [JEU, BRIEF §1] : au briefing, le manifestant choisit une cause (pouvoir d'achat, retraites, climat, logement, hôpital, éducation, monde agricole, prix des carburants, libertés publiques) et une famille ; elles fixent sa tenue (D02 §6.2), ses pancartes et ses slogans. Aucun nom de personne, de parti ni de syndicat réel ; organisations fictives (D05 §4.0).
+
+| Famille | Tenue et accessoires | Pancarte type (texte exact, écrit à la main) |
+|---|---|---|
+| Gilets jaunes | Gilet de haute visibilité `#DFFF00` annoté au dos, bonnet, thermos | « On veut vivre, pas survivre » |
+| Cortège syndical | Chasuble aux couleurs d'une organisation fictive, drapeau, ballon, camion sono | « Retraites : ni report, ni recul » |
+| Étudiants et lycéens | Sac à dos, carton peint, mégaphone | « Notre avenir n'est pas à vendre » |
+| Militants climat | Vêtements colorés, globe en carton, sablier | « Il n'y a pas de planète B » |
+| Personnels soignants | Blouse blanche `#F5F5F5` | « Des lits, des bras, du temps pour soigner » |
+| Agriculteurs | Cotte, bottes, tracteur en tête | « Sans paysans, pas de pain » |
+| Retraités | Écharpe, canne-siège | « Une vie de travail, une pension pour vivre » |
+| Familles | Poussette, ballons, enfant sur les épaules | « Pour l'école de nos enfants » |
+| Black bloc | Tout en noir `#111111` : capuche, masque, lunettes, gants, sac à dos ; banderole renforcée, parapluies | Banderole de tête sans signature |
+
 ### 12.2 Trois façons de jouer [JEU]
 | | Pacifique (`pacifique`, `famille`, `militant`) | Service d'ordre (`service_ordre`) | Radical (`radical`) — niveau gameplay uniquement |
 |---|---|---|---|
 | But | Être nombreux, visibles, arriver au bout | Protéger le carré et les militants, faire avancer | Affronter ou dégrader, puis disparaître |
-| Verbes | Marcher, chanter en rythme, porter pancarte ou banderole (à deux), s'asseoir, filmer, aider un blessé, lever les mains, partir | Former la chaîne (5 à 12 personnes, bras liés), tenir un virage, ralentir ou couper le cortège, parler à l'équipe de liaison, guider vers la sortie | Se masquer, ramasser, lancer, renverser, taguer, dresser un obstacle, renvoyer un palet, fuir, changer de tenue (D03 §3.3) |
+| Verbes | Marcher, chanter en rythme, porter pancarte ou banderole (à deux), s'asseoir, filmer, aider un blessé, lever les mains, partir | Former la chaîne (5 à 12 personnes, bras liés), tenir un virage, ralentir ou couper le cortège, parler à l'équipe de liaison, guider vers la sortie | Au sein d'un **bloc** coordonné : se regrouper derrière la banderole renforcée, ouvrir un parapluie pour masquer, se changer en noir, agir sur signal, puis se disperser et se fondre dans la foule ; seul : ramasser, lancer, renverser, taguer, dresser un obstacle, renvoyer un palet, fuir (D03 §3.2, §3.3) |
 | Voit, entend | La foule dense, peu la police ; slogans, sono, rumeurs | La tête, les trottoirs, les entrées latérales | La ligne à 20–40 m, les issues, les caméras |
 | Risques | Gaz, compression, charge qui ne distingue pas, interpellation en masse | Pris entre le bloc et la police ; débordé | Blessure, interpellation sur fait, peines lourdes ; blesser d'autres manifestants (jets courts) |
 | Jauge propre | **Voix** : effectif autour de soi × durée × images favorables | **Cohésion** : chaîne intacte, carré protégé, cortège arrivé | **Exposition** : chaque fait vu par un agent ou une caméra s'accumule |
@@ -811,7 +832,7 @@ Suites judiciaires simulées en fin de mission (toutes valeurs [JEU], calées su
 | Service d'ordre | « Dispersion » | Place de la Bastille (arrivée) | Annoncer la fin, vider la place par trois issues en 5 min avant l'arrivée des opportunistes | Place encore pleine au début des incidents |
 | Radical | « Le prix » | Boulevard de Sébastopol | Jouer une séquence d'affrontement, puis découvrir l'écran des suites judiciaires (mission pédagogique) | — (toutes les fins sont montrées) |
 | Radical | « Disparaître » | Grands Boulevards | Après une action, sortir du périmètre sans être désigné par le drone | Interpellé |
-| Radical | « Barricade » | Rue de la Roquette | Dresser un obstacle avec le mobilier disponible avant l'arrivée de la ligne ; aucun riverain mis en danger | Feu gagnant une façade |
+| Radical | « Barricade » | Rue du Temple | Dresser un obstacle avec le mobilier disponible avant l'arrivée de la ligne ; aucun riverain mis en danger | Feu gagnant une façade |
 | Radical | « Le palet » | Place de la République | Renvoyer ou éloigner des palets fumants pour dégager un groupe pris dans le gaz | Brûlure, malaise |
 | Radical | « Ligne rouge » | Rue Saint-Antoine | Le groupe veut s'en prendre aux pompiers : refuser, s'interposer ou partir | Secours agressés |
 
@@ -821,7 +842,8 @@ Aucune carte tactique : une flèche vers ses amis, le sens du cortège, les **is
 > **Ce que le jeu doit reproduire — Manifestant**
 > - Manifester est un **droit** : le manifestant pacifique gagne en marchant, en chantant, en arrivant, en témoignant ; le jeu ne le traite jamais comme une cible légitime.
 > - Le service d'ordre est un rôle de coordination sans arme, pris entre le bloc et la police, dépendant d'informations qu'il reçoit mal.
-> - Le rôle radical reste au niveau des verbes de jeu ; il n'apprend rien de transposable, et sa partie se termine par un bilan humain et judiciaire explicite.
+> - Chaque manifestant a une **raison d'être là** : une cause lisible sur sa pancarte, une famille visuelle reconnaissable (gilets jaunes, cortège syndical, étudiants, climat, soignants, agriculteurs, retraités, familles, bloc).
+> - Le bloc est une composante de jeu à part entière (formation en tête, changement de tenue, action coordonnée, dispersion), décrite par ce que l'on voit ; le rôle radical reste au niveau des verbes de jeu, n'apprend rien de transposable, et sa partie se termine par un bilan humain et judiciaire explicite.
 > - Le risque judiciaire est simulé avec les ordres de grandeur réels : beaucoup d'interpellations sans suite quand aucun fait n'est établi, des peines lourdes quand il l'est.
 
 ---
@@ -842,7 +864,7 @@ Aucune carte tactique : une flèche vers ses amis, le sens du cortège, les **is
 | | Observateur | Commerçant |
 |---|---|---|
 | Boucle | Se présenter au responsable du dispositif → suivre un groupe → noter chaque événement (heure, lieu, unité, moyen, sommations entendues ou non) → filmer → rédiger la note | Lire l'alerte → décider (ouvrir, terrasse, panneaux, rideau) → servir ou surveiller → abriter → éteindre un début de feu → constater → déclarer |
-| Valeurs | Fiche d'événement en 4 champs ; lecture d'un code d'unité (« 2B ») à moins de 15 m ; numéro individuel à moins de 6 m | Pose de panneaux : 60 s par vitrine de 3 m, à deux ; rideau métallique : 8 s ; rentrer une terrasse de 12 tables : 90 s ; capacité de refuge : 15 personnes |
+| Valeurs | Fiche d'événement en 4 champs ; lecture d'un code d'unité (« 2B ») à moins de 15 m ; numéro individuel à moins de 6 m | Pose de panneaux : 60 s par vitrine de 3 m, à deux ; rideau métallique : 8 s à baisser, résiste 20 à 40 s à une attaque à plusieurs ; rentrer une terrasse de 12 tables : 90 s ; capacité de refuge : 15 personnes |
 | Points | +4 par fiche exacte ; +10 par séquence de sommations complète ; +10 par faute documentée ; +10 par violence contre des agents documentée (l'observateur note tout) | Recette de la journée (0 à 100) ; +10 par personne abritée ; +15 si le local est intact ; +5 pour un dossier de sinistre complet |
 | Fautes | Prendre parti, gêner une manœuvre −15 ; fiche fausse −10 | Violence envers quiconque −40 ; refuge refusé à un blessé −10 |
 | Échec | Matériel saisi sans copie ; blessé | Local incendié ; commerçant blessé |

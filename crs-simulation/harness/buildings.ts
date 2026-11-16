@@ -18,7 +18,8 @@ import type { Building, Terrain, Tile } from '../src/world/mapdata';
 import { generateTestDistrict } from '../src/world/testDistrict';
 import { paintAtlasPixels } from '../src/world/view/buildings/atlas';
 import {
-  buildTileBuildings, buildTileBuildingsFar, buildingLightingState, disposeSharedBuildingResources, prepareSharedBuildingResources,
+  buildTileBuildings, buildTileBuildingsFar, buildingLightingState, disposeSharedBuildingResources, lastBuildingBuildStats,
+  prepareSharedBuildingResources,
 } from '../src/world/view/buildings/index';
 import type { BuildingViewOptions, TileBuildingsView } from '../src/world/view/buildings/index';
 import { LAYER_COUNT } from '../src/world/view/buildings/layers';
@@ -355,6 +356,10 @@ function buildAll(): void {
   let t0 = performance.now();
   mainView = buildTileBuildings(focusTile, opts);
   stats.buildMs = performance.now() - t0;
+  const built = lastBuildingBuildStats();
+  stats.vertices = built.vertices;
+  stats.gpuBytes = built.gpuBytes;
+  stats.detailStep = built.step;
   stats.buildings = focusTile.buildings.length;
   stats.triangles = mainView.triangles;
   stats.drawCalls = mainView.drawCalls;

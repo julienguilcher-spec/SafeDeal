@@ -11,6 +11,7 @@
  *     leurs traces montrent le glissement le long des murs ; aucune ne doit traverser un obstacle.
  *
  * Paramètres d'URL : ?map=test|paris &x= &z= &span= (largeur de vue en m) &place= (nom de lieu)
+ *                    &base= (URL du dossier de la carte de Paris ; défaut ../data/paris/)
  * API pour les tests : window.__wq.view({ x, z, span, place }) → Promise ; window.__ready.
  * ===================================================================================== */
 
@@ -75,7 +76,8 @@ function buildLegend(): void {
   legendEl.innerHTML = rows.join('');
 }
 
-const world = createWorldQuery({ source: mapName, baseUrl: '../data/paris/' });
+// &base= : URL du dossier de la carte de Paris (défaut : public/data/paris, servi en /data/paris/).
+const world = createWorldQuery({ source: mapName, baseUrl: params.get('base') ?? '../data/paris/' });
 
 /** Générateur pseudo-aléatoire déterministe (les captures sont reproductibles). */
 function mulberry32(seed: number): () => number {

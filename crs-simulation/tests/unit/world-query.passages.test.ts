@@ -141,6 +141,57 @@ describe('monde : le graphe fait foi pour le passage (mini-carte)', () => {
   });
 });
 
+describe('monde : monuments sans obstacles propres (mini-carte)', () => {
+  // Repli de getColliders pour un monument sans fichier d'obstacles : il rend l'emprise du site.
+  const siteFootprint: GetColliders = (_key, site) => [{ ring: Array.from(site.footprint), height: site.height, baseY: 0 }];
+
+  for (const [label, colliders] of [['sans getColliders', null], ['getColliders rend l\'emprise du site', siteFootprint]] as const) {
+    it(`${label} : une statue sans bâtiment fait obstacle, un pont modélisé non`, async () => {
+      const w = createWorldQuery({ source: 'paris', parisSource: new MemoryMapSource(miniMapRaw()), colliders });
+      await w.boot();
+      w.setFocus(256, 256);
+      await w.whenLoaded(256, 256, 400);
+      const s = MINI_MAP.statue;
+      expect(w.landmarks.map((l) => l.key)).toEqual(['statue_test', 'pont_test']);
+      expect(w.isSolidAt(s.x, s.z)).toBe(true);
+      expect(w.isSolidAt(s.x + 1.5, s.z)).toBe(false);
+      expect(w.surfaceAt(s.x, s.z)).toBe('building');
+      expect(w.buildingHeightAt(s.x, s.z)).toBeCloseTo(s.height, 5);
+      const pos = { x: s.x, z: s.z - 6 };
+      walk(w, pos, 0, 0.1, 100);
+      expect(pos.z).toBeCloseTo(s.z - 1 - R, 2);
+      const hit = makeHit();
+      expect(w.raycast(s.x - 5, s.z, s.x + 5, s.z, hit)).toBe(true);
+      expect(hit.kind).toBe('building');
+      expect(hit.height).toBeCloseTo(s.height, 5);
+      // Le pont porte la clé d'un monument : son emprise n'est pas un obstacle.
+      const r = MINI_MAP.river;
+      expect(w.isSolidAt(r.bridgeX, 430)).toBe(false);
+      expect(w.surfaceAt(r.bridgeX, 430)).toBe('bridge');
+      const across = { x: r.bridgeX, z: 385 };
+      walk(w, across, 0, 0.25, 360);
+      expect(across.z).toBeCloseTo(475, 6);
+      // L'obstacle de secours appartient à la tuile : il part avec elle.
+      w.setFocus(9000, 9000);
+      expect(w.isSolidAt(s.x, s.z)).toBe(false);
+    });
+  }
+
+  it('un monument représenté par un bâtiment garde l\'emprise précise du bâtiment', async () => {
+    // Quartier d'essai : le bâtiment 900 porte la clé du monument ; aucun obstacle n'est ajouté en double.
+    const plain = createWorldQuery({ source: 'test', colliders: null });
+    const viaSite = createWorldQuery({ source: 'test', colliders: siteFootprint });
+    for (const w of [plain, viaSite]) {
+      await w.boot();
+      w.setFocus(0, 0);
+      await w.whenLoaded(0, 0, 300);
+      expect(w.isSolidAt(0, 0)).toBe(true);
+    }
+    expect(viaSite.stats().solids).toBe(plain.stats().solids);
+    expect(viaSite.stats().segments).toBe(plain.stats().segments);
+  });
+});
+
 describe('monde : obstacles des monuments', () => {
   // Quatre piliers de 2 m aux coins d'un carré de 8 m, et un linteau en hauteur sous lequel on passe.
   const pillars: GetColliders = (key: string, site: ColliderSite) => {

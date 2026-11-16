@@ -11,9 +11,10 @@ import type {
   SurfaceKind, Vec2, WorldBounds,
 } from '@/core/contracts';
 import {
-  TILE_SIZE, decodeLandmarks, decodePlaces, decodeRoadGraph, decodeTerrain, parseManifest, sampleTerrain, tileBounds,
+  TILE_SIZE, decodeLandmarks, decodePlaces, decodeRoadGraph, decodeTerrain, parseManifest, pointInPolygon, sampleTerrain,
+  tileBounds,
 } from '../mapdata';
-import type { Tile } from '../mapdata';
+import type { Landmark, Manifest, Place, RoadGraph, Terrain, Tile } from '../mapdata';
 import type {
   GetColliders, MapSource, ObstacleSegmentView, WorldData, WorldQueryExt, WorldQueryOptions, WorldQueryStats,
   WorldSourceEvent,
@@ -21,16 +22,17 @@ import type {
 import { WORLD_SOURCE_EVENT } from './api';
 import { WorldBase, emptyBase, loadBase } from './base';
 import type { DecodedBase } from './base';
-import { CAP_STRIDE, CollisionBucket, CollisionWorld, SOLID_BUILDING, SOLID_WATER } from './collision';
+import { CollisionWorld, SOLID_BUILDING, SOLID_LANDMARK } from './collision';
 import { loadMonumentColliders } from './monuments';
 import { BucketBuilder } from './obstacles';
 import {
-  CODE_BRIDGE, CODE_BUILDING, CODE_GRAVEL, CODE_PARK, CODE_PLAZA, CODE_ROAD, CODE_SETT, CODE_SIDEWALK,
-  CODE_VOID, CODE_WATER, GRID_SIZE, TileGrid, codeOfCarriageway, codeOfMapSurface, codeOfPedestrianWay, fillPolygon,
-  heightToDm, paintCapsule, paintPolyline, surfaceOfCode,
+  CODE_BRIDGE, CODE_BUILDING, CODE_GRAVEL, CODE_PARK, CODE_PLAZA, CODE_ROAD, CODE_SETT, CODE_SIDEWALK, CODE_VOID,
+  CODE_WATER, GRID_SIZE, surfaceOfCode,
 } from './raster';
+import type { TileGrid } from './raster';
 import { ROAD_ANY, ROAD_DRIVABLE } from './roads';
 import { DEFAULT_BASE_URL, FetchMapSource, createTestDistrictSource, testDistrictRaw } from './sources';
+import { buildTileGrid, patchNeighbourGrid } from './surfaces';
 import { DEFAULT_LOAD_RADIUS, DEFAULT_UNLOAD_RADIUS } from './tiles';
 import type { TileEntry, TileHost } from './tiles';
 
@@ -90,6 +92,44 @@ function decodedTestBase(seed: number): DecodedBase {
   return base;
 }
 
+/** Service 'world.data' : vue stable sur le jeu de données courant. */
+class WorldDataView implements WorldData {
+  private readonly current: () => WorldBase;
+
+  constructor(current: () => WorldBase) {
+    this.current = current;
+  }
+
+  get manifest(): Manifest {
+    return this.current().manifest;
+  }
+
+  get roadGraph(): RoadGraph {
+    return this.current().decoded.roadGraph;
+  }
+
+  get places(): readonly Place[] {
+    return this.current().decoded.places;
+  }
+
+  get landmarks(): readonly Landmark[] {
+    return this.current().decoded.landmarks;
+  }
+
+  get terrain(): Terrain {
+    return this.current().terrain;
+  }
+
+  tile(tx: number, tz: number): Tile | null {
+    const e = this.current().store.entry(tx, tz);
+    return e !== null && e.state === 'loaded' ? e.tile : null;
+  }
+
+  loadedKeys(): readonly string[] {
+    return this.current().store.loadedKeys();
+  }
+}
+
 export class WorldQueryImpl implements WorldQueryExt, TileHost {
   private ctx: GameContext | null = null;
   private headless = true;
@@ -134,22 +174,7 @@ export class WorldQueryImpl implements WorldQueryExt, TileHost {
     this.collidersKnown = options.colliders !== undefined;
     this.base = new WorldBase(emptyBase(), this, this.loadRadius, this.unloadRadius, null);
     this.collision.setBounds(this.base.manifest.bounds);
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
-    const self = this;
-    this.data = {
-      get manifest() { return self.base.manifest; },
-      get roadGraph() { return self.base.decoded.roadGraph; },
-      get places() { return self.base.decoded.places; },
-      get landmarks() { return self.base.decoded.landmarks; },
-      get terrain() { return self.base.terrain; },
-      tile(tx: number, tz: number): Tile | null {
-        const e = self.base.store.entry(tx, tz);
-        return e !== null && e.state === 'loaded' ? e.tile : null;
-      },
-      loadedKeys(): readonly string[] {
-        return self.base.store.loadedKeys();
-      },
-    };
+    this.data = new WorldDataView(() => this.base);
   }
 
   // ─────────────────────────────── cycle de vie ───────────────────────────────
@@ -332,6 +357,17 @@ export class WorldQueryImpl implements WorldQueryExt, TileHost {
       if (b.landmarkKey !== '' && replaced.has(b.landmarkKey)) continue;
       builder.addSolid(b.holes.length === 0 ? [b.outer] : [b.outer, ...b.holes], SOLID_BUILDING, b.height);
     }
+    // Monuments sans obstacles propres : leur emprise ne sert que si aucun bâtiment ne les représente ici.
+    const rect = tileBounds(entry.tx, entry.tz);
+    for (const fb of this.base.landmarkSet.fallback) {
+      if (fb.x < rect.minX || fb.x >= rect.maxX || fb.z < rect.minZ || fb.z >= rect.maxZ) continue;
+      let represented = false;
+      for (let i = 0; i < tile.buildings.length && !represented; i++) {
+        const b = tile.buildings[i];
+        represented = b.landmarkKey === fb.key || pointInPolygon(b.outer, b.holes, fb.x, fb.z);
+      }
+      if (!represented) builder.addSolid([fb.ring], SOLID_LANDMARK, fb.top);
+    }
     for (const s of tile.surfaces) {
       if (s.kind === 'water') builder.addWater(s.holes.length === 0 ? [s.outer] : [s.outer, ...s.holes]);
     }
@@ -345,10 +381,7 @@ export class WorldQueryImpl implements WorldQueryExt, TileHost {
       for (let dx = -1; dx <= 1; dx++) {
         if (dx === 0 && dz === 0) continue;
         const n = store.entry(entry.tx + dx, entry.tz + dz);
-        if (n !== null && n.grid !== null) {
-          this.paintBuildings(n.grid, tile);
-          this.paintPassages(n.grid, entry.bucket);
-        }
+        if (n !== null && n.grid !== null) patchNeighbourGrid(this.base, n.grid, tile, entry.bucket);
       }
     }
   }
@@ -373,94 +406,13 @@ export class WorldQueryImpl implements WorldQueryExt, TileHost {
 
   // ─────────────────────────────── grille de surfaces ───────────────────────────────
 
-  private paintBuildings(grid: TileGrid, tile: Tile): void {
-    const replaced = this.base.landmarkSet.replaced;
-    const minX = grid.ox, minZ = grid.oz, maxX = grid.ox + TILE_SIZE, maxZ = grid.oz + TILE_SIZE;
-    const own = tile.tx * TILE_SIZE === grid.ox && tile.tz * TILE_SIZE === grid.oz;
-    for (const b of tile.buildings) {
-      if (b.landmarkKey !== '' && replaced.has(b.landmarkKey)) continue;
-      if (!own) {
-        // Bâtiment d'une tuile voisine : seulement s'il déborde sur cette grille.
-        const o = b.outer;
-        let hit = false;
-        for (let i = 0; i + 1 < o.length && !hit; i += 2) hit = o[i] >= minX && o[i] <= maxX && o[i + 1] >= minZ && o[i + 1] <= maxZ;
-        if (!hit) continue;
-      }
-      fillPolygon(grid, b.holes.length === 0 ? [b.outer] : [b.outer, ...b.holes], CODE_BUILDING, heightToDm(b.height), 0);
-    }
-  }
-
-  /** Passages de voies sous les bâtiments d'un lot : le sol y redevient celui de la voie. */
-  private paintPassages(grid: TileGrid, bucket: CollisionBucket): void {
-    const graph = this.base.decoded.roadGraph;
-    for (let q = 0; q < bucket.polyCount; q++) {
-      if (bucket.polyKind[q] === SOLID_WATER) continue;
-      for (let c = bucket.polyCap0[q], end = bucket.polyCap0[q + 1]; c < end; c++) {
-        const o = c * CAP_STRIDE;
-        const ed = graph.edges[bucket.capEdge[c]];
-        const code = ed === undefined ? CODE_SIDEWALK : ed.pedestrianOnly ? codeOfPedestrianWay(ed) : codeOfCarriageway(ed);
-        paintCapsule(grid, bucket.caps[o], bucket.caps[o + 1], bucket.caps[o + 2], bucket.caps[o + 3], bucket.caps[o + 4], code, true, true, 0, 1 << CODE_BUILDING, 0);
-      }
-    }
-  }
-
-  private buildGrid(entry: TileEntry): TileGrid {
+  /** Grille de surfaces de la tuile, rasterisée à la première demande. */
+  private gridOf(entry: TileEntry): TileGrid {
+    if (entry.grid !== null) return entry.grid;
     const t0 = now();
-    const tile = entry.tile as Tile;
-    const base = this.base;
-    const grid = new TileGrid(entry.tx * TILE_SIZE, entry.tz * TILE_SIZE);
-    grid.kinds.fill(CODE_SIDEWALK);
-    // Surfaces de la carte, dans leur ordre de superposition.
-    for (const s of tile.surfaces) {
-      fillPolygon(grid, s.holes.length === 0 ? [s.outer] : [s.outer, ...s.holes], codeOfMapSurface(s.kind), -1, 0);
-    }
-    // Arêtes du graphe qui touchent la tuile.
-    const roads = base.roads;
-    const margin = 64;
-    const count = roads.querySegments(grid.ox - margin, grid.oz - margin, grid.ox + TILE_SIZE + margin, grid.oz + TILE_SIZE + margin, this.edgeScratch);
-    const edges = new Set<number>();
-    for (let k = 0; k < count; k++) edges.add(roads.segEdge[this.edgeScratch[k]]);
-    const graph = base.decoded.roadGraph;
-    const keepWater = 1 << CODE_WATER;
-    for (const e of edges) {
-      const ed = graph.edges[e];
-      if (ed.tunnel || !ed.pedestrianOnly || ed.bridge) continue;
-      paintPolyline(grid, ed.points, Math.max(0.75, ed.width / 2), codeOfPedestrianWay(ed), true, keepWater | (1 << CODE_ROAD), 0, -1);
-    }
-    for (const e of edges) {
-      const ed = graph.edges[e];
-      if (ed.tunnel || ed.pedestrianOnly || ed.bridge) continue;
-      paintPolyline(grid, ed.points, ed.width / 2, codeOfCarriageway(ed), true, keepWater, 0, -1);
-    }
-    for (const e of edges) {
-      const ed = graph.edges[e];
-      if (ed.tunnel || !ed.bridge) continue;
-      paintPolyline(grid, ed.points, roads.halfDeck[e], CODE_BRIDGE, false, 0, 0, -1);
-    }
-    // Bâtiments : ceux de la tuile, puis ceux des voisines qui débordent ; obstacles des monuments.
-    this.paintBuildings(grid, tile);
-    const store = base.store;
-    for (let dz = -1; dz <= 1; dz++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        if (dx === 0 && dz === 0) continue;
-        const n = store.entry(entry.tx + dx, entry.tz + dz);
-        if (n !== null && n.tile !== null) this.paintBuildings(grid, n.tile);
-      }
-    }
-    for (const o of base.landmarkSet.obstacles) fillPolygon(grid, [o.ring], CODE_BUILDING, heightToDm(o.top), 0);
-    // Porches.
-    if (entry.bucket !== null) this.paintPassages(grid, entry.bucket);
-    this.paintPassages(grid, base.landmarkBucket);
-    for (let dz = -1; dz <= 1; dz++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        if (dx === 0 && dz === 0) continue;
-        const n = store.entry(entry.tx + dx, entry.tz + dz);
-        if (n !== null && n.bucket !== null) this.paintPassages(grid, n.bucket);
-      }
-    }
-    entry.grid = grid;
+    entry.grid = buildTileGrid(this.base, entry, this.edgeScratch);
     this.rasterMs += now() - t0;
-    return grid;
+    return entry.grid;
   }
 
   // ─────────────────────────────── WorldQuery : généralités ───────────────────────────────
@@ -500,7 +452,7 @@ export class WorldQueryImpl implements WorldQueryExt, TileHost {
     if (!(x >= b.minX && x < b.maxX && z >= b.minZ && z < b.maxZ)) return CODE_VOID;
     const entry = base.store.entryAt(x, z);
     if (entry === null || entry.state !== 'loaded') return CODE_VOID;
-    const grid = entry.grid !== null ? entry.grid : this.buildGrid(entry);
+    const grid = this.gridOf(entry);
     let i = Math.floor(x - grid.ox), j = Math.floor(z - grid.oz);
     if (i < 0) i = 0; else if (i >= GRID_SIZE) i = GRID_SIZE - 1;
     if (j < 0) j = 0; else if (j >= GRID_SIZE) j = GRID_SIZE - 1;
@@ -515,7 +467,7 @@ export class WorldQueryImpl implements WorldQueryExt, TileHost {
     const base = this.base;
     const entry = base.store.entryAt(x, z);
     if (entry === null || entry.state !== 'loaded') return 0;
-    const grid = entry.grid !== null ? entry.grid : this.buildGrid(entry);
+    const grid = this.gridOf(entry);
     let i = Math.floor(x - grid.ox), j = Math.floor(z - grid.oz);
     if (i < 0) i = 0; else if (i >= GRID_SIZE) i = GRID_SIZE - 1;
     if (j < 0) j = 0; else if (j >= GRID_SIZE) j = GRID_SIZE - 1;

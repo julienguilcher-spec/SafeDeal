@@ -62,6 +62,8 @@ export interface KbmEnv {
   notify(text: string): void;
   /** Usage intentionnel du clavier ou de la souris. */
   activity(): void;
+  /** La souris a été rendue sans que le jeu le demande (Échap, changement de fenêtre) : demander la pause. */
+  autoPause(): void;
 }
 
 const tmp: Axis2 = { x: 0, y: 0 };
@@ -309,7 +311,7 @@ export class KbmSource {
     } else if (was) {
       // Capture perdue sans que le jeu l'ait demandé : Échap (jamais transmise à la page quand la
       // souris est capturée) ou changement de fenêtre → on met le jeu en pause.
-      if (!this.selfExit && this.env.canLock()) this.env.core.latch.pulse(SRC_KBM, this.pauseIndex);
+      if (!this.selfExit) this.env.autoPause();
       this.selfExit = false;
       this.lastX = NaN;
       this.lastY = NaN;

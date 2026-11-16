@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   BONE_ARM_L, BONE_ARM_R, BONE_CHEST, BONE_COUNT, BONE_FOOT_L, BONE_FOOT_R, BONE_FORE_L, BONE_FORE_R,
-  BONE_HAND_L, BONE_HAND_R, BONE_HEAD, BONE_SHIN_L, BONE_SHIN_R, BONE_STRIDE, BONE_THIGH_L, BONE_THIGH_R,
+  BONE_HAND_L, BONE_HAND_R, BONE_HEAD, BONE_SHIN_L, BONE_SHIN_R, BONE_STRIDE, BONE_THIGH_L,
   ANKLE_H, L_FORE, L_SHIN, L_THIGH, L_UPPER, LOCAL_SIZE,
 } from '@/render/people/skeleton';
 import { computePose, createPoseParams } from '@/render/people/pose';

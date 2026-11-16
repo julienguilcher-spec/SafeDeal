@@ -81,13 +81,15 @@ export const TOUCH_CSS = `
 .ct-item.is-active{border-color:#fff;background:rgba(40,104,214,.8)}
 .ct-item.is-down{background:rgba(255,255,255,.36);transform:scale(.94)}
 .ct-item-ic{font-size:calc(var(--s)*21px);line-height:1;pointer-events:none;text-shadow:0 1px 2px rgba(0,0,0,.7)}
-.ct-item-ic.is-text{font-size:calc(var(--s)*8.5px);font-weight:700;text-transform:uppercase;letter-spacing:.02em;
-  max-width:94%;overflow:hidden;text-overflow:clip;white-space:nowrap;margin-top:calc(var(--s)*5px)}
+.ct-item-ic.is-text{font-size:calc(var(--s)*8px);font-weight:700;letter-spacing:0;
+  max-width:96%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:calc(var(--s)*6px)}
 .ct-item-l{font-size:calc(var(--s)*7.5px);font-weight:600;line-height:1;max-width:94%;overflow:hidden;white-space:nowrap;
   text-overflow:clip;opacity:.9;pointer-events:none}
-.ct-item-n{position:absolute;right:calc(var(--s)*3px);bottom:calc(var(--s)*2px);font-size:calc(var(--s)*9.5px);font-weight:700;
-  text-shadow:0 1px 2px rgba(0,0,0,.9);pointer-events:none}
-.ct-item-k{position:absolute;left:calc(var(--s)*4px);top:calc(var(--s)*2px);font-size:calc(var(--s)*8.5px);font-weight:600;opacity:.7;pointer-events:none}
+.ct-item-n{position:absolute;right:calc(var(--s)*4px);top:calc(var(--s)*2px);font-size:calc(var(--s)*9.5px);font-weight:700;
+  line-height:1.15;text-shadow:0 1px 2px rgba(0,0,0,.9);pointer-events:none}
+.ct-item-k{position:absolute;left:calc(var(--s)*4px);top:calc(var(--s)*2px);font-size:calc(var(--s)*8.5px);font-weight:600;
+  line-height:1.25;opacity:.7;pointer-events:none}
+.ct-item-ic{margin-top:calc(var(--s)*7px)}
 
 .ct-rotate{position:absolute;inset:0;z-index:9999;display:none;pointer-events:auto;touch-action:none;
   flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:28px;text-align:center;background:rgba(8,12,22,.97)}

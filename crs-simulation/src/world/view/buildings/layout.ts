@@ -194,3 +194,19 @@ export function hash01(a: number, b: number = 0): number {
   h ^= h >>> 15;
   return (h >>> 0) / 4294967296;
 }
+
+let variation = 0;
+
+/** Fixe la graine des variations d'aspect (teintes, variantes de façade, matériaux de toit). */
+export function setVariationSeed(seed: number): void {
+  variation = Math.imul(seed | 0, 0x9e3779b1) | 0;
+}
+
+/**
+ * Tirage stable 0..1 pour un bâtiment : dépend de son identifiant, d'un sujet `k` (teinte,
+ * variante…) et de la graine fixée par setVariationSeed. Le même bâtiment a donc le même aspect
+ * dans la version détaillée et dans la version lointaine.
+ */
+export function vhash(id: number, k: number): number {
+  return hash01(id ^ variation, k);
+}

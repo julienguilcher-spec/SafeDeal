@@ -20,7 +20,7 @@ export const ARC = {
   spring: 29.19 - 14.62 / 2, entabY: 31.4, entabTop: 37.5, atticTop: 46.5,
 } as const;
 
-defineMaterial('arc_inscriptions', () => litMaterial('arc_inscriptions', { color: 0xffffff, roughness: 0.9, night: 0.85 }, inscriptionTex(0xe2ca98, 0x6f5a3c, 16, 81, [6, 6], 0.55))
+defineMaterial('arc_inscriptions', () => litMaterial('arc_inscriptions', { color: 0xffffff, roughness: 0.9, night: 0.85 }, inscriptionTex(0xe2ca98, 0x6f5a3c, 20, 81, [4.4, 4.4], 0.5))
   ?? litMaterial('arc_inscriptions', { color: 0xe2ca98 }));
 
 const WALL = 'pierre_doree', TRIM = 'pierre_lisse';
@@ -176,7 +176,7 @@ function build(quality: QualityLevel): Builder {
   const pd = (D - smallW) / 2;
   for (const s of [-1, 1]) for (const t of [-1, 1]) {
     const x = s * (bigW / 2 - 0.04), z0 = t * (smallW / 2 + 0.8), z1 = t * (hd - 0.8);
-    const g = s * t > 0 ? quadFit(x, 5, z1, x, 5, z0, x, spring - 2.2, z0, x, spring - 2.2, z1, 0, 0, pd - 1.6, spring - 7.2)
+    const g = s * t < 0 ? quadFit(x, 5, z1, x, 5, z0, x, spring - 2.2, z0, x, spring - 2.2, z1, 0, 0, pd - 1.6, spring - 7.2)
       : quadFit(x, 5, z0, x, 5, z1, x, spring - 2.2, z1, x, spring - 2.2, z0, 0, 0, pd - 1.6, spring - 7.2);
     ins.append(g);
   }
@@ -206,7 +206,8 @@ export const def: MonumentDef = {
       b.with(pose(s * pierX, 0, 0, Math.PI / 2), () => archBlock(b, { width: D, height: spring, depth: pierW, top: false, seg: 4, openings: [{ x: 0, width: smallW, height: smallH }], mat: stone, matVault: dark }));
     }
     b.with(pose(0, spring, 0), () => archBlock(b, { width: W, height: entabY - spring, depth: D, top: false, seg: 6, openings: [{ x: 0, width: bigW, height: bigH - spring }], mat: stone, matVault: dark }));
-    b.add(stone, box(W + 3, entabTop - entabY, D + 3, { bottom: true }).translate(0, entabY, 0));
+    b.add(stone, box(W + 0.3, entabTop - entabY - 1.6, D + 0.3, { top: false }).translate(0, entabY, 0));
+    b.add(stone, box(W + 3.1, 1.6, D + 3.1, { bottom: true }).translate(0, entabTop - 1.6, 0));
     b.add(stone, box(W - 1.1, atticTop - entabTop, D - 1.1, { top: false }).translate(0, entabTop, 0));
     b.add(stone, box(W + 0.6, H - atticTop, D + 0.6, { bottom: true }).translate(0, atticTop, 0));
     return finishFar(b, 'arc_triomphe');

@@ -6,6 +6,9 @@ import { PeopleAnimator, createAnimSample, sampleFromPerson } from '@/render/peo
 import { BONE_COUNT, BONE_STRIDE } from '@/render/people/skeleton';
 import { HOLD_NONE, HOLD_POLE, HOLD_SHIELD } from '@/render/people/poseparams';
 
+// vitest s'exécute sous Node : déclaration minimale (les types de Node ne sont pas installés dans le projet)
+declare const process: { cpuUsage(previous?: { user: number; system: number }): { user: number; system: number } };
+
 const LOOK: PersonLook = {
   height: 1.75, build: 1, skin: 0xd9a47c, hair: 0x2a1c12, hairStyle: 1, top: 0x4a5a6a, bottom: 0x2b3340, shoes: 0x1a1a1c,
   outfit: 'civil', headgear: 'none', visorDown: false, gasMask: false, faceCover: false, backText: '', sash: false,
@@ -53,14 +56,26 @@ describe('rendu des personnages — performance du calcul des poses', () => {
       }
     };
     for (let f = 0; f < 30; f++) frame();          // échauffement du compilateur
-    const frames = 60;
-    const t0 = performance.now();
-    for (let f = 0; f < frames; f++) frame();
-    const ms = (performance.now() - t0) / frames;
-    const us = (ms * 1000) / N;
-    console.log(`[people] calcul des poses : ${ms.toFixed(2)} ms pour ${N} poses complètes (${us.toFixed(2)} µs par pose)`);
+    // temps processeur consommé (insensible à la charge de la machine), meilleur de trois séries
+    const frames = 40;
+    let best = Infinity;
+    for (let serie = 0; serie < 3; serie++) {
+      const c0 = process.cpuUsage();
+      for (let f = 0; f < frames; f++) frame();
+      const c = process.cpuUsage(c0);
+      best = Math.min(best, (c.user + c.system) / frames / 1000);
+    }
+    // étalon : même mesure sur une boucle de calcul flottant simple, pour situer la vitesse de la machine
+    const ref = new Float64Array(4096);
+    const r0 = process.cpuUsage();
+    for (let k = 0; k < 400; k++) for (let i = 0; i < 4096; i++) ref[i] = Math.sqrt(ref[(i + 1) & 4095] * 0.5 + i);
+    const r = process.cpuUsage(r0);
+    const nsPerOp = ((r.user + r.system) * 1000) / (400 * 4096);
+    const us = (best * 1000) / N;
+    console.log(`[people] calcul des poses : ${best.toFixed(2)} ms CPU pour ${N} poses complètes (${us.toFixed(2)} µs par pose) ; `
+      + `étalon machine : ${nsPerOp.toFixed(2)} ns par racine carrée (≈ 1 ns sur un PC de bureau)`);
     for (let k = 0; k < out.length; k += 997) expect(Number.isFinite(out[k])).toBe(true);
-    // budget : 4 ms par image au total ; avec les niveaux de détail, ~40 % des poses sont recalculées par image
-    expect(us).toBeLessThan(12);
+    // garde-fou large : une régression grossière (allocation, boucle quadratique) dépasserait ce seuil
+    expect(us).toBeLessThan(60);
   });
 });

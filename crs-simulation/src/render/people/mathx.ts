@@ -30,6 +30,15 @@ export function fcos(x: number): number {
   return a + (LUT[i + 1] - a) * (f - fi);
 }
 
+/** Arc cosinus rapide (Abramowitz et Stegun 4.4.45, erreur < 7e-5 rad), x borné à [-1, 1]. */
+export function facos(x: number): number {
+  const neg = x < 0;
+  let a = neg ? -x : x;
+  if (a > 1) a = 1;
+  const r = Math.sqrt(1 - a) * (1.5707288 + a * (-0.2121144 + a * (0.074261 - 0.0187293 * a)));
+  return neg ? Math.PI - r : r;
+}
+
 export function clamp(x: number, a: number, b: number): number {
   return x < a ? a : x > b ? b : x;
 }
@@ -67,6 +76,11 @@ export function wrapPi(a: number): number {
 /** Partie fractionnaire positive. */
 export function fract(x: number): number {
   return x - Math.floor(x);
+}
+
+/** Composante de couleur sRGB (0..1) → linéaire. */
+export function srgbToLinear(v: number): number {
+  return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
 }
 
 /** Hachage entier 32 bits (déterministe). */

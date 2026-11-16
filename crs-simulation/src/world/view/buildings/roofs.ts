@@ -15,10 +15,10 @@ import {
   ALT_NONE, CELL_BAY_M, CELL_FLOOR_M, LAYER_ARDOISE_BRISIS, LAYER_ARDOISE_LUCARNE, LAYER_GRAVIER, LAYER_LUCARNE_FACE, LAYER_PIERRE,
   LAYER_SOUCHE, LAYER_SOUCHE_TOP, LAYER_TUILE, LAYER_ZINC_BRISIS, LAYER_ZINC_LUCARNE, LAYER_ZINC_PLAT, NB_CONTINUOUS,
 } from './layers';
-import { hash01 } from './layout';
+import { vhash } from './layout';
 import type { MeshData } from './meshdata';
 import { WALL_FREE } from './prepare';
-import { distanceToRing, insetIsValid, insetRing, pointInRing, ringArea, ringCentroid } from './rings';
+import { distanceToRing, hyp, insetIsValid, insetRing, pointInRing, ringArea, ringCentroid } from './rings';
 import { triIndices, triangulate, triangulatedArea } from './triangulate';
 import type { BuildCtx, EdgeSet } from './walls';
 
@@ -165,7 +165,7 @@ function emitCap(m: MeshData, c: BuildCtx, src: Float64Array, total: number, nt:
 
 /** Teinte de couverture : zinc et ardoise varient peu. */
 function roofTint(m: MeshData, c: BuildCtx, k = 1): void {
-  const v = (0.86 + 0.16 * hash01(c.b.id, 41)) * k;
+  const v = (0.86 + 0.16 * vhash(c.b.id, 41)) * k;
   m.tint(v, v, v * (1 + 0.02 * (c.rand - 0.5)));
 }
 
@@ -191,7 +191,7 @@ function emitBrisis(m: MeshData, c: BuildCtx, es: EdgeSet, yBot: number, yTop: n
       const ax = orig[2 * (off + i)], az = orig[2 * (off + i) + 1], bx = orig[2 * (off + j)], bz = orig[2 * (off + j) + 1];
       const qax = poly[2 * (off + i)], qaz = poly[2 * (off + i) + 1], qbx = poly[2 * (off + j)], qbz = poly[2 * (off + j) + 1];
       const dx = bx - ax, dz = bz - az;
-      const len = Math.hypot(dx, dz);
+      const len = hyp(dx, dz);
       const c0 = cum;
       cum += len;
       if (len < 0.05) continue;
@@ -214,14 +214,14 @@ function emitBrisis(m: MeshData, c: BuildCtx, es: EdgeSet, yBot: number, yTop: n
       const nb = r === 0 ? es.n[i] : 0;
       if (paintedDormers && nb > 0) {
         // lucarnes peintes : une par travée, calée sur les fenêtres de la façade
-        m.facade(slate ? LAYER_ARDOISE_LUCARNE : LAYER_ZINC_LUCARNE, nb, c.seed + i * 13 + 5, ALT_NONE);
+        m.facade(slate ? LAYER_ARDOISE_LUCARNE : LAYER_ZINC_LUCARNE, nb, c.seed + es.run[i] * 13 + 5, ALT_NONE);
         const u0 = es.u0[i], du = es.u1[i] - es.u0[i];
         m.quad(ax, yBot, az, u0, 0, bx, yBot, bz, u0 + du, 0, qbx, yTop, qbz, u0 + tb * du, 1, qax, yTop, qaz, u0 + ta * du, 1);
       } else {
         m.facade(slate ? LAYER_ARDOISE_BRISIS : LAYER_ZINC_BRISIS, NB_CONTINUOUS, 0, ALT_NONE);
         const u0 = c0 / CELL_BAY_M, du = len / CELL_BAY_M;
-        const run = Math.hypot((qax + qbx) / 2 - (ax + bx) / 2, (qaz + qbz) / 2 - (az + bz) / 2);
-        const v1 = Math.hypot(rise, run) / CELL_FLOOR_M;
+        const run = hyp((qax + qbx) / 2 - (ax + bx) / 2, (qaz + qbz) / 2 - (az + bz) / 2);
+        const v1 = hyp(rise, run) / CELL_FLOOR_M;
         m.quad(ax, yBot, az, u0, 0, bx, yBot, bz, u0 + du, 0, qbx, yTop, qbz, u0 + tb * du, v1, qax, yTop, qaz, u0 + ta * du, v1);
       }
     }
@@ -249,8 +249,12 @@ function emitDormers(m: MeshData, c: BuildCtx, es: EdgeSet, yEave: number, rise:
     const inx = -es.nx[i], inz = -es.nz[i];       // vers l'intérieur
     const w = es.w[i];
     const half = Math.min(0.62, w * 0.24);
-    for (let b = 0; b < nb; b++) {
-      const t = es.m[i] + (b + 0.5) * w;
+    // travées de la façade dont l'axe tombe sur ce pan (une façade courbe s'étend sur plusieurs pans)
+    const bFirst = Math.max(0, Math.ceil((es.off[i] - es.m[i]) / w - 0.5));
+    for (let b = bFirst; b < nb; b++) {
+      const t = es.m[i] + (b + 0.5) * w - es.off[i];
+      if (t >= len) break;
+      if (t < half || t > len - half) continue;        // trop près d'un pli : la lucarne dépasserait du pan
       const cx = ax + dx * t, cz = az + dz * t;
       // quatre coins de la face avant (plan vertical au recul eb), deux coins arrière (recul et)
       const lx = cx - dx * half + inx * eb, lz = cz - dz * half + inz * eb;
@@ -260,7 +264,7 @@ function emitDormers(m: MeshData, c: BuildCtx, es: EdgeSet, yEave: number, rise:
       const y0 = yEave + hb, y1 = yEave + ht;
       // face avant : la cellule de lucarne entière
       m.tint(c.tr, c.tg, c.tb);
-      m.facade(LAYER_LUCARNE_FACE, 1, c.seed + i * 13 + b * 7 + 5, ALT_NONE);
+      m.facade(LAYER_LUCARNE_FACE, 1, c.seed + es.run[i] * 13 + b * 7 + 5, ALT_NONE);
       m.nx = es.nx[i]; m.ny = 0; m.nz = es.nz[i];
       m.quad(lx, y0, lz, 0.02, 0.02, rx, y0, rz, 0.98, 0.02, rx, y1, rz, 0.98, 0.98, lx, y1, lz, 0.02, 0.98);
       // dessus et joues en zinc
@@ -332,11 +336,11 @@ function emitChimneys(m: MeshData, rail: MeshData | null, c: BuildCtx, es: EdgeS
     const j = i + 1 < n ? i + 1 : 0;
     const qax = poly[2 * i], qaz = poly[2 * i + 1], qbx = poly[2 * j], qbz = poly[2 * j + 1];
     const lx = qbx - qax, lz = qbz - qaz;
-    const len = Math.hypot(lx, lz);
+    const len = hyp(lx, lz);
     if (len < 2.4) continue;
     const dx = lx / len, dz = lz / len;
     const inx = -es.nx[i], inz = -es.nz[i];
-    const h1 = hash01(c.b.id, 100 + i), h2 = hash01(c.b.id, 200 + i);
+    const h1 = vhash(c.b.id, 100 + i), h2 = vhash(c.b.id, 200 + i);
     // une longue souche (ou deux sur un grand pignon), adossée au mur mitoyen
     const count = len > 9 ? 2 : 1;
     for (let q = 0; q < count; q++) {
@@ -365,7 +369,7 @@ function emitMansard(m: MeshData, rail: MeshData | null, c: BuildCtx, es: EdgeSe
   for (let i = 0; i < n; i++) dist[i] = es.flag[i] === WALL_FREE ? run : 0;
   const factor = insetAll(c, dist, run);
   const nt = triangulatePoly(nr, total);
-  const slate = hash01(c.b.id, 61) < (c.style === 'monumental' ? 0.7 : 0.3);
+  const slate = vhash(c.b.id, 61) < (c.style === 'monumental' ? 0.7 : 0.3);
   const sloped = factor > 0 && !polyIsOrig;
   const dormers3d = c.detail.dormers && sloped && factor === 1 && !c.allBlank;
   emitBrisis(m, c, es, yEave, yTop, slate, sloped && !dormers3d && !c.allBlank);
@@ -411,7 +415,7 @@ function emitFlat(m: MeshData, c: BuildCtx): void {
       const j = i + 1 < rn ? i + 1 : 0;
       const ax = orig[2 * (off + i)], az = orig[2 * (off + i) + 1], bx = orig[2 * (off + j)], bz = orig[2 * (off + j) + 1];
       const qax = poly[2 * (off + i)], qaz = poly[2 * (off + i) + 1], qbx = poly[2 * (off + j)], qbz = poly[2 * (off + j) + 1];
-      const len = Math.hypot(bx - ax, bz - az);
+      const len = hyp(bx - ax, bz - az);
       const u0 = cum / CELL_BAY_M, u1 = (cum + len) / CELL_BAY_M;
       cum += len;
       if (len < 0.05) continue;
@@ -419,7 +423,7 @@ function emitFlat(m: MeshData, c: BuildCtx): void {
       m.facade(LAYER_PIERRE, NB_CONTINUOUS, 0, ALT_NONE);
       m.nx = 0; m.ny = 1; m.nz = 0;
       m.quad(ax, yTop, az, u0, 0, bx, yTop, bz, u1, 0, qbx, yTop, qbz, u1, 0.1, qax, yTop, qaz, u0, 0.1);
-      const ql = Math.hypot(qbx - qax, qbz - qaz);
+      const ql = hyp(qbx - qax, qbz - qaz);
       if (ql < 0.05) continue;
       // face intérieure : tournée vers le toit
       m.nx = (bz - az) / len; m.ny = 0; m.nz = -(bx - ax) / len;
@@ -503,7 +507,7 @@ function emitGabled(m: MeshData, c: BuildCtx, es: EdgeSet): void {
   const half = Math.max(p.halfSpan[k], 0.5);
   const slope = H / half;
   const sl = Math.sqrt(1 + slope * slope);
-  const tile = hash01(c.b.id, 67) < 0.35;
+  const tile = vhash(c.b.id, 67) < 0.35;
   roofTint(m, c, tile ? 1 : 0.98);
   m.facade(tile ? LAYER_TUILE : LAYER_ZINC_BRISIS, NB_CONTINUOUS, 0, ALT_NONE);
   // versants : chaque triangle du plan est coupé par le faîtage, puis relevé
@@ -541,7 +545,7 @@ function emitGabled(m: MeshData, c: BuildCtx, es: EdgeSet): void {
     for (let i = 0; i < rn; i++) {
       const j = i + 1 < rn ? i + 1 : 0;
       const x0 = orig[2 * (off + i)], z0 = orig[2 * (off + i) + 1], x1 = orig[2 * (off + j)], z1 = orig[2 * (off + j) + 1];
-      const len = Math.hypot(x1 - x0, z1 - z0);
+      const len = hyp(x1 - x0, z1 - z0);
       const u0 = cum / CELL_BAY_M;
       cum += len;
       if (len < 0.05) continue;
@@ -585,7 +589,7 @@ function emitDome(m: MeshData, rail: MeshData | null, c: BuildCtx, es: EdgeSet):
   // calotte : anneaux de parallèles, sommets partagés (normales lisses)
   const S = c.detail.domeSegments, R = S >= 12 ? 4 : 3;
   const H = c.roofH;
-  const slate = hash01(c.b.id, 61) < 0.6;
+  const slate = vhash(c.b.id, 61) < 0.6;
   m.facade(slate ? LAYER_ARDOISE_BRISIS : LAYER_ZINC_BRISIS, NB_CONTINUOUS, 0, ALT_NONE);
   m.ensure(R * (S + 1) + S, R * S * 6);
   const base = m.nv;

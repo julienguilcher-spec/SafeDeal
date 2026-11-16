@@ -120,10 +120,19 @@ function chasuble(b: GeoBuilder): void {
   b.loft([[-0.020, 0.159 + o, 0.107 + o, 0.006], [0.025, 0.166 + o, 0.112 + o, 0.008]], rt, { power: TORSO_POWER, capStart: false, capEnd: false });
   // croix rouge (secouristes de rue) devant et derrière
   b.ctx(BONE_CHEST, SLOT_FIXED, PART_CROSS, SCALE_LIMB).tint(0xd0141c, 0.6);
-  b.box(0, 0.110, 0.1385, 0.100, 0.030, 0.006);
-  b.box(0, 0.110, 0.1385, 0.030, 0.100, 0.006);
-  b.box(0, 0.120, -0.1255, 0.130, 0.036, 0.006);
-  b.box(0, 0.120, -0.1255, 0.036, 0.130, 0.006);
+  if (b.detail === 0) {
+    b.box(0, 0.110, 0.1385, 0.100, 0.030, 0.006);
+    b.box(0, 0.110, 0.1385, 0.030, 0.100, 0.006);
+    b.box(0, 0.120, -0.1255, 0.130, 0.036, 0.006);
+    b.box(0, 0.120, -0.1255, 0.036, 0.130, 0.006);
+  } else {
+    // niveau moyen : simples quadrilatères
+    const zf = 0.146, zb = -0.134;
+    b.quad(-0.05, 0.095, zf, 0.05, 0.095, zf, 0.05, 0.125, zf, -0.05, 0.125, zf);
+    b.quad(-0.015, 0.06, zf, 0.015, 0.06, zf, 0.015, 0.16, zf, -0.015, 0.16, zf);
+    b.quad(0.065, 0.102, zb, -0.065, 0.102, zb, -0.065, 0.138, zb, 0.065, 0.138, zb);
+    b.quad(0.018, 0.055, zb, -0.018, 0.055, zb, -0.018, 0.185, zb, 0.018, 0.185, zb);
+  }
 }
 
 /** Écharpe tricolore portée en bandoulière, de l'épaule droite à la hanche gauche. */

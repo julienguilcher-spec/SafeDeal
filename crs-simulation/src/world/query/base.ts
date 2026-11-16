@@ -99,7 +99,7 @@ export class WorldBase {
     this.paths = new PathFinder(this.roads);
     this.placeIndex = new PlaceIndex(decoded.places, decoded.landmarks);
     this.store = new TileStore(decoded.source, decoded.manifest, host, loadRadius, unloadRadius);
-    this.landmarkSet = { replaced: new Set<string>(), obstacles: [] };
+    this.landmarkSet = { replaced: new Set<string>(), obstacles: [], fallback: [] };
     this.landmarkBucket = new BucketBuilder(null, null).build();
     this.setColliders(colliders);
     this.buildMs = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0;
@@ -107,7 +107,10 @@ export class WorldBase {
 
   /** (Re)construit les obstacles des monuments à partir de getColliders. */
   setColliders(colliders: GetColliders | null): void {
-    this.landmarkSet = buildLandmarkObstacles(this.decoded.landmarks, colliders);
+    // Un ouvrage porté par une arête du graphe (pont modélisé à la main) n'est jamais un obstacle plein.
+    const bridgeKeys = new Set<string>();
+    for (const ed of this.decoded.roadGraph.edges) if (ed.landmarkKey !== '') bridgeKeys.add(ed.landmarkKey);
+    this.landmarkSet = buildLandmarkObstacles(this.decoded.landmarks, colliders, bridgeKeys);
     const builder = new BucketBuilder(this.roads, null);
     for (const o of this.landmarkSet.obstacles) builder.addSolid([o.ring], SOLID_LANDMARK, o.top);
     this.landmarkBucket = builder.build();

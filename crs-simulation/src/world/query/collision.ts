@@ -49,7 +49,27 @@ export const POLY_FULL_CELL = 0x40000000;
 
 /** Marge laissée entre le disque et l'obstacle après résolution (m). */
 const SKIN = 0.001;
+/** Tolérance (m) au-delà d'un rayon pour ramener devant un mur à une face un centre passé derrière. */
+const BEHIND_TOLERANCE = 0.005;
 const KIND_NAMES = ['building', 'barrier', 'bank', 'landmark'] as const;
+
+/**
+ * Accélérateur du test « point dans un polygone » pour les grands polygones (fleuve, jardins) :
+ * les côtés sont rangés par bandes de 16 m, en lignes (selon z) et en colonnes (selon x). Le test
+ * de parité ne parcourt que les côtés de la bande du point, dans la direction la moins chargée.
+ */
+export interface PolyBands {
+  /** Première colonne et première ligne de cellules couvertes (indices dans la grille du lot). */
+  i0: number;
+  j0: number;
+  colCount: number;
+  rowCount: number;
+  /** Côtés de la colonne c : colXZ[4k…4k+3] pour k dans [colStart[c], colStart[c + 1][. */
+  colStart: Uint32Array;
+  colXZ: Float32Array;
+  rowStart: Uint32Array;
+  rowXZ: Float32Array;
+}
 
 export class CollisionBucket {
   /** Boîte englobante du contenu (épaisseurs comprises). */
@@ -87,9 +107,13 @@ export class CollisionBucket {
   capEdge: Int32Array = new Int32Array(0);
   polyCellStart: Uint32Array = new Uint32Array(1);
   polyCellItems: Uint32Array = new Uint32Array(0);
+  /** Accélérateur des grands polygones (null ou absent pour les autres). */
+  polyBands: (PolyBands | null)[] = [];
 
   /** Le point est-il dans le polygone q (règle de parité sur tous ses anneaux) ? */
   insidePolygon(q: number, x: number, z: number): boolean {
+    const bands = this.polyBands[q];
+    if (bands !== undefined && bands !== null) return this.insideBanded(bands, x, z);
     const xz = this.xz;
     let inside = false;
     for (let r = this.polyRing0[q], rEnd = this.polyRing0[q + 1]; r < rEnd; r++) {
@@ -99,6 +123,37 @@ export class CollisionBucket {
         if (zi > z !== zj > z) {
           const xi = xz[2 * i], xj = xz[2 * j];
           if (x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+        }
+      }
+    }
+    return inside;
+  }
+
+  /** Test de parité limité aux côtés de la bande du point (ligne ou colonne, la moins chargée). */
+  private insideBanded(b: PolyBands, x: number, z: number): boolean {
+    const r = Math.floor((z - this.gz0) / COLLISION_CELL) - b.j0;
+    const c = Math.floor((x - this.gx0) / COLLISION_CELL) - b.i0;
+    if (r < 0 || c < 0 || r >= b.rowCount || c >= b.colCount) return false;
+    let inside = false;
+    const r0 = b.rowStart[r], r1 = b.rowStart[r + 1], c0 = b.colStart[c], c1 = b.colStart[c + 1];
+    if (r1 - r0 <= c1 - c0) {
+      // Rayon horizontal vers +x : seuls les côtés qui traversent la ligne z.
+      const e = b.rowXZ;
+      for (let k = r0; k < r1; k++) {
+        const az = e[4 * k + 1], bz = e[4 * k + 3];
+        if (az > z !== bz > z) {
+          const ax = e[4 * k], bx = e[4 * k + 2];
+          if (x < ((bx - ax) * (z - az)) / (bz - az) + ax) inside = !inside;
+        }
+      }
+    } else {
+      // Rayon vertical vers +z : seuls les côtés qui traversent la colonne x.
+      const e = b.colXZ;
+      for (let k = c0; k < c1; k++) {
+        const ax = e[4 * k], bx = e[4 * k + 2];
+        if (ax > x !== bx > x) {
+          const az = e[4 * k + 1], bz = e[4 * k + 3];
+          if (z < ((bz - az) * (x - ax)) / (bx - ax) + az) inside = !inside;
         }
       }
     }
@@ -132,6 +187,27 @@ export class CollisionBucket {
     for (let p = this.polyCellStart[c], end = this.polyCellStart[c + 1]; p < end; p++) {
       const item = this.polyCellItems[p];
       const q = item & ~POLY_FULL_CELL;
+      if ((item & POLY_FULL_CELL) === 0) {
+        if (x < box[4 * q] || x > box[4 * q + 2] || z < box[4 * q + 1] || z > box[4 * q + 3]) continue;
+        if (!this.insidePolygon(q, x, z)) continue;
+      }
+      if (this.polyCap0[q + 1] > this.polyCap0[q] && this.inCapsules(q, x, z)) continue;
+      return true;
+    }
+    return false;
+  }
+
+  /** Comme solidAt, en ignorant le polygone `except` (construction des murs : mitoyenneté). */
+  solidAtExcept(x: number, z: number, except: number): boolean {
+    if (this.polyCount === 0) return false;
+    const i = Math.floor((x - this.gx0) / COLLISION_CELL), j = Math.floor((z - this.gz0) / COLLISION_CELL);
+    if (i < 0 || j < 0 || i >= this.nx || j >= this.nz) return false;
+    const c = j * this.nx + i;
+    const box = this.polyBox;
+    for (let p = this.polyCellStart[c], end = this.polyCellStart[c + 1]; p < end; p++) {
+      const item = this.polyCellItems[p];
+      const q = item & ~POLY_FULL_CELL;
+      if (q === except) continue;
       if ((item & POLY_FULL_CELL) === 0) {
         if (x < box[4 * q] || x > box[4 * q + 2] || z < box[4 * q + 1] || z > box[4 * q + 3]) continue;
         if (!this.insidePolygon(q, x, z)) continue;
@@ -264,24 +340,30 @@ export class CollisionWorld {
             if (t < 0) t = 0; else if (t > 1) t = 1;
             const ex = x - ax - dx * t, ez = z - az - dz * t;
             const rr = radius + seg[o + 7];
-            const d2 = ex * ex + ez * ez;
-            if (d2 >= rr * rr) continue;
             const nx = seg[o + 4], nz = seg[o + 5];
             if ((flags[s] & FLAG_ONE_SIDED) !== 0 && t > 0 && t < 1) {
               // Mur à une face, contact en pleine face : on ressort toujours du côté de la normale,
-              // même si le centre est passé légèrement derrière.
-              const push = rr + SKIN - (ex * nx + ez * nz);
+              // même si le centre est passé derrière la face (d'au plus un rayon : au-delà, c'est
+              // l'affaire de la sortie d'obstacle plein, et un disque posé de l'autre côté d'un
+              // bâtiment très mince ne doit pas être aspiré à travers).
+              const side = ex * nx + ez * nz;
+              if (side >= rr || side <= -rr - BEHIND_TOLERANCE) continue;
+              const push = rr + SKIN - side;
               x += nx * push;
               z += nz * push;
-            } else if (d2 > 1e-12) {
-              // Coin, ou obstacle à deux faces : on s'écarte du point le plus proche.
-              const d = Math.sqrt(d2);
-              const push = (rr + SKIN - d) / d;
-              x += ex * push;
-              z += ez * push;
             } else {
-              x += nx * (rr + SKIN);
-              z += nz * (rr + SKIN);
+              const d2 = ex * ex + ez * ez;
+              if (d2 >= rr * rr) continue;
+              if (d2 > 1e-12) {
+                // Coin, ou obstacle à deux faces : on s'écarte du point le plus proche.
+                const d = Math.sqrt(d2);
+                const push = (rr + SKIN - d) / d;
+                x += ex * push;
+                z += ez * push;
+              } else {
+                x += nx * (rr + SKIN);
+                z += nz * (rr + SKIN);
+              }
             }
             moved = true;
           }
@@ -308,9 +390,25 @@ export class CollisionWorld {
       pos.z = this.exitZ;
     }
     // 2. Répulsion hors des segments, répétée tant qu'un contact subsiste (coins rentrants).
+    let contact = false;
     for (let iter = 0; iter < 8; iter++) {
       if (!this.pushOut(pos, radius)) break;
+      contact = true;
+    }
+    if (contact) {
       hit = true;
+      // 3. Dans un recoin (façades en dents de scie, murs mitoyens), les répulsions successives
+      //    peuvent avoir poussé le centre dans la matière : dernier contrôle, et sortie.
+      if (this.solidAt(pos.x, pos.z) && this.findExit(pos.x, pos.z, radius)) {
+        pos.x = this.exitX;
+        pos.z = this.exitZ;
+        for (let iter = 0; iter < 4; iter++) if (!this.pushOut(pos, radius)) break;
+        if (this.solidAt(pos.x, pos.z) && this.findExit(pos.x, pos.z, radius)) {
+          // Recoin trop étroit pour le disque : on reste sur l'issue, sans nouvelle répulsion.
+          pos.x = this.exitX;
+          pos.z = this.exitZ;
+        }
+      }
     }
     return hit;
   }

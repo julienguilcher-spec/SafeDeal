@@ -173,7 +173,7 @@ def('bronze_sombre', 0x33302a, () => litMaterial('bronze_sombre', { roughness: 0
 def('or', 0xd8ab33, () => litMaterial('or', { roughness: 0.3, metalness: 0.45, night: 1.0, glow: 0.22, nightColor: 0xffd27a }, metalTex(0xdcae36, 0xf2d476, 0.5, 0x9a6f14, 0.08, 64)));
 def('fonte', 0x3a4f43, () => litMaterial('fonte', { roughness: 0.5, metalness: 0.2, night: 0.9 }, metalTex(0x3c5246, 0x263830, 0.5, 0x141d18, 0.12, 65)));
 def('fer_noir', 0x1c1d1e, () => litMaterial('fer_noir', { roughness: 0.55, metalness: 0.4, night: 0.3 }, metalTex(0x1e1f20, 0x2c2a27, 0.4, 0x000000, 0.1, 66)));
-def('fer_eiffel', BRUN_EIFFEL, () => litMaterial('fer_eiffel', { roughness: 0.6, metalness: 0.25, night: 3.0, nightColor: 0xffd488 }, metalTex(BRUN_EIFFEL, mixHex(BRUN_EIFFEL, 0x2c2218, 0.6), 0.4, 0x2a2018, 0.08, 67, 3)));
+def('fer_eiffel', BRUN_EIFFEL, () => litMaterial('fer_eiffel', { roughness: 0.6, metalness: 0.25, night: 3.0, nightColor: 0xffd488, glow: 0.1 }, metalTex(BRUN_EIFFEL, mixHex(BRUN_EIFFEL, 0x2c2218, 0.6), 0.4, 0x2a2018, 0.08, 67, 3)));
 def('caissons', P_CLAIRE, () => litMaterial('caissons', { roughness: 0.9, night: 0.95, bumpScale: 4 }, cofferTex(P_DOREE, 17, 1)));
 def('relief_pierre', P_BLONDE, () => litMaterial('relief_pierre', { roughness: 0.9, night: 0.9, bumpScale: 3 }, reliefTex(P_DOREE, 21)));
 def('relief_bronze', 0x5a4630, () => litMaterial('relief_bronze', { roughness: 0.5, metalness: 0.35, night: 0.9, bumpScale: 3 }, reliefTex(0x66513a, 22)));
@@ -188,8 +188,8 @@ function alphaMat(key: string, color: number, tex: THREE.Texture | null, alphaTe
   return m;
 }
 
-defineMaterial('treillis_eiffel', () => alphaMat('treillis_eiffel', BRUN_EIFFEL, latticeTex({ color: BRUN_EIFFEL, bar: 0.085, sub: 2 }), 0.3, { night: 3.0, nightColor: 0xffd488 }));
-defineMaterial('treillis_eiffel_fin', () => alphaMat('treillis_eiffel_fin', BRUN_EIFFEL, latticeTex({ color: BRUN_EIFFEL, bar: 0.06, sub: 4, seed: 43 }), 0.3, { night: 3.0, nightColor: 0xffd488 }));
+defineMaterial('treillis_eiffel', () => alphaMat('treillis_eiffel', BRUN_EIFFEL, latticeTex({ color: BRUN_EIFFEL, bar: 0.085, sub: 2 }), 0.3, { night: 3.0, nightColor: 0xffd488, glow: 0.1 }));
+defineMaterial('treillis_eiffel_fin', () => alphaMat('treillis_eiffel_fin', BRUN_EIFFEL, latticeTex({ color: BRUN_EIFFEL, bar: 0.06, sub: 4, seed: 43 }), 0.3, { night: 3.0, nightColor: 0xffd488, glow: 0.1 }));
 defineMaterial('balustres', () => alphaMat('balustres', P_CLAIRE, balusterTex(P_CLAIRE), 0.5, { roughness: 0.9, metalness: 0, night: 0.85 }));
 defineMaterial('grille', () => alphaMat('grille', 0x1b1c1d, fenceTex(0x1b1c1d, false), 0.5, { night: 0.3 }));
 defineMaterial('grille_doree', () => alphaMat('grille_doree', 0x1b1c1d, fenceTex(0x1b1c1d, true), 0.5, { night: 0.6 }));

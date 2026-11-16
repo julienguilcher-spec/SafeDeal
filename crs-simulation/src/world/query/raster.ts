@@ -6,10 +6,13 @@
  *   heights[j · 512 + i] : hauteur du bâti en décimètres (0 hors bâtiment).
  *
  * Ordre de peinture, du dessous vers le dessus :
- *   1. fond : trottoir (en ville, ce qui n'est rien d'autre est de l'espace public piéton) ;
+ *   1. fond : « rien » (deviendra du trottoir : en ville, ce qui n'est rien d'autre est de l'espace
+ *      public piéton) ;
  *   2. les surfaces de la tuile, dans leur ordre (celui de la carte) ;
  *   3. les voies piétonnes du graphe (sans recouvrir ni l'eau ni une chaussée) ;
- *   4. les chaussées : arêtes carrossables épaissies de leur largeur (sans recouvrir l'eau) ;
+ *   4. les chaussées : arêtes carrossables épaissies de leur largeur. Si la carte fournit les
+ *      emprises de chaussée, elles font foi et l'arête ne comble que les zones sans information ;
+ *      les pavés (connus du seul graphe) sont reportés sur ces emprises ;
  *   5. les tabliers des ponts (chaussée + trottoirs) ;
  *   6. les bâtiments, puis les obstacles des monuments ;
  *   7. les passages de voies sous un bâtiment (porches).
@@ -35,6 +38,8 @@ export const CODE_BUILDING = 8;
 export const CODE_BRIDGE = 9;
 export const CODE_QUAY = 10;
 export const CODE_INTERIOR = 11;
+/** Code interne de travail : cellule pas encore peinte (jamais visible : remplacé par le trottoir). */
+export const CODE_UNSET = 12;
 
 /** Conversion du type de polygone de la carte vers la nature du sol des contrats. */
 const SURFACE_OF_MAP_KIND: Readonly<Record<MapSurfaceKind, number>> = {

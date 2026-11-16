@@ -141,8 +141,13 @@ function helmetLight(b: GeoBuilder): void {
   // croix rouge (secouristes de rue) sur le devant du casque
   b.ctx(BONE_HEAD, SLOT_FIXED, PART_CROSS, SCALE_HEAD).tint(0xd0141c, 0.5);
   b.push().translate(0, 0.186, 0.098).rotX(-0.62);
-  b.box(0, 0, 0, 0.060, 0.018, 0.006);
-  b.box(0, 0, 0, 0.018, 0.060, 0.006);
+  if (b.detail === 0) {
+    b.box(0, 0, 0, 0.060, 0.018, 0.006);
+    b.box(0, 0, 0, 0.018, 0.060, 0.006);
+  } else {
+    b.quad(-0.03, -0.009, 0.006, 0.03, -0.009, 0.006, 0.03, 0.009, 0.006, -0.03, 0.009, 0.006);
+    b.quad(-0.009, -0.03, 0.006, 0.009, -0.03, 0.006, 0.009, 0.03, 0.006, -0.009, 0.03, 0.006);
+  }
   b.pop();
 }
 

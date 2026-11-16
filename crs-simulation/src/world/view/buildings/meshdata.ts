@@ -102,7 +102,8 @@ export class MeshData {
     const i = this.nv++;
     const p = i * 3;
     this.pos[p] = x; this.pos[p + 1] = y; this.pos[p + 2] = z;
-    this.nor[p] = Math.round(this.nx * 127); this.nor[p + 1] = Math.round(this.ny * 127); this.nor[p + 2] = Math.round(this.nz * 127);
+    // (l'écriture dans un Int8Array tronque : précision largement suffisante pour une normale)
+    this.nor[p] = this.nx * 127; this.nor[p + 1] = this.ny * 127; this.nor[p + 2] = this.nz * 127;
     this.uv[i * 2] = u; this.uv[i * 2 + 1] = v;
     const s = this.shade;
     if (s === 1) {

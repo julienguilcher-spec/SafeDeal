@@ -9,7 +9,7 @@ import { computePose, createPoseParams } from './pose';
 import { blendLocal, composePose, solveLocal } from './solve';
 import {
   HOLD_NONE, INJURY_CRITICAL, INJURY_DEAD, INJURY_LIGHT, INJURY_NONE, INJURY_SERIOUS,
-  POSTURE_DOWN, POSTURE_PRONE, POSTURE_STAND, POSTURE_CROUCH,
+  POSTURE_DOWN, POSTURE_PRONE, POSTURE_STAND,
   U_BLOCK, U_BURN, U_COUGH, U_COVER_FACE, U_CUFFED, U_HANDS_UP, U_KICK, U_NONE, U_STAGGER, U_STRIKE, U_THROW,
   createPoseInput, postureId, upperId, type PoseInput,
 } from './poseparams';

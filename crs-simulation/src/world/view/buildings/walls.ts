@@ -15,11 +15,12 @@ import {
   ALT_NONE, CELL_BAY_M, CELL_DOOR, CELL_FLOOR_M, CELL_NOBLE, CELL_RDC, CELL_TYP, LAYER_BETON, LAYER_COUR_RDC, LAYER_COUR_TYP,
   LAYER_PIERRE, LAYER_PIGNON, NB_CONTINUOUS, familyBase, topCell, variantCount,
 } from './layers';
-import { FLOOR_NOBLE, FLOOR_TOP, FLOOR_TYP, STYLE_PARAMS, floorKind, hash01, layoutBays } from './layout';
+import { FLOOR_NOBLE, FLOOR_TOP, FLOOR_TYP, STYLE_PARAMS, floorKind, layoutBays, vhash } from './layout';
 import type { BayLayout, StyleParams } from './layout';
 import type { MeshData } from './meshdata';
 import { WALL_FREE, WALL_HIDDEN, effectiveStyle } from './prepare';
 import type { PreparedTile } from './prepare';
+import { hyp } from './rings';
 
 /** Niveau de détail géométrique (dérivé de la qualité, puis réduit si la tuile est trop lourde). */
 export interface DetailLevel {
@@ -46,6 +47,13 @@ export const RAIL_PERIOD_M = 1.4;
 /** Hauteur d'un garde-corps de balcon (m). */
 export const RAIL_HEIGHT = 1.0;
 
+/**
+ * En deçà de ce cosinus (≈ 26°), l'angle entre deux pans de mur consécutifs est un vrai coin :
+ * la trame des fenêtres s'y arrête. Au-delà, les pans forment une même façade courbe (rotonde
+ * d'angle, façade en arc numérisée en petits segments) et la trame les enjambe.
+ */
+const RUN_MIN_COS = 0.9;
+
 /** Données par côté d'un anneau (tampons réutilisés). */
 export class EdgeSet {
   cap = 64;
@@ -60,15 +68,24 @@ export class EdgeSet {
   nz = new Float32Array(64);
   /** Classement du mur (WALL_*). */
   flag = new Uint8Array(64);
-  /** Travées : nombre, largeur, trumeau d'extrémité ; u aux deux bouts du côté. */
+  /**
+   * Façade à laquelle appartient le côté : une suite de pans libres sans coin franc partage la même
+   * trame de travées. `n`, `w`, `m` sont ceux de la façade entière ; `off` est la distance du début
+   * de la façade au début du côté.
+   */
+  run = new Uint16Array(64);
   n = new Uint8Array(64);
   w = new Float32Array(64);
   m = new Float32Array(64);
+  off = new Float32Array(64);
+  /** u aux deux bouts du côté (en travées de sa façade). */
   u0 = new Float32Array(64);
   u1 = new Float32Array(64);
   /** Le côté porte une saillie (balcon, corniche) — recalculé pour chaque saillie. */
   has = new Uint8Array(64);
   perimeter = 0;
+  /** Nombre de façades (suites de pans) de l'anneau. */
+  runs = 0;
 
   private grow(n: number): void {
     let c = this.cap;
@@ -76,6 +93,7 @@ export class EdgeSet {
     this.cap = c;
     this.len = new Float32Array(c); this.cum = new Float32Array(c); this.nx = new Float32Array(c); this.nz = new Float32Array(c);
     this.flag = new Uint8Array(c); this.n = new Uint8Array(c); this.w = new Float32Array(c); this.m = new Float32Array(c);
+    this.off = new Float32Array(c); this.run = new Uint16Array(c);
     this.u0 = new Float32Array(c); this.u1 = new Float32Array(c); this.has = new Uint8Array(c);
   }
 
@@ -93,37 +111,80 @@ export class EdgeSet {
     for (let i = 0; i < n; i++) {
       const j = i + 1 < n ? i + 1 : 0;
       const dx = cs[2 * (s + j)] - cs[2 * (s + i)], dz = cs[2 * (s + j) + 1] - cs[2 * (s + i) + 1];
-      const len = Math.hypot(dx, dz);
+      const len = hyp(dx, dz);
       this.len[i] = len;
       this.cum[i] = cum;
       if (len > 1e-6) { this.nx[i] = -dz / len; this.nz[i] = dx / len; } else { this.nx[i] = 0; this.nz[i] = 0; }
-      const flag = len < 0.05 ? WALL_HIDDEN : p.wall[s + i];
-      this.flag[i] = flag;
-      if (flag === WALL_FREE && bays !== null) {
-        layoutBays(len, bays, bayOut);
-        this.n[i] = bayOut.n > 250 ? 250 : bayOut.n;
-        this.w[i] = bayOut.width;
-        this.m[i] = bayOut.margin;
-        if (bayOut.n > 0) {
-          const nb = this.n[i];
-          const w = (len - 2 * bayOut.margin) / nb;        // identique à width, sauf si n a été plafonné
-          this.w[i] = w;
-          this.u0[i] = -bayOut.margin / w;
-          this.u1[i] = nb + bayOut.margin / w;
+      this.flag[i] = len < 0.05 ? WALL_HIDDEN : p.wall[s + i];
+      // par défaut : mur sans travée, matériau continu le long de l'anneau
+      this.n[i] = 0;
+      this.w[i] = CELL_BAY_M;
+      this.m[i] = len / 2;
+      this.off[i] = 0;
+      this.run[i] = i;
+      this.u0[i] = cum / CELL_BAY_M;
+      this.u1[i] = (cum + len) / CELL_BAY_M;
+      cum += len;
+    }
+    this.perimeter = cum;
+    this.runs = n;
+    if (bays === null) return;
+
+    // Regroupe les pans libres en façades. Un côté ouvre une nouvelle façade s'il suit un mur non
+    // libre ou un coin franc ; on part d'un tel côté pour que le parcours cyclique soit bien découpé.
+    let first = -1;
+    for (let i = 0; i < n && first < 0; i++) if (this.flag[i] === WALL_FREE && this.breaksBefore(i, n)) first = i;
+    if (first < 0) {
+      // aucun coin : soit aucun mur libre, soit un anneau entièrement lisse (rotonde) qu'on ouvre au côté 0
+      if (this.flag[0] !== WALL_FREE) return;
+      first = 0;
+    }
+    let runId = 0;
+    let k = 0;
+    while (k < n) {
+      const i0 = (first + k) % n;
+      if (this.flag[i0] !== WALL_FREE) { k++; continue; }
+      // étendue de la façade : côtés libres consécutifs sans coin franc
+      let count = 1, total = this.len[i0];
+      while (k + count < n) {
+        const i = (first + k + count) % n;
+        if (this.flag[i] !== WALL_FREE || this.breaksBefore(i, n)) break;
+        total += this.len[i];
+        count++;
+      }
+      layoutBays(total, bays, bayOut);
+      const nb = bayOut.n > 250 ? 250 : bayOut.n;
+      const margin = bayOut.margin;
+      const w = nb > 0 ? (total - 2 * margin) / nb : bays.bay;
+      let off = 0;
+      for (let q = 0; q < count; q++) {
+        const i = (first + k + q) % n;
+        this.run[i] = runId;
+        this.n[i] = nb;
+        this.w[i] = w;
+        this.m[i] = margin;
+        this.off[i] = off;
+        if (nb > 0) {
+          this.u0[i] = (off - margin) / w;
+          this.u1[i] = (off + this.len[i] - margin) / w;
         } else {
           this.u0[i] = 0;
           this.u1[i] = 0;
         }
-      } else {
-        this.n[i] = 0;
-        this.w[i] = CELL_BAY_M;
-        this.m[i] = len / 2;
-        this.u0[i] = cum / CELL_BAY_M;
-        this.u1[i] = (cum + len) / CELL_BAY_M;
+        off += this.len[i];
       }
-      cum += len;
+      runId++;
+      k += count;
     }
-    this.perimeter = cum;
+    this.runs = runId;
+  }
+
+  /** Le côté i ouvre-t-il une nouvelle façade (mur précédent non libre, ou coin franc) ? */
+  private breaksBefore(i: number, n: number): boolean {
+    const h = i > 0 ? i - 1 : n - 1;
+    if (this.flag[h] !== WALL_FREE) return true;
+    // cosinus de l'angle entre les deux pans = produit scalaire de leurs normales
+    return this.nx[h] * this.nx[i] + this.nz[h] * this.nz[i] < RUN_MIN_COS;
   }
 }
 
@@ -159,8 +220,8 @@ export class BuildCtx {
   tr = 1;
   tg = 1;
   tb = 1;
-  /** Côté de l'anneau extérieur qui porte l'entrée, et sa travée (-1 : aucun). */
-  doorEdge = -1;
+  /** Façade (suite de pans) de l'anneau extérieur qui porte l'entrée, et sa travée (-1 : aucune). */
+  doorRun = -1;
   doorBay = 0;
   /** Le style a des balcons filants (haussmannien). */
   hasBalconies = false;
@@ -177,7 +238,7 @@ export class BuildCtx {
     const rand = p.rand[k];
     this.rand = rand;
     this.seed = (rand * 256) | 0;
-    const variant = Math.floor(hash01(b.id, 77) * variantCount(style));
+    const variant = Math.floor(vhash(b.id, 77) * variantCount(style));
     this.family = familyBase(style, variant);
     this.topOffset = topCell(style);
     this.y0 = p.baseY[k];
@@ -188,16 +249,16 @@ export class BuildCtx {
     this.nUpper = p.nUpper[k];
     this.canopy = b.kind === 'roof';
     this.allBlank = b.kind === 'construction' || b.kind === 'parking' || b.kind === 'industrial' || this.canopy;
-    this.blankLayer = this.allBlank || style === 'modern' ? LAYER_BETON : LAYER_PIGNON + (hash01(b.id, 5) < 0.5 ? 0 : 1);
+    this.blankLayer = this.allBlank || style === 'modern' ? LAYER_BETON : LAYER_PIGNON + (vhash(b.id, 5) < 0.5 ? 0 : 1);
     this.hasBalconies = style === 'haussmann' && !this.allBlank && this.nUpper >= 2;
-    this.doorEdge = -1;
+    this.doorRun = -1;
     buildingTint(style, b.id, this);
   }
 }
 
 /** Teinte d'un bâtiment : légère variation autour de la couleur de la texture, stable par identifiant. */
 function buildingTint(style: BuildingStyle, id: number, out: { tr: number; tg: number; tb: number }): void {
-  const a = hash01(id, 11), c = hash01(id, 23), d = hash01(id, 31);
+  const a = vhash(id, 11), c = vhash(id, 23), d = vhash(id, 31);
   let r = 1, g = 1, b = 1;
   if (style === 'haussmann' || style === 'monumental') {
     // pierre de taille : du blond ravalé au gris patiné
@@ -226,14 +287,16 @@ function buildingTint(style: BuildingStyle, id: number, out: { tr: number; tg: n
   out.tb = b > 1 ? 1 : b;
 }
 
-/** Choisit le côté et la travée qui portent l'entrée de l'immeuble (plus long mur libre). */
+/** Choisit la façade et la travée qui portent l'entrée de l'immeuble : la plus longue façade libre. */
 export function chooseDoor(c: BuildCtx, es: EdgeSet): void {
   let best = -1, bestLen = 0;
   for (let i = 0; i < es.count; i++) {
     if (es.flag[i] !== WALL_FREE || es.n[i] === 0) continue;
-    if (es.len[i] > bestLen) { bestLen = es.len[i]; best = i; }
+    // longueur de la façade entière = n·largeur + 2·trumeau
+    const total = es.n[i] * es.w[i] + 2 * es.m[i];
+    if (total > bestLen) { bestLen = total; best = i; }
   }
-  c.doorEdge = best;
+  c.doorRun = best >= 0 ? es.run[best] : -1;
   if (best >= 0) {
     const n = es.n[best];
     c.doorBay = n <= 2 ? 0 : Math.min(n - 1, Math.floor(n / 2 - (c.rand < 0.5 && n % 2 === 0 ? 1 : 0)));
@@ -288,7 +351,8 @@ export function emitWalls(m: MeshData, c: BuildCtx, es: EdgeSet, courtyard: bool
     }
 
     const nb = es.n[i];
-    const seed = c.seed + i * 13;
+    // la graine d'éclairage est celle de la façade : une fenêtre à cheval sur deux pans reste entière
+    const seed = c.seed + es.run[i] * 13;
     m.tint(c.tr, c.tg, c.tb);
 
     if (courtyard) {
@@ -317,7 +381,7 @@ export function emitWalls(m: MeshData, c: BuildCtx, es: EdgeSet, courtyard: bool
     m.ensure(4 + 4 * (nUpper > 4 ? 4 : nUpper), 6 + 6 * (nUpper > 4 ? 4 : nUpper));
     const single = nUpper === 0;
     // un bâtiment d'un seul niveau prend la cellule « dernier étage » si elle existe pour finir par une corniche
-    m.facade(c.family + CELL_RDC, nb, seed, i === c.doorEdge ? c.doorBay : ALT_NONE);
+    m.facade(c.family + CELL_RDC, nb, seed, !courtyard && es.run[i] === c.doorRun ? c.doorBay : ALT_NONE);
     m.shade = FOOT_SHADE;
     let a = m.vertex(ax, yFoot, az, u0, vFoot);
     m.vertex(bx, yFoot, bz, u1, vFoot);
@@ -386,6 +450,8 @@ export function emitLedge(
       if (d > MITER_MIN) { obx = ((es.nx[j] + nx) * depth) / d; obz = ((es.nz[j] + nz) * depth) / d; squareB = false; }
     }
     const pax = ax + oax, paz = az + oaz, pbx = bx + obx, pbz = bz + obz;
+    // pan trop court entre deux angles rentrants : les onglets se croisent, la saillie des voisins suffit
+    if ((pbx - pax) * (bx - ax) + (pbz - paz) * (bz - az) < 0.02 * es.len[i]) continue;
     const ua = es.cum[i] / CELL_BAY_M, ub = (es.cum[i] + es.len[i]) / CELL_BAY_M;
     const vd = depth / CELL_FLOOR_M, vt = (yTop - yBot) / CELL_FLOOR_M;
     m.tint(c.tr, c.tg, c.tb);
@@ -434,11 +500,14 @@ export function emitLedge(
   m.shade = 1;
 }
 
-/** Marque dans es.has les murs libres d'au moins `minLen` mètres ; retourne leur nombre. */
+/**
+ * Marque dans es.has les murs libres qui portent une saillie : ceux d'au moins `minLen` mètres, et
+ * les pans plus courts d'une façade courbe qui a des fenêtres. Retourne leur nombre.
+ */
 export function markLedgeEdges(es: EdgeSet, minLen: number): number {
   let count = 0;
   for (let i = 0; i < es.count; i++) {
-    const ok = es.flag[i] === WALL_FREE && es.len[i] >= minLen;
+    const ok = es.flag[i] === WALL_FREE && (es.len[i] >= minLen || (es.n[i] > 0 && es.len[i] >= 0.25));
     es.has[i] = ok ? 1 : 0;
     if (ok) count++;
   }

@@ -15,7 +15,7 @@ import { TILE_SIZE } from '../../mapdata';
 import type { Building, BuildingStyle, Tile } from '../../mapdata';
 import { STYLE_PARAMS, hash01, layoutFloors, roofHeightFor } from './layout';
 import type { FloorLayout } from './layout';
-import { cleanRing, pointInRing, ringArea } from './rings';
+import { cleanRing, hyp, pointInRing, ringArea } from './rings';
 
 /** Pan de mur libre : façade avec fenêtres. */
 export const WALL_FREE = 0;
@@ -154,7 +154,7 @@ export function releasePrepareScratch(): void {
 /**
  * Prépare les bâtiments d'une tuile. Le résultat est un tampon PARTAGÉ : il n'est valable que
  * jusqu'au prochain appel.
- * @param classify  calculer le classement des murs (mitoyen / caché)
+ * @param classify  calculer le classement des murs (mitoyen / caché) ; sinon tous sont dits libres
  */
 export function prepareTile(
   tile: Tile, heightAt: (x: number, z: number) => number, skipLandmark: (key: string) => boolean, seed: number, classify = true,
@@ -274,6 +274,8 @@ export function prepareTile(
     p.count++;
   }
 
+  // la grille de voisinage sert aussi à la version lointaine (neighborAt), qui se passe du classement
+  buildGrid(p);
   if (classify) classifyWalls(p);
   else p.wall.fill(WALL_FREE, 0, p.nVerts);
   return p;
@@ -368,7 +370,6 @@ export function neighborAt(p: PreparedTile, x: number, z: number, self: number):
 const PROBE_T = [0.5, 0.18, 0.82];
 
 function classifyWalls(p: PreparedTile): void {
-  buildGrid(p);
   const cs = p.coords;
   for (let k = 0; k < p.count; k++) {
     const myTop = p.baseY[k] + p.wallH[k];
@@ -379,7 +380,7 @@ function classifyWalls(p: PreparedTile): void {
         const j = i + 1 < n ? i + 1 : 0;
         const ax = cs[2 * (s + i)], az = cs[2 * (s + i) + 1];
         const dx = cs[2 * (s + j)] - ax, dz = cs[2 * (s + j) + 1] - az;
-        const len = Math.hypot(dx, dz);
+        const len = hyp(dx, dz);
         if (len < 0.05) { p.wall[s + i] = WALL_HIDDEN; continue; }
         const nx = -dz / len, nz = dx / len;       // normale sortante
         const samples = len < 1.2 ? 1 : 3;

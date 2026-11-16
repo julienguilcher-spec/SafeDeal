@@ -94,8 +94,8 @@ describe.skipIf(!available)('monde : vraies données de Paris', () => {
   }, 120000);
 
   it('la Seine est de l\'eau, infranchissable hors des ponts', async () => {
-    // De la Concorde vers le sud, à 250 m à l'est du pont : on rencontre le fleuve.
-    const x = 250;
+    // De la Concorde vers le sud, entre le pont de la Concorde (x ≈ -130) et la passerelle (x ≈ 250).
+    const x = 80;
     w.setFocus(x, 350);
     await w.whenLoaded(x, 350, 450);
     let first = NaN, last = NaN, run = 0, best = 0, bestStart = NaN;

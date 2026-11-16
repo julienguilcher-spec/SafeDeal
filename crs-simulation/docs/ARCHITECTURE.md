@@ -115,7 +115,9 @@ En véhicule : déplacement avant/arrière = accélérer/reculer, gauche/droite 
 ## 6. Tests et outillage
 
 - **Unitaires** : `tests/unit/<module>.<sujet>.test.ts` (vitest, environnement Node). Utiliser `createTestContext()` de
-  `@/core/testing` (contexte headless, services neutres, monde = quartier d'essai) puis brancher les systèmes du module.
+  `@/core/testing` (contexte headless, services neutres, monde = plan infini sans obstacle) en lui passant les systèmes
+  du module : `createTestContext({ modules: [createSystems] })`. Pour un monde avec des murs, ajouter le module
+  `src/world/query` dans `modules` et démarrer en mode `'test'` (quartier d'essai), ou écrire un petit monde factice.
   Lancer seulement ses tests : `npx vitest run tests/unit/<module>`.
 - **Bout en bout** : `tests/e2e/<nom>.mjs` avec `tests/e2e/lib.mjs` (démarre le serveur, ouvre Chromium headless — WebGL
   logiciel, lent : délais généreux, qualité basse — attend `window.__CRS.ready`, captures dans `tests/e2e/out/`).

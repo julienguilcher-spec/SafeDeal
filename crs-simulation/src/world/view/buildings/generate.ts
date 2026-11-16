@@ -11,11 +11,11 @@
 import type { QualityLevel } from '../../../core/contracts';
 import type { Tile } from '../../mapdata';
 import { CELL_BAY_M } from './layers';
-import { STYLE_PARAMS, hash01 } from './layout';
+import { STYLE_PARAMS, setVariationSeed, vhash } from './layout';
 import { MeshData } from './meshdata';
 import { WALL_FREE, neighborAt, prepareTile } from './prepare';
 import type { PreparedTile } from './prepare';
-import { ringArea, simplifyRing } from './rings';
+import { hyp, ringArea, simplifyRing } from './rings';
 import { emitRoof } from './roofs';
 import { triIndices, triangulate } from './triangulate';
 import { BuildCtx, EdgeSet, chooseDoor, emitLedges, emitWalls } from './walls';
@@ -93,8 +93,14 @@ function emitAll(p: PreparedTile, detail: DetailLevel, main: MeshData, rail: Mes
 export function generateTileMeshes(
   tile: Tile, opts: GenerateOptions, main: MeshData, rail: MeshData, budget: number = DETAIL_TRIANGLE_BUDGET,
 ): TileMeshStats {
+  setVariationSeed(opts.seed);
   const p = prepareTile(tile, opts.heightAt, opts.skipLandmark, opts.seed, true);
   let step = detailStepFor(opts.quality);
+  // réserve d'emblée la place probable (sommets par sommet d'emprise, mesuré sur Paris) : évite
+  // d'agrandir les tampons par doublements successifs sur la première tuile dense
+  const perVertex = step === 0 ? 46 : step === 1 ? 36 : 14;
+  main.reset();
+  main.ensure(p.nVerts * perVertex, p.nVerts * perVertex * 1.5);
   for (;;) {
     emitAll(p, DETAIL_STEPS[step], main, rail);
     if (main.triangles + rail.triangles <= budget || step >= DETAIL_STEPS.length - 1) break;
@@ -123,16 +129,16 @@ let farEnds = new Int32Array(16);
 /** Indice de matériau de couverture pour le shader lointain : 0 zinc, 1 ardoise, 2 terrasse, 3 tuile. */
 function farRoofKind(roof: string, id: number): number {
   if (roof === 'flat') return 2;
-  if (roof === 'gabled') return hash01(id, 67) < 0.35 ? 3 : 0;
-  return hash01(id, 61) < 0.3 ? 1 : 0;
+  if (roof === 'gabled') return vhash(id, 67) < 0.35 ? 3 : 0;
+  return vhash(id, 61) < 0.3 ? 1 : 0;
 }
 
 /** Couleur de façade vue de loin (0..1), par style. */
 function farWallColor(m: MeshData, style: string, id: number): void {
-  const a = hash01(id, 11), c = hash01(id, 23);
+  const a = vhash(id, 11), c = vhash(id, 23);
   if (style === 'haussmann' || style === 'monumental') {
     const l = 0.84 + 0.2 * a, w = (c - 0.45) * 0.09;
-    m.tint(0.80 * l * (1 + w), 0.74 * l, 0.62 * l * (1 - w * 1.4));
+    m.tint(0.78 * l * (1 + w), 0.70 * l, 0.55 * l * (1 - w * 1.4));
   } else if (style === 'faubourg') {
     const l = 0.88 + 0.14 * a;
     m.tint(0.84 * l, 0.81 * l, (0.72 + 0.06 * c) * l);
@@ -194,7 +200,7 @@ function emitFar(p: PreparedTile, stepIndex: number, out: MeshData): number {
         const ax = farRings[2 * (start + i)], az = farRings[2 * (start + i) + 1];
         const bx = farRings[2 * (start + j)], bz = farRings[2 * (start + j) + 1];
         const dx = bx - ax, dz = bz - az;
-        const len = Math.hypot(dx, dz);
+        const len = hyp(dx, dz);
         const u0 = cum / CELL_BAY_M;
         cum += len;
         if (len < 0.3) continue;
@@ -239,7 +245,8 @@ function emitFar(p: PreparedTile, stepIndex: number, out: MeshData): number {
  * Attribut « façade » d'un sommet : (nombre de niveaux, matériau de couverture, graine, auvent).
  */
 export function generateTileFarMesh(tile: Tile, opts: GenerateOptions, out: MeshData, budget: number = FAR_TRIANGLE_BUDGET): TileMeshStats {
-  const p = prepareTile(tile, opts.heightAt, opts.skipLandmark, opts.seed, true);
+  setVariationSeed(opts.seed);
+  const p = prepareTile(tile, opts.heightAt, opts.skipLandmark, opts.seed, false);
   let step = opts.quality === 'bas' ? 1 : 0;
   let drawn = 0;
   for (;;) {

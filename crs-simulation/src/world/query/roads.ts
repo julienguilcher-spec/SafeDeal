@@ -237,13 +237,14 @@ export class RoadNetwork {
   /**
    * Segment de voie le plus proche de (x, z) à moins de maxDist. Résultat dans snapEdge, snapSeg,
    * snapS, snapX, snapZ, snapDist. Aucune allocation.
+   * @param allowed si fourni : seules les arêtes e telles que allowed[e] ≠ 0 sont retenues
    */
-  nearest(x: number, z: number, maxDist: number, filter: number): boolean {
+  nearest(x: number, z: number, maxDist: number, filter: number, allowed: Uint8Array | null = null): boolean {
     this.snapEdge = -1;
     if (this.segCount === 0 || !(maxDist > 0)) return false;
     const reject = filter === ROAD_DRIVABLE ? SEG_TUNNEL | SEG_PEDESTRIAN : SEG_TUNNEL;
     const need = filter === ROAD_NAMED ? SEG_NAMED : 0;
-    const xz = this.segXZ, flags = this.segFlags;
+    const xz = this.segXZ, flags = this.segFlags, segEdge = this.segEdge;
     let radius = Math.min(maxDist, ROAD_CELL);
     let best = maxDist * maxDist, bestSeg = -1, bestT = 0;
     for (;;) {
@@ -256,6 +257,7 @@ export class RoadNetwork {
             const s = this.cellItems[p];
             const f = flags[s];
             if ((f & reject) !== 0 || (f & need) !== need) continue;
+            if (allowed !== null && allowed[segEdge[s]] === 0) continue;
             const ax = xz[4 * s], az = xz[4 * s + 1];
             const dx = xz[4 * s + 2] - ax, dz = xz[4 * s + 3] - az;
             const len2 = dx * dx + dz * dz;
@@ -330,11 +332,13 @@ export class RoadNetwork {
       }
       interior[n] = all ? 1 : 0;
     }
+    const inner: number[] = [];
+    for (let n = 0; n < nn; n++) if (interior[n] === 1) inner.push(n);
     // Relaxation de Gauss–Seidel pondérée par 1/longueur : exacte (linéaire) sur une chaîne.
-    for (let iter = 0; iter < 200; iter++) {
+    for (let iter = 0; iter < 200 && inner.length > 0; iter++) {
       let change = 0;
-      for (let n = 0; n < nn; n++) {
-        if (interior[n] === 0) continue;
+      for (let q = 0; q < inner.length; q++) {
+        const n = inner[q];
         const nd = g.nodes[n];
         let sum = 0, wsum = 0;
         for (let k = 0; k < nd.edges.length; k++) {

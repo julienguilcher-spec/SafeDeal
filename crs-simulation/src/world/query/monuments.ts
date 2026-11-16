@@ -50,10 +50,24 @@ export interface LandmarkObstacle {
   top: number;
 }
 
+/** Emprise d'un monument sans obstacles propres : obstacle de secours s'il n'a pas de bâtiment. */
+export interface LandmarkFallback extends LandmarkObstacle {
+  /** Point d'ancrage du monument. */
+  x: number;
+  z: number;
+}
+
 export interface LandmarkObstacleSet {
-  /** Clés des monuments dont les obstacles remplacent l'emprise des bâtiments marqués. */
+  /** Clés des monuments dont les obstacles propres remplacent l'emprise des bâtiments marqués. */
   replaced: Set<string>;
+  /** Obstacles propres (piliers, socles…) : permanents, indépendants des tuiles. */
   obstacles: LandmarkObstacle[];
+  /**
+   * Monuments sans obstacles propres : leurs bâtiments gardent leur emprise ordinaire (plus précise :
+   * cours, ailes). L'emprise du monument ne sert d'obstacle que là où aucun bâtiment ne le représente
+   * (statue, colonne, fontaine absentes de la couche des bâtiments) — décision prise tuile par tuile.
+   */
+  fallback: LandmarkFallback[];
 }
 
 /** Anneau monde → repère local du monument (origine à l'ancrage, façade vers +z). */
@@ -79,24 +93,45 @@ function toWorld(ring: ArrayLike<number>, ox: number, oz: number, heading: numbe
   return out;
 }
 
+/** Les deux anneaux ont-ils les mêmes sommets (à 1 mm près, ordre et sens indifférents) ? */
+function sameRing(a: ArrayLike<number>, b: ArrayLike<number>): boolean {
+  if (a.length !== b.length || a.length < 6) return false;
+  for (let i = 0; i + 1 < a.length; i += 2) {
+    let found = false;
+    for (let j = 0; j + 1 < b.length && !found; j += 2) found = Math.abs(a[i] - b[j]) < 1e-3 && Math.abs(a[i + 1] - b[j + 1]) < 1e-3;
+    if (!found) return false;
+  }
+  return true;
+}
+
 /**
- * Obstacles de tous les monuments de la carte, en coordonnées monde. Un obstacle dont le dessous
- * est à plus de 2,5 m (voûte, linteau) n'arrête personne : il est écarté. Un monument pour lequel
- * getColliders ne retourne rien garde son emprise ordinaire (il n'est pas dans `replaced`).
+ * Obstacles de tous les monuments de la carte, en coordonnées monde.
+ *   - getColliders fournit des obstacles propres au monument (piliers d'un arc…) : ils remplacent
+ *     l'emprise de ses bâtiments. Un obstacle dont le dessous est à plus de 2,5 m (voûte, linteau)
+ *     n'arrête personne : il est écarté.
+ *   - getColliders ne fournit rien, échoue, ou ne fait que rendre l'emprise du site (son repli pour
+ *     un monument sans fichier d'obstacles) : le monument passe en « secours » (voir LandmarkObstacleSet).
+ * @param skipKeys clés à ignorer en secours (ouvrages portés par une arête du graphe : ponts)
  */
-export function buildLandmarkObstacles(landmarks: readonly Landmark[], getColliders: GetColliders | null): LandmarkObstacleSet {
-  const set: LandmarkObstacleSet = { replaced: new Set<string>(), obstacles: [] };
-  if (getColliders === null) return set;
+export function buildLandmarkObstacles(landmarks: readonly Landmark[], getColliders: GetColliders | null, skipKeys: ReadonlySet<string>): LandmarkObstacleSet {
+  const set: LandmarkObstacleSet = { replaced: new Set<string>(), obstacles: [], fallback: [] };
   for (const lm of landmarks) {
+    let list: ReturnType<GetColliders> = null;
     const site: ColliderSite = { footprint: toLocal(lm.footprint, lm.x, lm.z, lm.heading), height: lm.height };
-    let list: ReturnType<GetColliders>;
-    try {
-      list = getColliders(lm.key, site);
-    } catch (err) {
-      console.error(`[world] getColliders('${lm.key}') a échoué : emprise ordinaire conservée`, err);
+    if (getColliders !== null) {
+      try {
+        list = getColliders(lm.key, site);
+      } catch (err) {
+        console.error(`[world] getColliders('${lm.key}') a échoué : emprise ordinaire conservée`, err);
+      }
+    }
+    const own = list !== null && list !== undefined && list.length > 0 && !(list.length === 1 && list[0].baseY <= 0 && sameRing(list[0].ring, site.footprint));
+    if (!own || list === null || list === undefined) {
+      if (!skipKeys.has(lm.key) && lm.footprint.length >= 6 && lm.height > 0) {
+        set.fallback.push({ key: lm.key, ring: Float32Array.from(lm.footprint), top: lm.height, x: lm.x, z: lm.z });
+      }
       continue;
     }
-    if (list === null || list === undefined || list.length === 0) continue;
     set.replaced.add(lm.key);
     for (const c of list) {
       if (c.baseY > PASS_UNDER_Y || c.ring.length < 6 || !(c.height > 0)) continue;

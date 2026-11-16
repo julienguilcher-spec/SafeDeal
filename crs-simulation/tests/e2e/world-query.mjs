@@ -5,12 +5,15 @@ import path from 'node:path';
 import { startServer, openPage, waitFor, shot, finish, ROOT } from './lib.mjs';
 
 const server = await startServer();
-const hasParis = existsSync(path.join(ROOT, 'public/data/paris/manifest.json'));
+// CRS_PARIS_BASE : URL (relative au serveur) d'un autre dossier de carte, ex. « /tests/e2e/out/paris-tmp/ ».
+const parisBase = process.env.CRS_PARIS_BASE || '';
+const hasParis = parisBase !== '' || existsSync(path.join(ROOT, 'public/data/paris/manifest.json'));
 let ok = true;
 const allErrors = [];
 
 async function run(map, views) {
-  const { browser, page, errors } = await openPage(`${server.url}harness/world-query.html?map=${map}`, { width: 1400, height: 900 });
+  const extra = map === 'paris' && parisBase !== '' ? `&base=${encodeURIComponent(parisBase)}` : '';
+  const { browser, page, errors } = await openPage(`${server.url}harness/world-query.html?map=${map}${extra}`, { width: 1400, height: 900 });
   try {
     await waitFor(page, 'window.__ready === true || !!window.__error', 240000);
     const error = await page.evaluate(() => window.__error ?? null);

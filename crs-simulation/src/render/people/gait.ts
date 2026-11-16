@@ -5,7 +5,7 @@
  * réellement parcourue (voir animator.ts) et la course du pied vaut (fraction d'appui × longueur de foulée). */
 
 import { ANKLE_H, HIP_DROP, L_SHIN, L_THIGH, PELVIS_Y } from './skeleton';
-import { TAU, ease, fcos, fsin, lerp, noise1, smoothstep } from './mathx';
+import { HALF_PI, TAU, ease, facos, fcos, fsin, lerp, noise1, smoothstep } from './mathx';
 import {
   INJURY_CRITICAL, INJURY_DEAD, INJURY_LIGHT, INJURY_SERIOUS,
   LG_ABD, LG_ANKLE, LG_FLEX, LG_KNEE, LG_TWIST,
@@ -85,21 +85,21 @@ function legIK(
   pelvisRx: number, baseAbd: number, twist: number,
 ): void {
   const dy = hipH - ankleY;
-  let d = Math.sqrt(fwd * fwd + dy * dy);
+  const d0 = Math.sqrt(fwd * fwd + dy * dy);
+  let d = d0;
   if (d > LEG_MAX) d = LEG_MAX;
   else if (d < 0.14) d = 0.14;
-  const alpha = Math.atan2(fwd, dy);
-  let cg = (L_THIGH * L_THIGH + d * d - L_SHIN * L_SHIN) / (2 * L_THIGH * d);
-  cg = cg > 1 ? 1 : cg < -1 ? -1 : cg;
-  let ck = (L_THIGH * L_THIGH + L_SHIN * L_SHIN - d * d) / (2 * L_THIGH * L_SHIN);
-  ck = ck > 1 ? 1 : ck < -1 ? -1 : ck;
-  const thigh = alpha + Math.acos(cg);
-  const knee = Math.PI - Math.acos(ck);
+  // angle de la droite hanche → cheville par rapport à la verticale (arc sinus rapide quand le pied est sous la hanche)
+  const alpha = dy > 0.02 ? HALF_PI - facos(fwd / d0) : Math.atan2(fwd, dy);
+  const cg = (L_THIGH * L_THIGH + d * d - L_SHIN * L_SHIN) / (2 * L_THIGH * d);
+  const ck = (L_THIGH * L_THIGH + L_SHIN * L_SHIN - d * d) / (2 * L_THIGH * L_SHIN);
+  const thigh = alpha + facos(cg);
+  const knee = Math.PI - facos(ck);
   let sl = lat / (d < 0.35 ? 0.35 : d);
   sl = sl > 0.6 ? 0.6 : sl < -0.6 ? -0.6 : sl;
   P[base + LG_FLEX] = thigh + pelvisRx;
   P[base + LG_TWIST] = twist;
-  P[base + LG_ABD] = baseAbd + side * Math.asin(sl);
+  P[base + LG_ABD] = baseAbd + side * (HALF_PI - facos(sl));
   P[base + LG_KNEE] = knee;
   P[base + LG_ANKLE] = -(pitch + thigh - knee);
 }

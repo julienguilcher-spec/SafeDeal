@@ -71,6 +71,28 @@ let scratchMain: MeshData | null = null;
 let scratchRail: MeshData | null = null;
 const boundsOut = new Float64Array(6);
 
+/** Mesures de la dernière tuile construite (profilage). */
+export interface BuildingBuildStats {
+  /** Bâtiments dessinés, sommets, triangles, octets envoyés à la carte graphique (sommets + indices). */
+  buildings: number;
+  vertices: number;
+  triangles: number;
+  gpuBytes: number;
+  /** Palier de détail retenu : 0 = le plus riche … 3 = le plus pauvre (version détaillée) ; palier de simplification (version lointaine). */
+  step: number;
+}
+const lastStats: BuildingBuildStats = { buildings: 0, vertices: 0, triangles: 0, gpuBytes: 0, step: 0 };
+
+/** Mesures de la dernière tuile construite par buildTileBuildings ou buildTileBuildingsFar. */
+export function lastBuildingBuildStats(): BuildingBuildStats {
+  return { ...lastStats };
+}
+
+/** Octets d'un maillage une fois sur la carte graphique. */
+function meshBytes(m: MeshData, facade: boolean): number {
+  return m.nv * (12 + 3 + 8 + (facade ? 3 + 4 : 0)) + m.ni * (m.nv <= 65535 ? 2 : 4);
+}
+
 /** Au-delà de cette distance (m) entre la caméra et la tuile, les garde-corps ne sont plus dessinés. */
 const RAIL_DISTANCE = 260;
 
@@ -163,6 +185,9 @@ export function buildTileBuildings(tile: Tile, opts: BuildingViewOptions): TileB
   const main = scratchMain ?? (scratchMain = new MeshData(65536));
   const rail = scratchRail ?? (scratchRail = new MeshData(8192));
   const stats = generateTileMeshes(tile, opts, main, rail);
+  lastStats.buildings = stats.buildings; lastStats.step = stats.step; lastStats.triangles = stats.triangles;
+  lastStats.vertices = main.nv + rail.nv;
+  lastStats.gpuBytes = meshBytes(main, true) + meshBytes(rail, false);
   const group = tileGroup(tile, 'immeubles');
   const geometries: THREE.BufferGeometry[] = [];
   let drawCalls = 0;
@@ -211,6 +236,9 @@ export function buildTileBuildings(tile: Tile, opts: BuildingViewOptions): TileB
 export function buildTileBuildingsFar(tile: Tile, opts: BuildingViewOptions): TileBuildingsView {
   const main = scratchMain ?? (scratchMain = new MeshData(65536));
   const stats = generateTileFarMesh(tile, opts, main);
+  lastStats.buildings = stats.buildings; lastStats.step = stats.step; lastStats.triangles = stats.triangles;
+  lastStats.vertices = main.nv;
+  lastStats.gpuBytes = meshBytes(main, true);
   const group = tileGroup(tile, 'immeubles-loin');
   let geometry: THREE.BufferGeometry | null = null;
   if (main.nv > 0) {

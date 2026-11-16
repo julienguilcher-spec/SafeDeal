@@ -19,6 +19,21 @@ function checkMesh(m: MeshData, label: string): void {
   for (let i = 0; i < m.nv * 2; i++) if (!Number.isFinite(m.uv[i])) throw new Error(`${label} : uv non fini`);
 }
 
+/** Nombre de triangles dont le sens contredit la normale de leurs sommets (ils seraient invisibles). */
+function countFlipped(m: MeshData): number {
+  let flipped = 0;
+  for (let t = 0; t < m.ni; t += 3) {
+    const a = m.idx[t], b = m.idx[t + 1], c = m.idx[t + 2];
+    const ux = m.pos[3 * b] - m.pos[3 * a], uy = m.pos[3 * b + 1] - m.pos[3 * a + 1], uz = m.pos[3 * b + 2] - m.pos[3 * a + 2];
+    const vx = m.pos[3 * c] - m.pos[3 * a], vy = m.pos[3 * c + 1] - m.pos[3 * a + 1], vz = m.pos[3 * c + 2] - m.pos[3 * a + 2];
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const l = Math.hypot(nx, ny, nz);
+    if (l < 1e-5) continue;
+    if ((nx * m.nor[3 * a] + ny * m.nor[3 * a + 1] + nz * m.nor[3 * a + 2]) / (l * 127) < -0.2) flipped++;
+  }
+  return flipped;
+}
+
 describe.skipIf(files.length === 0)('génération des immeubles — vraies tuiles de Paris', () => {
   const tiles: Tile[] = files.map((f) => decodeTile(JSON.parse(readFileSync(path.join(dir, f), 'utf8'))));
 
@@ -27,13 +42,15 @@ describe.skipIf(files.length === 0)('génération des immeubles — vraies tuile
     // échauffement du compilateur à la volée, pour des temps représentatifs
     for (let i = 0; i < 3; i++) generateTileMeshes(tiles[i % tiles.length], { quality: 'haut', heightAt: flat, skipLandmark: never, seed: 1 }, main, rail);
     for (const quality of ['bas', 'moyen', 'haut'] as const) {
-      let maxTri = 0, maxMs = 0, sumMs = 0, sumTri = 0, degraded = 0, maxKey = '', slowKey = '';
+      let maxTri = 0, maxMs = 0, sumMs = 0, sumTri = 0, degraded = 0, maxKey = '', slowKey = '', flipped = 0, triangles = 0;
       for (const tile of tiles) {
         const t0 = performance.now();
         const st = generateTileMeshes(tile, { quality, heightAt: flat, skipLandmark: never, seed: 1 }, main, rail);
         const ms = performance.now() - t0;
         checkMesh(main, `tuile ${tile.tx},${tile.tz}`);
         checkMesh(rail, `tuile ${tile.tx},${tile.tz} (ajouré)`);
+        flipped += countFlipped(main);
+        triangles += main.triangles;
         expect(st.triangles).toBeLessThanOrEqual(DETAIL_TRIANGLE_BUDGET);
         if (st.triangles > maxTri) { maxTri = st.triangles; maxKey = `${tile.tx},${tile.tz} (${st.buildings} bât.)`; }
         if (ms > maxMs) { maxMs = ms; slowKey = `${tile.tx},${tile.tz} (${st.buildings} bât.)`; }
@@ -41,7 +58,10 @@ describe.skipIf(files.length === 0)('génération des immeubles — vraies tuile
         if (st.step > (quality === 'bas' ? 3 : quality === 'moyen' ? 1 : 0)) degraded++;
       }
       console.log(`[${quality}] ${tiles.length} tuiles : max ${maxTri} triangles (${maxKey}), moyenne ${(sumTri / tiles.length) | 0} ; `
-        + `génération max ${maxMs.toFixed(1)} ms (${slowKey}), moyenne ${(sumMs / tiles.length).toFixed(1)} ms ; ${degraded} tuile(s) au détail réduit`);
+        + `génération max ${maxMs.toFixed(1)} ms (${slowKey}), moyenne ${(sumMs / tiles.length).toFixed(1)} ms ; ${degraded} tuile(s) au détail réduit ; `
+        + `${flipped} face(s) à l'envers sur ${triangles}`);
+      // tolérance : quelques faces sur des emprises réellement tordues (anneaux qui se recoupent)
+      expect(flipped).toBeLessThanOrEqual(triangles * 0.0005);
     }
   });
 

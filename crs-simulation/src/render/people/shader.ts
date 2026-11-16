@@ -42,24 +42,18 @@ vec3 crsRot( vec4 q, vec3 v ) { return v + 2.0 * cross( q.xyz, cross( q.xyz, v )
 `;
 
 const VERT_SETUP = /* glsl */`
+// Les sommets des pièces non portées (ou des autres modèles de la famille d'objets) sont rejetés hors du
+// volume de vue AVANT tout autre calcul : ils ne coûtent qu'une ou deux lectures de texture.
+#ifdef CRS_ITEM
+	if ( abs( aSeg.z - aItem.x ) > 0.5 ) { gl_Position = vec4( 2.0, 2.0, 2.0, 1.0 ); return; }
+#endif
 int crsSlot = int( aSlot + 0.5 );
-vec4 crsRoot = texelFetch( uPose, ivec2( 0, crsSlot ), 0 );
 vec4 crsPrm = texelFetch( uPose, ivec2( 1, crsSlot ), 0 );
-int crsBone = int( aSeg.x + 0.5 );
-vec4 crsQ = texelFetch( uPose, ivec2( 2 + crsBone * 2, crsSlot ), 0 );
-vec4 crsP = texelFetch( uPose, ivec2( 3 + crsBone * 2, crsSlot ), 0 );
-float crsW = aSeg.w + 0.5;
-float crsTextKind = floor( crsW / 8.0 );
-float crsMode = crsW - crsTextKind * 8.0;
-vec3 crsScale = crsMode < 1.0 ? vec3( crsPrm.x )
-	: ( crsMode < 2.0 ? vec3( crsPrm.x * crsPrm.y, crsPrm.x, crsPrm.x * crsPrm.y )
-	: ( crsMode < 3.0 ? vec3( crsPrm.z ) : vec3( 1.0 ) ) );
 float crsFlag = crsPrm.w;
 bool crsFp = crsFlag > 0.5 && crsFlag < 1.5;
+int crsBone = int( aSeg.x + 0.5 );
 bool crsHide = false;
-#ifdef CRS_ITEM
-	if ( abs( aSeg.z - aItem.x ) > 0.5 ) crsHide = true;
-#else
+#ifndef CRS_ITEM
 	if ( aSeg.z > 0.5 ) {
 		vec4 crsOpt = texelFetch( uLook, ivec2( ${LOOK_OPT}, crsSlot ), 0 );
 		int crsPi = int( aSeg.z + 0.5 );
@@ -75,6 +69,16 @@ bool crsHide = false;
 #else
 	if ( crsFlag > 1.5 && crsFlag < 2.5 ) crsHide = true;
 #endif
+if ( crsHide ) { gl_Position = vec4( 2.0, 2.0, 2.0, 1.0 ); return; }
+vec4 crsRoot = texelFetch( uPose, ivec2( 0, crsSlot ), 0 );
+vec4 crsQ = texelFetch( uPose, ivec2( 2 + crsBone * 2, crsSlot ), 0 );
+vec4 crsP = texelFetch( uPose, ivec2( 3 + crsBone * 2, crsSlot ), 0 );
+float crsW = aSeg.w + 0.5;
+float crsTextKind = floor( crsW / 8.0 );
+float crsMode = crsW - crsTextKind * 8.0;
+vec3 crsScale = crsMode < 1.0 ? vec3( crsPrm.x )
+	: ( crsMode < 2.0 ? vec3( crsPrm.x * crsPrm.y, crsPrm.x, crsPrm.x * crsPrm.y )
+	: ( crsMode < 3.0 ? vec3( crsPrm.z ) : vec3( 1.0 ) ) );
 `;
 
 const VERT_COLOR = /* glsl */`
@@ -126,7 +130,6 @@ vec4 mvPosition = vec4( transformed, 1.0 );
 if ( ! crsFp ) mvPosition = modelViewMatrix * mvPosition;
 gl_Position = projectionMatrix * mvPosition;
 if ( crsFp ) gl_Position.z = ( gl_Position.z + gl_Position.w ) * uFpDepth - gl_Position.w;
-if ( crsHide ) gl_Position = vec4( 2.0, 2.0, 2.0, 1.0 );
 `;
 
 const VERT_WORLDPOS = /* glsl */`
@@ -256,8 +259,9 @@ uniform highp sampler2D uPose;
 attribute float aSlot;`);
     s = s.replace('#include <begin_vertex>', /* glsl */`
 int crsSlot = int( aSlot + 0.5 );
-vec4 crsRoot = texelFetch( uPose, ivec2( 0, crsSlot ), 0 );
 vec4 crsPrm = texelFetch( uPose, ivec2( 1, crsSlot ), 0 );
+if ( crsPrm.w > 0.5 ) { gl_Position = vec4( 2.0, 2.0, 2.0, 1.0 ); return; }
+vec4 crsRoot = texelFetch( uPose, ivec2( 0, crsSlot ), 0 );
 vec3 crsHead = texelFetch( uPose, ivec2( ${3 + BONE_HEAD * 2}, crsSlot ), 0 ).xyz;
 vec3 crsFl = texelFetch( uPose, ivec2( ${3 + BONE_FOOT_L * 2}, crsSlot ), 0 ).xyz;
 vec3 crsFr = texelFetch( uPose, ivec2( ${3 + BONE_FOOT_R * 2}, crsSlot ), 0 ).xyz;
@@ -269,11 +273,8 @@ float crsHalfL = 0.30 * crsPrm.x + crsLen * 0.5;
 float crsHalfW = 0.29 * crsPrm.x * crsPrm.y;
 vec2 crsC = ( crsHead.xz + crsFeet ) * 0.5;
 vec2 crsOff = crsDir * ( position.x * crsHalfL ) + vec2( - crsDir.y, crsDir.x ) * ( position.z * crsHalfW );
-float crsLow = min( crsFl.y, crsFr.y );
 vec3 transformed = vec3( crsRoot.x + crsC.x + crsOff.x, crsRoot.y + 0.025, crsRoot.z + crsC.y + crsOff.y );
 `);
-    s = s.replace('#include <project_vertex>', /* glsl */`#include <project_vertex>
-if ( crsPrm.w > 0.5 ) gl_Position = vec4( 2.0, 2.0, 2.0, 1.0 );`);
     shader.vertexShader = s;
   };
   mat.customProgramCacheKey = () => 'crs-people-blob';

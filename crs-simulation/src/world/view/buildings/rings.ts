@@ -10,6 +10,11 @@
  * allocation dans les boucles de génération.
  * ===================================================================================== */
 
+/** Norme d'un vecteur du plan (Math.hypot est nettement plus lent dans les boucles chaudes). */
+export function hyp(x: number, z: number): number {
+  return Math.sqrt(x * x + z * z);
+}
+
 /** Tableau de nombres inscriptible : number[], Float32Array, Float64Array… */
 export interface NumberBuffer { [i: number]: number; readonly length: number }
 
@@ -26,7 +31,7 @@ export function ringArea(ring: ArrayLike<number>, n: number = ring.length >> 1):
 export function ringPerimeter(ring: ArrayLike<number>, n: number = ring.length >> 1): number {
   let p = 0;
   for (let i = 0, j = n - 1; i < n; j = i++) {
-    p += Math.hypot(ring[2 * i] - ring[2 * j], ring[2 * i + 1] - ring[2 * j + 1]);
+    p += hyp(ring[2 * i] - ring[2 * j], ring[2 * i + 1] - ring[2 * j + 1]);
   }
   return p;
 }
@@ -102,7 +107,7 @@ export function cleanRing(
       const nx = k === 0 && w > 0 ? out[0] : out[2 * k];
       const nz = k === 0 && w > 0 ? out[1] : out[2 * k + 1];
       const ex = nx - px, ez = nz - pz;
-      const len = Math.hypot(ex, ez);
+      const len = hyp(ex, ez);
       let drop = false;
       if (len < minDist) {
         drop = true;                                  // aller-retour : le précédent et le suivant coïncident
@@ -228,7 +233,7 @@ export function insetRing(ring: ArrayLike<number>, n: number, dist: ArrayLike<nu
     // côté précédent (p → k) et côté suivant (k → q)
     let ax = px - ring[2 * p], az = pz - ring[2 * p + 1];
     let bx = ring[2 * q] - px, bz = ring[2 * q + 1] - pz;
-    const la = Math.hypot(ax, az) || 1, lb = Math.hypot(bx, bz) || 1;
+    const la = hyp(ax, az) || 1, lb = hyp(bx, bz) || 1;
     ax /= la; az /= la; bx /= lb; bz /= lb;
     // normales rentrantes (dz, -dx)
     const n0x = az, n0z = -ax, n1x = bz, n1z = -bx;
@@ -250,7 +255,7 @@ export function insetRing(ring: ArrayLike<number>, n: number, dist: ArrayLike<nu
       ox = (d0 * n1z - d1 * n0z) / det;
       oz = (d1 * n0x - d0 * n1x) / det;
       const lim = MITER_LIMIT * Math.max(Math.abs(d0), Math.abs(d1));
-      const l = Math.hypot(ox, oz);
+      const l = hyp(ox, oz);
       if (l > lim && l > 0) { ox *= lim / l; oz *= lim / l; }
     }
     out[2 * k] = px + ox;

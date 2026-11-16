@@ -6,6 +6,7 @@
  *   ctx.service<InputLabelsApi>('input.labels') → libellés des touches/boutons pour l'interface
  *   ctx.service<InputBindingsApi>('input.bindings') → réaffectation des touches
  *   ctx.service<InputScriptApi>('input.script') → entrées simulées (tests, didacticiel)
+ *   ctx.service<InputPointerApi>('input.pointer') → capture de la souris
  * ===================================================================================== */
 
 import type { Button, InputDevice } from '@/core/contracts';
@@ -16,6 +17,7 @@ export const INPUT_TOUCH_SERVICE = 'input.touch';
 export const INPUT_LABELS_SERVICE = 'input.labels';
 export const INPUT_BINDINGS_SERVICE = 'input.bindings';
 export const INPUT_SCRIPT_SERVICE = 'input.script';
+export const INPUT_POINTER_SERVICE = 'input.pointer';
 
 // ───────────────────────────── tactile ─────────────────────────────
 
@@ -151,4 +153,21 @@ export interface InputScriptApi {
   wheel(notches: number): void;
   /** Relâche tout. */
   clear(): void;
+}
+
+// ───────────────────────────── capture de la souris ─────────────────────────────
+
+export interface InputPointerApi {
+  /** La souris est capturée (identique à ctx.input.pointerLocked). */
+  readonly locked: boolean;
+  /** Le navigateur a refusé la capture : mode « glisser pour regarder ». */
+  readonly fallback: boolean;
+  /**
+   * Demande la capture. À appeler depuis un gestionnaire de clic ou de touche (geste de
+   * l'utilisateur), par exemple le bouton « Reprendre » du menu de pause. Sans effet si un écran
+   * modal est ouvert ou si la session est en pause.
+   */
+  request(): void;
+  /** Rend la souris (le module le fait de lui-même à l'ouverture d'un écran modal et en pause). */
+  release(): void;
 }

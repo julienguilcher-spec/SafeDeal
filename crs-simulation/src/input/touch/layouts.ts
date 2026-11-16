@@ -117,7 +117,7 @@ export const MOVE_ZONE = { width: 0.4, top: 0.3 } as const;
 /** Rangée de boutons système en haut à droite, commune aux trois dispositions. */
 function systemRow(layout: GameLayout): ControlSpec[] {
   const chip = (key: string, button: Button, label: string, icon: IconId, slot: number, row = 0): ControlSpec => ({
-    key, layout, button, label, icon, shape: 'chip', side: 'right', x: 12 + slot * 52, anchor: 'top', y: 10 + row * 52, w: 46, h: 46,
+    key, layout, button, label, icon, shape: 'chip', side: 'right', x: 12 + slot * 55, anchor: 'top', y: 10 + row * 52, w: 51, h: 46,
   });
   return [
     chip('pause', 'pause', 'Pause', 'pause', 0),
@@ -138,9 +138,9 @@ function commsRow(layout: GameLayout): ControlSpec[] {
 
 const PIED: ControlSpec[] = [
   ...systemRow('pied'),
-  { key: 'mask', layout: 'pied', button: 'mask', label: 'Masque', icon: 'mask', shape: 'chip', side: 'right', x: 12, anchor: 'top', y: 62, w: 46, h: 46 },
-  { key: 'visor', layout: 'pied', button: 'visor', label: 'Visière', icon: 'visor', shape: 'chip', side: 'right', x: 64, anchor: 'top', y: 62, w: 46, h: 46 },
-  { key: 'lamp', layout: 'pied', button: 'flashlight', label: 'Lampe', icon: 'lamp', shape: 'chip', side: 'right', x: 116, anchor: 'top', y: 62, w: 46, h: 46 },
+  { key: 'mask', layout: 'pied', button: 'mask', label: 'Masque', icon: 'mask', shape: 'chip', side: 'right', x: 12, anchor: 'top', y: 62, w: 51, h: 46 },
+  { key: 'visor', layout: 'pied', button: 'visor', label: 'Visière', icon: 'visor', shape: 'chip', side: 'right', x: 67, anchor: 'top', y: 62, w: 51, h: 46 },
+  { key: 'lamp', layout: 'pied', button: 'flashlight', label: 'Lampe', icon: 'lamp', shape: 'chip', side: 'right', x: 122, anchor: 'top', y: 62, w: 51, h: 46 },
   ...commsRow('pied'),
   { key: 'primary', layout: 'pied', button: 'primary', label: 'Action', icon: 'action', shape: 'round', side: 'right', x: 24, anchor: 'bottom', y: 30, w: 88, h: 88, lookDrag: true, accent: true },
   { key: 'crouch', layout: 'pied', button: 'crouch', label: 'Accroupi', icon: 'crouch', shape: 'round', side: 'right', x: 122, anchor: 'bottom', y: 16, w: 58, h: 58 },
@@ -151,9 +151,9 @@ const PIED: ControlSpec[] = [
 
 const VEHICULE: ControlSpec[] = [
   ...systemRow('vehicule'),
-  { key: 'headlights', layout: 'vehicule', button: 'headlights', label: 'Phares', icon: 'headlights', shape: 'chip', side: 'right', x: 12, anchor: 'top', y: 62, w: 46, h: 46 },
+  { key: 'headlights', layout: 'vehicule', button: 'headlights', label: 'Phares', icon: 'headlights', shape: 'chip', side: 'right', x: 12, anchor: 'top', y: 62, w: 51, h: 46 },
   ...commsRow('vehicule'),
-  { key: 'exit', layout: 'vehicule', button: 'interact', label: 'Sortir', icon: 'exit', shape: 'pill', side: 'left', x: 18, anchor: 'bottom', y: 260, w: 118, h: 44, contextual: true },
+  { key: 'exit', layout: 'vehicule', button: 'interact', label: 'Sortir', icon: 'exit', shape: 'pill', side: 'left', x: 18, anchor: 'bottom', y: 260, w: 118, h: 46, contextual: true },
   { key: 'gas', layout: 'vehicule', button: null, label: 'Accélérer', icon: 'gas', shape: 'pedal', side: 'right', x: 24, anchor: 'bottom', y: 24, w: 86, h: 136, pedal: 'throttle', accent: true },
   { key: 'brake', layout: 'vehicule', button: null, label: 'Frein', icon: 'brake', shape: 'pedal', side: 'right', x: 122, anchor: 'bottom', y: 24, w: 78, h: 108, pedal: 'brake' },
   { key: 'handbrake', layout: 'vehicule', button: 'handbrake', label: 'Frein à main', icon: 'handbrake', shape: 'round', side: 'right', x: 212, anchor: 'bottom', y: 20, w: 58, h: 58 },

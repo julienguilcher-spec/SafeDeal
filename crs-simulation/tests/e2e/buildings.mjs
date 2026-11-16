@@ -35,7 +35,7 @@ for (const quality of qualities) {
   const after = await page.evaluate(() => window.__dispose());
   console.log(`\n=== ${stats.world} — tuile ${stats.tile} — qualité ${quality} (${((Date.now() - t0) / 1000).toFixed(1)} s) ===`);
   console.log(`bâtiments de la tuile        : ${stats.buildings}`);
-  console.log(`version détaillée            : ${stats.triangles} triangles, ${stats.drawCalls} appel(s) de dessin`);
+  console.log(`version détaillée            : ${stats.triangles} triangles, ${stats.vertices} sommets, ${(stats.gpuBytes / 1048576).toFixed(1)} Mo sur la carte graphique, ${stats.drawCalls} appel(s) de dessin, palier de détail ${stats.detailStep}`);
   console.log(`  construction (1re fois)    : ${stats.buildMs.toFixed(1)} ms   |  9 essais : médiane ${bench.detailMedianMs.toFixed(1)} ms, min ${bench.detailMinMs.toFixed(1)}, max ${bench.detailMaxMs.toFixed(1)}`);
   console.log(`version lointaine (voisines) : ${stats.farTiles} tuiles, max ${stats.farTrianglesMax} triangles, ${stats.farDrawCallsMax} appel de dessin, ${stats.farBuildMsMax.toFixed(1)} ms max`);
   console.log(`  même tuile en lointain     : ${bench.farTriangles} triangles, médiane ${bench.farMedianMs.toFixed(1)} ms`);
