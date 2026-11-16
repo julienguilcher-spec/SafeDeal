@@ -231,6 +231,7 @@ function emitFar(p: PreparedTile, stepIndex: number, out: MeshData): number {
     if (nt > 0) {
       out.ensure(total, nt * 3);
       const base = out.nv;
+      out.facade(levels, roofKind, seed, 2);          // dessus du prisme
       out.nx = 0; out.ny = 1; out.nz = 0;
       for (let i = 0; i < total; i++) out.vertex(farRings[2 * i], yTop, farRings[2 * i + 1], 0, levels + 0.5);
       for (let t = 0; t < nt; t++) out.tri(base + triIndices[3 * t], base + triIndices[3 * t + 1], base + triIndices[3 * t + 2]);
@@ -242,7 +243,8 @@ function emitFar(p: PreparedTile, stepIndex: number, out: MeshData): number {
 
 /**
  * Génère la version lointaine d'une tuile dans `out` : prismes aux contours simplifiés.
- * Attribut « façade » d'un sommet : (nombre de niveaux, matériau de couverture, graine, auvent).
+ * Attribut « façade » d'un sommet : (nombre de niveaux, matériau de couverture, graine,
+ * nature : 0 mur, 1 auvent, 2 dessus du prisme).
  */
 export function generateTileFarMesh(tile: Tile, opts: GenerateOptions, out: MeshData, budget: number = FAR_TRIANGLE_BUDGET): TileMeshStats {
   setVariationSeed(opts.seed);

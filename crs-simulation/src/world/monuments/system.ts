@@ -6,7 +6,7 @@ import type { MonumentsApi, MonumentsStats } from './api';
 import type { MonumentDef, MonumentFrame, MonumentSite } from './types';
 import { getMonument, listMonuments } from './registry';
 import { getWorldColliders, siteOfLandmark } from './colliders';
-import { disposeObject, setNightLevel, statsOf, tickMaterials } from './kit';
+import { disposeKitMaterials, disposeObject, setNightLevel, statsOf, tickMaterials } from './kit';
 
 interface Slot {
   lm: LandmarkInfo;
@@ -45,6 +45,7 @@ export class MonumentSystem implements GameSystem {
   private sparkle = 0;
   private quality: QualityLevel = 'moyen';
   private unsub: Unsubscribe[] = [];
+  private errorCount = 0;
   private readonly info: MonumentFrame = { time: 0, dt: 0, daylight: 1, night: 0, hour: 12, sparkle: 0 };
   private readonly api: MonumentsApi = {
     has: (key) => getMonument(key) !== undefined,
@@ -128,7 +129,8 @@ export class MonumentSystem implements GameSystem {
         if (shown) s.def.animate(shown, info, shown === s.far);
       }
     } catch (err) {
-      console.error('[monuments] erreur pendant l\'affichage :', err);
+      // une erreur persistante ne doit ni interrompre le jeu ni inonder la console
+      if (this.errorCount++ < 5) console.error('[monuments] erreur pendant l\'affichage :', err);
     }
   }
 
@@ -243,5 +245,7 @@ export class MonumentSystem implements GameSystem {
     this.unsub.length = 0;
     if (this.root) { this.root.removeFromParent(); this.root = null; }
     this.ctx = null;
+    // fin de vie du module : on rend aussi les matériaux et textures partagés (ils seront recréés à la demande)
+    disposeKitMaterials();
   }
 }

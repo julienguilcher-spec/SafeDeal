@@ -324,8 +324,7 @@ export class WorldQueryImpl implements WorldQueryExt, TileHost {
       if (s.kind === 'water') builder.addWater(s.holes.length === 0 ? [s.outer] : [s.outer, ...s.holes]);
     }
     for (const b of tile.barriers) builder.addBarrier(b.kind, b.height, b.points);
-    entry.bucket = builder.build();
-    this.collision.add(entry.bucket);
+    const bucket = builder.build();
     this.collisionMs += now() - t0;
     // Les bâtiments de cette tuile qui débordent chez les voisines sont ajoutés à leurs grilles.
     const store = this.base.store;
@@ -333,9 +332,12 @@ export class WorldQueryImpl implements WorldQueryExt, TileHost {
       for (let dx = -1; dx <= 1; dx++) {
         if (dx === 0 && dz === 0) continue;
         const n = store.entry(entry.tx + dx, entry.tz + dz);
-        if (n !== null && n.grid !== null) patchNeighbourGrid(this.base, n.grid, tile, entry.bucket);
+        if (n !== null && n.grid !== null) patchNeighbourGrid(this.base, n.grid, tile, bucket);
       }
     }
+    // En dernier : si une étape ci-dessus échoue, aucun obstacle orphelin ne reste en service.
+    entry.bucket = bucket;
+    this.collision.add(bucket);
   }
 
   tileLoaded(entry: TileEntry): void {

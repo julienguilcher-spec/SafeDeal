@@ -120,6 +120,7 @@ export function tickMaterials(time: number): void {
 export function disposeKitMaterials(): void {
   for (const m of cache.values()) {
     const s = m as THREE.MeshStandardMaterial;
+    if (s.emissiveMap && s.emissiveMap !== s.map) s.emissiveMap.dispose();
     s.map?.dispose(); s.bumpMap?.dispose(); s.alphaMap?.dispose();
     m.dispose();
   }

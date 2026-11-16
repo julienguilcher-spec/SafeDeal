@@ -9,7 +9,8 @@
  *     la géométrie des rues : [départ, accroche, …sommets des voies…, accroche, arrivée].
  *
  * Les tableaux de travail sont alloués une fois (taille du graphe) et réutilisés : aucune
- * allocation par requête, hormis la croissance du tableau `out` fourni par l'appelant.
+ * allocation par requête, hormis la croissance du tableau `out` fourni par l'appelant (il est
+ * réécrit en place : le réutiliser d'un appel à l'autre évite toute réallocation).
  * ===================================================================================== */
 
 import type { RoadNetwork } from './roads';
@@ -280,27 +281,33 @@ export class PathFinder {
    * au préalable). false si une extrémité est trop loin du réseau ou s'il n'existe aucun chemin.
    */
   find(ax: number, az: number, bx: number, bz: number, vehicle: boolean, out: number[]): boolean {
-    out.length = 0;
+    // Le tableau de l'appelant est réécrit en place puis ajusté à la bonne longueur : le vider
+    // d'abord (length = 0) ferait réallouer son contenu à chaque appel.
+    this.count = 0;
     // 1. Accroche à la voie la plus proche de chaque extrémité.
-    if (this.search(ax, az, bx, bz, vehicle, out, false, false)) return true;
-    // 2. Repli : une extrémité accrochée hors du réseau principal (bout d'allée isolé, îlot desservi
-    //    par un souterrain, sens unique sans issue au bord de la carte) est raccrochée à celui-ci.
-    const main = vehicle ? this.vehicleMain : this.footMain;
-    const startOff = this.lastStartEdge >= 0 && main[this.lastStartEdge] === 0;
-    const endOff = this.lastEndEdge >= 0 && main[this.lastEndEdge] === 0;
-    if (!startOff && !endOff) return false;
-    if (startOff && endOff) {
-      return this.search(ax, az, bx, bz, vehicle, out, true, true);
+    let found = this.search(ax, az, bx, bz, vehicle, out, false, false);
+    if (!found) {
+      // 2. Repli : une extrémité accrochée hors du réseau principal (bout d'allée isolé, îlot desservi
+      //    par un souterrain, sens unique sans issue au bord de la carte) est raccrochée à celui-ci.
+      const main = vehicle ? this.vehicleMain : this.footMain;
+      const startOff = this.lastStartEdge >= 0 && main[this.lastStartEdge] === 0;
+      const endOff = this.lastEndEdge >= 0 && main[this.lastEndEdge] === 0;
+      if (startOff || endOff) found = this.search(ax, az, bx, bz, vehicle, out, startOff, endOff);
     }
-    return this.search(ax, az, bx, bz, vehicle, out, startOff, endOff);
+    const n = found ? this.count : 0;
+    if (out.length !== n) out.length = n;
+    return found;
   }
+
+  /** Nombre de valeurs écrites dans le tableau de sortie par la recherche en cours. */
+  private count = 0;
 
   private lastStartEdge = -1;
   private lastEndEdge = -1;
 
   /** Une recherche A* ; `startMain` / `endMain` : accrocher l'extrémité au réseau principal du mode. */
   private search(ax: number, az: number, bx: number, bz: number, vehicle: boolean, out: number[], startMain: boolean, endMain: boolean): boolean {
-    out.length = 0;
+    this.count = 0;
     const net = this.net;
     const filter = vehicle ? ROAD_DRIVABLE : ROAD_ANY;
     const main = vehicle ? this.vehicleMain : this.footMain;
@@ -436,12 +443,14 @@ export class PathFinder {
 
   /** Ajoute un point, sauf s'il est confondu avec le précédent. */
   private emit(out: number[], x: number, z: number): void {
-    const n = out.length;
+    const n = this.count;
     if (n >= 2) {
       const dx = out[n - 2] - x, dz = out[n - 1] - z;
       if (dx * dx + dz * dz < MERGE_EPS * MERGE_EPS) return;
     }
-    out.push(x, z);
+    out[n] = x;
+    out[n + 1] = z;
+    this.count = n + 2;
   }
 
   /**

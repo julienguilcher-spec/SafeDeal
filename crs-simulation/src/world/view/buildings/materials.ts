@@ -163,16 +163,23 @@ export function createRailMaterial(texture: THREE.Texture): THREE.Material {
 
 const FAR_MAP = /* glsl */ `
 float fLevels = floor(vBfac.x + 0.5);
+// 4e octet : 0 = mur, 1 = auvent (tout est couverture), 2 = dessus du prisme
+float fCap = step(1.5, vBfac.w);
 float fRoof = max(step(fLevels, vBuv.y), step(0.5, vBfac.w));
 float fKind = floor(vBfac.y + 0.5);
-vec3 fRoofCol = fKind < 0.5 ? vec3(0.31, 0.35, 0.385) : fKind < 1.5 ? vec3(0.085, 0.1, 0.125) : fKind < 2.5 ? vec3(0.27, 0.265, 0.24) : vec3(0.215, 0.1, 0.07);
+// mansardes (0 zinc, 1 ardoise) : le dessus est toujours un terrasson de zinc clair, seul le brisis change ;
+// 2 = toit-terrasse gravillonné, 3 = tuile
+vec3 fRoofCol = fKind < 1.5
+  ? (fCap > 0.5 ? vec3(0.29, 0.325, 0.36) : (fKind < 0.5 ? vec3(0.23, 0.26, 0.29) : vec3(0.08, 0.095, 0.115)))
+  : (fKind < 2.5 ? vec3(0.27, 0.265, 0.24) : vec3(0.215, 0.1, 0.07));
 vec2 fCell = fract(vBuv);
 float fWall = (1.0 - fRoof) * step(0.0, vBuv.y);
 float fWin = step(0.3, fCell.x) * step(fCell.x, 0.72) * step(0.2, fCell.y) * step(fCell.y, 0.82) * fWall;
 float fPx = max(fwidth(vBuv.x), fwidth(vBuv.y));
 float fSharp = 1.0 - smoothstep(0.16, 0.45, fPx);
 float fShade = mix(0.87, mix(1.0, 0.36, fWin), fSharp);
-diffuseColor.rgb = mix(diffuseColor.rgb * fShade, fRoofCol * (0.86 + 0.28 * fract(vBfac.z * 0.137)), fRoof);
+// la teinte par sommet est celle du MUR : la couverture a sa propre couleur
+diffuseColor.rgb *= mix(vColor.rgb * fShade, fRoofCol * (0.88 + 0.24 * fract(vBfac.z * 0.137)), fRoof);
 `;
 
 const FAR_EMISSIVE = /* glsl */ `
@@ -197,6 +204,7 @@ export function createFarMaterial(): THREE.Material {
       .replace('#include <common>', '#include <common>\nuniform vec4 uLit;\nvarying vec2 vBuv;\nvarying vec4 vBfac;\n'
         + 'float bHash(vec3 p) { p = fract(p * vec3(0.1031, 0.1030, 0.0973)); p += dot(p, p.yxz + 33.33); return fract((p.x + p.y) * p.z); }\n')
       .replace('#include <map_fragment>', FAR_MAP)
+      .replace('#include <color_fragment>', '')
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n' + FAR_EMISSIVE);
   };
   mat.customProgramCacheKey = () => 'crs-immeubles-lointain';

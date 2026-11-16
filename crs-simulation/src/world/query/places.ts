@@ -72,6 +72,10 @@ export class PlaceIndex {
   private readonly words: string[][] = [];
   private readonly importance: number[] = [];
   private readonly cache = new Map<string, PlaceInfo | null>();
+  // Formulations radio, calculées une fois : sectorName n'alloue aucune chaîne.
+  private readonly radio: string[] = [];
+  private readonly radioSector: string[] = [];
+  private readonly radioRoad = new Map<string, string>();
 
   constructor(places: readonly Place[], landmarks: readonly Landmark[]) {
     for (let i = 0; i < places.length; i++) {
@@ -81,6 +85,9 @@ export class PlaceIndex {
       this.norm.push(n);
       this.words.push(n.split(' '));
       this.importance.push(p.importance);
+      const said = radioName(p.name);
+      this.radio.push(said);
+      this.radioSector.push(`secteur ${said}`);
     }
     for (const l of landmarks) {
       this.landmarks.push({ key: l.key, name: l.name, x: l.x, z: l.z, y: l.y, heading: l.heading, height: l.height, footprint: l.footprint });
@@ -154,7 +161,7 @@ export class PlaceIndex {
       const ed = roads.edges[roads.snapEdge];
       const reach = ed.width / 2 + ed.sidewalk;
       // Sur un pont, le nom de l'ouvrage prime (il est porté par l'arête).
-      if (ed.bridge && roads.snapDist <= reach) return radioName(ed.name);
+      if (ed.bridge && roads.snapDist <= reach) return this.roadRadioName(ed.name);
       roadName = ed.name;
       onRoad = roads.snapDist <= reach + 1.5;
     }
@@ -171,8 +178,8 @@ export class PlaceIndex {
         bestRadius = p.radius;
       }
     }
-    if (best >= 0) return radioName(this.places[best].name);
-    if (roadName !== '') return radioName(roadName);
+    if (best >= 0) return this.radio[best];
+    if (roadName !== '') return this.roadRadioName(roadName);
     // Lieu le plus proche (hors quartiers et voies, dont le point de référence est arbitraire).
     let nearest = -1, nearestD2 = SECTOR_PLACE_DISTANCE * SECTOR_PLACE_DISTANCE;
     let district = -1, districtRadius = Infinity;
@@ -193,8 +200,18 @@ export class PlaceIndex {
         nearest = i;
       }
     }
-    if (nearest >= 0) return `secteur ${radioName(this.places[nearest].name)}`;
-    if (district >= 0) return radioName(this.places[district].name);
+    if (nearest >= 0) return this.radioSector[nearest];
+    if (district >= 0) return this.radio[district];
     return 'secteur inconnu';
+  }
+
+  /** Formulation radio d'un nom de voie (mise en cache : il y a peu de noms distincts). */
+  private roadRadioName(name: string): string {
+    let said = this.radioRoad.get(name);
+    if (said === undefined) {
+      said = radioName(name);
+      this.radioRoad.set(name, said);
+    }
+    return said;
   }
 }
