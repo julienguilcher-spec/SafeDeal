@@ -18,7 +18,7 @@ import type { EntityId, GameContext, GameSystem, Squad, Vehicle } from '@/core/c
 import { SystemOrder } from '@/core/contracts';
 
 interface Autopilot {
-  status(v: Vehicle): Readonly<{ mode: string; state: string; reason: string; blockedFor: number; remaining: number }>;
+  status(v: Vehicle): Readonly<{ mode: string; state: string; reason: string; blockedFor: number; remaining: number; leaderId?: number }>;
   driveTo(v: Vehicle, x: number, z: number, options?: { urgence?: boolean; speed?: number; stopBefore?: number; pushThrough?: boolean }): boolean;
 }
 interface CrowdCore {
@@ -41,11 +41,19 @@ const REROUTE_AFTER = 12;
 const VEHICLE_AFTER = 5;
 /** Arrêté par une voiture civile immobile depuis : elle est poussée ou dégagée (s). */
 const CIVIL_AFTER = 10;
+/** Bloqué contre un mur ou un obstacle fixe depuis : nouvel itinéraire, puis marche arrière (s). */
+const WALL_AFTER = 12;
+/** Coincé depuis (s), hors de vue du joueur (m) : replacé plus loin sur l'itinéraire (m). */
+const STUCK_SKIP = 50;
+const UNSEEN_DIST = 300;
+const SKIP_DIST = 30;
 
 interface Blocked {
   since: number;
   rerouted: boolean;
   hornAt: number;
+  /** Premier blocage de la série (s). */
+  firstAt: number;
 }
 
 export class EnginsSystem implements GameSystem {
@@ -101,10 +109,21 @@ export class EnginsSystem implements GameSystem {
     for (const v of ctx.vehicles.list) {
       if (v.faction !== 'police' || v.def.flying || v.seats[0] === 0) continue;
       const st = ap.status(v);
+      // filet de sécurité, hors de la vue du joueur : un véhicule coincé depuis longtemps (cour étroite, interblocage
+      // entre colonnes au départ de la caserne) est retrouvé derrière son chef de file ou plus loin sur son itinéraire
+      if (Math.abs(v.speed) < 0.4 && (st.state === 'attente' || st.state === 'bloque') && st.blockedFor > STUCK_SKIP && this.unseen(v)) {
+        if (this.unstick(v, ap, st)) continue;
+      }
+      // (les motos de la BRAV-M ont leur propre conduite de colonne : bravm.ts)
+      if (v.kind === 'moto_bravm') continue;
       if (st.mode !== 'drive' && st.mode !== 'follow') { this.blocked.delete(v.id); continue; }
       const stopped = Math.abs(v.speed) < 0.4;
       if ((st.state === 'attente' || st.state === 'bloque') && st.reason === 'vehicule' && stopped && st.blockedFor > VEHICLE_AFTER) {
         this.clearVehicle(v, ap, st.blockedFor);
+        continue;
+      }
+      if ((st.state === 'bloque' || st.state === 'attente') && (st.reason === 'mur' || st.reason === 'obstacle') && stopped && st.blockedFor > WALL_AFTER && st.mode === 'drive') {
+        this.clearWall(v, ap, now);
         continue;
       }
       const byPeople = (st.state === 'attente' || st.state === 'bloque') && (st.reason === 'personne' || st.reason === '');
@@ -113,7 +132,7 @@ export class EnginsSystem implements GameSystem {
         continue;
       }
       let b = this.blocked.get(v.id);
-      if (!b) { b = { since: now, rerouted: false, hornAt: now }; this.blocked.set(v.id, b); }
+      if (!b) { b = { since: now, rerouted: false, hornAt: now, firstAt: now }; this.blocked.set(v.id, b); }
       // avertisseur, deux tons : la foule devant l'engin s'écarte
       const fx = Math.sin(v.heading), fz = Math.cos(v.heading);
       const ax = v.x + fx * (v.def.length * 0.5 + 4), az = v.z + fz * (v.def.length * 0.5 + 4);
@@ -170,9 +189,108 @@ export class EnginsSystem implements GameSystem {
       const t = this.destinationOf(v, ap);
       if (t && ap.status(v).mode === 'drive') {
         ap.driveTo(v, t.x, t.z, { urgence: true, pushThrough: v.def.canPush === true });
-        this.blocked.set(v.id, { since: this.ctx!.clock.now, rerouted: true, hornAt: 0 });
+        this.blocked.set(v.id, { since: this.ctx!.clock.now, rerouted: true, hornAt: 0, firstAt: this.ctx!.clock.now });
       }
     }
+  }
+
+  /**
+   * Nez contre un mur ou un obstacle fixe (sortie de cour, place trop étroite) : nouvel itinéraire ; s'il bute encore,
+   * le conducteur recule de quelques mètres dans l'axe avant de repartir.
+   */
+  private clearWall(v: Vehicle, ap: Autopilot, now: number): void {
+    const t = this.destinationOf(v, ap);
+    if (!t) return;
+    let b = this.blocked.get(v.id);
+    if (!b) { b = { since: now, rerouted: false, hornAt: 0, firstAt: now }; this.blocked.set(v.id, b); }
+    if (!b.rerouted) {
+      b.rerouted = true;
+      b.since = now;
+      ap.driveTo(v, t.x, t.z, { urgence: v.siren !== 0, pushThrough: v.def.canPush === true });
+      return;
+    }
+    if (now - b.since < WALL_AFTER) return;
+    // toujours coincé depuis longtemps, loin des yeux du joueur : il finit par se dégager (on le retrouve plus loin
+    // sur son itinéraire) — une colonne ne reste pas figée dans une cour pendant que le reste du dispositif est parti
+    if (now - b.firstAt > STUCK_SKIP && this.unseen(v) && this.skipAhead(v, ap, t)) {
+      b.since = now;
+      b.firstAt = now;
+      return;
+    }
+    const world = this.ctx!.world;
+    const back = 4;
+    const bx = v.x - Math.sin(v.heading) * back, bz = v.z - Math.cos(v.heading) * back;
+    if (world.isFree(bx, bz, v.def.width * 0.5)) {
+      v.x = bx;
+      v.z = bz;
+      v.vx = 0;
+      v.vz = 0;
+      v.speed = 0;
+    }
+    b.since = now;
+    ap.driveTo(v, t.x, t.z, { urgence: v.siren !== 0, pushThrough: v.def.canPush === true });
+  }
+
+  private unstick(v: Vehicle, ap: Autopilot, st: { mode: string; leaderId?: number }): boolean {
+    const ctx = this.ctx!;
+    if (st.mode === 'follow' && st.leaderId) {
+      const lead = ctx.vehicles.get(st.leaderId);
+      if (!lead || Math.hypot(lead.x - v.x, lead.z - v.z) < 20 || !this.unseen(lead)) return false;
+      const gap = lead.def.length * 0.5 + v.def.length * 0.5 + 4;
+      const x = lead.x - Math.sin(lead.heading) * gap, z = lead.z - Math.cos(lead.heading) * gap;
+      if (!ctx.world.isFree(x, z, v.def.width * 0.5)) return false;
+      v.x = x;
+      v.z = z;
+      v.heading = lead.heading;
+      v.vx = 0;
+      v.vz = 0;
+      v.speed = 0;
+      return true;
+    }
+    if (st.mode !== 'drive') return false;
+    const t = this.destinationOf(v, ap);
+    return !!t && this.skipAhead(v, ap, t);
+  }
+
+  /** Le joueur ne voit pas ce véhicule (loin de lui). */
+  private unseen(v: Vehicle): boolean {
+    const me = this.ctx!.player.person();
+    return !me || Math.hypot(me.x - v.x, me.z - v.z) > UNSEEN_DIST;
+  }
+
+  /** Replace le véhicule une trentaine de mètres plus loin sur son itinéraire, dans l'axe, et le relance. */
+  private skipAhead(v: Vehicle, ap: Autopilot, t: { x: number; z: number }): boolean {
+    let path: number[] | null = null;
+    let n = 0;
+    try {
+      const rt = (this.ctx!.service('vehicles.autopilot') as { k?: { rt?(v: Vehicle): { ap?: { path?: number[]; n?: number } | null } } }).k?.rt?.(v);
+      if (rt && rt.ap && rt.ap.path && rt.ap.n) { path = rt.ap.path; n = rt.ap.n; }
+    } catch {
+      path = null;
+    }
+    if (!path || n < 2) return false;
+    let best = 0, bd = Infinity;
+    for (let i = 0; i < n; i++) {
+      const d = Math.hypot(path[i * 2]! - v.x, path[i * 2 + 1]! - v.z);
+      if (d < bd) { bd = d; best = i; }
+    }
+    let acc = 0;
+    const world = this.ctx!.world;
+    for (let i = best + 1; i < n; i++) {
+      const x0 = path[i * 2 - 2]!, z0 = path[i * 2 - 1]!, x1 = path[i * 2]!, z1 = path[i * 2 + 1]!;
+      acc += Math.hypot(x1 - x0, z1 - z0);
+      if (acc < SKIP_DIST) continue;
+      if (!world.isFree(x1, z1, v.def.width * 0.5)) continue;
+      v.x = x1;
+      v.z = z1;
+      v.heading = Math.atan2(x1 - x0, z1 - z0);
+      v.vx = 0;
+      v.vz = 0;
+      v.speed = 0;
+      ap.driveTo(v, t.x, t.z, { urgence: v.siren !== 0, pushThrough: v.def.canPush === true });
+      return true;
+    }
+    return false;
   }
 
   /** Destination courante d'un véhicule : dernier point demandé (mémorisé au premier blocage), sinon inconnue. */

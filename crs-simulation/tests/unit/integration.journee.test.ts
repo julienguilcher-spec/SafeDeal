@@ -98,6 +98,8 @@ describe('journée de service', () => {
     for (let i = 0; i < 250 && j.stage !== 'fin'; i++) t.step(5);
     console.log(`fin de journée : étape ${j.stage}`);
     expect(j.stage).toBe('fin');
+    // le compte rendu passe à la radio à son tour (le canal peut être occupé par un autre message)
+    for (let i = 0; i < 12 && !ctx.radio.log.some((m) => /fin de service/.test(m.text)); i++) t.step(2);
     expect(ctx.radio.log.some((m) => /fin de service/.test(m.text))).toBe(true);
   }, 3000000);
 });

@@ -452,7 +452,8 @@ export class SessionSetupSystem implements GameSystem {
     // (jusqu'à dix Centaures et dix canons à eau) occuperaient sinon
     if (typeof units.createBravm === 'function') {
       for (let i = 0; i < means.bravm; i++) {
-        special((x, z, heading) => units.createBravm!(6, { x, z, heading, vehicles: true, mounted: false, callsign: means.bravm > 1 ? `FAUCON ${i + 1}` : undefined }), 3, 'la BRAV-M', 44);
+        // journée de service : la BRAV-M attend l'ordre de mouvement en selle (départ immédiat derrière la colonne)
+        special((x, z, heading) => units.createBravm!(6, { x, z, heading, vehicles: true, mounted: isJournee(this.ctx.session.config), callsign: means.bravm > 1 ? `FAUCON ${i + 1}` : undefined }), 3, 'la BRAV-M', 44);
       }
     }
     if (typeof units.createEquipage === 'function') {

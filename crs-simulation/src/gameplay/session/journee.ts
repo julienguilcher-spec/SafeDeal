@@ -54,6 +54,7 @@ interface CommandLike {
   depart(companyId: number, exit?: { x: number; z: number }): boolean;
   convoyOf(companyId: number): { stage: string } | null;
   stateOf(companyId: number): { phase: string; missionEnded: boolean } | null;
+  special?(squadId: number): { kind: string } | null;
 }
 interface VehiclesExt {
   setSiren?(v: Vehicle, mode: 0 | 1 | 2): void;
@@ -77,6 +78,8 @@ const BASE_RADIUS = 160;
 const RETURN_MAX = 900;
 /** Durée maximale de la seconde intervention avant de lever le périmètre (s). */
 const INTERVENTION_MAX = 420;
+/** Arrivée sans colonne : distance du joueur (ou du chef de son unité) à la zone de stationnement (m). */
+const SOLO_ARRIVE = 70;
 
 const CONVOY_KINDS: ReadonlySet<string> = new Set(['fourgon_crs', 'car_crs', 'vl_commandement', 'fourgon_cellulaire', 'canon_eau', 'centaure']);
 
@@ -89,6 +92,8 @@ export class JourneeSystem implements GameSystem {
   private base: ServiceBase = SERVICE_BASE;
   /** Session de mission : la mission a son propre déroulé (pas de feux en ville ni de seconde intervention). */
   private mission = false;
+  /** Le joueur ne voyage pas dans une colonne de la compagnie (BRAV-M, unité sans véhicules) : arrivée à la distance. */
+  private solo = false;
   private stage_: JourneeStage = 'inactif';
   private companyId = 0;
   private startAt = 0;
@@ -132,6 +137,7 @@ export class JourneeSystem implements GameSystem {
     this.endAt = 0;
     this.returnAt = 0;
     this.secondDone = false;
+    this.solo = false;
     this.interventionAt = 0;
     this.site = null;
     this.fires.length = 0;
@@ -173,11 +179,12 @@ export class JourneeSystem implements GameSystem {
     this.nextThink = now + 0.5;
     const t = now - this.startAt;
     if (!this.mission) this.cityLife(now);
+    // briefing et ordre de mouvement : aussi quand le joueur part sans colonne (BRAV-M en tête de ses motards)
+    if (!this.briefed && t >= BRIEF_AT) this.brief();
+    if (t >= DISPATCH_AT && !this.moveSaid && this.dest) this.sayMove();
     switch (this.stage_) {
       case 'prise_de_service':
       case 'embarquement':
-        if (!this.briefed && t >= BRIEF_AT) this.brief();
-        if (t >= DISPATCH_AT && !this.moveSaid) this.sayMove();
         if (this.stage_ === 'embarquement') this.thinkEmbark();
         break;
       case 'route':
@@ -208,6 +215,42 @@ export class JourneeSystem implements GameSystem {
   }
 
   // ───────────────────────────── étapes ─────────────────────────────
+
+  /** Unité spéciale BRAV-M ? */
+  private isBravm(squadId: number): boolean {
+    const ctx = this.ctx!;
+    // à la mise en place, le registre des unités spéciales n'est pas encore à jour : on regarde aussi les machines
+    const s = ctx.squads.get(squadId);
+    if (s && s.vehicleId !== 0 && ctx.vehicles.get(s.vehicleId)?.kind === 'moto_bravm') return true;
+    const command = ctx.service<CommandLike>('police.command');
+    const sp = command && command.special ? command.special(squadId) : null;
+    return !!sp && sp.kind === 'bravm';
+  }
+
+  /**
+   * Les autres unités de la session (compagnies, BRAV-M) font mouvement vers (x, z) — à l'aller vers la zone de
+   * stationnement, au retour vers la base : colonne motorisée du commandement pour une compagnie, colonne de motos
+   * pour une BRAV-M. Chacune roule de son côté ; tout le monde se retrouve au même endroit.
+   */
+  private engageOthers(x: number, z: number, heading: number, back: boolean): void {
+    const ctx = this.ctx!;
+    const command = ctx.service<CommandLike>('police.command');
+    for (const s of ctx.squads.list) {
+      if (s.faction !== 'police' || s.parentId !== 0 || s.id === this.companyId) continue;
+      // (une BRAV-M n'a pas de membres propres : ses binômes sont des sous-unités)
+      if (this.isBravm(s.id)) {
+        ctx.squads.issue(s.id, { type: 'colonne', x, z, heading, width: 0, issuedBy: s.leaderId });
+        continue;
+      }
+      if (s.kind !== 'compagnie' || !command) continue;
+      if (back) command.depart(s.id, { x, z });
+      else {
+        // véhicules mis en file, nez vers la sortie : garés en bloc, la tête manœuvrait sans fin pour sortir
+        this.lineUp(x, z, s.id);
+        command.arrive(s.id, { x, z, heading, layout: 'file', boardFirst: true });
+      }
+    }
+  }
 
   /** « à la caserne de la Cité », « au commissariat du 9e arrondissement… ». */
   private atBase(): string {
@@ -252,10 +295,22 @@ export class JourneeSystem implements GameSystem {
     this.dest = { x: at.x, z: at.z, heading: at.heading, name };
     this.lineUp(at.x, at.z);
     const command = ctx.service<CommandLike>('police.command');
+    const me = ctx.player.person();
+    const own = ctx.squads.get(this.companyId);
+    if (own && this.isBravm(own.id)) {
+      // BRAV-M : le joueur chef de bord prend la tête (ses motards le suivent) ; équipier, l'unité part sans lui attendre
+      if (!me || own.leaderId !== me.id) ctx.squads.issue(own.id, { type: 'colonne', x: at.x, z: at.z, heading: at.heading, width: 0, issuedBy: own.leaderId });
+      this.solo = true;
+      this.objective(me && own.leaderId === me.id ? `En selle, en tête de la BRAV-M : ${name}` : `En selle avec la BRAV-M : ${name}`, at.x, at.z, true);
+      this.stage_ = 'route';
+      this.setSirens(true);
+      return;
+    }
     const ok = !!command && command.arrive(this.companyId, { x: at.x, z: at.z, heading: at.heading, layout: 'file', boardFirst: true });
     this.stage_ = 'embarquement';
     if (!ok) {
-      // pas de commandement (module absent) : le joueur s'y rend lui-même
+      // pas de colonne (module absent, unité sans véhicules) : le joueur s'y rend lui-même
+      this.solo = true;
       this.objective(`Rejoindre ${name}`, at.x, at.z, true);
       this.stage_ = 'route';
       return;
@@ -269,6 +324,9 @@ export class JourneeSystem implements GameSystem {
     this.moveSaid = true;
     const cfg = ctx.session.config!;
     const name = this.dest ? this.dest.name : 'la zone indiquée';
+    // toutes les unités de la session font mouvement vers le même point, chacune avec ses véhicules (à l'annonce :
+    // à la mise en place, les unités spéciales ne sont pas encore toutes constituées)
+    if (this.dest) this.engageOthers(this.dest.x, this.dest.z, this.dest.heading, false);
     ctx.radio.say({ channel: 'commandement', from: 'CENTRAL', priority: 2,
       text: `${this.companyName()}, faites mouvement sur ${cfg.place || name}. Zone de stationnement : ${name}. Départ en colonne, deux tons.` });
   }
@@ -311,6 +369,16 @@ export class JourneeSystem implements GameSystem {
 
   private thinkRoute(): void {
     const ctx = this.ctx!;
+    if (this.solo) {
+      // sans colonne de la compagnie : arrivé quand le joueur (ou le chef de son unité) est sur le point
+      const d = this.dest;
+      const me = ctx.player.person();
+      const own = ctx.squads.get(this.companyId);
+      const lead = own ? ctx.people.get(own.leaderId) : undefined;
+      const near = (p: { x: number; z: number } | undefined | null): boolean => !!p && !!d && Math.hypot(p.x - d.x, p.z - d.z) < SOLO_ARRIVE;
+      if (near(me) || near(lead)) this.arrived();
+      return;
+    }
     const command = ctx.service<CommandLike>('police.command');
     const st = command ? command.convoyOf(this.companyId) : null;
     if (!st || st.stage === 'debarquement' || st.stage === 'en_place' || st.stage === 'stationnement') {
@@ -340,6 +408,7 @@ export class JourneeSystem implements GameSystem {
     const command = ctx.service<CommandLike>('police.command');
     const st = command ? command.convoyOf(this.companyId) : null;
     if (st && (st.stage === 'rembarquement' || st.stage === 'depart')) {
+      this.engageOthers(this.base.x, this.base.z, 0, true);
       this.stage_ = 'rembarquement';
       ctx.radio.say({ channel: 'commandement', from: 'CENTRAL', priority: 1, text: `${this.companyName()}, fin de mission reçue. Rembarquez, retour ${this.atBase()}.` });
     }
@@ -564,11 +633,11 @@ export class JourneeSystem implements GameSystem {
    * sortie, le véhicule de commandement en tête et le cellulaire en serre-file : la colonne part sans manœuvre.
    * (Garés en bloc sur le parvis, ils s'enfermaient les uns les autres.)
    */
-  private lineUp(tx: number, tz: number): void {
+  private lineUp(tx: number, tz: number, companyId = this.companyId): void {
     const ctx = this.ctx!;
     const list: Vehicle[] = [];
     for (const s of ctx.squads.list) {
-      if (s.vehicleId === 0 || this.companyOf(s.id) !== this.companyId) continue;
+      if (s.vehicleId === 0 || this.companyOf(s.id) !== companyId) continue;
       const v = ctx.vehicles.get(s.vehicleId);
       // (un véhicule sans conducteur — fourgon cellulaire sans équipage — ne part pas : le mettre en file sur
       // l'itinéraire bloquerait ceux qui le suivent)

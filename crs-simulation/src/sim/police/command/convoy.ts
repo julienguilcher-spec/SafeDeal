@@ -51,6 +51,12 @@ interface Convoy {
 }
 
 /** Attente maximale du joueur avant que la colonne parte sans lui (s), et intervalle des rappels radio. */
+/**
+ * Embarquement : attente de l'ordre « embarquer » (s), puis des retardataires (s) — au-delà, les retardataires sont
+ * installés d'office (un agent bloqué derrière une grille ne retient pas la colonne cinq minutes).
+ */
+const BOARD_MAX = 120;
+const STRAGGLERS_MAX = 45;
 const PLAYER_WAIT = 300;
 /** Un véhicule de la colonne bloqué plus longtemps que cela (s) la quitte et rejoint seul. */
 const STUCK_LEAVE = 25;
@@ -280,9 +286,9 @@ export class ConvoyControl {
     const core = this.core;
     // le joueur est attendu (rappels radio) pendant tout l'embarquement, pas seulement à la fin
     const waiting = this.awaitPlayer(c);
-    if (!c.orderDone && core.now - c.stageT < 200) return;
+    if (!c.orderDone && core.now - c.stageT < BOARD_MAX) return;
     if (c.stragglersAt === 0) c.stragglersAt = core.now;
-    if (this.boardStragglers(c) > 0 && core.now - c.stragglersAt < 90) return;
+    if (this.boardStragglers(c) > 0 && core.now - c.stragglersAt < STRAGGLERS_MAX) return;
     if (waiting) return;
     const ap = core.autopilot;
     this.seatStragglers(c);
@@ -691,10 +697,10 @@ export class ConvoyControl {
   private thinkEmbark(c: Convoy): void {
     const core = this.core;
     const waiting = this.awaitPlayer(c);
-    if (!c.orderDone && core.now - c.stageT < 200) return;
+    if (!c.orderDone && core.now - c.stageT < BOARD_MAX) return;
     // les retardataires montent où il reste de la place (une minute et demie au plus)
     if (c.stragglersAt === 0) c.stragglersAt = core.now;
-    if (this.boardStragglers(c) > 0 && core.now - c.stragglersAt < 90) return;
+    if (this.boardStragglers(c) > 0 && core.now - c.stragglersAt < STRAGGLERS_MAX) return;
     if (waiting) return;
     const ap = core.autopilot;
     if (c.hasExit && ap && c.vehicles.length > 0) {

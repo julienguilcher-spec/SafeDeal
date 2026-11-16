@@ -50,6 +50,8 @@ export function isBravmGroup(core: CommandCore, s: Squad): boolean {
 
 export class BravmUnit extends SpecialUnit {
   private readonly motos: Vehicle[] = [];
+  /** Durée maximale du trajet en cours avant de finir à pied (s). */
+  private rideMax = 240;
   private readonly people: Person[] = [];
   private tx = 0;
   private tz = 0;
@@ -276,6 +278,8 @@ export class BravmUnit extends SpecialUnit {
       this.dismount();
       return;
     }
+    // délai de route : quatre minutes, davantage pour traverser Paris (8 m/s de moyenne, marge comprise)
+    this.rideMax = Math.max(240, Math.hypot(sx - lead.x, sz - lead.z) * 1.6 / 8 + 60);
     this.setStage('route');
   }
 
@@ -338,7 +342,7 @@ export class BravmUnit extends SpecialUnit {
     const stopped = Math.abs(lead.speed) < 0.4;
     if ((st.state === 'arrive' || st.mode === 'idle' || d < 6) && stopped) {
       this.arrived();
-    } else if (st.state === 'echec' || (st.state === 'bloque' && st.blockedFor > 12) || (st.state === 'attente' && st.blockedFor > 40) || this.sinceStage() > 240) {
+    } else if (st.state === 'echec' || (st.state === 'bloque' && st.blockedFor > 12) || (st.state === 'attente' && st.blockedFor > 40) || this.sinceStage() > this.rideMax) {
       // route coupée ou foule en travers : on termine à pied, sans forcer le passage
       this.stopMotos();
       this.arrived();

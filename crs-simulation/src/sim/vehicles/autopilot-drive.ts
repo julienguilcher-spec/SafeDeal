@@ -584,6 +584,14 @@ export class ApDriver {
     const v = rt.v;
     const cmd = v.cmd;
     if ((err < 1 && err > -1) || ap.uturnMoves > 8) {
+      if (ap.uturnMoves > 8 && (err >= 1 || err <= -1) && Math.abs(v.speed) < 0.5) {
+        // huit reprises sans y parvenir (place trop étroite) : le conducteur finit par se dégager — le véhicule repart
+        // dans le sens de l'itinéraire plutôt que de recommencer la manœuvre sans fin (colonnes figées au départ)
+        v.heading = v.heading + err;
+        v.vx = 0;
+        v.vz = 0;
+        v.speed = 0;
+      }
       ap.uturn = 0;
       ap.obsDist = Infinity;
       return false;
