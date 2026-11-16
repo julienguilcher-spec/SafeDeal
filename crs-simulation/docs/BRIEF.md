@@ -93,8 +93,15 @@ meilleur que les jeux « CRS simulation » existants. En priorité : **les manif
     relève et évacue le blessé, pousse la barricade à la lame, arrose depuis la tourelle.
   - Le **pompier** est donc un rôle jouable à part entière (sapeur-pompier de Paris : fourgon, lance, extinction,
     secours à victime), dépendant de la protection des forces de l'ordre pour travailler.
-  - Réalisme des moyens : le canon à eau et les pompiers éteignent ; le Centaure dégage et pousse (lame) et lance des
-    grenades ; un extincteur suffit pour un petit feu, pas pour un véhicule embrasé.
+  - Réalisme des moyens (confirmé par le commanditaire) : c'est le **canon à eau** qui éteint, pas le Centaure ; les
+    pompiers éteignent aussi ; le Centaure dégage et pousse (lame) et lance des grenades ; un extincteur suffit pour un
+    petit feu, pas pour un véhicule embrasé.
+  - **Ordre « éteindre le feu »** : depuis la carte tactique, la roue d'ordres ou la radio, le joueur désigne un feu et
+    choisit le moyen selon la situation — un porte-extincteur proche, le canon à eau, ou **appeler les pompiers**.
+  - **Appeler les secours** : pompiers et SAMU ne sont pas sur place d'emblée ; on les demande par radio. Ils arrivent
+    par la rue après un délai réaliste, s'arrêtent à distance si la zone n'est pas sûre, et n'interviennent que si un
+    itinéraire dégagé et une protection leur sont fournis. Le bon choix **dépend** : feu important ou blessé grave →
+    secours ; petit feu, urgence ou zone trop hostile → moyens propres de l'unité.
 - **Tout le matériel** : bouclier, tonfa / bâton de défense, gazeuse, grenades lacrymogènes à main et au lanceur
   (Cougar), grenades de désencerclement, LBD 40, extincteur, menottes, radio, mégaphone, arme de service
   (légitime défense uniquement). **Véhicules conduisibles** : fourgon CRS, car de transport, véhicule de commandement,

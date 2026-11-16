@@ -75,8 +75,39 @@ export function shapeStick(x: number, y: number, t: StickTuning, out: StickOut):
   out.n = n;
 }
 
+/**
+ * Variante de shapeStick qui lit les deux axes dans un tableau (Gamepad.axes) : aucun nombre
+ * flottant n'est passé en argument, donc rien n'est alloué par le moteur JavaScript.
+ */
+export function shapeStickAt(axes: ArrayLike<number>, ix: number, iy: number, t: StickTuning, out: StickOut): void {
+  let x = ix < axes.length ? axes[ix]! : 0;
+  let y = iy < axes.length ? axes[iy]! : 0;
+  if (!(x === x && x !== Infinity && x !== -Infinity)) x = 0;
+  if (!(y === y && y !== Infinity && y !== -Infinity)) y = 0;
+  const m = Math.sqrt(x * x + y * y);
+  if (m <= t.inner || m === 0) {
+    out.x = 0;
+    out.y = 0;
+    out.n = 0;
+    return;
+  }
+  let n = (m - t.inner) / (t.outer - t.inner);
+  if (n > 1) n = 1;
+  if (t.gamma !== 1) n = Math.pow(n, t.gamma);
+  const k = n / m;
+  out.x = x * k;
+  out.y = y * k;
+  out.n = n;
+}
+
+/** Gâchettes : zone morte basse, saturation avant la butée, seuils du bouton associé (hystérésis). */
+export const TRIGGER_INNER = 0.06;
+export const TRIGGER_OUTER = 0.94;
+export const TRIGGER_ON = 0.4;
+export const TRIGGER_OFF = 0.25;
+
 /** Gâchette analogique 0..1 : petite zone morte en bas, saturation avant la butée. */
-export function shapeTrigger(v: number, inner = 0.06, outer = 0.94): number {
+export function shapeTrigger(v: number, inner = TRIGGER_INNER, outer = TRIGGER_OUTER): number {
   v = finite(v);
   if (v <= inner) return 0;
   if (v >= outer) return 1;
@@ -87,7 +118,7 @@ export function shapeTrigger(v: number, inner = 0.06, outer = 0.94): number {
  * Bouton tiré d'une valeur analogique avec hystérésis : s'enfonce au-dessus de `on`, ne se
  * relâche qu'en dessous de `off` (évite le bégaiement autour du seuil).
  */
-export function analogButton(value: number, wasDown: boolean, on = 0.4, off = 0.25): boolean {
+export function analogButton(value: number, wasDown: boolean, on = TRIGGER_ON, off = TRIGGER_OFF): boolean {
   return wasDown ? value > off : value >= on;
 }
 

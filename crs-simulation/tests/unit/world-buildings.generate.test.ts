@@ -6,6 +6,7 @@ import type { Building, BuildingKind, BuildingStyle, RoofShape, Tile } from '../
 import { generateTestDistrict, TEST_DISTRICT } from '../../src/world/testDistrict';
 import { DETAIL_TRIANGLE_BUDGET, FAR_TRIANGLE_BUDGET, generateTileFarMesh, generateTileMeshes } from '../../src/world/view/buildings/generate';
 import type { GenerateOptions } from '../../src/world/view/buildings/generate';
+import { buildingFacadeLayout } from '../../src/world/view/buildings/index';
 import { MeshData } from '../../src/world/view/buildings/meshdata';
 import { STYLE_PARAMS, layoutBays } from '../../src/world/view/buildings/layout';
 import { WALL_FREE, WALL_HIDDEN, WALL_PARTY, prepareTile } from '../../src/world/view/buildings/prepare';
@@ -387,6 +388,34 @@ describe('façades', () => {
     expect(rail.triangles).toBeGreaterThanOrEqual(2 * 4 * 2);           // deux balcons filants sur quatre façades
     generateTileMeshes(tileOf([f]), opts('haut'), main, rail);
     expect(rail.triangles).toBe(0);
+  });
+});
+
+describe('buildingFacadeLayout — trame exposée aux autres modules', () => {
+  it('donne exactement le pied et le haut du rez-de-chaussée des maillages', () => {
+    const slope = (x: number, z: number): number => 3 + x * 0.05 + z * 0.02;
+    const b = building(rect(100, 40, 130, 54), { height: 22, levels: 6, roof: 'mansard' });
+    const layout = buildingFacadeLayout(b, slope)!;
+    expect(layout.baseY).toBeCloseTo(slope(100, 40), 4);                 // coin le plus bas de l'emprise
+    expect(layout.upperFloors).toBe(5);
+    expect(layout.groundFloorHeight + layout.upperFloors * layout.floorHeight).toBeCloseTo(layout.wallHeight, 5);
+    expect(layout.wallHeight + layout.roofHeight).toBeCloseTo(22, 5);
+    // dans le maillage : le haut de la bande de rez-de-chaussée (v = 1) est à baseY + groundFloorHeight
+    const main = new MeshData(), rail = new MeshData();
+    generateTileMeshes(tileOf([b]), { ...opts('bas'), heightAt: slope }, main, rail);
+    let found = 0;
+    for (let i = 0; i < main.nv; i++) {
+      if (main.fac[4 * i + 1] === 255 || main.nor[3 * i + 1] !== 0 || Math.abs(main.uv[2 * i + 1] - 1) > 1e-6) continue;
+      expect(main.pos[3 * i + 1]).toBeCloseTo(layout.baseY + layout.groundFloorHeight, 3);
+      found++;
+    }
+    expect(found).toBeGreaterThanOrEqual(8);
+    expect(checkMesh(main).maxY).toBeCloseTo(layout.baseY + 22, 3);
+  });
+
+  it('emprise dégénérée : null', () => {
+    expect(buildingFacadeLayout(building([0, 0, 1, 1], { height: 10 }), flat)).toBeNull();
+    expect(buildingFacadeLayout(building([0, 0, 5, 0, 10, 0], { height: 10 }), flat)).toBeNull();
   });
 });
 

@@ -38,6 +38,8 @@ it('bissection des allocations', () => {
   slope('core.beginFrame', () => { sys.core.beginFrame(true); });
   slope('pad.sample au repos', () => { axes[0] = 0; axes[1] = 0; axes[2] = 0; axes[3] = 0; sys.pad!.sample(0.016); });
   slope('pad.sample sticks actifs', () => { axes[0] = 0.7; axes[2] = 0.7; sys.pad!.sample(0.016); });
+  slope('pad.sample sticks + gâchette', (f) => { axes[0] = ((f % 200) - 100) / 100; axes[1] = 0.3; axes[2] = 0.7; axes[3] = -0.4; buttons[7]!.value = (f % 50) / 50; sys.pad!.sample(0.016); });
+  slope('update + frame, tout actif', (f) => { clock[0] += 16.6; axes[0] = ((f % 200) - 100) / 100; buttons[7]!.value = (f % 50) / 50; if (f % 13 === 0) script.tap('interact'); if (f % 5 === 0) script.look(0.01, -0.005); sys.update(1 / 60); hits += input.lookX !== 0 ? 1 : 0; sys.frame(1 / 60); });
   slope('touch.sample', () => { sys.touch.sample(); });
   slope('touch.update', () => { sys.touch.update(0.016, 'kbm'); });
   slope('player.vehicle()', () => { if (fake.ctx.player.vehicle() !== null) hits++; });

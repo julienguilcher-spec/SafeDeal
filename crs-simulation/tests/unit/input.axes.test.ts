@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   LOOK_STICK, MOVE_STICK, TOUCH_STICK, analogButton, clampUnit, curve, deadzone1, digitalMove, resetVirtualStick,
-  shapePedal, shapeStick, shapeTrigger, shapeVirtualStick,
+  shapePedal, shapeStick, shapeStickAt, shapeTrigger, shapeVirtualStick,
 } from '@/input/axes';
 import type { VirtualStick } from '@/input/axes';
 
@@ -58,6 +58,17 @@ describe('entrées — zones mortes et courbes', () => {
   it('stick : valeurs non finies ignorées', () => {
     shapeStick(NaN, Infinity, MOVE_STICK, stick);
     expect(stick).toEqual({ x: 0, y: 0, n: 0 });
+  });
+
+  it('stick lu dans un tableau d\'axes : même résultat, axes absents tolérés', () => {
+    const other = { x: 0, y: 0, n: 0 };
+    for (const [x, y] of [[0.3, -0.8], [0.05, 0.02], [-1, 1], [0.5, 0], [NaN, 0.7]] as [number, number][]) {
+      shapeStick(x, y, LOOK_STICK, stick);
+      shapeStickAt([9, x, y], 1, 2, LOOK_STICK, other);
+      expect(other).toEqual(stick);
+    }
+    shapeStickAt([0.9, 0.9], 2, 3, LOOK_STICK, other);      // manette à un seul stick
+    expect(other).toEqual({ x: 0, y: 0, n: 0 });
   });
 
   it('gâchette : zone morte basse, saturation avant la butée, monotone', () => {

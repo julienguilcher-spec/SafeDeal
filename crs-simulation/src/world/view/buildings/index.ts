@@ -20,13 +20,13 @@
 import * as THREE from 'three';
 import type { EnvState, QualityLevel } from '../../../core/contracts';
 import { TILE_SIZE } from '../../mapdata';
-import type { Tile } from '../../mapdata';
+import type { Building, Tile } from '../../mapdata';
 import { createFacadeAtlas, createRailTexture } from './atlas';
 import type { FacadeAtlas } from './atlas';
 import { generateTileFarMesh, generateTileMeshes } from './generate';
 import { buildingUniforms, createFacadeMaterial, createFarMaterial, createRailMaterial, updateBuildingUniforms } from './materials';
 import { MeshData } from './meshdata';
-import { releasePrepareScratch } from './prepare';
+import { prepareTile, releasePrepareScratch } from './prepare';
 import { releaseRoofScratch } from './roofs';
 
 export interface BuildingViewOptions {
@@ -279,6 +279,42 @@ export function disposeSharedBuildingResources(): void {
   scratchRail = null;
   releasePrepareScratch();
   releaseRoofScratch();
+}
+
+/** Trame verticale d'un immeuble, telle que la dessine la version détaillée. */
+export interface BuildingFacadeLayout {
+  /** Altitude du pied des murs (m) : point le plus bas de l'emprise. */
+  baseY: number;
+  /** Hauteur du rez-de-chaussée (m) : la bande de façade laissée sobre, où poser les vitrines. */
+  groundFloorHeight: number;
+  /** Nombre d'étages au-dessus du rez-de-chaussée et hauteur de chacun (m). */
+  upperFloors: number;
+  floorHeight: number;
+  /** Hauteur du mur jusqu'à l'égout du toit, puis hauteur du toit (m). */
+  wallHeight: number;
+  roofHeight: number;
+}
+
+const layoutTile: Tile = { version: 1, tx: 0, tz: 0, buildings: [], roadEdges: [], surfaces: [], barriers: [], trees: { count: 0, x: new Float32Array(0), z: new Float32Array(0), height: new Float32Array(0), crownRadius: new Float32Array(0) }, furniture: [], signals: [], metroEntrances: [], shops: [] };
+const keepAll = (): boolean => false;
+
+/**
+ * Trame verticale d'un bâtiment (pied, rez-de-chaussée, étages, toit), exactement celle des
+ * maillages : sert aux modules qui posent des éléments sur les façades (vitrines, enseignes).
+ * Retourne null si l'emprise est dégénérée (le bâtiment n'est pas dessiné).
+ */
+export function buildingFacadeLayout(building: Building, heightAt: (x: number, z: number) => number): BuildingFacadeLayout | null {
+  if (building.outer.length < 6) return null;
+  layoutTile.tx = Math.floor(building.outer[0] / TILE_SIZE);
+  layoutTile.tz = Math.floor(building.outer[1] / TILE_SIZE);
+  layoutTile.buildings.length = 0;
+  layoutTile.buildings.push(building);
+  const p = prepareTile(layoutTile, heightAt, keepAll, 0, false);
+  layoutTile.buildings.length = 0;
+  if (p.count !== 1) return null;
+  return {
+    baseY: p.baseY[0], groundFloorHeight: p.rdcH[0], upperFloors: p.nUpper[0], floorHeight: p.floorH[0], wallHeight: p.wallH[0], roofHeight: p.roofH[0],
+  };
 }
 
 /** Uniformes partagés (lecture seule) : proportion de fenêtres allumées, reflet du ciel — utile au débogage. */

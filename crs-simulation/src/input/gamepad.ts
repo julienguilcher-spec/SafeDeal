@@ -12,14 +12,14 @@
 
 import type { Settings } from '@/core/contracts';
 import type { PadStyle } from './api';
-import { LOOK_STICK, MOVE_STICK, shapeStick } from './axes';
+import { LOOK_STICK, MOVE_STICK, TRIGGER_INNER, TRIGGER_OFF, TRIGGER_ON, TRIGGER_OUTER, shapeStickAt } from './axes';
 import type { StickOut } from './axes';
 import type { BindingStore } from './bindings';
 import { BUTTON_COUNT, BUTTON_INDEX } from './buttons';
 import { CH_LOOK_X, CH_LOOK_Y } from './core';
 import type { InputCore } from './core';
 import { detectPadStyle, padDisplayName } from './labels';
-import { SRC_PAD, clearSourceAxes, createSourceAxes, padIsActive } from './merge';
+import { PAD_STICK_ACTIVITY, PAD_TRIGGER_ACTIVITY, SRC_PAD, clearSourceAxes, createSourceAxes } from './merge';
 import type { SourceAxes } from './merge';
 
 /** Vitesse de rotation à fond de stick, sensibilité 1 (rad/s). */
@@ -31,11 +31,6 @@ const CODES: readonly string[] = Array.from({ length: PAD_BUTTONS }, (_, i) => '
 /** Seuils du stick gauche employé comme croix dans les menus. */
 const UI_ON = 0.6;
 const UI_OFF = 0.4;
-/** Gâchettes : zone morte basse, saturation avant la butée, seuils du bouton avec hystérésis (cf. axes.ts). */
-const TRIG_INNER = 0.06;
-const TRIG_OUTER = 0.94;
-const TRIG_ON = 0.4;
-const TRIG_OFF = 0.25;
 /** Intervalle de recherche d'une manette tant qu'aucune n'est connue (s). */
 const SCAN_INTERVAL = 1;
 
@@ -224,10 +219,10 @@ export class GamepadSource {
         // Gâchettes : bouton tiré de la valeur analogique mise en forme, avec hystérésis.
         // (Calcul sur place : dans cette boucle, aucun nombre flottant ne traverse un appel de fonction.)
         let v = btn.value > 0 ? btn.value : btn.pressed ? 1 : 0;
-        v = v <= TRIG_INNER ? 0 : v >= TRIG_OUTER ? 1 : (v - TRIG_INNER) / (TRIG_OUTER - TRIG_INNER);
+        v = v <= TRIGGER_INNER ? 0 : v >= TRIGGER_OUTER ? 1 : (v - TRIGGER_INNER) / (TRIGGER_OUTER - TRIGGER_INNER);
         if (i === 6) a.brake = v;
         else a.throttle = v;
-        down = this.prev[i] === 1 ? v > TRIG_OFF : v >= TRIG_ON;
+        down = this.prev[i] === 1 ? v > TRIGGER_OFF : v >= TRIGGER_ON;
       } else {
         down = btn.pressed || btn.value > 0.5;
       }
@@ -247,13 +242,13 @@ export class GamepadSource {
       anyDown = true;
       const acts = bindings.actionsFor('gamepad', CODES[i]!);
       for (let k = 0; k < acts.length; k++) {
-        const a = acts[k]!;
-        if (a < BUTTON_COUNT) want[a] = 1;
+        const act = acts[k]!;
+        if (act < BUTTON_COUNT) want[act] = 1;
       }
     }
 
     // Stick gauche : déplacement (y de la manette vers le bas → « avant » positif).
-    shapeStick(ax[0] ?? 0, ax[1] ?? 0, MOVE_STICK, tmp);
+    shapeStickAt(ax, 0, 1, MOVE_STICK, tmp);
     const moveNorm = tmp.n;
     const mx = tmp.x;
     const my = -tmp.y;
@@ -271,11 +266,8 @@ export class GamepadSource {
     if (ui[3] === 1) want[this.uiRight] = 1;
 
     // Stick droit : vitesse de rotation × temps réel écoulé.
-    let lookNorm = 0;
-    if (ax.length >= 4) {
-      shapeStick(ax[2] ?? 0, ax[3] ?? 0, LOOK_STICK, tmp);
-      lookNorm = tmp.n;
-    }
+    shapeStickAt(ax, 2, 3, LOOK_STICK, tmp);
+    const lookNorm = tmp.n;
     if (lookNorm > 0) {
       const s = this.env.settings();
       const sens = s.gamepadSensitivity > 0 ? s.gamepadSensitivity : 1;
@@ -288,7 +280,9 @@ export class GamepadSource {
     const latch = this.env.core.latch;
     for (let i = 0; i < BUTTON_COUNT; i++) latch.set(SRC_PAD, i, want[i] === 1);
 
-    if (padIsActive(moveNorm, lookNorm, a.throttle, a.brake, anyDown)) this.env.activity();
+    // Usage intentionnel (mêmes seuils que padIsActive, écrits sur place pour ne passer aucun flottant en argument).
+    if (anyDown || moveNorm >= PAD_STICK_ACTIVITY || lookNorm >= PAD_STICK_ACTIVITY
+      || a.throttle >= PAD_TRIGGER_ACTIVITY || a.brake >= PAD_TRIGGER_ACTIVITY) this.env.activity();
   }
 
   // ───────────────────────────── réaffectation ─────────────────────────────

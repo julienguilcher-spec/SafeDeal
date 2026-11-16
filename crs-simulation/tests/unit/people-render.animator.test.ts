@@ -161,6 +161,36 @@ describe('rendu des personnages — animateur', () => {
     expect(anim.speedOf(1)).toBeLessThan(0.1);
   });
 
+  it('pivoter sur place fait piétiner (les pieds se soulèvent au lieu de glisser)', () => {
+    const anim = new PeopleAnimator(2);
+    anim.assign(1, 21);
+    const p = person(21);
+    const sm = createAnimSample();
+    const out = new Float32Array(BONE_COUNT * BONE_STRIDE);
+    let t = 0;
+    let maxLift = 0;
+    for (let f = 0; f < 120; f++) {
+      t += DT;
+      p.heading += 2.6 * DT;
+      p.aimYaw = p.heading;
+      sampleFromPerson(p, HOLD_NONE, sm);
+      anim.update(1, sm, t, out, 0);
+      maxLift = Math.max(maxLift, out[BONE_FOOT_L * BONE_STRIDE + 5]);
+    }
+    expect(maxLift).toBeGreaterThan(0.10);
+    // immobile et sans rotation : les deux pieds restent au sol
+    const still = new PeopleAnimator(2);
+    still.assign(1, 22);
+    const q = person(22);
+    let top = 0;
+    for (let f = 0; f < 60; f++) {
+      sampleFromPerson(q, HOLD_NONE, sm);
+      still.update(1, sm, f * DT, out, 0);
+      top = Math.max(top, out[BONE_FOOT_L * BONE_STRIDE + 5]);
+    }
+    expect(top).toBeLessThan(0.09);
+  });
+
   it('les états priment sur l’animation demandée', () => {
     const p = person(3);
     const sm = createAnimSample();
