@@ -9,6 +9,7 @@
  * L'anti-répétition de la file et le tirage « jamais deux fois la même variante de suite » font le reste.
  * ===================================================================================== */
 
+import { pointOnPolyline } from '@/core/math';
 import type { CrowdPhase, GameContext, RadioChannel, Rng, Squad, WeatherKind } from '@/core/contracts';
 import type { TrafficControlApi } from '@/core/extensions';
 import { EXT } from '@/core/extensions';
@@ -343,6 +344,25 @@ export class RadioAmbient {
     return n;
   }
 
+  /** Point de la foule : tête du cortège sur son parcours, à défaut le barycentre des manifestants. */
+  private crowdPoint(): { x: number; z: number } | null {
+    const ctx = this.ctx;
+    const route = ctx.director.route;
+    if (route.length >= 4) {
+      const out = { x: 0, z: 0 };
+      pointOnPolyline(route, Math.max(0, ctx.director.headProgress), out);
+      return out;
+    }
+    let sx = 0, sz = 0, n = 0;
+    const list = ctx.people.list;
+    for (let i = 0; i < list.length; i += 4) {
+      const p = list[i]!;
+      if (p.faction !== 'protest') continue;
+      sx += p.x; sz += p.z; n++;
+    }
+    return n > 0 ? { x: sx / n, z: sz / n } : null;
+  }
+
   private emit(key: string, facts: WorldFacts): void {
     const ctx = this.ctx;
     const squad = this.pickSquad(key);
@@ -379,6 +399,12 @@ export class RadioAmbient {
         break;
       default:
         break;
+    }
+    // ce qui concerne la foule se situe là où est la foule (tête du cortège), pas là où se tient l'unité qui parle
+    // (journée de service : la compagnie peut être encore à la caserne quand le cortège se forme)
+    if (NEEDS_CROWD.has(key) || key === 'ambiance_presse') {
+      const at = this.crowdPoint();
+      if (at) options.at = at;
     }
     this.phrases.say(key, params as PhraseParams, options);
   }
