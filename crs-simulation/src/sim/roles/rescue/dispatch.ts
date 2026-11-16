@@ -515,8 +515,9 @@ export class Dispatcher {
     const dScene = Math.hypot(v.x - call.x, v.z - call.z);
     call.eta = (st.remaining > 1 && !crew.via ? st.remaining : dScene * 1.3) / ETA_SPEED_VEHICLE;
     // détour par un point de passage, ou dégagement d'un engin coincé : rien d'autre à décider pendant ce temps
+    const detour = crew.via;
     if (this.unstick(crew, st.state === 'bloque' && st.reason === 'mur' && st.blockedFor > 6)) return;
-    if (this.viaStep(crew)) return;
+    if (this.viaStep(crew) || detour) return; // (l'état lu plus haut est celui du détour : on décidera au prochain passage)
 
     let reason = '';
     if (now < crew.retreatUntil) {
@@ -906,7 +907,8 @@ export class Dispatcher {
     if (v && ap && !crew.onFoot) {
       const st = ap.status(v);
       const d = Math.hypot(v.x - tx, v.z - tz);
-      const busy = this.unstick(crew, st.state === 'bloque' && st.reason === 'mur' && st.blockedFor > 6) || this.viaStep(crew);
+      const detour = crew.via;
+      const busy = this.unstick(crew, st.state === 'bloque' && st.reason === 'mur' && st.blockedFor > 6) || this.viaStep(crew) || detour;
       arrived = !busy && (st.state === 'arrive' || d < 14 || st.state === 'echec');
       // retardataires : l'engin les attend un instant avant de partir
       if (!busy && !arrived && !ap.isActive(v) && now - crew.phaseAt > 3) this.driveOut(crew);

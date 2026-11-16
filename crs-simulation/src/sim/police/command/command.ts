@@ -28,7 +28,9 @@ import type { Adjoint } from './adjoint';
 import type { ConvoyControl } from './convoy';
 import type { CommandCore } from './core';
 import type { Picture } from './picture';
+import { closures, deployAll, isActive, plan, slide } from './dispositif';
 import { planPosts } from './plan';
+import { checkEnd, dispersion, logistics, metro, thinkEnd } from './sustain';
 import type { SpecialRegistry } from './special';
 import * as TX from './texts';
 
@@ -75,7 +77,7 @@ export class Command {
   readonly state: CommandState;
   readonly posts: Post[] = [];
   readonly elements: Element[] = [];
-  private readonly supports: Support[] = [];
+  readonly supports: Support[] = [];
   /** Moyens rattachés (unités spéciales, pelotons) : numéros d'unité. */
   readonly attached: number[] = [];
   thinkAt = 0;
@@ -86,20 +88,20 @@ export class Command {
   pcX = 0;
   pcZ = 0;
   pcH = 0;
-  private planned = false;
-  private routeN = -1;
-  private ordered = 0;
-  private readonly cooldowns = new Map<string, number>();
+  planned = false;
+  routeN = -1;
+  ordered = 0;
+  readonly cooldowns = new Map<string, number>();
   endRequested = false;
-  private endStep = 0;
-  private endT = 0;
-  private embarkTries = 0;
-  private embarkDone = false;
-  private readonly rallied: number[] = [];
-  private phaseSeen = '';
-  private phaseSince = 0;
-  private readonly inflow = new Map<number, number>();
-  private readonly closedStations: number[] = [];
+  endStep = 0;
+  endT = 0;
+  embarkTries = 0;
+  embarkDone = false;
+  readonly rallied: number[] = [];
+  phaseSeen = '';
+  phaseSince = 0;
+  readonly inflow = new Map<number, number>();
+  readonly closedStations: number[] = [];
   base: { x: number; z: number } | null = null;
   /** Délai de décision du commandant (s) : plus court quand il est bon. */
   latency = 3;
@@ -268,7 +270,7 @@ export class Command {
   // ───────────────────────────── articulation ─────────────────────────────
 
   /** Sections de manœuvre de la compagnie (et pelotons rattachés), hors unités spéciales. */
-  private sections(out: Squad[]): void {
+  sections(out: Squad[]): void {
     out.length = 0;
     const core = this.core;
     const ctx = core.ctx;
@@ -305,7 +307,7 @@ export class Command {
   }
 
   /** Constitue les éléments de manœuvre : `split` fractionne les sections en groupes (sauf la réserve). */
-  private buildElements(split: boolean): void {
+  buildElements(split: boolean): void {
     const core = this.core;
     const ctx = core.ctx;
     this.elements.length = 0;
@@ -423,7 +425,7 @@ export class Command {
     let wanted = 0;
     for (let i = 0; i < this.posts.length; i++) {
       const p = this.posts[i];
-      if (!this.isActive(p) && p.state === 'prevu') continue;
+      if (!isActive(this, p) && p.state === 'prevu') continue;
       wanted++;
       if (p.state === 'tenu' || p.state === 'ordonne') held++;
       else if (p.state === 'barrieres') barriers++;
@@ -447,11 +449,11 @@ export class Command {
     }
     if (this.state.phase === 'arrivee') this.setPhase('mise_en_place');
     if (!this.planned || pic.route.length !== this.routeN) {
-      this.plan();
+      plan(this);
       if (this.elements.length === 0) return false;
       if (this.ready('dispositif', 100000)) {
         const n = this.posts.length;
-        this.act('dispositif', 2, this.gx, this.gz, TX.propose(TX.spell(n) + ' débouchés à tenir autour du parcours', 'la mise en place du dispositif'), () => this.deployAll());
+        this.act('dispositif', 2, this.gx, this.gz, TX.propose(TX.spell(n) + ' débouchés à tenir autour du parcours', 'la mise en place du dispositif'), () => deployAll(this));
       }
       return false;
     }
@@ -493,16 +495,16 @@ export class Command {
         kept[i].post = null;
       }
     }
-    this.slide();
-    this.closures();
-    this.logistics();
-    this.metro();
-    if (pic.basePhase === 'dispersion' || pic.basePhase === 'apres_manif') this.dispersion();
-    this.checkEnd();
+    slide(this);
+    closures(this);
+    logistics(this);
+    metro(this);
+    if (pic.basePhase === 'dispersion' || pic.basePhase === 'apres_manif') dispersion(this);
+    checkEnd(this);
   }
 
   thinkFinish(): void {
-    this.thinkEnd();
+    thinkEnd(this);
   }
 
   /** Cap cardinal d'un emplacement, pour les messages. */

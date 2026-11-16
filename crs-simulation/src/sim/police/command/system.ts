@@ -30,6 +30,7 @@ import { DroneUnit, isDroneTeam } from './drone';
 import { Picture } from './picture';
 import { Reaction } from './react';
 import { SpecialRegistry } from './special';
+import { onMetroWave } from './sustain';
 
 const HOSTILE_PROJECTILES: Readonly<Record<string, number>> = { pave: 0.25, bouteille: 0.25, molotov: 0.7, mortier: 0.5, oeuf_peinture: 0.1, debris: 0.15 };
 
@@ -224,7 +225,7 @@ export class CommandSystem implements GameSystem {
     ev.onAny('crowd:metro', (payload) => {
       const e = payload as { type: string; stationId: number; count: number };
       if (!e || e.type !== 'vague') return;
-      for (let i = 0; i < this.commands.length; i++) this.commands[i].onMetroWave(e.stationId, e.count);
+      for (let i = 0; i < this.commands.length; i++) onMetroWave(this.commands[i], e.stationId, e.count);
     });
     ev.onAny('vehicles:cleared', (payload) => {
       const e = payload as { vehicleId: number; propId: number };

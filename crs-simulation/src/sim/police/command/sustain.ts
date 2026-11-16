@@ -64,7 +64,7 @@ export function metro(cmd: Command): void {
   const metro = core.metro;
   if (!metro) return;
   const pic = cmd.pic;
-  const cmd = cmd.commander();
+  const chief = cmd.commander();
   const tense = pic.tension >= 0.45 || pic.phase === 'tension' || pic.phase === 'affrontement';
   if (pic.basePhase === 'dispersion' || pic.basePhase === 'apres_manif' || pic.basePhase === 'terminee') {
     // la foule doit pouvoir partir : un bon chef fait rouvrir les stations qu'il a fermées
@@ -74,7 +74,7 @@ export function metro(cmd: Command): void {
       cmd.act('metro:rouvre', 1, st ? st.x : 0, st ? st.z : 0, TX.propose('la dispersion est annoncée, la station ' + (st ? st.name : '') + ' est fermée', 'de la rouvrir'), () => {
         cmd.closedStations.shift();
         if (!st) return;
-        metro.setOpen(id, true, cmd ? cmd.id : 0);
+        metro.setOpen(id, true, chief ? chief.id : 0);
         const text = TX.stationReopened(cmd.squad.name, st.name);
         cmd.say(text);
         core.decide(cmd.squad.id, 'metro', text, 0, '', st.x, st.z);
@@ -95,7 +95,7 @@ export function metro(cmd: Command): void {
     const key = 'metro:' + st.id;
     if (!cmd.ready(key, 120)) continue;
     cmd.act(key, 2, st.x, st.z, TX.propose('des renforts hostiles arrivent par la station ' + st.name, 'de demander sa fermeture'), () => {
-      metro.setOpen(st.id, false, cmd ? cmd.id : 0);
+      metro.setOpen(st.id, false, chief ? chief.id : 0);
       cmd.closedStations.push(st.id);
       cmd.inflow.set(st.id, 0);
       cmd.state.stationsClosed++;
@@ -140,9 +140,9 @@ export function checkEnd(cmd: Command): void {
 export function startEnd(cmd: Command): void {
   const core = cmd.core;
   const ctx = core.ctx;
-  const cmd = cmd.commander();
+  const chief = cmd.commander();
   cmd.setPhase('fin');
-  ctx.law.authorize(1, cmd ? cmd.id : 0);
+  ctx.law.authorize(1, chief ? chief.id : 0);
   cmd.state.authorized = 1;
   for (let i = 0; i < cmd.posts.length; i++) {
     const p = cmd.posts[i];
@@ -151,7 +151,7 @@ export function startEnd(cmd: Command): void {
     if (p.state !== 'leve') p.state = 'leve';
     p.squadId = 0;
   }
-  if (core.metro) for (let i = 0; i < cmd.closedStations.length; i++) core.metro.setOpen(cmd.closedStations[i], true, cmd ? cmd.id : 0);
+  if (core.metro) for (let i = 0; i < cmd.closedStations.length; i++) core.metro.setOpen(cmd.closedStations[i], true, chief ? chief.id : 0);
   cmd.closedStations.length = 0;
   const text = TX.regroup(cmd.squad.name, core.sector(cmd.pcX, cmd.pcZ));
   cmd.say(text);

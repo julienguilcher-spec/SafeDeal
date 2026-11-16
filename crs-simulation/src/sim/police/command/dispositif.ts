@@ -32,13 +32,13 @@ export function plan(cmd: Command): void {
   const pic = cmd.pic;
   const cfg = core.ctx.session.config;
   // poste de commandement : là où se trouve la compagnie à la prise de commandement
-  const cmd = cmd.commander();
+  const chief = cmd.commander();
   if (core.centerOf(cmd.squad.id)) {
     cmd.pcX = core.v2.x;
     cmd.pcZ = core.v2.z;
-  } else if (cmd) {
-    cmd.pcX = cmd.x;
-    cmd.pcZ = cmd.z;
+  } else if (chief) {
+    cmd.pcX = chief.x;
+    cmd.pcZ = chief.z;
   }
   if (pic.route.length >= 2) {
     cmd.gx = pic.route[0];
@@ -106,7 +106,7 @@ export function freeElements(cmd: Command, out: Element[]): void {
 /** Confie un emplacement à un élément. */
 export function assign(cmd: Command, el: Element, post: Post): void {
   const core = cmd.core;
-  const cmd = cmd.commander();
+  const chief = cmd.commander();
   el.role = 'poste';
   el.post = post;
   post.squadId = el.squadId;
@@ -118,7 +118,7 @@ export function assign(cmd: Command, el: Element, post: Post): void {
   }
   let cut = false;
   if (core.traffic && !post.pedestrian && post.closureId === 0) {
-    const c = core.traffic.closeRoad(post.x, post.z, cmd ? cmd.id : 0, el.squadId);
+    const c = core.traffic.closeRoad(post.x, post.z, chief ? chief.id : 0, el.squadId);
     if (c) {
       post.closureId = c.id;
       cmd.state.closuresAsked++;
@@ -200,7 +200,7 @@ export function closures(cmd: Command): void {
   const pic = cmd.pic;
   const traffic = core.traffic;
   if (!traffic) return;
-  const cmd = cmd.commander();
+  const chief = cmd.commander();
   const look = 60 + 240 * cmd.state.aptitude;
   for (let i = 0; i < cmd.posts.length; i++) {
     const p = cmd.posts[i];
@@ -210,7 +210,7 @@ export function closures(cmd: Command): void {
     if (!cmd.ready(key, 120)) continue;
     const ahead = pic.active && p.s > pic.headS;
     cmd.act(key, 1, p.x, p.z, TX.propose('débouché ' + (p.name || 'latéral') + ' ouvert à la circulation', 'de le fermer par barrières'), () => {
-      const c = traffic.closeRoad(p.x, p.z, cmd ? cmd.id : 0);
+      const c = traffic.closeRoad(p.x, p.z, chief ? chief.id : 0);
       if (!c) return;
       p.closureId = c.id;
       p.state = 'barrieres';
