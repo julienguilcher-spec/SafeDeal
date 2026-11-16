@@ -10,10 +10,11 @@
  * ===================================================================================== */
 
 import { basePreload, bravmBasePreload } from '@/gameplay/session/journee-data';
+import { sectionsFor } from '@/gameplay/session/manifestations';
 import type {
   DurationPreset, GameMode, PlayableRole, PolicePoste, PoliceRank, Rng, SessionConfig, ViolenceLevel, WeatherKind,
 } from '@/core/contracts';
-import type { CauseLike, CrowdFamily, Derapage, ScenarioExtra, ScenarioMeans, ScenarioOptions } from '../core/api';
+import type { CauseLike, CrowdFamily, Derapage, ScenarioExtra, ScenarioManif, ScenarioMeans, ScenarioOptions } from '../core/api';
 import {
   BLACK_BLOC_MAX, CROWD_MAX, CROWD_MIN, CROWD_STOPS, DEFAULT_CAUSES, DEFAULT_PLACES, DURATIONS, FAMILIES, FAMILY_IDS,
   MEANS_LIMITS, POSTE_LABELS, WEATHERS, rankLabel, roleInfo, weatherLabel,
@@ -53,7 +54,14 @@ export interface ScenarioDraft {
   moyens: ScenarioMeans;
   options: ScenarioOptions;
   seed: number;
+  /** Manifestations déclarées supplémentaires, simultanées (0 à 3 ; la principale est celle du lieu choisi). */
+  manifestations: ScenarioManif[];
 }
+
+/** Nombre maximal de manifestations simultanées (la principale comprise). */
+export const MANIFS_MAX = 4;
+/** Écart minimal entre deux lieux de rassemblement (m). */
+export const MANIF_APART = 1200;
 
 const MODES: readonly ScenarioMode[] = ['carriere', 'libre', 'monde_ouvert'];
 const DERAPAGE_IDS: readonly Derapage[] = ['personne', 'foule', 'forces', 'les_deux', 'hasard'];
@@ -111,6 +119,7 @@ export function defaultDraft(violence: ViolenceLevel = 'realiste'): ScenarioDraf
     moyens: defaultMeans(),
     options: { sanctions: true, violence, circulation: 'ouverte', metro: 'ouvert', journee: true },
     seed: 1,
+    manifestations: [],
   };
 }
 
@@ -178,7 +187,85 @@ export function sanitizeDraft(input: Partial<ScenarioDraft> | null | undefined, 
 
   const seed = num(d.seed, 1);
   out.seed = Math.abs(Math.trunc(seed)) % 1000000 || 1;
+  out.manifestations = sanitizeManifs(d.manifestations);
   return out;
+}
+
+function sanitizeManifs(list: unknown): ScenarioManif[] {
+  const out: ScenarioManif[] = [];
+  if (!Array.isArray(list)) return out;
+  for (const item of list) {
+    if (!isRecord(item) || out.length >= MANIFS_MAX - 1) continue;
+    const place = typeof item.place === 'string' ? item.place : '';
+    const known = DEFAULT_PLACES.find((p) => p.name === place);
+    const x = num(item.x, known ? known.x : NaN);
+    const z = num(item.z, known ? known.z : NaN);
+    if (place === '' || !Number.isFinite(x) || !Number.isFinite(z)) continue;
+    const cause = typeof item.cause === 'string' && item.cause ? item.cause : 'climat';
+    const m: ScenarioManif = {
+      place, x, z, crowdSize: Math.round(clamp(num(item.crowdSize, 400), CROWD_MIN, CROWD_MAX)), cause,
+      causeLabel: typeof item.causeLabel === 'string' && item.causeLabel ? item.causeLabel : causeLabelOf(cause, DEFAULT_CAUSES),
+    };
+    if (typeof item.tension === 'number' && Number.isFinite(item.tension)) m.tension = Math.round(clamp(item.tension, 0, 1) * 100) / 100;
+    if (typeof item.volatility === 'number' && Number.isFinite(item.volatility)) m.volatility = Math.round(clamp(item.volatility, 0, 1) * 100) / 100;
+    out.push(m);
+  }
+  return out;
+}
+
+/** Lieux possibles pour une manifestation supplémentaire : à plus de MANIF_APART m de toutes les autres. */
+export function manifPlaces(d: Pick<ScenarioDraft, 'x' | 'z' | 'place' | 'manifestations'>, except = -1): typeof DEFAULT_PLACES[number][] {
+  const taken: { x: number; z: number }[] = [];
+  if (d.x !== null && d.z !== null) taken.push({ x: d.x, z: d.z });
+  else {
+    const main = DEFAULT_PLACES.find((p) => p.name === d.place);
+    if (main) taken.push(main);
+  }
+  d.manifestations.forEach((m, i) => { if (i !== except) taken.push(m); });
+  return DEFAULT_PLACES.filter((p) => taken.every((t) => Math.hypot(t.x - p.x, t.z - p.z) >= MANIF_APART));
+}
+
+/**
+ * « Manifestations simultanées » : `total` manifestations en tout (1 à 4). Les manifestations déjà réglées sont
+ * gardées ; les nouvelles prennent des lieux à plus de 1,2 km des autres, une autre cause, un effectif plus modeste.
+ */
+export function withManifCount(d: ScenarioDraft, total: number, causes: readonly CauseLike[] = DEFAULT_CAUSES): ScenarioManif[] {
+  const want = clamp(Math.round(total), 1, MANIFS_MAX) - 1;
+  const list = d.manifestations.slice(0, want);
+  const pool = causes.length > 0 ? causes : DEFAULT_CAUSES;
+  for (let i = list.length; i < want; i++) {
+    const free = manifPlaces({ ...d, manifestations: list });
+    if (free.length === 0) break;
+    // choix déterministe d'après la graine : le lieu le plus éloigné de la principale, puis en tournant
+    const place = free[(d.seed + i * 3) % free.length]!;
+    const used = new Set<string>([d.cause, ...list.map((m) => m.cause)]);
+    let cause = pool[(d.seed + i) % pool.length]!;
+    for (let k = 0; k < pool.length && used.has(cause.id); k++) cause = pool[(d.seed + i + k + 1) % pool.length]!;
+    const size = nearestCrowdStop(clamp(d.crowdSize * (0.7 - 0.15 * i), CROWD_MIN, CROWD_MAX));
+    list.push({ place: place.name, x: place.x, z: place.z, crowdSize: size, cause: cause.id, causeLabel: cause.label });
+  }
+  return list;
+}
+
+/** Rétablit l'écart entre les lieux (après un changement du lieu principal) : les manifestations trop proches sont replacées. */
+export function respaceManifs(d: ScenarioDraft, causes: readonly CauseLike[] = DEFAULT_CAUSES): ScenarioManif[] {
+  const total = d.manifestations.length + 1;
+  const kept: ScenarioManif[] = [];
+  for (const m of d.manifestations) {
+    if (manifPlaces({ ...d, manifestations: kept }).some((p) => p.name === m.place) || !DEFAULT_PLACES.some((p) => p.name === m.place)) {
+      const main = d.x !== null && d.z !== null ? { x: d.x, z: d.z } : null;
+      const ok = (!main || Math.hypot(main.x - m.x, main.z - m.z) >= MANIF_APART) && kept.every((k) => Math.hypot(k.x - m.x, k.z - m.z) >= MANIF_APART);
+      if (ok) kept.push(m);
+    }
+  }
+  return withManifCount({ ...d, manifestations: kept }, total, causes);
+}
+
+/** Effectif total de toutes les manifestations (la principale comprise). */
+export function totalCrowd(d: { crowdSize: number; manifestations?: readonly ScenarioManif[] }): number {
+  let n = Math.max(0, d.crowdSize);
+  for (const m of d.manifestations ?? []) n += Math.max(0, m.crowdSize);
+  return n;
 }
 
 /** Part de chaque famille (somme = 1), d'après les poids du brouillon. */
@@ -246,6 +333,10 @@ export function buildSessionConfig(draft: ScenarioDraft): SessionConfig {
     // mission (la mission commence à l'arrivée sur place, voir missions/system.ts)
     journee: d.options.journee && d.mode !== 'monde_ouvert',
   };
+  // manifestations simultanées : jamais en mission (scénario propre) ni en patrouille libre
+  if (d.manifestations.length > 0 && d.missionId === '' && d.mode !== 'monde_ouvert') {
+    extra.manifestations = d.manifestations.map((m) => ({ ...m, tension: m.tension ?? d.tension, volatility: m.volatility ?? d.volatility }));
+  }
   // la caserne est loin du rassemblement : ses données sont chargées aussi avant la mise en place
   if (extra.journee) (extra as unknown as Record<string, unknown>)['preload'] = d.moyens.bravm > 0 || d.role === 'bravm' ? [basePreload(), bravmBasePreload()] : [basePreload()];
   const config: SessionConfig = {
@@ -311,6 +402,7 @@ export function draftFromConfig(config: Partial<SessionConfig> | null | undefine
   if (typeof extra.derapage === 'string') partial.derapage = extra.derapage as Derapage;
   if (isRecord(extra.moyens)) partial.moyens = extra.moyens as unknown as ScenarioMeans;
   if (isRecord(extra.options)) partial.options = extra.options as unknown as ScenarioOptions;
+  partial.manifestations = Array.isArray(extra.manifestations) ? (extra.manifestations as ScenarioManif[]) : [];
   return sanitizeDraft(partial, base);
 }
 
@@ -368,9 +460,12 @@ export function dayPhase(hour: number): DayPhase {
 export const DAY_PHASE_LABELS: Readonly<Record<DayPhase, string>> = { jour: 'Jour', crepuscule: 'Crépuscule', nuit: 'Nuit' };
 
 /** Nombre d'agents à pied et rapport de forces pour 100 manifestants. */
-export function forceRatio(draft: Pick<ScenarioDraft, 'moyens' | 'crowdSize'>): { agents: number; per100: number } {
-  const agents = draft.moyens.sections * 16 + draft.moyens.bravm * 12;
-  return { agents, per100: draft.crowdSize > 0 ? (agents / draft.crowdSize) * 100 : 0 };
+export function forceRatio(draft: Pick<ScenarioDraft, 'moyens' | 'crowdSize'> & { manifestations?: readonly ScenarioManif[] }): { agents: number; per100: number } {
+  let agents = draft.moyens.sections * 16 + draft.moyens.bravm * 12;
+  // une compagnie est engagée sur chaque manifestation supplémentaire
+  for (const m of draft.manifestations ?? []) agents += sectionsFor(m.crowdSize) * 16;
+  const crowd = totalCrowd({ crowdSize: draft.crowdSize, manifestations: draft.manifestations ?? [] });
+  return { agents, per100: crowd > 0 ? (agents / crowd) * 100 : 0 };
 }
 
 /**
@@ -378,19 +473,25 @@ export function forceRatio(draft: Pick<ScenarioDraft, 'moyens' | 'crowdSize'>): 
  * (ordre de grandeur parisien : 3 à 10 agents pour 100 manifestants, davantage d'engins quand la casse est probable).
  * Bornés par MEANS_LIMITS ; la case « secours sur appel » est conservée.
  */
-export function recommendedMeans(d: Pick<ScenarioDraft, 'crowdSize' | 'volatility' | 'composition' | 'moyens'>): ScenarioMeans {
-  const crowd = Math.max(0, d.crowdSize);
+export function recommendedMeans(
+  d: Pick<ScenarioDraft, 'crowdSize' | 'volatility' | 'composition' | 'moyens'> & { manifestations?: readonly ScenarioManif[] },
+): ScenarioMeans {
+  const main = Math.max(0, d.crowdSize);
+  // les sections de la compagnie du joueur couvrent SA manifestation (une compagnie est engagée sur chacune des
+  // autres) ; les moyens mobiles et d'appui (BRAV-M, drone, canons, secours) servent dans tout Paris : effectif total
+  const crowd = totalCrowd({ crowdSize: main, manifestations: d.manifestations ?? [] });
+  const extra = (d.manifestations ?? []).length;
   const vol = clamp(d.volatility, 0, 1);
   const bloc = compositionShares(d.composition).black_bloc;
   const lim = (key: keyof typeof MEANS_LIMITS, v: number): number => clamp(Math.round(v), MEANS_LIMITS[key][0], MEANS_LIMITS[key][1]);
-  const sections = lim('sections', Math.max(2, Math.ceil(crowd / 220 + vol * 3 + bloc * 20)));
+  const sections = lim('sections', Math.max(2, Math.ceil(main / 220 + vol * 3 + bloc * 20)));
   return {
     sections,
     fourgons: lim('fourgons', sections * 3),
     canon_eau: lim('canon_eau', crowd >= 800 ? Math.max(1, crowd / 1500 + vol * 2 + bloc * 10) : vol > 0.6 ? 1 : 0),
     centaure: lim('centaure', bloc >= 0.05 && crowd >= 1500 ? Math.max(1, crowd / 2500 + bloc * 15) : 0),
     bravm: lim('bravm', crowd >= 300 ? Math.max(1, crowd / 1200 + vol * 2 + bloc * 12) : 0),
-    drone: lim('drone', crowd >= 500 ? crowd / 2000 + 1 : 0),
+    drone: lim('drone', crowd >= 500 ? crowd / 2000 + 1 + (extra > 0 ? 1 : 0) : 0),
     pompiers: lim('pompiers', 1 + crowd / 2000 + vol * 2),
     samu: lim('samu', 1 + crowd / 2500 + vol),
     secours_sur_appel: d.moyens.secours_sur_appel,
@@ -452,7 +553,10 @@ export function summarize(d: ScenarioDraft): string {
   const crowd = `${int(d.crowdSize)} manifestants — ${d.causeLabel.toLowerCase()} —, ${topInfo.label.toLowerCase()} en tête`
     + (bloc > 0 ? `, ${bloc} % de black bloc.` : ', sans black bloc.');
   const mood = `Ambiance ${tensionLabel(d.tension)}, risque de débordement ${volatilityLabelMasc(d.volatility)}.`;
-  return `${where} ${crowd} ${mood} Vous êtes ${withArticle(identityLabel(d))}.`;
+  const others = d.manifestations.length > 0 && d.missionId === ''
+    ? ` En même temps : ${d.manifestations.map((m) => `${int(m.crowdSize)} manifestants (${m.causeLabel.toLowerCase()}) ${m.place}`).join(', ')}.`
+    : '';
+  return `${where} ${crowd}${others} ${mood} Vous êtes ${withArticle(identityLabel(d))}.`;
 }
 
 function withArticle(label: string): string {

@@ -13,7 +13,7 @@
 
 import type { CrowdPhase, EntityId, Person } from '@/core/contracts';
 import { HOT_KINDS } from './api';
-import type { CrowdSignal, HotKind, HotSpot, Observation } from './api';
+import type { CortegeSource, CrowdSignal, HotKind, HotSpot, Observation } from './api';
 import type { CommandCore } from './core';
 import { isPoliceOnFoot } from './core';
 
@@ -101,6 +101,60 @@ export class Picture {
     this.tailS = f ? f.tailS : this.headS - 150;
     this.present = d.stats.present;
     this.total = d.stats.total;
+  }
+
+  // ── cortège d'une autre manifestation (compagnie chargée d'une manifestation supplémentaire) ──
+  private savedRoute: readonly number[] = [];
+  private readonly saved = { active: false, phase: 'aucune' as CrowdPhase, basePhase: 'aucune' as CrowdPhase, tension: 0, routeLength: 0, headS: 0, tailS: 0, present: 0, total: 0 };
+  private swapped = false;
+
+  /**
+   * Le temps d'une réflexion d'une compagnie, le cortège suivi est celui de SA manifestation (service 'crowd.manifs') ;
+   * popSource() rétablit le cortège principal. Les points chauds restent communs.
+   */
+  pushSource(src: CortegeSource): void {
+    const sv = this.saved;
+    sv.active = this.active;
+    sv.phase = this.phase;
+    sv.basePhase = this.basePhase;
+    sv.tension = this.tension;
+    sv.routeLength = this.routeLength;
+    sv.headS = this.headS;
+    sv.tailS = this.tailS;
+    sv.present = this.present;
+    sv.total = this.total;
+    this.savedRoute = this.route;
+    this.swapped = true;
+    const marching = src.phase === 'depart' || src.phase === 'cortege';
+    this.active = true;
+    this.basePhase = src.phase;
+    this.phase = marching && src.tension >= 0.5 ? 'affrontement' : marching && src.tension >= 0.3 ? 'tension' : src.phase;
+    this.tension = src.tension;
+    this.route = src.route;
+    let len = 0;
+    const r = src.route;
+    for (let i = 2; i + 1 < r.length; i += 2) len += Math.hypot(r[i] - r[i - 2], r[i + 1] - r[i - 1]);
+    this.routeLength = len;
+    this.headS = src.headS;
+    this.tailS = src.tailS;
+    this.present = src.people;
+    this.total = src.planned;
+  }
+
+  popSource(): void {
+    if (!this.swapped) return;
+    this.swapped = false;
+    const sv = this.saved;
+    this.active = sv.active;
+    this.phase = sv.phase;
+    this.basePhase = sv.basePhase;
+    this.tension = sv.tension;
+    this.route = this.savedRoute;
+    this.routeLength = sv.routeLength;
+    this.headS = sv.headS;
+    this.tailS = sv.tailS;
+    this.present = sv.present;
+    this.total = sv.total;
   }
 
   /** Point du parcours à l'abscisse s (dans core.v2) ; retourne le cap de la marche en ce point. */

@@ -132,6 +132,23 @@ export interface ScenarioExtra {
   options: ScenarioOptions;
   /** Journée de service effective (option cochée, rôle et mode qui s'y prêtent) : lue par src/gameplay/session. */
   journee: boolean;
+  /**
+   * Manifestations déclarées SUPPLÉMENTAIRES, simultanées (absent : aucune) : lieu, effectif, cause, ambiance. Lu par le
+   * module de foule (src/sim/crowd/manifs.ts) ; une compagnie est engagée sur chacune (src/gameplay/session/manifestations.ts).
+   */
+  manifestations?: ScenarioManif[];
+}
+
+/** Manifestation supplémentaire du scénario. */
+export interface ScenarioManif {
+  place: string;
+  x: number;
+  z: number;
+  crowdSize: number;
+  cause: string;
+  causeLabel: string;
+  tension?: number;
+  volatility?: number;
 }
 
 /** Rayon (m) autour du lieu pour « circulation coupée » et « stations fermées » au départ. */

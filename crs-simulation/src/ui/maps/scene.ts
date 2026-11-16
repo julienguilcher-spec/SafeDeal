@@ -46,6 +46,39 @@ export interface SceneFoyer {
   kettled: boolean;
 }
 
+/** Manifestation déclarée supplémentaire (service 'crowd.manifs') telle que la carte l'affiche. */
+export interface SceneManif {
+  id: number;
+  label: string;
+  causeLabel: string;
+  from: string;
+  to: string;
+  phase: string;
+  people: number;
+  declared: number;
+  x: number;
+  z: number;
+  headX: number;
+  headZ: number;
+  headHeading: number;
+  /** Parcours courant (déclaré, ou détour pris). */
+  route: readonly number[];
+  tension: number;
+  kettled: boolean;
+  enclosed: boolean;
+  detours: number;
+  /** Compagnie chargée de la manifestation (nom, '' si aucune). */
+  company: string;
+}
+
+interface ManifsLike {
+  readonly list: readonly {
+    id: number; label: string; causeLabel: string; from: string; to: string; phase: string; people: number; declared: number; x: number; z: number;
+    headX: number; headZ: number; headHeading: number; route: readonly number[]; tension: number; kettled: boolean; enclosed: boolean; detours: number;
+    companyId: number;
+  }[];
+}
+
 /** Lecture du service 'crowd.foyers' (forme attendue, sans dépendre du module de foule). */
 interface FoyersLike {
   readonly list: readonly { id: number; kind: string; name: string; label: string; x: number; z: number; people: number; tension: number; kettled: boolean }[];
@@ -125,6 +158,8 @@ export class MapScene {
    * annonce), ceux qu'on voit autour de soi pour les autres rôles.
    */
   foyers: SceneFoyer[] = [];
+  /** Manifestations déclarées supplémentaires (en cours) : parcours, tête, effectif, phase. */
+  manifs: SceneManif[] = [];
   closures: readonly RoadClosure[] = [];
   stations: MetroStation[] = [];
   calls: RescueCall[] = [];
@@ -298,6 +333,7 @@ export class MapScene {
     }
 
     this.refreshFoyers();
+    this.refreshManifs();
 
     const traffic = ctx.service<TrafficControlApi>(EXT.traffic);
     this.closures = traffic && vis.closures ? traffic.closures : EMPTY_CLOSURES;
@@ -372,6 +408,52 @@ export class MapScene {
       slot.tension = f.tension;
       slot.kettled = f.kettled;
       foyers.push(slot);
+    }
+  }
+
+  private readonly manifPool: SceneManif[] = [];
+
+  private refreshManifs(): void {
+    const out = this.manifs;
+    out.length = 0;
+    const api = this.ctx.service<ManifsLike>('crowd.manifs');
+    if (!api) return;
+    const vis = this.vis;
+    const r2 = vis.nearRadius * vis.nearRadius;
+    for (let i = 0; i < api.list.length; i++) {
+      const m = api.list[i]!;
+      if (m.phase === 'terminee') continue;
+      // déclarées en préfecture : connues des forces de l'ordre et des rôles qui voient le parcours ; sinon, vues de près
+      if (!vis.police && !vis.route && vis.crowd !== 'full' && (!this.hasPlayer || (m.x - this.px) * (m.x - this.px) + (m.z - this.pz) * (m.z - this.pz) > r2)) continue;
+      let slot = this.manifPool[out.length];
+      if (!slot) {
+        slot = {
+          id: 0, label: '', causeLabel: '', from: '', to: '', phase: '', people: 0, declared: 0, x: 0, z: 0, headX: 0, headZ: 0, headHeading: 0,
+          route: EMPTY_ROUTE, tension: 0, kettled: false, enclosed: false, detours: 0, company: '',
+        };
+        this.manifPool.push(slot);
+      }
+      slot.id = m.id;
+      slot.label = m.label;
+      slot.causeLabel = m.causeLabel;
+      slot.from = m.from;
+      slot.to = m.to;
+      slot.phase = m.phase;
+      slot.people = m.people;
+      slot.declared = m.declared;
+      slot.x = m.x;
+      slot.z = m.z;
+      slot.headX = m.headX;
+      slot.headZ = m.headZ;
+      slot.headHeading = m.headHeading;
+      slot.route = vis.route || vis.police ? m.route : EMPTY_ROUTE;
+      slot.tension = m.tension;
+      slot.kettled = m.kettled;
+      slot.enclosed = m.enclosed;
+      slot.detours = m.detours;
+      const sq = m.companyId !== 0 ? this.ctx.squads.get(m.companyId) : undefined;
+      slot.company = sq && vis.police ? sq.name : '';
+      out.push(slot);
     }
   }
 

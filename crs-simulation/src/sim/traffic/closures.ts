@@ -326,6 +326,9 @@ export class Closures implements TrafficControlApi {
     const dx = o.x - cl.x;
     const dz = o.z - cl.z;
     if (o.type === 'couper_circulation' && dx * dx + dz * dz < 400) return;
+    // ni à une unité qui filtre ce barrage (elle le tient, avec sa porte), ni pendant une interpellation qu'elle mène
+    // depuis ce barrage (tâche : sa formation ne change pas)
+    if ((o.type === 'filtrer' || o.type === 'interpeller') && dx * dx + dz * dz < 50 * 50) return;
     this.ctx.squads.issue(cl.squadId, { type: 'couper_circulation', x: cl.x, z: cl.z, heading: cl.heading, width: rec.width, issuedBy: byId });
   }
 

@@ -17,9 +17,16 @@
  *   'crowd:help'      HelpEvent        la foule appelle les secours pour un blessé
  *   'crowd:kettle'    KettleEvent      une partie de la foule se sait encerclée (ou ne l'est plus)
  *   'crowd:foyer'     FoyerEvent       un foyer secondaire se déclare ailleurs dans Paris (ou prend fin) — voir foyers.ts
+ *   'crowd:manif'     ManifEvent       une manifestation supplémentaire est déclarée, part, se détourne, arrive, se disperse,
+ *                                      prend fin — voir manifs.ts
+ *   'crowd:detour'    {id, x, z, toDestination, name, via}  un cortège (id 1 : le principal) se détourne devant des rues
+ *                                      fermées — voir detour.ts
+ *   'crowd:evacuation' {id, state, x, z, out, arrested}  évacuation filtrée d'une nasse : 'debut', 'point', 'fin'
  *
  * Service 'crowd.foyers' (FoyersApi) : foyers secondaires en cours (rassemblements sauvages, groupes de casseurs,
  * blocages), hors du cortège principal.
+ * Service 'crowd.manifs' (ManifsApi) : manifestations déclarées simultanées (manifs.ts).
+ * Service 'crowd.evacuations' (EvacuationsApi) : évacuations filtrées des nasses en cours (evacuation.ts).
  *
  * Clés lues dans SessionConfig.extra (toutes facultatives) :
  *   cause                 string   identifiant de cause (« retraites », « climat »…) — écrit par la page d'accueil
@@ -46,6 +53,15 @@
  *   foyers.ecart          number   écart entre deux foyers (s ; défaut 2 min 30 à 6 min)
  *   foyers.duree          number   durée de vie d'un foyer (s ; défaut 8 à 15 min pour un rassemblement)
  *   foyers.taille         number   effectif imposé de chaque foyer
+ *   manifestations        number | objet[]  manifestations déclarées SUPPLÉMENTAIRES, simultanées (0 à 3) : un nombre (lieux,
+ *                                  causes et effectifs tirés : places réelles à plus de 1,2 km les unes des autres), ou
+ *                                  [{ place, x?, z?, crowdSize, cause?, causeLabel?, destination?, tension?, volatility? }]
+ *                                  (voir manifs.ts ; service 'crowd.manifs', événement 'crowd:manif')
+ *   manifs.rassemblement  number   durée du rassemblement des manifestations supplémentaires (s de jeu ; essais)
+ *   manifs.cortege        number   durée de marche avant l'annonce de la dispersion (s ; essais)
+ *   manifs.vitesse        number   allure de marche des manifestations supplémentaires (× ; 0,5 à 2,2 ; essais)
+ *   crowd.destination     (aussi) destination déclarée : sert de but aux détours quand des rues sont fermées
+ *   crowd.noDetour        boolean  le cortège ne se détourne jamais (il attend devant le barrage)
  * ===================================================================================== */
 
 import type {
@@ -69,6 +85,12 @@ export const KETTLE_EVENT = 'crowd:kettle';
 export const FOYER_EVENT = 'crowd:foyer';
 export const CROWD_FOYERS = 'crowd.foyers';
 export const CROWD_FOYERS_SYSTEM = 'sim:crowd.foyers';
+export const MANIF_EVENT = 'crowd:manif';
+export const CROWD_MANIFS = 'crowd.manifs';
+export const CROWD_MANIFS_SYSTEM = 'sim:crowd.manifs';
+export const CROWD_EVACUATIONS = 'crowd.evacuations';
+export const CROWD_EVACUATION_SYSTEM = 'sim:crowd.evacuation';
+export const EVACUATION_EVENT = 'crowd:evacuation';
 
 /** Famille visuelle (mêmes identifiants et même ordre que le module des archétypes : look.extras.family). */
 export type CrowdFamily =
@@ -194,6 +216,104 @@ export interface FoyersApi {
   readonly started: number;
   /** Foyer auquel appartient une personne (null : aucun, ou foyer terminé). */
   foyerOf(id: EntityId): FoyerView | null;
+}
+
+// ───────────────────────────── manifestations simultanées ─────────────────────────────
+
+/** Phase d'une manifestation déclarée supplémentaire (mêmes mots que CrowdPhase). */
+export type ManifPhase = 'rassemblement' | 'depart' | 'cortege' | 'dispersion' | 'terminee';
+
+/**
+ * Manifestation déclarée supplémentaire (service 'crowd.manifs', voir manifs.ts) : un vrai cortège, avec son parcours
+ * entre deux lieux de Paris, sa cause, ses organisateurs, ses phases. La manifestation principale n'y figure pas
+ * (ctx.director).
+ */
+export interface ManifView {
+  /** 2, 3, 4… (1 : la manifestation principale). */
+  readonly id: number;
+  /** « Manifestation climat — Place de la Bastille → Place de la Nation ». */
+  label: string;
+  cause: string;
+  causeLabel: string;
+  /** Lieu de rassemblement et destination déclarée. */
+  from: string;
+  to: string;
+  phase: ManifPhase;
+  /** Effectif annoncé (déclaration) et nombre de personnes simulées prévues. */
+  declared: number;
+  planned: number;
+  /** Personnes présentes, libres (ni interpellées ni parties). */
+  people: number;
+  /** Barycentre des présents (lieu de rassemblement avant l'arrivée des premiers). */
+  x: number;
+  z: number;
+  /** Tête du cortège et cap de la marche. */
+  headX: number;
+  headZ: number;
+  headHeading: number;
+  /** Parcours courant [x0, z0, …] (le parcours déclaré, ou le détour pris), abscisses de la tête et de la queue. */
+  route: readonly number[];
+  headS: number;
+  tailS: number;
+  /** Détours pris (rues fermées par les forces de l'ordre). */
+  detours: number;
+  /** Arrêtée sur une place dont toutes les issues sont fermées. */
+  enclosed: boolean;
+  tension: number;
+  kettled: boolean;
+  startedAt: number;
+  /** Unité ctx.squads (type 'cortege') de la manifestation. */
+  squadId: number;
+  /** Compagnie chargée de cette manifestation (0 : aucune). */
+  companyId: number;
+}
+
+/** Événement libre 'crowd:manif'. */
+export interface ManifEvent {
+  id: number;
+  state: 'annonce' | 'depart' | 'detour' | 'arrivee' | 'dispersion' | 'fin';
+  x: number;
+  z: number;
+  label: string;
+  people: number;
+}
+
+/** Service 'crowd.manifs'. */
+export interface ManifsApi {
+  /** Manifestations supplémentaires de la session (terminées comprises ; tableau interne). */
+  readonly list: readonly ManifView[];
+  /** Manifestation à laquelle appartient une personne (null : aucune). */
+  manifOf(id: EntityId): ManifView | null;
+  /** Rattache une compagnie à une manifestation (affichage, commandement). */
+  assign(manifId: number, companyId: number): void;
+}
+
+/** Évacuation filtrée d'une nasse (service 'crowd.evacuations', voir evacuation.ts). */
+export interface EvacuationView {
+  readonly id: number;
+  /** Unité qui filtre la sortie. */
+  squadId: number;
+  /** Porte (point de l'ordre « filtrer ») et centre de la nasse. */
+  x: number;
+  z: number;
+  kettleX: number;
+  kettleZ: number;
+  /** Personnes sorties, interpellées, encore dans la nasse. */
+  out: number;
+  arrested: number;
+  waiting: number;
+  active: boolean;
+}
+
+export interface EvacuationsApi {
+  readonly list: readonly EvacuationView[];
+}
+
+/** Détour d'un cortège : parcours en cours, et le nombre de détours pris. */
+export interface DetourInfo {
+  readonly count: number;
+  /** Arrêté sur une place close (toutes les issues fermées). */
+  readonly enclosed: boolean;
 }
 
 // ───────────────────────────── groupes, cortège, issues ─────────────────────────────

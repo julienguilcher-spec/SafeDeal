@@ -317,7 +317,8 @@ export class Behavior {
       this.manners.bystand(p, b, now);
       return;
     }
-    if (base === 'terminee') {
+    // (les foyers et les autres manifestations ont leur propre déroulé : la fin du cortège principal ne les renvoie pas)
+    if (base === 'terminee' && (b.flags & F.FOYER) === 0) {
       this.startLeaving(p, b, -1);
       return;
     }
@@ -524,6 +525,8 @@ export class Behavior {
     const cap = now + span + core.schedule.after * 0.85;
     for (let i = 0; i < core.brains.length; i++) {
       const b = core.brains[i]!;
+      // les foyers et les autres manifestations n'obéissent pas aux organisateurs de celle-ci
+      if ((b.flags & F.FOYER) !== 0) continue;
       const p = b.person;
       const bystander = (b.flags & F.BYSTANDER) !== 0;
       const tune = bystander ? T.PROFILE.badaud : T.PROFILE[p.profile ?? 'pacifique'];

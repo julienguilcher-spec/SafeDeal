@@ -59,7 +59,7 @@
  *     repli / cesser      rappel et pose
  * ===================================================================================== */
 
-import type { EntityId, ForceLevel, OrderType, Squad } from '@/core/contracts';
+import type { CrowdPhase, EntityId, ForceLevel, OrderType, Squad } from '@/core/contracts';
 import type { UnitHandle } from '../api';
 
 export const POLICE_COMMAND_SERVICE = 'police.command';
@@ -140,6 +140,20 @@ export interface Post {
   closureId: number;
   /** Voie interdite aux véhicules (barrage de personnes seulement). */
   pedestrian: boolean;
+}
+
+/**
+ * Cortège suivi par une compagnie chargée d'une AUTRE manifestation que la principale (forme de ManifView, service
+ * 'crowd.manifs' du module de foule) : phase du déroulé, parcours courant, tête et queue, effectifs, tension.
+ */
+export interface CortegeSource {
+  readonly phase: CrowdPhase;
+  readonly route: readonly number[];
+  readonly headS: number;
+  readonly tailS: number;
+  readonly people: number;
+  readonly planned: number;
+  readonly tension: number;
 }
 
 export interface AssumeOptions {
@@ -390,6 +404,11 @@ export interface CommandApi {
   assume(companySquadId: number, options?: AssumeOptions): boolean;
   /** L'IA rend le commandement (les unités gardent leurs ordres en cours). */
   release(companySquadId: number): void;
+  /**
+   * Confie à la compagnie une autre manifestation que la principale : son dispositif, ses barrages et sa fin de
+   * mission suivent ce cortège (null : retour au cortège principal). false si la compagnie n'est pas commandée.
+   */
+  assignCortege?(companySquadId: number, source: CortegeSource | null): boolean;
   /** État du commandement (objet stable par compagnie), ou null. */
   stateOf(companySquadId: number): CommandState | null;
   /** Compagnies commandées (ou conseillées). */

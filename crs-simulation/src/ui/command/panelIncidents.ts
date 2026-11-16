@@ -7,7 +7,7 @@
 import type { Incident, IncidentMeans, RescueCall, RescueKind } from '@/core/extensions';
 import { button, el, setClass, setText } from '../maps/icons';
 import type { MapCanvas } from '../maps/mapCanvas';
-import { INCIDENT_COLORS, INCIDENT_GLYPHS, drawIncidentGlyph } from '../maps/overlay';
+import { INCIDENT_COLORS, INCIDENT_GLYPHS, drawIncidentGlyph, manifColor, manifPhaseLabel } from '../maps/overlay';
 import type { MapUnit, UnitSymbol } from '../maps/units';
 import type { CommandCore } from './core';
 import {
@@ -55,6 +55,10 @@ export class IncidentsPanel {
   readonly root: HTMLDivElement;
   /** Nombre d'incidents non traités (pastille de l'onglet). */
   openCount = 0;
+  /** Manifestations en cours (la principale et les manifestations simultanées). */
+  private readonly manifsBox: HTMLDivElement;
+  private readonly manifsList: HTMLDivElement;
+  private manifsSig = '';
   private readonly callsBox: HTMLDivElement;
   private readonly callsList: HTMLDivElement;
   private readonly listBox: HTMLDivElement;
@@ -75,6 +79,13 @@ export class IncidentsPanel {
   ) {
     this.root = el('div', 'ct-pane ct-scroll');
     this.root.dataset.id = 'tac-incidents';
+    this.manifsBox = el('div', 'ct-sec');
+    this.manifsBox.dataset.id = 'tac-manifs';
+    const mh = el('div', 'ct-sec-h');
+    mh.appendChild(el('div', 'cm-sub', 'Manifestations'));
+    this.manifsList = el('div');
+    this.manifsBox.append(mh, this.manifsList);
+    this.manifsBox.style.display = 'none';
     this.callsBox = el('div', 'ct-sec');
     const h = el('div', 'ct-sec-h');
     h.appendChild(el('div', 'cm-sub', 'Secours'));
@@ -86,7 +97,7 @@ export class IncidentsPanel {
     this.callsList = el('div');
     this.callsBox.append(h, row, this.callsList);
     this.listBox = el('div');
-    this.root.append(this.callsBox, this.listBox);
+    this.root.append(this.manifsBox, this.callsBox, this.listBox);
     host.appendChild(this.root);
     this.ghost = el('div', 'ct-ghost');
     document.body.appendChild(this.ghost);
@@ -382,7 +393,68 @@ export class IncidentsPanel {
     }
   }
 
+  /** Liste des manifestations : la principale (directeur de foule) puis les manifestations simultanées. */
+  private refreshManifs(): void {
+    const ctx = this.core.ctx;
+    const scene = this.core.maps.scene;
+    const rows: { key: string; title: string; sub: string; color: string; x: number; z: number }[] = [];
+    const d = ctx.director;
+    if (scene.manifs.length > 0 && d.phase !== 'aucune' && d.phase !== 'terminee') {
+      const cause = ctx.service<{ readonly cause: { readonly label: string } }>('crowd.core')?.cause.label ?? '';
+      const r = d.route;
+      rows.push({
+        key: 'm1', title: `Manifestation principale${cause !== '' ? ' — ' + cause.toLowerCase() : ''}`,
+        sub: `${manifPhaseLabel(d.phase).toLowerCase()} · ${d.stats.present} pers.`, color: '#ffd60a',
+        x: scene.hasHead ? scene.headX : r.length >= 2 ? r[0]! : 0, z: scene.hasHead ? scene.headZ : r.length >= 2 ? r[1]! : 0,
+      });
+    }
+    for (const m of scene.manifs) {
+      rows.push({
+        key: 'm' + m.id, title: m.label,
+        sub: `${manifPhaseLabel(m.phase, m.enclosed, m.kettled).toLowerCase()} · ${m.people} pers.${m.detours > 0 ? ' · ' + m.detours + ' détour' + (m.detours > 1 ? 's' : '') : ''}${m.company !== '' ? ' · ' + m.company : ''}`,
+        color: manifColor(m.id), x: m.headX, z: m.headZ,
+      });
+    }
+    this.manifsBox.style.display = scene.manifs.length > 0 ? '' : 'none';
+    let sig = '';
+    for (const r of rows) sig += r.key + ':' + r.title + ',';
+    if (sig !== this.manifsSig) {
+      this.manifsSig = sig;
+      this.manifsList.textContent = '';
+      for (const r of rows) {
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'ct-inc-row';
+        row.dataset.id = 'manif-' + r.key;
+        const dot = el('span', 'ct-inc-ico');
+        dot.style.background = r.color;
+        dot.style.borderRadius = '50%';
+        dot.style.width = '12px';
+        dot.style.height = '12px';
+        dot.style.flex = '0 0 12px';
+        const main = el('span', 'ct-inc-main');
+        main.append(el('b', undefined, r.title), el('small'));
+        row.append(dot, main);
+        const pos = { x: r.x, z: r.z };
+        (row as HTMLButtonElement & { pos?: { x: number; z: number } }).pos = pos;
+        row.addEventListener('click', () => this.map.flyTo(pos.x, pos.z));
+        this.manifsList.appendChild(row);
+      }
+    }
+    for (let i = 0; i < rows.length; i++) {
+      const row = this.manifsList.children[i] as (HTMLElement & { pos?: { x: number; z: number } }) | undefined;
+      if (!row) continue;
+      if (row.pos) {
+        row.pos.x = rows[i]!.x;
+        row.pos.z = rows[i]!.z;
+      }
+      const sub = row.querySelector('small');
+      if (sub) setText(sub as HTMLElement, rows[i]!.sub);
+    }
+  }
+
   refresh(): void {
+    this.refreshManifs();
     const api = this.core.incidents;
     sortIncidents(this.core.maps.scene.incidents, this.sorted);
     let open = 0;

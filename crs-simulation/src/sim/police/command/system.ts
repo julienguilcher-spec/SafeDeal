@@ -17,7 +17,7 @@ import {
   COMMAND_POST_SERVICE, COMMAND_SYSTEM_ID, CROWD_SIGNAL_EVENT, POLICE_COMMAND_SERVICE,
 } from './api';
 import type {
-  AssumeOptions, CommandApi, CommandMode, CommandPost, CommandState, CrowdSignal, DroneTeamOptions,
+  AssumeOptions, CommandApi, CommandMode, CommandPost, CommandState, CortegeSource, CrowdSignal, DroneTeamOptions,
 } from './api';
 import { BravmUnit, isBravmGroup } from './bravm';
 import { CanonUnit, isCanon } from './canon';
@@ -52,6 +52,8 @@ export class CommandSystem implements GameSystem {
   private secondAt = 0;
   private forcedMode: CommandMode | 'aucun' | '' = '';
   private readonly members: Person[] = [];
+  /** Compagnies chargées d'une autre manifestation que la principale : cortège suivi. */
+  private readonly sources = new Map<number, CortegeSource>();
   /** Coût du dernier pas (ms), pour les mesures. */
   lastStepMs = 0;
 
@@ -64,6 +66,12 @@ export class CommandSystem implements GameSystem {
       tuning: core.tuning,
       assume: (id, options) => this.assume(id, options) !== null,
       release: (id) => this.release(id),
+      assignCortege: (id, source) => {
+        if (this.indexOf(id) < 0) return false;
+        if (source) this.sources.set(id, source);
+        else this.sources.delete(id);
+        return true;
+      },
       stateOf: (id) => {
         const c = this.commandOf(id);
         return c ? c.state : null;
@@ -251,6 +259,7 @@ export class CommandSystem implements GameSystem {
     this.commands.length = 0;
     this.reactions.length = 0;
     this.states.length = 0;
+    this.sources.clear();
     this.secondAt = 0;
     this.forcedMode = '';
     this.hook();
@@ -311,6 +320,7 @@ export class CommandSystem implements GameSystem {
     this.commands.splice(i, 1);
     this.reactions.splice(i, 1);
     this.states.splice(i, 1);
+    this.sources.delete(squadId);
   }
 
   /** Prise de commandement automatique des compagnies ; rattachement des moyens spéciaux sans compagnie. */
@@ -352,6 +362,21 @@ export class CommandSystem implements GameSystem {
   }
 
   private think(i: number): void {
+    const src = this.sources.get(this.commands[i].squad.id);
+    if (!src) {
+      this.thinkOne(i);
+      return;
+    }
+    // compagnie chargée d'une autre manifestation : le tableau de situation suit SON cortège le temps de sa réflexion
+    this.pic.pushSource(src);
+    try {
+      this.thinkOne(i);
+    } finally {
+      this.pic.popSource();
+    }
+  }
+
+  private thinkOne(i: number): void {
     const cmd = this.commands[i];
     const core = this.core;
     cmd.thinkAt = core.now + core.tuning.thinkInterval;

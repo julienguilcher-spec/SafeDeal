@@ -173,6 +173,72 @@ function drawRoute(g: CanvasRenderingContext2D, t: MapTransform, scene: MapScene
   }
 }
 
+// ───────────────────────────── manifestations simultanées ─────────────────────────────
+
+/** Teinte de chaque manifestation supplémentaire (la principale garde le jaune). */
+export const MANIF_COLORS: readonly string[] = ['#5ac8fa', '#ff6bd6', '#7ee081', '#c39bff'];
+
+export function manifColor(id: number): string {
+  return MANIF_COLORS[(Math.max(2, id) - 2) % MANIF_COLORS.length]!;
+}
+
+const MANIF_PHASES: Readonly<Record<string, string>> = {
+  rassemblement: 'RASSEMBLEMENT', depart: 'DÉPART', cortege: 'CORTÈGE', dispersion: 'DISPERSION', terminee: 'TERMINÉE',
+};
+
+/** Libellé court de la phase d'une manifestation (carte, liste). */
+export function manifPhaseLabel(phase: string, enclosed = false, kettled = false): string {
+  if (kettled) return 'ENCERCLÉE';
+  if (enclosed) return 'BLOQUÉE';
+  return MANIF_PHASES[phase] ?? phase.toUpperCase();
+}
+
+function drawManifs(g: CanvasRenderingContext2D, t: MapTransform, scene: MapScene, compact: boolean): void {
+  const list = scene.manifs;
+  for (let i = 0; i < list.length; i++) {
+    const m = list[i]!;
+    const color = manifColor(m.id);
+    if (m.route.length >= 4) {
+      g.lineJoin = 'round';
+      g.lineCap = 'round';
+      polyline(g, t, m.route);
+      g.lineWidth = compact ? 4 : 8;
+      g.globalAlpha = 0.18;
+      g.strokeStyle = color;
+      g.stroke();
+      g.globalAlpha = 0.9;
+      g.lineWidth = compact ? 1.2 : 1.7;
+      g.setLineDash(compact ? [5, 5] : [9, 7]);
+      g.stroke();
+      g.setLineDash([]);
+      g.globalAlpha = 1;
+    }
+    if (!t.contains(m.headX, m.headZ, 40)) continue;
+    t.worldToScreen(m.headX, m.headZ, SP);
+    const a = t.headingToScreenAngle(m.headHeading);
+    g.save();
+    g.translate(SP.x, SP.y);
+    g.rotate(a);
+    const s = compact ? 5 : 8;
+    g.fillStyle = color;
+    g.strokeStyle = m.kettled ? '#58a6ff' : HALO;
+    g.lineWidth = m.kettled ? 2.5 : 1.5;
+    g.beginPath();
+    g.moveTo(0, -s * 1.5);
+    g.lineTo(s, s * 0.2);
+    g.lineTo(0, -s * 0.25);
+    g.lineTo(-s, s * 0.2);
+    g.closePath();
+    g.fill();
+    g.stroke();
+    g.restore();
+    if (!compact) {
+      label(g, `${m.causeLabel.toUpperCase()} · ${m.people} pers. · ${manifPhaseLabel(m.phase, m.enclosed, m.kettled)}`, SP.x, SP.y - 16, color, 9.5, 700);
+      label(g, m.detours > 0 ? `→ ${m.to} (${m.detours} détour${m.detours > 1 ? 's' : ''})` : `→ ${m.to}`, SP.x, SP.y + 15, '#e8eef9', 9, 600);
+    }
+  }
+}
+
 // ───────────────────────────── fermetures, métro ─────────────────────────────
 
 function drawClosures(g: CanvasRenderingContext2D, t: MapTransform, scene: MapScene, o: OverlayOptions): void {
@@ -616,6 +682,7 @@ export function drawOverlay(g: CanvasRenderingContext2D, t: MapTransform, scene:
   if (L.crowd) drawCrowd(g, t, scene);
   if (L.crowd) drawFoyers(g, t, scene, o);
   if (L.route && vis.route) drawRoute(g, t, scene, o.compact);
+  if (L.route) drawManifs(g, t, scene, o.compact);
   if (L.hazards) drawHazards(g, t, scene, o.time, o.compact);
   if (L.closures && vis.closures) drawClosures(g, t, scene, o);
   if (L.metro && vis.metro) drawMetro(g, t, scene, o);

@@ -9,7 +9,10 @@
  *   'sim:crowd.control'   (SystemOrder.CONTROL)      arrivées, cortège, réflexion et conduite de chaque personne ;
  *   'sim:crowd.radical'   (SystemOrder.CONTROL + 1)  groupes radicaux, bloc, suiveurs, pilleurs (dossier radical/) ;
  *   'sim:crowd.director'  (SystemOrder.RULES)        émotions, densité, phases, tension, aléas, statistiques ;
- *   'sim:crowd.foyers'    (SystemOrder.RULES + 1)    foyers secondaires ailleurs dans Paris (foyers.ts).
+ *   'sim:crowd.foyers'    (SystemOrder.RULES + 1)    foyers secondaires ailleurs dans Paris (foyers.ts) ;
+ *   'sim:crowd.manifs'    (SystemOrder.RULES + 2)    manifestations déclarées simultanées (manifs.ts) ;
+ *   'sim:crowd.evacuation'(SystemOrder.RULES + 3)    évacuation filtrée d'une nasse (evacuation.ts).
+ * Les cortèges se détournent devant les rues fermées (detour.ts).
  * Services publiés : ctx.director (DirectorApi), EXT.metro (MetroApi), 'crowd.core' (CrowdCoreApi : registre de
  * contrôleurs de comportement par profil — point d'extension des groupes radicaux, voir docs dans api.ts),
  * 'crowd.foyers' (FoyersApi : foyers secondaires en cours).
@@ -21,7 +24,9 @@ import { SystemOrder } from '@/core/contracts';
 import { CROWD_CONTROL_SYSTEM, CROWD_DIRECTOR_SYSTEM } from './api';
 import { CrowdCore } from './core';
 import { bindEvents } from './events';
+import { EvacuationSystem } from './evacuation';
 import { FoyersSystem } from './foyers';
+import { ManifsSystem } from './manifs';
 import { createRadicalSystem } from './radical';
 import type { RadicalSystem } from './radical';
 
@@ -29,6 +34,11 @@ export * from './api';
 export { S as CROWD_STATE, A as CROWD_ACT, F as CROWD_FLAG, STATE_NAMES, brainOf, isCrowdBrain } from './brain';
 export { CrowdCore } from './core';
 export { FoyersSystem, placeInSentence } from './foyers';
+export { MANIF_PLACES, ManifsSystem, readManifSpecs } from './manifs';
+export type { ManifSpec } from './manifs';
+export { EvacuationSystem } from './evacuation';
+export { Rerouter, RoadBlocks, closureAhead, enclosedAt, planDetour } from './detour';
+export type { Detour } from './detour';
 export { ROUTES } from './routes-data';
 export { CATALOGUE as ALEA_CATALOGUE } from './aleas-data';
 export { CROWD_SIGNALS, CROWD_RADICAL, RADICAL_SYSTEM, SIGNAL_EVENT, BLOC_EVENT, RADICAL_EVENT } from './radical/api';
@@ -137,11 +147,17 @@ class CrowdDirectorSystem implements GameSystem {
  * Fabrique du module ; `core`, `radical` et `foyers` sont exposés pour les essais (createCrowdSystems().core).
  * Quatre systèmes : contrôle de la foule, groupes radicaux (juste après), directeur, foyers secondaires.
  */
-export function createCrowdSystems(): { systems: GameSystem[]; core: CrowdCore; radical: RadicalSystem; foyers: FoyersSystem } {
+export function createCrowdSystems(): {
+  systems: GameSystem[]; core: CrowdCore; radical: RadicalSystem; foyers: FoyersSystem; manifs: ManifsSystem; evacuation: EvacuationSystem;
+} {
   const core = new CrowdCore();
   const radical = createRadicalSystem(core);
   const foyers = new FoyersSystem(core, radical);
-  return { systems: [new CrowdControlSystem(core), radical, new CrowdDirectorSystem(core), foyers], core, radical, foyers };
+  const manifs = new ManifsSystem(core, radical);
+  const evacuation = new EvacuationSystem(core);
+  return {
+    systems: [new CrowdControlSystem(core), radical, new CrowdDirectorSystem(core), foyers, manifs, evacuation], core, radical, foyers, manifs, evacuation,
+  };
 }
 
 export const createSystems: ModuleFactory = (): GameSystem[] => createCrowdSystems().systems;

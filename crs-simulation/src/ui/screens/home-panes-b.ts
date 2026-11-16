@@ -13,8 +13,8 @@ import {
 } from './catalog';
 import type { HomeModel } from './home';
 import {
-  buildSessionConfig, compositionShares, defaultDraft, draftFromConfig, forceRatio, identityLabel, recommendedMeans, simulatedCrowd,
-  suggestName, tensionLabel, volatilityLabel,
+  MANIFS_MAX, buildSessionConfig, compositionShares, defaultDraft, draftFromConfig, forceRatio, identityLabel, manifPlaces, recommendedMeans,
+  respaceManifs, simulatedCrowd, suggestName, tensionLabel, totalCrowd, volatilityLabel, withManifCount,
 } from './scenario';
 import { MAX_NAME_LENGTH } from './scenarios-store';
 
@@ -55,6 +55,7 @@ export function buildFoule(model: HomeModel): HTMLElement {
   crowdSlider.el.dataset.id = 'affluence';
   crowdField.el.insertBefore(crowdSlider.el, crowdField.el.lastElementChild);
   root.append(crowdField.el);
+  if (d.mode !== 'monde_ouvert' && d.missionId === '') root.append(buildManifs(model));
 
   // cause
   const chips = h('div', 'ui-chips');
@@ -122,6 +123,79 @@ export function buildFoule(model: HomeModel): HTMLElement {
   compoHint.style.marginTop = '6px';
   root.append(compoHint);
   return root;
+}
+
+// ───────────────────────────── manifestations simultanées ─────────────────────────────
+
+/**
+ * « Manifestations simultanées » (1 à 4) : d'autres cortèges déclarés le même jour ailleurs dans Paris, chacun avec son
+ * lieu (à plus de 1,2 km des autres), sa cause et son effectif ; une compagnie supplémentaire est engagée sur chacun.
+ */
+function buildManifs(model: HomeModel): HTMLElement {
+  const { widgets } = model.env;
+  const box = h('div');
+  box.dataset.id = 'manifestations';
+  // le lieu principal a pu changer : les manifestations trop proches sont replacées
+  const respaced = respaceManifs(model.draft, model.causes);
+  if (JSON.stringify(respaced) !== JSON.stringify(model.draft.manifestations)) model.update({ manifestations: respaced });
+  const d = model.draft;
+  const total = d.manifestations.length + 1;
+  const field = widgets.field('Manifestations simultanées', null, {
+    value: total === 1 ? 'Une seule manifestation' : `${total} manifestations — ${int(totalCrowd(d))} manifestants en tout`,
+    hint: 'D’autres cortèges déclarés le même jour, ailleurs dans Paris (à plus de 1,2 km les uns des autres) : une compagnie supplémentaire est engagée sur chacun, toutes figurent sur la carte tactique.',
+  });
+  const opts: { value: string; label: string }[] = [];
+  for (let n = 1; n <= MANIFS_MAX; n++) opts.push({ value: String(n), label: String(n) });
+  const seg = widgets.segmented<string>({
+    label: 'Manifestations simultanées',
+    options: opts,
+    value: String(total),
+    onChange: (v: string) => {
+      model.update({ manifestations: withManifCount(model.draft, Number(v), model.causes) });
+      model.rebuild();
+    },
+  });
+  seg.el.dataset.id = 'manifs-nombre';
+  field.el.insertBefore(seg.el, field.el.lastElementChild);
+  box.append(field.el);
+  d.manifestations.forEach((m, i) => {
+    const row = h('div', 'ui-mean');
+    row.dataset.id = 'manif-' + (i + 2);
+    const text = new Txt(h('div', 'ui-mean__hint'));
+    const paint = (): void => {
+      const cur = model.draft.manifestations[i];
+      if (cur) text.set(`${int(cur.crowdSize)} manifestants — ${cur.causeLabel.toLowerCase()}`);
+    };
+    const title = h('div', 'ui-mean__label', `${i + 2}. ${m.place}`);
+    const other = widgets.button('Autre lieu', () => {
+      const free = manifPlaces(model.draft, i);
+      if (free.length === 0) return;
+      const at = free.findIndex((p) => p.name === m.place);
+      const next = free[(at + 1) % free.length]!;
+      const list = model.draft.manifestations.slice();
+      list[i] = { ...list[i]!, place: next.name, x: next.x, z: next.z };
+      model.update({ manifestations: list });
+      model.rebuild();
+    }, 'secondary');
+    other.dataset.id = `manif-${i + 2}-lieu`;
+    const slider = widgets.slider({
+      label: `Affluence de la manifestation ${i + 2}`,
+      min: CROWD_STOPS[0]!, max: CROWD_STOPS[CROWD_STOPS.length - 1]!, step: 1, value: m.crowdSize, stops: CROWD_STOPS,
+      format: (v: number) => `${int(v)} manifestants`,
+      onInput: (v: number) => {
+        const list = model.draft.manifestations.slice();
+        if (!list[i]) return;
+        list[i] = { ...list[i]!, crowdSize: v };
+        model.update({ manifestations: list });
+        paint();
+      },
+    });
+    slider.el.dataset.id = `manif-${i + 2}-affluence`;
+    paint();
+    row.append(el('div', undefined, title, text.el), other);
+    box.append(row, slider.el);
+  });
+  return box;
 }
 
 // ───────────────────────────── tension et durée ─────────────────────────────
@@ -211,7 +285,8 @@ export function buildMoyens(model: HomeModel): HTMLElement {
       ratioEl.append(note(`${int(agents)} agents à pied engagés pour la patrouille.`));
       return;
     }
-    const text = `${int(agents)} agents à pied pour ${int(d.crowdSize)} manifestants, soit ${decimal(per100, 1)} pour 100. À Paris, on compte d’ordinaire 3 à 10 policiers et gendarmes pour 100 manifestants.`;
+    const extra = d.manifestations.length > 0 ? ` (dont ${d.manifestations.length} compagnie${d.manifestations.length > 1 ? 's' : ''} sur les autres manifestations)` : '';
+    const text = `${int(agents)} agents à pied${extra} pour ${int(totalCrowd(d))} manifestants, soit ${decimal(per100, 1)} pour 100. À Paris, on compte d’ordinaire 3 à 10 policiers et gendarmes pour 100 manifestants.`;
     const low = agents > 0 && (d.moyens.sections < 2 || per100 < 2);
     ratioEl.append(note(low ? text + ' Dispositif léger : une unité n’est jamais engagée à moins de deux sections.' : text, low));
   };

@@ -72,6 +72,8 @@ export class Formation implements FormationView {
   stopS = Infinity;
   endS = 0;
   arrived = false;
+  /** Barrage signalé de l'extérieur (rue fermée sur l'axe, voir detour.ts) : abscisse, Infinity sinon. */
+  extraStop = Infinity;
   private barrage = false;
   private nextScan = 0;
 
@@ -169,6 +171,7 @@ export class Formation implements FormationView {
     this.stopS = Infinity;
     this.endS = 0;
     this.arrived = false;
+    this.extraStop = Infinity;
     this.barrage = false;
     this.nextScan = 0;
     this.sonoVehicleId = 0;
@@ -456,6 +459,7 @@ export class Formation implements FormationView {
         if (wide >= 3) stop = s0 + 1.5 + this.hit.t * 12 - 3;
       }
     }
+    if (this.extraStop < stop && this.extraStop >= s0 - 1) stop = this.extraStop;
     this.barrage = stop !== Infinity;
     this.stopS = stop;
   }

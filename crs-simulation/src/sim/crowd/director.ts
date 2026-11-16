@@ -18,6 +18,8 @@ import type { CrowdPhase, CrowdStats, DirectorApi, EntityId, Person } from '@/co
 import { F, S } from './brain';
 import type { CrowdBrain } from './brain';
 import type { CrowdCore } from './core';
+import { closureAhead, detourText, enclosedAt, spliceDetour } from './detour';
+import type { Detour } from './detour';
 import { SparseGrid } from './grid';
 import * as T from './tuning';
 
@@ -117,6 +119,7 @@ export class Director implements DirectorApi {
     this.policeNearSince = -1;
     this.nextPresence = 0;
     this.arrestedIds.clear();
+    this.nextEnclosed = 0;
   }
 
   /** Début de la manifestation (appelé à la mise en place). */
@@ -275,6 +278,7 @@ export class Director implements DirectorApi {
       this.nextSlow = now + 1;
       this.decay();
       this.pressure();
+      this.detour();
       core.corridor.refresh(core.ctx, core.formation.tailS - 60, core.formation.headS + 160);
     }
     if (now >= this.nextWatch) {
@@ -473,7 +477,10 @@ export class Director implements DirectorApi {
         core.emotions.stir(core.rp.x, core.rp.z, 40, 0, 0.08);
         core.voices.chant('Laissez-nous passer !', 'Laissez-nous passer !', core.rp.x, core.rp.z, 0.8);
       }
-      if (waited > 150 * core.timeScale) this.announceDispersal('parcours_coupe');
+      // les organisateurs renoncent quand aucun détour n'est possible — sauf sur une place close : on y reste
+      if (waited > 150 * core.timeScale && !core.reroute.enclosed && (core.reroute.stuckAt > -1e8 || core.extra['crowd.noDetour'] === true)) {
+        this.announceDispersal('parcours_coupe');
+      }
     } else this.blockedSince = -1;
   }
 
@@ -513,7 +520,8 @@ export class Director implements DirectorApi {
         const begun = this.departAt + sch.depart;
         if (few && pending === 0) this.finish();
         else if (now >= this.marchEnd) this.announceDispersal('organisateurs');
-        else if (f.arrived && !core.isStatic && now - begun > sch.march * 0.3 && now - this.phaseAt > 20) this.announceDispersal('arrivee');
+        // arrivé sur une place de repli (détour) : rassemblement statique jusqu'à la fin de l'horaire
+        else if (f.arrived && !core.isStatic && core.reroute.toDestination && now - begun > sch.march * 0.3 && now - this.phaseAt > 20) this.announceDispersal('arrivee');
         break;
       }
       case 'dispersion':
@@ -533,6 +541,80 @@ export class Director implements DirectorApi {
       default:
         break;
     }
+  }
+
+  /**
+   * Détours (une fois par seconde) : rue fermée sur l'axe devant la tête, puis, la tête arrêtée par un barrage, après
+   * l'hésitation des organisateurs, un nouveau tracé par les rues (detour.ts). Sur une place close, la tension monte.
+   */
+  private nextEnclosed = 0;
+  private detour(): void {
+    const core = this.core;
+    const f = core.formation;
+    const marching = (this.base === 'depart' || this.base === 'cortege') && !core.isStatic;
+    if (!marching) {
+      f.extraStop = Infinity;
+      return;
+    }
+    const ctx = core.ctx;
+    const now = core.now;
+    const ahead = closureAhead(ctx, core.corridor, f.headS, 40);
+    f.extraStop = ahead === Infinity ? Infinity : ahead - 4;
+    const r = core.reroute;
+    if (r.enclosed || (f.arrived && !r.toDestination)) {
+      // rassemblement sur une place close (ou de repli) : on attend, la colère monte
+      if (now >= this.nextEnclosed) {
+        this.nextEnclosed = now + 20 * core.timeScale;
+        if (f.arrived && !r.toDestination) r.enclosed = r.enclosed || this.enclosedNow();
+        if (r.enclosed) {
+          core.corridor.at(f.headS, core.rp);
+          this.addTension(0.04, core.rp.x, core.rp.z, 'place_close');
+        }
+      }
+      if (r.enclosed) return;
+    }
+    if (core.extra['crowd.noDetour'] === true) return;
+    core.corridor.at(f.headS, core.rp);
+    const hx = core.rp.x;
+    const hz = core.rp.z;
+    const res = r.update(ctx, now, f.blockedByBarrage, hx, hz, Math.atan2(core.rp.tx, core.rp.tz), core.destX, core.destZ, core.destName, core.rngEmo, core.timeScale);
+    if (res === 'detour' && r.lastDetour) this.applyDetour(r.lastDetour);
+    else if (res === 'stuck' && r.enclosed) {
+      ctx.radio.say({ channel: 'commandement', from: 'CENTRAL', priority: 2, text: 'CENTRAL : le cortège est bloqué, toutes les issues sont fermées. Rassemblement statique, tension en hausse.' });
+    }
+  }
+
+  private enclosedNow(): boolean {
+    const core = this.core;
+    core.corridor.at(core.formation.headS, core.rp);
+    const blocks = core.reroute.avoided(core.ctx, core.now);
+    return enclosedAt(core.ctx, core.rp.x, core.rp.z, blocks);
+  }
+
+  /** Nouveau parcours : le tronçon déjà parcouru (le corps du cortège y reste), puis le détour depuis la tête. */
+  private applyDetour(d: Detour): void {
+    const core = this.core;
+    const f = core.formation;
+    const sp = spliceDetour(core.route.points, f.headS, d, core.corridor);
+    const pts = sp.points;
+    let len = 0;
+    for (let i = 2; i + 1 < pts.length; i += 2) len += Math.hypot(pts[i]! - pts[i - 2]!, pts[i + 1]! - pts[i - 1]!);
+    core.route = { points: pts, id: core.route.id, label: 'Parcours dévié', length: len };
+    core.corridor.build(core.ctx, pts);
+    // la tête repart du carrefour où l'on tourne : la chaîne des blocs s'y reforme
+    if (sp.headS < f.headS - 0.5) f.layoutFrom(sp.headS);
+    f.endS = Math.max(f.headS + 1, core.corridor.length - 2);
+    f.extraStop = Infinity;
+    f.stopS = Infinity;
+    f.arrived = false;
+    core.nav.exitsDirty = true;
+    this.blockedSince = -1;
+    this.blockedTold = false;
+    core.corridor.at(f.headS, core.rp);
+    const text = d.via !== '' ? `On ne nous laisse pas passer : on prend ${d.via} ! Restez groupés !` : 'On ne nous laisse pas passer : on change de parcours ! Restez groupés !';
+    core.voices.announce('consigne', text, core.rp.x, core.rp.z);
+    core.ctx.radio.say({ channel: 'commandement', from: 'CENTRAL', priority: 2, text: detourText('le cortège', d) });
+    core.ctx.events.emitAny('crowd:detour', { id: 1, x: core.rp.x, z: core.rp.z, toDestination: d.toDestination, name: d.name, via: d.via });
   }
 
   private finish(): void {

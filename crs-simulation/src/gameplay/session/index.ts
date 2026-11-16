@@ -23,6 +23,7 @@ import { FollowLeaderSystem } from './follow';
 import { PlayerOrdersSystem } from './orders';
 import { JourneeSystem } from './journee';
 import { EnginsSystem } from './engins';
+import { ManifestationsForcesSystem } from './manifestations';
 import { MissionBriefSystem } from './mission';
 export { FollowLeaderSystem } from './follow';
 export { ORDER_OBJECTIVE_ID, ORDERS_SERVICE, PlayerOrdersSystem } from './orders';
@@ -32,6 +33,7 @@ export type { JourneeApi, JourneeStage } from './journee';
 export { SERVICE_BASE, SERVICE_BASES, basePreload, baseOf, serviceBaseFor, isJournee } from './journee-data';
 export type { ServiceBase } from './journee-data';
 export { EnginsSystem } from './engins';
+export { ManifestationsForcesSystem, SESSION_MANIFS_SYSTEM_ID, sectionsFor } from './manifestations';
 export { MissionBriefSystem } from './mission';
 export { MISSION_OBJECTIVE_ID, MISSION_SERVICE } from './mission-api';
 export type { MissionBrief, MissionChief, MissionFamily } from './mission-api';
@@ -45,7 +47,7 @@ export type { Instruction, InstructionInputs, InstructionSource, InstructionTarg
  * ('session.follow', colonne de véhicules), les ordres de la chaîne de commandement IA au joueur ('session.orders') et la
  * journée de service ('session.journee' : caserne, colonne, manifestation, retour).
  */
-export const createSystems: ModuleFactory = () => [new SessionSetupSystem(), new TimeWarpSystem(), new FollowLeaderSystem(), new PlayerOrdersSystem(), new JourneeSystem(), new EnginsSystem(), new MissionBriefSystem()];
+export const createSystems: ModuleFactory = () => [new SessionSetupSystem(), new TimeWarpSystem(), new FollowLeaderSystem(), new PlayerOrdersSystem(), new JourneeSystem(), new EnginsSystem(), new MissionBriefSystem(), new ManifestationsForcesSystem()];
 
 export { SessionSetupSystem } from './setup';
 export { FAST_FORWARD_SCALE, TIME_WARP_SERVICE, TimeWarpSystem } from './timewarp';

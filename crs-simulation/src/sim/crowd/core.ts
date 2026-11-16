@@ -27,6 +27,7 @@ import { Nav } from './nav';
 import { buildPlan, resolveCause, spawnEntry } from './population';
 import type { Plan, PlanEntry } from './population';
 import { createCoreApi } from './core-api';
+import { Rerouter } from './detour';
 import { Corridor, chooseRoute } from './route';
 import type { ChosenRoute } from './route';
 import { Sense } from './sense';
@@ -78,6 +79,11 @@ export class CrowdCore {
   readonly aleas = new Aleas(this);
   readonly sono = new Sono(this);
   readonly voices = new Voices(this);
+  /** Détours du cortège principal (rues fermées), destination déclarée. */
+  readonly reroute = new Rerouter();
+  destX = 0;
+  destZ = 0;
+  destName = '';
 
   // ── personnes pilotées ──
   readonly members: Person[] = [];
@@ -141,6 +147,7 @@ export class CrowdCore {
     this.aleas.reset();
     this.sono.reset();
     this.voices.reset();
+    this.reroute.reset();
   }
 
   // ───────────────────────────── mise en place ─────────────────────────────
@@ -175,6 +182,11 @@ export class CrowdCore {
     this.cause = resolveCause(ctx, extra, this.rngSetup);
     this.route = chooseRoute(ctx, config, this.rngSetup.fork('parcours'));
     this.corridor.build(ctx, this.route.points);
+    const rp = this.route.points;
+    this.destX = rp.length >= 2 ? rp[rp.length - 2]! : this.rallyX;
+    this.destZ = rp.length >= 2 ? rp[rp.length - 1]! : this.rallyZ;
+    const dest = extra['crowd.destination'];
+    this.destName = typeof dest === 'string' && dest !== '' ? dest : ctx.world.sectorName(this.destX, this.destZ);
     const plan = buildPlan(ctx, this.cause, size, extra, this.tension0, this.volatility, this.rngSetup);
     this.plan = plan;
     this.size = plan.entries.length;
@@ -570,6 +582,27 @@ export class CrowdCore {
       this.director.stats.total++;
       this.director.onArrived();
     }
+    return p;
+  }
+
+  /**
+   * Manifestant d'une AUTRE manifestation (manifs.ts) : entrée d'un plan composé pour sa cause, habillé pour elle ;
+   * piloté par le module, hors statistiques et hors formation du cortège principal (drapeaux UNCOUNTED, FOYER).
+   */
+  spawnForeign(e: PlanEntry, cause: CrowdCause, x: number, z: number, heading: number): Person | null {
+    if (!this.active) return null;
+    this.spawning = true;
+    let p: Person;
+    try {
+      p = spawnEntry(this.ctx, cause, e, x, z, heading, this.nextSeed());
+    } finally {
+      this.spawning = false;
+    }
+    const b = this.addMember(p, F.LATE | F.UNCOUNTED | F.FOYER | (e.child ? F.CHILD : 0));
+    b.state = S.LINGER;
+    b.tx = x;
+    b.tz = z;
+    p.fear = 0;
     return p;
   }
 
