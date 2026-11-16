@@ -42,3 +42,14 @@ Points à reprendre lors de l'assemblage, parce qu'ils ont été décidés aprè
 - 59 nœuds `boundary` à l'intérieur de l'emprise = bouches de souterrains retirés (culs-de-sac pour le trafic).
 - Clé `hotel_crillon` : nom technique à renommer des deux côtés (carte et monuments) si on veut l'éviter.
 - Un bâtiment à `landmarkKey` sans définition de monument doit être extrudé normalement (repli).
+
+## Poste du commandant (décision du 16/11, après le lancement de l'interface et de l'IA)
+- `ui/command` : la carte tactique doit avoir DEUX niveaux d'information selon que le joueur-commandant est au véhicule de
+  commandement (≤ 8 m ou à bord : tout) ou à pied (rapports radio seulement : unités approximatives, pas de drone, foule
+  estimée). Publier/consommer un service `command.post` { atVehicle: boolean, vehicleId, lost: boolean }.
+- `sim/police/command` : créer et placer le véhicule de commandement (`vl_commandement`), le protéger (une escorte), le
+  déplacer sur ordre ; s'il est détruit → poste perdu (carte dégradée en permanence).
+- Sommations : vérifier la portée de mégaphone (le commandant doit être à ≤ ~60 m de la foule visée).
+- Moral : bonus aux unités proches du commandant à pied.
+- Mode « salle de commandement » : `GameMode` ou `config.extra.poste = 'salle'` ; pas de personnage incarné, caméra drone /
+  carte ; sommations déléguées à un officier IA sur ordre. À proposer sur la page d'accueil.

@@ -21,6 +21,22 @@ meilleur que les jeux « CRS simulation » existants. En priorité : **les manif
   qualité d'autorité habilitée (`look.sash = true`, mégaphone et fusée de sommation en dotation) ; le rôle `commissaire`
   du contrat est un simple alias du même rôle et n'est pas proposé séparément dans l'interface. Quand le joueur incarne
   un autre rôle, le commandant IA est lui aussi ce personnage unique.
+- **D'où le commandant commande** (décision du commanditaire) :
+  - **Mode normal — sur le terrain, avec son véhicule de commandement.** Le commandant est un vrai personnage qui fait des
+    allers-retours entre le front et son **véhicule de commandement (QG mobile)**, garé cent à deux cents mètres derrière
+    les lignes.
+    - *À pied, au contact* : il voit la situation de ses yeux ; sa présence soutient le moral des unités proches ; c'est
+      le SEUL endroit d'où il peut prononcer les **sommations** (il faut être à portée de mégaphone de la foule). En
+      contrepartie il est exposé, et sa carte tactique n'affiche que ce que les unités lui rapportent par radio (positions
+      et effectifs approximatifs, foule estimée, pas d'image du drone).
+    - *Au véhicule de commandement* (à bord ou à quelques mètres) : poste de travail complet — carte tactique détaillée,
+      image du drone en direct, état précis de chaque unité, densité de la foule, nuages de gaz, incidents. Il est à
+      l'abri mais ne voit plus le terrain, et doit ressortir pour les sommations. Le véhicule se déplace (lui-même au
+      volant ou sur ordre), doit être protégé, et s'il est pris à partie ou incendié le poste est perdu.
+    - La carte s'ouvre partout ; c'est sa **richesse** qui dépend de l'endroit. Les ordres partent toujours immédiatement.
+  - **Mode « salle de commandement »** (au choix sur la page d'accueil) : purement stratégique, façon préfet de police.
+    Pas de personnage sur le terrain : la carte complète, les caméras et le drone. Les ordres partent directement ; les
+    sommations sont prononcées sur son ordre par un officier présent sur place. Vue la plus complète, la moins immersive.
 - **Modes** : Carrière (on progresse de grade en grade) ; **Mode libre** (on choisit son rôle, son grade — y compris
   commandant directement — et sa mission) ; Monde ouvert (patrouille libre) ; Éditeur de scénario (lieu, effectif,
   tension, météo, heure).
