@@ -672,6 +672,7 @@ async function plan() {
   // repère par clic droit sur le plan
   await page.keyboard.press('KeyM');
   await settle(page, 600);
+  if (process.env.DEBUG_CMD) console.log('avant clic droit', JSON.stringify(await page.evaluate(() => ({ stack: window.__cmd.ui.stack(), el: document.elementFromPoint(820, 300).className, phase: window.__cmd.ctx.session.phase, v: (() => { const m = window.__cmd.ui.instance('carte'); return m ? { cx: m.map.view.cx, cz: m.map.view.cz, mpp: m.map.view.mpp } : null; })(), b: window.__cmd.ctx.world.bounds }))));
   await page.mouse.click(820, 300, { button: 'right' });
   await settle(page, 300);
   const wp2 = await page.evaluate(() => window.__cmd.maps.waypoint);

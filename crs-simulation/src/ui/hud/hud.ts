@@ -33,6 +33,19 @@ interface External {
   widget: HudWidget;
 }
 
+/** Messages transitoires que le HUD doit placer à côté de ses éléments (notifications, sous-titres). */
+export interface HudMessages {
+  toastCount(): number;
+  subtitleCount(): number;
+}
+
+/** Marges latérales (px à l'échelle 1) prises par la surcouche tactile de chaque disposition, en bas de l'écran. */
+const TOUCH_SIDES: Readonly<Record<Exclude<TouchMode, 'none'>, readonly [number, number]>> = {
+  pied: [176, 214],
+  vehicule: [210, 290],
+  drone: [176, 240],
+};
+
 export class Hud {
   readonly root: HTMLElement;
   readonly slots: Record<HudSlot, HTMLElement>;
@@ -49,7 +62,13 @@ export class Hud {
     this.sizeDirty = true;
   };
 
-  constructor(layer: HTMLElement, private readonly env: HudEnv, private readonly styleRoot: HTMLElement) {
+  private noticeTop = -1;
+  private subBottom = -1;
+
+  constructor(
+    layer: HTMLElement, private readonly env: HudEnv, private readonly styleRoot: HTMLElement,
+    private readonly messages: HudMessages = { toastCount: () => 0, subtitleCount: () => 0 },
+  ) {
     this.root = layer;
     layer.classList.add('ui-hud');
     layer.hidden = true;
@@ -126,8 +145,9 @@ export class Hud {
         ps.part.el.hidden = true;
         ps.part.hidden?.();
       }
-      this.styleRoot.style.removeProperty('--ui-sub-bottom');
-      this.styleRoot.style.removeProperty('--ui-notice-top');
+      for (const name of ['--ui-sub-bottom', '--ui-notice-top', '--ui-sub-max', '--ui-sub-shift']) this.styleRoot.style.removeProperty(name);
+      this.noticeTop = -1;
+      this.subBottom = -1;
       this.lastTouch = '';
     } else {
       this.tickAcc = TICK;
@@ -189,6 +209,33 @@ export class Hud {
         e.widget.update(dt);
       } catch (err) {
         console.error(`[ui] HUD « ${e.id} » : erreur dans update()`, err);
+      }
+    }
+    if (tick) this.placeMessages();
+  }
+
+  /**
+   * Notifications sous les éléments du haut, sous-titres au-dessus de ceux du bas : leur position suit
+   * la hauteur réelle des zones (qui dépend du rôle et des éléments ajoutés par d'autres modules).
+   * Une lecture de mise en page par rafraîchissement lent, et seulement tant qu'un message est affiché.
+   */
+  private placeMessages(): void {
+    const s = this.state;
+    if (this.messages.toastCount() > 0) {
+      const bottom = this.slots.top.getBoundingClientRect().bottom;
+      const top = Math.round(Math.max(bottom, 0) + 8);
+      if (Math.abs(top - this.noticeTop) > 1) {
+        this.noticeTop = top;
+        this.styleRoot.style.setProperty('--ui-notice-top', top + 'px');
+      }
+    }
+    if (this.messages.subtitleCount() > 0) {
+      const r = this.slots.bottom.getBoundingClientRect();
+      const top = r.height > 0 ? r.top : s.height - 20;
+      const bottom = Math.round(s.height - top + 8);
+      if (Math.abs(bottom - this.subBottom) > 1) {
+        this.subBottom = bottom;
+        this.styleRoot.style.setProperty('--ui-sub-bottom', bottom + 'px');
       }
     }
   }
@@ -270,12 +317,19 @@ export class Hud {
     this.root.setAttribute('data-touch', s.touch);
     this.root.setAttribute('data-compact', s.compact ? '1' : '0');
     this.root.style.setProperty('--ts', scale.toFixed(3));
-    // sous-titres au-dessus de la barre d'objets et de l'invite ; notifications sous la boussole
-    let subBottom: number;
-    if (s.touch === 'pied') subBottom = 68 * scale + (s.compact ? 74 : 110);
-    else if (s.touch !== 'none') subBottom = 10 * scale + (s.compact ? 96 : 130);
-    else subBottom = s.compact ? 118 : 156;
-    this.styleRoot.style.setProperty('--ui-sub-bottom', Math.round(subBottom) + 'px');
-    this.styleRoot.style.setProperty('--ui-notice-top', (s.compact ? 86 : 78) + 'px');
+    // en tactile, les sous-titres tiennent entre le joystick et les boutons d'action
+    if (s.touch === 'none') {
+      this.styleRoot.style.removeProperty('--ui-sub-max');
+      this.styleRoot.style.removeProperty('--ui-sub-shift');
+    } else {
+      const [left, right] = TOUCH_SIDES[s.touch];
+      this.styleRoot.style.setProperty('--ui-sub-max', Math.round(s.width - (left + right) * scale) + 'px');
+      this.styleRoot.style.setProperty('--ui-sub-shift', Math.round(((left - right) * scale) / 2) + 'px');
+    }
+    // positions de départ des messages ; affinées par placeMessages() dès qu'un message est affiché
+    this.noticeTop = -1;
+    this.subBottom = -1;
+    this.styleRoot.style.setProperty('--ui-sub-bottom', (s.touch === 'pied' ? Math.round(68 * scale) + 60 : s.compact ? 110 : 150) + 'px');
+    this.styleRoot.style.setProperty('--ui-notice-top', (s.compact ? 92 : 80) + 'px');
   }
 }

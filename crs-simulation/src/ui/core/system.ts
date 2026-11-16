@@ -34,7 +34,7 @@ import type { ObjectivesStore } from './objectives';
 import { ScreenManager } from './screens';
 import type { OpenScreen } from './screens';
 import { Hud } from '../hud/hud';
-import { createDroneOverlay, createViewfinder } from '../hud/cameras';
+import { createDroneBand, createDroneFrame, createViewfinderBand, createViewfinderFrame } from '../hud/cameras';
 import { createCenter } from '../hud/center';
 import { createCompass } from '../hud/compass';
 import { createItemBar, createPrompt } from '../hud/items';
@@ -139,7 +139,10 @@ export class UiSystem implements GameSystem {
     });
     const widgets = new Widgets(feedback, (container: HTMLElement) => this.nav.createGroup(container));
     const hudEnv: HudEnv = { ctx, objectives: this.objectives, keyLabel: (b: Button) => keyLabelOf(ctx, b) };
-    this.hud = new Hud(hudLayer, hudEnv, root);
+    this.hud = new Hud(hudLayer, hudEnv, root, {
+      toastCount: () => this.notices.toastCount,
+      subtitleCount: () => this.notices.subtitleCount,
+    });
     this.kit = createKit({ ctx, root: host, screens: this.screens, hud: this.hud, nav: this.nav, widgets });
     this.tooltip = new Tooltip(root);
     this.env = {
@@ -201,16 +204,18 @@ export class UiSystem implements GameSystem {
     const env: HudEnv = { ctx, objectives: this.objectives, keyLabel: (b: Button) => keyLabelOf(ctx, b) };
     this.hud.mount([
       createMarkers(env),
-      createDroneOverlay(env),
-      createViewfinder(env),
+      createDroneFrame(env),
+      createViewfinderFrame(env),
       createCenter(env, this.hud.root),
       createSituation(env),
       createFps(env),
       createCompass(env),
+      createDroneBand(env),
       createObjectivesPart(env),
       createStatus(env),
       createVehicleHud(env),
       createPrompt(env),
+      createViewfinderBand(env),
       createItemBar(env),
     ]);
 

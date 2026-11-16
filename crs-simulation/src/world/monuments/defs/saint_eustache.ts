@@ -17,11 +17,13 @@ import { BOX, EMPRISE } from '../collide/saint_eustache';
 
 export const EU = {
   /** Repère de l'église dans le repère du monument : rotation (rad) et origine. */
-  TILT: -0.0872, OX: 3, OZ: 0.5,
-  /** Dans le repère de l'église : façade, fond du massif de façade, transept (ouest, est), centre du chevet. */
-  ZF: 51.5, ZB: 44.5, ZT0: 10, ZT1: -4, ZA: -30,
+  TILT: -0.0872, OX: 2.2, OZ: 0.45,
+  /** Dans le repère de l'église : façade, fond du massif de façade, transept (ouest, est), fin du chœur large, centre du chevet. */
+  ZF: 51.5, ZB: 44.5, ZT0: 10, ZT1: -4, ZC: -22, ZA: -34.7,
   /** Demi-largeurs : chapelles, bas-côtés, vaisseau, transept, façade. */
-  HB: 21.2, HM: 14, HN: 7.2, HT: 21.8, HF: 18,
+  HB: 20.5, HM: 14, HN: 7.2, HT: 21.8, HF: 18,
+  /** Chevet resserré par la rue Montmartre (emprise réelle) : décalage de son axe, demi-largeurs des chapelles et du déambulatoire. */
+  AX2: 1.3, HB2: 14.5, HM2: 10.6,
   WALL: 33.5, RIDGE: 43, LANTERN: 52,
 } as const;
 
@@ -38,16 +40,16 @@ const ATLAS = gothicAtlas('eustache_baies', TINT, [
   { id: 'beffroi', kind: 'baie', w: 10, h: 13, pier: 1.5, cornice: true, win: { w: 3, h: 8.6, sill: 2, lancets: 1, round: true, glass: 'abat_son' } },
 ], 37);
 
-function spec(lod: 0 | 1): NaveSpec {
+function spec(lod: 0 | 1, narrow = false): NaveSpec {
   return {
     atlas: ATLAS, stone: STONE, roof: SLATE, ajour: AJOUR, lod,
     tiers: [
-      { half: EU.HB, y0: 0, y1: 10.5, row: 'chapelle', rail: true },
-      { half: EU.HM, y0: 12, y1: 20.5, row: 'tribune' },
+      { half: narrow ? EU.HB2 : EU.HB, y0: 0, y1: 10.5, row: 'chapelle', rail: true },
+      { half: narrow ? EU.HM2 : EU.HM, y0: 12, y1: 20.5, row: 'tribune' },
       { half: EU.HN, y0: 23, y1: EU.WALL, row: 'haute', rail: true },
     ],
     roofRise: EU.RIDGE - EU.WALL,
-    pier: { w: 1.25, out: 0.4, inn: 3, h: 23.5, pinnacle: 5 },
+    pier: { w: 1.25, out: 0.4, inn: narrow ? 2 : 3, h: 23.5, pinnacle: 5 },
     flying: { y0: 20.5, y1: 28.5, t: 0.8, second: { y0: 12, y1: 18.5, land: 1 } },
     strip: { w: 0.9, d: 0.45, pinnacle: 2.2 },
   };
@@ -83,17 +85,22 @@ function transeptFront(b: Builder, lod: 0 | 1): void {
 function build(site: MonumentSite, quality: QualityLevel): Builder {
   const b = new Builder();
   const lod: 0 | 1 = quality === 'bas' ? 0 : 1;
-  const { TILT, OX, OZ, ZF, ZB, ZT0, ZT1, ZA, HN, HT, HF, WALL, RIDGE, LANTERN } = EU;
+  const { TILT, OX, OZ, ZF, ZB, ZT0, ZT1, ZC, ZA, HB, HM, HN, HT, HF, AX2, HB2, HM2, WALL, RIDGE, LANTERN } = EU;
   b.push(siteAlign(site, EMPRISE, BOX));
   b.push(pose(OX, 0, OZ, TILT));
-  const s = spec(lod);
+  const s = spec(lod), s2 = spec(lod, true);
   b.with(pose(0, 0, ZT0), () => gothicNave(b, s, ZB - ZT0, 5, { skip: [0, 5] }));
-  b.with(pose(0, 0, ZA), () => { gothicNave(b, s, ZT1 - ZA, 4, { skip: [4] }); gothicApse(b, s, 7); });
+  b.with(pose(0, 0, ZC), () => gothicNave(b, s, ZT1 - ZC, 3, { skip: [3] }));
+  // chevet resserré : deux travées étroites puis l'abside, désaxées vers le sud (emprise réelle, rue Montmartre)
+  b.with(pose(AX2, 0, ZA), () => { gothicNave(b, s2, ZC - ZA, 2, { skip: [2] }); gothicApse(b, s2, 7); });
   const stone = new Geo(), walls = new Geo(), slate = new Geo(), trim = new Geo();
+  stone.append(wallM(HB, ZC, AX2 + HB2, ZC, 0, 10.5)).append(wallM(AX2 - HB2, ZC, -HB, ZC, 0, 10.5));
+  stone.append(wallM(HM, ZC, AX2 + HM2, ZC, 10.5, 20.5)).append(wallM(AX2 - HM2, ZC, -HM, ZC, 10.5, 20.5));
   // ── chapelle de la Vierge et son clocheton ──
-  stone.append(cyl(5.6, 5.6, 14, 14, { top: false }).translate(0, 0, ZA - 18.4));
-  slate.append(cyl(5.9, 0, 6, 14, { top: false }).translate(0, 14, ZA - 18.4));
-  b.with(pose(0, 19, ZA - 18.4), () => lantern(b, { radius: 1.2, height: 6, mat: STONE, matRoof: SLATE, bays: 6, finial: 'croix' }));
+  const lx = AX2 + 1.3, lz = ZA - 13.4;
+  stone.append(cyl(4.1, 4.1, 13, 12, { top: false }).translate(lx, 0, lz));
+  slate.append(cyl(4.4, 0, 5, 12, { top: false }).translate(lx, 13, lz));
+  b.with(pose(lx, 17.2, lz), () => lantern(b, { radius: 1.0, height: 5.4, mat: STONE, matRoof: SLATE, bays: 6, finial: 'croix' }));
   // ── transept, croisée, lanternon ──
   for (const sg of [-1, 1]) {
     const xi = sg * HN, xo = sg * HT;
@@ -150,22 +157,23 @@ export const def: MonumentDef = {
   build(site, quality) { return build(site, quality).build('saint_eustache'); },
   buildFar(site) {
     const b = new Builder();
-    const { TILT, OX, OZ, ZF, ZB, ZT0, ZT1, ZA, HB, HM, HN, HT, HF, WALL, RIDGE, LANTERN } = EU;
+    const { TILT, OX, OZ, ZF, ZB, ZT0, ZT1, ZC, ZA, HB, HM, HN, HT, HF, AX2, HB2, WALL, RIDGE, LANTERN } = EU;
     const stone = farMaterial(0xd9cdb0), roof = farMaterial(0x4a5059, 0.25);
     b.push(siteAlign(site, EMPRISE, BOX));
     b.push(pose(OX, 0, OZ, TILT));
     b.add(stone, boxAt(-HF, 0, ZB, HF, 27, ZF));
     b.add(stone, boxAt(-HF, 27, ZF - 10.4, -HF + 10.4, 41, ZF));
-    b.add(stone, boxAt(-HB, 0, ZA, HB, 10.5, ZB, { top: true }));
-    b.add(stone, boxAt(-HM, 10.5, ZA, HM, 20.5, ZB));
+    b.add(stone, boxAt(-HB, 0, ZC, HB, 10.5, ZB, { top: true }));
+    b.add(stone, boxAt(-HM, 10.5, ZC, HM, 20.5, ZB));
+    b.add(stone, boxAt(AX2 - HB2, 0, ZA, AX2 + HB2, 14, ZC, { top: true }));
     b.add(stone, boxAt(-HN, 20.5, ZA, HN, WALL, ZB, { top: false }));
     b.add(roof, gableRoof(HN + 0.35, ZA, ZB, RIDGE - WALL).translate(0, WALL, 0));
     b.add(stone, boxAt(-HT - 1, 0, ZT1, HT + 1, WALL, ZT0, { top: false }));
     b.add(roof, gableRoof((ZT0 - ZT1) / 2, -HT - 1, HT + 1, RIDGE - WALL, true).rotateY(Math.PI / 2).translate(0, WALL, (ZT0 + ZT1) / 2));
-    b.add(stone, cyl(HB, HB, 10.5, 8, { start: Math.PI / 2, sweep: Math.PI, flat: true, top: false }).translate(0, 0, ZA));
-    b.add(stone, cyl(HN, HN, WALL, 8, { start: Math.PI / 2, sweep: Math.PI, flat: true, top: false }).translate(0, 0, ZA));
-    b.add(roof, cyl(HB, HN, 10, 8, { start: Math.PI / 2, sweep: Math.PI, flat: true, top: false }).translate(0, 10.5, ZA));
-    b.add(roof, cyl(HN + 0.35, 0, RIDGE - WALL, 8, { start: Math.PI / 2, sweep: Math.PI, flat: true, top: false }).translate(0, WALL, ZA));
+    b.add(stone, cyl(HB2, HB2, 12, 8, { start: Math.PI / 2, sweep: Math.PI, flat: true, top: false }).translate(AX2, 0, ZA));
+    b.add(stone, cyl(HN, HN, WALL, 8, { start: Math.PI / 2, sweep: Math.PI, flat: true, top: false }).translate(AX2, 0, ZA));
+    b.add(roof, cyl(HB2, HN, 9, 8, { start: Math.PI / 2, sweep: Math.PI, flat: true, top: false }).translate(AX2, 12, ZA));
+    b.add(roof, cyl(HN + 0.35, 0, RIDGE - WALL, 8, { start: Math.PI / 2, sweep: Math.PI, flat: true, top: false }).translate(AX2, WALL, ZA));
     b.add(roof, cyl(1.9, 0.2, LANTERN - RIDGE, 6, { flat: true }).translate(0, RIDGE, (ZT0 + ZT1) / 2));
     b.pop(); b.pop();
     return finishFar(b, 'saint_eustache');

@@ -343,6 +343,47 @@ describe('adverse — grille de hachage spatiale', () => {
     expect(out.length).toBe(all.length);
   });
 
+  it('insérer ou déplacer depuis un filtre : pris en compte à la fin de la requête, sans la perturber', () => {
+    const grid = new SpatialHash<Pt>(2, 16); // capacité minimale : les insertions forcent un agrandissement
+    const all: Pt[] = [];
+    const slot = new Map<Pt, number>();
+    for (let i = 0; i < 100; i++) {
+      const p: Pt = { id: i + 1, x: (i % 10) * 0.5, z: Math.floor(i / 10) * 0.5 };
+      all.push(p);
+      slot.set(p, grid.insert(p));
+    }
+    const out: Pt[] = [];
+    const seen: Pt[] = [];
+    const before = brute(all, 2, 2, 1.5);
+    let born = 0;
+    const n = grid.query(2, 2, 1.5, out, (p) => {
+      seen.push(p);
+      // chaque élément examiné fait naître un voisin au même endroit et déménage lui-même très loin
+      const twin: Pt = { id: 1000 + p.id, x: p.x, z: p.z };
+      all.push(twin);
+      slot.set(twin, grid.insert(twin));
+      born++;
+      // requête imbriquée : les jumeaux ne sont pas encore indexés, et ceux qui ont déjà déménagé
+      // ne sont plus à portée (la distance se mesure toujours à la position courante)
+      expect(grid.count(2, 2, 1.5)).toBe(before.length - (seen.length - 1));
+      p.x += 500;
+      grid.update(slot.get(p)!);
+      return true;
+    });
+    // la requête a vu exactement les éléments présents à son début, une fois chacun
+    expect(n).toBe(before.length);
+    expect(seen.map((p) => p.id).sort((a, b) => a - b)).toEqual(before);
+    expect(born).toBe(before.length);
+    expect(grid.size).toBe(all.length);
+    // une fois la requête terminée : les jumeaux sont trouvés sur place, les déménagés à leur nouvelle adresse
+    grid.query(2, 2, 1.5, out);
+    expect(out.map((p) => p.id).sort((a, b) => a - b)).toEqual(brute(all, 2, 2, 1.5));
+    expect(out.every((p) => p.id > 1000)).toBe(true);
+    grid.query(502, 2, 1.5, out);
+    expect(out.map((p) => p.id).sort((a, b) => a - b)).toEqual(before);
+    expect(grid.nearest(502, 2, 0.01)).not.toBeNull();
+  });
+
   it('removeItem reste rapide dans une grande grille : coût linéaire, pas quadratique', () => {
     /** Durée du retrait un à un de n éléments (meilleure de trois mesures : la machine de test est partagée). */
     const measure = (n: number): number => {

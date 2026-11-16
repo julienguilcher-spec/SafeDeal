@@ -182,6 +182,15 @@ export class Notices {
     }
   }
 
+  /** Notifications et sous-titres présents à l'écran (le HUD les place alors à côté de ses éléments). */
+  get toastCount(): number {
+    return this.toasts.length;
+  }
+
+  get subtitleCount(): number {
+    return this.subs.length;
+  }
+
   /** Efface tout (nouvelle session). */
   clear(): void {
     for (const t of this.toasts) t.el.remove();

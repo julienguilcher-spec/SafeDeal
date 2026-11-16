@@ -228,14 +228,17 @@ function build(site: MonumentSite, quality: QualityLevel): Builder {
     statues.append(figureGeo({ height: 3.3, lod: 0, robe: true, armR: { e: 0.9, a: 0.5 } }).body.rotateY(Math.atan2(dx, dz)).translate(AX + dx * e, y + 0.5, ZC + dz * e));
   }
   b.add(COPPER, statues);
-  // ── sacristie (sud) : corps bas à haut comble, relié au chœur ──
-  const sx0 = 15, sx1 = 38.4, sz0 = -44.4, sz1 = -15.2, sh = 9.5;
-  const sr = rectRing((sx0 + sx1) / 2, (sz0 + sz1) / 2, sx1 - sx0, sz1 - sz0);
-  for (let i = 0; i < 4; i++) { const j = (i + 1) % 4; walls.append(rowWall(ATLAS, 'tribune', sr[2 * i], sr[2 * i + 1], sr[2 * j], sr[2 * j + 1], 0, sh)); }
-  stone.append(sweep(corniceProfile(sh - 0.45, 0.45, 0.35, true), sr, { closed: true }));
-  lead.append(hipRoof((sx1 - sx0) / 2 + 0.3, sz0 - 0.3, sz1 + 0.3, 6.5, 6).translate((sx0 + sx1) / 2, sh, 0));
-  stone.append(boxAt(AX + HB - 0.5, 0, -37.5, sx0 + 0.2, 6.2, -21));
-  for (const [px, pz] of [[sx0, sz0], [sx1, sz0], [sx0, sz1], [sx1, sz1]]) stone.append(pinnacle(1.1, 5, lod).translate(px, sh, pz));
+  // ── sacristie (sud) : corps bas à haut comble et aile est, reliés au chœur (plan relevé sur l'emprise) ──
+  const sh = 9.5;
+  for (const [x0, z0, x1, z1] of [[15.6, -44.2, 31.2, -15.4], [31.0, -39.4, 38.2, -29.9]]) {
+    const sr = rectRing((x0 + x1) / 2, (z0 + z1) / 2, x1 - x0, z1 - z0);
+    for (let i = 0; i < 4; i++) { const j = (i + 1) % 4; walls.append(rowWall(ATLAS, 'tribune', sr[2 * i], sr[2 * i + 1], sr[2 * j], sr[2 * j + 1], 0, sh)); }
+    stone.append(sweep(corniceProfile(sh - 0.45, 0.45, 0.35, true), sr, { closed: true }));
+    if (x1 - x0 > z1 - z0) lead.append(hipRoof((z1 - z0) / 2 + 0.3, -(x1 - x0) / 2 - 0.3, (x1 - x0) / 2 + 0.3, 5, 4).rotateY(Math.PI / 2).translate((x0 + x1) / 2, sh, (z0 + z1) / 2));
+    else lead.append(hipRoof((x1 - x0) / 2 + 0.3, z0 - 0.3, z1 + 0.3, 6.5, 6).translate((x0 + x1) / 2, sh, 0));
+    for (const [px, pz] of [[x0, z0], [x1, z0], [x0, z1], [x1, z1]]) stone.append(pinnacle(1.0, 4.6, lod).translate(px, sh, pz));
+  }
+  stone.append(boxAt(AX + HB - 0.5, 0, -37.5, 15.8, 6.2, -21));
   b.add(STONE, stone); b.add(ATLAS.key, walls); b.add(LEAD, lead);
   b.pop();
   // ── parvis : dallage clair, point zéro des routes de France, Charlemagne et ses leudes (bronze) ──
@@ -277,7 +280,7 @@ export const def: MonumentDef = {
     b.add(roof, cyl(HN + 0.35, 0, RIDGE - WALL, 8, { start: Math.PI / 2, sweep: Math.PI, flat: true, top: false }).translate(AX, WALL, ZA));
     b.add(roof, cyl(3.4, 2.2, 14, 8, { flat: true, top: false }).translate(AX, RIDGE - 1, ZC));
     b.add(roof, cyl(1.9, 0.05, ND.SPIRE - RIDGE - 13, 8, { flat: true, top: false }).translate(AX, RIDGE + 13, ZC));
-    b.add(stone, boxAt(15, 0, -44.4, 38.4, 11, -15.2));
+    b.add(stone, boxAt(15.6, 0, -44.2, 31.2, 11, -15.4));
     b.pop();
     return finishFar(b, 'notre_dame');
   },
