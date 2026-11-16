@@ -46,6 +46,13 @@ const _hazeColor = new THREE.Color();
 /** Distance de base (m) du modèle détaillé selon la qualité ; s'y ajoute 2,5 × la hauteur du monument. */
 const NEAR_BASE: Record<QualityLevel, number> = { bas: 160, moyen: 230, haut: 310, ultra: 420 };
 const HYSTERESIS = 1.14;
+/**
+ * Construction anticipée : le modèle détaillé est construit (caché) dès PREBUILD × la distance de détail, tant que la
+ * silhouette reste affichée ; l'à-coup de construction arrive donc loin, avant que le monument ne soit regardé de près.
+ * Il n'est libéré qu'au-delà de RELEASE × cette distance, pour ne pas reconstruire à chaque aller-retour.
+ */
+const PREBUILD = 1.7;
+const RELEASE = 2.4;
 /** Durée du scintillement en début d'heure (minutes de jeu). */
 const SPARKLE_MINUTES = 5;
 
@@ -323,13 +330,17 @@ export class MonumentSystem implements GameSystem {
         if (farBuilt >= 4) continue;
         s.far = s.def.buildFar(s.site); s.group.add(s.far); farBuilt++;
       }
+      // anticipation : le détaillé se construit pendant que la silhouette est encore affichée
+      if (want === 1 && !s.near && d < nearDist * PREBUILD && (!buildNear || d < buildNear.dist)) buildNear = s;
       this.show(s, want);
     }
     if (buildNear) {
       const s = buildNear;
       s.near = s.def.build(s.site, this.quality);
       s.group.add(s.near);
-      this.show(s, 2);
+      // construit d'avance : il reste caché tant que le monument n'est pas assez proche
+      const nearDist = NEAR_BASE[this.quality] + s.def.height * 2.5;
+      this.show(s, s.dist < nearDist ? 2 : s.level);
     }
   }
 
@@ -339,7 +350,7 @@ export class MonumentSystem implements GameSystem {
     if (s.near) s.near.visible = level === 2;
     if (s.far) s.far.visible = level === 1;
     // libération : le détaillé dès qu'on s'en éloigne, la silhouette quand on sort de la distance d'affichage
-    if (level !== 2 && s.near && s.dist > (NEAR_BASE[this.quality] + s.def.height * 2.5) * HYSTERESIS) { s.group.remove(s.near); disposeObject(s.near); s.near = null; }
+    if (level !== 2 && s.near && s.dist > (NEAR_BASE[this.quality] + s.def.height * 2.5) * RELEASE) { s.group.remove(s.near); disposeObject(s.near); s.near = null; }
     if (level === 0 && s.far) { s.group.remove(s.far); disposeObject(s.far); s.far = null; }
   }
 

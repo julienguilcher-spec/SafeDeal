@@ -421,3 +421,9 @@ un téléphone lancé en portrait trouve désormais la session EN PAUSE (c'étai
   joueur (`gameplay/session/setup.ts`).
 - Mesuré (`integration.forces.test.ts`) : après 60 s de déploiement de la compagnie, équipiers à 1-2 m du joueur ; ordre
   « avancer » de 25 m exécuté en moins de 30 s (équipiers à moins de 3,1 m du point).
+
+## Gel près des monuments (16/11) — ATTÉNUÉ
+- Le modèle détaillé est construit d'avance, caché, dès 1,7 × la distance de détail (la silhouette reste affichée), et
+  n'est libéré qu'au-delà de 2,4 × (`src/world/monuments/system.ts`, PREBUILD / RELEASE). L'à-coup de construction a lieu
+  loin du monument et une seule fois par passage ; il n'est pas supprimé (construction synchrone). Non mesuré dans le
+  navigateur après correction.

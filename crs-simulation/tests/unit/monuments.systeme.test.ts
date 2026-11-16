@@ -152,8 +152,8 @@ describe('système des monuments', () => {
     const detailed = arc.children.find((c) => c.name === 'arc_triomphe') as THREE.Object3D;
     let disposed = 0;
     detailed.traverse((c) => { const m = c as THREE.Mesh; if (m.geometry) m.geometry.addEventListener('dispose', () => { disposed++; }); });
-    // à 900 m : silhouette seule, le détaillé est libéré
-    f.cam.x = 900; f.cam.z = 0;
+    // à 1 300 m (au-delà de 2,4 × la distance de détail) : silhouette seule, le détaillé est libéré
+    f.cam.x = 1300; f.cam.z = 0;
     f.run(2);
     expect(arc.children.some((c) => c.name === 'arc_triomphe')).toBe(false);
     expect(arc.children.some((c) => c.visible && c.name === 'arc_triomphe:loin')).toBe(true);
