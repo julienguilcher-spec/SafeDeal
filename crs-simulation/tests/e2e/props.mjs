@@ -39,10 +39,14 @@ if (filter === 'libre') {
   await finish({ browser: browserRef, server, errors: allErrors, label: 'props' });
 }
 
-// (a) planches : tous les objets dans tous leurs états, avec la silhouette de 1,80 m
-for (let p = 1; p <= 6; p++) await capture(`planche-${p}`, `view=planche&page=${p}&pas=0.033`);
-if (all) for (let p = 1; p <= 6; p++) await capture(`planche-${p}-nuit`, `view=planche&page=${p}&nuit=1&pas=0.033`);
-else await capture('planche-5-nuit', 'view=planche&page=5&nuit=1&pas=0.033');
+// (a) planches : tous les objets dans tous leurs états, avec la silhouette de 1,80 m (deux demi-planches par page)
+for (let p = 1; p <= 5; p++) {
+  await capture(`planche-${p}a`, `view=planche&page=${p}&moitie=1&pas=0.033`);
+  await capture(`planche-${p}b`, `view=planche&page=${p}&moitie=2&pas=0.033`);
+}
+await capture('planche-6', 'view=planche&page=6&pas=0.033');
+await capture('planche-5a-nuit', 'view=planche&page=5&moitie=1&nuit=1&pas=0.033');
+if (all) for (let p = 1; p <= 6; p++) await capture(`planche-${p}-entiere`, `view=planche&page=${p}&pas=0.033`);
 // (b) devantures dans tous les états, de jour et de nuit
 for (let p = 1; p <= 3; p++) await capture(`devantures-${p}`, `view=devantures&page=${p}&pas=0.033`);
 for (let p = 1; p <= (all ? 3 : 2); p++) await capture(`devantures-${p}-nuit`, `view=devantures&page=${p}&nuit=1&pas=0.033`);
@@ -51,18 +55,38 @@ await capture('rue-trottoir', 'view=rue&pas=0.033', { frames: 10 });
 await capture('rue-haut', 'view=rue&cam=haut&pas=0.033', { frames: 10 });
 await capture('rue-emeute', 'view=rue&cam=emeute&pas=0.033', { frames: 10 });
 await capture('rue-nuit', 'view=rue&nuit=1&pas=0.033', { frames: 10 });
-await capture('rue-haut-nuit', 'view=rue&cam=haut&nuit=1&pas=0.033', { frames: 10 });
+// sans le service 'render.lights' : halos et taches de lumière à coût fixe seulement
+await capture('rue-haut-nuit-sans-lumieres', 'view=rue&cam=haut&nuit=1&lumieres=0&pas=0.033', { frames: 10 });
 await capture('rue-carrefour-nuit', 'view=rue&cam=carrefour&nuit=1&pas=0.033', { frames: 10 });
-if (all) await capture('rue-bas', 'view=rue&qualite=bas&pas=0.033', { frames: 10, width: 844, height: 390 });
+// qualité basse (téléphone) : matériau diffus, pas d'ombre, atlas de 1024
+await capture('rue-bas', 'view=rue&qualite=bas&pas=0.033', { frames: 10, width: 844, height: 390 });
+// sans le service 'props.ext' de la simulation : états déduits du seul contrat
+if (all) await capture('devantures-2-sans-ext', 'view=devantures&page=2&ext=0&pas=0.033');
 // (d) barricade avant, pendant et après le feu
 await capture('barricade', 'view=barricade&pas=0.033', { frames: 10 });
-await capture('barricade-nuit', 'view=barricade&nuit=1&pas=0.033', { frames: 10 });
+await capture('barricade-avant', 'view=barricade&cam=avant&pas=0.033', { frames: 10 });
+await capture('barricade-feu-nuit', 'view=barricade&cam=feu&nuit=1&pas=0.033', { frames: 10 });
+await capture('barricade-apres', 'view=barricade&cam=apres&pas=0.033', { frames: 10 });
 // (e) vue d'ensemble de 3 000 objets
 const masse = await capture('masse-3000', 'view=masse&n=3000&pas=0.033', { frames: 12, timeout: 600000 });
 await capture('masse-3000-nuit', 'view=masse&n=3000&nuit=1&pas=0.033', { frames: 12, timeout: 600000 });
 await capture('masse-3000-sol', 'view=masse&n=3000&cam=sol&pas=0.033', { frames: 12, timeout: 600000 });
 if (all) await capture('masse-3000-bas', 'view=masse&n=3000&qualite=bas&pas=0.033', { frames: 12, timeout: 600000, width: 844, height: 390 });
 if (all) await capture('atlas', 'view=atlas', { frames: 1, width: 1200, height: 1200 });
+// (g) contrôle d'intégration : vrai rendu de base, vrai monde d'essai, vraie simulation du décor. Les erreurs de
+// ces modules (écrits par d'autres) sont signalées sans faire échouer ce test.
+{
+  const before = allErrors.length;
+  try {
+    const jeu = await capture('jeu-nuit', 'view=jeu&boutique=40&nuit=1&pas=0.033', { frames: 14, timeout: 600000 });
+    if (jeu) console.log(`[props] jeu intégré : ${jeu.props} objets et ${jeu.shops} vitrines suivis (simulation : ${jeu.simProps} et ${jeu.simShops}), `
+      + `${jeu.drawCalls} appels de dessin (+${jeu.shadowCalls} ombre), ${jeu.lights} vraies lumières`);
+  } catch (err) {
+    console.warn('[props] contrôle d’intégration impossible : ' + (err && err.message ? err.message : err));
+  }
+  const foreign = allErrors.splice(before);
+  for (const e of foreign) console.warn('[props] (intégration, non bloquant) ' + e);
+}
 
 // (f) mesures : coût CPU du module seul (sans rendu), appels de dessin, triangles
 async function measure(name, query) {
