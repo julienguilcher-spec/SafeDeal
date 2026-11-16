@@ -33,7 +33,7 @@ import { createSharedResources, disposeSharedResources } from './shared';
 import type { SharedResources } from './shared';
 import { DetailTile, FarTile, releaseTileScratch } from './tiles';
 import type { CityContext } from './tiles';
-import { releaseTinScratch } from './tin';
+import { releaseTinScratch, setTinCell } from './tin';
 
 /** Forme du service « world.data » (voir src/world/query/api.ts). */
 interface WorldDataLike extends Map2dSource {
@@ -159,6 +159,8 @@ export class WorldViewSystem implements GameSystem {
     this.disposeShared();
     this.quality = quality;
     const antialias = renderer.getContextAttributes()?.antialias === true;
+    // réseau de facettes du sol de cette qualité, avant toute construction de tuile
+    setTinCell(cityQuality(quality).tinCell);
     this.shared = createSharedResources(cityQuality(quality), antialias);
     // L'atlas des façades est peint ici lui aussi, et non à la première tuile.
     if (this.options.buildings !== false) prepareSharedBuildingResources(quality);

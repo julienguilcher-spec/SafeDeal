@@ -595,4 +595,7 @@ export class FarTile {
 }
 
 /** Pas du sol en facettes et nombre de facettes : rappel pour les mesures. */
-export const DETAIL_GRID = { cell: TIN_CELL, count: TIN_N } as const;
+export const DETAIL_GRID = {
+  get cell(): number { return TIN_CELL; },
+  get count(): number { return TIN_N; },
+};

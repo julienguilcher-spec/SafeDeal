@@ -500,3 +500,9 @@ un téléphone lancé en portrait trouve désormais la session EN PAUSE (c'étai
   Commandant et commissaire n'en reçoivent pas.
 - Vérifié : `tests/unit/integration.ordres-joueur.test.ts` (4 rôles + commandant) ; `tests/e2e/verif-ordre-joueur.mjs`
   (objectif, itinéraire GPS sur la mini-carte, sous-titre radio dans le vrai jeu).
+
+## Allègement téléphone, suite (16/11) — sol en facettes de 16 m en « bas »
+- `world/view/tin.ts` : côté des facettes réglable (`setTinCell`), appliqué par le système de la ville avant toute
+  construction de tuile (`quality.tinCell` : 16 m en « bas », 8 m sinon) ; un changement de qualité reconstruit tout.
+- Mesure `tests/e2e/perf-bas.mjs` (Concorde) : sol 214 000 → 129 000 triangles ; total 495 000 → 409 000.
+- Vu au navigateur (Concorde, quai, Tuileries) : ni trou ni trottoir flottant.

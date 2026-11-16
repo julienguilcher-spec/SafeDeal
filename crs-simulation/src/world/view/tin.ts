@@ -11,10 +11,22 @@
 
 import { TILE_SIZE } from '../mapdata';
 
-/** Côté d'une facette (m). */
-export const TIN_CELL = 8;
-/** Facettes par côté de tuile. */
-export const TIN_N = TILE_SIZE / TIN_CELL;
+/**
+ * Côté d'une facette (m) et facettes par côté de tuile. 8 m par défaut ; 16 m en qualité « bas » (téléphone : le
+ * sol, premier poste de triangles, est divisé par trois). Réglé par le système de la ville AVANT de construire les
+ * tuiles (setTinCell) : toutes les tuiles d'une même qualité partagent le même réseau, et un changement de qualité
+ * reconstruit tout. Liaison vivante : les modules qui importent ces valeurs lisent toujours le réglage courant.
+ */
+export let TIN_CELL = 8;
+export let TIN_N = TILE_SIZE / TIN_CELL;
+
+/** Règle le côté des facettes (diviseur du côté de tuile). À n'appeler qu'avant la reconstruction des tuiles. */
+export function setTinCell(cell: number): void {
+  const n = Math.round(TILE_SIZE / cell);
+  if (n < 1 || TILE_SIZE / n === TIN_CELL) return;
+  TIN_CELL = TILE_SIZE / n;
+  TIN_N = n;
+}
 
 export class TileTin {
   readonly ox: number;
