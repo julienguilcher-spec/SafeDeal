@@ -52,6 +52,8 @@ export class BravmUnit extends SpecialUnit {
   private readonly motos: Vehicle[] = [];
   /** Durée maximale du trajet en cours avant de finir à pied (s). */
   private rideMax = 240;
+  /** Prochaine revue des motos qui ne suivent plus (s). */
+  private stragglerAt = 0;
   private readonly people: Person[] = [];
   private tx = 0;
   private tz = 0;
@@ -337,6 +339,17 @@ export class BravmUnit extends SpecialUnit {
       this.slow = false;
       this.convoy(core.tuning.bravmSpeed);
     }
+    // une moto qui ne suit plus (coincée au départ, perdue dans la circulation) rejoint le point seule
+    if (now >= this.stragglerAt) {
+      this.stragglerAt = now + 5;
+      for (let i = 1; i < this.motos.length; i++) {
+        const m = this.motos[i];
+        const ms = ap.status(m);
+        if (ms.mode === 'follow' && (ms.state === 'bloque' || ms.state === 'attente') && ms.blockedFor > 15 && Math.hypot(m.x - lead.x, m.z - lead.z) > 40) {
+          ap.driveTo(m, this.standX, this.standZ, { speed: core.tuning.bravmSpeed, stopBefore: 4 + i * 3.5 });
+        }
+      }
+    }
     const st = ap.status(lead);
     const d = Math.hypot(this.standX - lead.x, this.standZ - lead.z);
     const stopped = Math.abs(lead.speed) < 0.4;
@@ -353,6 +366,15 @@ export class BravmUnit extends SpecialUnit {
   private arrived(): void {
     const o = this.order;
     this.stopMotos();
+    // retardataires (encore loin de la tête) : ils rejoignent la tête seuls, en file derrière elle
+    const lead = this.motos[0];
+    const ap = this.core.autopilot;
+    if (lead && ap) {
+      for (let i = 1; i < this.motos.length; i++) {
+        const m = this.motos[i];
+        if (Math.hypot(m.x - lead.x, m.z - lead.z) > 40 && m.seats[0] !== 0) ap.driveTo(m, lead.x, lead.z, { speed: this.core.tuning.bravmSpeed, stopBefore: 4 + i * 3.5 });
+      }
+    }
     if (!o || o.type === 'avancer' || o.type === 'colonne' || o.type === 'repli') {
       this.say(report(this.superior(), this.squad.name, 'En position, ' + spell(this.motos.length) + (this.motos.length > 1 ? ' motos' : ' moto')));
       this.complete(true, '');

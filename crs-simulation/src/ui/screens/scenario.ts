@@ -9,7 +9,7 @@
  *   summarize(d)              résumé du scénario en une ou deux phrases
  * ===================================================================================== */
 
-import { basePreload } from '@/gameplay/session/journee-data';
+import { basePreload, bravmBasePreload } from '@/gameplay/session/journee-data';
 import type {
   DurationPreset, GameMode, PlayableRole, PolicePoste, PoliceRank, Rng, SessionConfig, ViolenceLevel, WeatherKind,
 } from '@/core/contracts';
@@ -247,7 +247,7 @@ export function buildSessionConfig(draft: ScenarioDraft): SessionConfig {
     journee: d.options.journee && d.mode !== 'monde_ouvert',
   };
   // la caserne est loin du rassemblement : ses données sont chargées aussi avant la mise en place
-  if (extra.journee) (extra as unknown as Record<string, unknown>)['preload'] = [basePreload()];
+  if (extra.journee) (extra as unknown as Record<string, unknown>)['preload'] = d.moyens.bravm > 0 || d.role === 'bravm' ? [basePreload(), bravmBasePreload()] : [basePreload()];
   const config: SessionConfig = {
     mode: d.mode as GameMode,
     missionId: d.missionId,

@@ -47,6 +47,9 @@ const WALL_AFTER = 12;
 const STUCK_SKIP = 50;
 const UNSEEN_DIST = 300;
 const SKIP_DIST = 30;
+/** Progression minimale attendue (m) sur la fenêtre (s). */
+const PROGRESS_MIN = 15;
+const PROGRESS_WINDOW = 60;
 
 interface Blocked {
   since: number;
@@ -69,6 +72,8 @@ export class EnginsSystem implements GameSystem {
   private readonly target = new Map<EntityId, { x: number; z: number }>();
   /** Engin escorté à l'arrêt depuis (s). */
   private readonly stillSince = new Map<EntityId, number>();
+  /** Suivi de la progression des véhicules sous pilote automatique. */
+  private readonly progress = new Map<EntityId, { remaining: number; at: number }>();
 
   init(ctx: GameContext): void {
     this.ctx = ctx;
@@ -81,6 +86,7 @@ export class EnginsSystem implements GameSystem {
     this.escorts.clear();
     this.target.clear();
     this.stillSince.clear();
+    this.progress.clear();
   }
 
   update(_dt: number): void {
@@ -113,6 +119,11 @@ export class EnginsSystem implements GameSystem {
       // entre colonnes au départ de la caserne) est retrouvé derrière son chef de file ou plus loin sur son itinéraire
       if (Math.abs(v.speed) < 0.4 && (st.state === 'attente' || st.state === 'bloque') && st.blockedFor > STUCK_SKIP && this.unseen(v)) {
         if (this.unstick(v, ap, st)) continue;
+      }
+      // pas de progrès vers le but depuis une minute (va-et-vient devant une station de vélos, un plot…) : même filet
+      if (st.mode === 'drive' && this.noProgress(v, st.remaining, now) && this.unseen(v)) {
+        const t = this.destinationOf(v, ap);
+        if (t && this.skipAhead(v, ap, t)) { this.progress.delete(v.id); continue; }
       }
       // (les motos de la BRAV-M ont leur propre conduite de colonne : bravm.ts)
       if (v.kind === 'moto_bravm') continue;
@@ -250,6 +261,16 @@ export class EnginsSystem implements GameSystem {
     if (st.mode !== 'drive') return false;
     const t = this.destinationOf(v, ap);
     return !!t && this.skipAhead(v, ap, t);
+  }
+
+  /** La distance restante n'a pas baissé de PROGRESS_MIN mètres en PROGRESS_WINDOW secondes. */
+  private noProgress(v: Vehicle, remaining: number, now: number): boolean {
+    const p = this.progress.get(v.id);
+    if (!p || remaining < p.remaining - PROGRESS_MIN || remaining > p.remaining + 50) {
+      this.progress.set(v.id, { remaining, at: now });
+      return false;
+    }
+    return now - p.at > PROGRESS_WINDOW && remaining > 30;
   }
 
   /** Le joueur ne voit pas ce véhicule (loin de lui). */

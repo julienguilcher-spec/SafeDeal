@@ -34,6 +34,34 @@ export const SERVICE_BASES: readonly ServiceBase[] = [
 export const BASE_MIN_DIST = 1200;
 export const BASE_MAX_DIST = 3200;
 
+/**
+ * Points de départ de la BRAV-M en journée de service : un autre commissariat que la compagnie (on se rejoint sur
+ * place). Ordre de préférence ; le 1er arrondissement en dernier (souvent la base de la compagnie).
+ */
+export const BRAVM_BASES: readonly ServiceBase[] = [
+  { x: 1412, z: -897, name: 'commissariat du 9e arrondissement (rue Chauchat)' },
+  { x: 2255, z: 271, name: 'commissariat du 3e arrondissement (rue aux Ours)' },
+  { x: -640, z: -96, name: 'commissariat du 8e arrondissement (Grand Palais)' },
+  { x: -765, z: 738, name: 'commissariat du 7e arrondissement (rue Fabert)' },
+  { x: 767, z: -119, name: 'commissariat du 1er arrondissement (marché Saint-Honoré)' },
+];
+
+/** Préchargement de la base de la BRAV-M (écrite dans `extra.baseBravm`). */
+export function bravmBasePreload(): { candidates: ServiceBase[]; minDist: number; maxDist: number; as: string } {
+  return { candidates: BRAVM_BASES.slice(), minDist: 900, maxDist: 3500, as: 'baseBravm' };
+}
+
+/** Base de départ de la BRAV-M (null : avec la compagnie). */
+export function bravmBaseOf(config: Pick<SessionConfig, 'extra'> | null | undefined): ServiceBase | null {
+  const b = config && config.extra ? config.extra['baseBravm'] : undefined;
+  if (!b || typeof b !== 'object') return null;
+  const o = b as { x?: unknown; z?: unknown; name?: unknown };
+  if (typeof o.x !== 'number' || typeof o.z !== 'number' || !Number.isFinite(o.x) || !Number.isFinite(o.z)) return null;
+  const main = baseOf(config);
+  if (Math.hypot(main.x - o.x, main.z - o.z) < 300) return null;
+  return { x: o.x, z: o.z, name: typeof o.name === 'string' ? o.name : 'commissariat' };
+}
+
 /** Base retenue pour un rassemblement en (x, z) (même règle que le préchargement de la session). */
 export function serviceBaseFor(x: number, z: number): ServiceBase {
   let best: ServiceBase = SERVICE_BASE;

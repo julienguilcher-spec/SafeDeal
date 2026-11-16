@@ -38,7 +38,7 @@ import { FILE_SPACING, RANK_DEPTH, chooseStand, chooseStandOffCrowd, parkingSpot
 import type { Stand } from './placement';
 import { castFor, isPoliceRole, meansOf, rankOf } from './roster';
 import type { Cast, CastSlot, RequestedMeans } from './roster';
-import { baseOf, isJournee } from './journee-data';
+import { baseOf, bravmBaseOf, isJournee } from './journee-data';
 
 /** Sections par compagnie (au-delà, les sections suivantes lui sont rattachées en renfort). */
 const COMPANY_SECTIONS = 4;
@@ -429,11 +429,11 @@ export class SessionSetupSystem implements GameSystem {
     const taken: number[] = [];
     const spot = this.spot;
     let index = 0;
-    const special = (make: (x: number, z: number, heading: number) => PoliceUnitHandleLike | undefined, radius: number, what: string, rearLane = 0): void => {
+    const special = (make: (x: number, z: number, heading: number) => PoliceUnitHandleLike | undefined, radius: number, what: string, rearLane = 0, at: Stand = stand): void => {
       // (pour des machines à ranger en file : d'abord avec toute la bande libre derrière, sinon avec la moitié)
-      if (!supportSpot(ctx, stand, index, radius, taken, spot, rearLane) && !(rearLane > 0 && supportSpot(ctx, stand, index, radius, taken, spot, rearLane * 0.6))
-        && !(rearLane > 0 && supportSpot(ctx, stand, index, radius, taken, spot, rearLane * 0.3))
-        && !roadSpot(ctx, stand.x, stand.z, radius * 2, radius, spot)) {
+      if (!supportSpot(ctx, at, index, radius, taken, spot, rearLane) && !(rearLane > 0 && supportSpot(ctx, at, index, radius, taken, spot, rearLane * 0.6))
+        && !(rearLane > 0 && supportSpot(ctx, at, index, radius, taken, spot, rearLane * 0.3))
+        && !roadSpot(ctx, at.x, at.z, radius * 2, radius, spot)) {
         index++;
         console.warn(`[session] pas de place pour ${what} près de l'unité : moyen non engagé`);
         return;
@@ -450,10 +450,19 @@ export class SessionSetupSystem implements GameSystem {
     const parentId = company.squad.id;
     // les BRAV-M d'abord : leurs motos se garent en file et demandent une longue bande libre, que les engins
     // (jusqu'à dix Centaures et dix canons à eau) occuperaient sinon
+    // journée de service : la BRAV-M part de son propre commissariat, on se rejoint sur place (et les motos ne se
+    // mêlent pas à la sortie des fourgons)
+    const journee = isJournee(this.ctx.session.config);
+    const bb = journee ? bravmBaseOf(this.ctx.session.config) : null;
+    let bstand: Stand = stand;
+    if (bb) {
+      const sp = { x: 0, z: 0, heading: 0 };
+      if (roadSpot(ctx, bb.x, bb.z, 60, 4, sp)) bstand = { ...stand, x: sp.x, z: sp.z, heading: sp.heading };
+    }
     if (typeof units.createBravm === 'function') {
       for (let i = 0; i < means.bravm; i++) {
         // journée de service : la BRAV-M attend l'ordre de mouvement en selle (départ immédiat derrière la colonne)
-        special((x, z, heading) => units.createBravm!(6, { x, z, heading, vehicles: true, mounted: isJournee(this.ctx.session.config), callsign: means.bravm > 1 ? `FAUCON ${i + 1}` : undefined }), 3, 'la BRAV-M', 44);
+        special((x, z, heading) => units.createBravm!(6, { x, z, heading, vehicles: true, mounted: journee, callsign: means.bravm > 1 ? `FAUCON ${i + 1}` : undefined }), 3, 'la BRAV-M', 44, bstand);
       }
     }
     if (typeof units.createEquipage === 'function') {
