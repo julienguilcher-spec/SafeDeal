@@ -39,7 +39,20 @@ imparfait, et où trouver les propositions d'améliorations.
 ### Divers (prouvés chacun par un test)
 - État qui fuyait d'une partie à la suivante ; garde à vue du joueur civil ; chef hors de combat ; patrouille dont l'équipage est hors service ; télépilote joueur ; annonces « à toutes les unités » ; secours appelés accrochés au bon incident.
 
+### Après les premiers essais du joueur
+- **Véhicule qui bloque** : un autobus arrêté devant un véhicule de police dont le deux-tons sonne ne bougeait jamais ; une colonne avec le joueur à bord restait derrière un véhicule civil arrêté. Les deux sont corrigés (voir « Nouveautés » pour les moyens de dégager).
+- **Drone** : l'image était floue sur un écran Retina (calculée à ×1,5 puis étirée) ; le drone tournait à côté de la foule et montrait surtout des toits ; la nacelle visait le vide entre deux groupes ; un drone abattu n'était jamais relevé.
+- **Unités qui n'obéissent pas** : une section qui suit le joueur restait 45 à 75 m derrière (allure bridée) ; des agents envoyés derrière les barrières d'une rue fermée ne les franchissaient pas ; une unité annonçait « en place » alors que personne n'était à son poste.
+- **Sortie filtrée d'une nasse** : les auteurs de jets retenus à la porte n'étaient presque jamais interpellés.
+- **Clavier** : une touche tapée dans la roue d'ordres agissait encore dans le jeu après sa fermeture (un chiffre changeait l'objet en main) ; la carte tactique ne répondait pas aux flèches.
+- **Téléphone** : textes radio trop gros et empilés ; le menu de pause débordait de l'écran en paysage ; les raccourcis recouvraient la mini-carte.
+
 ## Nouveautés
+
+- **Dégager un véhicule** : deux-tons, « Faire circuler ce véhicule » à pied, ordre « Dégager l'obstacle (Centaure) » (proposé par l'adjoint, ou demandé par radio).
+- **Ordres « Me suivre à pied » et « Me suivre en colonne (véhicules) »**, à la place de « Avec moi » ; la formation à pied « Colonne » s'appelle « En file (à pied) ».
+- **Drone** : fenêtre en trois tailles (Maj + O), zoom optique (Alt + O), drone placé au-dessus de la foule.
+- **Ordres au clavier** : roue d'ordres aux chiffres ou aux flèches, carte tactique au curseur clavier.
 
 - **Départ de la base** (caserne ou commissariat choisi selon le lieu), trajet en colonne, la mission commence à l'arrivée ; on peut monter dans n'importe quel véhicule.
 - **BRAV-M à moto** ; le commandant BRAV-M conduit, ses motards suivent, la compagnie part de son côté et tout le monde se retrouve sur place.
@@ -60,6 +73,8 @@ imparfait, et où trouver les propositions d'améliorations.
 - Concorde : le point de départ de certains véhicules est en dehors du réseau de rues.
 - La demande de ravitaillement en cours n'est pas sauvegardée d'une partie à l'autre.
 - Groupes radicaux : quand le cortège s'est détourné devant un barrage, un de leurs points de fuite peut se trouver de l'autre côté de ce barrage.
+- Nasse : les côtés d'une place sans rue (trottoir, esplanade) ne sont pas tenus ; des personnes peuvent sortir par là (un auteur de faits qui sort ainsi est tout de même recherché).
+- Certains tests de trajet donnent un résultat différent selon la charge de la machine (chargement de la carte) ; à rendre déterministe.
 - Les couloirs de bus ne sont pas traités à part ; la forme de Paris (tunnels, largeurs de voies) reste à reprendre.
 
 ## Propositions d'améliorations

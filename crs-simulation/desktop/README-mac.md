@@ -35,12 +35,24 @@
 | Utiliser l'objet en main / viser | clic du trackpad / clic à deux doigts |
 | Choisir un objet | **1** à **9** |
 | Carte tactique (toutes les unités, ordres) | **Tab** |
-| Radio (secours, renforts, demande de ravitaillement) | **T** |
-| Ordres à son unité | **F** |
+| Radio (secours, renforts, demande de ravitaillement, demande de Centaure) | **T** |
+| Roue d'ordres à son unité | **F**, puis un **chiffre** (affiché sur chaque secteur), ou les **flèches** puis **Entrée** |
 | Accepter la proposition de l'adjoint | **P** (**Maj + P** : plus tard) |
-| Retour vidéo du drone | **O** |
+| Retour vidéo du drone | **O** ; **Maj + O** : taille (petite, agrandie, plein écran) ; **Alt + O** : zoom ×1 à ×8 |
 | Sirène deux tons / gyrophares | **R** / **B** |
 | Pause | **Échap** |
+
+**Carte tactique au clavier.** Les **flèches** déplacent le curseur, **Entrée** valide le point ; les **chiffres**
+choisissent une section (**Maj** pour en ajouter une), **U** passe à l'unité suivante, **E** ouvre l'ordre rapide,
+**L** va à la palette d'ordres, **Échap** revient à la carte.
+
+**Faire suivre une unité.** Deux ordres : « Me suivre à pied » (l'unité vous suit en formation, elle court quand vous
+courez) et « Me suivre en colonne (véhicules) » (elle remonte dans ses fourgons et suit votre véhicule).
+
+**Un véhicule vous bloque.** En véhicule, le deux-tons (**R**) le fait dégager, autobus compris. À pied, approchez-vous
+et appuyez sur **E** : « Faire circuler ce véhicule ». S'il n'a pas de conducteur, donnez l'ordre « Dégager l'obstacle
+(Centaure) » — l'adjoint vous le propose (**P**) après dix secondes de blocage — ou demandez le Centaure par la radio
+(**T**) : il pousse le véhicule hors de la voie.
 
 **Se ravitailler.** Quand il vous manque des grenades ou des munitions, une indication apparaît avec un repère sur
 le fourgon le plus proche qui en a encore : allez à l'**arrière du fourgon**, appuyez sur **E** et restez sur place quatre secondes. Si la
