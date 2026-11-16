@@ -193,7 +193,7 @@ function centaure(): VehicleDef {
 function canonEau(): VehicleDef {
   const w = 2.6;
   return def('canon_eau', "Engin lanceur d'eau", 'police', BLANC_POLICE,
-    { length: 9.67, width: w, height: 3.72, mass: 29000, wheelbase: 5.3, top: 90, reverse: 10, accel: 1.0, brake: 5.0, steer: 0.52 },
+    { length: 9.67, width: w, height: 3.72, mass: 29000, wheelbase: 5.3, top: 90, reverse: 10, accel: 1.4, brake: 5.0, steer: 0.52 },
     [
       sideSeat('driver', -0.7, 1.9, 3.7, w),
       sideSeat('gunner', 0.7, 1.9, 3.7, w), // opérateur : canon gauche

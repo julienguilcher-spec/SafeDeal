@@ -190,7 +190,8 @@ export class PlayerController implements GameSystem {
     const v = p.vehicleId !== 0 ? ctx.vehicles.get(p.vehicleId) : undefined;
     if (v) {
       this.turret = this.vehicles.turretOf(v, p.seat);
-      if (this.turret >= 0) this.setCameraMode('turret');
+      // le conducteur d'un engin armé commence en vue de conduite (V : vue de la tourelle)
+      if (this.turret >= 0 && p.seat !== 0) this.setCameraMode('turret');
       // la vue tactique (commandant en salle de commandement) est conservée en montant à bord
       else if (st.cameraMode !== 'vehicle_int' && st.cameraMode !== 'vehicle_ext' && st.cameraMode !== 'tactical') this.setCameraMode('vehicle_ext');
     } else if (st.cameraMode !== 'fps' && st.cameraMode !== 'tps') {
@@ -244,7 +245,7 @@ export class PlayerController implements GameSystem {
         this.state.camYaw = p.aimYaw;
         this.state.camPitch = p.aimPitch;
       }
-      if (p && p.vehicleId !== 0) this.setCameraMode(this.turret >= 0 ? 'turret' : 'vehicle_ext');
+      if (p && p.vehicleId !== 0) this.setCameraMode(this.turret >= 0 && p.seat !== 0 ? 'turret' : 'vehicle_ext');
       else this.setCameraMode(this.footCamera);
       this.state.zoom = 1;
     }
@@ -371,7 +372,8 @@ export class PlayerController implements GameSystem {
       this.stopPerson(p);
       this.crouch = false;
       // la vue tactique (commandant installé au poste de commandement) est conservée
-      if (this.state.cameraMode !== 'tactical' || this.turret >= 0) this.setCameraMode(this.turret >= 0 ? 'turret' : 'vehicle_ext');
+      const gun = this.turret >= 0 && p.seat !== 0;
+      if (this.state.cameraMode !== 'tactical' || gun) this.setCameraMode(gun ? 'turret' : 'vehicle_ext');
     } else {
       this.setCameraMode(this.footCamera);
     }
@@ -402,8 +404,11 @@ export class PlayerController implements GameSystem {
     p.aimPitch = st.camPitch;
     this.items.cancelCharge();
     const role = v.def.seats[p.seat]?.role;
-    if (role === 'driver') this.vehicles.drive(v);
-    else if (this.turret >= 0) this.vehicles.gunner(p, v, this.turret, st, dt);
+    if (role === 'driver') {
+      this.vehicles.drive(v);
+      // engin armé : le conducteur sert aussi l'arme
+      if (this.turret >= 0) this.vehicles.driverGunner(p, v, st, dt);
+    } else if (this.turret >= 0) this.vehicles.gunner(p, v, this.turret, st, dt);
     this.gear.update(p, dt, !this.ctx.health.isIncapacitated(p) && p.custody === 'free');
   }
 

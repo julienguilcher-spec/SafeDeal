@@ -65,14 +65,14 @@ export const ROLES: readonly RoleInfo[] = [
     postes: ['passager_moto', 'pilote_moto'], defaultPoste: 'passager_moto', variantes: [],
   },
   {
-    id: 'gendarme_centaure', name: 'Centaure', desc: 'Blindé : ouvrez les barricades.', police: true,
+    id: 'gendarme_centaure', name: 'Centaure', desc: 'Blindé : pilotez, tirez au lance-grenades, ouvrez les barricades.', police: true,
     ranks: ['gardien', 'brigadier_chef', 'major'], defaultRank: 'gardien',
-    postes: ['conducteur', 'operateur'], defaultPoste: 'conducteur', variantes: [], gendarmerie: true,
+    postes: ['conducteur'], defaultPoste: 'conducteur', variantes: [], gendarmerie: true,
   },
   {
-    id: 'operateur_canon_eau', name: 'Canon à eau', desc: 'Tenez à distance, éteignez les feux.', police: true,
+    id: 'operateur_canon_eau', name: 'Canon à eau', desc: 'Pilotez l’engin et tenez le jet : à distance, éteignez les feux.', police: true,
     ranks: ['gardien', 'brigadier', 'brigadier_chef'], defaultRank: 'gardien',
-    postes: ['operateur', 'conducteur'], defaultPoste: 'operateur', variantes: [],
+    postes: ['conducteur'], defaultPoste: 'conducteur', variantes: [],
   },
   {
     id: 'telepilote', name: 'Télépilote', desc: 'Drone : observez d’en haut, désignez.', police: true,

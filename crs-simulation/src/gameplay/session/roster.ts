@@ -239,17 +239,17 @@ export function castFor(config: SessionConfig, helper: SpawnHelperApi | undefine
     case 'gendarme_centaure': {
       const g = group('Centaure 1', 'equipage');
       cast.slots = attach(unit(helper, 'equipage_centaure'), g);
-      const want: PolicePoste = poste === 'operateur' ? 'operateur' : 'conducteur';
-      // l'opérateur jouable est celui du lance-grenades (le dernier), pas le chef d'engin
-      cast.player = want === 'operateur' ? cast.slots.length - 1 : Math.max(0, find(cast.slots, 'conducteur'));
+      // un seul poste jouable : le conducteur pilote et sert le lance-grenades (l'ancien poste « operateur » y mène)
+      void poste;
+      cast.player = Math.max(0, find(cast.slots, 'conducteur'));
       cast.vehicles = ['centaure'];
       break;
     }
     case 'operateur_canon_eau': {
       const g = group('Lanceur d’eau 1', 'equipage');
       cast.slots = attach(unit(helper, 'equipage_canon_eau'), g);
-      const want: PolicePoste = poste === 'conducteur' ? 'conducteur' : 'operateur';
-      cast.player = want === 'operateur' ? cast.slots.length - 1 : Math.max(0, find(cast.slots, 'conducteur'));
+      // un seul poste jouable : le conducteur pilote et tient les deux canons
+      cast.player = Math.max(0, find(cast.slots, 'conducteur'));
       cast.vehicles = ['canon_eau'];
       break;
     }

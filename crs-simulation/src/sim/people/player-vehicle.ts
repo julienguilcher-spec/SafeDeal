@@ -103,17 +103,40 @@ export class VehicleControl {
     if (input.pressed('headlights')) v.headlights = !v.headlights;
   }
 
-  /** Tourelle servie depuis ce siège : la n-ième place de tireur sert la n-ième tourelle. −1 si aucune. */
+  /**
+   * Tourelle servie depuis ce siège : la n-ième place de tireur sert la n-ième tourelle. −1 si aucune.
+   * Le CONDUCTEUR d'un engin armé (Centaure, canon à eau, fourgon-pompe) sert aussi l'arme : un seul joueur pilote et
+   * tire (choix de jeu : pas de poste d'opérateur séparé) — il reçoit la première tourelle armée.
+   */
   turretOf(v: Vehicle, seat: number): number {
     const seats = v.def.seats;
+    if (seat === 0 && seats.length > 0 && seats[0]!.role === 'driver') return armedTurret(v);
     if (seat < 0 || seat >= seats.length || seats[seat]!.role !== 'gunner' || v.def.turrets.length === 0) return -1;
     let k = 0;
     for (let i = 0; i < seat; i++) if (seats[i]!.role === 'gunner') k++;
     return k < v.def.turrets.length ? k : v.def.turrets.length - 1;
   }
 
-  /** Place de tireur : la tourelle suit le regard à vitesse bornée ; l'action principale tire. */
-  gunner(p: Person, v: Vehicle, turret: number, st: PlayerState, dt: number): void {
+  /**
+   * Conducteur d'un engin armé : il conduit (clavier / stick gauche / gâchettes) ET vise au regard (souris / stick
+   * droit). Tir : clic gauche, ou RB à la manette (RT est l'accélérateur). Les deux canons à eau tirent ensemble.
+   */
+  driverGunner(p: Person, v: Vehicle, st: PlayerState, dt: number): void {
+    const input = this.ctx.input;
+    const button = input.device === 'gamepad' ? 'item_next' : 'primary';
+    const turrets = v.def.turrets;
+    const first = armedTurret(v);
+    if (first < 0) return;
+    const def = turrets[first]!;
+    const trigger = def.kind === 'canon_eau' ? input.down(button) : input.pressed(button);
+    for (let i = first; i < turrets.length; i++) {
+      if (turrets[i]!.kind !== def.kind) continue;
+      this.gunner(p, v, i, st, dt, trigger);
+    }
+  }
+
+  /** Place de tireur : la tourelle suit le regard à vitesse bornée ; l'action principale tire (ou `trigger` imposé). */
+  gunner(p: Person, v: Vehicle, turret: number, st: PlayerState, dt: number, trigger?: boolean): void {
     const ctx = this.ctx;
     const def = v.def.turrets[turret];
     if (!def) return;
@@ -142,7 +165,7 @@ export class VehicleControl {
     // tir : jet continu pour le canon à eau, coup par coup pour le lance-grenades
     if (def.kind === 'camera') return;
     const input = ctx.input;
-    const wants = def.kind === 'canon_eau' ? input.down('primary') : input.pressed('primary');
+    const wants = trigger !== undefined ? trigger : def.kind === 'canon_eau' ? input.down('primary') : input.pressed('primary');
     const now = ctx.clock.now;
     if (wants && now >= this.nextFire) {
       if (ctx.vehicles.fireTurret(v, turret, p.id)) this.nextFire = now + (def.interval > 0 ? def.interval : 0);
@@ -178,4 +201,11 @@ export class VehicleControl {
       v.turretYaw[0] = 0;
     }
   }
+}
+
+/** Première tourelle armée d'un véhicule (canon à eau, lance-grenades ; pas la caméra du mât). −1 si aucune. */
+export function armedTurret(v: Vehicle): number {
+  const t = v.def.turrets;
+  for (let i = 0; i < t.length; i++) if (t[i]!.kind !== 'camera') return i;
+  return -1;
 }
