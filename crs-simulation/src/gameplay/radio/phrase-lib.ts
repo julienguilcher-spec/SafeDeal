@@ -280,10 +280,10 @@ export function createPhraseLibrary(deps: PhraseLibraryDeps): RadioPhrases {
       const e = envFor(def, options, params);
       const text = compose(def, pick(def, options?.variant), e.params, e.env);
       const who = correspondents(def, e.params, e.env);
-      // un échange avec la salle passe par le canal de commandement, même quand la phrase est prévue pour la compagnie
+      // le canal suit les correspondants réels : avec la salle, canal de commandement ; entre unités, canal de la compagnie
       const central = calls.central.toUpperCase();
-      const channel: RadioChannel = options?.channel
-        ?? (def.channel === 'unite' && (who.from === central || who.to === central) ? 'commandement' : def.channel);
+      const net: RadioChannel = who.from === central || who.to === central ? 'commandement' : 'unite';
+      const channel: RadioChannel = options?.channel ?? (def.channel === 'unite' || def.channel === 'commandement' ? net : def.channel);
       const msg: RadioMessage = {
         channel,
         from: who.from,

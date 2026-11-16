@@ -269,41 +269,28 @@ class Box {
 const GRANT_TTL = 5;
 const WAIT_TTL = 1.2;
 
-/** Les trajectoires (entrée → sortie) de deux véhicules se coupent-elles dans le carrefour ? */
+/**
+ * Deux trajectoires (entrée → sortie, vecteurs unitaires) sont-elles incompatibles dans le carrefour ?
+ *
+ * Règle volontairement prudente, parce qu'un véhicule qui tourne déborde largement de sa voie (2 à 4 m) :
+ * ne passent ensemble que les véhicules d'une même approche (ils se suivent), et ceux de deux approches
+ * OPPOSÉES dont aucun ne tourne à gauche (tout droit ou à droite : chacun reste dans sa moitié du carrefour).
+ * Tout le reste attend son tour : le tourne-à-gauche passe seul, comme avec une phase protégée.
+ */
 export function movementsConflict(
   aInX: number, aInZ: number, aOutX: number, aOutZ: number,
   bInX: number, bInZ: number, bOutX: number, bOutZ: number,
 ): boolean {
-  // même approche : l'un derrière l'autre, la distance de sécurité suffit
-  if (aInX * bInX + aInZ * bInZ > 0.9) return false;
-  // même sortie : les deux veulent la même voie
-  if (aOutX * bOutX + aOutZ * bOutZ > 0.9) return true;
-  // cordes de la trajectoire dans un cercle unité, chacun sur sa voie de droite (droite = (−dz, dx))
-  const L = 0.3;
-  const a0x = -aInX - aInZ * L;
-  const a0z = -aInZ + aInX * L;
-  const a1x = aOutX - aOutZ * L;
-  const a1z = aOutZ + aOutX * L;
-  const b0x = -bInX - bInZ * L;
-  const b0z = -bInZ + bInX * L;
-  const b1x = bOutX - bOutZ * L;
-  const b1z = bOutZ + bOutX * L;
-  const rx = a1x - a0x;
-  const rz = a1z - a0z;
-  const sx = b1x - b0x;
-  const sz = b1z - b0z;
-  const den = rx * sz - rz * sx;
-  const qx = b0x - a0x;
-  const qz = b0z - a0z;
-  if (den > -1e-6 && den < 1e-6) {
-    // parallèles : en conflit seulement si elles se recouvrent presque (même corde en sens inverse)
-    const off = qx * rz - qz * rx;
-    const len = Math.sqrt(rx * rx + rz * rz);
-    return len > 1e-6 && Math.abs(off) / len < 0.25;
-  }
-  const t = (qx * sz - qz * sx) / den;
-  const u = (qx * rz - qz * rx) / den;
-  return t > -0.05 && t < 1.05 && u > -0.05 && u < 1.05;
+  const approach = aInX * bInX + aInZ * bInZ;
+  if (approach > 0.85) return false; // même approche
+  if (approach > -0.8) return true; // approches qui se croisent
+  // approches opposées : conflit si l'un des deux tourne à gauche (ou fait demi-tour)
+  // tourner à gauche augmente le cap : produit vectoriel (entrée × sortie) négatif dans le repère (x est, z sud)
+  const turnA = aInX * aOutZ - aInZ * aOutX;
+  const turnB = bInX * bOutZ - bInZ * bOutX;
+  const backA = aInX * aOutX + aInZ * aOutZ < -0.5;
+  const backB = bInX * bOutX + bInZ * bOutZ < -0.5;
+  return turnA < -0.45 || turnB < -0.45 || backA || backB;
 }
 
 export class Boxes {

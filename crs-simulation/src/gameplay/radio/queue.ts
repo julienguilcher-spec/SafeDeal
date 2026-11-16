@@ -185,3 +185,20 @@ export class RadioQueue {
     for (const [k, t] of this.recent) if (now - t > longest || now < t) this.recent.delete(k);
   }
 }
+
+/**
+ * Fait de la place dans un journal plein (au moins `max` messages) : l'ambiance de la moitié la plus ancienne part
+ * d'abord ; s'il n'y en avait pas, le quart le plus ancien du journal. Les messages opérationnels récents restent.
+ */
+export function trimLog(log: (RadioMessage & { t: number })[], max: number): void {
+  if (log.length < max) return;
+  const half = log.length >> 1;
+  let kept = 0;
+  for (let i = 0; i < log.length; i++) {
+    const m = log[i]!;
+    if (i < half && m.priority === 0) continue;
+    log[kept++] = m;
+  }
+  log.length = kept;
+  if (log.length >= max) log.splice(0, max >> 2);
+}

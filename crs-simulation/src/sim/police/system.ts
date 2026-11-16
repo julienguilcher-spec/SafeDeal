@@ -209,8 +209,8 @@ export class PoliceSystem implements GameSystem {
     const t = (pr.vy + Math.sqrt(pr.vy * pr.vy + 2 * G * (h > 0 ? h : 0))) / G;
     const sp = Math.sqrt(pr.vx * pr.vx + pr.vz * pr.vz);
     if (sp < 0.5) return;
-    let reach = sp * t * 0.92;
-    if (kind === 'mortier' && reach > 55) reach = 55;
+    // mortier d'artifice : tir tendu qui éclate à plusieurs dizaines de mètres, quel que soit l'angle
+    const reach = kind === 'mortier' ? 55 : sp * t * 0.92;
     const ux = pr.vx / sp;
     const uz = pr.vz / sp;
     const lx = pr.x + ux * reach;

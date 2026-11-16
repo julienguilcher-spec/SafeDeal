@@ -19,27 +19,13 @@ import type { RadioControl, RadioStats } from './api';
 import { RADIO_CALLSIGNS_SERVICE, RADIO_CONTROL_SERVICE, RADIO_PHRASES_SERVICE } from './api';
 import { createCallsigns } from './callsigns';
 import { createPhraseLibrary } from './phrase-lib';
-import { RadioQueue } from './queue';
+import { RadioQueue, trimLog } from './queue';
 
 /**
  * Nombre maximal de messages conservés dans le journal. Le journal est la pièce relue au compte rendu : quand il est
  * plein, on en retire d'abord l'ambiance la plus ancienne, et les messages opérationnels en dernier recours.
  */
 const LOG_MAX = 2000;
-
-/** Fait de la place dans un journal plein : ambiance ancienne d'abord, puis le quart le plus ancien. */
-export function trimLog(log: (RadioMessage & { t: number })[], max: number): void {
-  if (log.length < max) return;
-  const half = log.length >> 1;
-  let kept = 0;
-  for (let i = 0; i < log.length; i++) {
-    const m = log[i]!;
-    if (i < half && m.priority === 0) continue;
-    log[kept++] = m;
-  }
-  log.length = kept;
-  if (log.length >= max) log.splice(0, max >> 2);
-}
 /** Durée d'affichage du sous-titre au-delà de la durée estimée du message (s). */
 const SUBTITLE_EXTRA = 1.5;
 

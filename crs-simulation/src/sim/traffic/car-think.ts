@@ -424,23 +424,24 @@ export class CarThinker {
       const o = list[i]!;
       if (o === v || o.def.flying) continue;
       const sp = Math.abs(o.speed);
-      if (sp > 1.2) {
-        if (cars.byVehicle.has(o.id)) continue; // la circulation régulée passe par les réservations
+      const mine = cars.byVehicle.has(o.id);
+      if (sp > 1.2 && !mine) {
+        // véhicule étranger à la circulation régulée (police, joueur) en mouvement dans le carrefour : on le laisse passer
         const dx = o.x - nx;
         const dz = o.z - nz;
         if (dx * dx + dz * dz < inner * inner) return false;
         continue;
       }
-      if (sp > 0.6) continue;
-      // véhicule à l'arrêt dans ma sortie ?
+      if (sp > 2) continue;
+      // véhicule arrêté ou au pas dans ma sortie : je ne pourrais pas dégager le carrefour
       const rx = o.x - p.x;
       const rz = o.z - p.z;
       const along = rx * p.dx + rz * p.dz;
       const lat = -rx * p.dz + rz * p.dx; // positif à droite
       const half = o.def.length * 0.5;
-      if (along > -(b.halfL + half + 1) && along < b.halfL + half + 2.5 && lat > -1 && lat < b.halfW + o.def.width * 0.5 + 2.2) {
+      if (along > -(b.halfL + half + 1) && along < b.halfL + half + 4 && lat > -1.2 && lat < b.halfW + o.def.width * 0.5 + 2.2) {
         // un véhicule garé le long du trottoir ne compte pas : seul celui qui est sur une voie gêne
-        if (lat < b.halfW + o.def.width * 0.5 + 0.9 || cars.byVehicle.has(o.id)) return false;
+        if (lat < b.halfW + o.def.width * 0.5 + 0.9 || mine) return false;
       }
     }
     return true;
@@ -562,18 +563,6 @@ export class CarThinker {
         case 'mur': cause = 'mur'; break;
         case 'vehicule': cause = this.causeAhead(b); direct = cause === 'obstacle'; break;
         default: break;
-      }
-    }
-    // Engagé dans un carrefour et arrêté par un véhicule qui, lui, attend à sa ligne que je libère le carrefour :
-    // personne ne bougerait plus. Celui qui attend passe d'abord (le pilote automatique sait contourner au pas
-    // un véhicule arrêté mais « en route », pas un véhicule tenu à l'arrêt).
-    const o = this.aheadCar as CarBrain | null;
-    if (cause === 'file' && b.stillT >= 5 && b.mode === MODE_GO && o) {
-      if (o.mode === MODE_HOLD && o.holdCp && o.holdCause === 'carrefour') {
-        o.holdCp.cleared = true;
-        o.forceUntil = now + 9;
-        o.holdCause = '';
-        if (!cars.go(o)) o.replanAt = now + 2;
       }
     }
     const jam = cause === 'personne' || cause === 'obstacle' || cause === 'fermeture' || cause === 'mur';

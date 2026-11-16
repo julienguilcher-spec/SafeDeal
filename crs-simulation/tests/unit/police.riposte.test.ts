@@ -47,7 +47,7 @@ describe('police — LBD', () => {
     const { pt, sec } = await lineUp(4);
     const { ctx } = pt;
     const peaceful = spawnProtesters(ctx, 20, 0, -140, 0, 'pacifique', 1.3, 10);
-    const radicals = spawnProtesters(ctx, 3, 0, -127, 0, 'radical', 3, 3);
+    const radicals = spawnProtesters(ctx, 3, 0, -123, 0, 'radical', 3, 3);
     const lbdShots: number[] = [];
     ctx.events.on('projectile:spawned', (e) => {
       if (e.kind === 'lbd') lbdShots.push(e.ownerId);
@@ -92,7 +92,7 @@ describe('police — gaz et vent', () => {
     const { ctx } = pt;
     // vent du nord (de la foule vers la ligne) : 3 m/s vers le sud
     ctx.env.setWind(0, 3);
-    const radicals = spawnProtesters(ctx, 4, 0, -124, 0, 'radical', 2.5, 4);
+    const radicals = spawnProtesters(ctx, 4, 0, -122, 0, 'radical', 2.5, 4);
     const impacts: { z: number; masked: number }[] = [];
     ctx.events.on('projectile:impact', (e) => {
       const o = ctx.people.get(e.ownerId);
@@ -109,7 +109,7 @@ describe('police — gaz et vent', () => {
     // les masques étaient mis avant la première grenade
     expect(impacts[0].masked).toBeGreaterThanOrEqual(14);
     // points de chute en amont (au nord) du groupe violent : le nuage dérive sur lui
-    for (const i of impacts) expect(i.z).toBeLessThan(-124);
+    for (const i of impacts) expect(i.z).toBeLessThan(-122);
     expect(ctx.radio.log.some((m) => m.text.includes('retour de gaz') && m.text.includes('masques'))).toBe(true);
     // personne n'est incommodé sur la ligne
     expect(worstGas).toBeLessThan(0.35);
@@ -124,7 +124,7 @@ describe('police — mortiers, engins incendiaires', () => {
     const shooter = spawnProtesters(ctx, 1, 0, -135, 0, 'radical')[0];
     // trois tirs tendus de mortier vers la ligne
     for (let i = 0; i < 3; i++) {
-      ctx.projectiles.spawn('mortier', shooter.id, shooter.x + i - 1, 1.4, shooter.z + 0.5, (i - 1) * 2, 2.5, 34);
+      ctx.projectiles.spawn('mortier', shooter.id, shooter.x + i - 1, ctx.world.heightAt(shooter.x, shooter.z) + 1.4, shooter.z + 0.5, (i - 1) * 2, 2.5, 34);
       pt.step(0.6);
     }
     pt.step(0.8);
@@ -214,7 +214,7 @@ describe('police — encerclement réel, fatigue', () => {
     const { ctx } = pt;
     pt.tuning.fatigueTime = 60; // épuisement accéléré pour l'essai (réglage normal : dix minutes sous pression)
     pt.tuning.autoRiposte = false;
-    const radicals = spawnProtesters(ctx, 4, 0, -126, 0, 'radical', 2.5, 4);
+    const radicals = spawnProtesters(ctx, 4, 0, -122, 0, 'radical', 2.5, 4);
     let requested = 0;
     ctx.events.onAny('police:relief_requested', () => requested++);
     const f0 = pt.status.of(sec.squad.id)!.fatigue;

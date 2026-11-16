@@ -103,7 +103,9 @@ export function typo(text: string): string {
   t = t.replace(/ +([,.])/g, '$1');
   t = t.replace(/([,;:])\s*([,;:.])(?=\s|$)/g, '$2');
   t = t.replace(/\.{2,}(?!\.)/g, '.').replace(/\.\s*\./g, '.');
-  t = t.replace(/\s*([;:!?»])/g, `${NBSP}$1`);
+  t = t.replace(/\s*([;!?»])/g, `${NBSP}$1`);
+  // deux-points : pas d'espace au milieu d'une heure écrite « 17:04 »
+  t = t.replace(/\s*:(?!\d)/g, `${NBSP}:`);
   t = t.replace(/«\s*/g, `«${NBSP}`);
   t = t.replace(/(\p{L})'(\p{L})/gu, '$1’$2');
   t = t.replace(/ +/g, ' ').trim();
