@@ -46,11 +46,16 @@ export class Collisions implements WorldCollider {
   private readonly props: Prop[] = [];
   /** Dernier choc par personne (temps de session) : une personne heurtée n'est pas blessée à chaque pas. */
   private readonly hitAt = new Map<EntityId, number>();
+  /** Véhicules triés par bord ouest (balayage des collisions entre véhicules). */
+  private readonly order: VehicleRt[] = [];
+  private orderStamp = -1;
 
   constructor(private readonly k: VehicleKernel) {}
 
   reset(): void {
     this.hitAt.clear();
+    this.order.length = 0;
+    this.orderStamp = -1;
   }
 
   /** Dégâts de carrosserie pour une vitesse de choc (m/s). */
@@ -185,6 +190,7 @@ export class Collisions implements WorldCollider {
   propsOf(rt: VehicleRt, dt: number): void {
     const v = rt.v;
     const ctx = this.k.ctx;
+    if (ctx.props.list.length === 0) return;
     const buf = this.props;
     const n = ctx.props.queryRadius(v.x, v.z, rt.radius + 0.3, buf);
     if (n === 0) return;
@@ -294,29 +300,55 @@ export class Collisions implements WorldCollider {
 
   // ───────────────────────────── véhicules entre eux ─────────────────────────────
 
-  /** Toutes les paires dont au moins un véhicule bouge. */
+  /**
+   * Toutes les paires dont au moins un véhicule bouge. Balayage le long de l'axe x : les véhicules sont
+   * tenus triés par leur bord ouest (tri par insertion, presque gratuit d'un pas au suivant), et chacun
+   * n'est comparé qu'à ceux dont l'intervalle en x recouvre le sien.
+   */
   vehicles(): void {
     const rts = this.k.rts;
-    const n = rts.length;
+    const order = this.order;
+    if (order.length !== rts.length || this.orderStamp !== this.k.stamp) {
+      order.length = 0;
+      for (let i = 0; i < rts.length; i++) order.push(rts[i]!);
+      this.orderStamp = this.k.stamp;
+    }
+    const n = order.length;
+    for (let i = 1; i < n; i++) {
+      const rt = order[i]!;
+      const key = rt.v.x - rt.radius;
+      let j = i - 1;
+      while (j >= 0 && order[j]!.v.x - order[j]!.radius > key) {
+        order[j + 1] = order[j]!;
+        j--;
+      }
+      order[j + 1] = rt;
+    }
     const c = this.contact;
     for (let i = 0; i < n; i++) {
-      const A = rts[i]!;
-      if (A.dyn.asleep || A.v.dormant || A.v.def.flying) continue;
-      const ax = A.v.x;
-      const az = A.v.z;
-      const ar = A.radius;
-      for (let j = 0; j < n; j++) {
-        if (j === i) continue;
-        const B = rts[j]!;
-        if (!B.dyn.asleep && j < i) continue; // paire déjà traitée dans l'autre sens
+      const A = order[i]!;
+      const av = A.v;
+      if (av.dormant || av.def.flying) continue;
+      const maxX = av.x + A.radius;
+      const awakeA = !A.dyn.asleep;
+      for (let j = i + 1; j < n; j++) {
+        const B = order[j]!;
         const bv = B.v;
-        const dx = ax - bv.x;
-        const dz = az - bv.z;
-        const rr = ar + B.radius;
-        if (dx * dx + dz * dz >= rr * rr) continue;
-        if (bv.dormant || bv.def.flying) continue;
-        if (!obbVsObb(A.v.x, A.v.z, A.halfW, A.halfL, A.v.heading, bv.x, bv.z, B.halfW, B.halfL, bv.heading, c)) continue;
-        this.resolvePair(A, B, c);
+        if (bv.x - B.radius > maxX) break;
+        if (!awakeA && B.dyn.asleep) continue; // deux véhicules immobiles
+        const dz = av.z - bv.z;
+        const rr = A.radius + B.radius;
+        if (dz > rr || dz < -rr) continue;
+        const dx = av.x - bv.x;
+        if (dx * dx + dz * dz >= rr * rr || bv.dormant || bv.def.flying) continue;
+        if (!obbVsObb(av.x, av.z, A.halfW, A.halfL, av.heading, bv.x, bv.z, B.halfW, B.halfL, bv.heading, c)) continue;
+        // le premier nommé est celui qui bouge (c'est lui qui signale le choc)
+        if (awakeA) this.resolvePair(A, B, c);
+        else {
+          c.nx = -c.nx;
+          c.nz = -c.nz;
+          this.resolvePair(B, A, c);
+        }
       }
     }
   }

@@ -113,7 +113,7 @@ function hudReport() {
     const r = rectOf(el);
     if (r) boxes.push({ name: el.dataset.w || 'élément', r });
   }
-  for (const [selector, name] of [['.ui-toasts', 'notifications'], ['.ui-subs', 'sous-titres'], ['.ui-banner', 'bandeau'], ['.hud-band', 'bandeau de caméra']]) {
+  for (const [selector, name] of [['.ui-toasts', 'notifications'], ['.ui-subs', 'sous-titres'], ['.ui-banner', 'bandeau']]) {
     for (const el of document.querySelectorAll(selector)) {
       const r = rectOf(el);
       if (r) boxes.push({ name, r });
@@ -313,8 +313,8 @@ try {
         }
         if (scene.name === 'centaure-tourelle') check(/24\/30/.test(await text(page, '.hud-veh__ammo')), `véhicule : munitions de tourelle 24/30 [${size.key}]`);
         if (scene.name === 'canon-eau') check(/6 200 L/.test(await text(page, '.hud-veh__ammo')), `véhicule : eau restante 6 200 L [${size.key}]`);
-        if (scene.name === 'drone') check(/58 m/.test(await text(page, '.hud-drone')) && /78 %/.test(await text(page, '.hud-drone')), `drone : altitude et batterie [${size.key}]`);
-        if (scene.name === 'journaliste-viseur') check(/70 mm/.test(await text(page, '.hud-vf')), `viseur : focale 70 mm [${size.key}]`);
+        if (scene.name === 'drone') check(/58 m/.test(await text(page, '[data-w="drone"]')) && /78 %/.test(await text(page, '[data-w="drone"]')), `drone : altitude et batterie (« ${await text(page, '[data-w="drone"]')} ») [${size.key}]`);
+        if (scene.name === 'journaliste-viseur') check(/70 mm/.test(await text(page, '[data-w="viewfinder"]')), `viseur : focale 70 mm [${size.key}]`);
         await close(s, `HUD ${scene.name} ${size.key}`);
       }
       // sans module de rendu : effets d'écran de repli, pas de marqueurs 3D

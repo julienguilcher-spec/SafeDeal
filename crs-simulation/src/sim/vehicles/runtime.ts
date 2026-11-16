@@ -260,6 +260,8 @@ export class VehicleKernel {
   };
   /** La santé est le service neutre du cœur : il n'applique ni recul ni mouillage, le module s'en charge. */
   neutralHealth = true;
+  /** Incrémenté à chaque apparition ou disparition d'une fiche (les listes dérivées se reconstruisent). */
+  stamp = 0;
   /** Véhicules à retirer en fin de pas (drone posé). */
   readonly removals: EntityId[] = [];
   /** Dégâts de choc, déjà pondérés par la robustesse (posé par le système : évite les dépendances croisées). */
@@ -275,6 +277,7 @@ export class VehicleKernel {
       rt = new VehicleRt(v);
       this.byId.set(v.id, rt);
       this.rts.push(rt);
+      this.stamp++;
       rt.occupants = countOccupants(v);
       rt.mass = v.def.mass + rt.occupants * OCCUPANT_MASS;
     }
@@ -289,6 +292,7 @@ export class VehicleKernel {
     const rt = this.byId.get(id);
     if (!rt) return;
     this.byId.delete(id);
+    this.stamp++;
     const i = this.rts.indexOf(rt);
     if (i >= 0) {
       this.rts[i] = this.rts[this.rts.length - 1]!;
@@ -300,6 +304,7 @@ export class VehicleKernel {
     this.rts.length = 0;
     this.byId.clear();
     this.removals.length = 0;
+    this.stamp++;
   }
 
   /** Conducteur présent (ou null). */
