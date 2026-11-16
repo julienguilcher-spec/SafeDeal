@@ -407,6 +407,34 @@ export function drawOrderArrow(
   arrowHead(g, bx, by, ux, uy, 10, color);
 }
 
+/** Itinéraire d'un ordre : pointillés le long des rues (le trait droit de la flèche reste le cap du but). */
+function drawRoute(g: CanvasRenderingContext2D, t: MapTransform, path: readonly number[], color: string): void {
+  g.lineCap = 'round';
+  g.lineJoin = 'round';
+  for (let pass = 0; pass < 2; pass++) {
+    g.lineWidth = pass === 0 ? 4.5 : 2;
+    g.strokeStyle = pass === 0 ? 'rgba(8,14,26,.55)' : color;
+    g.setLineDash(pass === 0 ? [] : [2, 5]);
+    g.beginPath();
+    for (let i = 0; i < path.length; i += 2) {
+      t.worldToScreen(path[i]!, path[i + 1]!, SQ);
+      if (i === 0) g.moveTo(SQ.x, SQ.y);
+      else g.lineTo(SQ.x, SQ.y);
+    }
+    g.stroke();
+  }
+  g.setLineDash([]);
+}
+
+function formatMeters(m: number): string {
+  return m >= 1000 ? `${(m / 1000).toFixed(1).replace('.', ',')} km` : `${Math.round(m / 5) * 5} m`;
+}
+
+function etaLabel(seconds: number): string {
+  if (seconds < 50) return `${Math.max(5, Math.round(seconds / 5) * 5)} s`;
+  return `${Math.round(seconds / 60)} min`;
+}
+
 export function drawTargetMark(g: CanvasRenderingContext2D, x: number, y: number, color: string, radius: number): void {
   g.lineWidth = 4.5;
   g.strokeStyle = 'rgba(8,14,26,.7)';
@@ -446,6 +474,9 @@ export function drawOrders(g: CanvasRenderingContext2D, t: MapTransform, scene: 
     if (!t.contains(ord.x, ord.z, 200) && !t.contains(u.x, u.z, 60)) continue;
     const selected = isSelected(scene, u, o.selection);
     g.globalAlpha = arrived && !selected ? 0.55 : 1;
+    // itinéraire réel (par les rues) quand il s'écarte de la ligne droite : le joueur voit le détour
+    const route = !arrived && !o.compact ? scene.routes.get(u.squadId) : undefined;
+    if (route && route.path.length >= 6 && route.length > u.orderDist * 1.15) drawRoute(g, t, route.path, color);
     t.worldToScreen(u.x, u.z, SQ);
     const ux = SQ.x, uy = SQ.y;
     t.worldToScreen(ord.x, ord.z, SQ);
@@ -465,8 +496,12 @@ export function drawOrders(g: CanvasRenderingContext2D, t: MapTransform, scene: 
       g.globalAlpha = 1;
       continue;
     }
-    if (!o.compact && (!arrived || selected) && shown.indexOf(u) >= 0) {
-      const label = `${u.code !== '' ? u.code + ' · ' : ''}${ORDER_TAGS[ord.type] ?? String(ord.type).toUpperCase()}`;
+    // étiquette : unités qui ont leur propre symbole, et toute unité en route (suivi de l'ordre, même regroupée)
+    if (!o.compact && (!arrived || selected) && (shown.indexOf(u) >= 0 || !arrived)) {
+      // suivi : distance restante et temps estimé en route ; « EN PLACE » à l'arrivée
+      const len = route ? route.length : u.orderDist;
+      const follow = arrived ? ' · EN PLACE' : ` · ${formatMeters(len)} · ~${etaLabel(len / (u.embarked ? 8 : 1.8))}`;
+      const label = `${u.code !== '' ? u.code + ' · ' : ''}${ORDER_TAGS[ord.type] ?? String(ord.type).toUpperCase()}${follow}`;
       const off = shape === 'circle' ? -(Math.max(8, (ord.width * 0.5) / t.mpp) + 12) : -14;
       tag(g, label, tx, ty + off, color);
     }

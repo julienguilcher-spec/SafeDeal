@@ -31,6 +31,9 @@ export { CommandCore } from './core';
 export { TacticalScreen } from './tacticalScreen';
 
 export const COMMAND_SYSTEM_ID = 'ui:command';
+
+/** Charge utile des événements 'police:order_refused' et 'police:order_done'. */
+interface OrderProblem { squadId: number; type: string; ok?: boolean; reason?: string }
 export const UNIT_WIDGET_ID = 'command.unit';
 export const INCIDENT_WIDGET_ID = 'command.incident';
 export const QUICK_WIDGET_ID = 'command.quick';
@@ -73,6 +76,9 @@ export class CommandSystem implements GameSystem {
         core.orderForce = 4;
         this.ordersDirty = true;
       }),
+      // un ordre du joueur refusé ou abandonné par l'unité : le motif s'affiche (sinon il croit qu'on l'ignore)
+      ctx.events.onAny('police:order_refused', (e) => this.orderProblem(e as OrderProblem, true)),
+      ctx.events.onAny('police:order_done', (e) => this.orderProblem(e as OrderProblem, false)),
     );
     if (!kit) {
       if (!ctx.headless) console.warn('[commandement] boîte à outils d’interface absente : ni carte tactique ni roue d’ordres');
@@ -117,6 +123,16 @@ export class CommandSystem implements GameSystem {
     } catch (err) {
       console.error('[commandement] bouton « Ordres » de l’écran tactile : mise à jour impossible', err);
     }
+  }
+
+  private orderProblem(e: OrderProblem, refused: boolean): void {
+    const ctx = this.ctx;
+    const core = this.core;
+    if (!ctx || !core || !e || (!refused && e.ok !== false) || !e.reason) return;
+    const s = ctx.squads.get(e.squadId);
+    // seulement les unités sous les ordres du joueur, pour un ordre qu'il a donné
+    if (!s || !core.canCommand(s.id) || s.order.issuedBy !== ctx.player.state.personId) return;
+    ctx.ui.notify(`${s.name} — ${refused ? 'ordre refusé' : 'ordre abandonné'} : ${e.reason}`, 'warn', 6);
   }
 
   reset(): void {

@@ -49,6 +49,22 @@ function makeCanvas(): HTMLCanvasElement | null {
   return typeof document !== 'undefined' ? document.createElement('canvas') : null;
 }
 
+/** Itinéraire d'une unité vers le point de son ordre (polyligne monde [x0, z0, …] et longueur en m). */
+export interface OrderRoute {
+  path: number[];
+  length: number;
+  issuedAt: number;
+  tx: number;
+  tz: number;
+  fromX: number;
+  fromZ: number;
+}
+
+/** Itinéraires : nombre de calculs par rafraîchissement, distance minimale, avance qui déclenche un nouveau calcul (m). */
+const ROUTE_BUDGET = 3;
+const ROUTE_MIN = 15;
+const ROUTE_REPLAN = 30;
+
 export class MapScene {
   vis: MapVisibility;
   /** Joueur : position, cap du corps, cap du regard ; `hasPlayer` faux si personne n'est incarné. */
@@ -62,6 +78,11 @@ export class MapScene {
 
   readonly unitModel = new UnitModel();
   units: MapUnit[] = [];
+  /**
+   * Itinéraire réellement suivi par chaque unité policière en mouvement vers le point de son ordre (par les rues, en
+   * contournant grilles et murs), clé = identifiant d'unité. Recalculé quand l'ordre change ou que l'unité a avancé.
+   */
+  readonly routes = new Map<number, OrderRoute>();
   /** Incrémenté à chaque rafraîchissement des unités (les listes dérivées se recalculent alors). */
   unitsRevision = 0;
 
@@ -192,11 +213,51 @@ export class MapScene {
     }
   }
 
+  /** Itinéraires des ordres (au plus quelques calculs par rafraîchissement : le reste attend le suivant). */
+  private refreshRoutes(): void {
+    const ctx = this.ctx;
+    const routes = this.routes;
+    let budget = ROUTE_BUDGET;
+    const seen = this.routeSeen;
+    seen.clear();
+    for (let i = 0; i < this.units.length; i++) {
+      const u = this.units[i]!;
+      const o = u.order;
+      if (u.squadId <= 0 || u.faction !== 'police' || !o || u.total === 0) continue;
+      if (o.type === 'libre' || o.type === 'suivre' || o.type === 'cesser') continue;
+      if (u.orderDist < ROUTE_MIN) continue;
+      seen.add(u.squadId);
+      const r = routes.get(u.squadId);
+      if (r && r.issuedAt === o.issuedAt && r.tx === o.x && r.tz === o.z && Math.hypot(u.x - r.fromX, u.z - r.fromZ) < ROUTE_REPLAN) continue;
+      if (budget <= 0) continue;
+      budget--;
+      const path = r ? r.path : [];
+      path.length = 0;
+      let ok = false;
+      try { ok = ctx.world.findPath(u.x, u.z, o.x, o.z, u.embarked ? 'vehicle' : 'foot', path) && path.length >= 4; } catch { ok = false; }
+      const route: OrderRoute = r ?? { path, length: 0, issuedAt: 0, tx: 0, tz: 0, fromX: 0, fromZ: 0 };
+      route.issuedAt = o.issuedAt;
+      route.tx = o.x;
+      route.tz = o.z;
+      route.fromX = u.x;
+      route.fromZ = u.z;
+      if (!ok) path.length = 0;
+      let len = 0;
+      for (let k = 2; k < path.length; k += 2) len += Math.hypot(path[k]! - path[k - 2]!, path[k + 1]! - path[k - 1]!);
+      route.length = path.length >= 4 ? len : u.orderDist;
+      routes.set(u.squadId, route);
+    }
+    for (const id of routes.keys()) if (!seen.has(id)) routes.delete(id);
+  }
+
+  private readonly routeSeen = new Set<number>();
+
   private refreshEntities(): void {
     const ctx = this.ctx;
     const vis = (this.vis = visibilityForContext(ctx));
     this.units = this.unitModel.refresh(ctx, vis);
     this.unitsRevision++;
+    this.refreshRoutes();
 
     // incidents
     const incidents = this.incidents;
