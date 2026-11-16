@@ -28,7 +28,8 @@ import { EXT } from '@/core/extensions';
 import type { Objective, ObjectivesApi } from '@/core/extensions';
 import { SESSION_SETUP_EVENT } from './api';
 import type { SessionSetupSummary } from './api';
-import { SERVICE_BASE, isJournee } from './journee-data';
+import { SERVICE_BASE, baseOf, isJournee } from './journee-data';
+import type { ServiceBase } from './journee-data';
 import { chooseStandOffCrowd } from './placement';
 import { pointOnPolyline } from '@/core/math';
 
@@ -84,6 +85,10 @@ export class JourneeSystem implements GameSystem {
   readonly order = SystemOrder.CONTROL + 47;
 
   private ctx: GameContext | null = null;
+  /** Lieu de prise de service (caserne ou commissariat, choisi au démarrage selon le lieu du rassemblement). */
+  private base: ServiceBase = SERVICE_BASE;
+  /** Session de mission : la mission a son propre déroulé (pas de feux en ville ni de seconde intervention). */
+  private mission = false;
   private stage_: JourneeStage = 'inactif';
   private companyId = 0;
   private startAt = 0;
@@ -139,6 +144,8 @@ export class JourneeSystem implements GameSystem {
     const ctx = this.ctx!;
     this.reset();
     if (!isJournee(ctx.session.config) || !summary.usedPoliceUnits || summary.rootSquadId === 0) return;
+    this.base = baseOf(ctx.session.config);
+    this.mission = (ctx.session.config?.missionId ?? '') !== '';
     this.companyId = this.companyOf(summary.rootSquadId);
     this.startAt = ctx.clock.now;
     this.nextCity = this.startAt + CITY_FIRST;
@@ -165,7 +172,7 @@ export class JourneeSystem implements GameSystem {
     if (now < this.nextThink) return;
     this.nextThink = now + 0.5;
     const t = now - this.startAt;
-    this.cityLife(now);
+    if (!this.mission) this.cityLife(now);
     switch (this.stage_) {
       case 'prise_de_service':
       case 'embarquement':
@@ -202,6 +209,12 @@ export class JourneeSystem implements GameSystem {
 
   // ───────────────────────────── étapes ─────────────────────────────
 
+  /** « à la caserne de la Cité », « au commissariat du 9e arrondissement… ». */
+  private atBase(): string {
+    const n = this.base.name;
+    return (/^commissariat/.test(n) ? 'au ' : 'à la ') + n;
+  }
+
   private companyName(): string {
     return this.ctx!.squads.get(this.companyId)?.name ?? 'COMPAGNIE';
   }
@@ -213,7 +226,7 @@ export class JourneeSystem implements GameSystem {
     const cause = typeof cfg.extra?.['causeLabel'] === 'string' ? ` (${String(cfg.extra['causeLabel']).toLowerCase()})` : '';
     const hour = this.hourIn(15 * 60);
     ctx.radio.say({ channel: 'commandement', from: 'CENTRAL', priority: 2,
-      text: `${this.companyName()} de CENTRAL. Prise de service à la ${SERVICE_BASE.name}. Manifestation déclarée${cause}, rassemblement ${cfg.place || 'en ville'} vers ${hour}. Préparez-vous au départ.` });
+      text: `${this.companyName()} de CENTRAL. Prise de service ${this.atBase()}. Manifestation déclarée${cause}, rassemblement ${cfg.place || 'en ville'} vers ${hour}. Préparez-vous au départ.` });
     ctx.ui.notify('Prise de service à la caserne de la Cité : écoutez la radio.', 'info', 6);
   }
 
@@ -328,7 +341,7 @@ export class JourneeSystem implements GameSystem {
     const st = command ? command.convoyOf(this.companyId) : null;
     if (st && (st.stage === 'rembarquement' || st.stage === 'depart')) {
       this.stage_ = 'rembarquement';
-      ctx.radio.say({ channel: 'commandement', from: 'CENTRAL', priority: 1, text: `${this.companyName()}, fin de mission reçue. Rembarquez, retour ${SERVICE_BASE.name}.` });
+      ctx.radio.say({ channel: 'commandement', from: 'CENTRAL', priority: 1, text: `${this.companyName()}, fin de mission reçue. Rembarquez, retour ${this.atBase()}.` });
     }
   }
 
@@ -345,17 +358,17 @@ export class JourneeSystem implements GameSystem {
       if (st && st.stage === 'depart') {
         this.stage_ = 'retour';
         this.setSirens(false);
-        this.objective(`Retour : ${SERVICE_BASE.name}`, SERVICE_BASE.x, SERVICE_BASE.z, true);
+        this.objective(`Retour : ${this.base.name}`, this.base.x, this.base.z, true);
       }
       return;
     }
     // retour : la colonne (ou le joueur) arrive à la caserne ; filet de sécurité : la journée ne reste pas bloquée
     if (this.returnAt === 0) this.returnAt = now;
     const lead = this.convoyLead();
-    const atBase = (lead && Math.hypot(lead.x - SERVICE_BASE.x, lead.z - SERVICE_BASE.z) < BASE_RADIUS && Math.abs(lead.speed) < 0.5)
-      || (st && st.stage === 'parti' && me && Math.hypot(me.x - SERVICE_BASE.x, me.z - SERVICE_BASE.z) < BASE_RADIUS * 2)
+    const atBase = (lead && Math.hypot(lead.x - this.base.x, lead.z - this.base.z) < BASE_RADIUS && Math.abs(lead.speed) < 0.5)
+      || (st && st.stage === 'parti' && me && Math.hypot(me.x - this.base.x, me.z - this.base.z) < BASE_RADIUS * 2)
       || now - this.returnAt > RETURN_MAX;
-    if (atBase && !this.secondDone && this.wantSecond()) {
+    if (atBase && !this.mission && !this.secondDone && this.wantSecond()) {
       // la journée continue : la salle engage la compagnie sur une seconde intervention, ailleurs dans Paris
       this.secondDone = true;
       if (this.startIntervention(now)) return;
@@ -364,7 +377,7 @@ export class JourneeSystem implements GameSystem {
       this.stage_ = 'fin';
       this.endAt = now + DEBRIEF_DELAY;
       this.clearObjective();
-      ctx.radio.say({ channel: 'commandement', from: this.companyName(), priority: 2, text: `CENTRAL de ${this.companyName()}. Retour ${SERVICE_BASE.name}, fin de service. Rien à signaler de plus.` });
+      ctx.radio.say({ channel: 'commandement', from: this.companyName(), priority: 2, text: `CENTRAL de ${this.companyName()}. Retour ${this.atBase()}, fin de service. Rien à signaler de plus.` });
       ctx.ui.notify('Fin de service : compte rendu dans quelques secondes.', 'ok', 6);
     }
   }
@@ -390,8 +403,8 @@ export class JourneeSystem implements GameSystem {
     for (let attempt = 0; attempt < 80; attempt++) {
       const a = rand() * Math.PI * 2;
       const d = 600 + rand() * 1000;
-      const x = SERVICE_BASE.x + Math.cos(a) * d;
-      const z = SERVICE_BASE.z + Math.sin(a) * d;
+      const x = this.base.x + Math.cos(a) * d;
+      const z = this.base.z + Math.sin(a) * d;
       if (x < b.minX + 80 || x > b.maxX - 80 || z < b.minZ + 80 || z > b.maxZ - 80) continue;
       // une rue où l'on peut garer des voitures le long du trottoir et faire passer la colonne (6 m au moins)
       if (!ctx.world.nearestRoad(x, z, this.road, 80) || this.road.width < 6) continue;
@@ -401,7 +414,7 @@ export class JourneeSystem implements GameSystem {
       const fx = this.road.x, fz = this.road.z;
       const street = this.road.name || ctx.world.sectorName(fx, fz) || 'en ville';
       // zone de stationnement : 45 m en amont, côté caserne
-      const ux = fx - SERVICE_BASE.x, uz = fz - SERVICE_BASE.z;
+      const ux = fx - this.base.x, uz = fz - this.base.z;
       const ul = Math.hypot(ux, uz) || 1;
       const sx = fx - (ux / ul) * 45, sz = fz - (uz / ul) * 45;
       if (!ctx.world.nearestRoad(sx, sz, this.road, 40)) continue;
@@ -498,12 +511,12 @@ export class JourneeSystem implements GameSystem {
     if (burning > 0 && now - this.onSiteAt < INTERVENTION_MAX) return;
     const command = ctx.service<CommandLike>('police.command');
     ctx.radio.say({ channel: 'commandement', from: this.companyName(), priority: 1,
-      text: burning > 0 ? `CENTRAL de ${this.companyName()}. Les sapeurs-pompiers tiennent le feu, on lève le périmètre. Retour ${SERVICE_BASE.name}.`
-        : `CENTRAL de ${this.companyName()}. Feux éteints, fin d'intervention. Retour ${SERVICE_BASE.name}.` });
+      text: burning > 0 ? `CENTRAL de ${this.companyName()}. Les sapeurs-pompiers tiennent le feu, on lève le périmètre. Retour ${this.atBase()}.`
+        : `CENTRAL de ${this.companyName()}. Feux éteints, fin d'intervention. Retour ${this.atBase()}.` });
     this.stage_ = 'rembarquement';
-    if (!command || !command.depart(this.companyId, { x: SERVICE_BASE.x, z: SERVICE_BASE.z })) {
+    if (!command || !command.depart(this.companyId, { x: this.base.x, z: this.base.z })) {
       this.stage_ = 'retour';
-      this.objective(`Retour : ${SERVICE_BASE.name}`, SERVICE_BASE.x, SERVICE_BASE.z, true);
+      this.objective(`Retour : ${this.base.name}`, this.base.x, this.base.z, true);
     }
   }
 
@@ -516,8 +529,8 @@ export class JourneeSystem implements GameSystem {
     const rand = this.rng!;
     this.nextCity = now + CITY_EVERY_MIN + rand() * (CITY_EVERY_MAX - CITY_EVERY_MIN);
     const me = ctx.player.person();
-    const ox = me ? me.x : SERVICE_BASE.x;
-    const oz = me ? me.z : SERVICE_BASE.z;
+    const ox = me ? me.x : this.base.x;
+    const oz = me ? me.z : this.base.z;
     for (let attempt = 0; attempt < 12; attempt++) {
       const a = rand() * Math.PI * 2;
       const d = CITY_MIN_DIST + rand() * (CITY_MAX_DIST - CITY_MIN_DIST);

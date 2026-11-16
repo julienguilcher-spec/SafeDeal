@@ -346,6 +346,14 @@ export class SessionController implements SessionApi {
       if (Array.isArray(more)) {
         for (const pt of more) {
           if (!pt || typeof pt !== 'object') continue;
+          const pick = pickCandidate(pt, x, z);
+          if (pick) {
+            // base choisie selon le point de départ réel (voir gameplay/session/journee-data.ts, basePreload)
+            (cfg.extra ??= {})[pick.as] = pick.point;
+            await ctx.world.whenLoaded(pick.point.x, pick.point.z, START_LOAD_RADIUS);
+            if (token !== this.token) return;
+            continue;
+          }
           const px = Number((pt as { x?: unknown }).x), pz = Number((pt as { z?: unknown }).z);
           if (Number.isFinite(px) && Number.isFinite(pz)) await ctx.world.whenLoaded(px, pz, START_LOAD_RADIUS);
           if (token !== this.token) return;
@@ -471,4 +479,31 @@ export class SessionController implements SessionApi {
       return 0; // magasin d'un module défaillant : déjà signalé par la passe de vidage
     }
   }
+}
+
+/**
+ * Entrée de préchargement à choix : { candidates: [{x, z, name}…], minDist, maxDist, as }. Retient le premier
+ * candidat situé entre minDist et maxDist du point de départ, sinon le plus proche de cette plage.
+ */
+function pickCandidate(entry: object, x: number, z: number): { as: string; point: { x: number; z: number; name: string } } | null {
+  const e = entry as { candidates?: unknown; minDist?: unknown; maxDist?: unknown; as?: unknown };
+  if (!Array.isArray(e.candidates) || typeof e.as !== 'string' || e.as === '') return null;
+  const lo = typeof e.minDist === 'number' ? e.minDist : 0;
+  const hi = typeof e.maxDist === 'number' ? e.maxDist : Infinity;
+  let best: { x: number; z: number; name: string } | null = null;
+  let bestGap = Infinity;
+  for (const c of e.candidates) {
+    if (!c || typeof c !== 'object') continue;
+    const cx = Number((c as { x?: unknown }).x), cz = Number((c as { z?: unknown }).z);
+    if (!Number.isFinite(cx) || !Number.isFinite(cz)) continue;
+    const name = typeof (c as { name?: unknown }).name === 'string' ? String((c as { name?: unknown }).name) : '';
+    const d = Math.hypot(cx - x, cz - z);
+    const gap = d < lo ? lo - d : d > hi ? d - hi : 0;
+    if (gap < bestGap) {
+      bestGap = gap;
+      best = { x: cx, z: cz, name };
+      if (gap === 0) break;
+    }
+  }
+  return best ? { as: e.as, point: best } : null;
 }

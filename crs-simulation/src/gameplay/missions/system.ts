@@ -32,6 +32,8 @@ import { MissionTracker } from './tracker';
 export const PHASE_TIMEOUT = 300;
 /** Durée minimale de la dernière phase avant une fin anticipée par objectifs atteints (s). */
 const LAST_PHASE_MIN = 45;
+/** Attente maximale de l'arrivée sur place avant de lancer la mission quand même (s). */
+const TRAVEL_MAX = 900;
 
 export interface MissionResultLine {
   label: string;
@@ -86,6 +88,8 @@ function gradeOf(score: number): string {
 export class MissionSystem implements GameSystem {
   /** Aléas imposés par les phases de la mission. */
   private readonly aleas = new PhaseAleas();
+  /** Début de l'attente de l'arrivée sur place (journée de service), -1 sinon. */
+  private waitSince = -1;
   readonly id = 'missions';
   readonly order = SystemOrder.RULES + 60;
 
@@ -149,6 +153,7 @@ export class MissionSystem implements GameSystem {
 
   private clear(): void {
     this.aleas.reset();
+    this.waitSince = -1;
     this.tracker?.reset();
     this.def = null;
     this.pending = false;
@@ -248,6 +253,13 @@ export class MissionSystem implements GameSystem {
     const ctx = this.ctx!;
     if (this.pending) {
       if (!ctx.player.person()) return;
+      // journée de service : la mission commence à l'arrivée sur place, pas pendant la prise de service et le
+      // trajet en colonne depuis la caserne (filet : TRAVEL_MAX)
+      const j = ctx.service<{ stage: string }>('session.journee');
+      if (j && (j.stage === 'prise_de_service' || j.stage === 'embarquement' || j.stage === 'route')) {
+        if (this.waitSince < 0) this.waitSince = ctx.clock.now;
+        if (ctx.clock.now - this.waitSince < TRAVEL_MAX) return;
+      }
       this.begin();
     }
     if (!this.started) return;

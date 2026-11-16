@@ -38,7 +38,7 @@ import { FILE_SPACING, RANK_DEPTH, chooseStand, chooseStandOffCrowd, parkingSpot
 import type { Stand } from './placement';
 import { castFor, isPoliceRole, meansOf, rankOf } from './roster';
 import type { Cast, CastSlot, RequestedMeans } from './roster';
-import { SERVICE_BASE, isJournee } from './journee-data';
+import { baseOf, isJournee } from './journee-data';
 
 /** Sections par compagnie (au-delà, les sections suivantes lui sont rattachées en renfort). */
 const COMPANY_SECTIONS = 4;
@@ -121,7 +121,8 @@ export class SessionSetupSystem implements GameSystem {
       // manifestation en colonne (session/journee.ts) — elles ne sont pas posées à côté du rassemblement
       const journee = isJournee(config);
       const apart = crowd && !journee ? chooseStandOffCrowd(ctx, x, z, ctx.director.route, isProtester) : null;
-      const forces = journee ? chooseStand(ctx, SERVICE_BASE.x, SERVICE_BASE.z, rand) : apart ?? chooseStand(ctx, x, z, rand);
+      const base = baseOf(config);
+      const forces = journee ? chooseStand(ctx, base.x, base.z, rand) : apart ?? chooseStand(ctx, x, z, rand);
       const withForces = isPoliceRole(config.role) || config.role === 'secouriste';
       // le joueur manifestant, journaliste ou secouriste de rue est, lui, sur le lieu même
       let stand = withForces || !apart ? forces : chooseStand(ctx, x, z, rand);
