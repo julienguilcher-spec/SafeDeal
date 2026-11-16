@@ -187,6 +187,56 @@ export class Obstructions {
   }
 }
 
+/** Véhicule en intervention repéré (sirène en marche), tel que les automobilistes et les piétons l'entendent. */
+export class Siren {
+  id = 0;
+  x = 0;
+  z = 0;
+  /** Sens de marche (unitaire). */
+  dx = 0;
+  dz = 1;
+  speed = 0;
+  /** Demi-largeur du véhicule (m) : la place qu'il lui faut pour passer. */
+  halfW = 1;
+}
+
+export const MAX_SIRENS = 8;
+
+/**
+ * Sirènes en marche autour du joueur, relevées deux fois par seconde par CarWatcher. Les piétons s'en servent
+ * aussi : ils ne s'engagent pas sur la chaussée quand une sirène approche.
+ */
+export class Sirens {
+  readonly list: Siren[] = [];
+  count = 0;
+
+  constructor() {
+    for (let i = 0; i < MAX_SIRENS; i++) this.list.push(new Siren());
+  }
+
+  reset(): void {
+    this.count = 0;
+  }
+
+  /**
+   * Une sirène arrive-t-elle sur le point (x, z) ? Vrai si elle en est à moins de `near` m, ou si le point est
+   * devant elle à moins de `reach` m et à moins de `side` m de sa trajectoire. Renvoie la sirène, ou null.
+   */
+  approaching(x: number, z: number, reach: number, side: number, near: number): Siren | null {
+    for (let i = 0; i < this.count; i++) {
+      const s = this.list[i]!;
+      const rx = x - s.x;
+      const rz = z - s.z;
+      if (rx * rx + rz * rz < near * near) return s;
+      const ahead = rx * s.dx + rz * s.dz;
+      if (ahead < -4 || ahead > reach) continue;
+      const lat = rx * s.dz - rz * s.dx;
+      if (lat < side && lat > -side) return s;
+    }
+    return null;
+  }
+}
+
 /** Ce que le gestionnaire des véhicules demande à celui des piétons (conducteur descendu de voiture). */
 export interface PedAdopter {
   adopt(p: Person, fleeing: boolean, fromX: number, fromZ: number): void;
@@ -199,6 +249,8 @@ export class TrafficKernel {
   readonly stats: TrafficStats = makeStats();
   readonly dangers = new Dangers();
   readonly obstructions = new Obstructions();
+  /** Sirènes en marche (relevées par CarWatcher, lues aussi par les piétons). */
+  readonly sirens = new Sirens();
   signals!: Signals;
   boxes!: Boxes;
   closures!: Closures;
