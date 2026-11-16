@@ -82,34 +82,38 @@ export function mergeAxes(sources: readonly SourceAxes[], out: SourceAxes, disc 
 export const DEVICE_DWELL = 0.25;
 
 /**
- * Périphérique actif = le dernier utilisé. `note(device, t)` est appelé par une source quand elle
+ * Périphérique actif = le dernier utilisé. `note(device)` est appelé par une source quand elle
  * constate un usage intentionnel ; la bascule est refusée pendant DEVICE_DWELL après la précédente.
+ * L'heure courante (secondes) est déposée dans `time` par le système, une fois par scrutation et
+ * à chaque événement : la passer en argument coûterait une allocation par appel au moteur JavaScript.
  */
 export class DeviceTracker {
   device: InputDevice;
+  /** Heure courante en secondes (horloge réelle). */
+  time = 0;
   /** Incrémenté à chaque bascule. */
   version = 0;
-  private lastSwitch = -Infinity;
+  private lastSwitch = -1e9;
 
   constructor(initial: InputDevice = 'kbm') {
     this.device = initial;
   }
 
   /** Retourne true si le périphérique actif a changé. */
-  note(device: InputDevice, time: number): boolean {
+  note(device: InputDevice): boolean {
     if (device === this.device) return false;
-    if (time - this.lastSwitch < DEVICE_DWELL) return false;
+    if (this.time - this.lastSwitch < DEVICE_DWELL) return false;
     this.device = device;
-    this.lastSwitch = time;
+    this.lastSwitch = this.time;
     this.version++;
     return true;
   }
 
   /** Le périphérique actif a disparu (manette débranchée) : repli immédiat, sans délai. */
-  fallback(from: InputDevice, to: InputDevice, time: number): boolean {
+  fallback(from: InputDevice, to: InputDevice): boolean {
     if (this.device !== from || from === to) return false;
     this.device = to;
-    this.lastSwitch = time;
+    this.lastSwitch = this.time;
     this.version++;
     return true;
   }

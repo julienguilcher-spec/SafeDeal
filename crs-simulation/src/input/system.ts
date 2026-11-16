@@ -122,10 +122,13 @@ export class InputSystem implements GameSystem {
         bindings: this.bindings,
         settings: () => ctx.settings.values,
         getPads,
-        activity: () => this.noteDevice('gamepad'),
+        // appelé pendant la scrutation : l'heure du suivi vient d'être mise à jour
+        activity: () => {
+          this.tracker.note('gamepad');
+        },
         connected: () => this.notify('Manette connectée.'),
         disconnected: (wasActive) => {
-          this.tracker.fallback('gamepad', this.touchPrimary ? 'touch' : 'kbm', this.now() / 1000);
+          this.tracker.fallback('gamepad', this.touchPrimary ? 'touch' : 'kbm');
           this.notify('Manette débranchée.');
           if (wasActive) this.autoPause();
         },
@@ -293,6 +296,7 @@ export class InputSystem implements GameSystem {
     this.lastPoll = t;
     if (!(dt >= 0)) dt = 0;
     else if (dt > 0.1) dt = 0.1;
+    this.tracker.time = t / 1000;
 
     if (this.kbm) this.kbm.sample(dt);
     if (this.pad && this.focused) this.pad.sample(dt);
@@ -309,8 +313,10 @@ export class InputSystem implements GameSystem {
     core.device = this.tracker.device;
   }
 
+  /** Usage intentionnel constaté par un gestionnaire d'événement (hors scrutation). */
   private noteDevice(device: InputDevice): void {
-    this.tracker.note(device, this.now() / 1000);
+    this.tracker.time = this.now() / 1000;
+    this.tracker.note(device);
   }
 
   // ───────────────────────────── pause automatique, vibration, messages ─────────────────────────────

@@ -47,19 +47,24 @@ export function curve(v: number, gamma: number): number {
   return v < 0 ? -Math.pow(-v, gamma) : Math.pow(v, gamma);
 }
 
+/** Résultat de shapeStick : vecteur mis en forme et sa norme. */
+export interface StickOut { x: number; y: number; n: number }
+
 /**
  * Stick à deux axes : zone morte RADIALE (la direction est conservée, pas d'effet « croix »),
  * remise à l'échelle entre `inner` et `outer`, puis courbe de réponse sur la norme.
- * Écrit dans `out` un vecteur de norme 0..1 et retourne cette norme.
+ * Écrit dans `out` un vecteur de norme 0..1 et cette norme (`out.n`). Rien n'est retourné : un
+ * nombre flottant rendu par une fonction est réalloué par le moteur JavaScript à chaque appel.
  */
-export function shapeStick(x: number, y: number, t: StickTuning, out: Axis2): number {
+export function shapeStick(x: number, y: number, t: StickTuning, out: StickOut): void {
   x = finite(x);
   y = finite(y);
   const m = Math.sqrt(x * x + y * y);
   if (m <= t.inner || m === 0) {
     out.x = 0;
     out.y = 0;
-    return 0;
+    out.n = 0;
+    return;
   }
   let n = (m - t.inner) / (t.outer - t.inner);
   if (n > 1) n = 1;
@@ -67,7 +72,7 @@ export function shapeStick(x: number, y: number, t: StickTuning, out: Axis2): nu
   const k = n / m;
   out.x = x * k;
   out.y = y * k;
-  return n;
+  out.n = n;
 }
 
 /** Gâchette analogique 0..1 : petite zone morte en bas, saturation avant la butée. */

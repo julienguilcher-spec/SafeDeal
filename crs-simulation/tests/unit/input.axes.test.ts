@@ -6,6 +6,7 @@ import {
 import type { VirtualStick } from '@/input/axes';
 
 const out = { x: 0, y: 0 };
+const stick = { x: 0, y: 0, n: 0 };
 
 describe('entrées — zones mortes et courbes', () => {
   it('zone morte d\'un axe : nulle en dessous, continue au bord, saturée au-delà', () => {
@@ -20,38 +21,43 @@ describe('entrées — zones mortes et courbes', () => {
   });
 
   it('stick : zone morte radiale, direction conservée', () => {
-    expect(shapeStick(0.1, 0.1, MOVE_STICK, out)).toBe(0);  // norme 0,141 < 0,16
-    expect(out).toEqual({ x: 0, y: 0 });
+    shapeStick(0.1, 0.1, MOVE_STICK, stick);                 // norme 0,141 < 0,16
+    expect(stick).toEqual({ x: 0, y: 0, n: 0 });
     // un axe sous le seuil ne disparaît pas si la norme dépasse la zone morte (pas d'effet « croix »)
-    const n = shapeStick(0.5, 0.05, MOVE_STICK, out);
-    expect(n).toBeGreaterThan(0);
-    expect(out.y).toBeGreaterThan(0);
-    expect(out.y / out.x).toBeCloseTo(0.1, 6);
+    shapeStick(0.5, 0.05, MOVE_STICK, stick);
+    expect(stick.n).toBeGreaterThan(0);
+    expect(stick.y).toBeGreaterThan(0);
+    expect(stick.y / stick.x).toBeCloseTo(0.1, 6);
+    expect(Math.hypot(stick.x, stick.y)).toBeCloseTo(stick.n, 9);
   });
 
   it('stick : pleine course = norme 1, même en diagonale et au-delà de la butée', () => {
-    expect(shapeStick(1, 0, MOVE_STICK, out)).toBe(1);
-    expect(out.x).toBeCloseTo(1, 9);
-    expect(shapeStick(0.75, 0.75, MOVE_STICK, out)).toBe(1);
-    expect(Math.hypot(out.x, out.y)).toBeCloseTo(1, 9);
-    expect(shapeStick(1, 1, LOOK_STICK, out)).toBe(1);
-    expect(Math.hypot(out.x, out.y)).toBeCloseTo(1, 9);
+    shapeStick(1, 0, MOVE_STICK, stick);
+    expect(stick.n).toBe(1);
+    expect(stick.x).toBeCloseTo(1, 9);
+    shapeStick(0.75, 0.75, MOVE_STICK, stick);
+    expect(stick.n).toBe(1);
+    expect(Math.hypot(stick.x, stick.y)).toBeCloseTo(1, 9);
+    shapeStick(1, 1, LOOK_STICK, stick);
+    expect(stick.n).toBe(1);
+    expect(Math.hypot(stick.x, stick.y)).toBeCloseTo(1, 9);
   });
 
   it('stick : la courbe de réponse affine les petits mouvements sans changer les extrêmes', () => {
     const half = MOVE_STICK.inner + (MOVE_STICK.outer - MOVE_STICK.inner) / 2;
-    const linear = shapeStick(half, 0, { ...LOOK_STICK, inner: MOVE_STICK.inner, outer: MOVE_STICK.outer, gamma: 1 }, out);
+    shapeStick(half, 0, { inner: MOVE_STICK.inner, outer: MOVE_STICK.outer, gamma: 1 }, stick);
+    const linear = stick.n;
     expect(linear).toBeCloseTo(0.5, 6);
-    const curved = shapeStick(half, 0, { inner: MOVE_STICK.inner, outer: MOVE_STICK.outer, gamma: 1.9 }, out);
-    expect(curved).toBeCloseTo(Math.pow(0.5, 1.9), 6);
-    expect(curved).toBeLessThan(linear);
+    shapeStick(half, 0, { inner: MOVE_STICK.inner, outer: MOVE_STICK.outer, gamma: 1.9 }, stick);
+    expect(stick.n).toBeCloseTo(Math.pow(0.5, 1.9), 6);
+    expect(stick.n).toBeLessThan(linear);
     expect(curve(-0.5, 2)).toBeCloseTo(-0.25, 9);
     expect(curve(1, 3)).toBe(1);
   });
 
   it('stick : valeurs non finies ignorées', () => {
-    expect(shapeStick(NaN, Infinity, MOVE_STICK, out)).toBe(0);
-    expect(out).toEqual({ x: 0, y: 0 });
+    shapeStick(NaN, Infinity, MOVE_STICK, stick);
+    expect(stick).toEqual({ x: 0, y: 0, n: 0 });
   });
 
   it('gâchette : zone morte basse, saturation avant la butée, monotone', () => {

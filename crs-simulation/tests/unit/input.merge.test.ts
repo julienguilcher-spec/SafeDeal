@@ -80,31 +80,41 @@ describe('entrées — périphérique actif', () => {
   it('le dernier périphérique utilisé l\'emporte', () => {
     const t = new DeviceTracker('kbm');
     expect(t.device).toBe('kbm');
-    expect(t.note('gamepad', 10)).toBe(true);
+    t.time = 10;
+    expect(t.note('gamepad')).toBe(true);
     expect(t.device).toBe('gamepad');
-    expect(t.note('gamepad', 10.1)).toBe(false);
-    expect(t.note('touch', 11)).toBe(true);
+    t.time = 10.1;
+    expect(t.note('gamepad')).toBe(false);
+    t.time = 11;
+    expect(t.note('touch')).toBe(true);
     expect(t.device).toBe('touch');
-    expect(t.note('kbm', 12)).toBe(true);
+    t.time = 12;
+    expect(t.note('kbm')).toBe(true);
     expect(t.device).toBe('kbm');
     expect(t.version).toBe(3);
   });
 
   it('pas de clignotement : une bascule est refusée juste après la précédente', () => {
     const t = new DeviceTracker('kbm');
-    t.note('gamepad', 5);
-    expect(t.note('kbm', 5 + DEVICE_DWELL / 2)).toBe(false);
+    t.time = 5;
+    t.note('gamepad');
+    t.time = 5 + DEVICE_DWELL / 2;
+    expect(t.note('kbm')).toBe(false);
     expect(t.device).toBe('gamepad');
-    expect(t.note('kbm', 5 + DEVICE_DWELL + 0.01)).toBe(true);
+    t.time = 5 + DEVICE_DWELL + 0.01;
+    expect(t.note('kbm')).toBe(true);
     expect(t.device).toBe('kbm');
   });
 
   it('repli immédiat quand le périphérique actif disparaît', () => {
     const t = new DeviceTracker('kbm');
-    t.note('gamepad', 1);
-    expect(t.fallback('gamepad', 'kbm', 1.01)).toBe(true);   // manette débranchée
+    t.time = 1;
+    t.note('gamepad');
+    t.time = 1.01;
+    expect(t.fallback('gamepad', 'kbm')).toBe(true);    // manette débranchée
     expect(t.device).toBe('kbm');
-    expect(t.fallback('gamepad', 'touch', 2)).toBe(false);   // la manette n'était plus active
+    t.time = 2;
+    expect(t.fallback('gamepad', 'touch')).toBe(false);  // la manette n'était plus active
     expect(t.device).toBe('kbm');
   });
 

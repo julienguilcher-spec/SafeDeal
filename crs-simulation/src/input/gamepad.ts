@@ -13,7 +13,7 @@
 import type { Settings } from '@/core/contracts';
 import type { PadStyle } from './api';
 import { LOOK_STICK, MOVE_STICK, analogButton, shapeStick, shapeTrigger } from './axes';
-import type { Axis2 } from './axes';
+import type { StickOut } from './axes';
 import type { BindingStore } from './bindings';
 import { BUTTON_COUNT, BUTTON_INDEX } from './buttons';
 import type { InputCore } from './core';
@@ -58,7 +58,7 @@ export interface GamepadEnv {
   disconnected(wasActive: boolean): void;
 }
 
-const tmp: Axis2 = { x: 0, y: 0 };
+const tmp: StickOut = { x: 0, y: 0, n: 0 };
 
 function usable(p: PadLike | null | undefined): p is PadLike {
   return !!p && p.connected !== false && p.buttons.length >= 4 && p.axes.length >= 2;
@@ -241,7 +241,8 @@ export class GamepadSource {
 
     // Stick gauche : déplacement (y de la manette vers le bas → « avant » positif).
     const a = this.axes;
-    const moveNorm = shapeStick(ax[0] ?? 0, ax[1] ?? 0, MOVE_STICK, tmp);
+    shapeStick(ax[0] ?? 0, ax[1] ?? 0, MOVE_STICK, tmp);
+    const moveNorm = tmp.n;
     a.moveX = tmp.x;
     a.moveY = -tmp.y;
     // … et croix des menus, avec hystérésis.
@@ -256,7 +257,11 @@ export class GamepadSource {
     if (ui[3] === 1) want[this.uiRight] = 1;
 
     // Stick droit : vitesse de rotation × temps réel écoulé.
-    const lookNorm = ax.length >= 4 ? shapeStick(ax[2] ?? 0, ax[3] ?? 0, LOOK_STICK, tmp) : 0;
+    let lookNorm = 0;
+    if (ax.length >= 4) {
+      shapeStick(ax[2] ?? 0, ax[3] ?? 0, LOOK_STICK, tmp);
+      lookNorm = tmp.n;
+    }
     if (lookNorm > 0) {
       const s = this.env.settings();
       const sens = s.gamepadSensitivity > 0 ? s.gamepadSensitivity : 1;

@@ -224,14 +224,31 @@ describe.skipIf(!available)('monde : vraies données de Paris', () => {
         if (w.isSolidAt(arc.x + dx, arc.z + dz)) solid++;
       }
     }
-    const centre = w.isSolidAt(arc.x, arc.z);
-    console.log(`[monde] Arc de Triomphe : ${solid}/${total} points pleins dans un carré de 48 m ; centre ${centre ? 'plein (emprise ordinaire)' : 'libre (piliers du modèle : on passe sous la voûte)'}`);
+    // Emprise du monument (aire de son contour) : avec les obstacles du modèle (piliers), on passe sous
+    // la voûte et la surface pleine est nettement plus petite que l'emprise.
+    let area = 0;
+    const f = arc.footprint;
+    for (let i = 0, j = f.length - 2; i < f.length; j = i, i += 2) area += f[j] * f[i + 1] - f[i] * f[j + 1];
+    area = Math.abs(area) / 2;
+    const solidArea = solid * 4;
+    const pillars = solidArea < area * 0.75;
+    console.log(`[monde] Arc de Triomphe : ${solidArea} m² pleins pour une emprise de ${area.toFixed(0)} m² — ${pillars ? 'obstacles du modèle (piliers : on passe sous la voûte)' : 'emprise ordinaire du bâtiment'}`);
     expect(solid).toBeGreaterThan(20); // il y a un monument…
-    expect(solid).toBeLessThan(total * 0.75); // … au milieu d'une place dégagée
+    expect(solidArea).toBeLessThan(area * 1.25); // … pas plus gros que son emprise
     expect(w.heightAt(arc.x, arc.z)).toBeGreaterThan(15); // l'Étoile est en haut de la butte de Chaillot
+    // On peut en faire le tour à pied sans jamais entrer dedans.
+    const pos = { x: arc.x + 40, z: arc.z };
+    for (let i = 0; i < 720; i++) {
+      const a = (i / 720) * Math.PI * 2;
+      pos.x = arc.x + Math.cos(a) * 40;
+      pos.z = arc.z + Math.sin(a) * 40;
+      expect(w.resolveCircle(pos, 0.3)).toBe(false);
+    }
   }, 120000);
 
-  it('micro-mesures sur les vraies données', () => {
+  it('micro-mesures sur les vraies données', async () => {
+    w.setFocus(100, 100);
+    await w.whenLoaded(100, 100, 500);
     const rand = seededRandom(21);
     const walkers: { pos: Vec2; heading: number }[] = [];
     const p: Vec2 = { x: 0, z: 0 };
@@ -272,5 +289,5 @@ describe.skipIf(!available)('monde : vraies données de Paris', () => {
     console.log(`[mesure] Paris (${s.tilesLoaded} tuiles, ${s.segments} segments) : 100 000 resolveCircle ${resolveMs.toFixed(1)} ms (${contacts} contacts) ; 1 000 raycast ${rayMs.toFixed(2)} ms (${hits} arrêtés) ; grilles ${s.grids} en ${s.rasterMs.toFixed(0)} ms`);
     expect(resolveMs).toBeLessThan(3000);
     expect(rayMs).toBeLessThan(1000);
-  });
+  }, 120000);
 });

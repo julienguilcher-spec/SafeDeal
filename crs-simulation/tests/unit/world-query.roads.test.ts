@@ -195,10 +195,11 @@ describe('monde : réseau de rues (quartier d\'essai)', () => {
     expect(path[path.length - 1]).toBe(490);
     // Le dernier point sur le réseau est sur le quai du Port (z ≈ 430,5), pas sur la rue en sens interdit.
     expect(path[path.length - 3]).toBeCloseTo(430.5, 1);
-    // À pied, on y va directement.
+    expect(Math.abs(path[path.length - 4] - 430)).toBeGreaterThan(1); // … que l'on quitte ailleurs qu'au carrefour
+    // À pied, on y va directement : le dernier tronçon descend la rue des Glycines depuis le quai.
     expect(w.findPath(-430, -480, 430, 490, 'foot', path)).toBe(true);
     expect(path[path.length - 4]).toBeCloseTo(430, 1);
-    expect(path[path.length - 3]).toBeCloseTo(490, 1);
+    expect(path[path.length - 3]).toBeCloseTo(430.5, 1);
   });
 
   it('aucun itinéraire quand une extrémité est hors du réseau', () => {
