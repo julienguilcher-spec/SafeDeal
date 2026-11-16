@@ -404,7 +404,7 @@ export class TacticalScreen implements ScreenInstance {
       text = 'Posez le centre et glissez pour fixer le rayon\u00a0: toutes les rues qui y entrent seront coupées.';
     } else if (mode.kind === 'rescue') {
       title = mode.rescue === 'pompiers' ? 'Pompiers' : 'SAMU';
-      text = 'Désignez le point où les secours doivent se présenter. Ils arrivent par la rue et attendent une zone sûre.';
+      text = 'Cliquez sur un feu ou un blessé : l’équipe va directement l’éteindre ou le prendre en charge. Ailleurs : elle se rend au point désigné, par la rue.';
     } else if (st.tool === 'box') {
       title = 'Cadre';
       text = 'Glissez pour encadrer les unités à sélectionner.';

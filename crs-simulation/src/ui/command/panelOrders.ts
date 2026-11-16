@@ -33,6 +33,10 @@ export class OrdersPanel {
   private readonly verbBtns: { verb: OrderVerb; b: HTMLButtonElement }[] = [];
   private readonly rule: HTMLElement;
   private readonly palette: HTMLElement;
+  private readonly sRescue: HTMLDivElement;
+  private readonly firemenBtn: HTMLButtonElement;
+  private readonly samuBtn: HTMLButtonElement;
+  private readonly rescueNote: HTMLElement;
   private readonly readonlyNote: HTMLElement;
 
   constructor(private readonly core: CommandCore, private readonly state: TacticalState, private readonly tmap: TacticalMap, host: HTMLElement) {
@@ -95,8 +99,26 @@ export class OrdersPanel {
     this.readonlyNote = el('div', 'ct-note', 'Lecture seule\u00a0: vous recevez les ordres, vous n’en donnez pas. La carte montre le dispositif et la foule.');
     sVerbs.append(vh, this.palette, this.rule, this.readonlyNote);
 
-    this.root.append(sLegal, sForce, sVerbs);
+    // secours : les engager sur un point précis, un feu ou un blessé (clic sur la carte)
+    this.sRescue = el('div', 'ct-sec');
+    const rh = el('div', 'ct-sec-h');
+    rh.appendChild(el('div', 'cm-sub', 'Secours'));
+    const rrow = el('div', 'ct-verbs');
+    this.firemenBtn = button('Pompiers →', () => this.pickRescue('pompiers'), { icon: 'fire', id: 'tac-rescue-pompiers', className: 'ct-verb' });
+    this.samuBtn = button('SAMU →', () => this.pickRescue('samu'), { icon: 'cross', id: 'tac-rescue-samu', className: 'ct-verb' });
+    rrow.append(this.firemenBtn, this.samuBtn);
+    this.rescueNote = el('div', 'ct-note', 'Puis cliquez sur la carte\u00a0: sur un feu ou un blessé, l’équipe va directement l’éteindre ou le prendre en charge\u00a0; ailleurs, elle se rend au point désigné.');
+    this.sRescue.append(rh, rrow, this.rescueNote);
+
+    this.root.append(sLegal, sForce, sVerbs, this.sRescue);
     host.appendChild(this.root);
+  }
+
+  private pickRescue(kind: 'pompiers' | 'samu'): void {
+    const st = this.state;
+    if (st.mode.kind === 'rescue' && st.mode.rescue === kind) st.setMode(IDLE);
+    else st.setMode({ kind: 'rescue', rescue: kind, incidentId: 0 });
+    this.refresh();
   }
 
   private sommation(): void {
@@ -213,6 +235,12 @@ export class OrdersPanel {
     const core = this.core;
     const roe = core.ctx.law.roe;
     const sc = core.scope();
+    // secours : qui peut déléguer, quand un service de secours est joignable
+    const canRescue = !!core.rescue && sc.canDelegate;
+    this.sRescue.style.display = canRescue ? '' : 'none';
+    const m = this.state.mode;
+    setClass(this.firemenBtn, 'is-on', m.kind === 'rescue' && m.rescue === 'pompiers');
+    setClass(this.samuBtn, 'is-on', m.kind === 'rescue' && m.rescue === 'samu');
     const stage: SommationStage = roe.sommation;
     this.dot.className = 'ct-dot' + (roe.underAttack ? ' atk' : stage > 0 ? ' s' + stage : '');
     setText(this.legal, STAGE_LABELS[stage] ?? '');

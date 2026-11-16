@@ -91,6 +91,23 @@ export class TacticalMap {
     return best;
   }
 
+  /** Incident ouvert de la famille du secours (feux pour les pompiers, victimes pour le SAMU) à moins de 30 m. */
+  nearestRescueIncident(kind: 'pompiers' | 'samu', x: number, z: number): { id: number; x: number; z: number } | null {
+    const api = this.core.incidents;
+    if (!api) return null;
+    let best: { id: number; x: number; z: number } | null = null;
+    let bd = 30;
+    for (const inc of api.list) {
+      if (inc.state === 'resolu' || inc.state === 'echoue') continue;
+      const fire = inc.kind.startsWith('feu');
+      const victim = inc.kind === 'blesse' || inc.kind === 'agent_a_terre' || inc.kind === 'secours_bloques';
+      if (kind === 'pompiers' ? !fire : !victim) continue;
+      const d = Math.hypot(inc.x - x, inc.z - z);
+      if (d < bd) { bd = d; best = inc; }
+    }
+    return best;
+  }
+
   pick(x: number, y: number, touch: boolean): MapPick {
     const scene = this.core.maps.scene;
     const view = this.map.view;
@@ -352,7 +369,17 @@ export class TacticalMap {
       return;
     }
     if (mode.kind === 'rescue') {
-      if (info.button !== 2) this.callRescue(mode.rescue, wx, wz, mode.incidentId);
+      if (info.button !== 2) {
+        // clic sur (ou près d') un feu ou un blessé : l'appel lui est lié, l'équipe va directement l'éteindre ou le
+        // prendre en charge ; ailleurs, elle se rend au point désigné
+        let incidentId = mode.incidentId;
+        let tx = wx, tz = wz;
+        if (incidentId === 0) {
+          const inc = this.nearestRescueIncident(mode.rescue, wx, wz);
+          if (inc) { incidentId = inc.id; tx = inc.x; tz = inc.z; }
+        }
+        this.callRescue(mode.rescue, tx, tz, incidentId);
+      }
       st.setMode(IDLE);
       return;
     }
