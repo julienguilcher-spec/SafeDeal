@@ -44,7 +44,7 @@ const SECTIONS: readonly { id: SectionId; label: string; icon: Parameters<typeof
   { id: 'foule', label: 'Manifestation', icon: 'crowd', title: 'La manifestation', sub: 'Affluence, cause défendue et composition du cortège.' },
   { id: 'tension', label: 'Tension et durée', icon: 'pulse', title: 'Tension et durée', sub: 'Le climat de départ, et la facilité avec laquelle il se dégrade.' },
   { id: 'moyens', label: 'Moyens engagés', icon: 'siren', title: 'Moyens engagés', sub: 'Unités, véhicules et appuis disponibles au début du scénario.' },
-  { id: 'options', label: 'Options', icon: 'sliders', title: 'Options de règles', sub: 'Sanctions, violence affichée, circulation et métro au départ.' },
+  { id: 'options', label: 'Options', icon: 'sliders', title: 'Options de règles', sub: 'Journée de service, sanctions, violence affichée, circulation et métro au départ.' },
   { id: 'scenarios', label: 'Mes scénarios', icon: 'bookmark', title: 'Scénarios enregistrés', sub: 'Enregistrez vos réglages pour les rejouer d’un geste.' },
 ];
 

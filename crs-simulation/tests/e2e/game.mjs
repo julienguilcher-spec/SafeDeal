@@ -92,6 +92,11 @@ async function launchFromHome(page, { poste, tap }) {
   await hold('Home');
   for (let i = 0; i < 4; i++) await hold('ArrowRight');
   await frames(page, 2);
+  // ce scénario vérifie le dispositif déjà en place près du rassemblement : sans « journée de service »
+  // (départ de la caserne, vérifié à part par verif-journee.mjs)
+  await click('[data-id="tab-options"]');
+  await click('[data-id="opt-journee"]');
+  await frames(page, 2);
   const t0 = Date.now();
   await click('[data-id="lancer"]');
   return t0;
