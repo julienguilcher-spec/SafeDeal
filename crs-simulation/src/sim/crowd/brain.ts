@@ -64,6 +64,8 @@ export const F = {
   PINNED: 256,
   /** S'est assis de lui-même pour souffler. */
   RESTING: 512,
+  /** Membre d'un foyer secondaire (foyers.ts) : hors cortège, attaché à son point (anchorX, anchorZ). */
+  FOYER: 1024,
 } as const;
 
 export interface CrowdBrain {

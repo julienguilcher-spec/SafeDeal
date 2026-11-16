@@ -126,13 +126,29 @@ export class Nav {
   /** Recalcule les issues autour d'un point (centre de la foule). */
   rebuildExits(cx: number, cz: number): void {
     const core = this.core;
-    const ctx = core.ctx;
     this.exitsDirty = false;
     this.exitsAt = core.now;
     this.exitsX = cx;
     this.exitsZ = cz;
+    this.fresh = this.exits.length;
+    this.pushExits(cx, cz);
+  }
+
+  /**
+   * Ajoute des issues autour d'un point éloigné de la manifestation (foyer secondaire) sans changer celles que
+   * retient la manifestation ; retourne l'index de la première ajoutée (les suivantes jusqu'à la fin du tableau).
+   */
+  addExitsAround(cx: number, cz: number, rand: () => number): number {
+    const start = this.exits.length;
+    this.pushExits(cx, cz, rand);
+    return start;
+  }
+
+  private pushExits(cx: number, cz: number, rand: () => number = this.rand): void {
+    const core = this.core;
+    const ctx = core.ctx;
     const exits = this.exits;
-    this.fresh = exits.length;
+    const start = exits.length;
     for (const s of core.metro.stations) {
       if (!s.open) continue;
       for (let e = 0; e + 1 < s.entrances.length; e += 2) {
@@ -143,13 +159,13 @@ export class Nav {
       }
     }
     const b = ctx.world.bounds;
-    const a0 = core.rngArrive.next() * Math.PI * 2;
+    const a0 = rand() * Math.PI * 2;
     const path = this.scratch;
     for (let k = 0; k < 8; k++) {
       const a = a0 + (k / 8) * Math.PI * 2;
       const x = Math.min(b.maxX - 6, Math.max(b.minX + 6, cx + Math.sin(a) * T.LEAVE_STREET_DIST));
       const z = Math.min(b.maxZ - 6, Math.max(b.minZ + 6, cz + Math.cos(a) * T.LEAVE_STREET_DIST));
-      if (!ctx.world.randomFreePoint(x, z, 30, 'sidewalk', this.rand, this.tmp)) continue;
+      if (!ctx.world.randomFreePoint(x, z, 30, 'sidewalk', rand, this.tmp)) continue;
       const px = this.tmp.x;
       const pz = this.tmp.z;
       const d = Math.hypot(px - cx, pz - cz);
@@ -160,7 +176,7 @@ export class Nav {
       if (len > d * 2.6 + 60) continue;
       exits.push({ index: exits.length, kind: 'rue', x: px, z: pz, stationId: 0, open: true });
     }
-    if (exits.length === this.fresh) exits.push({ index: exits.length, kind: 'rue', x: cx + T.LEAVE_STREET_DIST, z: cz, stationId: 0, open: true });
+    if (exits.length === start) exits.push({ index: exits.length, kind: 'rue', x: cx + T.LEAVE_STREET_DIST, z: cz, stationId: 0, open: true });
   }
 
   /** Issue retenue par une personne : la moitié gagne une bouche de métro à moins de 300 m (bible F.2). */

@@ -135,8 +135,11 @@ export class Manners {
     const core = this.core;
     if (b.state !== S.LINGER) {
       this.mind.setState(b, S.LINGER);
-      // point d'attache : là où l'on est si le cortège est fini, sinon près de la tête
-      if (core.director.base === 'apres_manif' || core.director.base === 'dispersion') {
+      // point d'attache : celui du foyer secondaire (fixé par foyers.ts) ; là où l'on est si le cortège est fini,
+      // sinon près de la tête
+      if ((b.flags & F.FOYER) !== 0) {
+        // rien : le foyer tient anchorX, anchorZ à jour
+      } else if (core.director.base === 'apres_manif' || core.director.base === 'dispersion') {
         b.anchorX = p.x;
         b.anchorZ = p.z;
       } else {
@@ -148,7 +151,7 @@ export class Manners {
     }
     if (now >= b.timer) {
       b.timer = now + 8 + 14 * core.rngThink.next();
-      if (core.formation.marching) {
+      if (core.formation.marching && (b.flags & F.FOYER) === 0) {
         core.corridor.at(core.formation.headS - 6 - 20 * b.docility, core.rp);
         b.anchorX = core.rp.x - core.rp.tz * core.rp.half * (b.courage - 0.5);
         b.anchorZ = core.rp.z + core.rp.tx * core.rp.half * (b.courage - 0.5);

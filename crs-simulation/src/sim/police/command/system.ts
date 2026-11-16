@@ -222,6 +222,11 @@ export class CommandSystem implements GameSystem {
       const e = payload as { gravity: number; stage: string; x: number; z: number };
       if (e && e.stage === 'debut' && e.gravity >= 1) this.pic.note('groupe_hostile', e.x, e.z, 0.2 * e.gravity, false);
     });
+    // foyer secondaire annoncé par CENTRAL (rassemblement sauvage, casseurs, blocage) : connu d'emblée
+    ev.onAny('crowd:foyer', (payload) => {
+      const e = payload as { kind: string; state: string; x: number; z: number };
+      if (e && e.state === 'debut') this.pic.note(e.kind === 'casseurs' ? 'casse' : 'groupe_hostile', e.x, e.z, e.kind === 'casseurs' ? 0.5 : 0.3, true);
+    });
     ev.onAny('crowd:metro', (payload) => {
       const e = payload as { type: string; stationId: number; count: number };
       if (!e || e.type !== 'vague') return;

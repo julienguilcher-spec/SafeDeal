@@ -16,6 +16,10 @@
  *   'crowd:announce'  AnnounceEvent    annonce des organisateurs (départ, arrêt, arrivée, dispersion, prise de parole)
  *   'crowd:help'      HelpEvent        la foule appelle les secours pour un blessé
  *   'crowd:kettle'    KettleEvent      une partie de la foule se sait encerclée (ou ne l'est plus)
+ *   'crowd:foyer'     FoyerEvent       un foyer secondaire se déclare ailleurs dans Paris (ou prend fin) — voir foyers.ts
+ *
+ * Service 'crowd.foyers' (FoyersApi) : foyers secondaires en cours (rassemblements sauvages, groupes de casseurs,
+ * blocages), hors du cortège principal.
  *
  * Clés lues dans SessionConfig.extra (toutes facultatives) :
  *   cause                 string   identifiant de cause (« retraites », « climat »…) — écrit par la page d'accueil
@@ -35,6 +39,13 @@
  *   crowd.sono            boolean  forcer ou interdire le camion sono
  *   crowd.bystanders      number   nombre de badauds en lisière
  *   crowd.none            boolean  aucune manifestation (patrouille)
+ *   foyers                number | 'auto'  foyers secondaires pendant la session (défaut 'auto' : selon la taille et la
+ *                                  volatilité, 0 à 4 ; 0 en mission sauf mention contraire) ; 0 : aucun
+ *   foyers.types          string[] natures imposées, dans l'ordre ('rassemblement' | 'casseurs' | 'blocage')
+ *   foyers.delai          number   délai avant le premier foyer (s de jeu ; défaut 5 à 8 min)
+ *   foyers.ecart          number   écart entre deux foyers (s ; défaut 2 min 30 à 6 min)
+ *   foyers.duree          number   durée de vie d'un foyer (s ; défaut 8 à 15 min pour un rassemblement)
+ *   foyers.taille         number   effectif imposé de chaque foyer
  * ===================================================================================== */
 
 import type {
@@ -55,6 +66,9 @@ export const METRO_EVENT = 'crowd:metro';
 export const ANNOUNCE_EVENT = 'crowd:announce';
 export const HELP_EVENT = 'crowd:help';
 export const KETTLE_EVENT = 'crowd:kettle';
+export const FOYER_EVENT = 'crowd:foyer';
+export const CROWD_FOYERS = 'crowd.foyers';
+export const CROWD_FOYERS_SYSTEM = 'sim:crowd.foyers';
 
 /** Famille visuelle (mêmes identifiants et même ordre que le module des archétypes : look.extras.family). */
 export type CrowdFamily =
@@ -125,6 +139,62 @@ export interface AnnounceEvent {
 
 export interface HelpEvent { personId: EntityId; byId: EntityId; x: number; z: number }
 export interface KettleEvent { enclosed: boolean; x: number; z: number; people: number }
+
+// ───────────────────────────── foyers secondaires ─────────────────────────────
+
+/**
+ * Nature d'un foyer secondaire : rassemblement non déclaré (statique, slogans, tension qui monte), groupe de
+ * casseurs (mobile, vitrines et pillage), blocage (sit-in en travers d'un carrefour).
+ */
+export type FoyerKind = 'rassemblement' | 'casseurs' | 'blocage';
+
+/** Événement libre 'crowd:foyer' : un foyer se déclare ('debut') ou prend fin ('fin'). */
+export interface FoyerEvent {
+  id: number;
+  kind: FoyerKind;
+  x: number;
+  z: number;
+  /** Effectif annoncé au début, présents à la fin. */
+  people: number;
+  /** Lieu (« place de l'Hôtel de Ville », « rue de Rivoli »…). */
+  name: string;
+  state: 'debut' | 'fin';
+}
+
+/** Foyer en cours, tel que le publie le service 'crowd.foyers'. */
+export interface FoyerView {
+  readonly id: number;
+  kind: FoyerKind;
+  /** Lieu. */
+  name: string;
+  /** Libellé complet (« Rassemblement non déclaré — place de l'Hôtel de Ville »). */
+  label: string;
+  /** Centre actuel (un groupe de casseurs se déplace). */
+  x: number;
+  z: number;
+  /** Personnes sur place, libres (ni interpellées ni parties). */
+  people: number;
+  /** Instant de début (s de session). */
+  startedAt: number;
+  /** Tension locale 0..1. */
+  tension: number;
+  /** Une nasse des forces de l'ordre l'enferme. */
+  kettled: boolean;
+  /** Unité ctx.squads (type 'cortege') qui regroupe ses groupes d'affinité. */
+  squadId: number;
+}
+
+/** Service 'crowd.foyers'. */
+export interface FoyersApi {
+  /** Foyers en cours (tableau interne : ne pas le modifier). */
+  readonly list: readonly FoyerView[];
+  /** Foyers prévus pour la session (déjà déclarés ou à venir). */
+  readonly planned: number;
+  /** Foyers déjà déclarés depuis le début de la session. */
+  readonly started: number;
+  /** Foyer auquel appartient une personne (null : aucun, ou foyer terminé). */
+  foyerOf(id: EntityId): FoyerView | null;
+}
 
 // ───────────────────────────── groupes, cortège, issues ─────────────────────────────
 
