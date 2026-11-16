@@ -75,6 +75,19 @@ export class Manners {
       return;
     }
     const d = Math.hypot(e.x - p.x, e.z - p.z);
+    // sorti des lieux : loin de la manifestation, hors de vue ; ou en route depuis très longtemps
+    const gone = now - b.stateSince;
+    if (gone > 20) {
+      const home = core.director;
+      const far = Math.hypot(p.x - home.homeX, p.z - home.homeZ) > T.LEAVE_STREET_DIST + 60 && core.sense.coverAt(p.x, p.z, 25) < 12;
+      if (far || gone > 300 * Math.max(1, core.timeScale)) {
+        const player = core.ctx.player.person();
+        if (!player || Math.hypot(player.x - p.x, player.z - p.z) > 70) {
+          core.depart(p);
+          return;
+        }
+      }
+    }
     if (e.kind === 'metro') {
       if (d < T.EXIT_REACH_METRO + 1.5 && core.metro.tryEnter(e.stationId)) {
         core.depart(p);

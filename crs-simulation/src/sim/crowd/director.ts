@@ -44,6 +44,9 @@ export class Director implements DirectorApi {
   meanFear = 0;
   /** Plus grand nombre de manifestants présents en même temps. */
   peak = 0;
+  /** Centre de la manifestation, figé à l'annonce de la dispersion : on a « quitté les lieux » loin de ce point. */
+  homeX = 0;
+  homeZ = 0;
   /** Journal des variations de tension (motif, lieu), pour le compte rendu. */
   readonly tensionLog: TensionEntry[] = [];
   /** Coefficient d'allure imposé par un aléa (averse : on presse le pas). */
@@ -121,8 +124,8 @@ export class Director implements DirectorApi {
     this.ambient = core.tension0;
     this.tension = core.tension0;
     this.stats.total = core.size;
-    this.centerX = core.rallyX;
-    this.centerZ = core.rallyZ;
+    this.centerX = this.homeX = core.rallyX;
+    this.centerZ = this.homeZ = core.rallyZ;
     this.nextHalt = this.departAt + sch.depart + core.rngEmo.range(T.HALT_EVERY_MIN, T.HALT_EVERY_MAX) * core.timeScale * 0.6;
     core.emotions.begin();
     this.setBase('rassemblement');
@@ -310,6 +313,10 @@ export class Director implements DirectorApi {
       this.centerZ = sz / present;
       this.meanAnger = anger / present;
       this.meanFear = fear / present;
+      if (this.base === 'rassemblement' || this.base === 'depart' || this.base === 'cortege') {
+        this.homeX = this.centerX;
+        this.homeZ = this.centerZ;
+      }
     }
   }
 

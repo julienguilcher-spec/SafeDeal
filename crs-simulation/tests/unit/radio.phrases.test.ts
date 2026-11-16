@@ -267,10 +267,10 @@ describe('radio — bibliothèque de phrases', () => {
     expect(got[0]!.text).toBe('CENTRAL ICI MISTRAL UN. Rien à signaler, secteur Concorde. Situation calme. PARLEZ.');
     // un incident se nomme d'après l'endroit où il est, pas d'après l'unité qui en parle
     phrases.say('incident_feu', { type: 'feu de poubelles' }, { squad: sq, at: { x: 500, z: 0 }, variant: 0, channel: 'secours' });
-    expect(got[1]!.text).toContain('Feu signalé, secteur rue de Rivoli. Nature : feu de poubelles.');
+    expect(got[1]!.text).toContain(typo('Feu signalé, secteur rue de Rivoli. Nature : feu de poubelles.'));
     // une rue coupée porte le nom de l'endroit désigné
     phrases.say('rue_fermee', {}, { squad: sq, at: { x: 500, z: 0 }, variant: 0, channel: 'presse' });
-    expect(got[2]!.text).toContain('Circulation coupée : rue de Rivoli.');
+    expect(got[2]!.text).toContain(typo('Circulation coupée : rue de Rivoli.'));
     // la destination d'un mouvement n'est jamais déduite de la position de départ
     phrases.say('mouvement', {}, { squad: sq, variant: 0, channel: 'public' });
     expect(got[3]!.text).toContain('En mouvement vers le secteur désigné.');
@@ -296,7 +296,7 @@ describe('radio — bibliothèque de phrases', () => {
     expect(got[1]!.text.startsWith('MISTRAL TROIS ICI SAPEUR UN. En attente de sécurisation, secteur rue Royale.')).toBe(true);
     // couloir ouvert pour les pompiers plutôt que pour le SAMU
     phrases.say('secours_itineraire_libre', { acces: 'rue Saint-Florentin' }, { squad: s3, to: 'SAPEUR 1', variant: 2, channel: 'public' });
-    expect(got[2]!.text).toBe('SAPEUR UN ICI MISTRAL TROIS. Accès sécurisé : rue Saint-Florentin. Avancez par le couloir, mes agents vous couvrent des deux côtés. TERMINÉ.');
+    expect(got[2]!.text).toBe(typo('SAPEUR UN ICI MISTRAL TROIS. Accès sécurisé : rue Saint-Florentin. Avancez par le couloir, mes agents vous couvrent des deux côtés. TERMINÉ.'));
   });
 
   it('un appel et sa réponse passent par le même canal ; la salle parle sur le canal de commandement', async () => {
@@ -315,6 +315,168 @@ describe('radio — bibliothèque de phrases', () => {
       if (def.from !== 'central' && def.to !== 'central') continue;
       expect(['commandement', 'secours'], def.key).toContain(def.channel);
     }
+  });
+
+  it('les valeurs par défaut donnent des phrases correctes, qui n\'affirment rien que l\'appelant n\'a pas fourni', async () => {
+    const { phrases } = await boot();
+    for (const [name, spec] of Object.entries(PARAM_SPECS)) {
+      expect(spec.fallback.trim().length, name).toBeGreaterThan(0);
+      expect(spec.doc.trim().length, name).toBeGreaterThan(10);
+    }
+    // une quantité absente n'est ni « aucun » ni « plusieurs » : on dit qu'elle n'est pas précisée
+    for (const name of ['nombre', 'indisponibles', 'interpelles', 'lanceur', 'lbd']) expect(PARAM_DEFAULTS[name], name).toBe('non précisé');
+    for (const def of ALL_PHRASES) {
+      phrases.variants(def.key, {}).forEach((t, i) => {
+        const where = `${def.key} #${i + 1} : ${t}`;
+        // pas de préposition suivie d'une valeur par défaut qui ne s'y accroche pas (« peu de au lanceur », « par à l'opposé »)
+        expect(t, where).not.toMatch(/\b(?:de|du|des|par|vers|sur|dans|en|pour|avec) (?:à|au|aux|par|non précisée?|aucun)\b/i);
+        // chaque phrase commence par une capitale, même quand une valeur par défaut l'ouvre
+        expect(t, where).not.toMatch(/[.!?] \p{Ll}/u);
+        // pas de ponctuation orpheline ni doublée
+        expect(t, where).not.toMatch(/[,;:] ?[.,;:]|\.\.|: *$/);
+        // une quantité est dite derrière un libellé, ou suivie de son unité
+        expect(t, where).not.toMatch(/non précisé (?!\.|,|$)/);
+      });
+      // quantité dans un gabarit : « libellé : {nombre} », jamais « {nombre} personnes » (accords impossibles à tenir)
+      for (const v of def.variants) {
+        for (const name of ['nombre', 'indisponibles', 'interpelles', 'lanceur', 'lbd', 'effectif']) {
+          if (v.includes(`{${name}}`)) expect(v, def.key).toMatch(new RegExp(`: \\{${name}\\}(?:[.,]|$)`));
+        }
+        for (const [name, unit] of [['distance', 'mètres'], ['duree', 'minutes'], ['litres', 'litres'], ['eau', 'litres'], ['pct', 'pour cent']] as const) {
+          if (v.includes(`{${name}}`)) expect(v, def.key).toContain(`{${name}} ${unit}`);
+        }
+        if (v.includes('{lieu}')) expect(v, def.key).toMatch(/[Ss]ecteur \{lieu\}/);
+        if (v.includes('{destination}')) expect(v, def.key).toMatch(/secteur \{destination\}/);
+        if (v.includes('{station}')) expect(v, def.key).toMatch(/[Ss]tation \{station\}/);
+        if (v.includes('{direction}')) expect(v, def.key).toMatch(/face \{direction\}/);
+      }
+    }
+  });
+
+  it('les variantes d\'une situation disent la même chose : mêmes informations, autres mots', () => {
+    // paramètres de mise en scène qu'une variante courte peut omettre sans changer le sens du message
+    const libres = new Set(['lieu', 'heure', 'direction', 'mission']);
+    const mots = (v: string): string[] => v.toLowerCase().replace(/[.,:;!?]/g, ' ').split(/\s+/).filter(Boolean);
+    const distance = (a: string[], b: string[]): number => {
+      const row = Array.from({ length: b.length + 1 }, (_x, j) => j);
+      for (let i = 1; i <= a.length; i++) {
+        let diag = row[0]!;
+        row[0] = i;
+        for (let j = 1; j <= b.length; j++) {
+          const keep = row[j]!;
+          row[j] = Math.min(row[j]! + 1, row[j - 1]! + 1, diag + (a[i - 1] === b[j - 1] ? 0 : 1));
+          diag = keep;
+        }
+      }
+      return row[b.length]!;
+    };
+    const seen = new Map<string, string>();
+    for (const def of ALL_PHRASES) {
+      const infos = def.variants.map((v) => placeholdersOf(v).filter((p) => !libres.has(p)).sort().join(','));
+      for (const info of infos) expect(info, `${def.key} : une variante oublie ou ajoute une information`).toBe(infos[0]);
+      // variété : deux variantes ne sont jamais la même phrase à un mot près
+      for (let i = 0; i < def.variants.length; i++) {
+        for (let j = i + 1; j < def.variants.length; j++) {
+          expect(distance(mots(def.variants[i]!), mots(def.variants[j]!)), `${def.key} : variantes ${i + 1} et ${j + 1} trop proches`).toBeGreaterThanOrEqual(2);
+        }
+      }
+      // et une même phrase ne sert pas à deux situations
+      for (const v of def.variants) {
+        expect(seen.get(v), `« ${v} » : ${def.key} et ${seen.get(v)}`).toBeUndefined();
+        seen.set(v, def.key);
+      }
+    }
+  });
+
+  it('procédure radio : mots conventionnels en capitales, formule d\'appel et de fin ajoutées par la composition', () => {
+    for (const def of ALL_PHRASES) {
+      for (const v of def.variants) {
+        expect(v, def.key).not.toMatch(/\b(?:PARLEZ|TERMINÉ|ICI)\b/);
+        expect(v, def.key).not.toMatch(/\b(?:[Rr]eçu|[Aa]perçu|[Nn]égatif|[Uu]rgent|[Cc]ollationnez|[Aa]ttendez)\b[,.]/);
+        expect(v, def.key).not.toMatch(/[Ff]aites l'aperçu/);
+        if (/\bURGENT\b/.test(v)) {
+          expect(v.startsWith('URGENT. '), def.key).toBe(true);
+          expect(def.priority, def.key).toBe(2);
+        }
+        if (/FAITES L'APERÇU\.$|COLLATIONNEZ\.$|^ATTENDEZ|ATTENDEZ[,.]/.test(v)) expect(def.end, def.key).toBe('aucun');
+      }
+      // une réponse n'attend pas de destinataire nommé ; un accusé de réception clôt l'échange
+      if (def.reply && def.variants.every((v) => /^(?:REÇU|APERÇU|Bien REÇU|FORT)/.test(v))) expect(def.end, def.key).toBe('termine');
+    }
+  });
+
+  it('commandant unique : il somme et décide lui-même, personne ne demande d\'autorisation à une autre autorité', async () => {
+    const { phrases } = await boot();
+    const tout = ALL_PHRASES.flatMap((d) => d.variants).join('\n');
+    expect(tout).not.toMatch(/commissaire|autorité civile|AUTORITÉ|préfet|demande (?:d')?(?:l')?autorisation|autorisation de l'autorité/i);
+    for (const key of ['sommation_annonce', 'sommation_premiere', 'sommation_derniere', 'sommation_reiteree', 'sommation_fusee_rouge',
+      'sommations_effectuees', 'force_niveau_0', 'force_niveau_1', 'force_niveau_2', 'force_niveau_3', 'force_niveau_4', 'force_niveau_5',
+      'force_suspendue', 'fin_emploi_force']) {
+      const info = phrases.info(key)!;
+      expect(info.from, key).toBe('commandant');
+      expect(info.priority, key).toBe(2);
+      expect(phrases.text(key, { cible: 'MISTRAL 2' }, 0), key).toMatch(/ICI MISTRAL\. /);
+    }
+    // les sommations sont tracées auprès de la salle, à l'heure dite ; les ordres de force vont aux unités
+    expect(phrases.text('sommation_derniere', { heure: 17 + 4 / 60, issue: 'rue Saint-Antoine' }, 0))
+      .toBe(typo('CENTRAL ICI MISTRAL. Dernière sommation faite à UNE-SEPT heures ZÉRO-QUATRE, secteur actuel. Issue ouverte : rue Saint-Antoine. TERMINÉ.'));
+    expect(phrases.info('sommation_annonce')!.to).toBe('tous');
+    expect(phrases.info('force_niveau_3')!.to).toBe('cible');
+  });
+
+  it('réalisme du cadre d\'emploi de la force (bible A.3 et A.4)', () => {
+    const variantes = (key: string): readonly string[] => ALL_PHRASES.find((d) => d.key === key)!.variants;
+    // gradation du contrat : 1 contact · 2 bâton, gazeuse · 3 lacrymogènes, canon à eau · 4 armes · 5 arme de service
+    for (const v of variantes('force_niveau_0')) expect(v).toMatch(/[Aa]ucun emploi|interdit|Pas d'emploi/);
+    for (const v of variantes('force_niveau_1')) expect(v).toMatch(/bouclier/);
+    for (const v of variantes('force_niveau_2')) expect(v).toMatch(/[Bb]âton/);
+    for (const v of variantes('force_niveau_2')) expect(v).toMatch(/aucune grenade|pas de grenade/);
+    for (const v of variantes('force_niveau_3')) expect(v).toMatch(/[Ll]acrymogènes/);
+    for (const v of variantes('force_niveau_3')) expect(v).toMatch(/canon à eau/);
+    for (const v of variantes('force_niveau_4')) expect(v).toMatch(/désencerclement/);
+    for (const v of variantes('force_niveau_5')) expect(v).toMatch(/légitime défense/);
+    // une autorisation se collationne ou s'aperçoit ; elle porte une limite géographique (traçabilité)
+    for (const key of ['force_niveau_1', 'force_niveau_2', 'force_niveau_3', 'force_niveau_4']) {
+      for (const v of variantes(key)) expect(v, key).toMatch(/Limite : \{limite\}\. (?:FAITES L'APERÇU|COLLATIONNEZ)\.$/);
+    }
+    for (const def of ALL_PHRASES) {
+      for (const v of def.variants) {
+        // le lanceur de balles de défense n'est licite qu'en riposte, sur un objectif désigné
+        if (/balles? de défense/.test(v) && def.key !== 'bilan_force') {
+          expect(v, def.key).toMatch(/riposte/);
+          expect(v, def.key).toMatch(/objectif désigné/);
+        }
+        // le tir tendu est interdit : toute grenade au lanceur se tire en tir courbe
+        if (/lanceurs?\b/i.test(v) && !/balles? de défense|Au lanceur :|au lanceur :|lanceur d'eau|Je garde les lanceurs/.test(v)) expect(v, def.key).toMatch(/tir courbe/i);
+        // la grenade de désencerclement se lance à la main, au ras du sol
+        if (def.key === 'desencerclement_employe') expect(v).toMatch(/au ras du sol/);
+        // pas de vocabulaire de presse ni de familiarité sur le réseau
+        expect(v, def.key).not.toMatch(/casseurs?|black bloc|ça (?:frotte|dégénère|chauffe)|cinq sur cinq/i);
+        expect(v, def.key).not.toMatch(/\bRAS\b/);
+      }
+    }
+    // encerclement : toujours un point de sortie contrôlé et l'information des personnes retenues
+    for (const v of variantes('encerclement_ordre')) expect(v).toMatch(/sortie/i);
+    for (const v of variantes('encerclement_ordre')) expect(v).toMatch(/minute/);
+    for (const v of variantes('encerclement_en_place')) expect(v).toMatch(/sortie/i);
+    // refoulement : une issue reste libre devant la foule
+    for (const v of variantes('refoulement')) expect(v).toMatch(/issue/i);
+    // charge : arrêt au sifflet ; bond offensif : halte et réalignement
+    for (const v of variantes('charge')) expect(v).toMatch(/sifflet/);
+    for (const v of variantes('bond_offensif')) expect(v).toMatch(/réalignement/);
+    // canon à eau : jamais à la tête ; l'extinction ne vise pas les personnes
+    for (const v of variantes('canon_ordre_jet')) expect(v).toMatch(/à la tête/);
+    for (const v of variantes('canon_ordre_extinction')) expect(v).toMatch(/foyer|aucun jet sur les personnes/);
+    // lame du Centaure : l'obstacle est vérifié avant d'être poussé
+    for (const v of variantes('centaure_ordre_degager')) expect(v).toMatch(/[Vv]érifi/);
+    // interpellation : toujours sur un fait constaté
+    for (const key of ['interpellation_ordre', 'bravm_ordre']) for (const v of variantes(key)) expect(v, key).toMatch(/fait constaté/);
+    // les secours n'avancent que sous protection ; la presse circule librement
+    for (const v of variantes('secours_attente_securisation')) expect(v).toMatch(/sécurisation|protection|escorte|protégé/);
+    for (const v of variantes('presse_identifiee')) expect(v).toMatch(/laisse|libre/);
+    // réalisme des moyens : c'est le canon à eau ou les pompiers qui éteignent, le Centaure dégage et tire ses grenades
+    const centaure = ALL_PHRASES.filter((d) => d.from === 'centaure' || d.to === 'centaure').flatMap((d) => d.variants).join(' ');
+    expect(centaure).not.toMatch(/étein|extinction|jet d'eau/i);
   });
 
   it('la documentation PHRASES.md liste toutes les clés', () => {

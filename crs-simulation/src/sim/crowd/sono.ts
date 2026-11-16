@@ -79,9 +79,30 @@ export class Sono {
     }
     const ctx = core.ctx;
     // le conducteur monte dès qu'il est arrivé près du camion
-    if (this.driver !== 0 && v.seats[0] === 0) {
+    if (this.driver !== 0 && v.seats[0] === 0 && core.director.base !== 'dispersion' && core.director.base !== 'apres_manif' && core.director.base !== 'terminee') {
       const d = ctx.people.get(this.driver);
       if (d && d.vehicleId === 0 && Math.hypot(d.x - v.x, d.z - v.z) < 9 && d.custody === 'free' && d.posture !== 'down') ctx.vehicles.enter(d, v, 'driver');
+    }
+    const base = core.director.base;
+    const over = base === 'dispersion' || base === 'apres_manif' || base === 'terminee';
+    if (over && this.driver !== 0) {
+      // fin de la manifestation : le camion reste garé, son conducteur descend et repart avec les autres
+      const d = ctx.people.get(this.driver);
+      const b = d ? core.api.brain(d) : null;
+      if (d && d.vehicleId === v.id && (!b || core.now >= b.leaveAt || base !== 'dispersion')) {
+        if (this.following) {
+          const stopAp = ctx.service<AutopilotLike>('vehicles.autopilot');
+          if (stopAp && typeof stopAp.stop === 'function') stopAp.stop(v);
+          this.following = false;
+        }
+        if (Math.abs(v.speed) < 0.3) {
+          ctx.vehicles.exit(d);
+          if (d.vehicleId === 0) {
+            if (d.posture === 'seated') d.posture = 'stand';
+            this.driver = 0;
+          }
+        }
+      }
     }
     const ap = ctx.service<AutopilotLike>('vehicles.autopilot');
     if (!ap || typeof ap.follow !== 'function') return;

@@ -62,6 +62,7 @@ beforeAll(async () => {
   run.routeLength = core.route.length;
   const t0 = performance.now();
   let lastHead = ctx.director.headProgress;
+  let measured = false;
   for (let k = 0; k < 600; k++) {
     t.run(5);
     const d = ctx.director;
@@ -78,6 +79,11 @@ beforeAll(async () => {
         if (Math.hypot(core.slot.x - p.x, core.slot.z - p.z) > 30) run.offRoute++;
       }
     }
+    // coût mesuré pendant la marche seulement (le reste du temps la foule est plus légère)
+    if (!measured && d.phase === 'cortege') {
+      t.bestCost();
+      measured = true;
+    } else if (measured && run.cost.best === 0 && d.phase === 'dispersion') run.cost = t.bestCost(30);
     if (d.phase === 'terminee' && core.members.length === 0) break;
   }
   run.wall = performance.now() - t0;
@@ -87,7 +93,6 @@ beforeAll(async () => {
   run.peakDensity = core.density.peak;
   run.alerts = core.density.alerts;
   run.arrivedByStation = core.metro.stations.map((s) => ({ name: s.name, arrived: s.arrived, departed: s.departed }));
-  run.cost = t.bestCost(30);
   console.log('[foule] déroulé standard : phases', run.phases.map((p) => Math.round(p.t) + ':' + p.phase).join(' '), '| fin', Math.round(run.endTime), 's | parcours', Math.round(run.routeLength),
     'm | tête', Math.round(lastHead), 'm | stations', JSON.stringify(run.arrivedByStation), '| densité max', run.peakDensity.toFixed(2), '| coût/pas meilleur', run.cost.best.toFixed(3), 'médian', run.cost.median.toFixed(3),
     'ms | temps réel', Math.round(run.wall / 1000), 's');

@@ -65,7 +65,7 @@ export const PHRASES_MISE_EN_PLACE: readonly PhraseDef[] = [
     'En mouvement vers le secteur {destination}. Déplacement {moyen}.',
     'Je quitte ma position et je me porte sur le secteur {destination}, déplacement {moyen}.',
     'Départ pour le secteur {destination}, déplacement {moyen}. Je rends compte à l\'arrivée.',
-    'En route vers le secteur {destination}, déplacement {moyen}.',
+    'Unité en route pour le secteur {destination}, déplacement {moyen}.',
   ]),
   prep('arrivee_zone', {}, [
     'Arrivé sur le secteur {lieu}. Mise en place en cours.',

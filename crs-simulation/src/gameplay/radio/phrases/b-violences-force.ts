@@ -208,7 +208,7 @@ export const PHRASES_VIOLENCES_FORCE: readonly PhraseDef[] = [
   ]),
   dro('force_niveau_4', { de: 'commandant', a: 'cible', prio: 2, fin: 'aucun' }, [
     'Usage des armes autorisé : grenades assourdissantes et de désencerclement. Lanceur de balles de défense en riposte seulement, sur objectif désigné. Limite : {limite}. COLLATIONNEZ.',
-    'Usage des armes autorisé : grenades assourdissantes au lanceur, désencerclement au ras du sol. Balles de défense en riposte seulement, sur objectif désigné. Limite : {limite}. COLLATIONNEZ.',
+    'Usage des armes autorisé : grenades assourdissantes au lanceur, en tir courbe, et désencerclement à la main, au ras du sol. Balles de défense en riposte seulement, sur objectif désigné. Limite : {limite}. COLLATIONNEZ.',
     'Armes autorisées : grenades assourdissantes et de désencerclement. Balles de défense sur objectif désigné, en riposte uniquement. Limite : {limite}. COLLATIONNEZ.',
   ]),
   dro('force_niveau_5', { de: 'commandant', a: 'cible', prio: 2, fin: 'aucun' }, [
@@ -226,7 +226,7 @@ export const PHRASES_VIOLENCES_FORCE: readonly PhraseDef[] = [
     'Cessez l\'emploi de la force. Le trouble a cessé, tenez la position sans contact.',
     'Fin de l\'emploi de la force, effet immédiat : le trouble a cessé. Rendez compte de vos consommations.',
   ]),
-  dro('fin_emploi_force', { de: 'commandant', fin: 'termine' }, [
+  dro('fin_emploi_force', { de: 'commandant', prio: 2, fin: 'termine' }, [
     'Fin d\'emploi de la force à {heure}, secteur {lieu}. Le trouble a cessé.',
     'Emploi de la force terminé à {heure}, secteur {lieu} : le trouble a cessé.',
     'Le trouble a cessé, secteur {lieu}. Fin d\'emploi de la force à {heure}.',

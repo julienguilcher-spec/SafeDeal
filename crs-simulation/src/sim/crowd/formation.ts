@@ -514,7 +514,9 @@ export class Formation implements FormationView {
     let k = 0;
     while (k + 1 < this.blockCount && this.S[k + 1]! >= s) k++;
     const col = side > 0 ? 1 : 0;
-    for (let tries = 0; tries < 4 && k < this.blockCount; tries++, k++) {
+    for (let tries = 0; tries < 3 && k < this.blockCount; tries++, k++) {
+      // jamais une place loin derrière soi (bloc plein, tampon entre deux tronçons) : mieux vaut attendre
+      if (s - this.S[k]! > 9) return -1;
       const used = this.flankUsed[k * 2 + col]!;
       if (used >= 6) continue;
       this.flankUsed[k * 2 + col] = used + 1;

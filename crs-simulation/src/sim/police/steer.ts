@@ -14,6 +14,8 @@
  * ===================================================================================== */
 
 import type { Person } from '@/core/contracts';
+import { segmentVsObb } from '@/core/math';
+import type { SegmentCast } from '@/core/math';
 import type { Agent } from './brain';
 import { ACT_AIM } from './brain';
 import type { Kernel } from './kernel';
@@ -223,7 +225,7 @@ export function navigate(k: Kernel, a: Agent, tx: number, tz: number, interval: 
       a.pathN = 0;
     }
   }
-  // véhicule ou mobilier en travers du trajet direct : point de passage sur le côté de l'obstacle
+  // véhicule ou mobilier en travers du trajet direct : on passe par le coin de l'obstacle le plus avantageux
   if (a.pathN === 0 && d2 > 6.25 && k.now >= a.sideUntil) {
     const d = Math.sqrt(d2);
     const reach = d < 7 ? d : 7;
@@ -231,35 +233,12 @@ export function navigate(k: Kernel, a: Agent, tx: number, tz: number, interval: 
     const uz = dz / d;
     const hit = k.hit;
     const ctx = k.ctx;
-    let blocked = ctx.vehicles.raycast(p.x, p.z, p.x + ux * reach, p.z + uz * reach, hit, 'move') && hit.hit && hit.id !== a.boardId;
-    if (!blocked) blocked = ctx.props.raycast(p.x, p.z, p.x + ux * reach, p.z + uz * reach, hit, 'move') && hit.hit && hit.height > 0.9 && hit.t * reach < d - 1;
-    if (blocked) {
-      // on longe la face touchée, du côté qui rapproche du but (à défaut : toujours le même côté pour cet agent)
-      let sx = -hit.nz;
-      let sz = hit.nx;
-      const toward = sx * (tx - hit.x) + sz * (tz - hit.z);
-      if (toward < -0.3 || (toward <= 0.3 && (p.id & 1) === 0)) {
-        sx = -sx;
-        sz = -sz;
-      }
-      let wx = hit.x + hit.nx * 0.75 + sx * 3.4;
-      let wz = hit.z + hit.nz * 0.75 + sz * 3.4;
-      if (!world.isFree(wx, wz, 0.3)) {
-        wx = hit.x + hit.nx * 0.75 - sx * 3.4;
-        wz = hit.z + hit.nz * 0.75 - sz * 3.4;
-      }
-      if (world.isFree(wx, wz, 0.3)) {
-        const path = a.path;
-        path[0] = p.x;
-        path[1] = p.z;
-        path[2] = wx;
-        path[3] = wz;
-        path[4] = tx;
-        path[5] = tz;
-        path.length = 6;
-        a.pathN = 4;
-        a.pathI = 2;
-      }
+    if (ctx.vehicles.raycast(p.x, p.z, p.x + ux * reach, p.z + uz * reach, hit, 'move') && hit.hit && hit.id !== a.boardId) {
+      const v = ctx.vehicles.get(hit.id);
+      if (v) cornerDetour(k, a, v.x, v.z, v.def.width * 0.5, v.def.length * 0.5, v.heading, tx, tz);
+    } else if (ctx.props.raycast(p.x, p.z, p.x + ux * reach, p.z + uz * reach, hit, 'move') && hit.hit && hit.height > 0.9 && hit.t * reach < d - 1) {
+      const prop = ctx.props.get(hit.id);
+      if (prop) cornerDetour(k, a, prop.x, prop.z, prop.halfX, prop.halfZ, prop.heading, tx, tz);
     }
   }
   // piétinement : l'agent veut avancer mais n'avance pas
@@ -291,6 +270,53 @@ export function navigate(k: Kernel, a: Agent, tx: number, tz: number, interval: 
   } else {
     a.stuckT = 0;
   }
+}
+
+
+const cast: SegmentCast = { t: 0, nx: 0, nz: 0 };
+
+/**
+ * Contournement d'une boîte orientée (véhicule, mobilier) : parmi ses quatre coins (avec une marge), celui
+ * que l'agent voit et qui donne le trajet le plus court vers le but devient un point de passage.
+ */
+function cornerDetour(k: Kernel, a: Agent, cx: number, cz: number, halfX: number, halfZ: number, heading: number, tx: number, tz: number): void {
+  const p = a.p;
+  const fx = Math.sin(heading);
+  const fz = Math.cos(heading);
+  const rx = -fz;
+  const rz = fx;
+  const world = k.ctx.world;
+  const mx = halfX + 0.75;
+  const mz = halfZ + 0.75;
+  let best = Infinity;
+  let bx = 0;
+  let bz = 0;
+  for (let i = 0; i < 4; i++) {
+    const sx = i & 1 ? 1 : -1;
+    const sz = i & 2 ? 1 : -1;
+    const x = cx + rx * mx * sx + fx * mz * sz;
+    const z = cz + rz * mx * sx + fz * mz * sz;
+    // coin caché par la boîte elle-même, ou pris dans le décor : écarté
+    if (segmentVsObb(p.x, p.z, x, z, cx, cz, halfX + 0.3, halfZ + 0.3, heading, cast) && cast.t < 0.97) continue;
+    if (!world.isFree(x, z, 0.3)) continue;
+    const cost = Math.hypot(x - p.x, z - p.z) + Math.hypot(tx - x, tz - z);
+    if (cost < best) {
+      best = cost;
+      bx = x;
+      bz = z;
+    }
+  }
+  if (best === Infinity) return;
+  const path = a.path;
+  path[0] = p.x;
+  path[1] = p.z;
+  path[2] = bx;
+  path[3] = bz;
+  path[4] = tx;
+  path[5] = tz;
+  path.length = 6;
+  a.pathN = 4;
+  a.pathI = 2;
 }
 
 /** Distance entre deux personnes. */

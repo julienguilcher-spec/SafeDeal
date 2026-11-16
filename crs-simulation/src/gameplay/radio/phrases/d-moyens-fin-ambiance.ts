@@ -315,7 +315,7 @@ export const PHRASES_MOYENS_FIN_AMBIANCE: readonly PhraseDef[] = [
     'Toujours sous pression, secteur {lieu}. Je tiens la position.',
   ]),
   amb('ambiance_dispersion', {}, [
-    'Dispersion en cours, secteur {lieu}. Volume restant : {nombre}.',
+    'La dispersion se poursuit, secteur {lieu}. Volume restant : {nombre}.',
     'Les manifestants se dispersent, secteur {lieu}. Volume restant : {nombre}.',
     'Les lieux se vident, secteur {lieu}. Volume restant : {nombre}, je surveille les départs.',
     'Reflux de la foule, secteur {lieu}. Volume restant : {nombre}.',
