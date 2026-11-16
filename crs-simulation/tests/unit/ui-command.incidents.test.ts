@@ -118,7 +118,7 @@ describe('commandement — phraséologie radio', () => {
 
   it('compte rendu de situation : nature, volume, attitude', () => {
     const text = situationReport({ from: 'MISTRAL 2 ALFA', sector: 'boulevard du Temple', phase: 'cortege', volume: 287, tension: 0.5 });
-    expect(text).toBe('CENTRAL ICI MISTRAL 2 ALFA. Position boulevard du Temple. Nature : cortège. Volume : TROIS-ZÉRO-ZÉRO. Attitude : tendue. PARLEZ.');
+    expect(text).toBe('CENTRAL ICI MISTRAL 2 ALFA. Position boulevard du Temple. Nature\u00a0: cortège. Volume\u00a0: TROIS-ZÉRO-ZÉRO. Attitude\u00a0: tendue. PARLEZ.');
     expect(situationReport({ from: 'X', sector: 'quai', phase: 'aucune', volume: 0, tension: 0 })).toMatch(/Rien à signaler/);
   });
 });

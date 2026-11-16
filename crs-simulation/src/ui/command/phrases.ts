@@ -44,7 +44,8 @@ export function facingCardinal(heading: number): string {
 
 /** Gabarit d'un message. `expectReply` : « PARLEZ » (réponse attendue) ou « TERMINÉ ». */
 export function radioFrame(to: string, from: string, body: string, expectReply = true): string {
-  const text = body.trim().replace(/\s+/g, ' ');
+  // on ne resserre que les espaces ordinaires : les espaces insécables de la typographie sont conservées
+  const text = body.trim().replace(/[ \t\r\n]+/g, ' ');
   const dot = /[.!?]$/.test(text) ? '' : '.';
   return `${to.toUpperCase()} ICI ${from.toUpperCase()}. ${text}${dot} ${expectReply ? 'PARLEZ.' : 'TERMINÉ.'}`;
 }
