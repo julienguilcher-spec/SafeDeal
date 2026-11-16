@@ -195,7 +195,8 @@ export function formables(root: Unit, out: Agent[]): number {
   let n = 0;
   for (let i = 0; i < agents.length; i++) {
     const a = agents[i];
-    if (!a.formable) continue;
+    // un agent en route vers son véhicule ne prend plus de place dans la formation
+    if (!a.formable || a.boardId !== 0) continue;
     if (n < out.length) out[n] = a;
     else out.push(a);
     n++;

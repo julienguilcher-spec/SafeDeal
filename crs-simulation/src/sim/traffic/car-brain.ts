@@ -50,6 +50,8 @@ export class CarBrain {
   failures = 0;
   /** Temps passé arrêté avant un carrefour pourtant réservé (s). */
   waitBox = 0;
+  /** Passage imposé jusqu'à cet instant (sortie d'un blocage mutuel au carrefour). */
+  forceUntil = -1;
   // ── peur ──
   fear = 0;
   fleeing = false;

@@ -19,7 +19,7 @@ import type { MotoristState } from './api';
 import { CarBrain, MODE_GO, MODE_HOLD, MODE_PARK, MODE_PULL } from './car-brain';
 import { CarThinker } from './car-think';
 import type { EdgeHit, EdgePoint } from './graph';
-import { E_ONEWAY, makeEdgeHit } from './graph';
+import { E_ONEWAY, N_JUNCTION, makeEdgeHit } from './graph';
 import type { Parking } from './parking';
 import type { ControlPoint, RoutePoint } from './route';
 import { CP_BOX } from './route';
@@ -214,6 +214,7 @@ export class Cars {
     if (n === 0) return false;
     const min2 = t.spawnMin * t.spawnMin;
     const pt = this.pt;
+    const buf = this.buf;
     for (let attempt = 0; attempt < 6; attempt++) {
       const node = nodes[rng.int(0, n)]!;
       const deg = c.adjStart[node + 1]! - c.adjStart[node]!;
@@ -222,16 +223,28 @@ export class Cars {
       if (!c.isVehicle(e) || k.closures.isClosed(e)) continue;
       const w = c.edgeWidth[e]!;
       if (w < 3.2 || rng.next() > classWeight(CLASS_NAMES[c.edgeClass[e]!]!) / 3.2) continue;
+      // jamais dans un carrefour ni à son abord immédiat : il n'aurait pas la place de s'arrêter à la ligne
       const len = c.edgeLen[e]!;
-      const s = rng.next() * len;
+      const a = c.edgeA[e]!;
+      const b2 = c.edgeB[e]!;
+      const clearA = (c.nodeFlags[a]! & N_JUNCTION) !== 0 ? c.nodeRadius[a]! + 24 : 2;
+      const clearB = (c.nodeFlags[b2]! & N_JUNCTION) !== 0 ? c.nodeRadius[b2]! + 24 : 2;
+      if (len < clearA + clearB + 1) continue;
+      const s = clearA + rng.next() * (len - clearA - clearB);
       const oneway = (c.edgeFlags[e]! & E_ONEWAY) !== 0;
       c.pointAt(e, s, 0, pt);
-      // sens : plutôt vers le joueur, pour traverser la zone
-      let dir = 1;
-      if (!oneway) {
-        const toward = (k.focusX - pt.x) * pt.dx + (k.focusZ - pt.z) * pt.dz;
-        dir = (toward >= 0) === rng.chance(0.75) ? 1 : -1;
+      if (!this.pickDestination(pt.x, pt.z)) continue;
+      // le sens de marche est celui de l'itinéraire : pas de demi-tour à peine apparu
+      if (!ctx.world.findPath(pt.x, pt.z, this.destX, this.destZ, 'vehicle', buf) || buf.length < 4) continue;
+      let dir = 0;
+      for (let i = 2; i + 1 < buf.length; i += 2) {
+        const dx = buf[i]! - pt.x;
+        const dz = buf[i + 1]! - pt.z;
+        if (dx * dx + dz * dz < 4) continue;
+        dir = dx * pt.dx + dz * pt.dz >= 0 ? 1 : -1;
+        break;
       }
+      if (dir === 0 || (oneway && dir < 0)) continue;
       const lane = oneway ? 0 : Math.min(w * 0.25, 3.2);
       c.pointAt(e, s, lane * dir, pt);
       const x = pt.x;
@@ -239,10 +252,9 @@ export class Cars {
       const d2 = k.distToFocus2(x, z);
       if (d2 < min2 || d2 > t.spawnMax * t.spawnMax) continue;
       if (!ctx.world.isLoaded(x, z)) continue;
-      if (ctx.vehicles.queryRadius(x, z, 14, this.near) > 0) continue;
-      if (ctx.people.countIn(x, z, 5) > 0) continue;
+      if (ctx.vehicles.queryRadius(x, z, 22, this.near) > 0) continue;
+      if (ctx.people.countIn(x, z, 6) > 0) continue;
       if (ctx.hazards.fireAt(x, z) > 0 || k.dangers.at(x, z) > 0.2) continue;
-      if (!this.pickDestination(x, z)) continue;
       // type de véhicule
       let total = 0;
       for (let i = 0; i < TRAFFIC_MIX.length; i++) if (w >= TRAFFIC_MIX[i]!.minWidth) total += TRAFFIC_MIX[i]!.weight;
@@ -257,14 +269,20 @@ export class Cars {
           break;
         }
       }
-      const heading = Math.atan2(pt.dx * dir, pt.dz * dir);
-      const b = this.create(kind, x, z, heading, this.destX, this.destZ, true);
-      if (!b) continue;
-      // il apparaît déjà lancé
-      const u0 = Math.min(c.edgeSpeed[e]!, CITY_SPEED) * 0.6;
-      b.v.vx = pt.dx * dir * u0;
-      b.v.vz = pt.dz * dir * u0;
-      b.v.speed = u0;
+      const hx = pt.dx * dir;
+      const hz = pt.dz * dir;
+      const destX = this.destX;
+      const destZ = this.destZ;
+      // la voie est-elle libre devant ? alors il apparaît déjà lancé
+      const clear = ctx.vehicles.queryRadius(x + hx * 30, z + hz * 30, 16, this.near) === 0;
+      const br = this.create(kind, x, z, Math.atan2(hx, hz), destX, destZ, true);
+      if (!br) continue;
+      if (clear) {
+        const u0 = Math.min(c.edgeSpeed[e]!, CITY_SPEED) * 0.6;
+        br.v.vx = hx * u0;
+        br.v.vz = hz * u0;
+        br.v.speed = u0;
+      }
       return true;
     }
     return false;

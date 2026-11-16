@@ -194,7 +194,15 @@ export function thinkAgent(k: Kernel, a: Agent, interval: number): void {
   // point visé par le déplacement
   let tx = a.sx;
   let tz = a.sz;
-  if (a.op !== null) {
+  let boarding = false;
+  if (a.boardId !== 0) {
+    const v = k.ctx.vehicles.get(a.boardId);
+    if (v) {
+      tx = v.x;
+      tz = v.z;
+      boarding = true;
+    }
+  } else if (a.op !== null) {
     tx = a.goalX;
     tz = a.goalZ;
   } else if (now < a.postUntil) {
@@ -249,7 +257,7 @@ export function thinkAgent(k: Kernel, a: Agent, interval: number): void {
     a.face = a.sh;
   }
 
-  if (!a.hold && (a.op !== null || a.hasSlot)) navigate(k, a, tx, tz, interval);
+  if (!a.hold && (a.op !== null || a.hasSlot || boarding)) navigate(k, a, tx, tz, interval);
 }
 
 /** L'agent regarde-t-il où il va (colonne en marche) plutôt que vers la menace ? */

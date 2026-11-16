@@ -45,6 +45,8 @@ export class CarThinker {
   private readonly hit: EdgeHit = makeEdgeHit();
   private readonly road: RoadSample = makeRoadSample();
   private holdCause: BlockCause = '';
+  /** Automobiliste qui me précède, trouvé par causeAhead (null si aucun ou véhicule étranger). */
+  private aheadCar: CarBrain | null = null;
   private readonly protest = (p: Person): boolean => p.faction === 'protest' && p.vehicleId === 0;
 
   constructor(private readonly k: TrafficKernel, private readonly cars: Cars) {
@@ -333,13 +335,16 @@ export class CarThinker {
       const dStop = cp.stopS - front;
       // hors de portée : on n'y pense pas encore (sauf si l'on est déjà tenu à cette ligne, dans la file)
       if (dStop > reach && cp !== b.holdCp) break;
-      const inside = front > cp.nodeS - cp.radius;
+      // ligne d'arrêt dépassée : engagé, il ne s'arrête plus (un arrêt dans le carrefour le bloquerait)
+      const inside = dStop < -1;
       if (cp.cleared) {
         if ((cp.kind & CP_BOX) !== 0) {
           // arrêté devant un carrefour pourtant réservé (piéton, file) : on rend la place aux autres
           if (!inside && u < 0.3) b.waitBox += 0.25;
           else b.waitBox = 0;
-          if (b.waitBox > 3 && !inside) {
+          if (now < b.forceUntil) {
+            k.boxes.request(cp.node, v.id, cp.inDx, cp.inDz, cp.outDx, cp.outDz, now);
+          } else if (b.waitBox > 3 && !inside) {
             b.waitBox = 0;
             k.boxes.release(cp.node, v.id);
             cp.cleared = false;
@@ -541,6 +546,7 @@ export class CarThinker {
     }
     let cause: BlockCause = '';
     let direct = false;
+    this.aheadCar = null;
     if (b.mode === MODE_HOLD) {
       cause = b.holdCause !== '' ? b.holdCause : 'carrefour';
       // tenu à sa ligne mais arrêté bien avant, derrière autre chose ?
@@ -556,6 +562,18 @@ export class CarThinker {
         case 'mur': cause = 'mur'; break;
         case 'vehicule': cause = this.causeAhead(b); direct = cause === 'obstacle'; break;
         default: break;
+      }
+    }
+    // Engagé dans un carrefour et arrêté par un véhicule qui, lui, attend à sa ligne que je libère le carrefour :
+    // personne ne bougerait plus. Celui qui attend passe d'abord (le pilote automatique sait contourner au pas
+    // un véhicule arrêté mais « en route », pas un véhicule tenu à l'arrêt).
+    if (cause === 'file' && b.stillT >= 5 && b.mode === MODE_GO && this.aheadCar) {
+      const o = this.aheadCar;
+      if (o.mode === MODE_HOLD && o.holdCp && o.holdCause === 'carrefour') {
+        o.holdCp.cleared = true;
+        o.forceUntil = now + 9;
+        o.holdCause = '';
+        if (!cars.go(o)) o.replanAt = now + 2;
       }
     }
     const jam = cause === 'personne' || cause === 'obstacle' || cause === 'fermeture' || cause === 'mur';
@@ -618,9 +636,11 @@ export class CarThinker {
       bestAhead = ahead;
       best = o;
     }
+    this.aheadCar = null;
     if (!best) return 'file';
     const other = this.cars.byVehicle.get(best.id);
     if (other) {
+      this.aheadCar = other;
       const c = other.cause;
       return c === 'personne' || c === 'obstacle' || c === 'fermeture' ? c : 'file';
     }

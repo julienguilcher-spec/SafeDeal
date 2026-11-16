@@ -56,8 +56,12 @@ export const AP_DECEL = 1.8;
 export const HARD_DECEL = 3.2;
 /** Le pilote automatique repère une fermeture à moins de cette distance de son itinéraire (m). */
 export const CLOSURE_REACH = 6;
-/** Recul de la ligne d'arrêt par rapport au bord de la chaussée croisée (m) : laisse le passage piéton libre. */
-export const STOP_SETBACK = 4.5;
+/**
+ * Recul de la ligne d'arrêt par rapport au bord de la chaussée croisée (m) : laisse libres le passage piéton
+ * et surtout la place dont un véhicule qui tourne a besoin pour s'inscrire dans sa voie (le pilote automatique
+ * déborde de 2 à 3 m sur la voie d'en face en sortant d'un virage serré ; un véhicule arrêté trop près le bloquerait).
+ */
+export const STOP_SETBACK = 7;
 /** Un feu posé sur l'approche (nœud de degré 2) commande le carrefour situé à moins de cette distance (m). */
 export const SIGNAL_REACH = 45;
 /** Deux carrefours reliés par moins de cette longueur de chaussée forment un seul ensemble de feux (m). */
