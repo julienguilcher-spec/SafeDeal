@@ -11,12 +11,13 @@
  *     leurs traces montrent le glissement le long des murs ; aucune ne doit traverser un obstacle.
  *
  * Paramètres d'URL : ?map=test|paris &x= &z= &span= (largeur de vue en m) &place= (nom de lieu)
+ *                    &engine=1 (monde branché dans le moteur : Game + session, source fetch)
  *                    &base= (URL du dossier de la carte de Paris ; défaut ../data/paris/)
  * API pour les tests : window.__wq.view({ x, z, span, place }) → Promise ; window.__ready.
  * ===================================================================================== */
 
-import { createWorldQuery, SURFACE_CODES } from '../src/world/query';
-import type { ObstacleSegmentView } from '../src/world/query';
+import { createWorldQuery, createWorldQuerySystems, SURFACE_CODES } from '../src/world/query';
+import type { ObstacleSegmentView, WorldQueryExt } from '../src/world/query';
 import type { RayHit, RoadSample, Vec2 } from '../src/core/contracts';
 
 interface ViewRequest { x?: number; z?: number; span?: number; place?: string; walkers?: number }
@@ -77,7 +78,12 @@ function buildLegend(): void {
 }
 
 // &base= : URL du dossier de la carte de Paris (défaut : public/data/paris, servi en /data/paris/).
-const world = createWorldQuery({ source: mapName, baseUrl: params.get('base') ?? '../data/paris/' });
+const baseUrl = params.get('base') ?? '../data/paris/';
+// &engine=1 : le monde est branché dans le vrai moteur (Game, session) au lieu d'être créé seul.
+const withEngine = params.get('engine') === '1';
+let world: WorldQueryExt = createWorldQuery({ source: mapName, baseUrl });
+/** Journal des événements du moteur (mode &engine=1). */
+const engineLog = { loaded: 0, unloaded: 0, sources: [] as string[], notices: [] as string[] };
 
 /** Générateur pseudo-aléatoire déterministe (les captures sont reproductibles). */
 function mulberry32(seed: number): () => number {
@@ -333,14 +339,34 @@ declare global {
   interface Window {
     __ready?: boolean;
     __error?: string;
-    __wq?: { view(req: ViewRequest): Promise<ViewReport>; world: typeof world; last: ViewReport | null };
+    __wq?: { view(req: ViewRequest): Promise<ViewReport>; world: WorldQueryExt; last: ViewReport | null; engine: typeof engineLog | null };
   }
+}
+
+/** Branche le module dans le moteur, démarre une session et retourne le monde publié dans le contexte. */
+async function bootWithEngine(): Promise<WorldQueryExt> {
+  const { Game } = await import('../src/core/game');
+  const { defaultSessionConfig } = await import('../src/core/session');
+  const game = new Game({ seed: 1 });
+  game.addModule(() => createWorldQuerySystems({ baseUrl }));
+  const ctx = game.ctx;
+  ctx.events.on('world:tile_loaded', () => engineLog.loaded++);
+  ctx.events.on('world:tile_unloaded', () => engineLog.unloaded++);
+  ctx.events.onAny('world:source', (e) => engineLog.sources.push((e as { name: string }).name));
+  await game.boot();
+  const before = ctx.world.attribution;
+  await ctx.session.start(defaultSessionConfig({ mode: mapName === 'paris' ? 'monde_ouvert' : 'test', place: params.get('place') ?? (mapName === 'paris' ? 'place de la Concorde' : '') }));
+  engineLog.notices.push(`avant la session : ${before.split('\n')[0]}`);
+  const ext = ctx.service<WorldQueryExt>('world.query');
+  if (!ext || ext !== ctx.world) throw new Error("le service 'world.query' n'est pas ctx.world");
+  return ext;
 }
 
 async function main(): Promise<void> {
   buildLegend();
-  await world.boot();
-  const api = { view: async (req: ViewRequest) => (api.last = await view(req)), world, last: null as ViewReport | null };
+  if (withEngine) world = await bootWithEngine();
+  else await (world as ReturnType<typeof createWorldQuery>).boot();
+  const api = { view: async (req: ViewRequest) => (api.last = await view(req)), world, last: null as ViewReport | null, engine: withEngine ? engineLog : null };
   window.__wq = api;
   const num = (k: string): number | undefined => (params.get(k) !== null && params.get(k) !== '' ? Number(params.get(k)) : undefined);
   await api.view({ x: num('x'), z: num('z'), span: num('span') ?? (mapName === 'test' ? 1060 : 600), place: params.get('place') ?? undefined });

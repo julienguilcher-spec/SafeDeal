@@ -9,13 +9,14 @@ import { computePose, createPoseParams } from './pose';
 import { blendLocal, composePose, solveLocal } from './solve';
 import {
   HOLD_LONG, POSTURE_STAND, P_CHEST, P_PX, P_PY, P_PZ, P_RX, P_RY, P_RZ, P_SPINE, U_AIM_LONG, U_AIM_PISTOL,
-  U_NONE, U_STRIKE, U_THROW, createPoseInput, type PoseInput,
+  U_COUGH, U_COVER_FACE, U_MEGAPHONE, U_NONE, U_PHOTO, U_RADIO, U_STRIKE, U_THROW, createPoseInput, type PoseInput,
 } from './poseparams';
 import type { AnimSample } from './animator';
 
 /** Position du thorax virtuel par rapport à l'œil : abaissement (m, à l'échelle 1) et recul. */
 const FP_CHEST_DROP = 0.38;
 const FP_CHEST_BACK = 0.02;
+const FP_FACE_DROP = 0.11;
 
 export class FpRig {
   private readonly inp: PoseInput = createPoseInput();
@@ -31,6 +32,7 @@ export class FpRig {
   private lastUpperT = 0;
   private lastT = -1;
   private aimK = 0;
+  private faceK = 0;
   private fresh = true;
 
   reset(): void {
@@ -84,6 +86,8 @@ export class FpRig {
       this.blendT = 1;
       this.blendDur = 0;
       this.aimK = sm.upper === U_AIM_LONG ? 1 : 0;
+      const u0 = sm.upper;
+      this.faceK = u0 === U_MEGAPHONE || u0 === U_RADIO || u0 === U_COUGH || u0 === U_COVER_FACE || u0 === U_PHOTO ? 1 : 0;
     } else {
       if (sm.upper !== this.lastUpper || sm.hold !== this.lastHold || sm.upperT < this.lastUpperT - 0.05) {
         this.prev.set(this.last);
@@ -106,6 +110,11 @@ export class FpRig {
     const long = sm.upper === U_AIM_LONG || (sm.upper === U_NONE && sm.hold === HOLD_LONG && sm.alt);
     const aimTarget = long ? 1 : sm.upper === U_AIM_PISTOL ? 0.3 : 0;
     this.aimK += (aimTarget - this.aimK) * (1 - Math.exp(-dt / 0.07));
+    // gestes portés au visage (mégaphone, radio, toux…) : le thorax reprend sa place anatomique, sinon
+    // l'objet masquerait tout le champ de vision
+    const u = sm.upper;
+    const faceTarget = u === U_MEGAPHONE || u === U_RADIO || u === U_COUGH || u === U_COVER_FACE || u === U_PHOTO ? 1 : 0;
+    this.faceK += (faceTarget - this.faceK) * (1 - Math.exp(-dt / 0.09));
 
     const s = sm.scale;
     const tmp = this.tmp;
@@ -117,8 +126,8 @@ export class FpRig {
     // (le thorax virtuel est plus haut et plus avancé que le vrai : les mains entrent ainsi dans le champ
     // sans tendre les bras, comme dans toute vue subjective)
     const cx = bobX - 0.085 * this.aimK;
-    const cy = -FP_CHEST_DROP * s + bobY + 0.075 * this.aimK;
-    const cz = FP_CHEST_BACK - 0.02 * this.aimK;
+    const cy = -(FP_CHEST_DROP + FP_FACE_DROP * this.faceK) * s + bobY + 0.05 * this.aimK;
+    const cz = FP_CHEST_BACK - 0.02 * this.aimK + 0.05 * this.faceK;
     const co = BONE_CHEST * BONE_STRIDE;
     const dx = cx - tmp[co + 4], dy = cy - tmp[co + 5], dz = cz - tmp[co + 6];
     for (let b = 0; b < BONE_COUNT; b++) {

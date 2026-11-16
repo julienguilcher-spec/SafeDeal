@@ -11,13 +11,22 @@ const hasParis = parisBase !== '' || existsSync(path.join(ROOT, 'public/data/par
 let ok = true;
 const allErrors = [];
 
-async function run(map, views) {
-  const extra = map === 'paris' && parisBase !== '' ? `&base=${encodeURIComponent(parisBase)}` : '';
+async function run(map, views, engine = false) {
+  const extra = (map === 'paris' && parisBase !== '' ? `&base=${encodeURIComponent(parisBase)}` : '') + (engine ? '&engine=1' : '');
   const { browser, page, errors } = await openPage(`${server.url}harness/world-query.html?map=${map}${extra}`, { width: 1400, height: 900 });
   try {
     await waitFor(page, 'window.__ready === true || !!window.__error', 240000);
     const error = await page.evaluate(() => window.__error ?? null);
     if (error) throw new Error(error);
+    if (engine) {
+      // Monde branché dans le moteur : la session a chargé les tuiles autour du point de départ.
+      const log = await page.evaluate(() => ({ ...window.__wq.engine, stats: window.__wq.world.stats() }));
+      console.log(`moteur (${map}) : ${JSON.stringify(log)}`);
+      if (!(log.loaded > 0) || log.stats.tilesLoaded === 0) {
+        console.error('  ÉCHEC : aucune tuile chargée par la session');
+        ok = false;
+      }
+    }
     for (const v of views) {
       const report = await page.evaluate((req) => window.__wq.view(req), v.req);
       const file = await shot(page, v.name);
@@ -52,7 +61,11 @@ await run('test', [
   { name: 'world-query-essai-detail', req: { x: 150, z: -40, span: 90 }, expectSource: 'test-district', needsPath: true },
 ]);
 
+// Le même module branché dans le vrai moteur (Game, session, source fetch, chargement étalé).
+await run('test', [{ name: 'world-query-moteur-essai', req: { x: 0, z: 0, span: 400 }, expectSource: 'test-district', needsPath: true }], true);
+
 if (hasParis) {
+  await run('paris', [{ name: 'world-query-moteur-paris', req: { place: 'place de la Concorde', span: 700 }, expectSource: 'paris', needsPath: true }], true);
   await run('paris', [
     { name: 'world-query-paris-etoile', req: { place: 'place Charles de Gaulle', x: -1923, z: -908, span: 520 }, expectSource: 'paris', needsPath: true },
     { name: 'world-query-paris-concorde', req: { place: 'place de la Concorde', x: 0, z: 0, span: 520 }, expectSource: 'paris', needsPath: true },
