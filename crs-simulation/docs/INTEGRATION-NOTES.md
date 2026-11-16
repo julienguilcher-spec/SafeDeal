@@ -478,3 +478,25 @@ un téléphone lancé en portrait trouve désormais la session EN PAUSE (c'étai
 - Vérifié : `tests/unit/integration.suivre.test.ts` (BRAV-M en colonne à 2 et 9 m à 50 km/h ; fourgon du chef de
   groupe ; escorte du canon à eau ; compagnie entière derrière le commandant, 6/6 groupes, sirènes). Non vu à l'écran.
 - Remarque : le canon à eau (29 t) ne démarre pas en côte légère à mi-accélérateur (gâchette à moitié) ; plein gaz ok.
+
+## Engins armés : un seul poste, le conducteur tire (16/11) — LIVRÉ
+- Demande : « celui qui pilote le Centaure peut aussi tirer, on ne met pas d'opérateur ; pareil pour le canon à eau ».
+- `sim/people/player-vehicle.ts` : `turretOf` donne au siège conducteur la première tourelle armée ; `driverGunner`
+  vise au regard et tire (clic gauche ; RB à la manette, RT restant l'accélérateur) ; les deux canons à eau tirent
+  ensemble. `player.ts` : le conducteur commence en vue de conduite, V bascule sur la vue tourelle (réticule).
+- Accueil (`ui/screens/catalog.ts`) et distribution (`session/roster.ts`) : un seul poste « conducteur ».
+- Canon à eau : accélération 1,0 → 1,4 m/s² (calait en légère côte, cuve pleine, à mi-accélérateur).
+- Vérifié : `tests/unit/integration.engins.test.ts` (jet des deux canons en roulant, grenade du Centaure).
+
+## Ordres de la chaîne de commandement au joueur (16/11) — LIVRÉ
+- Demande : « si je suis pilote du Centaure, il faut me donner un ordre et me mettre le point sur le GPS ; sinon je
+  ne sers à rien ».
+- `session/orders.ts` (PlayerOrdersSystem, service `session.orders`) : hors tâche d'incident (qui reste prioritaire),
+  le commandant de la compagnie poste le joueur selon la situation réelle (foyers connus du commandement, barrages
+  du dispositif, à défaut le gros de la foule) : canon à eau / Centaure en appui 20 m derrière le barrage exposé,
+  BRAV-M en réserve d'intervention, chef de groupe en renfort d'un barrage, télépilote au-dessus du foyer ; un CRS
+  voit l'ordre de son groupe. Radio (priorité 2), objectif « Ordre » suivi au GPS (itinéraire, boussole, marqueur) ;
+  à l'arrivée, compte rendu « en place » ; nouvel ordre quand le foyer se déplace (> 70 m, après 60 s en place).
+  Commandant et commissaire n'en reçoivent pas.
+- Vérifié : `tests/unit/integration.ordres-joueur.test.ts` (4 rôles + commandant) ; `tests/e2e/verif-ordre-joueur.mjs`
+  (objectif, itinéraire GPS sur la mini-carte, sous-titre radio dans le vrai jeu).
