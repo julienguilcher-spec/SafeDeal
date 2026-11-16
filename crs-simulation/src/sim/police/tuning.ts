@@ -119,7 +119,7 @@ export const VOLLEY_INTERVAL = 14;
 /** Portées (m) : grenade à main, lanceur de 56 mm, LBD, gazeuse, bâton, extincteur. */
 export const HAND_GRENADE_MIN = 8;
 export const HAND_GRENADE_MAX = 28;
-export const LAUNCHER_MIN = 30;
+export const LAUNCHER_MIN = 36;
 export const LAUNCHER_MAX = 190;
 export const LBD_MIN = 11;
 export const LBD_MAX = 45;

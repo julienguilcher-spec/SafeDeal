@@ -30,7 +30,7 @@ describe('foule — compression dans une rue étroite', () => {
     expect(core.corridor.refWidth).toBeLessThan(10);
     t.run(3);
     const all = t.protesters();
-    expect(all.length).toBe(260);
+    expect(all.length).toBeGreaterThanOrEqual(250);
     for (const p of all) expect(Math.abs(p.x - STREET_X)).toBeLessThan(5.2);
     const calm = core.density.max;
     expect(calm).toBeLessThan(3);

@@ -8,6 +8,9 @@
 //   interieur  : vue du conducteur (&kind=… ; &regard=° ; &vitesse=km/h ; &braq=° ; &nuit=1)
 //   tourelle   : écran de visée (&kind=centaure|canon_eau ; &gis=° ; &site=°)
 //   parc       : 150 véhicules civils instanciés, dont une partie roule (&n=150 ; &qualite=bas|moyen|haut|ultra)
+//   jeu        : contrôle d'intégration — vrai rendu de base + vraie simulation des véhicules + ce module, le joueur au
+//                volant (&kind=… ; &cam=int|ext|tourelle ; &nuit=1 ; &vitesse=km/h). Les deux autres modules sont chargés
+//                à la demande : les autres vues n'en dépendent pas.
 import * as THREE from 'three';
 import type { QualityLevel, Vec3, Vehicle, VehicleState, ViewApi } from '@/core/contracts';
 import { Game } from '@/core/game';
@@ -25,6 +28,106 @@ const far = params.get('loin') === '1';
 const num = (k: string, d: number): number => { const v = params.get(k); return v === null || v === '' || Number.isNaN(Number(v)) ? d : Number(v); };
 const DEG = Math.PI / 180;
 
+if (view === 'jeu') await runIntegrated();
+else await runStandalone();
+
+/**
+ * Contrôle d'intégration : le module tourne ici dans les conditions du jeu — ctx.view, la caméra, le ciel et les
+ * lumières dynamiques viennent du vrai rendu de base, les véhicules (définitions, portes, tourelles, feux) de la vraie
+ * simulation. Rien n'est simulé par le banc d'essai, hormis un sol et quelques façades.
+ */
+async function runIntegrated(): Promise<void> {
+  const [base, sim] = await Promise.all([import('@/render/base/index'), import('@/sim/vehicles/index')]);
+  const host = document.createElement('div');
+  host.id = 'game';
+  host.style.cssText = 'position:fixed;inset:0';
+  document.body.insertBefore(host, document.body.firstChild);
+  const game = new Game({ headless: false, storage: null });
+  const ctx = game.ctx;
+  ctx.settings.set('quality', quality);
+  game.addModule(base.createSystems);
+  game.addModule(sim.createSystems);
+  game.addModule(createSystems);
+  await game.boot();
+  await ctx.session.start(defaultSessionConfig({ timeOfDay: night ? 23 : 15, x: 0, z: 0 }));
+  ctx.env.setTime(night ? 23 : 15);
+  const v3d = ctx.view;
+  if (!v3d) throw new Error('[banc] le rendu de base n\'a pas fourni ctx.view');
+  const api = ctx.require<VehiclesRenderApi>('vehiclesRender');
+  // décor minimal : chaussée et façades
+  const road = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), new THREE.MeshStandardMaterial({ color: 0x4a4b4d, roughness: 0.95 }));
+  road.rotation.x = -Math.PI / 2;
+  road.receiveShadow = true;
+  v3d.world.add(road);
+  for (let i = 0; i < 10; i++) {
+    for (const sideX of [-1, 1]) {
+      const h = 16 + ((i * 7 + (sideX > 0 ? 3 : 0)) % 5) * 2;
+      const b = new THREE.Mesh(new THREE.BoxGeometry(10, h, 16), new THREE.MeshStandardMaterial({ color: i % 2 ? 0xe2d7be : 0xcfc3a5, roughness: 0.9 }));
+      b.position.set(sideX * 15, h / 2, -10 - i * 17);
+      b.castShadow = true;
+      b.receiveShadow = true;
+      v3d.world.add(b);
+    }
+  }
+  const kind = params.get('kind') ?? 'fourgon_crs';
+  const cam = params.get('cam') ?? 'int';
+  const mine = ctx.vehicles.spawn(kind, 0, 0, Math.PI);
+  mine.beacons = true;
+  mine.headlights = night;
+  const p = ctx.people.spawn({ kind: 'crs', x: 0, z: 2 });
+  const seated = ctx.vehicles.enter(p, mine, cam === 'tourelle' ? 'gunner' : 'driver') || ctx.vehicles.enter(p, mine);
+  ctx.player.possess(p.id);
+  ctx.player.setCameraMode(cam === 'int' ? 'vehicle_int' : cam === 'tourelle' ? 'turret' : 'vehicle_ext');
+  ctx.player.state.camYaw = mine.heading;
+  ctx.player.state.camPitch = num('hausse', cam === 'int' ? -4 : 0) * DEG;
+  // autres véhicules : fourgon gyrophares allumés, Centaure, voiture en feu, trafic à l'arrêt
+  const other = ctx.vehicles.spawn('fourgon_crs', 3.6, -22, 0);
+  other.beacons = true;
+  other.headlights = night;
+  ctx.vehicles.spawn('centaure', -3.8, -34, Math.PI);
+  ctx.vehicles.spawn('voiture', -3.4, -14, Math.PI, { color: 0x6f1d22 });
+  const burning = ctx.vehicles.spawn('citadine', 4.2, -46, 0.4);
+  burning.state = 'burning';
+  burning.burning = 1;
+  burning.health = 5;
+  for (let i = 0; i < mine.turretYaw.length; i++) { mine.turretYaw[i] = num('gis', 15) * DEG; mine.turretPitch[i] = num('site', 30) * DEG; }
+  const speed = num('vitesse', 0) / 3.6;
+  const info: Record<string, unknown> = {};
+  (window as unknown as { __info: unknown }).__info = info;
+  const hudEl = document.getElementById('hud')!;
+  let frames = 0;
+  let last = performance.now();
+  const fixed = num('pas', 0);
+  const cpuLog: number[] = [];
+  const loop = (): void => {
+    if ((window as unknown as { __pause?: boolean }).__pause) { requestAnimationFrame(loop); return; }
+    const nowMs = performance.now();
+    const dt = fixed > 0 ? fixed : Math.min(0.1, (nowMs - last) / 1000);
+    last = nowMs;
+    // la simulation tient le véhicule à l'arrêt (aucune commande) : on impose seulement les grandeurs affichées
+    if (speed > 0) { mine.speed = speed; mine.steerAngle = num('braq', 0) * DEG; }
+    game.frame(dt);
+    frames++;
+    const st = api.stats;
+    info.frames = frames; info.moduleCalls = st.drawCalls; info.moduleTriangles = st.triangles; info.near = st.near; info.far = st.far;
+    cpuLog.push(Math.round(st.cpuMs * 100) / 100);
+    if (cpuLog.length > 24) cpuLog.shift();
+    info.fx = st.fx; info.cpuSerie = cpuLog; info.calls = v3d.renderer.info.render.calls; info.seated = seated; info.seat = p.seat;
+    info.cam = ctx.player.state.cameraMode; info.vehicles = ctx.vehicles.list.length;
+    info.state = burning.state; info.doors = (ctx.service<{ doorOpen(v: Vehicle, seat: number): number }>('vehicles.ext')?.doorOpen(mine, p.seat)) ?? -1;
+    if (frames % 5 === 0) {
+      hudEl.textContent = `vue : jeu intégré (${kind}, caméra ${ctx.player.state.cameraMode})${night ? ' — nuit' : ''}\n`
+        + `module : ${st.drawCalls} appels de dessin, ${st.triangles.toLocaleString('fr-FR')} triangles, ${st.fx} quads lumineux — scène : ${v3d.renderer.info.render.calls} appels\n`
+        + `CPU du module : ${st.cpuMsAvg.toFixed(2)} ms/image`;
+    }
+    (window as unknown as { __frames: number }).__frames = frames;
+    requestAnimationFrame(loop);
+  };
+  (window as unknown as { __ready: boolean }).__ready = true;
+  requestAnimationFrame(loop);
+}
+
+async function runStandalone(): Promise<void> {
 // ── scène ─────────────────────────────────────────────────────────────────────────────
 const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(1);
@@ -551,3 +654,4 @@ if (mesureN > 0) {
 (window as unknown as { __ready: boolean }).__ready = true;
 (window as unknown as { __kinds: string[] }).__kinds = KINDS;
 requestAnimationFrame(loop);
+}

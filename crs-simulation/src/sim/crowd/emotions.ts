@@ -13,7 +13,7 @@
  * ===================================================================================== */
 
 import type { Person, ProtestProfile } from '@/core/contracts';
-import { brainOf } from './brain';
+import { F, S, brainOf } from './brain';
 import type { CrowdBrain } from './brain';
 import type { CrowdCore } from './core';
 import { SparseGrid } from './grid';
@@ -64,8 +64,8 @@ function isSo(p: Person): boolean {
 export class Emotions {
   /** Canaux : écart de légitimité, écart de cohésion, instant du dernier emploi de la force. */
   private readonly legit = new SparseGrid(T.LEGIT_CELL, 3, 128);
-  /** Canaux : effectif, somme de peur, somme de colère. */
-  private readonly near = new SparseGrid(T.CONTAGION_CELL, 3, 1024);
+  /** Canaux : effectif, somme de peur, somme de colère, fuyards, somme des points fuis (x, z). */
+  private readonly near = new SparseGrid(T.CONTAGION_CELL, 6, 1024);
   private legit0 = T.LEGIT_START;
   private readonly recent = new Spots(32);
   private readonly buf: Person[] = [];
@@ -204,14 +204,21 @@ export class Emotions {
     const g = this.near;
     g.clear();
     const n = members.length;
+    const now = core.now;
     for (let i = 0; i < n; i++) {
       const p = members[i]!;
       if (p.posture === 'down') continue;
-      const o = g.ensureAt(p.x, p.z) * 3;
+      const o = g.ensureAt(p.x, p.z) * 6;
       const d = g.data;
       d[o] = d[o]! + 1;
       d[o + 1] = d[o + 1]! + p.fear;
       d[o + 2] = d[o + 2]! + p.anger;
+      const b = brains[i]!;
+      if (b.state === S.FLEE && b.threatUntil > now) {
+        d[o + 3] = d[o + 3]! + 1;
+        d[o + 4] = d[o + 4]! + b.threatX;
+        d[o + 5] = d[o + 5]! + b.threatZ;
+      }
     }
     const d = g.data;
     for (let i = 0; i < n; i++) {
@@ -222,13 +229,38 @@ export class Emotions {
       let cnt = 0;
       let fear = 0;
       let anger = 0;
+      let fleeing = 0;
+      let fx = 0;
+      let fz = 0;
+      let heads = 0;
       for (let k = 0; k < 5; k++) {
         const s = g.find(cx + (k === 1 ? 1 : k === 2 ? -1 : 0), cz + (k === 3 ? 1 : k === 4 ? -1 : 0));
         if (s < 0) continue;
         const w = k === 0 ? 2 : 1;
-        cnt += d[s * 3]! * w;
-        fear += d[s * 3 + 1]! * w;
-        anger += d[s * 3 + 2]! * w;
+        const o = s * 6;
+        cnt += d[o]! * w;
+        fear += d[o + 1]! * w;
+        anger += d[o + 2]! * w;
+        heads += d[o]!;
+        fleeing += d[o + 3]!;
+        fx += d[o + 4]!;
+        fz += d[o + 5]!;
+      }
+      // mouvement de foule : quand le quart de ses voisins s'enfuit, on a peur, et l'on suit si la peur l'emporte
+      if (fleeing >= 3 && fleeing >= heads * 0.25) {
+        const b = brains[i]!;
+        if (b.state !== S.FLEE && b.state !== S.LEAVE && b.state !== S.AVOID && b.state !== S.CUSTOM && (b.flags & F.PINNED) === 0) {
+          const tune = (b.flags & F.BYSTANDER) !== 0 ? T.PROFILE.badaud : T.PROFILE[p.profile ?? 'pacifique'];
+          p.fear = Math.min(1, p.fear + 0.25 * tune.fearK * (1.15 - 0.3 * b.courage));
+          if (p.fear > tune.backOff) {
+            b.panic = now + 3;
+            b.threatX = fx / fleeing;
+            b.threatZ = fz / fleeing;
+            b.threatUntil = now + 40;
+            const soon = now + 0.8 * core.rngEmo.next();
+            if (b.nextThink > soon) b.nextThink = soon;
+          }
+        }
       }
       // sans voisin (soi seul dans sa cellule) : rien à partager
       if (cnt <= 2) continue;

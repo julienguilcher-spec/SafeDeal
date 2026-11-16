@@ -85,3 +85,13 @@ Points à reprendre lors de l'assemblage, parce qu'ils ont été décidés aprè
 - Étape 1 : manifestation principale + événements secondaires (directeur / missions). Étape 2 : plusieurs manifestations
   avec simulation à deux niveaux (foule lointaine agrégée, matérialisée à l'approche) — demande une évolution du module
   de foule (plusieurs directeurs / zones).
+
+## Priorité budgétaire (16/11) : d'abord la manifestation jouable
+Le commanditaire dispose d'une recharge et de 40 € de crédit. Ordre de marche :
+1. **Essentiel** — terminer : sol/Seine, ciel/météo/caméra, IA de la foule, IA des unités, incidents, rendu du mobilier et
+   des effets ; puis ASSEMBLER (main.ts, mise en place d'une session libre : unités, foule, joueur CRS ou commandant,
+   HUD, carte tactique, compte rendu minimal) et corriger jusqu'à ce que ce soit jouable sur PC, manette et téléphone.
+2. **Ensuite** — moteur de missions complet, pancartes lisibles, poste de commandement, signes avant-coureurs dans le HUD.
+3. **Plus tard, selon le budget** — carrière, rôles journaliste / médecin / drone / pompier jouables, médias, campagne,
+   école, événements multiples, optimisation téléphone poussée.
+Ne lancer aucun chantier du point 3 avant que le point 1 soit jouable.

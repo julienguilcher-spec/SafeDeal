@@ -188,6 +188,7 @@ describe('radio — bibliothèque de phrases', () => {
     expect(typo('Attention ! Réponse : oui ; non ?')).toBe(`Attention${NB}! Réponse${NB}: oui${NB}; non${NB}?`);
     expect(typo('Il dit « bonjour » à tous')).toBe(`Il dit «${NB}bonjour${NB}» à tous`);
     expect(typo("l'unité")).toBe('l’unité');
+    expect(typo('Première sommation à 17:04 : faite')).toBe(`Première sommation à 17:04${NB}: faite`); // une heure écrite reste intacte
     for (const def of ALL_PHRASES) {
       for (const v of def.variants) {
         const t = typo(v);
@@ -400,6 +401,8 @@ describe('radio — bibliothèque de phrases', () => {
         }
         if (/FAITES L'APERÇU\.$|COLLATIONNEZ\.$|^ATTENDEZ|ATTENDEZ[,.]/.test(v)) expect(def.end, def.key).toBe('aucun');
       }
+      // un message à toutes les unités n'attend pas de réponse : personne ne saurait qui doit parler
+      if (def.to === 'tous') expect(def.end, def.key).toBe('termine');
       // une réponse n'attend pas de destinataire nommé ; un accusé de réception clôt l'échange
       if (def.reply && def.variants.every((v) => /^(?:REÇU|APERÇU|Bien REÇU|FORT)/.test(v))) expect(def.end, def.key).toBe('termine');
     }

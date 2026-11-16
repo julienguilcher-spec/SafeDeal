@@ -53,7 +53,7 @@ export const PHRASES_MOYENS_FIN_AMBIANCE: readonly PhraseDef[] = [
     'Demande de fermeture de la station {station}, pour tarir les arrivées par cette bouche.',
     'Fermez la station {station} : plus d\'arrivées par cette bouche.',
   ]),
-  cir('station_fermee', { de: 'central', a: 'tous' }, [
+  cir('station_fermee', { de: 'central', a: 'tous', fin: 'termine' }, [
     'Station {station} fermée à la demande du commandement. Les arrivées se reportent sur les stations voisines.',
     'La station {station} est fermée. Plus d\'arrivées par cette bouche, surveillez les stations voisines.',
     'Fermeture de la station {station} effective. Report attendu sur les stations voisines.',
@@ -63,7 +63,7 @@ export const PHRASES_MOYENS_FIN_AMBIANCE: readonly PhraseDef[] = [
     'Demande de réouverture de la station {station}, pour faciliter les départs.',
     'Rouvrez la station {station} : la foule doit pouvoir repartir par le métro.',
   ]),
-  cir('station_rouverte', { de: 'central', a: 'tous' }, [
+  cir('station_rouverte', { de: 'central', a: 'tous', fin: 'termine' }, [
     'Station {station} rouverte. Les voyageurs peuvent de nouveau l\'emprunter.',
     'La station {station} est rouverte. Arrivées et départs reprennent par cette bouche.',
     'Réouverture de la station {station} effective. Les accès sont de nouveau libres.',

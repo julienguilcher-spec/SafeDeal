@@ -4,7 +4,7 @@ import { createTestContext } from '@/core/testing';
 import { createSystems } from '@/gameplay/radio';
 import type { RadioControl } from '@/gameplay/radio';
 import { RADIO_CONTROL_SERVICE } from '@/gameplay/radio';
-import { DEFAULT_QUEUE_CONFIG, RadioQueue } from '@/gameplay/radio/queue';
+import { DEFAULT_QUEUE_CONFIG, RadioQueue, trimLog } from '@/gameplay/radio/queue';
 import { estimateDuration } from '@/gameplay/radio/text';
 
 function msg(text: string, priority: 0 | 1 | 2 = 1, channel: RadioMessage['channel'] = 'unite', from = 'MISTRAL 1'): RadioMessage {
@@ -139,6 +139,26 @@ describe('radio — file d\'attente (logique pure)', () => {
   it('ignore un texte vide', () => {
     const { q } = make();
     expect(q.submit(msg('   '), 0)).toBe('dropped');
+  });
+
+  it('journal plein : l\'ambiance ancienne part d\'abord, les messages opérationnels restent', () => {
+    const journal: (RadioMessage & { t: number })[] = [];
+    for (let i = 0; i < 100; i++) journal.push({ ...msg(`message ${i}`, i % 2 === 0 ? 0 : 1), t: i });
+    trimLog(journal, 200);
+    expect(journal).toHaveLength(100); // pas encore plein : rien ne bouge
+    trimLog(journal, 100);
+    // la moitié ancienne a perdu son ambiance (25 messages), tout l'opérationnel est là, dans l'ordre
+    expect(journal).toHaveLength(75);
+    expect(journal.filter((m) => m.priority === 1)).toHaveLength(50);
+    expect(journal.slice(0, 3).map((m) => m.text)).toEqual(['message 1', 'message 3', 'message 5']);
+    expect(journal[journal.length - 1]!.text).toBe('message 99');
+    for (let i = 1; i < journal.length; i++) expect(journal[i]!.t).toBeGreaterThan(journal[i - 1]!.t);
+    // aucun message d'ambiance à retirer : on abandonne le quart le plus ancien
+    const urgent: (RadioMessage & { t: number })[] = [];
+    for (let i = 0; i < 40; i++) urgent.push({ ...msg(`urgent ${i}`, 2), t: i });
+    trimLog(urgent, 40);
+    expect(urgent).toHaveLength(30);
+    expect(urgent[0]!.text).toBe('urgent 10');
   });
 
   it('estimateDuration croît avec la longueur et reste bornée', () => {

@@ -15,7 +15,7 @@ import * as THREE from 'three';
 import { TILE_SIZE, lonLatToWorld, sampleTerrain } from '../mapdata';
 import type { Manifest, Place, RoadGraph, Terrain } from '../mapdata';
 import { CLASS_COLOR, CL_ASPHALT, CL_COURT, CL_GRASS } from './classes';
-import { paintSkyline } from './paint';
+import { paintSkyline } from './paint-extras';
 
 /** Mailles du socle par côté de tuile (64 m). */
 const CELLS = 8;

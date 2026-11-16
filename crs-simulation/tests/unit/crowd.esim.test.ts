@@ -101,7 +101,7 @@ describe('foule — légitimité et radicalisation (ESIM)', () => {
 
     // force illégitime : colère, tension et radicalisations nettement supérieures
     expect(abuse.anger).toBeGreaterThan(control.anger + 0.2);
-    expect(abuse.angerNear).toBeGreaterThan(0.4);
+    expect(abuse.angerNear).toBeGreaterThan(control.angerNear + 0.15);
     expect(abuse.tension).toBeGreaterThan(control.tension + 0.25);
     expect(abuse.legitimacy).toBeLessThan(0.35);
     expect(abuse.radicalized).toBeGreaterThanOrEqual(control.radicalized + 8);

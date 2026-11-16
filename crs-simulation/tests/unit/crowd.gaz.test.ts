@@ -30,11 +30,15 @@ describe('foule — gaz lacrymogène', () => {
     ctx.projectiles.spawn('grenade_lacrymo_main', 0, gx + 2, 0.3, gz + 1, 0, 0, 0);
     let peakExposed = 0;
     let covered = 0;
+    let palets: { x: number; z: number }[] = [];
     for (let k = 0; k < 8; k++) {
       t.run(1);
       const exposed = t.protesters().filter((p) => ctx.hazards.gasAt(p.x, p.z) > 0.08).length;
       if (exposed > peakExposed) peakExposed = exposed;
       covered = Math.max(covered, t.protesters().filter((p) => p.upper === 'cover_face').length);
+      // où sont tombés les palets
+      const fuming = ctx.projectiles.list.filter((q) => q.emitting).map((q) => ({ x: q.x, z: q.z }));
+      if (fuming.length > palets.length) palets = fuming;
     }
     // le gaz a bien atteint la foule, et elle a réagi
     expect(peakExposed).toBeGreaterThan(8);
@@ -48,8 +52,7 @@ describe('foule — gaz lacrymogène', () => {
     // le nuage existe encore (émission de 30 s) mais il est vide
     expect(Math.max(...cloudCells)).toBeGreaterThan(0.1);
     expect(inCloud.length).toBeLessThanOrEqual(Math.ceil(now.length * 0.03));
-    // plus personne au contact d'un palet qui fume encore
-    const palets = ctx.projectiles.list.filter((q) => q.emitting);
+    // plus personne au contact des palets
     expect(palets.length).toBeGreaterThan(4);
     expect(now.filter((p) => palets.some((q) => Math.hypot(p.x - q.x, p.z - q.z) < 4)).length).toBeLessThanOrEqual(2);
     // ceux qui étaient au cœur du nuage sont sortis sans se jeter sous le vent (vers l'est)

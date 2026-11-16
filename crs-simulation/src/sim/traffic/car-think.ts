@@ -280,6 +280,19 @@ export class CarThinker {
         else b.replanAt = now + 2 + b.failures;
         return;
       }
+      // circulation d'ambiance : il ne s'arrête pas à destination ; hors champ il disparaît, sinon il poursuit
+      // vers une autre destination, choisie avant que le pilote ne commence à freiner
+      if (b.ambient && !b.hasVia && r.total - r.s < 48 && now >= b.viaAt) {
+        b.viaAt = now + 3;
+        if (!k.visible(v.x, v.z)) {
+          cars.despawn(b);
+          return;
+        }
+        const parking = cars.parking;
+        if (!(parking && k.rng.chance(k.tuning.parkShare))) {
+          if (cars.newDestination(b) && cars.retarget(b, false)) cars.drive(b);
+        }
+      }
       // déviation : à l'approche du point de passage, on vise la suite avant que le pilote ne freine
       if (b.hasVia && r.total - r.s < 46 && now >= b.viaAt) {
         b.viaAt = now + 1.5;
@@ -305,6 +318,11 @@ export class CarThinker {
       }
     }
     this.regulate(b, now);
+    // Immobilisé à sa ligne, le pilote automatique a rendu la main : le véhicule serait un obstacle inerte que
+    // les autres véhicules pilotés ne savent pas contourner. On le garde « en prise » en lui faisant suivre son
+    // propre conducteur : il reste à l'arrêt, mais les autres le voient comme un véhicule qui attend et
+    // appliquent leur règle de priorité (passage au pas à quelques décimètres) au lieu de rester bloqués.
+    if (b.mode === MODE_HOLD && !ap.isActive(v) && Math.abs(v.speed) < 0.2) ap.follow(v, b.driverId, 0.5);
     if ((b.tick & 3) === 0) this.watch(b, driver, now);
     b.status.mode = modeName(b);
   }
@@ -498,8 +516,9 @@ export class CarThinker {
       cars.despawn(b);
       return;
     }
+    // arrêté à destination (il avait choisi de s'y garer) : une place libre devant lui ?
     const parking = cars.parking;
-    if (parking && k.rng.chance(k.tuning.parkShare) && parking.offer(b)) return;
+    if (parking && parking.offer(b)) return;
     this.newTrip(b, now);
   }
 

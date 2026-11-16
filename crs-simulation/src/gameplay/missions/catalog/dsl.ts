@@ -70,6 +70,31 @@ export const SOMMATIONS = {
   derniere: 'Dernière sommation : nous allons faire usage de la force. Quittez immédiatement les lieux.',
 } as const;
 
+/** Fin d'un message radio : P = PARLEZ (réponse attendue), T = TERMINÉ, A = FAITES L'APERÇU, C = COLLATIONNEZ. */
+export type RadioEnd = 'P' | 'T' | 'A' | 'C';
+
+const FINS_RADIO: Record<RadioEnd, string> = { P: 'PARLEZ.', T: 'TERMINÉ.', A: 'FAITES L\'APERÇU.', C: 'COLLATIONNEZ.' };
+
+/**
+ * Message RADIO en procédure (bible E.6) : « APPELÉ ICI APPELANT. Corps du message. PARLEZ. »
+ * `from` est l'indicatif de l'émetteur, `to` celui du ou des appelés (« MISTRAL 1 À 4 », « À TOUS ») ; les chiffres
+ * des indicatifs sont dits un par un. Dans le corps, les nombres s'écrivent déjà épelés (« TROIS-ZÉRO mètres »).
+ * Un message placé au début d'une phase est un message REÇU par le personnage incarné : ordre, renseignement ou
+ * demande. Il n'annonce jamais le résultat d'une action qui dépend de lui, sauf si la phase s'ouvre précisément
+ * parce qu'un objectif vient d'être atteint (déclencheur OBJ de la phase précédente).
+ */
+export function rad(from: string, to: string, body: string, end: RadioEnd = 'P'): [string, string] {
+  return [from, `${spokenCallsign(to)} ICI ${spokenCallsign(from)}. ${body.trim()} ${FINS_RADIO[end]}`];
+}
+
+/**
+ * VOIX entendue sur place ou au téléphone (chef de groupe à la voix, mégaphone du cortège, ami, rédaction, blessé…) :
+ * français courant, sans procédure radio. `who` s'écrit en capitales (« CHEF DE GROUPE », « MÉGAPHONE »).
+ */
+export function voix(who: string, text: string): [string, string] {
+  return [who, text.trim()];
+}
+
 /* ------------------------------------------------------------------ déclencheurs de phase */
 
 /** Passage à la phase suivante après un délai (secondes de jeu). */

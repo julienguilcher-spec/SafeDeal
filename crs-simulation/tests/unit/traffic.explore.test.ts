@@ -23,7 +23,7 @@ describe('exploration', () => {
       if (!v) return '?';
       const br = b.sys.cars.byVehicle.get(v.id);
       const st = ap.status(v);
-      return `#${v.id} ${v.kind} (${v.x.toFixed(1)},${v.z.toFixed(1)}) h=${(v.heading * 57.3).toFixed(0)} u=${v.speed.toFixed(1)} mode=${br?.mode} cause=${br?.cause} hold=${br?.holdCause} age=${br ? (b.ctx.clock.now - br.bornAt).toFixed(0) : '-'} ap=${st.state}/${st.reason} s=${br?.route.s.toFixed(0)}/${br?.route.total.toFixed(0)} cpNext=${br?.route.cpNext}/${br?.route.cpCount} still=${br?.stillT}`;
+      return `#${v.id} ${v.kind} (${v.x.toFixed(1)},${v.z.toFixed(1)}) h=${(v.heading * 57.3).toFixed(0)} u=${v.speed.toFixed(1)} mode=${br?.mode} cause=${br?.cause} hold=${br?.holdCause} age=${br ? (b.ctx.clock.now - br.bornAt).toFixed(0) : '-'} ap=${st.state}/${st.reason} s=${br?.route.s.toFixed(0)}/${br?.route.total.toFixed(0)} cpNext=${br?.route.cpNext}/${br?.route.cpCount} still=${br?.stillT} replanAt=${br?.replanAt.toFixed(0)} fail=${br?.failures} holdCp=${br?.holdCp ? br.holdCp.node : '-'} cleared=${br && br.route.cpNext < br.route.cpCount ? br.route.cps[br.route.cpNext]!.cleared : '-'} active=${ap.isActive(v)}`;
     };
     b.ctx.events.on('vehicle:collision', (e) => {
       collisions++;

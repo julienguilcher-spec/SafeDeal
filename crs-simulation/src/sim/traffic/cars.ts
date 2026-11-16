@@ -53,6 +53,7 @@ export class Cars {
   private readonly routeNodes: number[] = [];
   private readonly near: Vehicle[] = [];
   private readonly pt: EdgePoint = { x: 0, z: 0, dx: 0, dz: 1 };
+  private readonly dp: EdgePoint = { x: 0, z: 0, dx: 0, dz: 1 };
   private readonly rp: RoutePoint = { x: 0, z: 0, dx: 0, dz: 1 };
   private readonly hit: EdgeHit = makeEdgeHit();
   private readonly road: RoadSample = makeRoadSample();
@@ -288,7 +289,10 @@ export class Cars {
     return false;
   }
 
-  /** Destination d'un automobiliste : un point du réseau de l'autre côté de la zone. Écrit destX / destZ. */
+  /**
+   * Destination d'un automobiliste : un point en pleine rue (jamais dans un carrefour), de préférence de
+   * l'autre côté de la zone par rapport à son point de départ. Écrit destX / destZ.
+   */
   pickDestination(fromX: number, fromZ: number): boolean {
     const k = this.k;
     const c = k.cache;
@@ -302,27 +306,38 @@ export class Cars {
     const ax = fromX - cx;
     const az = fromZ - cz;
     const min = t.spawnMin * 0.8;
-    let fallback = -1;
-    for (let attempt = 0; attempt < 10; attempt++) {
+    const pt = this.dp;
+    let found = false;
+    for (let attempt = 0; attempt < 12; attempt++) {
       const node = nodes[rng.int(0, n)]!;
-      if (c.nodeDeg[node] === 0) continue;
-      const dx = c.nodeX[node]! - cx;
-      const dz = c.nodeZ[node]! - cz;
-      const fx = c.nodeX[node]! - fromX;
-      const fz = c.nodeZ[node]! - fromZ;
+      const deg = c.adjStart[node + 1]! - c.adjStart[node]!;
+      if (deg === 0) continue;
+      const e = c.adjEdge[c.adjStart[node]! + rng.int(0, deg)]!;
+      if (!c.isVehicle(e) || k.closures.isClosed(e)) continue;
+      // à l'écart des carrefours : au milieu de la partie courante de l'arête
+      const a = c.edgeA[e]!;
+      const b = c.edgeB[e]!;
+      const len = c.edgeLen[e]!;
+      const clearA = (c.nodeFlags[a]! & N_JUNCTION) !== 0 ? c.nodeRadius[a]! + 26 : 1;
+      const clearB = (c.nodeFlags[b]! & N_JUNCTION) !== 0 ? c.nodeRadius[b]! + 26 : 1;
+      if (len < clearA + clearB + 1) continue;
+      c.pointAt(e, clearA + rng.next() * (len - clearA - clearB), 0, pt);
+      const fx = pt.x - fromX;
+      const fz = pt.z - fromZ;
       if (fx * fx + fz * fz < 120 * 120) continue;
-      fallback = node;
-      if (dx * dx + dz * dz < min * min) continue;
-      // de l'autre côté : angle de plus de 80° avec la direction d'où il vient
-      if (ax * dx + az * dz > 0.17 * Math.sqrt((ax * ax + az * az) * (dx * dx + dz * dz))) continue;
-      this.destX = c.nodeX[node]!;
-      this.destZ = c.nodeZ[node]!;
-      return true;
+      const dx = pt.x - cx;
+      const dz = pt.z - cz;
+      // premier point acceptable gardé en réserve ; on préfère un point lointain, de l'autre côté
+      const far = dx * dx + dz * dz >= min * min
+        && ax * dx + az * dz <= 0.17 * Math.sqrt((ax * ax + az * az) * (dx * dx + dz * dz));
+      if (!found || far) {
+        this.destX = pt.x;
+        this.destZ = pt.z;
+        found = true;
+      }
+      if (far) return true;
     }
-    if (fallback < 0) return false;
-    this.destX = c.nodeX[fallback]!;
-    this.destZ = c.nodeZ[fallback]!;
-    return true;
+    return found;
   }
 
   /** Donne une nouvelle destination à un automobiliste d'ambiance. */

@@ -140,34 +140,55 @@ describe('police — mortiers, engins incendiaires', () => {
     expect(fitLine(frontRank(pt, sec.squad.id)).error).toBeLessThan(0.5);
   });
 
-  it('engin incendiaire : les agents s\'écartent de la nappe de feu, le porte-extincteur l\'éteint, chacun reprend sa place', async () => {
+  it('engin incendiaire : les agents s\'écartent de la nappe de feu, puis reprennent leur place ; avec un extincteur, le feu est éteint', async () => {
     const { pt, sec } = await lineUp(1);
     const { ctx } = pt;
+    // 1. sans extincteur disponible : la ligne s'ouvre autour du foyer tant qu'il brûle
+    const bearer = sec.people.find((p) => p.poste === 'extincteur')!;
+    ctx.actions.remove(bearer, 'extincteur');
     const front = frontRank(pt, sec.squad.id);
     const mid = front[Math.floor(front.length / 2)];
     const fx = mid.x;
     const fz = mid.z - 0.6;
-    // un engin incendiaire s'écrase au pied de la ligne
     ctx.hazards.ignite(fx, fz, 1.25, 1, 0);
     ctx.events.emit('fire:started', { x: fx, z: fz, targetKind: 'ground', targetId: 0, sourceId: 0 });
+    pt.step(3);
     let minDist = Infinity;
+    let inFire = 0;
     let burned = 0;
-    let outAt = -1;
-    const t0 = ctx.clock.now;
-    pt.run(25, 0.25, () => {
-      if (ctx.clock.now - t0 > 2 && ctx.hazards.fireAt(fx, fz) > 0.3) {
-        for (const p of sec.people) minDist = Math.min(minDist, Math.hypot(p.x - fx, p.z - fz));
+    pt.run(8, 0.25, () => {
+      for (const p of sec.people) {
+        minDist = Math.min(minDist, Math.hypot(p.x - fx, p.z - fz));
+        if (ctx.hazards.fireAt(p.x, p.z) > 0.2) inFire++;
+        burned = Math.max(burned, p.burning);
       }
-      for (const p of sec.people) burned = Math.max(burned, p.burning);
-      if (outAt < 0 && ctx.hazards.fireAt(fx, fz) <= 0.01) outAt = ctx.clock.now - t0;
     });
-    console.log('engin incendiaire — distance minimale au foyer après 2 s :', minDist.toFixed(2), 'm | feu éteint en', outAt.toFixed(1), 's | brûlure maximale', burned.toFixed(2));
-    expect(minDist).toBeGreaterThan(1.3);
+    expect(ctx.hazards.fireAt(fx, fz)).toBeGreaterThan(0.5);
+    console.log('engin incendiaire — distance minimale au foyer :', minDist.toFixed(2), 'm | agents dans les flammes :', inFire, '| brûlure maximale', burned.toFixed(2));
+    expect(minDist).toBeGreaterThan(1.5);
+    expect(inFire).toBe(0);
+    // le feu éteint de lui-même (une quarantaine de secondes), chacun reprend sa place
+    pt.step(50);
+    expect(ctx.hazards.fireAt(fx, fz)).toBe(0);
+    expect(fitLine(frontRank(pt, sec.squad.id)).error).toBeLessThan(0.5);
+    // 2. extincteur rendu : une nouvelle nappe au pied de la ligne est éteinte d'initiative
+    ctx.actions.give(bearer, 'extincteur');
+    ctx.actions.selectById(bearer, 'extincteur');
+    ctx.hazards.ignite(fx, fz, 1.25, 1, 0);
+    ctx.events.emit('fire:started', { x: fx, z: fz, targetKind: 'ground', targetId: 0, sourceId: 0 });
+    const t0 = ctx.clock.now;
+    let outAt = -1;
+    pt.run(20, 0.25, () => {
+      if (ctx.hazards.fireAt(fx, fz) <= 0.01) {
+        outAt = ctx.clock.now - t0;
+        return true;
+      }
+    });
+    console.log('feu au pied de la ligne — éteint d\'initiative en', outAt.toFixed(1), 's');
     expect(outAt).toBeGreaterThan(0);
-    expect(outAt).toBeLessThan(18);
+    expect(outAt).toBeLessThan(12);
     pt.step(10);
-    const fit = fitLine(frontRank(pt, sec.squad.id));
-    expect(fit.error).toBeLessThan(0.5);
+    expect(fitLine(frontRank(pt, sec.squad.id)).error).toBeLessThan(0.5);
     expect(pt.status.of(sec.squad.id)!.detached).toBe(0);
   });
 });

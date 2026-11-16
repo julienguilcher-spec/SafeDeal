@@ -9,7 +9,8 @@ import { CLASS_COLOR, CLASS_LAYERS, CL_ASPHALT, CL_ROADMACRO, CL_WATER } from '.
 import {
   createCrownMaterial, createCutoutMaterial, createHaloMaterial, createTrunkMaterial, createWaterMaterial,
 } from './materials';
-import { paintBarkTexture, paintCutoutAtlas, paintGroundAtlas, paintHaloTexture, paintLeafTexture } from './paint';
+import { paintGroundAtlas } from './paint';
+import { paintBarkTexture, paintCutoutAtlas, paintHaloTexture, paintLeafTexture } from './paint-extras';
 import type { CityQuality } from './quality';
 import { createCrownGeometry, createTrunkGeometry } from './trees';
 

@@ -154,7 +154,11 @@ export class Behavior {
     // ── 3. fuite en cours ──
     if (b.state === S.FLEE) {
       const left = Math.hypot(b.tx - p.x, b.tz - p.z);
-      if (now < b.fleeUntil && left > 2.5 && !this.stalled(p, b, now, 1.2)) return;
+      if (now < b.fleeUntil && left > 2.5) {
+        // bloqué par ceux de devant ? Tant que le danger est sur ses talons, on pousse quand même : à l'arrière on
+        // ne voit pas que l'avant ne peut plus avancer — c'est ainsi que naissent les bousculades (dossier 03 §5.6)
+        if (!this.stalled(p, b, now, 1.2) || core.sense.policeNear(p.x, p.z, 2) < 22) return;
+      }
       b.run = false;
       this.setState(b, S.REGROUP);
     }
@@ -169,6 +173,12 @@ export class Behavior {
       if (ahead < -4 || ahead > 46 || Math.abs(dx * c.b - dz * c.a) > 26) continue;
       b.seenCharge = c.id;
       this.startFlee(p, b, c.x, c.z, tune.flee * (0.75 + 0.5 * core.rngThink.next()));
+      return;
+    }
+    if (b.panic > now) {
+      // mouvement de foule : on suit ceux qui fuient
+      b.panic = -1;
+      this.startFlee(p, b, b.threatX, b.threatZ, tune.flee * (0.6 + 0.4 * core.rngThink.next()));
       return;
     }
     // ── 5. forces de l'ordre à proximité ──

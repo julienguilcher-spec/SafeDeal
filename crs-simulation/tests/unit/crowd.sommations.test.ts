@@ -16,15 +16,18 @@ describe('foule — sommations', () => {
     const t = createCrowdTest({ seed: 5, modules: [world, people, items, hazards, law] });
     const { ctx, core } = t;
     await t.start(demoConfig({
-      crowdSize: 800, tension: 0.05, volatility: 0.3,
+      crowdSize: 500, tension: 0.05, volatility: 0.3,
       extra: { 'crowd.present': 1, 'crowd.static': true, 'crowd.noAleas': true, 'crowd.bystanders': 0, 'crowd.scenario': 'journee_tendue', 'law.delayScale': 0.25 },
     }));
     t.run(4);
-    // l'autorité habilitée (écharpe tricolore), 16 m devant la tête du rassemblement, sur l'axe
-    core.corridor.at(core.formation.headS + 16, core.rp);
+    // l'autorité habilitée (écharpe tricolore), sur le côté du rassemblement, à mi-longueur : tout le monde l'entend
+    const f = core.formation;
+    core.corridor.at((f.headS + f.tailS) * 0.5, core.rp);
+    const side = core.rp.center + core.rp.half + 4.5;
     const chief = ctx.people.spawn({
-      kind: 'commissaire', faction: 'police', x: core.rp.x, z: core.rp.z, rank: 'commissaire', poste: 'autorite_civile', look: { sash: true },
+      kind: 'commissaire', faction: 'police', x: core.rp.x - core.rp.tz * side, z: core.rp.z + core.rp.tx * side, rank: 'commissaire', poste: 'autorite_civile', look: { sash: true },
     });
+    expect(ctx.world.isFree(chief.x, chief.z, 0.3)).toBe(true);
     ctx.actions.give(chief, 'megaphone');
     t.run(1);
     // cohorte : ceux qui entendent distinctement (moins de 60 m), suivis par leur profil d'origine
@@ -33,7 +36,7 @@ describe('foule — sommations', () => {
     for (const p of cohort) profileOf.set(p.id, brainOf(p)!.origin ?? 'pacifique');
     const sizes = new Map<ProtestProfile, number>();
     for (const pr of profileOf.values()) sizes.set(pr, (sizes.get(pr) ?? 0) + 1);
-    expect(cohort.length).toBeGreaterThan(250);
+    expect(cohort.length).toBeGreaterThan(400);
     const leftShare = (): Map<ProtestProfile, number> => {
       const gone = new Map<ProtestProfile, number>();
       for (const [id, pr] of profileOf) {

@@ -193,7 +193,7 @@ export const PHRASES_MANOEUVRES_INCIDENTS: readonly PhraseDef[] = [
     'URGENT. Incident non traité, secteur {lieu}. Nature : {type}. La situation empire, désignez un moyen.',
     'URGENT. Aggravation de l\'incident, secteur {lieu}. Nature : {type}. Il faut y engager un moyen sans attendre.',
   ]),
-  inc('incident_echec', { de: 'central', a: 'commandant' }, [
+  inc('incident_echec', { de: 'central', a: 'commandant', fin: 'termine' }, [
     'Incident clos sans traitement, secteur {lieu}. Nature : {type}. Je le porte au compte rendu.',
     'L\'incident du secteur {lieu} n\'a pas été traité à temps. Nature : {type}. Il figurera au compte rendu.',
     'Incident non traité, secteur {lieu}. Nature : {type}. Trop tard pour intervenir, mention au compte rendu.',

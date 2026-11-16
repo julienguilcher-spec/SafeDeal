@@ -1,8 +1,8 @@
 # Radio — bibliothèque de phrases
 
 201 situations, 673 variantes (de 3 à 5 par situation), 17 familles.
-Fichier généré par `tests/unit/radio.doc.test.ts` d'après `phrases/*.ts` : ne pas le modifier à la main.
-Pour le régénérer : `RADIO_DOC=write npx vitest run tests/unit/radio.doc`.
+Fichier généré par `tests/unit/radio.doc.test.ts` d'après `phrases/*.ts` : ne pas le modifier à la main.
+Pour le régénérer : `RADIO_DOC=write npx vitest run tests/unit/radio.doc`.
 
 ## Utilisation
 
@@ -14,68 +14,68 @@ phrases.say('secours_attente_securisation', {}, { from: 'SAPEUR 1', at });  // l
 phrases.text('sommation_premiere', { heure: 17.07, issue: 'rue de Rivoli' }); // texte seul, variante 0
 ```
 
-- Tous les paramètres sont facultatifs : une valeur par défaut donne une phrase correcte, sans accolade, qui n'affirme rien que l'appelant n'a pas fourni (« non précisé », « à évaluer »).
-- Les variantes d'une situation disent la même chose avec d'autres mots : la variante est tirée au hasard, jamais deux fois de suite la même.
+- Tous les paramètres sont facultatifs : une valeur par défaut donne une phrase correcte, sans accolade, qui n'affirme rien que l'appelant n'a pas fourni (« non précisé », « à évaluer »).
+- Les variantes d'une situation disent la même chose avec d'autres mots : la variante est tirée au hasard, jamais deux fois de suite la même.
 - `say(clé, params, options)` retourne `false` si la clé est inconnue ou si le message est écarté (anti-répétition, file saturée).
-- Options : `squad` (unité qui parle : indicatif, secteur, direction de face), `at` (position dont on parle : nomme le secteur), `to` (destinataire : unité ou indicatif), `from` (indicatif imposé à l'émetteur), `personId`, `channel`, `priority`, `variant`.
-- Un nombre fourni en paramètre est dit à la radio, chiffre par chiffre (`45` → « QUATRE-CINQ », `5000` → « CINQ MILLE », `100` → « CENT »). Une chaîne est reprise telle quelle.
-- Forme du message : `APPELÉ ICI APPELANT. Corps. PARLEZ.` (réponse attendue) ou `TERMINÉ.` ; une réponse s'écrit `ICI APPELANT. Corps. TERMINÉ.` ; pas de formule de fin quand le corps se termine par « FAITES L'APERÇU », « COLLATIONNEZ » ou « ATTENDEZ ».
-- Canal : « commandement » dès que la salle (CENTRAL) est l'un des correspondants, « unite » à l'intérieur de la compagnie, « secours » pour les demandes et les comptes rendus de secours. Un appel et sa réponse passent par le même canal.
-- Le commandant est le chef unique (commandement et autorité habilitée) : il parle sous l'indicatif de sa compagnie, somme et décide lui-même ; aucune phrase ne demande d'autorisation à une autre autorité. Un ordre sans destinataire (`cible` absent) est adressé à « TOUTES UNITÉS ».
-- Les situations `ambiance_*` (priorité 0) sont émises par le générateur d'ambiance, qui vérifie que le thème est vrai dans le monde ; les autres modules n'ont pas à les employer.
+- Options : `squad` (unité qui parle : indicatif, secteur, direction de face), `at` (position dont on parle : nomme le secteur), `to` (destinataire : unité ou indicatif), `from` (indicatif imposé à l'émetteur), `personId`, `channel`, `priority`, `variant`.
+- Un nombre fourni en paramètre est dit à la radio, chiffre par chiffre (`45` → « QUATRE-CINQ », `5000` → « CINQ MILLE », `100` → « CENT »). Une chaîne est reprise telle quelle.
+- Forme du message : `APPELÉ ICI APPELANT. Corps. PARLEZ.` (réponse attendue) ou `TERMINÉ.` ; une réponse s'écrit `ICI APPELANT. Corps. TERMINÉ.` ; pas de formule de fin quand le corps se termine par « FAITES L'APERÇU », « COLLATIONNEZ » ou « ATTENDEZ ».
+- Canal : « commandement » dès que la salle (CENTRAL) est l'un des correspondants, « unite » à l'intérieur de la compagnie, « secours » pour les demandes et les comptes rendus de secours. Un appel et sa réponse passent par le même canal.
+- Le commandant est le chef unique (commandement et autorité habilitée) : il parle sous l'indicatif de sa compagnie, somme et décide lui-même ; aucune phrase ne demande d'autorisation à une autre autorité. Un ordre sans destinataire (`cible` absent) est adressé à « TOUTES UNITÉS ».
+- Les situations `ambiance_*` (priorité 0) sont émises par le générateur d'ambiance, qui vérifie que le thème est vrai dans le monde ; les autres modules n'ont pas à les employer.
 
 ## Correspondants
 
 | Rôle | Indicatif | Remplacement |
 |---|---|---|
 | `unite` | celui de l'unité (`options.squad`), sinon la compagnie | paramètre `unite`, `options.from` |
-| `cible` | unité désignée par le commandant, sinon « TOUTES UNITÉS » | paramètre `cible`, `options.to` |
-| `commandant` | la compagnie : « MISTRAL » (`session.config.extra.compagnie`) | — |
-| `central` | « CENTRAL » | — |
-| `tous` | « TOUTES UNITÉS » | — |
-| `drone`, `canon`, `centaure`, `bravm`, `liaison` | « ICARE », « NEPTUNE 1 », « CENTAURE 1 », « FAUCON 1 », « LIAISON », ou l'unité réelle de ce type | paramètre du même nom, `options.from` / `options.to` |
-| `samu`, `pompiers` | « SANTÉ 1 », « SAPEUR 1 » | paramètre du même nom, `options.from` / `options.to` |
+| `cible` | unité désignée par le commandant, sinon « TOUTES UNITÉS » | paramètre `cible`, `options.to` |
+| `commandant` | la compagnie : « MISTRAL » (`session.config.extra.compagnie`) | — |
+| `central` | « CENTRAL » | — |
+| `tous` | « TOUTES UNITÉS » | — |
+| `drone`, `canon`, `centaure`, `bravm`, `liaison` | « ICARE », « NEPTUNE 1 », « CENTAURE 1 », « FAUCON 1 », « LIAISON », ou l'unité réelle de ce type | paramètre du même nom, `options.from` / `options.to` |
+| `samu`, `pompiers` | « SANTÉ 1 », « SAPEUR 1 » | paramètre du même nom, `options.from` / `options.to` |
 
 ## Paramètres
 
 | Paramètre | Sens | Valeur par défaut |
 |---|---|---|
-| `heure` | heure dite à la radio : nombre 0..24 (« UNE-SEPT heures ZÉRO-QUATRE ») ou texte | heure de la session |
-| `lieu` | secteur dont on parle, toujours écrit « secteur {lieu} » ; déduit de la position (options.at, sinon l'unité qui parle) par ctx.world.sectorName | « actuel » |
-| `destination` | secteur vers lequel l'émetteur se déplace (« vers le secteur {destination} ») ; jamais déduit de sa position | « désigné » |
-| `voie` | rue ou carrefour fermé ou rouvert à la circulation ; déduit de la position comme {lieu} s'il est absent | « voie désignée » |
-| `issue` | issue laissée libre à la foule (« rue Saint-Antoine ») | « à l'opposé de la ligne » |
-| `acces` | accès conseillé aux secours (« rue Royale ») | « par l'arrière du dispositif » |
-| `station` | nom de la station de métro, écrit « station {station} » | « désignée » |
-| `direction` | direction vers laquelle l'unité fait face, écrit « face {direction} » : point cardinal (« nord ») ; déduit du cap de l'unité qui parle | « à la foule » |
-| `vers` | direction prise par un groupe ou un cortège (« rue Cambon », « nord ») | « non précisée » |
-| `limite` | limite géographique d'une autorisation ou d'un refoulement (« rue de la Paix ») | « ligne actuelle » |
-| `nombre` | quantité nommée par le libellé qui précède : volume de foule, effectif d'un groupe, nombre d'agents, de fourgons, de grenades… | « non précisé » |
-| `effectif` | effectif à pied de la compagnie | « complet » |
-| `indisponibles` | agents blessés ou hors de combat | « non précisé » |
-| `interpelles` | nombre d'interpellés | « non précisé » |
-| `lanceur` | grenades tirées au lanceur (compte rendu de consommation) | « non précisé » |
-| `lbd` | tirs de lanceur de balles de défense (compte rendu de consommation) | « non précisé » |
-| `distance` | distance en mètres | « quelques dizaines de » |
-| `duree` | délai en minutes | « quelques » |
-| `litres` | eau restante dans la cuve du canon à eau, en litres | « plusieurs milliers de » |
-| `eau` | eau restante quand la cuve est presque vide, en litres | « quelques centaines de » |
-| `pct` | part de la dotation restante, en pour cent | « moins de cinquante » |
-| `moyen` | mode de déplacement (« à pied », « en véhicule ») | « à pied » |
-| `mission` | mission confiée, à l'infinitif (« interdire le pont de la Concorde ») | « tenir le dispositif » |
-| `cadre` | cadre juridique de la mission (« manifestation déclarée », « manifestation interdite ») | « à préciser » |
-| `nature` | nature de la foule (« cortège déclaré », « rassemblement spontané ») | « à préciser » |
-| `attitude` | attitude de la foule (« calme », « tendue », « hostile ») | « à préciser » |
-| `gravite` | gravité d'une blessure, au féminin (« légère », « sérieuse », « critique ») | « à évaluer » |
-| `type` | nature d'un incident ou d'un feu (« feu de poubelles », « véhicule en feu ») | « à préciser » |
-| `objet` | matériaux d'une barricade | « poubelles et barrières » |
-| `motif` | fait reproché à un interpellé (« jet de projectile sur agents ») | « infraction constatée » |
-| `signalement` | signalement d'un individu, trois indices (« veste verte, bonnet noir, sac rouge ») | « à préciser » |
-| `raison` | raison pour laquelle un ordre ne peut pas être exécuté | « unité déjà engagée » |
-| `demande` | ce que la liaison demande aux organisateurs, avec son article (« un changement de parcours », « l'isolement des éléments violents ») | « l'arrêt de la tête de cortège » |
-| `meteo` | temps et vent (« ciel couvert, vent d'ouest ») | « sans changement » |
-| `renfort` | indicatif de l'unité envoyée en renfort | « une section de réserve » |
-| `autre` | indicatif de l'unité à relever | « l'unité en ligne » |
+| `heure` | heure dite à la radio : nombre 0..24 (« UNE-SEPT heures ZÉRO-QUATRE ») ou texte | heure de la session |
+| `lieu` | secteur dont on parle, toujours écrit « secteur {lieu} » ; déduit de la position (options.at, sinon l'unité qui parle) par ctx.world.sectorName | « actuel » |
+| `destination` | secteur vers lequel l'émetteur se déplace (« vers le secteur {destination} ») ; jamais déduit de sa position | « désigné » |
+| `voie` | rue ou carrefour fermé ou rouvert à la circulation ; déduit de la position comme {lieu} s'il est absent | « voie désignée » |
+| `issue` | issue laissée libre à la foule (« rue Saint-Antoine ») | « à l'opposé de la ligne » |
+| `acces` | accès conseillé aux secours (« rue Royale ») | « par l'arrière du dispositif » |
+| `station` | nom de la station de métro, écrit « station {station} » | « désignée » |
+| `direction` | direction vers laquelle l'unité fait face, écrit « face {direction} » : point cardinal (« nord ») ; déduit du cap de l'unité qui parle | « à la foule » |
+| `vers` | direction prise par un groupe ou un cortège (« rue Cambon », « nord ») | « non précisée » |
+| `limite` | limite géographique d'une autorisation ou d'un refoulement (« rue de la Paix ») | « ligne actuelle » |
+| `nombre` | quantité nommée par le libellé qui précède : volume de foule, effectif d'un groupe, nombre d'agents, de fourgons, de grenades… | « non précisé » |
+| `effectif` | effectif à pied de la compagnie | « complet » |
+| `indisponibles` | agents blessés ou hors de combat | « non précisé » |
+| `interpelles` | nombre d'interpellés | « non précisé » |
+| `lanceur` | grenades tirées au lanceur (compte rendu de consommation) | « non précisé » |
+| `lbd` | tirs de lanceur de balles de défense (compte rendu de consommation) | « non précisé » |
+| `distance` | distance en mètres | « quelques dizaines de » |
+| `duree` | délai en minutes | « quelques » |
+| `litres` | eau restante dans la cuve du canon à eau, en litres | « plusieurs milliers de » |
+| `eau` | eau restante quand la cuve est presque vide, en litres | « quelques centaines de » |
+| `pct` | part de la dotation restante, en pour cent | « moins de cinquante » |
+| `moyen` | mode de déplacement (« à pied », « en véhicule ») | « à pied » |
+| `mission` | mission confiée, à l'infinitif (« interdire le pont de la Concorde ») | « tenir le dispositif » |
+| `cadre` | cadre juridique de la mission (« manifestation déclarée », « manifestation interdite ») | « à préciser » |
+| `nature` | nature de la foule (« cortège déclaré », « rassemblement spontané ») | « à préciser » |
+| `attitude` | attitude de la foule (« calme », « tendue », « hostile ») | « à préciser » |
+| `gravite` | gravité d'une blessure, au féminin (« légère », « sérieuse », « critique ») | « à évaluer » |
+| `type` | nature d'un incident ou d'un feu (« feu de poubelles », « véhicule en feu ») | « à préciser » |
+| `objet` | matériaux d'une barricade | « poubelles et barrières » |
+| `motif` | fait reproché à un interpellé (« jet de projectile sur agents ») | « infraction constatée » |
+| `signalement` | signalement d'un individu, trois indices (« veste verte, bonnet noir, sac rouge ») | « à préciser » |
+| `raison` | raison pour laquelle un ordre ne peut pas être exécuté | « unité déjà engagée » |
+| `demande` | ce que la liaison demande aux organisateurs, avec son article (« un changement de parcours », « l'isolement des éléments violents ») | « l'arrêt de la tête de cortège » |
+| `meteo` | temps et vent (« ciel couvert, vent d'ouest ») | « sans changement » |
+| `renfort` | indicatif de l'unité envoyée en renfort | « une section de réserve » |
+| `autre` | indicatif de l'unité à relever | « l'unité en ligne » |
 
 ## Situations
 
@@ -205,7 +205,7 @@ L'exemple est la première variante, rendue avec des valeurs d'exemple.
 | `force_niveau_5` | commandant → cible | unite | 2 | — | 3 |  | MISTRAL TROIS ICI MISTRAL. Rappel du cadre : arme de service en légitime défense seulement, absolue nécessité et stricte proportionnalité. COLLATIONNEZ. |
 | `force_apercu` | unite → commandant (réponse) | unite | 1 | TERMINÉ | 3 | `limite` | ICI MISTRAL DEUX. APERÇU. Je collationne : emploi de la force autorisé, limite : rue de la Paix. TERMINÉ. |
 | `force_suspendue` | commandant → tous | unite | 2 | TERMINÉ | 3 |  | TOUTES UNITÉS ICI MISTRAL. Halte à l’emploi de la force : le trouble a cessé. Retour au barrage statique. TERMINÉ. |
-| `fin_emploi_force` | commandant → central | commandement | 1 | TERMINÉ | 3 | `heure` `lieu` | CENTRAL ICI MISTRAL. Fin d’emploi de la force à UNE-SEPT heures ZÉRO-QUATRE, secteur place de la Concorde. Le trouble a cessé. TERMINÉ. |
+| `fin_emploi_force` | commandant → central | commandement | 2 | TERMINÉ | 3 | `heure` `lieu` | CENTRAL ICI MISTRAL. Fin d’emploi de la force à UNE-SEPT heures ZÉRO-QUATRE, secteur place de la Concorde. Le trouble a cessé. TERMINÉ. |
 | `tir_lbd` | unite → commandant | unite | 1 | PARLEZ | 3 | `distance` | MISTRAL ICI MISTRAL DEUX. Un tir de lanceur de balles de défense, cadre riposte, sur objectif désigné à TROIS-ZÉRO mètres. Je fais vérifier l’état de santé de l’individu. PARLEZ. |
 | `desencerclement_employe` | unite → commandant | unite | 2 | PARLEZ | 3 | `lieu` | MISTRAL ICI MISTRAL DEUX. Grenade de désencerclement employée, secteur place de la Concorde. Unité encerclée, lancer au ras du sol. PARLEZ. |
 
@@ -258,7 +258,7 @@ L'exemple est la première variante, rendue avec des valeurs d'exemple.
 | `incident_accuse` | unite → commandant (réponse) | unite | 1 | TERMINÉ | 3 |  | ICI MISTRAL DEUX. APERÇU, je prends l’incident. TERMINÉ. |
 | `incident_traite` | unite → commandant | unite | 1 | PARLEZ | 4 | `lieu` `type` | MISTRAL ICI MISTRAL DEUX. Incident traité, secteur place de la Concorde. Nature : feu de poubelles. Je reprends ma mission. PARLEZ. |
 | `incident_aggrave` | central → commandant | commandement | 2 | PARLEZ | 3 | `lieu` `type` | MISTRAL ICI CENTRAL. URGENT. L’incident du secteur place de la Concorde s’aggrave. Nature : feu de poubelles. Aucun moyen n’est encore engagé. PARLEZ. |
-| `incident_echec` | central → commandant | commandement | 1 | PARLEZ | 3 | `lieu` `type` | MISTRAL ICI CENTRAL. Incident clos sans traitement, secteur place de la Concorde. Nature : feu de poubelles. Je le porte au compte rendu. PARLEZ. |
+| `incident_echec` | central → commandant | commandement | 1 | TERMINÉ | 3 | `lieu` `type` | MISTRAL ICI CENTRAL. Incident clos sans traitement, secteur place de la Concorde. Nature : feu de poubelles. Je le porte au compte rendu. TERMINÉ. |
 | `ordre_eteindre` | commandant → cible | unite | 1 | PARLEZ | 3 | `lieu` `type` | MISTRAL TROIS ICI MISTRAL. Éteignez le feu, secteur place de la Concorde. Nature : feu de poubelles. Porte-extincteur sous la protection des boucliers. PARLEZ. |
 | `ordre_secourir` | commandant → cible | unite | 2 | PARLEZ | 3 | `lieu` | MISTRAL TROIS ICI MISTRAL. Allez chercher le blessé, secteur place de la Concorde. Deux boucliers couvrent, deux agents le ramènent derrière la ligne. PARLEZ. |
 
@@ -288,9 +288,9 @@ L'exemple est la première variante, rendue avec des valeurs d'exemple.
 | `perimetre_ferme` | unite → central | commandement | 1 | PARLEZ | 3 | `lieu` `nombre` | CENTRAL ICI MISTRAL DEUX. Périmètre fermé à la circulation, secteur place de la Concorde. Nombre de points de fermeture : QUATRE. Déviation en place. PARLEZ. |
 | `circulation_danger` | unite → central | commandement | 2 | PARLEZ | 3 | `voie` | CENTRAL ICI MISTRAL DEUX. URGENT. Le cortège arrive sur une voie encore ouverte : rue Royale. Automobilistes en danger, je demande la fermeture. PARLEZ. |
 | `station_fermeture_demande` | commandant → central | commandement | 1 | PARLEZ | 3 | `station` | CENTRAL ICI MISTRAL. Je demande la fermeture de la station Concorde. PARLEZ. |
-| `station_fermee` | central → tous | commandement | 1 | PARLEZ | 3 | `station` | TOUTES UNITÉS ICI CENTRAL. Station Concorde fermée à la demande du commandement. Les arrivées se reportent sur les stations voisines. PARLEZ. |
+| `station_fermee` | central → tous | commandement | 1 | TERMINÉ | 3 | `station` | TOUTES UNITÉS ICI CENTRAL. Station Concorde fermée à la demande du commandement. Les arrivées se reportent sur les stations voisines. TERMINÉ. |
 | `station_reouverture_demande` | commandant → central | commandement | 1 | PARLEZ | 3 | `station` | CENTRAL ICI MISTRAL. Je demande la réouverture de la station Concorde. PARLEZ. |
-| `station_rouverte` | central → tous | commandement | 1 | PARLEZ | 3 | `station` | TOUTES UNITÉS ICI CENTRAL. Station Concorde rouverte. Les voyageurs peuvent de nouveau l’emprunter. PARLEZ. |
+| `station_rouverte` | central → tous | commandement | 1 | TERMINÉ | 3 | `station` | TOUTES UNITÉS ICI CENTRAL. Station Concorde rouverte. Les voyageurs peuvent de nouveau l’emprunter. TERMINÉ. |
 | `metro_arrivee` | unite → central | commandement | 1 | PARLEZ | 4 | `station` `nombre` | CENTRAL ICI MISTRAL DEUX. Arrivées par le métro, station Concorde. Volume de la vague : QUATRE-ZÉRO-ZÉRO. PARLEZ. |
 | `metro_flux_deplace` | unite → central | commandement | 1 | PARLEZ | 3 | `station` | CENTRAL ICI MISTRAL DEUX. Report du flux : les arrivées se font maintenant par la station Concorde. PARLEZ. |
 | `metro_departs` | unite → central | commandement | 1 | PARLEZ | 3 | `station` | CENTRAL ICI MISTRAL DEUX. Départs par le métro, station Concorde. La foule quitte les lieux par cette bouche. PARLEZ. |
@@ -355,7 +355,7 @@ L'exemple est la première variante, rendue avec des valeurs d'exemple.
 | `ambiance_vigilance` | unite → commandant | unite | 0 | TERMINÉ | 5 | `lieu` | MISTRAL ICI MISTRAL DEUX. Ambiance qui se tend un peu, secteur place de la Concorde. Je reste vigilant. TERMINÉ. |
 | `ambiance_tension` | unite → commandant | unite | 0 | TERMINÉ | 5 | `lieu` | MISTRAL ICI MISTRAL DEUX. Tension palpable, secteur place de la Concorde. Groupes déterminés devant la ligne. TERMINÉ. |
 | `ambiance_affrontement` | unite → commandant | unite | 0 | TERMINÉ | 5 | `lieu` | MISTRAL ICI MISTRAL DEUX. Affrontements en cours, secteur place de la Concorde. La ligne tient. TERMINÉ. |
-| `ambiance_dispersion` | unite → commandant | unite | 0 | TERMINÉ | 5 | `lieu` `nombre` | MISTRAL ICI MISTRAL DEUX. Dispersion en cours, secteur place de la Concorde. Volume restant : TROIS MILLE. TERMINÉ. |
+| `ambiance_dispersion` | unite → commandant | unite | 0 | TERMINÉ | 5 | `lieu` `nombre` | MISTRAL ICI MISTRAL DEUX. La dispersion se poursuit, secteur place de la Concorde. Volume restant : TROIS MILLE. TERMINÉ. |
 | `ambiance_groupes_mobiles` | unite → commandant | unite | 0 | TERMINÉ | 5 | `lieu` | MISTRAL ICI MISTRAL DEUX. Petits groupes mobiles dans les rues adjacentes, secteur place de la Concorde. Je les suis à distance. TERMINÉ. |
 | `ambiance_apres` | unite → commandant | unite | 0 | TERMINÉ | 5 | `lieu` | MISTRAL ICI MISTRAL DEUX. Calme revenu, secteur place de la Concorde. Reconnaissance des abords en cours. TERMINÉ. |
 | `ambiance_logistique` | unite → commandant | unite | 0 | TERMINÉ | 5 | `lieu` | MISTRAL ICI MISTRAL DEUX. Eau distribuée aux agents, secteur place de la Concorde. TERMINÉ. |

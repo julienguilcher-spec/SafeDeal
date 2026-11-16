@@ -334,6 +334,11 @@ function onUsed(k: Kernel, a: Agent): void {
   if (!u || a.actMeans === '') return;
   const p = a.p;
   k.emit(FORCE_USED_EVENT, { squadId: a.home ? a.home.id : u.id, means: a.actMeans, x: a.actTx, z: a.actTz, byId: p.id });
+  // une salve partie : on observe son effet avant la suivante (la fatigue allonge l'intervalle)
+  if (a.actMeans === 'lacrymo') {
+    const next = k.now + T.VOLLEY_INTERVAL * (1 + 0.5 * u.fatigue) - 2;
+    if (next > u.volleyAt) u.volleyAt = next;
+  }
   if (a.actMeans === 'lbd') {
     const d = Math.round(Math.sqrt((a.actTx - p.x) * (a.actTx - p.x) + (a.actTz - p.z) * (a.actTz - p.z)));
     const home = a.home ?? u;
@@ -500,10 +505,16 @@ export function gasVolley(k: Kernel, u: Unit, tx: number, tz: number, maxShots: 
     if (within && !isUnderHome(a, within)) continue;
     const p = a.p;
     const off = shots === 0 ? 0 : (shots & 1 ? 5 : -5) * ((shots + 1) >> 1);
-    const gx = ax + px * off;
-    const gz = az + pz * off;
+    let gx = ax + px * off;
+    let gz = az + pz * off;
     const da = Math.sqrt((gx - p.x) * (gx - p.x) + (gz - p.z) * (gz - p.z));
-    if (da >= T.HAND_GRENADE_MIN && da <= T.HAND_GRENADE_MAX && k.count(p, 'grenade_lacrymo') > 0) {
+    if (da >= T.HAND_GRENADE_MIN && da <= T.HAND_GRENADE_MAX + 7 && k.count(p, 'grenade_lacrymo') > 0) {
+      // un peu trop loin pour le bras : la grenade est lancée au plus loin, dans l'axe du point visé
+      if (da > T.HAND_GRENADE_MAX) {
+        const f = (T.HAND_GRENADE_MAX - 0.5) / da;
+        gx = p.x + (gx - p.x) * f;
+        gz = p.z + (gz - p.z) * f;
+      }
       if (beginAct(k, a, 'grenade_lacrymo', 'lacrymo', gx, y, gz, 0)) shots++;
     } else if (da >= T.LAUNCHER_MIN && da <= T.LAUNCHER_MAX && k.count(p, 'lanceur_cougar') > 0) {
       if (beginAct(k, a, 'lanceur_cougar', 'lacrymo', gx, y, gz, 0)) shots++;
@@ -573,8 +584,8 @@ export function decideForce(k: Kernel, u: Unit): void {
       k.ctx.radio.say({ channel: 'public', from: u.squad.name, text: AVERTISSEMENT_GAZ, priority: 1, personId: u.squad.leaderId || undefined });
       report(k, u, 'Violences sur l’unité. J’emploie la force d’initiative, cadre violences et voies de fait. Avertissement fait à la foule');
     } else if (now >= u.volleyAt) {
-      if (gasVolley(k, u, tx, tz, 2, null) > 0) u.volleyAt = now + T.VOLLEY_INTERVAL;
-      else u.volleyAt = now + 1.5;
+      // l'intervalle complet entre deux salves court à partir du départ effectif d'une grenade (onUsed)
+      u.volleyAt = now + (gasVolley(k, u, tx, tz, 2, null) > 0 ? 4 : 1.5);
     }
   }
   if (cap >= 4 && s.lbdTargetId !== 0 && now >= u.lbdAt) {

@@ -110,7 +110,21 @@ function render(phrases: RadioPhrases): string {
     }
     lines.push('');
   }
-  return lines.join('\n');
+  return frenchSpaces(lines).join('\n');
+}
+
+/** Typographie française du document : espaces insécables avant ; : ! ? et dans les guillemets, hors blocs de code. */
+function frenchSpaces(lines: readonly string[]): string[] {
+  const NB = '\u00a0';
+  let code = false;
+  return lines.map((line) => {
+    if (line.startsWith('```')) {
+      code = !code;
+      return line;
+    }
+    if (code) return line;
+    return line.replace(/ ([;:!?»])/g, `${NB}$1`).replace(/« /g, `«${NB}`);
+  });
 }
 
 describe('radio — documentation', () => {
