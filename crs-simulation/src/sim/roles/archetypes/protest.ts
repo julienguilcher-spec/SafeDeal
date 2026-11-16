@@ -217,6 +217,8 @@ function dressFamily(d: Draft, id: Identity, family: VisualFamily, orgColor: num
       d.vest = FLUO_YELLOW;
       if (d.headgear === 'none' && a < 0.3) d.headgear = 'bonnet';
       if (d.headgear === 'capuche') d.headgear = 'bonnet';
+      // près d'un gilet sur deux porte au dos, au feutre, le texte de son porteur (extras.signText)
+      if (b < 0.45) e.backNote = 1;
       break;
     case 'syndical':
       // chasuble aux couleurs d'une organisation fictive, casquette assortie une fois sur quatre

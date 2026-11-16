@@ -20,6 +20,7 @@
  *   company      numéro de compagnie de CRS ou d'escadron (fictif : 70 à 79), affiché « CRS 74 »
  *   section      1 à 4 (0 = commandement) ; group : 1 = A, 2 = B, 3 = C → code dorsal « 2B »
  *   variant      variante du rôle (codes VARIANT ci-dessous)
+ *   backNote     1 = gilet jaune annoté au dos, au feutre, avec le texte signText de son porteur
  *   bloc         1 = tenue noire du bloc portée ; 0 = tenue de ville (le noir est dans le sac)
  *   child        1 = enfant (taille < 1,50 m ; personne protégée pour le module de droit)
  *   unmarked     1 = journaliste sans aucun signe « PRESSE »

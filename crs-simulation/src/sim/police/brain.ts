@@ -145,6 +145,10 @@ export interface Agent {
   actDone: boolean;
   /** Instant du prochain emploi possible d'un moyen de contact (bouclier, bâton, gazeuse). */
   contactAt: number;
+  /** Poste de tir temporaire (créneau entre deux boucliers) : remplace l'emplacement jusqu'à l'échéance. */
+  postX: number;
+  postZ: number;
+  postUntil: number;
 
   // ── état ──
   /** Garde son emplacement dans la formation (un agent tombé le garde quelques secondes). */
@@ -353,6 +357,8 @@ export interface Unit {
   order: SquadOrder | null;
   /** Ordre de tâche en cours (copie), ou null. */
   task: SquadOrder | null;
+  /** Dernier ordre connu dans le magasin (objet de Squad.order) : restauré à la fin d'une tâche. */
+  storeOrder: SquadOrder | null;
   phase: UnitPhase;
   phaseT: number;
   man: Maneuver;
@@ -424,7 +430,7 @@ export function createAgent(p: Person, seed: number): Agent {
     alertUntil: 0, highGuard: false, crouch: false, maskAt: 0, maskOffAt: 0, avoidX: 0, avoidZ: 0, avoidUntil: 0, jx: 0, jz: 0,
     op: null, opRole: 0, goalX: p.x, goalZ: p.z, goalRun: false,
     act: ACT_NONE, actItem: '', actMeans: '', actT: 0, actUntil: 0, actTx: 0, actTy: 0, actTz: 0, actTarget: 0,
-    actRestore: '', actPower: 1, actDone: false, contactAt: 0,
+    actRestore: '', actPower: 1, actDone: false, contactAt: 0, postX: 0, postZ: 0, postUntil: 0,
     formable: true, able: true, downSince: 0, crew: false, boardId: 0, seed,
   };
 }
@@ -469,7 +475,7 @@ export function createUnit(squad: Squad): Unit {
   };
   const u: Unit = {
     tag: UNIT_TAG, squad, id: squad.id, parent: null, children: [], isRoot: true, lead: null as unknown as Unit, joinedTo: null, extraVehicles: [], memberSig: 0, seq: 0, sortLat: 0, accLat: 0, accN: 0,
-    own: [], agents: [], groups: [], order: null, task: null, phase: 'repos', phaseT: 0, man: createManeuver(), pending: null,
+    own: [], agents: [], groups: [], order: null, task: null, storeOrder: null, phase: 'repos', phaseT: 0, man: createManeuver(), pending: null,
     ackAt: 0, ackText: '', reported: true,
     sense: createSense(), thinkAt: 0, warnedAt: -100, volleyAt: 0, masksAt: 0, lbdAt: 0, attackReportAt: -100, windReportAt: -100,
     duckUntil: 0, shieldsUntil: 0,

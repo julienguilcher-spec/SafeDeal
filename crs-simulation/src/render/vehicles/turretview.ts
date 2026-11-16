@@ -107,7 +107,7 @@ export class TurretView {
   private readonly canvas: HTMLCanvasElement;
   private readonly g: CanvasRenderingContext2D;
   private readonly texture: THREE.CanvasTexture;
-  private signature = '';
+  private signature = -1;
   private since = 1;
   private lastT = 0;
 
@@ -174,7 +174,9 @@ export class TurretView {
     const yd = Math.round(yaw * 57.29578), pd = Math.round(pitch * 57.29578);
     const am = def.kind === 'canon_eau' ? Math.round(ammo / 10) * 10 : Math.round(ammo);
     const zoom = Math.round(ctx.player.state.zoom * 10) / 10;
-    const sig = `${i}|${def.kind}|${yd}|${pd}|${am}|${zoom}`;
+    // signature numérique de ce qui est affiché (aucune chaîne créée tant que rien ne change)
+    const kindCode = def.kind === 'lance_grenades' ? 0 : def.kind === 'canon_eau' ? 1 : 2;
+    const sig = ((((i * 3 + kindCode) * 721 + (yd + 360)) * 181 + (pd + 90)) * 1000 + Math.round(zoom * 10)) * 100003 + (am % 100003);
     if (sig !== this.signature && this.since >= 0.1) {
       this.signature = sig;
       this.since = 0;

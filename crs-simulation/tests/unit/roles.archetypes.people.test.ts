@@ -254,10 +254,12 @@ describe('manifestants', () => {
     const { ext, causes } = await startRoles(32, { extra: { cause: 'retraites' } });
     const spawn = (family: VisualFamily, seed: number) => ext.spawnEx('manifestant', 0, 0, { family, profile: 'pacifique', seed });
     const orgColors = causes.get('retraites')!.orgs.map((o) => o.color);
+    let annotated = 0;
     for (let s = 1; s <= 30; s++) {
       const gj = spawn('gilets_jaunes', s);
       expect(gj.look.outfit).toBe('gilet_fluo');
       expect(gj.look.vest).toBe(0xdfff00);
+      if (gj.look.extras?.backNote === 1) annotated++;
       const syn = spawn('syndical', s);
       expect(syn.look.outfit).toBe('syndical');
       // chasuble aux couleurs d'une organisation fictive qui appelle à manifester
@@ -274,6 +276,9 @@ describe('manifestants', () => {
       expect(ext.traits(etudiant.id)!.age).toBeLessThanOrEqual(27);
       expect(spawn('familles', s).look.faceCover).toBe(false);
     }
+    // gilets annotés au dos : une bonne part, pas tous
+    expect(annotated).toBeGreaterThan(5);
+    expect(annotated).toBeLessThan(25);
   });
 
   it('black bloc : tout en noir, capuche, visage masqué, lunettes, gants, sac à dos', async () => {
