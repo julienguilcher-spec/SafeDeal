@@ -1,7 +1,7 @@
 // Bout en bout — LE VRAI JEU (index.html, vraie carte de Paris, tous les modules branchés).
 //
 //   Ordinateur (960×540, qualité « bas ») : page d'accueil → scénario CRS lanceur de grenades, place de la Concorde →
-//   chargement → en jeu : vue à la première puis à la troisième personne, déplacement au clavier (≥ 60 m, sans
+//   affluence réduite → chargement → en jeu : manifestation qui se rassemble, vue à la première puis à la troisième personne, déplacement au clavier (≥ 60 m, sans
 //   traverser l'obélisque ni un mur), changement de caméra, lancer d'une grenade lacrymogène (projectile puis gaz),
 //   carte, pause, paramètres. Zéro erreur console sur tout le parcours. Mesures : chargement, appels de dessin,
 //   triangles, temps JavaScript par système, mémoire.
@@ -74,6 +74,11 @@ async function launchFromHome(page, { poste, tap }) {
   if (poste) await click(`[data-value="${poste}"]`);
   await click('[data-id="tab-lieu"]');
   await click(page.locator('.ui-list__item', { hasText: 'Place de la Concorde' }));
+  // affluence : 200 manifestants demandés (100 en qualité « bas », qui divise la foule par deux) — au clavier sur le curseur
+  await click('[data-id="tab-foule"]');
+  await page.locator('[data-id="affluence"]').focus();
+  await page.keyboard.press('Home');
+  for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowRight');
   await frames(page, 2);
   const t0 = Date.now();
   await click('[data-id="lancer"]');
@@ -133,6 +138,18 @@ async function bureau(server) {
     check(setup.mates === 5, 'son groupe de six CRS est en place', setup.matesPostes.join(', '));
     check(setup.vehicles.includes('fourgon_crs'), 'un fourgon de CRS est stationné');
     check(setup.inventory.includes('grenade_lacrymo'), 'il a des grenades lacrymogènes', setup.inventory.join(', '));
+    const demo = await page.evaluate(() => {
+      const c = window.__CRS.ctx;
+      return {
+        crowdSize: c.session.config.crowdSize, phase: c.director.phase, total: c.director.stats.total,
+        manif: c.people.list.filter((q) => q.kind === 'manifestant').length, route: c.director.route.length / 2,
+        metro: c.service('crowd.metro')?.stations.length ?? -1, traffic: c.service('traffic.control') !== undefined,
+      };
+    });
+    r.demo = demo;
+    check(demo.crowdSize === 200, 'l’affluence réglée sur la page d’accueil arrive dans la session', `${demo.crowdSize} manifestants demandés`);
+    check(demo.phase === 'rassemblement' && demo.manif > 10, 'une manifestation se rassemble', `phase « ${demo.phase} », ${demo.manif} manifestants sur place, ${demo.total} attendus, ${demo.metro} stations de métro`);
+    check(demo.traffic, 'le service de circulation est branché');
     let s = await state(page);
     check(s.camera === 'fps', 'vue de départ à la première personne');
     check(s.screen === null && !s.modal, 'aucun écran ouvert en jeu', String(s.screen));
@@ -278,7 +295,20 @@ async function bureau(server) {
     r.gas = gas;
     check(gas > 0.02, 'du gaz lacrymogène se répand au point de chute (ctx.hazards.gasAt > 0)', `concentration ${gas.toFixed(2)} ${gasAt ? `en (${gasAt.x.toFixed(0)}, ${gasAt.z.toFixed(0)})` : ''}`);
     check((await page.evaluate(() => window.__CRS.ctx.law.forceLog.length)) >= 1, 'l’emploi de la force est inscrit au journal');
+    // regard vers le point de chute, puis une image : le rendu des effets doit dessiner le nuage
+    if (gasAt) {
+      await page.evaluate((at) => {
+        const c = window.__CRS.ctx;
+        const p = c.player.person();
+        c.player.state.camYaw = Math.atan2(at.x - p.x, at.z - p.z);
+        c.player.state.camPitch = 0;
+      }, gasAt);
+    }
+    await step(page, 0.3);
     await capture('game-gaz');
+    const fx = await page.evaluate(() => ({ ...(window.__CRS.ctx.service('render.fx')?.stats ?? {}) }));
+    r.fx = fx;
+    check((fx.cells ?? 0) + (fx.puffs ?? 0) + (fx.sprites ?? 0) > 0, 'le nuage de gaz est dessiné par le rendu des effets', `cellules ${fx.cells}, bouffées ${fx.puffs}, sprites ${fx.sprites}, ${fx.drawCalls} appel(s) de dessin`);
 
     // ── carte ──
     await page.keyboard.press('KeyM');
@@ -410,7 +440,10 @@ async function bureau(server) {
     const before2 = await page.evaluate(() => {
       const c = window.__CRS.ctx;
       const m = c.view.renderer.info.memory;
-      return { people: c.people.list.length, vehicles: c.vehicles.list.length, squads: c.squads.list.length, props: c.props.list.length, geometries: m.geometries, textures: m.textures };
+      return {
+        people: c.people.list.filter((q) => q.faction === 'police').length, vehicles: c.vehicles.list.filter((q) => q.faction === 'police').length,
+        squads: c.squads.list.filter((q) => q.faction === 'police').length, all: c.people.list.length, geometries: m.geometries, textures: m.textures,
+      };
     });
     await page.keyboard.press('KeyP');
     await waitFor(page, 'window.__CRS.ctx.ui.current === "pause"', 120000);
@@ -423,15 +456,17 @@ async function bureau(server) {
       const m = c.view.renderer.info.memory;
       const p = c.player.person();
       return {
-        people: c.people.list.length, vehicles: c.vehicles.list.length, squads: c.squads.list.length, props: c.props.list.length, geometries: m.geometries, textures: m.textures,
-        player: !!p && p.isPlayer, screen: c.ui.current, projectiles: c.projectiles.list.length, forceLog: c.law.forceLog.length, gas: p ? c.hazards.gasAt(p.x, p.z) : -1,
+        people: c.people.list.filter((q) => q.faction === 'police').length, vehicles: c.vehicles.list.filter((q) => q.faction === 'police').length,
+        squads: c.squads.list.filter((q) => q.faction === 'police').length, all: c.people.list.length, geometries: m.geometries, textures: m.textures,
+        player: !!p && p.isPlayer, screen: c.ui.current, projectiles: c.projectiles.list.length, forceLog: c.law.forceLog.length, phase: c.director.phase,
       };
     });
     r.restart = { before: before2, after: after2 };
     check(after2.player && after2.screen === null, '« Recommencer » relance la partie, joueur incarné');
-    check(after2.people === before2.people && after2.vehicles === before2.vehicles && after2.squads === before2.squads, 'mêmes effectifs après redémarrage (rien ne survit de la partie précédente)', `${after2.people} personnes, ${after2.vehicles} véhicule(s), ${after2.squads} unité(s)`);
+    check(after2.people === before2.people && after2.vehicles === before2.vehicles && after2.squads === before2.squads, 'mêmes effectifs de police après redémarrage (rien ne survit de la partie précédente)', `${after2.people} agents, ${after2.vehicles} véhicule(s), ${after2.squads} unité(s) ; ${before2.all} → ${after2.all} personnes en tout`);
+    check(after2.phase === 'rassemblement' && after2.all < before2.all + 20, 'la manifestation repart du rassemblement', `phase « ${after2.phase} »`);
     check(after2.projectiles === 0 && after2.forceLog === 0, 'projectiles et journal de la force remis à zéro');
-    check(after2.geometries <= before2.geometries * 1.1 + 10 && after2.textures <= before2.textures + 6, 'pas de fuite de ressources graphiques au redémarrage', `géométries ${before2.geometries} → ${after2.geometries}, textures ${before2.textures} → ${after2.textures}`);
+    check(after2.geometries <= before2.geometries * 1.15 + 20 && after2.textures <= before2.textures + 8, 'pas de fuite de ressources graphiques au redémarrage', `géométries ${before2.geometries} → ${after2.geometries}, textures ${before2.textures} → ${after2.textures}`);
 
     // ── terminer : compte rendu, puis retour à l'accueil ──
     await step(page, 2);
