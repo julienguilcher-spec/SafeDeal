@@ -277,6 +277,7 @@ export class MedicScore implements MedicsRecords {
       this.recommendedId = rec;
       if (rec !== 0) this.recommend(p, rec);
     }
+    if (rec !== 0) this.entrust(rec);
     this.followUp(p);
     // 4. sac vide
     if (!this.emptyNoted && ctx.actions.def('trousse_secours') && ctx.actions.has(p, 'trousse_secours') <= 0
@@ -286,23 +287,29 @@ export class MedicScore implements MedicsRecords {
     }
   }
 
-  /** La victime à traiter d'abord devient la tâche du joueur (repère à l'écran) et lui est annoncée. */
+  /**
+   * L'incident de la victime à traiter d'abord devient la tâche du joueur (repère à l'écran), s'il n'en a pas déjà une.
+   * Revu à chaque mise à jour du tableau : l'incident n'est parfois signalé qu'après la victime elle-même.
+   */
+  private entrust(id: EntityId): void {
+    const incidents = this.ctx.service<IncidentsApi>(EXT.incidents);
+    if (!incidents || incidents.playerIncidentId !== 0) return;
+    const list = incidents.list;
+    for (let i = 0; i < list.length; i++) {
+      const inc = list[i];
+      if (inc.targetKind === 'person' && inc.targetId === id && inc.state === 'ouvert') {
+        incidents.assign(inc.id, 'joueur');
+        return;
+      }
+    }
+  }
+
+  /** La victime à traiter d'abord est annoncée au joueur. */
   private recommend(p: Person, id: EntityId): void {
     const ctx = this.ctx;
     const now = ctx.clock.now;
     const q = ctx.people.get(id);
     if (!q) return;
-    const incidents = ctx.service<IncidentsApi>(EXT.incidents);
-    if (incidents && incidents.playerIncidentId === 0) {
-      const list = incidents.list;
-      for (let i = 0; i < list.length; i++) {
-        const inc = list[i];
-        if (inc.targetKind === 'person' && inc.targetId === id && inc.state === 'ouvert') {
-          incidents.assign(inc.id, 'joueur');
-          break;
-        }
-      }
-    }
     if (now - this.noticeAt < 8) return;
     this.noticeAt = now;
     const d = Math.round(Math.hypot(q.x - p.x, q.z - p.z));

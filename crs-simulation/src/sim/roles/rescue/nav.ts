@@ -7,10 +7,12 @@
  *   - un véhicule ou un objet en travers de sa route est contourné en longeant son flanc, toujours du même
  *     côté tant que l'obstacle est là (pas d'hésitation devant un engin à contourner) ;
  *   - s'il piétine quand même (foule, recoin), il fait un pas de côté puis recalcule.
- * Aucune allocation en régime établi : le tableau de l'itinéraire est réutilisé.
+ * Aucune allocation en régime établi : le tableau de l'itinéraire est réutilisé ; le voisinage (véhicules, objets
+ * gênants) est relevé toutes les 0,6 s dans des tableaux réutilisés, et le couloir devant soi est testé par un
+ * calcul géométrique contre leurs gabarits.
  * ===================================================================================== */
 
-import type { GameContext, Person, RayHit } from '@/core/contracts';
+import type { GameContext, Person, Prop, RayHit, Vehicle } from '@/core/contracts';
 
 /** Portée à laquelle un but ou un point de passage « en vue » est rejoint en ligne droite (m). */
 const SIGHT_RANGE = 70;
@@ -18,8 +20,91 @@ const WAYPOINT_REACH = 1.6;
 /** Distance à laquelle on regarde devant soi pour contourner un véhicule ou un objet (m). */
 const LOOK_AHEAD = 2.4;
 /** Demi-largeur du couloir sondé devant soi : un obstacle frôlé de l'épaule est contourné lui aussi (m). */
-const SHOULDER = 0.42;
+const SHOULDER = 0.36;
 const hit: RayHit = { hit: false, t: 1, x: 0, z: 0, nx: 0, nz: 0, kind: 'none', id: 0, height: 0 };
+/** Rayons du relevé de voisinage : sans véhicule ni objet gênant à cette distance, inutile de sonder devant soi. */
+const VEHICLE_NEAR = 11;
+const PROP_NEAR = 8;
+const NEAR_PERIOD = 0.6;
+/** Marge ajoutée au gabarit des obstacles (m). */
+const BODY_MARGIN = 0.05;
+const blocking = (q: Prop): boolean => q.blocksMove && !q.dormant && q.carriedBy === 0;
+/** Résultat du dernier test segment / boîte : fraction du segment et normale (repère du monde). */
+const box = { t: 1, nx: 0, nz: 0 };
+
+/**
+ * Intersection du segment A→B avec une boîte orientée (centre, cap, demi-largeur hx, demi-longueur hz).
+ * Écrit dans `box` la fraction du segment au point d'entrée et la normale de la face touchée.
+ * Géométrie pure, sans allocation (le voisinage est relevé à part, toutes les 0,6 s).
+ */
+function segmentBox(ax: number, az: number, bx: number, bz: number, cx: number, cz: number, heading: number, hx: number, hz: number): boolean {
+  const s = Math.sin(heading);
+  const c = Math.cos(heading);
+  // repère de la boîte : x' vers sa droite (c, −s), z' vers son avant (s, c)
+  const rax = ax - cx;
+  const raz = az - cz;
+  const lax = rax * c - raz * s;
+  const laz = rax * s + raz * c;
+  const rbx = bx - cx;
+  const rbz = bz - cz;
+  const dx = rbx * c - rbz * s - lax;
+  const dz = rbx * s + rbz * c - laz;
+  let t0 = 0;
+  let t1 = 1;
+  let nx = 0;
+  let nz = 0;
+  if (dx > -1e-9 && dx < 1e-9) {
+    if (lax < -hx || lax > hx) return false;
+  } else {
+    let ta = (-hx - lax) / dx;
+    let tb = (hx - lax) / dx;
+    let n = -1;
+    if (ta > tb) {
+      const tmp = ta;
+      ta = tb;
+      tb = tmp;
+      n = 1;
+    }
+    if (ta > t0) {
+      t0 = ta;
+      nx = n;
+      nz = 0;
+    }
+    if (tb < t1) t1 = tb;
+    if (t0 > t1) return false;
+  }
+  if (dz > -1e-9 && dz < 1e-9) {
+    if (laz < -hz || laz > hz) return false;
+  } else {
+    let ta = (-hz - laz) / dz;
+    let tb = (hz - laz) / dz;
+    let n = -1;
+    if (ta > tb) {
+      const tmp = ta;
+      ta = tb;
+      tb = tmp;
+      n = 1;
+    }
+    if (ta > t0) {
+      t0 = ta;
+      nx = 0;
+      nz = n;
+    }
+    if (tb < t1) t1 = tb;
+    if (t0 > t1) return false;
+  }
+  if (nx === 0 && nz === 0) {
+    // départ déjà dans le gabarit : on s'en écarte par la face la plus proche
+    const px = hx - (lax < 0 ? -lax : lax);
+    const pz = hz - (laz < 0 ? -laz : laz);
+    if (px < pz) nx = lax < 0 ? -1 : 1;
+    else nz = laz < 0 ? -1 : 1;
+  }
+  box.t = t0;
+  box.nx = nx * c + nz * s;
+  box.nz = -nx * s + nz * c;
+  return true;
+}
 
 /** La voie est-elle libre de tout mur entre deux points ? */
 export function clearLine(ctx: GameContext, ax: number, az: number, bx: number, bz: number): boolean {
@@ -49,6 +134,12 @@ export class Walker {
   private avoidZ = 0;
   private avoidSide = 1;
   private avoidKeep = 0;
+  // voisinage (relevé toutes les 0,6 s) : ce qu'il peut y avoir à contourner
+  private nearAt = 0;
+  private readonly vehicles: Vehicle[] = [];
+  private readonly props: Prop[] = [];
+  private vehicleCount = 0;
+  private propCount = 0;
 
   /** Fixe le but. Ne recalcule l'itinéraire que si le but a bougé de plus de 1,5 m. */
   goTo(ctx: GameContext, p: Person, x: number, z: number, arriveDist = 0.7): void {
@@ -71,6 +162,7 @@ export class Walker {
     this.active = true;
     this.stuck = 0;
     this.avoiding = false;
+    this.nearAt = 0;
     this.plan(ctx, p);
   }
 
@@ -113,8 +205,15 @@ export class Walker {
     }
   }
 
-  /** Un véhicule ou un objet barre-t-il le couloir devant soi ? Le résultat est dans `hit`. */
+  /** Un véhicule ou un objet barre-t-il le couloir devant soi ? Le résultat (fraction, normale) est dans `hit`. */
   private blockedAhead(ctx: GameContext, p: Person, dx: number, dz: number, ahead: number): boolean {
+    const now = ctx.clock.now;
+    if (now >= this.nearAt) {
+      this.nearAt = now + NEAR_PERIOD;
+      this.vehicleCount = ctx.vehicles.queryRadius(p.x, p.z, VEHICLE_NEAR, this.vehicles);
+      this.propCount = ctx.props.queryRadius(p.x, p.z, PROP_NEAR, this.props, blocking);
+    }
+    if (this.vehicleCount === 0 && this.propCount === 0) return false;
     for (let k = 0; k < 3; k++) {
       // au centre, puis à hauteur de chaque épaule
       const off = k === 0 ? 0 : k === 1 ? SHOULDER : -SHOULDER;
@@ -122,7 +221,30 @@ export class Walker {
       const sz = p.z + dx * off;
       const ax = sx + dx * LOOK_AHEAD;
       const az = sz + dz * LOOK_AHEAD;
-      if ((ctx.vehicles.raycast(sx, sz, ax, az, hit, 'move') || ctx.props.raycast(sx, sz, ax, az, hit, 'move')) && hit.t < ahead && hit.id !== p.carrying) {
+      let best = ahead;
+      let found = false;
+      for (let i = 0; i < this.vehicleCount; i++) {
+        const v = this.vehicles[i];
+        if (v.dormant || v.def.flying || v.id === p.vehicleId) continue;
+        if (segmentBox(sx, sz, ax, az, v.x, v.z, v.heading, v.def.width * 0.5 + BODY_MARGIN, v.def.length * 0.5 + BODY_MARGIN) && box.t < best) {
+          best = box.t;
+          hit.nx = box.nx;
+          hit.nz = box.nz;
+          found = true;
+        }
+      }
+      for (let i = 0; i < this.propCount; i++) {
+        const q = this.props[i];
+        if (!q.blocksMove || q.dormant || q.carriedBy !== 0 || q.id === p.carrying) continue;
+        if (segmentBox(sx, sz, ax, az, q.x, q.z, q.heading, q.halfX + BODY_MARGIN, q.halfZ + BODY_MARGIN) && box.t < best) {
+          best = box.t;
+          hit.nx = box.nx;
+          hit.nz = box.nz;
+          found = true;
+        }
+      }
+      if (found) {
+        hit.t = best;
         return true;
       }
     }
@@ -131,6 +253,12 @@ export class Walker {
 
   stop(p: Person): void {
     this.active = false;
+    // (on ne garde pas de référence aux véhicules et objets relevés)
+    this.vehicles.length = 0;
+    this.props.length = 0;
+    this.vehicleCount = 0;
+    this.propCount = 0;
+    this.nearAt = 0;
     if (p.isPlayer) return;
     p.cmd.moveX = 0;
     p.cmd.moveZ = 0;
@@ -201,7 +329,13 @@ export class Walker {
       this.lastZ = p.z;
       if (mx * mx + mz * mz < 0.09 && p.posture === 'stand') {
         this.stuck++;
-        if (this.stuck >= 2) {
+        if (this.stuck >= 2 && this.avoiding) {
+          // le flanc longé mène à une impasse (mur, autre véhicule) : on contourne par l'autre côté, et on s'y tient
+          this.avoidSide = -this.avoidSide;
+          this.avoidKeep = now + 9;
+          this.avoidAt = 0;
+          this.stuck = 0;
+        } else if (this.stuck >= 2) {
           this.side = -this.side;
           this.sideUntil = now + 0.9;
           if (this.stuck >= 4) {
@@ -222,7 +356,7 @@ export class Walker {
         let tx2 = -hit.nz;
         let tz2 = hit.nx;
         if (now >= this.avoidKeep) this.avoidSide = tx2 * dx + tz2 * dz >= 0 ? 1 : -1;
-        this.avoidKeep = now + 2;
+        if (this.avoidKeep < now + 2) this.avoidKeep = now + 2;
         if (this.avoidSide < 0) {
           tx2 = -tx2;
           tz2 = -tz2;

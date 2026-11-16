@@ -81,6 +81,9 @@ export class Rescuer {
   readyAt = 0;
   nextAt = 0;
   tries = 0;
+  /** Progression vers le point où il porte quelqu'un : meilleure distance atteinte, et quand. */
+  reachBest = Infinity;
+  reachAt = 0;
   /** Lance établie (le temps d'établissement n'est dû qu'une fois par intervention). */
   hoseSet = false;
   /** Dernière mesure du foyer arrosé (pour compter les extinctions). */

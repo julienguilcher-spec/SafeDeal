@@ -122,13 +122,23 @@ export class MedicalWork {
         break;
       }
       if (!next) {
-        // rien pour lui : il se tient près du collègue qui travaille, ou du point d'appel
+        // rien pour lui : il accompagne le collègue qui emporte le patient, sinon il se tient près du point d'appel
         r.task = T_STANDBY;
         if (!this.tasks.busy(p)) {
-          if (Math.hypot(call.x - p.x, call.z - p.z) > 4) r.walker.goTo(ctx, p, call.x, call.z, 3);
+          let ax = call.x;
+          let az = call.z;
+          for (let i = 0; i < crew.members.length; i++) {
+            const m = crew.members[i];
+            if (m !== r && m.task === T_CASUALTY && m.p.carrying !== 0) {
+              ax = m.p.x;
+              az = m.p.z;
+              break;
+            }
+          }
+          if (Math.hypot(ax - p.x, az - p.z) > 4) r.walker.goTo(ctx, p, ax, az, 3);
           else {
             r.walker.stop(p);
-            holdFacing(p, call.x, call.z);
+            holdFacing(p, ax, az);
           }
         }
         return false;

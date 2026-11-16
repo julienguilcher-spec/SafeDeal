@@ -133,9 +133,10 @@ export class CrewPhases {
     call.eta = (st.remaining > 1 && !crew.via ? st.remaining : dScene * 1.3) / ETA_SPEED_VEHICLE;
     // détour par un point de passage, ou dégagement d'un engin coincé : rien d'autre à décider pendant ce temps
     const detour = crew.via;
-    // (un mur, ou un objet fixe en travers de la trajectoire : on recule pour reprendre la manœuvre, trois fois au plus)
+    // (un mur, ou — trop loin pour finir à pied — un objet fixe en travers de la trajectoire : on recule pour reprendre
+    // la manœuvre, trois fois au plus)
     if (this.driver.unstick(crew, st.state === 'bloque' && ((st.reason === 'mur' && st.blockedFor > 6) || (st.reason === 'obstacle' && st.blockedFor > 10
-      && !k.safety.barred(v.x, v.z, call.x, call.z, call.targetProp))))) return;
+      && dScene > DISMOUNT_RANGE && !k.safety.barred(v.x, v.z, call.x, call.z, call.targetProp))))) return;
     if (this.driver.viaStep(crew) || detour) return; // (l'état lu plus haut est celui du détour : on décidera au prochain passage)
 
     let reason = '';

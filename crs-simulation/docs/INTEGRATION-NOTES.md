@@ -136,6 +136,9 @@ place de session ne pose alors plus ses passants figés (la circulation fournit 
   (on bute sur des poubelles et des barrières que l'on ne voit pas).
 - `gameplay/incidents`, `sim/roles/rescue`, `sim/roles/medics` : apparus pendant l'assemblage, modifiés dans les dix
   dernières minutes. `gameplay/missions/catalog` : données seules (pas de système), en cours de relecture.
+- `sim/crowd/radical/` (contrôleurs des groupes radicaux) : sous-dossier apparu à 04 h 58, en cours d'écriture ; il
+  n'est pas importé par `sim/crowd/index.ts`, dont les fichiers n'ont pas bougé. Radicaux, pilleurs et opportunistes
+  se conduisent donc pour l'instant en « militants agités » (comportement par défaut du module de foule).
 Les lignes d'import correspondantes sont prêtes, en commentaire, dans `src/main.ts`.
 
 ### Ajouts compatibles au cœur
@@ -194,6 +197,23 @@ collision avec la grille de l'obélisque, grenade lacrymogène en main puis lanc
 faute relevée par le droit : emploi sans sommation), plan de Paris orienté nord en haut, carte tactique avec l'unité,
 pause, paramètres, recommencer, compte rendu, commandes tactiles sur téléphone. Zéro erreur console.
 
+### Mesures (16/11, Chromium headless, WebGL logiciel SwiftShader, machine partagée à charge 12–20 sur 4 cœurs)
+Qualité « bas », fenêtre 960×540 (tampon de rendu 672×378), place de la Concorde, CRS + foule de 100 attendus.
+- Démarrage jusqu'à la page d'accueil : 3 à 4,5 s. Chargement d'une session (clic sur « Lancer » → jeu) : 9 à 21 s
+  selon la charge, dont monuments proches 1,4 à 2,1 s (4 ou 5 monuments) et construction de la ville 2,7 à 7,9 s.
+- Image en jeu (troisième personne, groupe, obélisque, foule) : 89 à 90 appels de dessin, 687 000 à 712 000 triangles —
+  ville 630 000 (dont immeubles 46 000 : le sol découpé et les arbres font l'essentiel), monuments 42 000,
+  véhicules 3 000, une cinquantaine de personnages en 9 appels.
+- JavaScript par image (16 images, un pas de simulation chacune) : médiane 5,4 à 5,9 ms, minimum 2,0 ms ; simulation
+  0,6 ms, présentation 4,6 à 4,8 ms dont `renderer.render` 3,4 à 3,6 ms. **Aucun système ne dépasse 4 ms par image en
+  médiane** (`render.present` : 3,4 à 3,6 ms ; pointes isolées de 13 à 30 ms quand la machine préempte).
+- Pas de simulation sans rendu (Node) : 1,08 ms de processeur par pas avec 240 personnes et 76 véhicules (foule et
+  circulation branchées) ; 0,2 à 0,4 ms par pas dans le navigateur sans foule.
+- Mémoire JavaScript : 141 à 150 Mo. Jeu construit : 3,23 Mo de JavaScript (avant compression), 9,3 Mo de données de carte.
+- « Recommencer » : pas de fuite (104 → 91 géométries, 53 → 53 textures, mêmes effectifs de police).
+- Cadence réelle : 0,4 à 0,55 s par image avec le tramage logiciel à charge ≈ 10, plusieurs secondes quand la machine
+  est saturée — sans rapport avec un vrai processeur graphique, non disponible ici.
+
 ### Défauts connus après l'assemblage 1
 - **Tour Eiffel / monuments lointains invisibles** : `render/base` règle le brouillard sur la distance d'affichage
   (FogExp2, 92 % à `drawDistance` : 300 m en bas, 500 en moyen, 900 en haut, 1 500 en ultra). `camera.far` vaut 8 000 m,
@@ -246,3 +266,23 @@ pause, paramètres, recommencer, compte rendu, commandes tactiles sur téléphon
   atlas des immeubles, nombre de tuiles détaillées chargées, cibles de rendu des ombres. Objectif : ≤ 1 Go en qualité
   « bas » (téléphone), ≤ 2,5 Go en « haut ».
 - Ne pas lancer plusieurs tests e2e du vrai jeu en parallèle sur cette machine (limite commune de 15 Go).
+- **Durée de `tests/e2e/game.mjs`** : 15 à 25 minutes sur la machine d'essai chargée (une image coûte de 0,4 à plusieurs
+  secondes en WebGL logiciel) — au-delà du délai par défaut de `run-all.mjs` (900 s) : le lancer seul, ou avec
+  `--timeout=2700`, ou en deux fois (`--only=bureau`, `--only=telephone`). Ne pas enchaîner des dizaines d'images sans
+  `gl.finish()` : le processus graphique s'emballe et le noyau tue la page (vu une fois pendant les mesures).
+- **Réglages de scénario** : la foule lit elle-même `options.metro`, la circulation `options.circulation` ; la mise en
+  place de session les applique aussi par les services (appels sans effet double : stations déjà fermées ignorées,
+  `closeArea` idempotent d'après le module de circulation). À ne garder qu'à un endroit quand le cadre de mission existera.
+- **Erreurs de types hors périmètre** en fin d'assemblage : seulement dans des tests de modules non branchés, en cours
+  d'écriture (`tests/unit/rescue.*`, par moments `tests/unit/incidents.*`).
+
+
+## Pré-assemblage headless du 16/11 (tests/unit/pre-assemblage.manif.test.ts)
+- Les 15 modules de simulation tournent ENSEMBLE sous Node (monde d'essai, 212 manifestants, compagnie de 83 CRS commandée
+  par l'IA, incidents, secours, circulation) : 10 minutes simulées, aucune erreur, aucun système désactivé, 1,9 ms par pas.
+- **Équilibrage à revoir** : avec tension 0,35 et propension à dégénérer 0,8, la manifestation est restée calme (7 radicaux
+  sur 212, tension retombée à 0,14, aucune violence, phases depart → cortege → dispersion → apres_manif sans « tension »
+  ni « affrontement »). La « chaleur » des radicaux = tension × volatilité (0,28) n'atteint pas le seuil d'affrontement
+  (0,4). Attendu par le commanditaire : une propension élevée doit faire dégénérer la majorité des parties (le directeur
+  doit faire MONTER la tension selon la volatilité, et la part de radicaux doit suivre `radicalShare` / la composition).
+- `game.perf` ne remonte pas de temps moyen par système en headless (0,00 partout) : à vérifier.

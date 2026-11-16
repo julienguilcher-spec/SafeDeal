@@ -40,6 +40,10 @@ export const R_LOADED = 3;
 export const R_GIVE_UP = 4;
 
 const REACH = 1.35;
+/** Sans approcher de son but depuis ce temps (s), un porteur fait au mieux d'où il est. */
+const REACH_PATIENCE = 6;
+/** Distance au centre de l'ambulance en deçà de laquelle le brancard peut être chargé (m ; le geste « evacuer » accepte 5 m). */
+const LOAD_REACH = 4.6;
 
 export class CrewTasks {
   constructor(private readonly k: RescueKernel, private readonly spawner: Spawner) {}
@@ -139,6 +143,17 @@ export class CrewTasks {
    * Un pas de la prise en charge d'une victime. `evacuate` : l'équipage peut la charger (ambulance libre,
    * ou équipe à pied qui l'emporte). Retourne R_BUSY tant que ce n'est pas fini.
    */
+  /** Le porteur n'approche plus de son but depuis plusieurs secondes (`d` : distance restante). */
+  private cannotReach(r: Rescuer, d: number): boolean {
+    const now = this.k.now;
+    if (d < r.reachBest - 0.4) {
+      r.reachBest = d;
+      r.reachAt = now;
+      return false;
+    }
+    return now - r.reachAt > REACH_PATIENCE;
+  }
+
   casualty(crew: Crew, r: Rescuer, evacuate: boolean): number {
     const k = this.k;
     const ctx = k.ctx;
@@ -198,6 +213,8 @@ export class CrewTasks {
         if (mine) {
           r.stage = r.stage === S_PICKUP_WAIT ? S_CARRY : S_EVAC_CARRY;
           r.tries = 0;
+          r.reachBest = Infinity;
+          r.reachAt = now;
         } else {
           r.stage = r.stage === S_PICKUP_WAIT ? S_PICKUP : S_EVAC_PICKUP;
           r.nextAt = now + 0.4;
@@ -209,7 +226,8 @@ export class CrewTasks {
           r.stage = S_APPROACH;
           return R_BUSY;
         }
-        if (Math.hypot(r.sx - p.x, r.sz - p.z) > 1.2) {
+        // (point inaccessible — mobilier, véhicule en travers : après quelques secondes sans s'en approcher, il la pose là)
+        if (Math.hypot(r.sx - p.x, r.sz - p.z) > 1.2 && !this.cannotReach(r, Math.hypot(r.sx - p.x, r.sz - p.z))) {
           r.walker.goTo(ctx, p, r.sx, r.sz, 1);
           return R_BUSY;
         }
@@ -282,7 +300,9 @@ export class CrewTasks {
         const back = v.def.length * 0.5 + 1.3;
         const bx = v.x - Math.sin(v.heading) * back;
         const bz = v.z - Math.cos(v.heading) * back;
-        if (Math.hypot(bx - p.x, bz - p.z) > 1.3) {
+        // (portes arrière inaccessibles : au pied de l'ambulance, il charge par où il peut)
+        const dDoor = Math.hypot(bx - p.x, bz - p.z);
+        if (dDoor > 1.3 && !(this.cannotReach(r, dDoor) && Math.hypot(v.x - p.x, v.z - p.z) < LOAD_REACH)) {
           r.walker.goTo(ctx, p, bx, bz, 1);
           return R_BUSY;
         }

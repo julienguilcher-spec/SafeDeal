@@ -5,9 +5,10 @@
  *   import { createSystems as crowd } from '@/sim/crowd';
  *   game.addModule(crowd);
  *
- * Deux systèmes partagent le même cœur :
- *   'sim:crowd.control'   (SystemOrder.CONTROL)  arrivées, cortège, réflexion et conduite de chaque personne ;
- *   'sim:crowd.director'  (SystemOrder.RULES)    émotions, densité, phases, tension, aléas, statistiques.
+ * Trois systèmes partagent le même cœur :
+ *   'sim:crowd.control'   (SystemOrder.CONTROL)      arrivées, cortège, réflexion et conduite de chaque personne ;
+ *   'sim:crowd.radical'   (SystemOrder.CONTROL + 1)  groupes radicaux, bloc, suiveurs, pilleurs (dossier radical/) ;
+ *   'sim:crowd.director'  (SystemOrder.RULES)        émotions, densité, phases, tension, aléas, statistiques.
  * Services publiés : ctx.director (DirectorApi), EXT.metro (MetroApi), 'crowd.core' (CrowdCoreApi : registre de
  * contrôleurs de comportement par profil — point d'extension des groupes radicaux, voir docs dans api.ts).
  * La manifestation est mise en place à 'session:started' d'après ctx.session.config.
@@ -18,12 +19,19 @@ import { SystemOrder } from '@/core/contracts';
 import { CROWD_CONTROL_SYSTEM, CROWD_DIRECTOR_SYSTEM } from './api';
 import { CrowdCore } from './core';
 import { bindEvents } from './events';
+import { createRadicalSystem } from './radical';
+import type { RadicalSystem } from './radical';
 
 export * from './api';
 export { S as CROWD_STATE, A as CROWD_ACT, F as CROWD_FLAG, STATE_NAMES, brainOf, isCrowdBrain } from './brain';
 export { CrowdCore } from './core';
 export { ROUTES } from './routes-data';
 export { CATALOGUE as ALEA_CATALOGUE } from './aleas-data';
+export { CROWD_SIGNALS, CROWD_RADICAL, RADICAL_SYSTEM, SIGNAL_EVENT, BLOC_EVENT, RADICAL_EVENT } from './radical/api';
+export type {
+  SignalsApi, CrowdSignal, SignalType, SignalEvent, RadicalApi, RadicalGroupView, RadicalStats, RadicalEvent, RadicalFact, BlocEvent,
+  BlocPhase, GroupPlan,
+} from './radical/api';
 
 /** Contrôleurs : arrivées, cortège, comportement individuel. */
 class CrowdControlSystem implements GameSystem {
@@ -121,10 +129,14 @@ class CrowdDirectorSystem implements GameSystem {
   }
 }
 
-/** Fabrique du module ; `core` est exposé pour les essais (createCrowdSystems().core). */
-export function createCrowdSystems(): { systems: GameSystem[]; core: CrowdCore } {
+/**
+ * Fabrique du module ; `core` et `radical` sont exposés pour les essais (createCrowdSystems().core).
+ * Trois systèmes : contrôle de la foule, groupes radicaux (juste après), directeur.
+ */
+export function createCrowdSystems(): { systems: GameSystem[]; core: CrowdCore; radical: RadicalSystem } {
   const core = new CrowdCore();
-  return { systems: [new CrowdControlSystem(core), new CrowdDirectorSystem(core)], core };
+  const radical = createRadicalSystem(core);
+  return { systems: [new CrowdControlSystem(core), radical, new CrowdDirectorSystem(core)], core, radical };
 }
 
 export const createSystems: ModuleFactory = (): GameSystem[] => createCrowdSystems().systems;

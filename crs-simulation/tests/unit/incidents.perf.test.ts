@@ -159,7 +159,7 @@ describe('incidents — coût', () => {
     for (let i = 0; i < 12; i++) propsExt.ignite(bins[i * 7], crowd[i].id);
     for (let i = 0; i < 8; i++) wound(ctx, crowd[100 + i * 40], 'critical');
     const manual = ['pillage', 'barricade', 'automobiliste_bloque', 'pillage'] as const;
-    for (let i = 0; i < manual.length; i++) incidents.open(manual[i], agents[i].x + 30, agents[i].z, 'none', 0, 2);
+    for (let i = 0; i < manual.length; i++) incidents.open(manual[i], agents[i].x + 30, agents[i].z, 'place', 0, 2);
     measure(90);
     const active = incidents.list.filter((i) => i.state !== 'resolu' && i.state !== 'echoue').length;
     const busy = summary(measure(600));
@@ -179,10 +179,10 @@ describe('incidents — services neutres', () => {
     const ctx = t.ctx;
     const incidents = ctx.require<IncidentsApi>(EXT.incidents);
     const records = ctx.require<IncidentsRecords>('incidents.records');
-    const a = incidents.open('feu_poubelle', 10, 10, 'none', 0);
-    const again = incidents.open('feu_poubelle', 12, 11, 'none', 0);
+    const a = incidents.open('feu_poubelle', 10, 10, 'place', 0);
+    const again = incidents.open('feu_poubelle', 12, 11, 'place', 0);
     expect(again).toBe(a); // doublon voisin : même incident
-    const far = incidents.open('pillage', 200, 0, 'none', 0, 3);
+    const far = incidents.open('pillage', 200, 0, 'place', 0, 3);
     expect(far).not.toBe(a);
     expect(a.label.length).toBeGreaterThan(5);
     t.step(5);
@@ -194,8 +194,8 @@ describe('incidents — services neutres', () => {
     expect(incidents.assign(999, 'unite', 1)).toBe(false);
     t.step(30);
     expect(a.severity).toBeGreaterThan(0);
-    incidents.close(a.id, true);
-    incidents.close(far.id, false);
+    incidents.close(a.id, true, 0);
+    incidents.close(far.id, false, 0);
     t.step(1);
     expect(a.state).toBe('resolu');
     expect(far.state).toBe('echoue');

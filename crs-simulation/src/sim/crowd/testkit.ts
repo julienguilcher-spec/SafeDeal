@@ -9,14 +9,17 @@ import type { TestContext } from '@/core/testing';
 import { brainOf } from './brain';
 import type { CrowdCore } from './core';
 import { createCrowdSystems } from './index';
+import type { RadicalSystem } from './radical';
 
 export interface CrowdTest extends TestContext {
   core: CrowdCore;
+  /** Système des groupes radicaux (noyau, bloc, compteurs). */
+  radical: RadicalSystem;
   /** Manifestants pilotés (hors badauds). */
   protesters(): Person[];
   /** Avance par pas de 0,05 s (le plus grand pas du moteur) : deux fois moins de pas qu'à 30 Hz. */
   run(seconds: number): void;
-  /** Temps moyen passé dans les deux systèmes de la foule, par pas (ms), depuis le dernier appel. */
+  /** Temps moyen passé dans les systèmes de la foule (contrôle, radicaux, directeur), par pas (ms), depuis le dernier appel. */
   costPerStep(): number;
   /**
    * Coût par pas (ms) sur la meilleure fenêtre de `window` pas consécutifs depuis le dernier appel, et médiane
@@ -54,13 +57,17 @@ export function createCrowdTest(options: CrowdTestOptions = {}): CrowdTest {
       if (s === crowd.systems[0]) {
         steps++;
         cur = d;
-      } else if (samples.length < 200000) samples.push(cur + d);
+      } else {
+        cur += d;
+        if (s === crowd.systems[crowd.systems.length - 1] && samples.length < 200000) samples.push(cur);
+      }
     },
   }));
   const t = createTestContext({ seed: options.seed ?? 1, modules: options.modules, systems: [...(options.systems ?? []), ...timed] });
   return {
     ...t,
     core: crowd.core,
+    radical: crowd.radical,
     protesters(): Person[] {
       const out: Person[] = [];
       for (const p of crowd.core.members) {

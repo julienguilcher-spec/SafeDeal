@@ -451,7 +451,7 @@ try {
     const cfg = await page.evaluate(() => window.__uiTest.ctx.session.config);
     check(cfg.mode === 'libre' && cfg.role === 'commandant' && cfg.rank === 'commandant' && cfg.place === 'Place de la Bastille', `SessionConfig lancé : ${cfg.mode}, ${cfg.role}, ${cfg.rank}, ${cfg.place}`);
     check(cfg.weather === 'pluie' && cfg.crowdSize === 900 && cfg.timeOfDay === hour && typeof cfg.x === 'number', `SessionConfig : météo ${cfg.weather}, foule ${cfg.crowdSize}, heure ${cfg.timeOfDay}`);
-    check(cfg.extra.scenario === 1 && cfg.extra.cause === 'climat' && cfg.extra.options.circulation === 'coupee' && cfg.extra.moyens.centaure === 1 && cfg.extra.poste === 'autorite_civile', 'config.extra : cause, options, moyens, poste');
+    check(cfg.extra.scenario === 1 && cfg.extra.cause === 'climat' && cfg.extra.options.circulation === 'coupee' && cfg.extra.moyens.centaure === 1 && cfg.extra.poste === 'commandant_unite', 'config.extra : cause, options, moyens, poste');
     const wind = await page.evaluate(() => ({ x: window.__uiTest.ctx.env.state.windX, z: window.__uiTest.ctx.env.state.windZ }));
     check(Math.abs(wind.x - 10 / 3.6) < 0.01 && Math.abs(wind.z) < 0.01, `vent du scénario appliqué à ctx.env (ouest, 10 km/h → x ${wind.x.toFixed(2)}, z ${wind.z.toFixed(2)})`);
     check((await stack(page)).length === 0 && await page.evaluate(() => window.__uiTest.debug().hudVisible), 'en jeu : aucun écran, HUD visible');

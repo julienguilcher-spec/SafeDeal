@@ -368,9 +368,10 @@ async function bureau(server) {
 
     // ── mesures (vue à la première personne, place de la Concorde) ──
     // Le joueur revient à sa place de départ (groupe, obélisque et fontaine dans le champ), vue à la troisième personne.
-    // Temps JavaScript : 40 images complètes (un pas de simulation de 1/30 s + frame() de chaque système) enchaînées
-    // par game.frame(), chronométrées une à une. Médiane = coût typique ; minimum = coût sans préemption (la machine
-    // d'essai est chargée) ; le tramage logiciel (SwiftShader) n'est pas du JavaScript et n'y figure pas.
+    // Temps JavaScript : 16 images complètes (un pas de simulation de 1/30 s + frame() de chaque système) lancées
+    // par game.frame(), chronométrées une à une. Après chaque image, gl.finish() attend la fin du tramage logiciel
+    // (hors chronomètre) : sans cela les images s'empilent dans le processus graphique, qui finit tué faute de mémoire.
+    // Médiane = coût typique ; minimum = coût sans préemption (la machine d'essai est chargée).
     await page.evaluate(() => {
       const c = window.__CRS;
       const s = c.ctx.service('session.setup').summary;
@@ -385,16 +386,18 @@ async function bureau(server) {
       const c = window.__CRS;
       const ctx = c.ctx;
       const perf = ctx.service('perf');
-      const N = 40;
+      const N = 16;
+      const gl = ctx.view.renderer.getContext();
       const total = [];
       const sim = [];
       const present = [];
       const per = perf.systems.map(() => ({ update: [], frame: [] }));
-      for (let k = 0; k < N + 5; k++) {
+      for (let k = 0; k < N + 3; k++) {
         const t = performance.now();
         c.game.frame(1 / 30);
         const ms = performance.now() - t;
-        if (k < 5) continue; // mise en train
+        gl.finish();
+        if (k < 3) continue; // mise en train
         total.push(ms);
         sim.push(perf.stats.simMs);
         present.push(perf.stats.presentMs);

@@ -57,8 +57,8 @@ async function play(seed: number): Promise<string> {
   }
   rig.step(8);
   wound(ctx, victim, 'critical');
-  const fire = rescue.request('pompiers', bin.x, bin.z);
-  const samu = rescue.request('samu', victim.x, victim.z);
+  const fire = rescue.request('pompiers', bin.x, bin.z, 0);
+  const samu = rescue.request('samu', victim.x, victim.z, 0);
   log.push(`délais annoncés ${fire.eta.toFixed(3)} ${samu.eta.toFixed(3)}`);
   rig.run(600, 0.5, () => fire.state === 'reparti' && samu.state === 'reparti');
   rig.step(20);
@@ -146,10 +146,10 @@ describe('secours — coût', () => {
     wound(ctx, vA, 'critical');
     wound(ctx, vB, 'critical');
     const calls = [
-      rescue.request('pompiers', binA.x, binA.z),
-      rescue.request('pompiers', binB.x, binB.z),
-      rescue.request('samu', vA.x, vA.z),
-      rescue.request('samu', vB.x, vB.z),
+      rescue.request('pompiers', binA.x, binA.z, 0),
+      rescue.request('pompiers', binB.x, binB.z, 0),
+      rescue.request('samu', vA.x, vA.z, 0),
+      rescue.request('samu', vB.x, vB.z, 0),
     ];
     expect(new Set(calls).size).toBe(4);
     // trajet : tous partis
@@ -179,8 +179,8 @@ describe('secours — services neutres', () => {
     const ctx = t.ctx;
     const rescue = ctx.require<RescueApi>(EXT.rescue);
     const ext = ctx.require<RescueExtApi>('rescue.ext');
-    const fire = rescue.request('pompiers', 50, 50);
-    const samu = rescue.request('samu', -40, 20);
+    const fire = rescue.request('pompiers', 50, 50, 0);
+    const samu = rescue.request('samu', -40, 20, 0);
     expect(fire.state).toBe('demande');
     expect(fire.eta).toBeGreaterThan(0);
     t.step(60);
@@ -194,7 +194,7 @@ describe('secours — services neutres', () => {
     expect(ext.crews.length).toBe(0);
     expect(ctx.people.list.length).toBe(0);
     // annulation immédiate d'un appel pas encore parti
-    const again = rescue.request('samu', 10, 10);
+    const again = rescue.request('samu', 10, 10, 0);
     rescue.cancel(again.id);
     t.step(2);
     expect(again.state).toBe('annule');
