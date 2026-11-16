@@ -51,7 +51,7 @@ export class PedReactor {
 
     // ── gaz lacrymogène : on fuit du côté où l'air est le plus respirable ──
     const gas = ctx.hazards.gasAt(p.x, p.z);
-    if (gas > 0.03 || p.gas > 0.1) {
+    if (gas > 0.03 || (p.gas > 0.1 && gas > 0.004)) {
       const c = k.cache;
       const hit = this.hit;
       let dx = Math.sin(p.heading);
@@ -240,6 +240,12 @@ export class PedReactor {
     }
   }
 
+  /** La rue est à la manifestation : ce passant s'en va (il disparaîtra une fois loin, ou hors de vue). */
+  dismiss(b: PedBrain): void {
+    this.leave(b, this.k.focusX, this.k.focusZ);
+    b.fleeLeft = 200;
+  }
+
   /** S'éloigne de la manifestation en marchant. */
   private leave(b: PedBrain, cx: number, cz: number): void {
     const p = b.p;
@@ -370,6 +376,9 @@ export class PedReactor {
     const dz = b.tz - p.z;
     const width = Math.sqrt(dx * dx + dz * dz);
     let signal = false;
+    // un véhicule engagé dans le carrefour va passer par cette embouchure (il tourne, ou il arrive) : on attend
+    if (b.crossNode >= 0 && (k.boxes.uses(b.crossNode, b.crossDx, b.crossDz, ctx.clock.now)
+      || k.boxes.uses(b.crossNode, -b.crossDx, -b.crossDz, ctx.clock.now))) return false;
     if (b.crossNode >= 0 && k.tuning.signals) {
       const ctrl = k.signals.crossingCtrl(b.crossNode);
       if (ctrl) {

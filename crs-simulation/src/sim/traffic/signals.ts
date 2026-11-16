@@ -381,6 +381,21 @@ export class Boxes {
     mine.until = now + GRANT_TTL;
   }
 
+  /**
+   * Un véhicule engagé dans le carrefour entre ou sort-il par la branche de direction (dx, dz) (vecteur
+   * unitaire partant du carrefour) ? Un piéton n'en traverse pas l'embouchure à ce moment-là.
+   */
+  uses(node: number, dx: number, dz: number, now: number): boolean {
+    const b = this.boxes.get(node);
+    if (!b) return false;
+    for (let i = 0; i < b.n; i++) {
+      const r = b.res[i]!;
+      if (!r.granted || r.until < now) continue;
+      if (r.outDx * dx + r.outDz * dz > 0.7 || r.inDx * dx + r.inDz * dz < -0.7) return true;
+    }
+    return false;
+  }
+
   /** La réservation accordée au véhicule porte-t-elle (à peu près) cette trajectoire ? */
   sameMovement(node: number, car: number, inDx: number, inDz: number, outDx: number, outDz: number): boolean {
     const b = this.boxes.get(node);

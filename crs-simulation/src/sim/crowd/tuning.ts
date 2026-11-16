@@ -215,6 +215,8 @@ export const BACKOFF_MAX = 60;
 export const GAS_FEEL = 0.1;
 export const GAS_AIR = 0.06;
 export const GAS_CLEAR = 0.03;
+/** Première bouffée de gaz : la peur monte au moins jusqu'à ce niveau (× sensibilité du profil), même sans tir vu. */
+export const GAS_SCARE = 0.16;
 /** Canon à eau : distance tenue (m). */
 export const WATER_KEEP = 40;
 

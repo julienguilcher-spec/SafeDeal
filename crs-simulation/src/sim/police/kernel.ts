@@ -5,7 +5,7 @@
  * ===================================================================================== */
 
 import type {
-  AimSolution, EntityId, GameContext, ItemId, Person, Prop, RadioChannel, RayHit, Rng, RoadSample, Vec2, Vehicle,
+  AimSolution, EntityId, GameContext, ItemId, Person, Prop, RadioChannel, RayHit, Rng, RoadSample, SquadOrder, Vec2, Vehicle,
 } from '@/core/contracts';
 import { makeRayHit } from '@/core/null-services';
 import type { LawAdvisor, LawHandover } from '@/gameplay/law/api';
@@ -65,6 +65,12 @@ export class Kernel {
   callsigns = 0;
   /** Le commandant (autorité habilitée, écharpe), s'il est connu : sa présence à pied soutient le moral des unités proches. */
   commander: Person | null = null;
+  /**
+   * Point d'extension du commandement (src/sim/police/command) : une unité spéciale (BRAV-M en selle, Centaure,
+   * engin lanceur d'eau, drone) exécute elle-même certains ordres. Appelé à la réception de chaque ordre, avant
+   * tout traitement ; retourner true pour le prendre en charge (le module ne fait alors rien de cet ordre).
+   */
+  orderHook: ((u: Unit, o: SquadOrder) => boolean) | null = null;
 
   bind(ctx: GameContext): void {
     this.ctx = ctx;

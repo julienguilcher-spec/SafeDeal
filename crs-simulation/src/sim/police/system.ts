@@ -19,8 +19,8 @@ import type {
   ExitInfo, FormationInfo, PoliceFormationApi, PoliceSlotApi, PoliceStatusApi, PoliceUnitsApi, SlotInfo, UnitStatus, VehicleReserve,
 } from './api';
 import {
-  ENCIRCLE_CLOSE_ALL, OFFICER_DOWN_EVENT, ORDER_REFUSED_EVENT, POLICE_FORMATION_SERVICE, POLICE_SLOT_SERVICE, POLICE_STATUS_SERVICE,
-  POLICE_SYSTEM_ID, POLICE_TUNING_SERVICE, POLICE_UNITS_SERVICE,
+  ENCIRCLE_CLOSE_ALL, OFFICER_DOWN_EVENT, ORDER_REFUSED_EVENT, POLICE_FORMATION_SERVICE, POLICE_KERNEL_SERVICE, POLICE_SLOT_SERVICE,
+  POLICE_STATUS_SERVICE, POLICE_SYSTEM_ID, POLICE_TUNING_SERVICE, POLICE_UNITS_SERVICE,
 } from './api';
 import type { Agent, Op, Unit } from './brain';
 import {
@@ -127,6 +127,8 @@ export class PoliceSystem implements GameSystem {
     ctx.provide(POLICE_SLOT_SERVICE, slots);
     ctx.provide(POLICE_FORMATION_SERVICE, formation);
     ctx.provide(POLICE_TUNING_SERVICE, k.tuning);
+    // service privé du module : le commandement (src/sim/police/command) y trouve le noyau partagé
+    ctx.provide(POLICE_KERNEL_SERVICE, k);
   }
 
   init(ctx: GameContext): void {
@@ -283,6 +285,11 @@ export class PoliceSystem implements GameSystem {
   private handleOrder(u: Unit, o: SquadOrder): void {
     const k = this.k;
     const type = o.type;
+    // unité spéciale pilotée par le commandement (BRAV-M en selle, engins, drone) : elle exécute elle-même cet ordre
+    if (k.orderHook !== null && k.orderHook(u, o)) {
+      u.storeOrder = o;
+      return;
+    }
     if (isTaskOrder(type)) {
       this.endTask(u, false);
       u.task = copyOrder(o);

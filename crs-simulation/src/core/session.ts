@@ -189,11 +189,23 @@ export interface SessionHooks {
   resetSystems?(): void;
 }
 
+/**
+ * Préparation de fin de chargement (ajout de l'assemblage) : tâche asynchrone attendue APRÈS
+ * 'session:started' (la scène est peuplée, le joueur est en place) et AVANT la phase « playing ».
+ * Sert à la présentation : construction des maillages de la ville, textures des monuments… La phase
+ * reste « loading » (écran de chargement affiché) tant que les préparations ne sont pas terminées.
+ */
+export type SessionPreparation = (config: SessionConfig) => void | Promise<void>;
+
+/** Durée maximale accordée à une préparation (ms) : au-delà, la session démarre quand même. */
+export const SESSION_PREPARATION_TIMEOUT_MS = 90000;
+
 export class SessionController implements SessionApi {
   private phase_: SessionPhase = 'boot';
   private config_: SessionConfig | null = null;
   private core: SessionCore | null = null;
   private hooks: SessionHooks = {};
+  private readonly preparations: SessionPreparation[] = [];
   /** Incrémenté à chaque démarrage ou fin : un démarrage dépassé s'abandonne de lui-même. */
   private token = 0;
   /**
@@ -216,6 +228,39 @@ export class SessionController implements SessionApi {
 
   setHooks(hooks: SessionHooks): void {
     this.hooks = hooks;
+  }
+
+  /**
+   * Enregistre une préparation de fin de chargement (voir SessionPreparation). Sans préparation
+   * enregistrée — tests headless, modules de simulation seuls — le démarrage est inchangé.
+   * Retourne la fonction de retrait.
+   */
+  addPreparation(run: SessionPreparation): () => void {
+    this.preparations.push(run);
+    return () => {
+      const i = this.preparations.indexOf(run);
+      if (i >= 0) this.preparations.splice(i, 1);
+    };
+  }
+
+  /** Attend chaque préparation à son tour ; une erreur ou un délai dépassé n'empêche pas de jouer. */
+  private async runPreparations(cfg: SessionConfig, token: number): Promise<void> {
+    const list = this.preparations.slice();
+    for (const run of list) {
+      if (token !== this.token) return;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const timeout = new Promise<'timeout'>((resolve) => {
+          timer = setTimeout(() => resolve('timeout'), SESSION_PREPARATION_TIMEOUT_MS);
+        });
+        const outcome = await Promise.race([Promise.resolve(run(cfg)).then(() => 'done' as const), timeout]);
+        if (outcome === 'timeout') console.warn('[session] une préparation de fin de chargement ne répond pas : la session démarre sans elle');
+      } catch (err) {
+        console.error('[session] préparation de fin de chargement en échec', err);
+      } finally {
+        if (timer !== undefined) clearTimeout(timer);
+      }
+    }
   }
 
   /** Fin du boot : le jeu passe au menu. */
@@ -297,6 +342,11 @@ export class SessionController implements SessionApi {
       this.live = true;
       ctx.events.emit('session:started', { config: cfg });
       if (token !== this.token) return; // un abonné a mis fin à la session ou en a relancé une autre
+      if (this.preparations.length > 0) {
+        // présentation : la ville se construit autour du joueur avant que l'écran de chargement ne tombe
+        await this.runPreparations(cfg, token);
+        if (token !== this.token) return; // remplacée ou annulée pendant les préparations
+      }
       this.setPhase('playing');
     } catch (err) {
       // chargement impossible (ou, en mode strict, erreur d'un système ou d'un abonné) : retour au menu

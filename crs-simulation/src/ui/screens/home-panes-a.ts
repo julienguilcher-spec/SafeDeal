@@ -98,6 +98,8 @@ export function buildRole(model: HomeModel): HTMLElement {
   }
 
   for (const r of ROLES) {
+    // commandant unique : « commissaire » est un alias du commandant, sans tuile propre (docs/BRIEF.md §1)
+    if (r.id === 'commissaire') continue;
     const b = widgets.card({
       icon: roleIconName(r.id),
       title: r.name,

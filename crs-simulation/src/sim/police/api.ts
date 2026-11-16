@@ -25,7 +25,7 @@
  *      spécialistes sortent du rang, pris dans l'unité qui a reçu l'ordre.
  *   3. Lire :    ctx.service<PoliceStatusApi>('police.status').of(squadId) → effectifs, munitions,
  *      fatigue, moral, phase (« mise_en_place », « en_place », « mouvement », « termine »…).
- *      Événements libres : 'police:order_done', 'police:relief_requested', 'police:report'…
+ *      Événements libres : 'police:order_done', 'police:order_refused', 'police:in_place', 'police:relief_requested'…
  *   4. Équipage : createEquipage('centaure' | 'canon_eau' | …) assoit l'équipage à bord et renvoie
  *      l'unité (Squad.vehicleId). Les ordres avancer / colonne / repli / suivre / tenir / cesser
  *      conduisent l'engin par ctx.service('vehicles.autopilot') ; tourelles, jets et salves restent
@@ -68,6 +68,8 @@ export const POLICE_STATUS_SERVICE = 'police.status';
 export const POLICE_SLOT_SERVICE = 'police.slot';
 export const POLICE_FORMATION_SERVICE = 'police.formation';
 export const POLICE_TUNING_SERVICE = 'police.tuning';
+/** Service PRIVÉ du module (noyau partagé avec src/sim/police/command) : les autres modules ne l'utilisent pas. */
+export const POLICE_KERNEL_SERVICE = 'police.internal';
 export const POLICE_SYSTEM_ID = 'police.ai';
 
 /** Valeur de SquadOrder.targetId pour « encercler » : fermer toutes les issues (aucune laissée ouverte). */

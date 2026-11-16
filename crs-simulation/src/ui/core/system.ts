@@ -423,6 +423,9 @@ export class UiSystem implements GameSystem {
     if (!pending || this.ctx.session.phase !== 'playing') return;
     this.pendingExtra = null;
     const ctx = this.ctx;
+    // La mise en place de session (src/gameplay/session, puis le cadre de mission) applique elle-même ces
+    // réglages sur 'session:started' : quand elle est branchée, l'interface ne les applique pas une seconde fois.
+    if (ctx.service('session.setup') !== undefined) return;
     const { extra, x, z } = pending;
     const byId = ctx.player.state.personId;
     try {

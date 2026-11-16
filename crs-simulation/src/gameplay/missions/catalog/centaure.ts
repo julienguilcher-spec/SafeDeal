@@ -5,7 +5,7 @@
  * ===================================================================================== */
 
 import type { MissionDef } from '../../../core/missions-schema';
-import { crowd, fail, forces, FIN, FOULE, intel, mission, ob, os, ph, scene, T, TENS } from './dsl';
+import { crowd, fail, forces, FIN, FOULE, intel, mission, OBJ, ob, os, ph, rad, scene, SOMMATIONS, T, TENS, voix } from './dsl';
 import type { MissionSpec } from './dsl';
 import { CRS_12 } from './crs';
 
@@ -30,12 +30,30 @@ export const CENT_01 = mission({
   intel: intel('Parcours de cônes, aucune foule.', 'Aucun signalement.', ['Place de Varsovie'],
     ['Garder trois mètres des murs', 'Vérifier avant de pousser', 'Rouler à moins de dix kilomètres-heure']),
   phases: [
-    ph('conduite', 'Parcours de cônes', 'Vous suivez le parcours au pas.', T(60),
-      [['ÉPERVIER', 'CENTAURE UN ICI ÉPERVIER. Suivez le parcours, dix kilomètres-heure maximum. PARLEZ.']], []),
-    ph('marche-arriere', 'Marche arrière', 'Vous reculez jusqu\'au repère.', T(120),
-      [['ÉPERVIER', 'CENTAURE UN ICI ÉPERVIER. Marche arrière, repère à UN-CINQ mètres. PARLEZ.']], ['Un cône s\'effondre']),
-    ph('poussee', 'Poussée de barrière', 'Vous poussez la barrière après vérification.', FIN,
-      [['CENTAURE 1', 'ÉPERVIER ICI CENTAURE UN. Obstacle vérifié, personne derrière. APERÇU. TERMINÉ.']], []),
+    ph('gabarit', `Trois mètres de large, quatre de haut`,
+      `Place de Varsovie, dans la brume, au pied des jardins du Trocadéro. Le Centaure d'instruction vous attend, moteur tournant : près de trois mètres de large, presque quatre de haut, et des angles morts où tiendrait une voiture. Premier exercice : passer au pas entre deux files de plots, sans en toucher un.`,
+      T(30), [
+        voix('CHEF D\'ENGIN', `Ceinture, caméras périphériques allumées. Tu ne regardes pas par le pare-brise, tu regardes tes écrans.`),
+        rad('ÉPERVIER', 'CENTAURE 1', `Parcours d'instruction. Démarrez, passage entre les plots au pas, UN-ZÉRO plots de chaque côté.`),
+      ]),
+    ph('plots', `Dix plots de chaque côté`,
+      `Le couloir de plots est à peine plus large que la caisse, et le brouillard mange les repères de la place de Varsovie au-delà de vingt mètres. Au bout du couloir, un demi-tour aux caméras, puis la marche arrière jusqu'au repère peint au sol.`,
+      OBJ('o1'), [
+        voix('CHEF D\'ENGIN', `Doucement. À gauche, tu as trente centimètres. À droite, tu ne vois rien : fais confiance à l'écran.`),
+        voix('MONITEUR', `Cycliste dans l'angle mort arrière droit ! Qui l'a vu ?`),
+      ], [`Un cycliste passe dans l'angle mort`, `Un plot s'effondre au passage`]),
+    ph('barriere', `Vérifier, annoncer, pousser`,
+      `Dix plots de chaque côté, aucun au sol. Dernier exercice : une barrière de chantier en travers, à dix mètres de la lame, côté pont d'Iéna. On ne pousse jamais sans savoir ce qu'il y a derrière : arrêt, vérification par l'opérateur, annonce au haut-parleur, puis cinq kilomètres-heure.`,
+      OBJ('o2'), [
+        rad('ÉPERVIER', 'CENTAURE 1', `Vérifiez l'obstacle, puis dégagez la barrière.`, 'A'),
+        voix('OPÉRATEUR', `Attends ! Il y a quelque chose derrière la barrière. Une forme, au sol. Je vérifie à la caméra.`),
+      ], [`Le moniteur a placé un mannequin derrière la barrière`]),
+    ph('debarquement', `Débarquer à l'abri de la caisse`,
+      `L'obstacle a été vérifié avant d'être poussé. Le Centaure s'immobilise au milieu de la place de Varsovie et les gendarmes embarqués descendent par l'arrière, dans la zone abritée : trois mètres de large sur six, pas un pas en dehors.`,
+      FIN, [
+        voix('MONITEUR', `Ce que vous venez de faire avec une barrière, vous le referez avec une barricade en feu. La règle ne change pas : on vérifie, on annonce, on pousse.`),
+        rad('ÉPERVIER', 'CENTAURE 1', `Fin de parcours. Moteur coupé, équipage au rapport.`, 'T'),
+      ]),
   ],
   objectives: [
     ob('o1', 'Suivre le parcours sans toucher un seul cône', 'personnalise', { target: 'parcours_cones', count: 10 }),
@@ -68,13 +86,36 @@ export const CENT_02 = mission({
     'Une soixantaine d\'individus lancent des projectiles.', ['Rue Royale', 'Place de la Madeleine'],
     ['Vérifier avant de pousser', 'Protéger les gendarmes à pied', 'Appeler les pompiers après la poussée']),
   phases: [
-    ph('approche', 'Approche', 'Vous avancez à cinq kilomètres-heure.', T(120),
-      [['ÉPERVIER', 'CENTAURE UN ICI ÉPERVIER. Vérifiez l\'obstacle, puis dégagez la barricade. PARLEZ.']], []),
-    ph('verification', 'Vérification', 'L\'opérateur contrôle derrière la barricade.', T(240),
-      [['CENTAURE 1', 'ÉPERVIER ICI CENTAURE UN. Obstacle vérifié, personne derrière. APERÇU. TERMINÉ.']], ['Une batterie explose sous la lame']),
-    ph('poussee', 'Poussée', 'Vous divisez la barricade en deux foyers.', TENS(0.65),
-      [['SANTÉ 1', 'CENTAURE UN ICI SANTÉ UN. Prêts à intervenir après la poussée. PARLEZ.']], []),
-    ph('fin', 'Passage ouvert', 'Les pompiers passent.', FIN, [['SANTÉ 1', 'CENTAURE UN ICI SANTÉ UN. Passage reçu. PARLEZ.']], []),
+    ph('approche', `Au pas dans la rue Royale`,
+      `Rue Royale, une barricade de huit mètres de large brûle d'une façade à l'autre : poubelles, barrières, trottinettes électriques. Derrière elle, un immeuble fume, et les pompiers attendent place de la Madeleine. Le Centaure s'engage au pas, le peloton en colonne dans la zone abritée, sous les premiers projectiles.`,
+      T(100), [
+        rad('ÉPERVIER', 'CENTAURE 1', `Engagez-vous rue Royale. Arrêt à UN-ZÉRO mètres de l'obstacle, vérification, puis dégagement. Le peloton progresse derrière vous.`, 'A'),
+        voix('CHEF D\'ENGIN', `Cinq à l'heure, pas plus. Tu as huit gendarmes à pied dans ton dos.`),
+      ], [`Jets de projectiles sur le blindé`]),
+    ph('verification', `Personne derrière, personne dedans`,
+      `Arrêt à dix mètres. La fumée noire du plastique masque tout ce qui se trouve derrière la barricade de la rue Royale ; l'opérateur balaie à la caméra thermique, foyer par foyer. À quatre mètres de la lame, sur le trottoir, un photographe de presse refuse de reculer.`,
+      OBJ('o2'), [
+        voix('OPÉRATEUR', `Je vérifie. Les foyers saturent la caméra… Attends, j'ai une silhouette à droite, derrière le bac. Elle bouge.`),
+        voix('CHEF D\'ENGIN', `Annonce au haut-parleur : engin en mouvement, écartez-vous de l'obstacle. On ne bouge pas tant qu'il reste quelqu'un.`),
+      ], [`Une personne est cachée derrière un bac`, `Un journaliste se tient à quatre mètres de la lame`]),
+    ph('batteries', `Laisser cracher les batteries`,
+      `L'obstacle est vérifié, mais le cœur de la barricade de la rue Royale est un tas de trottinettes dont les batteries s'embrasent une à une, étincelles à trois mètres. Pousser maintenant, c'est emmener le feu sous la caisse, avec le peloton derrière : on attend que le plus violent soit passé.`,
+      T(80), [
+        voix('CHEF D\'ENGIN', `On attend. Trente secondes, le temps que les batteries crachent ce qu'elles ont.`),
+        rad('SAPEUR 1', 'CENTAURE 1', `Je suis place de la Madeleine. Dès que vous ouvrez, j'entre. Ne roulez pas dans le feu.`),
+      ], [`Une batterie de trottinette projette des étincelles à trois mètres`]),
+    ph('poussee', `Pousser en deux temps`,
+      `La lame entre dans la barricade à cinq kilomètres-heure et la coupe en deux, pour diviser le feu en foyers que les pompiers pourront noyer. Dans la rue Royale, le peloton suit à l'abri de la caisse ; un manifestant court vers l'engin et tente de grimper sur la lame.`,
+      OBJ('o1'), [
+        voix('CHEF D\'ENGIN', `Premier temps, moitié gauche, trois mètres. Stop. Tu recules de deux, et on prend la droite.`),
+        rad('ÉPERVIER 1', 'CENTAURE 1', `Peloton à couvert derrière vous. Ne reculez pas sans m'annoncer : j'ai des hommes dans votre angle mort.`),
+      ], [`Un manifestant monte sur la lame`, `Un engin incendiaire éclate sur le capot`]),
+    ph('breche', `Le peloton occupe la brèche`,
+      `Le passage est ouvert au milieu de la rue Royale, quatre mètres entre deux tas qui brûlent encore. Le peloton sort de l'abri et occupe la brèche ; le fourgon des pompiers remonte de la place de la Madeleine, et c'est lui, pas vous, qui éteindra ce que la lame a séparé.`,
+      FIN, [
+        rad('SAPEUR 1', 'CENTAURE 1', `Je m'engage dans la brèche. Reculez de UN-ZÉRO mètres et laissez-moi les foyers.`),
+        rad('ÉPERVIER', 'CENTAURE 1', `Brèche tenue par le peloton. Restez en appui, moteur tournant.`, 'T'),
+      ]),
   ],
   objectives: [
     ob('o1', 'Dégager la barricade et ouvrir un passage aux pompiers', 'degager_barricade', { place: 'Rue Royale' }),
@@ -108,13 +149,36 @@ export const CENT_03 = mission({
     'Une centaine d\'individus déterminés.', ['Boulevard de Strasbourg'],
     ['Pousser en deux temps pour la barricade enflammée', 'Vérifier chaque obstacle', 'Garder les pompiers en retrait']),
   phases: [
-    ph('premiere', 'Première barricade', 'Poussée directe sur les poubelles.', T(120),
-      [['ÉPERVIER', 'CENTAURE UN ICI ÉPERVIER. Première barricade, dégagez. PARLEZ.']], []),
-    ph('deuxieme', 'Deuxième barricade', 'Palettes, vérification obligatoire.', T(300),
-      [['CENTAURE 1', 'ÉPERVIER ICI CENTAURE UN. Obstacle vérifié. APERÇU. TERMINÉ.']], ['Un manifestant se cache derrière les palettes']),
-    ph('troisieme', 'Troisième barricade en feu', 'Voiture et vélos électriques en feu.', TENS(0.6),
-      [['ÉPERVIER', 'CENTAURE UN ICI ÉPERVIER. Poussée en deux temps, puis laissez les pompiers. PARLEZ.']], ['Étincelles de batteries sur le flanc du blindé']),
-    ph('fin', 'Axe ouvert', 'Les pompiers passent.', FIN, [['SANTÉ 1', 'CENTAURE UN ICI SANTÉ UN. Axe ouvert. PARLEZ.']], []),
+    ph('poubelles', `Première barricade : des poubelles`,
+      `Boulevard de Strasbourg, à la nuit tombante. Trois barricades se suivent sur trois cents mètres ; la première n'est qu'un alignement de poubelles et de conteneurs vides. Vérification rapide, annonce, poussée directe : dix minutes pour ouvrir tout l'axe aux pompiers, qui attendent au carrefour du boulevard de Magenta.`,
+      T(90), [
+        rad('ÉPERVIER', 'CENTAURE 1', `Trois obstacles sur l'axe. Vous avez UN-ZÉRO minutes. Vérifiez chacun avant de pousser.`, 'A'),
+        voix('OPÉRATEUR', `Première : vide. Rien derrière, rien dedans. Tu peux y aller.`),
+      ], [`Des bouteilles tombent sur le toit du blindé`]),
+    ph('palettes', `Deuxième barricade : des palettes`,
+      `La deuxième barricade est faite de palettes empilées sur deux mètres de haut, et l'on ne voit rien au travers. Approche lente, arrêt à dix mètres, en plein milieu du boulevard de Strasbourg : entre deux palettes, la caméra accroche une forme accroupie.`,
+      T(150), [
+        voix('OPÉRATEUR', `Stop ! J'ai quelqu'un dans les palettes. Accroupi, côté gauche. Il ne bouge pas.`),
+        voix('CHEF D\'ENGIN', `On ne pousse pas. Haut-parleur, et on attend qu'il sorte. Le temps, on le rattrapera ailleurs.`),
+      ], [`Un manifestant se cache derrière les palettes`]),
+    ph('verification-du-feu', `Vérifier ce qui brûle`,
+      `La troisième barricade brûle : une voiture retournée, des vélos électriques jetés dessus, des pneus. La chaleur sature la caméra thermique et la fumée noire couvre le boulevard de Strasbourg sur toute sa largeur ; il faut pourtant savoir s'il y a quelqu'un dans cette voiture, ou derrière elle, avant d'y mettre la lame.`,
+      OBJ('o2'), [
+        voix('OPÉRATEUR', `Je ne vois rien à la thermique, tout est blanc. Avance de deux mètres, je regarde à l'œil par le côté.`),
+        rad('ÉPERVIER 1', 'CENTAURE 1', `Deux de mes hommes font le tour par le trottoir pour voir l'arrière de la voiture. Ne bougez pas avant mon signal.`),
+      ], [`La caméra thermique est saturée par le foyer`]),
+    ph('deux-temps', `Diviser le feu en deux temps`,
+      `Personne dans la voiture, personne derrière. La lame coupe le tas en deux, sans jamais s'arrêter sur les batteries ni laisser une flamme contre un flanc ; entre deux poussées, dix mètres de recul sur le boulevard de Strasbourg, le peloton toujours à l'abri.`,
+      OBJ('o1'), [
+        voix('CHEF D\'ENGIN', `Deux temps. Tu coupes le tas, tu recules de dix. Si ça lèche le flanc, tu sors tout de suite.`),
+        rad('SAPEUR 1', 'CENTAURE 1', `En attente au carrefour Magenta. Séparez-moi la voiture des vélos, je m'occupe du reste.`),
+      ], [`Étincelles de batteries sur le flanc du blindé`, `Un pneu éclate dans le feu`]),
+    ph('axe-ouvert', `L'axe ouvert sur une voie`,
+      `Trois obstacles, trois vérifications. Le boulevard de Strasbourg est ouvert sur une voie et le fourgon des pompiers s'y engage à son tour, lances prêtes. Le Centaure se range contre le trottoir, moteur tournant : ce qui brûle encore est leur affaire, pas la vôtre.`,
+      FIN, [
+        rad('SAPEUR 1', 'CENTAURE 1', `Je passe. Tenez-vous à l'écart des lances et gardez-moi l'axe derrière.`),
+        rad('ÉPERVIER', 'CENTAURE 1', `Axe ouvert, reçu. Peloton en protection des pompiers. Rendez compte de l'état de l'engin.`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Dégager les trois barricades', 'degager_barricade', { place: 'Boulevard de Strasbourg', count: 3 }),
@@ -148,13 +212,42 @@ export const CENT_04 = mission({
     'Deux cents individus déterminés avec protections.', ['Avenue de la Grande Armée', 'Avenue Foch'],
     ['Surveiller le vent', 'Compter les grenades', 'Désigner des zones précises']),
   phases: [
-    ph('attaque', 'Attaque sur la ligne', 'Les violents attaquent la ligne.', T(120),
-      [['ÉPERVIER', 'CENTAURE UN ICI ÉPERVIER. Salve de QUATRE, zone carrefour Grande-Armée, tir courbe. FAITES L\'APERÇU.']], []),
-    ph('salve', 'Première salve', 'Vous lancez et regardez le nuage.', T(300),
-      [['CENTAURE 1', 'ÉPERVIER ICI CENTAURE UN. Salve tirée, vent de travers. PARLEZ.']], ['Le nuage dérive vers l\'avenue Foch']),
-    ph('suspension', 'Suspension', 'Vous suspendez le tir si le nuage menace le cortège.', TENS(0.6),
-      [['ÉPERVIER', 'CENTAURE UN ICI ÉPERVIER. Halte au feu, vent tournant. PARLEZ.']], []),
-    ph('fin', 'Fin', 'Les violents se replient.', FIN, [['ÉPERVIER', 'CENTAURE UN ICI ÉPERVIER. Halte au feu, ils refluent. Rendez compte de votre consommation. PARLEZ.']], []),
+    ph('reiteration', `Trente tubes chargés`,
+      `Place Charles de Gaulle, le Centaure est en retrait de la ligne, face à l'avenue de la Grande Armée, d'où deux cents individus lancent pavés et mortiers. À cent cinquante mètres, sur l'avenue Foch, trois cents manifestants pacifiques attendent, assis. Dans la tourelle, trente tubes chargés ; dehors, le commandant réitère la dernière sommation.`,
+      T(120), [
+        voix('COMMANDANT', SOMMATIONS.derniere),
+        rad('ÉPERVIER', 'CENTAURE 1', `Dernière sommation réitérée. Usage des armes : lance-grenades, tir courbe. Salve de QUATRE sur la zone désignée, à mon ordre.`, 'C'),
+      ], [`Jets de pavés et de mortiers sur la ligne`]),
+    ph('premiere-salve', `Quatre tubes sur trente`,
+      `Le chef d'engin désigne la zone : le milieu de l'avenue de la Grande Armée, cinquante mètres devant la ligne, loin de l'avenue Foch. Vous réglez la hausse pour un tir courbe, vous annoncez, vous lancez quatre grenades, puis vous regardez le nuage : c'est lui qui dit si la salve était juste.`,
+      T(150), [
+        voix('CHEF D\'ENGIN', `Opérateur, salve de quatre, zone désignée, tir courbe… Tir !`),
+        voix('PILOTE', `Vent d'ouest, cinq mètres par seconde, il prend de travers. Regarde où part ta fumée.`),
+      ], [`Un journaliste entre dans la zone désignée`]),
+    ph('vent', `Le nuage dérive vers l'avenue Foch`,
+      `Le vent tourne de quarante degrés et le nuage glisse le long de la place Charles de Gaulle vers l'avenue Foch, où les personnes assises commencent à tousser. Sur la fréquence, on réclame une salve complète pour en finir ; dans la tourelle, c'est le moment de dire non, ou d'attendre.`,
+      T(150), [
+        rad('ÉPERVIER 2', 'CENTAURE 1', `On prend toujours des pavés sur la ligne ! Videz vos tubes, qu'on en finisse !`),
+        voix('CHEF D\'ENGIN', `Ton nuage part sur les pacifiques. Qu'est-ce que tu proposes : on suspend, ou on déplace la zone ?`),
+      ], [`Le vent tourne et pousse le nuage vers le cortège pacifique`, `Un chef de peloton réclame une salve complète`, `Un enfant est aperçu dans le nuage`]),
+    ph('seconde-salve', `Une seconde salve, ou pas`,
+      `Le vent retombe. Les violents se sont regroupés plus loin sur l'avenue de la Grande Armée et relancent ; chaque salve doit répondre à une violence constatée, et le plafond est de douze grenades pour toute l'action. Évaluer l'effet, proposer la zone, tirer court et juste, ou ne pas tirer.`,
+      OBJ('o1'), [
+        rad('ÉPERVIER', 'CENTAURE 1', `Seconde salve possible si la zone est sûre. Plafond : UN-DEUX grenades au total. Rendez compte après chaque tir.`),
+        voix('CHEF D\'ENGIN', `Combien il t'en faut ? Deux, quatre ? Dis-moi le chiffre avant de toucher à la détente.`),
+      ], [`Des touristes passent derrière la zone visée`, `Un tube s'enraye`]),
+    ph('avenue-foch', `Ceux de l'avenue Foch`,
+      `Les violents ont lâché l'avenue de la Grande Armée. Sur l'avenue Foch, le cortège pacifique est toujours assis ; quelques personnes se rincent les yeux à la bouteille, et la liaison marche vers elles. Depuis la tourelle, vous regardez ce qu'il reste de fumée, et dans quel sens elle part.`,
+      T(120), [
+        rad('ÉPERVIER', 'CENTAURE 1', `La liaison signale des yeux irrités dans le cortège de l'avenue Foch. Votre dernière salve : heure, zone, nombre ?`),
+        voix('PILOTE', `Ils n'ont pas bougé d'un mètre, les assis. Si ton nuage est allé jusque-là, ça se verra sur toutes les vidéos.`),
+      ], [`La liaison signale des yeux irrités dans le cortège pacifique`]),
+    ph('tubes-comptes', `Halte au feu, tubes comptés`,
+      `L'ordre de cesser tombe sur la place Charles de Gaulle : le trouble a pris fin. Dans la tourelle, vous comptez les tubes vides un par un ; le chiffre ira au compte rendu, à la grenade près, avec l'heure et la zone de chaque salve.`,
+      FIN, [
+        rad('ÉPERVIER', 'CENTAURE 1', `Halte au feu : le trouble a cessé. Rendez compte de votre consommation, tube par tube.`),
+        voix('CHEF D\'ENGIN', `Combien de partis ? Je veux le chiffre et l'heure de chaque salve.`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Repousser les violents avec douze grenades au plus', 'disperser', { place: 'Place Charles de Gaulle', max: 12 }),
@@ -184,13 +277,31 @@ export const CENT_05 = mission({
     'Une soixantaine d\'individus encagoulés.', ['Rue de Rivoli', 'Rue de Castiglione'],
     ['Avancer à six kilomètres-heure', 'Garder les gendarmes à couvert', 'S\'arrêter devant toute personne']),
   phases: [
-    ph('depart', 'Départ', 'Le blindé avance, les hommes derrière.', T(90),
-      [['ÉPERVIER', 'CENTAURE UN ICI ÉPERVIER. Colonne de HUIT dans la zone abritée, avancez. PARLEZ.']], []),
-    ph('avance', 'Avancée sous les jets', 'Deux cents mètres de projectiles.', T(300),
-      [['CENTAURE 1', 'ÉPERVIER ICI CENTAURE UN. Avance, jets de projectiles. PARLEZ.']], ['Un cocktail éclate sur le capot']),
-    ph('extraction', 'Extraction', 'Vous récupérez le blessé.', TENS(0.55),
-      [['ÉPERVIER', 'CENTAURE UN ICI ÉPERVIER. Blessé à bord, repli. PARLEZ.']], []),
-    ph('fin', 'Retour', 'Vous ramenez le blessé à la ligne.', FIN, [['SANTÉ 1', 'CENTAURE UN ICI SANTÉ UN. Blessé reçu. PARLEZ.']], []),
+    ph('deux-cents-metres', `Deux cents mètres sous les jets`,
+      `Rue de Rivoli, le long des arcades. À deux cents mètres, un agent blessé par le cortège sauvage est resté au sol, adossé à un pilier, sous les projectiles. Vous avancez à six kilomètres-heure, huit gendarmes en colonne par deux dans la zone abritée ; entre les piliers et les grilles du jardin des Tuileries, il reste un mètre de marge de chaque côté.`,
+      T(220), [
+        rad('ÉPERVIER', 'CENTAURE 1', `UN agent blessé à DEUX-ZÉRO-ZÉRO mètres devant vous, côté arcades. Avancez, le peloton derrière vous. Arrêt à UN-ZÉRO mètres du blessé.`, 'A'),
+        voix('OPÉRATEUR', `Obstacle léger devant : poubelles, barrières. Je vérifie… vide. Passant à droite, à cinq mètres, il traverse !`),
+        rad('ÉPERVIER 1', 'CENTAURE 1', `Vous nous distancez ! Ralentissez, j'ai deux hommes à découvert.`),
+      ], [`Un engin incendiaire éclate sur le capot`, `Un passant traverse devant la lame`, `La fumée aveugle les caméras`]),
+    ph('extraction', `Dix mètres avant le blessé`,
+      `Arrêt net à dix mètres du pilier, la caisse en travers de la rue de Rivoli pour faire écran. Deux gendarmes sortent de l'abri, relèvent l'agent blessé et le portent jusqu'à la porte arrière ; pendant ces secondes-là, vous ne bougez pas d'un centimètre, quoi qu'il tombe sur le blindage.`,
+      OBJ('o1'), [
+        voix('CHEF D\'ENGIN', `Halte ! Frein, et tu ne touches plus à rien. Ils sortent le chercher.`),
+        rad('ÉPERVIER 1', 'CENTAURE 1', `Deux hommes sortent. Couvrez-les avec la caisse, ne bougez pas avant mon signal.`),
+      ], [`Un gendarme est touché par un projectile pendant l'extraction`, `Un civil s'est réfugié sous un porche voisin`]),
+    ph('marche-arriere', `Le retour en marche arrière`,
+      `Le blessé est à bord, allongé sur le plancher. Il faut refaire les deux cents mètres de la rue de Rivoli en marche arrière, aux caméras, avec la colonne qui recule à couvert au même pas ; on ne recule jamais sans visibilité, et jamais plus vite que ceux qui marchent.`,
+      T(180), [
+        voix('OPÉRATEUR', `Caméra arrière : colonne en place, rien derrière eux. Tu peux reculer, au pas.`),
+        rad('SANTÉ 1', 'CENTAURE 1', `En attente derrière la ligne, angle de la rue de Castiglione. Annoncez-moi l'état du blessé.`),
+      ], [`Une barricade légère est tirée derrière le blindé`]),
+    ph('jonction', `La jonction avec la ligne`,
+      `Le Centaure repasse la ligne des CRS à l'angle de la rue de Castiglione et s'arrête à hauteur de l'ambulance. La porte arrière s'ouvre ; le peloton se compte, les secours prennent le blessé, et vous faites le tour de la caisse pour voir ce qu'elle a reçu.`,
+      FIN, [
+        rad('ÉPERVIER', 'CENTAURE 1', `Ligne repassée. Remettez le blessé à SANTÉ UN et rendez compte de l'état de l'engin.`),
+        voix('CHEF D\'ENGIN', `Ne coupe pas le moteur. Tu descends, tu fais le tour, tu me dis ce qui a pris.`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Récupérer le blessé et le ramener', 'secourir', { target: 'agent_blesse', count: 1 }),
@@ -224,13 +335,36 @@ export const CENT_06 = mission({
     'Une centaine d\'individus déterminés en groupes mobiles.', ['Place de la République', 'Boulevard du Temple'],
     ['Utiliser la caméra thermique', 'Vérifier les gilets des pompiers', 'Ne tirer qu\'au signal']),
   phases: [
-    ph('observation', 'Observation thermique', 'Vous balayez la place à la caméra thermique.', T(180),
-      [['CENTAURE 1', 'ÉPERVIER ICI CENTAURE UN. Groupe de UN-CINQ à l\'est, à CENT cinquante mètres. PARLEZ.']], []),
-    ph('designation', 'Désignation', 'Vous désignez les groupes au chef.', T(360),
-      [['ÉPERVIER', 'CENTAURE UN ICI ÉPERVIER. Salve de SIX sur le groupe désigné. FAITES L\'APERÇU.']], ['Un pompier traverse la zone thermique']),
-    ph('appui', 'Appui', 'Vous appuyez l\'avancée des gendarmes.', TENS(0.75),
-      [['CENTAURE 1', 'ÉPERVIER ICI CENTAURE UN. Salve tirée. PARLEZ.']], []),
-    ph('fin', 'Retour au calme', 'Les groupes se dispersent.', FIN, [['CENTAURE 1', 'ÉPERVIER ICI CENTAURE UN. Fin d\'emploi. PARLEZ.']], []),
+    ph('veille', `La place en nuances de gris`,
+      `Deux heures du matin, place de la République. L'éclairage public est coupé, des barricades brûlent et la fumée se mêle au brouillard : à l'œil nu, on ne voit pas à vingt mètres. Dans la tourelle, la caméra thermique dessine la place en nuances de gris, et tout ce qui est chaud y ressemble à une menace.`,
+      T(120), [
+        rad('ÉPERVIER', 'CENTAURE 1', `Vous êtes mes yeux. Balayage thermique de la place, de gauche à droite. Pour chaque groupe : nombre, direction, attitude. Aucun tir sans mon ordre.`, 'A'),
+        voix('CHEF D\'ENGIN', `Les barricades en feu vont t'aveugler. Change de polarité quand tu balaies de ce côté.`),
+      ], [`L'éclairage public est coupé sur toute la place`]),
+    ph('quatre-groupes', `Quatre groupes dans la fumée`,
+      `Des groupes mobiles circulent entre la statue de la République et le débouché du boulevard du Temple : des taches claires qui se rassemblent, se séparent, lancent et repartent. Quatre désignations justes sont attendues ; un riverain à son balcon, un pompier en intervention et le reflet d'une vitrine chauffée par un foyer n'en font pas partie.`,
+      OBJ('o1'), [
+        voix('PILOTE', `Tache chaude au premier étage, à droite. C'est un tireur, ou un type à sa fenêtre ?`),
+        rad('ÉPERVIER 1', 'CENTAURE 1', `On reçoit des mortiers depuis le boulevard du Temple. D'où ça part ? Donnez-moi un cap et une distance.`),
+      ], [`Un pompier traverse le champ de la caméra thermique`, `Le reflet d'une vitrine est pris pour une source chaude`, `Un riverain se tient à son balcon`]),
+    ph('guidage', `Guider le peloton par la radio`,
+      `Quatre groupes sont désignés. Le peloton s'enfonce à pied dans la fumée vers le boulevard du Temple, sans rien voir ; vous le guidez depuis la tourelle : cap, distance, obstacle. Une erreur de dix mètres, et huit gendarmes débouchent au milieu d'un groupe au lieu de le prendre de flanc.`,
+      T(240), [
+        rad('ÉPERVIER 1', 'CENTAURE 1', `Je suis dans la fumée, je ne vois rien. Guidez-moi sur le groupe du porche : cap et distance, tous les UN-ZÉRO mètres.`),
+        voix('CHEF D\'ENGIN', `Projecteur sur le groupe, pas sur les nôtres. Tu éclaires devant eux, jamais dans leur visière.`),
+      ], [`La caméra thermique tombe en panne trente secondes`, `Retour de gaz sur la place`]),
+    ph('appui', `Six grenades, si l'ordre vient`,
+      `Le peloton est au contact du groupe du porche, à l'entrée du boulevard du Temple. Si la pression monte encore, l'escadron demandera une salve de six ; la thermique ne distingue pas un émeutier d'un secouriste, et il y a, quelque part dans ce gris, les gilets des pompiers qui arrosent une barricade.`,
+      FOULE('dispersion'), [
+        rad('ÉPERVIER', 'CENTAURE 1', `Tenez-vous prêt : salve de SIX sur le débouché du boulevard du Temple, à mon ordre seulement. Identifiez d'abord qui s'y trouve.`),
+        voix('PILOTE', `Les pompiers sont toujours à la barricade de gauche. Tu les as, sur ton écran ?`),
+      ], [`Un engin incendiaire éclate près du blindé`]),
+    ph('enregistrement', `Ce que la caméra a vu`,
+      `Les groupes quittent la place de la République par le boulevard du Temple et les rues qui descendent vers le canal. La fumée se dépose, le brouillard reste. Dans la tourelle, l'enregistrement thermique de la nuit est une pièce : chaque désignation y figure, avec son heure.`,
+      FIN, [
+        rad('ÉPERVIER', 'CENTAURE 1', `Groupes en dispersion. Conservez l'enregistrement thermique et rendez compte de vos désignations.`),
+        voix('CHEF D\'ENGIN', `Tu notes : combien de désignations, combien confirmées. Et s'il y a eu un tir, sur quel ordre.`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Désigner correctement au moins quatre groupes mobiles', 'reperer_signaux', { count: 4 }),
@@ -264,13 +398,30 @@ export const CENT_07 = mission({
     'Aucun signalement.', ['Cours la Reine', 'Place de la Concorde'],
     ['Négocier avant de pousser', 'Ne pousser que les tracteurs vides', 'Prévenir une dépanneuse']),
   phases: [
-    ph('approche', 'Approche', 'Le Centaure s\'approche à deux kilomètres-heure.', T(120),
-      [['ÉPERVIER', 'CENTAURE UN ICI ÉPERVIER. Avancez au pas, négociez d\'abord. PARLEZ.']], []),
-    ph('negociation', 'Négociation', 'La liaison obtient le départ de vingt tracteurs.', T(300),
-      [['LIAISON', 'CENTAURE UN ICI LIAISON. Vingt tracteurs ont accepté de partir. PARLEZ.']], ['Un tracteur refuse de bouger']),
-    ph('poussee', 'Poussée', 'Vous poussez les tracteurs vides.', TENS(0.4),
-      [['CENTAURE 1', 'ÉPERVIER ICI CENTAURE UN. Obstacle vérifié, tracteur vide. APERÇU. TERMINÉ.']], []),
-    ph('fin', 'Voie libre', 'Le cours la Reine est dégagé.', FIN, [['CENTAURE 1', 'ÉPERVIER ICI CENTAURE UN. Voie libre. PARLEZ.']], []),
+    ph('approche', `La lame devant les tracteurs`,
+      `Cours la Reine, neuf heures. Cinquante tracteurs du « Convoi des Champs » sont rangés en travers de la voie, autour d'une montagne de bottes de paille, contre la « taxe Sillon ». Le Centaure s'approche à deux kilomètres-heure et s'arrête à trente mètres : ici, personne ne lance rien, et la lame fait peur à tout le monde.`,
+      T(100), [
+        rad('ÉPERVIER', 'CENTAURE 1', `Approche au pas, arrêt à TROIS-ZÉRO mètres. Vous ne poussez rien tant que la liaison parle. Ce sont des agriculteurs, pas des émeutiers.`, 'A'),
+        voix('AGRICULTEUR', `Vous venez avec ça contre des tracteurs ? On n'a cassé la figure à personne, nous !`),
+      ]),
+    ph('delai', `Le délai négocié`,
+      `La liaison a obtenu un délai : ceux qui veulent partir partent, les autres auront été prévenus. Un à un, vingt tracteurs démarrent et quittent le cours la Reine vers la place de la Concorde ; vous restez immobile, moteur au ralenti, visible et inutile, ce qui est exactement ce qu'on attend de vous.`,
+      T(240), [
+        rad('LIAISON', 'ÉPERVIER', `Le chef du convoi accepte de libérer une voie. Une vingtaine de tracteurs partent d'eux-mêmes, les autres veulent rester jusqu'à midi.`),
+        voix('CHEF D\'ENGIN', `On ne bouge pas. Plus ils partent d'eux-mêmes, moins tu auras à pousser.`),
+      ], [`Un tracteur refuse de démarrer`, `Un enfant grimpe sur une botte de paille`]),
+    ph('remorques', `Trois remorques et de la paille`,
+      `Restent trois remorques dételées, des balles de paille et quelques tracteurs sans personne à bord, en travers du cours la Reine. La lame pousse ce qui est vide, lentement, après que l'opérateur a regardé dans chaque cabine ; on ne touche jamais à un engin occupé, et un agriculteur vient justement de remonter dans le sien.`,
+      OBJ('o1'), [
+        voix('OPÉRATEUR', `Cabine du tracteur rouge : quelqu'un vient de remonter dedans ! On ne touche pas à celui-là.`),
+        rad('ÉPERVIER', 'CENTAURE 1', `Dégagez une voie de TROIS mètres CINQ-ZÉRO pour les secours. Engins vides uniquement, sans casse.`),
+      ], [`Un agriculteur remonte dans sa cabine`, `Une botte de paille prend feu`, `Un agriculteur s'enchaîne à sa remorque`]),
+    ph('voie-rouverte', `Une voie pour les secours`,
+      `Une voie est ouverte sur le cours la Reine, large comme une ambulance, entre les remorques repoussées contre le trottoir. Les agriculteurs restés sur place font le tour de leur matériel, tôle par tôle : c'est ce qu'ils retiendront. Le reste se discutera sans vous, à pied.`,
+      FIN, [
+        rad('ÉPERVIER', 'CENTAURE 1', `Voie ouverte, reçu. Reculez de DEUX-ZÉRO mètres et coupez le moteur : la liaison reprend la main.`),
+        voix('AGRICULTEUR', `On va regarder ce que vous avez abîmé. Et on reviendra, avec ou sans votre char.`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Dégager le cours la Reine en dix minutes', 'degager_barricade', { place: 'Cours la Reine', seconds: 600 }),
@@ -304,17 +455,41 @@ export const CENT_08 = mission({
     'Une soixantaine d\'individus déterminés.', ['Avenue de la Grande Armée', 'Place Charles de Gaulle'],
     ['Coordonner pilote et opérateur', 'Refuser un tir hors cadre', 'Rendre compte à chaque salve']),
   phases: [
-    ph('appui', 'Appui du peloton', 'Le Centaure couvre le peloton.', T(180),
-      [['ÉPERVIER', 'CENTAURE UN ICI ÉPERVIER. Couvrez le peloton, avancez de DEUX-ZÉRO mètres. PARLEZ.']], []),
-    ph('demande', 'Demande de tir', 'La salle demande une salve sans cadre.', T(360),
-      [['CENTAURE 1', 'ÉPERVIER ICI CENTAURE UN. NÉGATIF, cadre non réuni. Cortège pacifique devant. PARLEZ.']], ['Un gendarme demande un tir']),
-    ph('assaut', 'Assaut', 'Un groupe attaque le peloton ; le tir devient légitime.', TENS(0.6),
-      [['ÉPERVIER', 'CENTAURE UN ICI ÉPERVIER. Salve de SIX, zone carrefour, tir courbe. FAITES L\'APERÇU.']], []),
-    ph('fin', 'Fin', 'Le groupe se replie.', FIN, [['CENTAURE 1', 'ÉPERVIER ICI CENTAURE UN. Consommation : SIX grenades. PARLEZ.']], []),
+    ph('appui', `En appui du peloton`,
+      `Avenue de la Grande Armée, le Centaure est en appui d'un peloton de gendarmes mobiles, face à trois cents personnes. Vous êtes chef d'engin : un pilote, un opérateur, trente tubes, et la responsabilité de chaque grenade qui en sortira. Devant vous, pour l'instant, la foule est assise sur la chaussée et chante.`,
+      T(150), [
+        rad('ÉPERVIER', 'CENTAURE 1', `Vous appuyez ÉPERVIER DEUX. Restez à DEUX-ZÉRO mètres derrière sa ligne. Tir sur mon ordre uniquement.`, 'A'),
+        voix('PILOTE', `Chef, je me mets où ? Si j'avance encore, je masque le peloton.`),
+      ], [`La foule s'assoit sur la chaussée`]),
+    ph('ordre-hors-cadre', `Une salve sur des gens assis`,
+      `L'ordre tombe sur la fréquence : une salve de six sur la foule de l'avenue de la Grande Armée, tout de suite. Devant votre pare-brise, trois cents personnes assises, aucune violence, aucune sommation entendue. Exécuter n'exonère pas : c'est à vous de répondre, sur la fréquence, avec les mots qui conviennent.`,
+      OBJ('o5'), [
+        rad('ÉPERVIER', 'CENTAURE 1', `Salve de SIX sur la foule devant ÉPERVIER DEUX. Exécutez.`),
+        voix('OPÉRATEUR', `Chef, ils sont assis. Il n'y a pas eu de sommation. Je tire, ou je ne tire pas ?`),
+      ], [`Un gendarme du peloton réclame le tir`, `Ordre contradictoire de la salle`]),
+    ph('confirmation', `En attendant la confirmation`,
+      `Vos objections sont passées sur la fréquence et notées au journal. L'escadron ne répond pas tout de suite ; le chef du peloton, lui, se retourne vers l'engin en écartant les bras, au milieu de l'avenue de la Grande Armée. Dans la cabine, deux équipiers attendent que vous disiez quelque chose.`,
+      TENS(0.62), [
+        rad('ÉPERVIER 2', 'CENTAURE 1', `Qu'est-ce que vous attendez ? On vous a donné un ordre !`),
+        rad('ÉPERVIER', 'CENTAURE 1', `Objections reçues. Attendez.`, 'T'),
+      ], [`Panne radio de trente secondes`, `Le chef de peloton conteste le refus`]),
+    ph('assaut', `Le tir qui devient légitime`,
+      `La tension vient de monter sur l'avenue de la Grande Armée : cinquante individus masqués contournent les personnes assises et attaquent le peloton, mortiers à tir tendu, un gendarme à terre. Cette fois le cadre est réuni : riposte à des violences. Des ordres brefs au pilote et à l'opérateur, une zone qui épargne les assis, et un compte rendu après chaque salve.`,
+      T(200), [
+        rad('ÉPERVIER', 'CENTAURE 1', `Violences sur ÉPERVIER DEUX : mortiers, UN gendarme à terre. Riposte : salve de SIX sur le groupe assaillant, tir courbe.`, 'C'),
+        voix('OPÉRATEUR', `Zone désignée ? Les assis sont à trente mètres du groupe, chef. Je décale à gauche ?`),
+      ], [`Un groupe masqué attaque le peloton`, `Un gendarme est à terre devant l'engin`, `Retour de gaz par vent tournant`]),
+    ph('journal-de-bord', `Chaque salve au journal de bord`,
+      `Le groupe assaillant se replie vers l'ouest et les personnes assises quittent l'avenue de la Grande Armée par les contre-allées. Dans la cabine, le journal de bord attend : l'ordre refusé, l'heure des objections, chaque salve tirée, sur quel ordre et dans quel cadre.`,
+      FIN, [
+        rad('ÉPERVIER', 'CENTAURE 1', `Halte au feu. Rendez compte : salves, nombre, heures. Vos objections figurent au journal.`),
+        voix('PILOTE', `Vous avez bien fait, chef. Enfin… je crois. On verra ce qu'ils en disent là-haut.`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Couvrir le peloton pendant toute l\'action', 'proteger_site', { target: 'peloton' }),
     ob('o2', 'Refuser le tir hors cadre', 'zero_bavure'),
+    ob('o5', 'Faire part de ses objections à l\'ordre de tir hors cadre et demander sa confirmation', 'personnalise', { target: 'objections_ordre_illegal', count: 1 }),
     os('o3', 'Rendre compte de chaque salve', 'personnalise', { target: 'compte_rendu', count: 2 }),
     os('o4', 'Coordonner le pilote et l\'opérateur sans ordre contradictoire', 'personnalise', { target: 'coordination' }),
   ],
@@ -344,13 +519,36 @@ export const CENT_09 = mission({
     'Une centaine d\'individus déterminés.', ['Boulevard Voltaire', 'Place de la République'],
     ['Tourner les sièges', 'Ne pas tirer sans nécessité', 'Garder les pompiers à vingt mètres']),
   phases: [
-    ph('obstacle-un', 'Premier obstacle', 'Barricade de poubelles.', T(120),
-      [['ÉPERVIER', 'CENTAURE UN ICI ÉPERVIER. Premier obstacle, dégagez. PARLEZ.']], []),
-    ph('obstacle-deux', 'Deuxième et troisième obstacles', 'Véhicule incendié et verre brisé.', T(360),
-      [['CENTAURE 1', 'ÉPERVIER ICI CENTAURE UN. Véhicule en feu, appel pompiers. PARLEZ.']], ['Pneu qui éclate : détonation']),
-    ph('obstacle-trois', 'Quatrième obstacle', 'Barrage final de poubelles.', TENS(0.75),
-      [['SANTÉ 1', 'CENTAURE UN ICI SANTÉ UN. En approche à DEUX-ZÉRO mètres. PARLEZ.']], []),
-    ph('fin', 'Itinéraire ouvert', 'Les pompiers atteignent l\'immeuble.', FIN, [['SANTÉ 1', 'CENTAURE UN ICI SANTÉ UN. Sur place. PARLEZ.']], []),
+    ph('premier-obstacle', `Quatre obstacles, dix minutes`,
+      `Minuit, boulevard Voltaire. Six cents mètres plus loin, vers la place de la République, un immeuble brûle ; entre lui et les pompiers, quatre obstacles. Le premier est une barricade de barrières et de mobilier de terrasse : vérification, annonce, lame. Derrière vous, les engins rouges suivent à vingt mètres.`,
+      T(80), [
+        rad('ÉPERVIER', 'CENTAURE 1', `Quatre obstacles jusqu'à l'immeuble. UN-ZÉRO minutes. Les pompiers vous suivent à DEUX-ZÉRO mètres : la mission, c'est eux, pas vous.`, 'A'),
+        voix('OPÉRATEUR', `Premier obstacle : personne derrière, je confirme. Vas-y.`),
+      ], [`Des projectiles tombent sur les engins des pompiers`]),
+    ph('vehicule', `La voiture qui brûle au milieu`,
+      `Deuxième obstacle : une voiture incendiée en travers du boulevard Voltaire, pneus en feu. On ne pousse pas un véhicule sans l'avoir vérifié, on ne s'arrête pas contre des flammes, et le Centaure n'éteint rien : il écarte la carcasse sur le côté, et les pompiers font le reste en passant.`,
+      T(150), [
+        voix('CHEF D\'ENGIN', `Change de siège avec moi : prends la tourelle, regarde s'il y a quelqu'un dedans. Je prends le volant pour la poussée.`),
+        rad('SAPEUR 1', 'CENTAURE 1', `Écartez-moi la voiture vers la droite. Je l'arrose au passage, ne restez pas à côté.`),
+      ], [`Un pneu éclate avec une détonation`, `Un engin incendiaire éclate sur le blindé`]),
+    ph('verre', `Cinquante mètres de verre brisé`,
+      `Troisième obstacle : un abribus et trois vitrines éclatés couvrent la chaussée du boulevard Voltaire de verre sur cinquante mètres. Pour vos roues, rien ; pour les pneus des fourgons de pompiers, c'est la crevaison assurée. La lame au ras du bitume, à trois kilomètres-heure, et un riverain qui appelle depuis un porche.`,
+      T(120), [
+        voix('RIVERAIN', `S'il vous plaît ! Ma mère est au troisième, dans l'immeuble qui brûle ! Dites-leur de se dépêcher !`),
+        rad('SAPEUR 1', 'CENTAURE 1', `Je ne roule pas sur ce verre. Balayez-moi une voie à la lame, largeur de mon engin.`),
+      ], [`Un riverain demande de l'aide depuis un porche`, `Retour de gaz sur le boulevard`]),
+    ph('dernier-barrage', `Le dernier barrage`,
+      `Quatrième obstacle, au bout du boulevard Voltaire, à cent mètres de l'immeuble en feu : des poubelles enflammées, gardées par une vingtaine d'individus qui visent les engins rouges. Une salve les disperserait ; la lame aussi, sans une grenade. Chaque salve inutile comptera, et un pompier blessé met fin à tout.`,
+      OBJ('o1'), [
+        rad('ÉPERVIER', 'CENTAURE 1', `Dernier obstacle, boulevard Voltaire. Salve possible sur votre demande si le peloton est pris à partie. Sinon, la lame.`),
+        voix('CHEF D\'ENGIN', `Je te laisse le choix : tu pousses, ou tu me demandes une salve. Dis-moi pourquoi.`),
+      ], [`Vingt individus visent les engins des pompiers`, `Un engin incendiaire tombe entre le blindé et le fourgon`]),
+    ph('itineraire-ouvert', `Les engins rouges devant l'immeuble`,
+      `L'itinéraire est ouvert sur toute la longueur du boulevard Voltaire. Les fourgons des pompiers dépassent le Centaure et se mettent en station devant l'immeuble ; la grande échelle se déploie. Vous reculez de trente mètres pour leur laisser la place : la suite ne dépend plus de la lame.`,
+      FIN, [
+        rad('SAPEUR 1', 'CENTAURE 1', `En station devant l'immeuble. Tenez-moi l'axe derrière, que mes renforts puissent passer.`),
+        rad('ÉPERVIER', 'CENTAURE 1', `Itinéraire ouvert. Rendez compte : salves tirées, état de l'engin.`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Ouvrir l\'itinéraire en dix minutes', 'degager_barricade', { place: 'Boulevard Voltaire', count: 4, seconds: 600 }),

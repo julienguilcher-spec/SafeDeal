@@ -95,3 +95,15 @@ Le commanditaire dispose d'une recharge et de 40 € de crédit. Ordre de marche
 3. **Plus tard, selon le budget** — carrière, rôles journaliste / médecin / drone / pompier jouables, médias, campagne,
    école, événements multiples, optimisation téléphone poussée.
 Ne lancer aucun chantier du point 3 avant que le point 1 soit jouable.
+
+## Véhicules (rapport du 16/11)
+- **Signe de `turretYaw`** : le contrat fixe désormais « positif = vers la droite du véhicule, cap monde = heading −
+  turretYaw ; site positif = canon levé » (convention du module des véhicules et de leur rendu).
+  `src/sim/people/player-vehicle.ts` applique l'INVERSE : à corriger (le joueur tireur viserait du mauvais côté).
+- `vehicle:siren` est émis à la fois par le contrôleur du joueur et par le module des véhicules : ne garder qu'un émetteur
+  (le module des véhicules ; le contrôleur écrit seulement `Vehicle.siren`).
+- `vehicle:turret_fired` est réémis toutes les 0,5 s pendant un jet continu (canon à eau) : l'audio et les effets doivent
+  le traiter comme un maintien, pas comme un nouveau tir.
+- `interactions.startVerb` du cœur neutre ne transmet pas `targetId` à `find()` ; le vrai module des personnes le fait.
+- `findPath` ne sait pas exclure une rue fermée : le pilote automatique gère lui-même les fermetures (EXT.traffic).
+- Services : 'vehicles.autopilot' (driveTo, follow, convoy, park, parkRow, stop, status) et 'vehicles.ext'.

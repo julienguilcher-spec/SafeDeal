@@ -10,12 +10,13 @@
  * comme toute IA ; sa réflexion est étalée (≈ 3,5 fois par seconde). Les réactions sont dans ped-react.ts.
  * ===================================================================================== */
 
-import type { EntityId, Person, PersonKind, Shop, Vehicle } from '@/core/contracts';
+import type { EntityId, Person, PersonKind, Shop } from '@/core/contracts';
 import type { EdgeHit, EdgePoint } from './graph';
-import { E_PED, E_TUNNEL, N_CROSSING, N_JUNCTION, N_SIGNAL, makeEdgeHit } from './graph';
+import { E_PED, E_TUNNEL, N_JUNCTION, makeEdgeHit } from './graph';
 import {
   PedBrain, S_CORNER, S_CROSS, S_FLEE, S_IDLE, S_LEAVE, S_SHOP, S_SIT, S_WAIT, S_WALK, S_WATCH,
 } from './ped-brain';
+import { PedNav } from './ped-nav';
 import { PedReactor } from './ped-react';
 import type { PedAdopter, TrafficKernel } from './shared';
 import { PED_THINK, pedHourFactor, weatherPedFactor } from './tuning';
@@ -27,6 +28,7 @@ export class Peds implements PedAdopter {
   readonly list: PedBrain[] = [];
   readonly byPerson = new Map<EntityId, PedBrain>();
   readonly react: PedReactor;
+  private readonly nav: PedNav;
   /** Facteur de quartier : rues commerçantes et abords des monuments plus fréquentés. */
   district = 1;
   private popT = 0;
@@ -35,11 +37,11 @@ export class Peds implements PedAdopter {
   private readonly hit: EdgeHit = makeEdgeHit();
   private readonly ep: EdgePoint = { x: 0, z: 0, dx: 0, dz: 1 };
   private readonly ep2: EdgePoint = { x: 0, z: 0, dx: 0, dz: 1 };
-  private readonly vehicles: Vehicle[] = [];
   private readonly shops: Shop[] = [];
 
   constructor(readonly k: TrafficKernel) {
     this.react = new PedReactor(k, this);
+    this.nav = new PedNav(k, this);
   }
 
   reset(): void {
@@ -118,8 +120,13 @@ export class Peds implements PedAdopter {
       } else if (excess > 0 && d2 > near2 && now - b.bornAt > 8 && !k.visible(p.x, p.z)) {
         this.despawn(b);
         excess--;
-      } else if ((b.state === S_LEAVE || b.state === S_FLEE) && d2 > near2 * 2 && b.fleeLeft <= 0 && !k.visible(p.x, p.z)) {
-        this.despawn(b); // parti se mettre à l'abri : il ne reviendra pas
+      } else if (b.state === S_LEAVE && (d2 > 100 * 100 || (b.fleeLeft <= 0 && d2 > near2 * 2 && !k.visible(p.x, p.z)))) {
+        this.despawn(b); // parti se mettre à l'abri, ou loin de la manifestation : il ne reviendra pas
+        excess--;
+      } else if (excess > 0 && k.crowd > 0.05 && b.state === S_WALK && now - b.bornAt > 5) {
+        // la manifestation occupe la rue : les passants en trop s'en vont d'eux-mêmes
+        this.react.dismiss(b);
+        excess--;
       }
     }
     if (!k.hasFocus || !t.ambient) return;
@@ -400,6 +407,7 @@ export class Peds implements PedAdopter {
   /** La cible (angle, trottoir d'en face) est atteinte : on marche maintenant sur la rue suivante. */
   private commit(b: PedBrain): void {
     if (b.nextEdge >= 0) {
+      if (b.nextEdge !== b.edge || b.nextSide !== b.side) b.extra = 0;
       b.edge = b.nextEdge;
       b.dir = b.nextDir;
       b.side = b.nextSide;
@@ -432,7 +440,7 @@ export class Peds implements PedAdopter {
     // trop loin de sa rue (bousculé, descendu de voiture au milieu de la chaussée) : il y revient d'abord
     const turnAt = (c.nodeFlags[node]! & N_JUNCTION) !== 0 ? c.nodeRadius[node]! + 1 : Math.min(lat + 0.4, 5);
     if (remaining <= turnAt && hit.dist < lat + 6) {
-      this.atNode(b, node, mode);
+      this.nav.atNode(b, node, mode);
       if (b.state !== S_WALK && b.state !== S_FLEE && b.state !== S_LEAVE) return;
       if (b.edge !== e) return;
     }
@@ -440,7 +448,55 @@ export class Peds implements PedAdopter {
     if (sc < 0) sc = 0;
     else if (sc > len) sc = len;
     const ep = this.ep;
-    c.pointAt(b.edge, sc, b.side * b.dir * lat, ep);
+    const sign = b.side * b.dir;
+    c.pointAt(b.edge, sc, sign * (lat + b.extra), ep);
+    // (pas à l'approche d'un carrefour : le point visé y tombe sur la rue transversale, c'est atNode qui décide)
+    if (mode !== 1 && (c.edgeFlags[b.edge]! & E_PED) === 0 && remaining > turnAt + CARROT + 1) {
+      if (!this.walkable(ep.x, ep.z)) {
+        // le point visé est sur la chaussée : on cherche le trottoir plus loin de l'axe
+        let found = false;
+        for (let k = 1; k <= 5 && !found; k++) {
+          c.pointAt(b.edge, sc, sign * (lat + b.extra + k * 1.5), ep);
+          if (this.walkable(ep.x, ep.z)) {
+            b.extra += k * 1.5;
+            found = true;
+          }
+        }
+        if (!found) {
+          c.pointAt(b.edge, sc, sign * (lat + b.extra), ep);
+          // pas de trottoir de ce côté (terre-plein, autre chaussée d'un boulevard) : on passe en face s'il y en a un,
+          // sinon on rebrousse chemin
+          if (++b.roadT >= 3) {
+            b.roadT = 0;
+            c.pointAt(b.edge, s, -sign * lat, this.ep2);
+            if (this.walkable(this.ep2.x, this.ep2.z)) {
+              b.tx = this.ep2.x;
+              b.tz = this.ep2.z;
+              b.nextEdge = b.edge;
+              b.nextDir = b.dir;
+              b.nextSide = -b.side;
+              b.crossNode = -1;
+              b.crossDx = hit.dx;
+              b.crossDz = hit.dz;
+              b.waited = 0;
+              b.state = mode === 0 ? S_WAIT : S_CROSS;
+              b.timer = 30;
+              return;
+            }
+            b.dir = -b.dir;
+            b.side = -b.side;
+            b.extra = 0;
+            return;
+          }
+        } else {
+          b.roadT = 0;
+        }
+      } else if (b.extra > 0 && (b.tick & 7) === 0) {
+        // de temps en temps, on revient vers la ligne de marche ordinaire si le trottoir le permet
+        c.pointAt(b.edge, sc, sign * (lat + b.extra - 1.5), this.ep2);
+        if (this.walkable(this.ep2.x, this.ep2.z)) b.extra = Math.max(0, b.extra - 1.5);
+      }
+    }
     this.moveTo(b, ep.x, ep.z, pace, gait);
     b.walked += pace * 1.4 * PED_THINK;
   }
@@ -456,170 +512,5 @@ export class Peds implements PedAdopter {
     }
     b.edge = hit.edge;
     b.side = (hit.lat >= 0 ? 1 : -1) * b.dir;
-  }
-
-  /**
-   * Au bout de l'arête : choix de la suite et de la manœuvre (angle, traversée de la rue transversale,
-   * traversée de sa propre rue, demi-tour).
-   */
-  private atNode(b: PedBrain, node: number, mode: number): void {
-    const k = this.k;
-    const c = k.cache;
-    const rng = k.rng;
-    const e = b.edge;
-    const ep = this.ep;
-    const ep2 = this.ep2;
-    c.dirFrom(e, node, ep);
-    const nx = ep.x;
-    const nz = ep.z;
-    // sens de marche en arrivant au nœud, et vecteur vers mon trottoir (droite = (−dz, dx))
-    const tx = -ep.dx;
-    const tz = -ep.dz;
-    const sx = -tz * b.side;
-    const sz = tx * b.side;
-    // direction qui éloigne du danger (fuite, départ)
-    let awayX = 0;
-    let awayZ = 0;
-    if (mode !== 0) {
-      awayX = nx - b.dangerX;
-      awayZ = nz - b.dangerZ;
-      const l = Math.sqrt(awayX * awayX + awayZ * awayZ);
-      if (l > 0.01) {
-        awayX /= l;
-        awayZ /= l;
-      }
-      if (b.hasRefuge) {
-        // l'abri (bouche de métro) attire autant que le danger repousse
-        const rx = b.refugeX - nx;
-        const rz = b.refugeZ - nz;
-        const rl = Math.sqrt(rx * rx + rz * rz);
-        if (rl > 1) {
-          awayX = awayX * 0.5 + (rx / rl) * 0.9;
-          awayZ = awayZ * 0.5 + (rz / rl) * 0.9;
-        }
-      }
-    }
-    const own = (c.nodeFlags[node]! & (N_CROSSING | N_SIGNAL | N_JUNCTION)) !== 0 && c.isVehicle(e);
-    let best = -1;
-    let bestKind = 0; // 0 angle ou suite, 1 traversée de ma rue d'abord
-    let total = 0;
-    let bestScore = mode !== 0 ? -(tx * awayX + tz * awayZ) - 0.35 : 0; // rebrousser chemin : dernier recours
-    for (let j = c.adjStart[node]!; j < c.adjStart[node + 1]!; j++) {
-      const e2 = c.adjEdge[j]!;
-      if (e2 === e || (c.edgeFlags[e2]! & E_TUNNEL) !== 0) continue;
-      c.dirFrom(e2, node, ep2);
-      const dot = ep2.dx * tx + ep2.dz * tz;
-      const toward = ep2.dx * sx + ep2.dz * sz;
-      const vehicle = c.isVehicle(e2);
-      const away = toward < -0.35 && dot <= 0.7;
-      if (mode !== 0) {
-        const score = ep2.dx * awayX + ep2.dz * awayZ + 0.3 * (1 - Math.abs(dot)) + rng.next() * 0.1;
-        if (score > bestScore) {
-          bestScore = score;
-          best = e2;
-          bestKind = away && own ? 1 : 0;
-        }
-        continue;
-      }
-      let w = dot > 0.7 ? 3 : toward > 0.35 ? 2 : away ? (own && b.waited >= 0 ? 0.5 : 0) : 0.1;
-      if (vehicle && c.edgeSidewalk[e2]! < 1) w *= 0.12;
-      else if (!vehicle) w *= 0.7;
-      if (w <= 0) continue;
-      total += w;
-      if (rng.next() * total < w) {
-        best = e2;
-        bestKind = away ? 1 : 0;
-      }
-    }
-    // de temps en temps, à un passage piéton, il change de trottoir
-    if (mode === 0 && own && best >= 0 && bestKind === 0 && b.waited >= 0 && rng.chance(0.07)) bestKind = 1;
-    if (best < 0) {
-      // impasse, ou le danger est partout ailleurs : demi-tour sur le même trottoir
-      b.dir = -b.dir;
-      b.side = -b.side;
-      return;
-    }
-    const lat1 = this.lat(e, b.jitter);
-    if (bestKind === 1) {
-      // traversée de ma propre rue : même abscisse, trottoir d'en face ; la suite se décidera de l'autre côté
-      const px = b.p.x - nx;
-      const pz = b.p.z - nz;
-      const along = px * tx + pz * tz;
-      b.tx = nx + tx * along - sx * lat1;
-      b.tz = nz + tz * along - sz * lat1;
-      if (!this.walkable(b.tx, b.tz)) {
-        b.waited = -1; // pas de trottoir en face : on n'essaiera plus ici
-        return;
-      }
-      b.nextEdge = e;
-      b.nextDir = b.dir;
-      b.nextSide = -b.side;
-      b.crossNode = node;
-      b.crossDx = tx;
-      b.crossDz = tz;
-      b.waited = 0;
-      b.state = mode === 1 ? S_CROSS : S_WAIT;
-      b.timer = 30;
-      return;
-    }
-    // suite sur l'arête choisie, du même côté par rapport au sens de marche
-    c.dirFrom(best, node, ep2);
-    const ux = ep2.dx;
-    const uz = ep2.dz;
-    const n2x = -uz * b.side;
-    const n2z = ux * b.side;
-    const lat2 = this.lat(best, b.jitter);
-    b.nextEdge = best;
-    b.nextDir = c.edgeA[best] === node ? 1 : -1;
-    b.nextSide = b.side;
-    b.waited = 0;
-    // une rue débouche-t-elle de mon côté entre les deux ? alors il faut la traverser
-    let arm = false;
-    if (ux * sx + uz * sz <= 0.35) {
-      for (let j = c.adjStart[node]!; j < c.adjStart[node + 1]!; j++) {
-        const e3 = c.adjEdge[j]!;
-        if (e3 === e || e3 === best || !c.isVehicle(e3)) continue;
-        c.dirFrom(e3, node, ep);
-        if (ep.dx * sx + ep.dz * sz > 0.35) {
-          arm = true;
-          b.crossDx = ep.dx;
-          b.crossDz = ep.dz;
-        }
-      }
-    }
-    if (arm) {
-      const reach = c.nodeRadius[node]! + 1;
-      b.tx = nx + ux * reach + n2x * lat2;
-      b.tz = nz + uz * reach + n2z * lat2;
-      b.crossNode = node;
-      b.state = mode === 1 ? S_CROSS : S_WAIT;
-      b.timer = 30;
-      return;
-    }
-    // angle des deux trottoirs : intersection des deux lignes de marche
-    const cos = sx * n2x + sz * n2z;
-    const den = 1 - cos * cos;
-    let cx: number;
-    let cz: number;
-    if (den < 0.03) {
-      const m = (lat1 + lat2) * 0.5;
-      cx = sx * m;
-      cz = sz * m;
-    } else {
-      const a = (lat1 - cos * lat2) / den;
-      const bb = (lat2 - cos * lat1) / den;
-      cx = sx * a + n2x * bb;
-      cz = sz * a + n2z * bb;
-      const l = Math.sqrt(cx * cx + cz * cz);
-      const max = Math.max(lat1, lat2) * 2.2 + 1;
-      if (l > max) {
-        cx *= max / l;
-        cz *= max / l;
-      }
-    }
-    b.tx = nx + cx;
-    b.tz = nz + cz;
-    b.state = S_CORNER;
-    b.timer = 12;
   }
 }

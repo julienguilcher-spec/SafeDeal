@@ -37,6 +37,13 @@ export class PedBrain {
   side = 1;
   /** Position dans la largeur du trottoir, 0 (bord de chaussée) … 1 (façades). */
   jitter = 0.5;
+  /**
+   * Écart supplémentaire à l'axe (m) trouvé en tâtant le sol : la chaussée réelle est parfois plus large que la
+   * largeur annoncée par le graphe (couloirs de bus, places, carrefours évasés).
+   */
+  extra = 0;
+  /** Nombre de réflexions de suite passées sans trouver de trottoir de ce côté de la rue. */
+  roadT = 0;
   /** Allure personnelle (part de la vitesse de marche). */
   pace = 0.85;
   // ── cible courante (angle, trottoir d'en face, chaise) ──

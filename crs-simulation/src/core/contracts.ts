@@ -596,7 +596,10 @@ export interface Vehicle {
   braking: boolean;
   /** Occupants par index de siège (0 si vide). */
   seats: EntityId[];
-  /** Orientation des tourelles (repère véhicule). */
+  /**
+   * Orientation des tourelles (repère véhicule). Gisement turretYaw positif = vers la DROITE du véhicule : cap monde de
+   * la tourelle = heading − turretYaw. Site turretPitch positif = canon levé.
+   */
   turretYaw: number[];
   turretPitch: number[];
   /** Munitions / eau restantes par tourelle. */

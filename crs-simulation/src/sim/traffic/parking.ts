@@ -51,7 +51,6 @@ export class Parking {
   private readonly pt: EdgePoint = { x: 0, z: 0, dx: 0, dz: 1 };
   private readonly road: RoadSample = makeRoadSample();
   // géométrie de la dernière arête examinée
-  private slotCount = 0;
   private slotStart = 0;
   private poseX = 0;
   private poseZ = 0;
@@ -121,7 +120,6 @@ export class Parking {
     let n = Math.floor(usable / PARK_SLOT);
     if (n > MAX_SLOTS) n = MAX_SLOTS;
     if (n < 0) n = 0;
-    this.slotCount = n;
     this.slotStart = c0 + (usable - n * PARK_SLOT) * 0.5;
     return n;
   }
@@ -314,22 +312,33 @@ export class Parking {
     if (e < 0 || e >= c.edgeCount || !this.eligible(e)) return false;
     const count = this.layout(e);
     if (count === 0) return false;
+    // la manœuvre (alignement, parfois une marche arrière) demande une rue calme : personne qui roule alentour
+    const near = this.near;
+    const n = k.ctx.vehicles.queryRadius(v.x, v.z, 35, near);
+    for (let i = 0; i < n; i++) if (near[i] !== v && Math.abs(near[i]!.speed) > 0.5) return false;
     const hx = Math.sin(v.heading);
     const hz = Math.cos(v.heading);
+    const len = c.edgeLen[e]!;
+    const farA = (c.nodeFlags[c.edgeA[e]!]! & N_JUNCTION) !== 0 ? 30 : 0;
+    const farB = (c.nodeFlags[c.edgeB[e]!]! & N_JUNCTION) !== 0 ? 30 : 0;
     for (let s = 0; s < count * 2; s++) {
       const index = s >> 1;
       const side = (s & 1) === 0 ? 1 : -1;
       const key = this.key(e, index, side);
       if (this.taken.has(key)) continue;
+      // loin des carrefours : on ne manœuvre pas là où d'autres attendent ou tournent
+      const at = this.slotStart + (index + 0.5) * PARK_SLOT;
+      if (at < farA || at > len - farB) continue;
       this.pose(e, index, side, b.halfW);
       const sx = Math.sin(this.poseH);
       const sz = Math.cos(this.poseH);
       if (sx * hx + sz * hz < 0.6) continue; // place de l'autre sens
       const ahead = (this.poseX - v.x) * hx + (this.poseZ - v.z) * hz;
       if (ahead < 9 || ahead > 45) continue;
-      // la place d'avant (dans le sens de la marche) doit être vide : c'est par elle qu'il se présente
-      const before = sx * this.pt.dx + sz * this.pt.dz >= 0 ? index - 1 : index + 1;
-      if (before >= 0 && before < count && this.taken.has(this.key(e, before, side))) continue;
+      // les deux places voisines doivent être vides : il se présente par l'une, et le pilote automatique
+      // n'est pas assez précis pour se glisser entre deux voitures
+      if (index > 0 && this.taken.has(this.key(e, index - 1, side))) continue;
+      if (index + 1 < count && this.taken.has(this.key(e, index + 1, side))) continue;
       if (!this.free(this.poseX, this.poseZ, b.halfW)) continue;
       if (!this.cars.park(b, key, this.poseX, this.poseZ, this.poseH)) return false;
       this.taken.add(key);

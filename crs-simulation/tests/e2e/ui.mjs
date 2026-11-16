@@ -371,9 +371,10 @@ try {
     const size = { key: '1280x720', width: 1280, height: 720, mobile: false };
     const s = await open('', size);
     const { page } = s;
-    // rôle → commissaire : grade unique, résumé mis à jour
-    await page.locator('[data-id="role-commissaire"]').click();
-    check(/Commissaire, autorité civile/.test(await text(page, '.ui-sum__role')), 'choix du rôle répercuté dans le résumé');
+    // commandant unique (BRIEF §1) : pas de tuile « Commissaire » ; rôle → commandant, résumé mis à jour
+    check((await page.locator('[data-id="role-commissaire"]').count()) === 0, 'pas de tuile « Commissaire » sur la page d’accueil');
+    await page.locator('[data-id="role-commandant"]').click();
+    check(/Commandant, commandant d.unité/.test(await text(page, '.ui-sum__role')), 'choix du rôle répercuté dans le résumé');
     // lieu
     await page.locator('[data-id="tab-lieu"]').click();
     // choisir sur le plan : un clic vers l'ouest de l'emprise sélectionne le Trocadéro, puis la liste reprend la main
@@ -433,7 +434,7 @@ try {
     await shot(page, 'ui-accueil-surprise-1280x720');
     await page.locator('[data-id="saved-charger"]').click();
     await frames(page, 3);
-    check(/Place de la Bastille/.test(await text(page, '.ui-home__summary')) && /Commissaire/.test(await text(page, '.ui-sum__role')), '« Charger » rétablit le scénario enregistré');
+    check(/Place de la Bastille/.test(await text(page, '.ui-home__summary')) && /Commandant/.test(await text(page, '.ui-sum__role')), '« Charger » rétablit le scénario enregistré');
     // suppression avec confirmation (retour arrière = annuler)
     await page.locator('[data-id="saved-supprimer"]').click();
     await frames(page, 2);
@@ -448,7 +449,7 @@ try {
     await waitFor(page, 'window.__uiTest.ctx.session.phase === "playing"', 30000);
     await settle(page, 250);
     const cfg = await page.evaluate(() => window.__uiTest.ctx.session.config);
-    check(cfg.mode === 'libre' && cfg.role === 'commissaire' && cfg.rank === 'commissaire' && cfg.place === 'Place de la Bastille', `SessionConfig lancé : ${cfg.mode}, ${cfg.role}, ${cfg.rank}, ${cfg.place}`);
+    check(cfg.mode === 'libre' && cfg.role === 'commandant' && cfg.rank === 'commandant' && cfg.place === 'Place de la Bastille', `SessionConfig lancé : ${cfg.mode}, ${cfg.role}, ${cfg.rank}, ${cfg.place}`);
     check(cfg.weather === 'pluie' && cfg.crowdSize === 900 && cfg.timeOfDay === hour && typeof cfg.x === 'number', `SessionConfig : météo ${cfg.weather}, foule ${cfg.crowdSize}, heure ${cfg.timeOfDay}`);
     check(cfg.extra.scenario === 1 && cfg.extra.cause === 'climat' && cfg.extra.options.circulation === 'coupee' && cfg.extra.moyens.centaure === 1 && cfg.extra.poste === 'autorite_civile', 'config.extra : cause, options, moyens, poste');
     const wind = await page.evaluate(() => ({ x: window.__uiTest.ctx.env.state.windX, z: window.__uiTest.ctx.env.state.windZ }));
@@ -512,7 +513,7 @@ try {
     await page.locator('[data-id="continuer"]').click();
     await waitFor(page, 'window.__uiTest.ctx.session.phase === "playing"', 30000);
     const again = await page.evaluate(() => window.__uiTest.ctx.session.config);
-    check(again.role === 'commissaire' && again.place === 'Place de la Bastille' && again.seed === cfg.seed, '« Continuer » relance la dernière configuration à l’identique');
+    check(again.role === 'commandant' && again.place === 'Place de la Bastille' && again.seed === cfg.seed, '« Continuer » relance la dernière configuration à l’identique');
     await close(s, 'parcours');
 
     // paramètres : export / import / effacement de la sauvegarde ; entrées conditionnelles vers d'autres écrans

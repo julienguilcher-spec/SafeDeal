@@ -79,6 +79,13 @@ function drawVolume(out: Uint8Array, W: number, ox: number, oy: number, T: numbe
   const dens = new Float32Array(T * T);
   const sx = (seed * 13.7) % 97;
   const sy = (seed * 7.3) % 89;
+  // lobes d'une volute : un cœur et une couronne de bourgeons (x, y, rayon)
+  const lobes: number[] = [0, -0.04, 0.5];
+  for (let k = 0; k < 6; k++) {
+    const a = (k / 6) * Math.PI * 2 + h01(k, 1, seed) * 0.9;
+    const dist = 0.3 + h01(k, 2, seed) * 0.14;
+    lobes.push(Math.cos(a) * dist, Math.sin(a) * dist * 0.92, 0.27 + h01(k, 3, seed) * 0.15);
+  }
   for (let j = 0; j < T; j++) {
     const v = ((j + 0.5) / T) * 2 - 1;
     for (let i = 0; i < T; i++) {
@@ -91,16 +98,29 @@ function drawVolume(out: Uint8Array, W: number, ox: number, oy: number, T: numbe
         const r = Math.sqrt(uu * uu + v * v * 0.92);
         const n = fbm(u * 3.2 + sx, v * 2.2 + sy, 3, seed + 3);
         d = smoothstep(1, 0.1, r + (n - 0.5) * 0.9) * (0.55 + 0.6 * n);
+      } else if (style === 'puff') {
+        // volute : réunion de lobes ronds (silhouette de chou-fleur), rongée par un bruit
+        let keep = 1;
+        for (let k = 0; k < lobes.length; k += 3) {
+          const dx = u - lobes[k]!;
+          const dy = v - lobes[k + 1]!;
+          const rr = lobes[k + 2]!;
+          const q = 1 - (dx * dx + dy * dy) / (rr * rr);
+          if (q > 0) keep *= 1 - q * Math.sqrt(q);
+        }
+        const n1 = fbm(u * 2.7 + sx, v * 2.7 + sy, 3, seed);
+        const n2 = fbm(u * 6.2 + sy, v * 6.2 + sx, 2, seed + 9);
+        d = smoothstep(0.08, 0.78, (1 - keep) * (0.62 + 0.8 * n1));
+        d *= 0.82 + 0.3 * n2;
       } else {
         const r = Math.sqrt(u * u + v * v);
-        const f1 = style === 'dust' ? 2.4 : style === 'mist' ? 1.1 : 1.7;
-        const amp = style === 'dust' ? 0.7 : style === 'mist' ? 0.35 : 0.95;
+        const f1 = style === 'dust' ? 2.4 : 1.1;
+        const amp = style === 'dust' ? 0.7 : 0.35;
         const n1 = fbm(u * f1 + sx, v * f1 + sy, 3, seed);
         const n2 = fbm(u * 4.6 + sy, v * 4.6 + sx, 2, seed + 9);
         d = smoothstep(1, style === 'mist' ? 0.0 : 0.18, r + (n1 - 0.5) * amp);
         if (style === 'dust') d *= 0.6 + 0.6 * n2;
-        else if (style === 'mist') d = d * d * (0.7 + 0.3 * n2) * 0.8;
-        else d *= 0.72 + 0.5 * n2;
+        else d = d * d * (0.7 + 0.3 * n2) * 0.8;
       }
       // garde-fou : nul sur le bord de la vignette
       const m = Math.max(Math.abs(u), Math.abs(v));
@@ -108,7 +128,7 @@ function drawVolume(out: Uint8Array, W: number, ox: number, oy: number, T: numbe
       dens[j * T + i] = d < 0 ? 0 : d > 1 ? 1 : d;
     }
   }
-  const relief = style === 'mist' ? 1.2 : style === 'dust' ? 3.2 : 2.6;
+  const relief = style === 'mist' ? 1.2 : style === 'dust' ? 3.2 : 4.2;
   for (let j = 0; j < T; j++) {
     const v = ((j + 0.5) / T) * 2 - 1;
     for (let i = 0; i < T; i++) {
@@ -123,9 +143,9 @@ function drawVolume(out: Uint8Array, W: number, ox: number, oy: number, T: numbe
       // normale : mélange de la sphère englobante (rondeur d'ensemble) et du relief (bourgeons)
       const r2 = u * u + v * v;
       const sz = Math.sqrt(Math.max(0.05, 1 - Math.min(1, r2)));
-      let nx = u * 0.5 - gx * relief * 0.12;
-      let ny = v * 0.5 - gy * relief * 0.12;
-      let nz = sz * 0.6 + 0.35;
+      let nx = u * 0.42 - gx * relief * 0.12;
+      let ny = v * 0.42 - gy * relief * 0.12;
+      let nz = sz * 0.6 + 0.3;
       const l = Math.sqrt(nx * nx + ny * ny + nz * nz);
       nx /= l; ny /= l; nz /= l;
       const k = ((oy + j) * W + ox + i) * 4;

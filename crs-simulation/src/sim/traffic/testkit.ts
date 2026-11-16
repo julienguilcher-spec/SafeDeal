@@ -457,3 +457,15 @@ export async function createTrafficBench(options: TrafficBenchOptions = {}): Pro
     step: (seconds: number, dt?: number): void => t.step(seconds, dt),
   };
 }
+
+/** Avance pas à pas jusqu'à ce que la condition soit vraie ; retourne le temps écoulé (s), ou −1 au-delà de `limit`. */
+export function runUntil(b: TrafficBench, done: () => boolean, limit: number, each?: () => void, dt = 1 / 30): number {
+  let t = 0;
+  while (t < limit) {
+    b.step(dt, dt);
+    t += dt;
+    if (each) each();
+    if (done()) return t;
+  }
+  return -1;
+}

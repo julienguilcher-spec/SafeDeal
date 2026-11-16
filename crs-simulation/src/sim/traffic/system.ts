@@ -10,7 +10,7 @@ import type {
 import { SystemOrder } from '@/core/contracts';
 import { EXT } from '@/core/extensions';
 import type { WorldData } from '@/world/query/api';
-import { TRAFFIC_SERVICE, TRAFFIC_SYSTEM_ID } from './api';
+import { JAM_EVENT, TRAFFIC_SERVICE, TRAFFIC_SYSTEM_ID } from './api';
 import type { MotoristStatus, SignalColor, TrafficApi } from './api';
 import { Cars } from './cars';
 import { Closures } from './closures';
@@ -50,6 +50,9 @@ export class TrafficSystem implements GameSystem {
   private readonly unsub: (() => void)[] = [];
   private graphDirty = true;
   private slowT = 0;
+  private jammed = false;
+  private jamX = 0;
+  private jamZ = 0;
   private readonly hit: EdgeHit = makeEdgeHit();
   private readonly ep: EdgePoint = { x: 0, z: 0, dx: 0, dz: 1 };
   private readonly protest = (p: Person): boolean => p.faction === 'protest' && p.vehicleId === 0;
@@ -129,6 +132,7 @@ export class TrafficSystem implements GameSystem {
     this.closures.reset();
     this.graphDirty = true;
     this.slowT = 0;
+    this.jammed = false;
   }
 
   dispose(): void {
@@ -206,22 +210,30 @@ export class TrafficSystem implements GameSystem {
     if (this.slowT <= 0) {
       this.slowT = 1;
       // place prise par la manifestation autour du joueur : la vie civile s'efface
-      if (k.hasFocus && ctx.director.phase !== 'aucune' && ctx.director.phase !== 'terminee') {
-        k.protestNear = ctx.people.countIn(k.focusX, k.focusZ, 150, this.protest);
-        const close = k.protestNear > 0 ? ctx.people.countIn(k.focusX, k.focusZ, 60, this.protest) : 0;
-        k.crowd = Math.min(1, close / 120);
-      } else if (k.hasFocus && ctx.squads.list.length > 0) {
-        // pas de directeur de foule branché : on compte quand même les manifestants présents
-        k.protestNear = ctx.people.countIn(k.focusX, k.focusZ, 150, this.protest);
-        k.crowd = k.protestNear > 0 ? Math.min(1, ctx.people.countIn(k.focusX, k.focusZ, 60, this.protest) / 120) : 0;
-      } else {
-        k.protestNear = k.hasFocus ? ctx.people.countIn(k.focusX, k.focusZ, 150, this.protest) : 0;
-        k.crowd = k.protestNear > 0 ? Math.min(1, ctx.people.countIn(k.focusX, k.focusZ, 60, this.protest) / 120) : 0;
-      }
+      k.protestNear = k.hasFocus ? ctx.people.countIn(k.focusX, k.focusZ, 150, this.protest) : 0;
+      k.crowd = k.protestNear > 0 ? Math.min(1, ctx.people.countIn(k.focusX, k.focusZ, 60, this.protest) / 120) : 0;
       k.stats.closures = this.closures.closures.length;
       let blocked = 0;
-      for (let i = 0; i < this.cars.list.length; i++) if (this.cars.list[i]!.blockedT > 0) blocked++;
+      let bx = 0;
+      let bz = 0;
+      for (let i = 0; i < this.cars.list.length; i++) {
+        const b = this.cars.list[i]!;
+        if (b.blockedT <= 0) continue;
+        blocked++;
+        bx += b.v.x;
+        bz += b.v.z;
+      }
       k.stats.blocked = blocked;
+      // bouchon : annoncé à partir de quatre véhicules immobilisés, levé quand il n'en reste presque plus
+      if (!this.jammed && blocked >= 4) {
+        this.jammed = true;
+        this.jamX = bx / blocked;
+        this.jamZ = bz / blocked;
+        ctx.events.emitAny(JAM_EVENT, { x: this.jamX, z: this.jamZ, vehicles: blocked, state: 'forme' });
+      } else if (this.jammed && blocked <= 1) {
+        this.jammed = false;
+        ctx.events.emitAny(JAM_EVENT, { x: this.jamX, z: this.jamZ, vehicles: blocked, state: 'resorbe' });
+      }
     }
     this.closures.update(dt);
     if (!k.cache.ready) return;

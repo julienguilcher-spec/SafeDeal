@@ -8,19 +8,20 @@
  * 10 m de nuage donne donc la même opacité quel que soit le niveau de détail.
  *
  * Coefficients : la fumée reprend celui de la simulation (visibility : 0,55 par mètre et par unité) ;
- * le lacrymogène est plus couvrant à l'œil (0,30) qu'il n'est gênant pour la visée des IA (0,14),
- * parce qu'un nuage doit se LIRE de loin (repères : 0,1 = bord du nuage, 0,5 = près d'un palet).
+ * le lacrymogène est bien plus couvrant à l'œil (0,85) qu'il n'est gênant pour la visée des IA (0,14),
+ * parce qu'un nuage doit se LIRE de loin et que le champ reste dilué dès qu'il y a du vent (repères :
+ * 0,1 = bord du nuage, 0,5 = près d'un palet ; 0,12 au plus par vent de 18 km/h).
  * ===================================================================================== */
 
 /** Extinction du lacrymogène (par mètre et par unité de concentration). */
-export const GAS_SIGMA = 0.3;
+export const GAS_SIGMA = 0.85;
 /** Extinction de la fumée (par mètre et par unité de densité). */
 export const SMOKE_SIGMA = 0.55;
 /** Concentration sous laquelle rien n'est dessiné. */
 export const GAS_VISIBLE_MIN = 0.015;
 export const SMOKE_VISIBLE_MIN = 0.015;
-/** Opacité maximale d'une seule bouffée (une bouffée totalement opaque ferait un disque dur). */
-export const PUFF_ALPHA_MAX = 0.9;
+/** Opacité maximale d'une seule bouffée : au-delà, les volutes se découpent comme du coton ; l'opacité d'un nuage dense vient de l'empilement. */
+export const PUFF_ALPHA_MAX = 0.66;
 
 /** Opacité d'un tronçon de `path` mètres de gaz à la concentration `c` (0..1, croissante, bornée). */
 export function gasOpacity(c: number, path: number): number {

@@ -1,8 +1,8 @@
 /* =====================================================================================
- * FOULE — départs et gestes : quitter la manifestation (bouche de métro ouverte ou rue qui s'éloigne, en
- * groupe), gestes d'ambiance (scander le poing levé, applaudir, filmer au téléphone, brandir sa pancarte,
- * s'asseoir, discuter). Les gestes passent par ctx.actions quand un objet est en jeu.
- * (Suite de behavior.ts.)
+ * FOULE — départs, flânerie et gestes : quitter la manifestation (bouche de métro ouverte ou rue qui
+ * s'éloigne, en groupe), rester dans les parages, badauds en lisière, gestes d'ambiance (scander le poing
+ * levé, applaudir, filmer au téléphone, brandir sa pancarte, s'asseoir, discuter). Les gestes passent par
+ * ctx.actions quand un objet est en jeu. (Suite de behavior.ts.)
  * ===================================================================================== */
 
 import type { ItemId, Person } from '@/core/contracts';
@@ -16,7 +16,6 @@ const SIGNS: readonly ItemId[] = ['pancarte', 'drapeau'];
 
 export class Manners {
   constructor(private readonly core: CrowdCore, private readonly mind: Behavior) {}
-
 
   /** Quitte la manifestation : vers une bouche de métro ouverte ou une rue qui s'éloigne ; le groupe suit. */
   startLeaving(p: Person, b: CrowdBrain, exit: number): void {
@@ -129,6 +128,63 @@ export class Manners {
       b.path = null;
       core.nav.request(b);
     }
+  }
+
+  /** Reste dans les parages (après-manif, arrivée tardive sans place) : par petits déplacements autour d'un point. */
+  linger(p: Person, b: CrowdBrain, now: number): void {
+    const core = this.core;
+    if (b.state !== S.LINGER) {
+      this.mind.setState(b, S.LINGER);
+      // point d'attache : là où l'on est si le cortège est fini, sinon près de la tête
+      if (core.director.base === 'apres_manif' || core.director.base === 'dispersion') {
+        b.anchorX = p.x;
+        b.anchorZ = p.z;
+      } else {
+        core.corridor.at(core.formation.headS - 6 - 20 * b.docility, core.rp);
+        b.anchorX = core.rp.x - core.rp.tz * core.rp.half * (b.courage - 0.5);
+        b.anchorZ = core.rp.z + core.rp.tx * core.rp.half * (b.courage - 0.5);
+      }
+      b.timer = now;
+    }
+    if (now >= b.timer) {
+      b.timer = now + 8 + 14 * core.rngThink.next();
+      if (core.formation.marching) {
+        core.corridor.at(core.formation.headS - 6 - 20 * b.docility, core.rp);
+        b.anchorX = core.rp.x - core.rp.tz * core.rp.half * (b.courage - 0.5);
+        b.anchorZ = core.rp.z + core.rp.tx * core.rp.half * (b.courage - 0.5);
+      }
+      const a = core.rngThink.next() * 6.283;
+      const r = 1 + 5 * core.rngThink.next();
+      core.steering.goTo(p, b, b.anchorX + Math.sin(a) * r, b.anchorZ + Math.cos(a) * r, 0.9 * b.pace, false);
+    }
+  }
+
+  /** Badaud en lisière : regarde passer le cortège, le suit un peu, s'en va dès que cela se gâte. */
+  bystand(p: Person, b: CrowdBrain, now: number): void {
+    const core = this.core;
+    this.mind.setState(b, S.BYSTAND);
+    const base = core.director.base;
+    if (base === 'dispersion' || base === 'apres_manif' || base === 'terminee' || core.director.tensionAt(p.x, p.z) > 0.45) {
+      if (b.leaveAt === Infinity) b.leaveAt = now + 5 + 40 * b.docility * core.timeScale;
+      return;
+    }
+    if (now < b.timer) return;
+    b.timer = now + 15 + 30 * core.rngThink.next();
+    // se replace à hauteur du cortège, contre les façades
+    const f = core.formation;
+    const s = f.headS - 10 - (f.headS - f.tailS) * core.rngThink.next();
+    core.corridor.at(s, core.rp);
+    const own = core.corridor.project(p.x, p.z, s, 400);
+    if (Math.abs(own - s) > 35 && f.marching && core.rngThink.chance(0.6)) {
+      const side = (p.x - core.rp.x) * -core.rp.tz + (p.z - core.rp.z) * core.rp.tx >= 0 ? 1 : -1;
+      const lateral = core.rp.center + side * (core.rp.half + 0.4);
+      const x = core.rp.x - core.rp.tz * lateral;
+      const z = core.rp.z + core.rp.tx * lateral;
+      if (core.ctx.world.isFree(x, z, 0.35)) core.steering.goTo(p, b, x, z, 1.1, false);
+    }
+    core.corridor.at(own, core.rp);
+    b.lookX = core.rp.x;
+    b.lookZ = core.rp.z;
   }
 
   ambient(p: Person, b: CrowdBrain, now: number, bystander: boolean): void {

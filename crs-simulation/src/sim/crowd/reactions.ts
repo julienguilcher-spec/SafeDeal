@@ -39,6 +39,9 @@ export class Reactions {
       b.gasSince = now;
       b.dir = NaN;
       core.sense.gas.add(p.x, p.z, now);
+      // la première bouffée fait peur, qu'on ait vu partir la grenade ou non
+      const scare = T.GAS_SCARE * T.PROFILE[p.profile ?? 'pacifique'].fearK;
+      if (p.fear < scare) p.fear = scare;
     }
     if (b.state !== S.AVOID) {
       this.mind.setState(b, S.AVOID);
@@ -54,11 +57,23 @@ export class Reactions {
     const wz = wind > 0.3 ? env.windZ / wind : 0;
     const sense = core.sense;
     const police = sense.policeNear(p.x, p.z, 3);
+    // tout le monde s'écarte du même point (là où les palets sont tombés, où le feu a pris) : les fuites
+    // divergent au lieu de se croiser. Sans point connu : les huit directions de la rose des vents.
+    let base = 0;
+    let fan = 8;
+    let step = 0.7854;
+    const src = fire ? null : sense.gas.near(p.x, p.z, 45, now - 120);
+    if (src !== null && (src.x - p.x) * (src.x - p.x) + (src.z - p.z) * (src.z - p.z) > 1) {
+      base = Math.atan2(p.x - src.x, p.z - src.z);
+      fan = 5;
+      step = 0.61;
+    }
     let best = b.dir;
     let bestScore = -Infinity;
     const hit = this.hit;
-    for (let k = 0; k < 8; k++) {
-      const a = k * 0.7854 + b.phase;
+    for (let k = 0; k < fan; k++) {
+      // éventail autour de la direction de fuite : 0, ± 35°, ± 70° ; ou tour d'horizon complet
+      const a = fan === 8 ? k * step : base + (k === 0 ? 0 : ((k + 1) >> 1) * step * (k % 2 === 1 ? 1 : -1));
       const dx = Math.sin(a);
       const dz = Math.cos(a);
       let reach = 16;
@@ -74,8 +89,9 @@ export class Reactions {
       }
       // le nuage dérive avec le vent : on sort par le travers ou au vent, jamais sous le vent
       let score = -(g1 + g2 * 1.6) - Math.max(0, dx * wx + dz * wz) * 0.3 * Math.min(1, wind / 3) + reach * 0.004;
+      if (fan === 5) score -= ((k + 1) >> 1) * 0.04; // à égalité, droit devant soi
       if (police < 30 && dx * (sense.nearX - p.x) + dz * (sense.nearZ - p.z) > 0.5 * police) score -= 0.25;
-      if (b.dir === b.dir && Math.abs(Math.atan2(Math.sin(a - b.dir), Math.cos(a - b.dir))) < 0.5) score += 0.08;
+      if (b.dir === b.dir && Math.abs(Math.atan2(Math.sin(a - b.dir), Math.cos(a - b.dir))) < 0.4) score += 0.08;
       if (score > bestScore) {
         bestScore = score;
         best = a;

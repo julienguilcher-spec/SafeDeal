@@ -140,11 +140,19 @@ export class Behavior {
       return;
     }
     if (b.state === S.AVOID) {
-      // sorti du nuage (ou de la cohue) : on tousse, on reprend ses esprits
-      if (b.gasSince >= 0) this.gesture(p, b, A.COUGH, 3 + 3 * core.rngThink.next());
+      // sorti du nuage (ou de la cohue) : on tousse, on reprend ses esprits — mais pas au bord du nuage, où l'on
+      // gênerait ceux qui en sortent encore : on s'en écarte de dix à vingt-cinq mètres
+      const gassed = b.gasSince >= 0;
+      if (gassed) this.gesture(p, b, A.COUGH, 3 + 3 * core.rngThink.next());
       b.gasSince = -1;
       b.run = false;
       this.setState(b, S.REGROUP);
+      const src = gassed ? core.sense.gas.near(p.x, p.z, 60, now - 180) : null;
+      if (src !== null) {
+        this.react.awayAlongRoad(p, b, src.x, src.z, 10 + 15 * b.docility);
+        b.speed = 1.6;
+        b.stateSince = now + 5;
+      }
     }
     // ── 2. compression : chercher l'issue ──
     if (b.density >= T.DENSITY_ALERT && core.density.escape(p, b)) {
@@ -306,7 +314,7 @@ export class Behavior {
     const f = core.formation;
     const base = core.director.base;
     if (bystander) {
-      this.bystand(p, b, now);
+      this.manners.bystand(p, b, now);
       return;
     }
     if (base === 'terminee') {
@@ -316,7 +324,7 @@ export class Behavior {
     const hasSlot = b.slot >= 0 && b.slot < f.slotCount;
     const cortege = base === 'rassemblement' || base === 'depart' || base === 'cortege';
     if (!hasSlot || (!cortege && base === 'apres_manif')) {
-      this.linger(p, b, now);
+      this.manners.linger(p, b, now);
       return;
     }
     // après une fuite ou un nuage : reprendre son souffle avant de revenir
@@ -478,63 +486,6 @@ export class Behavior {
     b.tx = sx;
     b.tz = sz;
     if (d < 6) this.setState(b, S.MARCH);
-  }
-
-  /** Reste dans les parages (après-manif, arrivée tardive sans place) : par petits déplacements autour d'un point. */
-  private linger(p: Person, b: CrowdBrain, now: number): void {
-    const core = this.core;
-    if (b.state !== S.LINGER) {
-      this.setState(b, S.LINGER);
-      // point d'attache : là où l'on est si le cortège est fini, sinon près de la tête
-      if (core.director.base === 'apres_manif' || core.director.base === 'dispersion') {
-        b.anchorX = p.x;
-        b.anchorZ = p.z;
-      } else {
-        core.corridor.at(core.formation.headS - 6 - 20 * b.docility, core.rp);
-        b.anchorX = core.rp.x - core.rp.tz * core.rp.half * (b.courage - 0.5);
-        b.anchorZ = core.rp.z + core.rp.tx * core.rp.half * (b.courage - 0.5);
-      }
-      b.timer = now;
-    }
-    if (now >= b.timer) {
-      b.timer = now + 8 + 14 * core.rngThink.next();
-      if (core.formation.marching) {
-        core.corridor.at(core.formation.headS - 6 - 20 * b.docility, core.rp);
-        b.anchorX = core.rp.x - core.rp.tz * core.rp.half * (b.courage - 0.5);
-        b.anchorZ = core.rp.z + core.rp.tx * core.rp.half * (b.courage - 0.5);
-      }
-      const a = core.rngThink.next() * 6.283;
-      const r = 1 + 5 * core.rngThink.next();
-      core.steering.goTo(p, b, b.anchorX + Math.sin(a) * r, b.anchorZ + Math.cos(a) * r, 0.9 * b.pace, false);
-    }
-  }
-
-  /** Badaud en lisière : regarde passer le cortège, le suit un peu, s'en va dès que cela se gâte. */
-  private bystand(p: Person, b: CrowdBrain, now: number): void {
-    const core = this.core;
-    this.setState(b, S.BYSTAND);
-    const base = core.director.base;
-    if (base === 'dispersion' || base === 'apres_manif' || base === 'terminee' || core.director.tensionAt(p.x, p.z) > 0.45) {
-      if (b.leaveAt === Infinity) b.leaveAt = now + 5 + 40 * b.docility * core.timeScale;
-      return;
-    }
-    if (now < b.timer) return;
-    b.timer = now + 15 + 30 * core.rngThink.next();
-    // se replace à hauteur du cortège, contre les façades
-    const f = core.formation;
-    const s = f.headS - 10 - (f.headS - f.tailS) * core.rngThink.next();
-    core.corridor.at(s, core.rp);
-    const own = core.corridor.project(p.x, p.z, s, 400);
-    if (Math.abs(own - s) > 35 && f.marching && core.rngThink.chance(0.6)) {
-      const side = (p.x - core.rp.x) * -core.rp.tz + (p.z - core.rp.z) * core.rp.tx >= 0 ? 1 : -1;
-      const lateral = core.rp.center + side * (core.rp.half + 0.4);
-      const x = core.rp.x - core.rp.tz * lateral;
-      const z = core.rp.z + core.rp.tx * lateral;
-      if (core.ctx.world.isFree(x, z, 0.35)) core.steering.goTo(p, b, x, z, 1.1, false);
-    }
-    core.corridor.at(own, core.rp);
-    b.lookX = core.rp.x;
-    b.lookZ = core.rp.z;
   }
 
   // ───────────────────────────── sommations, dispersion ─────────────────────────────

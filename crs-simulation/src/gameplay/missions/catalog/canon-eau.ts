@@ -5,7 +5,7 @@
  * ===================================================================================== */
 
 import type { MissionDef } from '../../../core/missions-schema';
-import { crowd, fail, forces, FIN, FOULE, intel, mission, ob, os, ph, T, TENS } from './dsl';
+import { crowd, fail, forces, FIN, FOULE, intel, mission, OBJ, ob, os, ph, rad, SOMMATIONS, T, TENS, voix } from './dsl';
 import type { MissionSpec } from './dsl';
 
 const OPE: Pick<MissionSpec, 'role' | 'rank' | 'poste'> = { role: 'operateur_canon_eau', rank: 'gardien', poste: 'operateur' };
@@ -28,12 +28,25 @@ export const EAU_01 = mission({
   intel: intel('Cibles en carton, aucune foule.', 'Aucun signalement.', ['Place de l\'Alma'],
     ['Garder le jet bas', 'Compter les litres', 'Annoncer avant de tirer']),
   phases: [
-    ph('pluie', 'La pluie', 'Vous arrosez large en jet de pluie.', T(60),
-      [['VOUS', 'Mode pluie, arrosage large.']], []),
-    ph('diffus', 'Le jet diffus', 'Vous passez au diffus sur les cibles.', T(120),
-      [['MONITEUR', 'Passez au jet diffus.']], ['Un cône est renversé']),
-    ph('droit', 'Le jet droit', 'Vous tirez en jet droit à trente mètres, jet bas.', FIN,
-      [['VOUS', 'Jet droit à trente mètres, jet bas. Reste six mille litres.']], []),
+    ph('reglages', `La pluie, puis le diffus`,
+      `Place de l'Alma, un matin froid. L'engin lanceur d'eau est rangé face à la Seine, cuve pleine : dix mille litres, soit onze minutes de jet à plein débit. Des silhouettes de carton figurent une foule à quinze, vingt et trente mètres ; vous commencez par la pluie, large et sans force, puis le diffus, par rafales de trois à dix secondes.`,
+      T(70), [
+        voix('MONITEUR', `L'eau, c'est une munition. Vous avez une jauge : vous la lisez avant chaque rafale, comme un chargeur.`),
+        voix('CHEF D\'ENGIN', `Tourelle déverrouillée. Avant chaque jet, tu annonces : eau !`),
+        voix('MONITEUR', `Rafales courtes. Trois secondes, tu regardes l'effet, tu recommences. Le jet reste bas.`),
+      ], [`Un passant traverse le pas de tir`, `Un vent latéral couche le jet`]),
+    ph('jet-droit', `Trois cibles à trente mètres`,
+      `Dernier réglage : le jet droit, interdit à moins de quinze mètres et jamais au-dessus de la ceinture. Trois silhouettes à trente mètres, côté pont de l'Alma, à toucher une à une ; la pression chute à chaque rafale trop longue, et la jauge descend plus vite qu'on ne croit.`,
+      OBJ('o1'), [
+        voix('MONITEUR', `Jet droit, trente mètres, jambes et bassin. Celui qui monte à la tête recommence tout l'atelier.`),
+        voix('CHEF D\'ENGIN', `Jauge ? Dis-moi le chiffre avant d'ouvrir de nouveau.`),
+      ], [`La pression chute pendant une rafale`, `Le moniteur recule une cible de dix mètres`]),
+    ph('feu', `Un feu de palette pour finir`,
+      `Trois cibles touchées. Le moniteur fait allumer une palette au milieu de la place de l'Alma : l'engin est aussi le premier pompier d'une compagnie. Jet diffus au pied des flammes, puis lecture de la jauge ; ce qu'il reste dans la cuve dit comment vous avez tiré.`,
+      FIN, [
+        voix('MONITEUR', `Éteindre, c'est toujours permis. Arrosez la base, pas les flammes. Et dites-moi combien il vous reste.`),
+        voix('CHEF D\'ENGIN', `Je veux le chiffre en litres, pas à peu près.`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Toucher trois cibles à trente mètres avec le jet droit', 'personnalise', { target: 'cible_carton', count: 3 }),
@@ -66,13 +79,36 @@ export const EAU_02 = mission({
     'Une trentaine d\'individus déterminés autour de la colonne de Juillet.', ['Place de la Bastille', 'Boulevard Henri IV'],
     ['Commencer par la pluie', 'Garder le jet bas', 'Épargner journalistes et soignants']),
   phases: [
-    ph('sommations', 'Sommations', 'Le commandant prononce les sommations.', T(180),
-      [['MISTRAL', 'NEPTUNE UN ICI MISTRAL. Dernière sommation faite. Emploi de la force autorisé : engin lanceur d\'eau, en commençant par la pluie. FAITES L\'APERÇU.'], ['NEPTUNE 1', 'CENTRAL ICI NEPTUNE UN. APERÇU. TERMINÉ.']], []),
-    ph('pluie', 'Pluie', 'Vous arrosez en pluie sur les premières lignes.', T(360),
-      [['NEPTUNE 1', 'CENTRAL ICI NEPTUNE UN. Mode pluie sur la ligne de tête. PARLEZ.']], ['Un manifestant glisse sur le pavé mouillé']),
-    ph('diffus', 'Diffus puis jet droit', 'Vous passez au diffus sur les résistants.', TENS(0.55),
-      [['NEPTUNE 1', 'CENTRAL ICI NEPTUNE UN. Jet diffus, reste SEPT MILLE litres. PARLEZ.']], []),
-    ph('fin', 'Place vidée', 'La place est dégagée.', FIN, [['NEPTUNE 1', 'CENTRAL ICI NEPTUNE UN. Place vidée, aucune chute. PARLEZ.']], []),
+    ph('avertissement', `L'avertissement au haut-parleur`,
+      `Place de la Bastille, à la nuit tombante. Quatre cents personnes refusent de partir malgré les sommations ; une trentaine lancent des bouteilles depuis le pied de la colonne de Juillet. L'engin avance au pas derrière la ligne, tourelle au repos : avant toute goutte d'eau, il y a une phrase à dire au haut-parleur.`,
+      T(120), [
+        rad('MISTRAL', 'NEPTUNE 1', `Dernière sommation faite. Emploi de la force : engin lanceur d'eau, par gradation. Avertissez, puis pluie sur les premiers rangs.`, 'A'),
+        voix('CHEF D\'ENGIN', `Micro. Tu annonces : attention, usage du canon à eau, reculez. Deux fois, lentement.`),
+      ], [`Jets de bouteilles depuis le pied de la colonne`]),
+    ph('pluie', `La pluie sur les premiers rangs`,
+      `La tourelle s'oriente vers les premiers rangs et la pluie tombe, large et sans force, sur la chaussée de la place de la Bastille. Les curieux reculent aussitôt vers la rue de Lyon ; les pavés brillent, et un manifestant qui courait glisse de tout son long.`,
+      TENS(0.6), [
+        voix('CHEF D\'ENGIN', `Pluie, pas plus. Regarde ce qu'ils font : ceux qui partent, tu ne les suis pas avec le jet.`),
+        rad('ICARE', 'NEPTUNE 1', `Un photographe de presse à DEUX-ZÉRO mètres devant votre tourelle, côté boulevard Henri IV. Il ne bouge pas.`),
+      ], [`Un manifestant glisse sur le pavé mouillé`, `Un journaliste se tient dans l'axe du jet`]),
+    ph('diffus', `Le diffus sur ceux qui restent`,
+      `La pluie n'a pas suffi : la tension monte, et deux cents personnes restent serrées autour de la colonne de Juillet. Le jet diffus les repousse sans les renverser, à condition de rester bas et de ne pas insister sur un même point ; un poste de soins improvisé s'est installé sous un abribus, à gauche de la zone.`,
+      T(180), [
+        rad('MISTRAL 1', 'NEPTUNE 1', `Diffus devant ma ligne, TROIS-ZÉRO mètres. Pas sur l'abribus de gauche : il y a un poste de soins.`),
+        voix('CHEF D\'ENGIN', `Jauge ? On a déjà mangé deux mille litres. Rafales courtes.`),
+      ], [`La pression de la pompe baisse`, `Un poste de soins s'installe sous un abribus`]),
+    ph('lanceurs', `Le jet droit, sur les seuls lanceurs`,
+      `Il reste la trentaine du début, au pied de la colonne de Juillet, qui lance encore. Le jet droit est pour eux, et pour eux seulement : au-delà de quinze mètres, jamais au-dessus de la ceinture, par fenêtres de quelques secondes. Derrière eux, l'issue de la rue de Lyon est ouverte.`,
+      OBJ('o1'), [
+        rad('MISTRAL', 'NEPTUNE 1', `Jet droit sur les lanceurs de projectiles identifiés, à plus de UN-CINQ mètres. Issue libre rue de Lyon.`),
+        voix('CHEF D\'ENGIN', `Celui qui lève le bras, capuche rouge. Lui, pas son voisin. Les jambes.`),
+      ], [`Une brume d'eau retombe sur la ligne par vent tournant`, `Un lanceur se cache derrière des curieux`]),
+    ph('place-trempee', `La place trempée`,
+      `La place de la Bastille se vide par la rue de Lyon et les bouches du métro. Tourelle au repos, pompe coupée : il reste une chaussée trempée où l'on glisse encore, un poste de soins à laisser travailler, et une jauge à lire pour le compte rendu.`,
+      FIN, [
+        rad('MISTRAL', 'NEPTUNE 1', `Halte à l'emploi de la force : le trouble a cessé. Rendez compte : litres consommés, incidents.`),
+        voix('CHEF D\'ENGIN', `Tourelle dans l'axe, on verrouille. Combien il reste ?`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Vider la place de la Bastille par gradation', 'disperser', { place: 'Place de la Bastille' }),
@@ -106,13 +142,36 @@ export const EAU_03 = mission({
     'Une soixantaine d\'individus déterminés.', ['Rue Réaumur', 'Boulevard de Sébastopol'],
     ['Éteindre en jet diffus', 'Revenir sur les batteries', 'Protéger l\'équipage']),
   phases: [
-    ph('feu', 'Barricade en feu', 'La barricade brûle depuis cinq minutes.', T(120),
-      [['NEPTUNE 1', 'CENTRAL ICI NEPTUNE UN. Éteignez la barricade en feu, puis jet diffus devant la ligne, sur mon ordre. PARLEZ.']], []),
-    ph('extinction', 'Extinction', 'Vous arrosez le pied de la barricade.', T(300),
-      [['NEPTUNE 1', 'CENTRAL ICI NEPTUNE UN. REÇU. Reste QUATRE MILLE litres. TERMINÉ.']], ['Étincelles de batteries sur la tourelle']),
-    ph('rallumage', 'Rallumage', 'Les batteries se rallument sous deux minutes.', TENS(0.65),
-      [['NEPTUNE 1', 'CENTRAL ICI NEPTUNE UN. Rallumage, je reviens dessus. PARLEZ.']], []),
-    ph('fin', 'Refroidissement', 'Les pompiers refroidissent la barricade.', FIN, [['SANTÉ 1', 'NEPTUNE UN ICI SANTÉ UN. Nous prenons le relais. PARLEZ.']], []),
+    ph('approche', `Vingt-cinq mètres, sous protection`,
+      `Rue Réaumur, à la nuit tombante. Une barricade de huit mètres brûle d'un trottoir à l'autre : palettes, poubelles, une dizaine de vélos et de trottinettes dont les batteries crépitent. Les pompiers ne peuvent pas approcher sous les jets ; l'engin avance derrière une section jusqu'à vingt-cinq mètres du foyer.`,
+      T(100), [
+        rad('MISTRAL', 'NEPTUNE 1', `Éteignez la barricade en feu rue Réaumur. Approche à DEUX-CINQ mètres derrière MISTRAL DEUX. Extinction seulement, pas de jet sur les personnes.`),
+        voix('CHEF D\'ENGIN', `Il nous reste quatre mille litres. Tu arroses le pied, en diffus, et tu comptes.`),
+      ], [`Des projectiles frappent la tourelle`]),
+    ph('pied-du-foyer', `Le pied de la barricade`,
+      `Jet diffus au pied des flammes, de gauche à droite, sans jamais monter sur les façades de la rue Réaumur. La fumée noire du plastique vire au blanc là où l'eau porte ; au premier étage, juste au-dessus du foyer, un riverain a ouvert sa fenêtre et fait de grands gestes.`,
+      OBJ('o1'), [
+        voix('CONDUCTEUR', `Fenêtre du premier, au-dessus du feu : il y a quelqu'un ! Ne monte pas le jet !`),
+        rad('MISTRAL 2', 'NEPTUNE 1', `On signale une bouteille de gaz dans la barricade, côté droit. Si c'est confirmé, on recule tous à CINQ-ZÉRO mètres.`),
+      ], [`Une bouteille de gaz est signalée dans la barricade`, `Un riverain se montre à sa fenêtre au-dessus du feu`, `Étincelles de batteries sur la tourelle`]),
+    ph('rallumages', `Les batteries se rallument`,
+      `La barricade de la rue Réaumur ne flambe plus, mais sous les palettes noyées les batteries des vélos repartent une à une, en gerbes d'étincelles, parfois deux minutes après avoir été arrosées. Il faut revenir dessus par rafales courtes, depuis la cabine grillagée, sans vider la cuve.`,
+      OBJ('o2'), [
+        voix('CHEF D\'ENGIN', `Ça repart à gauche ! Trois secondes dessus, pas plus. Jauge ?`),
+        rad('SAPEUR 1', 'NEPTUNE 1', `Je suis au carrefour Sébastopol. Dès que ça ne lance plus, je viens refroidir. Gardez-moi un peu d'eau en attendant.`),
+      ], [`Une batterie se rallume deux minutes après avoir été arrosée`, `La pression de la pompe baisse`]),
+    ph('tenir-a-distance', `Tenir la foule loin des pompiers`,
+      `Les rallumages sont traités et le fourgon des pompiers s'avance dans la rue Réaumur. Une cinquantaine de personnes reviennent vers la barricade noircie ; un jet diffus au sol, dix mètres devant elles, suffit à marquer la limite sans mouiller personne.`,
+      T(180), [
+        rad('MISTRAL', 'NEPTUNE 1', `Jet diffus au sol devant la ligne, pour tenir la distance pendant le travail des pompiers. Rien sur les personnes sans mon ordre.`),
+        voix('SAPEUR-POMPIER', `Merci pour l'eau ! On refroidit et on tire les batteries à part. Ne coupez pas tout de suite.`),
+      ], [`Un engin incendiaire éclate sur le flanc de l'engin`]),
+    ph('restes', `Les restes de la barricade`,
+      `Les pompiers noient les batteries une à une dans la rue Réaumur et la section tire les carcasses sur le trottoir. Pompe coupée ; il reste à lire la jauge et à regagner l'arrière, par le boulevard de Sébastopol, avant d'aller remplir.`,
+      FIN, [
+        rad('MISTRAL', 'NEPTUNE 1', `Extinction terminée pour vous. Repli derrière la ligne, et rendez compte de votre réserve.`),
+        voix('CHEF D\'ENGIN', `Combien de litres ? S'il en reste moins de deux mille, on va remplir avant d'y retourner.`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Éteindre la barricade avant qu\'elle ne gagne une façade', 'eteindre', { target: 'barricade_electrique', count: 1 }),
@@ -146,13 +205,30 @@ export const EAU_04 = mission({
     'Une centaine d\'individus déterminés en tête.', ['Pont d\'Iéna', 'Place du Trocadéro et du 11 Novembre'],
     ['Garder un couloir de retraite', 'Ne pas pousser vers l\'eau', 'Jet bas']),
   phases: [
-    ph('pose', 'Mise en place', 'La ligne tient la tête de pont ; vous êtes en retrait.', T(240),
-      [['MISTRAL', 'NEPTUNE UN ICI MISTRAL. Nous tenons le pont d\'Iéna. Vous restez derrière la ligne : l\'eau en dernier recours, sur mon ordre. PARLEZ.']], []),
-    ph('assaut', 'Assaut', 'Un groupe attaque la ligne.', TENS(0.55),
-      [['NEPTUNE 1', 'CENTRAL ICI NEPTUNE UN. Jet diffus sur le groupe de tête, reste HUIT MILLE litres. PARLEZ.']], ['Un manifestant tombe près de la balustrade']),
-    ph('densite', 'Densité critique', 'La foule se serre sur le pont.', FOULE('dispersion'),
-      [['ICARE', 'CENTRAL ICI ICARE. Densité critique devant le barrage, plus de QUATRE personnes au mètre carré. PARLEZ.']], []),
-    ph('fin', 'Reflux', 'La foule reflue vers le Trocadéro.', FIN, [['NEPTUNE 1', 'CENTRAL ICI NEPTUNE UN. Pont tenu. PARLEZ.']], []),
+    ph('dissuasion', `Tourelle au repos`,
+      `Pont d'Iéna, côté rive gauche. La ligne tient la tête de pont face au Trocadéro ; votre engin est vingt mètres derrière, tourelle au repos, bien visible. Près d'un millier de personnes descendent des jardins vers le pont : devant, des touristes qui ne comprennent pas ; au milieu, des familles ; quelque part, ceux qui veulent passer.`,
+      TENS(0.6), [
+        rad('MISTRAL', 'NEPTUNE 1', `Présence dissuasive, tourelle au repos. Aucun jet avant mes sommations. Couloir de retraite à garder libre vers le quai.`, 'A'),
+        voix('CHEF D\'ENGIN', `On se montre, c'est tout. Si tu touches à la tourelle, tout le monde le verra.`),
+      ], [`Des touristes sont pris entre la foule et la ligne`]),
+    ph('poussee', `Cinquante en tête, les familles derrière`,
+      `La tension monte : cinquante individus masqués prennent la tête et poussent sur la ligne, à l'entrée du pont d'Iéna, en lançant par-dessus les boucliers. Juste derrière eux, à moins de dix mètres, des familles et une banderole tenue par des retraités. Le commandant est sorti avec son mégaphone.`,
+      T(200), [
+        voix('COMMANDANT', SOMMATIONS.derniere),
+        rad('ICARE', 'NEPTUNE 1', `Lanceurs de projectiles en tête, CINQ-ZÉRO individus. Des familles à moins de UN-ZÉRO mètres derrière eux. Une poussette vide contre le parapet.`),
+      ], [`Une poussette est abandonnée contre le parapet`, `Jets de projectiles par-dessus la ligne`]),
+    ph('diffus-au-sol', `Le diffus au sol, puis les seuls lanceurs`,
+      `Les sommations sont faites : l'eau est permise. Jet diffus au sol, vingt mètres devant la ligne du pont d'Iéna, pour marquer la limite ; puis, s'il le faut, jet droit à trente mètres sur ceux qui lancent, et sur eux seuls. Jamais vers le parapet, jamais de façon à pousser quelqu'un vers l'eau.`,
+      OBJ('o1'), [
+        rad('MISTRAL', 'NEPTUNE 1', `Dernière sommation faite. Emploi de l'engin : jet diffus au sol devant la ligne. Jet droit sur les lanceurs identifiés, sur mon ordre. Rien à moins de DEUX-ZÉRO mètres du parapet.`, 'C'),
+        voix('CHEF D\'ENGIN', `Le type derrière la banderole, il lance. Mais la banderole, ce sont des retraités. Tu n'as pas la fenêtre : tu attends.`),
+      ], [`Un lanceur de projectiles se cache derrière une banderole tenue par des pacifiques`, `Un manifestant tombe près du parapet`, `La pression de la pompe baisse`]),
+    ph('reflux', `Le reflux vers le Trocadéro`,
+      `Le pont d'Iéna a tenu un quart d'heure. La foule reflue vers les jardins du Trocadéro par le chemin qu'on lui a laissé ; sur le tablier mouillé, il reste une poussette, des banderoles et des flaques. Tourelle au repos : le jet s'arrête quand le trouble s'arrête.`,
+      FIN, [
+        rad('MISTRAL', 'NEPTUNE 1', `Halte à l'emploi de la force. Tourelle au repos. Rendez compte : litres, nombre de jets droits, incidents près du parapet.`),
+        voix('CHEF D\'ENGIN', `Regarde le parapet à la jumelle, d'un bout à l'autre. Dis-moi ce que tu vois.`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Tenir le pont d\'Iéna avec l\'appui de l\'eau', 'tenir_position', { place: 'Pont d\'Iéna', seconds: 900 }),
@@ -186,13 +262,36 @@ export const EAU_05 = mission({
     'Aucun bloc ; quelques radicaux isolés.', ['Place du Trocadéro et du 11 Novembre', 'Jardins du Trocadéro'],
     ['Éviter l\'eau sous cinq degrés', 'Préférer la présence', 'Tenir un journal de décisions']),
   phases: [
-    ph('froid', 'Rassemblement par grand froid', 'Le givre recouvre l\'esplanade.', T(240),
-      [['MISTRAL', 'NEPTUNE UN ICI MISTRAL. Température DEUX degrés. Avant d\'engager l\'eau, je veux votre avis de chef d\'engin. PARLEZ.']], []),
-    ph('tension', 'Premiers jets', 'Quelques bouteilles volent.', TENS(0.5),
-      [['NEPTUNE 1', 'CENTRAL ICI NEPTUNE UN. Je refuse l\'eau : verglas probable. Je demande un autre moyen. PARLEZ.']], ['Une personne âgée glisse']),
-    ph('decision', 'Décision', 'Vous choisissez l\'eau ou le refus.', FOULE('dispersion'),
-      [['MISTRAL', 'NEPTUNE UN ICI MISTRAL. Objection reçue : pas d\'eau sur des personnes par ce froid. Restez en réserve, prêt pour les feux. TERMINÉ.']], []),
-    ph('fin', 'Dispersion', 'La foule se disperse.', FIN, [['NEPTUNE 1', 'CENTRAL ICI NEPTUNE UN. Fin d\'emploi. PARLEZ.']], []),
+    ph('givre', `Deux degrés sur l'esplanade`,
+      `Place du Trocadéro, mi-décembre : deux degrés, un vent de nord-est qui coupe, du givre sur le pavé de l'esplanade. Mille personnes occupent le parvis malgré l'interdiction, serrées les unes contre les autres pour avoir moins froid. Dans la cabine, le thermomètre extérieur est la première chose que vous regardez.`,
+      T(180), [
+        rad('MISTRAL', 'NEPTUNE 1', `Rassemblement interdit place du Trocadéro. Vous êtes en appui. Température : DEUX degrés. Tenez un journal de chaque décision d'emploi, ou de refus.`),
+        voix('CHEF D\'ENGIN', `À deux degrés, ce qu'on arrose gèle. Tu le sais, je le sais. On verra s'ils le savent, là-haut.`),
+      ], [`Une personne âgée glisse sur le givre`]),
+    ph('bouteilles', `Trois bouteilles par grand froid`,
+      `Le rassemblement chante, piétine, souffle dans ses mains. Quelques bouteilles partent du fond de l'esplanade du Trocadéro vers la ligne, sans grande conviction ; des caméras de télévision tournent en direct depuis le parvis, face à la tour Eiffel.`,
+      TENS(0.47), [
+        rad('MISTRAL 1', 'MISTRAL', `Quelques jets de bouteilles sur ma ligne, auteurs isolés. Attitude générale calme. Je demande l'appui de l'engin pour refouler.`),
+        voix('CONDUCTEUR', `Ils demandent l'eau pour trois bouteilles ? Par ce froid ?`),
+      ], [`Une chaîne de télévision filme en direct`]),
+    ph('ordre-d-appui', `L'ordre d'appui`,
+      `La tension monte et l'ordre arrive : appuyer le refoulement avec l'engin. La pluie mouillerait tout le monde, par deux degrés ; le diffus au sol ferait une patinoire devant la ligne, sur le pavé du Trocadéro, pour la foule comme pour les CRS qui avanceront dessus. Employer, proposer autre chose ou refuser : chaque réponse s'écrit au journal, avec l'heure et le motif.`,
+      OBJ('o2'), [
+        rad('MISTRAL', 'NEPTUNE 1', `Appuyez le refoulement de MISTRAL UN : jet diffus au sol devant sa ligne.`),
+        voix('CHEF D\'ENGIN', `C'est toi qui es à la tourelle. Si tu me dis que c'est dangereux, je le passe sur la fréquence, avec ton motif.`),
+      ], [`Le givre gagne le bord des jardins`, `Une personne âgée se trouve au premier rang`]),
+    ph('trempes', `Ceux qui tremblent`,
+      `Vos décisions sont au journal. Sur l'esplanade du Trocadéro, le froid fait son œuvre de toute façon : des personnes tremblent, une femme âgée est assise par terre, les lèvres bleues, et partout où le pavé est mouillé, on tombe, manifestants et agents confondus.`,
+      T(200), [
+        rad('SANTÉ 1', 'MISTRAL', `Deux malaises dus au froid sur l'esplanade. Il me faut un accès et des couvertures. Ne mouillez plus rien.`),
+        voix('CONDUCTEUR', `Regarde les collègues : ils patinent autant que ceux d'en face.`),
+      ], [`Un malaise dû au froid`, `La chaussée mouillée gèle devant la ligne`, `Un agent glisse en avançant`]),
+    ph('dispersion-au-froid', `Le froid disperse mieux que l'eau`,
+      `La nuit tombe tôt et le thermomètre passe sous zéro. Le rassemblement se défait de lui-même, par petits groupes, vers les stations Trocadéro et Iéna ; les secouristes distribuent des couvertures. Dans la cabine, le journal de la tourelle tient en quelques lignes, heures et motifs.`,
+      FIN, [
+        rad('MISTRAL', 'NEPTUNE 1', `Fin de mission. Transmettez votre journal : chaque emploi, chaque refus, avec l'heure et le motif.`),
+        voix('CHEF D\'ENGIN', `On vidange la lance avant de rentrer, sinon elle gèle. Et tu signes ton journal.`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Ne causer aucune chute due au verglas', 'limiter_blesses', { max: 0 }),
@@ -226,13 +325,42 @@ export const EAU_06 = mission({
     'Deux cents individus déterminés.', ['Avenue des Champs-Élysées', 'Avenue Montaigne'],
     ['Surveiller la cuve', 'Ravitailler avant deux mille litres', 'Prévenir la ligne']),
   phases: [
-    ph('depart', 'Début de l\'appui', 'La cuve est pleine ; l\'appui commence.', T(180),
-      [['NEPTUNE 1', 'MISTRAL ICI NEPTUNE UN. En place derrière la ligne, cuve pleine, DIX MILLE litres. PARLEZ.']], []),
-    ph('consommation', 'Consommation', 'Les jets de la tourelle consomment vite.', T(420),
-      [['NEPTUNE 1', 'CENTRAL ICI NEPTUNE UN. Reste QUATRE MILLE litres. PARLEZ.']], ['Un feu de poubelle contre une façade']),
-    ph('ravitaillement', 'Ravitaillement', 'Vous quittez la ligne pour la borne.', TENS(0.65),
-      [['MISTRAL', 'NEPTUNE UN ICI MISTRAL. Allez ravitailler à la bouche d\'incendie, la ligne tient sans vous. Rendez compte au retour. PARLEZ.']], []),
-    ph('fin', 'Retour', 'Vous revenez en ligne.', FIN, [['NEPTUNE 1', 'CENTRAL ICI NEPTUNE UN. De retour, cuve pleine. PARLEZ.']], []),
+    ph('premiere-vague', `Dix mille litres au départ`,
+      `Avenue des Champs-Élysées, un après-midi d'émeute. Vous êtes au volant de l'engin, le seul disponible : dix mille litres dans la cuve, onze minutes de jet à plein débit. Derrière la ligne de CRS, à hauteur du Rond-Point, l'opérateur arrose la première vague ; vous, vous regardez la jauge et la rue par où il faudra sortir.`,
+      T(300), [
+        rad('MISTRAL', 'NEPTUNE 1', `Appui de la ligne par jets diffus, à la demande des chefs de section. Vous êtes le seul engin : gérez votre eau.`),
+        voix('OPÉRATEUR', `Trois mille litres partis sur la première vague. À ce rythme, on tient deux vagues, pas trois.`),
+      ], [`Un feu de poubelle prend contre une façade`]),
+    ph('quart-de-cuve', `La jauge au quart`,
+      `Deuxième vague, plus dense. La jauge passe sous le quart : deux mille cinq cents litres. La bouche d'incendie est avenue Montaigne, à six cents mètres ; partir maintenant, c'est découvrir la ligne au moment où elle recule, et rester, c'est risquer la cuve vide devant un feu.`,
+      T(360), [
+        voix('OPÉRATEUR', `Deux mille cinq cents. Si une voiture prend feu maintenant, je n'ai pas de quoi l'éteindre.`),
+        rad('MISTRAL 2', 'NEPTUNE 1', `Jet diffus devant ma ligne, tout de suite ! Ils reviennent !`),
+      ], [`La jauge passe sous le quart de cuve`, `Fuite sur un raccord de la cuve`]),
+    ph('ravitaillement', `Six cents mètres jusqu'à la bouche d'incendie`,
+      `Compte rendu passé, vous quittez la ligne par une rue latérale, sous escorte, vers la bouche d'incendie de l'avenue Montaigne. Brancher, ouvrir, attendre : le plein prend quatre-vingt-dix secondes si la bouche fonctionne, et pendant ce temps la ligne n'a plus d'eau derrière elle.`,
+      OBJ('o2'), [
+        rad('MISTRAL', 'NEPTUNE 1', `Reçu pour le ravitaillement. Escorte : un groupe de MISTRAL QUATRE. Faites vite, la ligne est découverte.`),
+        voix('CHEF D\'ENGIN', `Bouche d'incendie à droite, après le kiosque. Colle-toi au trottoir, je descends brancher.`),
+      ], [`La bouche d'incendie est masquée par un véhicule mal garé`, `L'escorte est en retard`]),
+    ph('retour', `Le retour pendant la vague la plus forte`,
+      `Cuve pleine. L'engin remonte vers l'avenue des Champs-Élysées au moment où la vague la plus forte arrive sur la ligne : barricade en feu, mortiers, deux sections qui reculent par échelons. Il faut revenir se placer derrière elles sans écraser personne ni rester coincé dans une rue latérale.`,
+      T(300), [
+        rad('MISTRAL', 'NEPTUNE 1', `Où êtes-vous ? Barricade en feu devant MISTRAL UN, j'ai besoin de vous maintenant.`),
+        voix('OPÉRATEUR', `Je vois la fumée. Mets-moi à trente mètres, de face, je prends le feu d'abord.`),
+      ], [`Une barricade en feu barre l'avenue`, `Des projectiles frappent la cabine au retour`]),
+    ph('trente-minutes', `Tenir l'appui jusqu'au bout`,
+      `Revenu derrière la ligne, l'engin reprend sa place et son rôle : éteindre ce qui brûle, marquer la distance, économiser. Les vagues s'espacent sur l'avenue des Champs-Élysées ; il reste à tenir l'appui jusqu'à la trentième minute, sans retomber sous les deux mille litres.`,
+      OBJ('o1'), [
+        rad('MISTRAL 1', 'NEPTUNE 1', `Restez derrière moi. Diffus au sol à ma demande seulement.`),
+        voix('OPÉRATEUR', `Tu me préviens si tu dois bouger, je verrouille la tourelle avant.`),
+      ], [`La pression de la pompe baisse`]),
+    ph('jauge-finale', `Ce qu'il reste dans la cuve`,
+      `Trente minutes d'appui. La foule quitte l'avenue des Champs-Élysées par les rues latérales et la ligne se resserre. Moteur au ralenti ; l'opérateur lit la jauge à voix haute, et vous notez pour la salle l'heure de chaque mouvement de l'engin.`,
+      FIN, [
+        rad('MISTRAL', 'NEPTUNE 1', `Fin de l'appui. Rendez compte : litres consommés, heure du ravitaillement, durée de l'absence.`),
+        voix('OPÉRATEUR', `Je te lis la jauge, tu notes. Et l'heure du plein, à la minute.`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Rester en appui de la ligne pendant trente minutes, ravitaillement compris', 'tenir_position', { place: 'Avenue des Champs-Élysées', seconds: 1800 }),
@@ -266,13 +394,30 @@ export const EAU_07 = mission({
     'Une soixantaine d\'individus déterminés.', ['Boulevard de Bonne Nouvelle', 'Boulevard Saint-Denis'],
     ['Identifier les brassards', 'Attendre une ligne de tir dégagée', 'Annoncer chaque brassard']),
   phases: [
-    ph('identification', 'Identification', 'Vous repérez les brassards dans la foule.', T(180),
-      [['ICARE', 'NEPTUNE UN ICI ICARE. Brassards blancs à l\'est du boulevard, DEUX groupes. PARLEZ.']], []),
-    ph('tir', 'Tir', 'Vous arrosez les violents à l\'ouest.', T(360),
-      [['NEPTUNE 1', 'CENTRAL ICI NEPTUNE UN. Jet diffus sur le groupe violent. Brassard à l\'est, jet coupé. PARLEZ.']], ['Un journaliste passe dans la ligne de tir']),
-    ph('densite', 'Brassards au contact', 'Un brassard se retrouve au contact des violents.', TENS(0.55),
-      [['ICARE', 'NEPTUNE UN ICI ICARE. Brassard au contact du groupe, tir impossible. PARLEZ.']], []),
-    ph('fin', 'Fin', 'Les violents se replient.', FIN, [['NEPTUNE 1', 'CENTRAL ICI NEPTUNE UN. Aucun brassard touché. PARLEZ.']], []),
+    ph('jumelle', `Les brassards à la jumelle`,
+      `Boulevard de Bonne Nouvelle, une manifestation interdite se défait. Dans la foule, des brassards blancs : journalistes, observateurs d'une association, secouristes de rue. À la jumelle depuis la tourelle, vous les comptez un par un ; ils ne sont pas des cibles, et un groupe violent s'est collé à eux.`,
+      TENS(0.6), [
+        rad('ICARE', 'NEPTUNE 1', `Groupe violent de QUATRE-ZÉRO, côté ouest du boulevard. Des brassards blancs à leur contact : j'en vois SIX, dont DEUX au sol près d'un blessé.`),
+        voix('CHEF D\'ENGIN', `Tu annonces chaque brassard à voix haute. Je veux les entendre avant de voir partir l'eau.`),
+      ], [`De la buée se forme sur la vitre de la tourelle`]),
+    ph('ordre', `Quarante mètres à regagner`,
+      `La tension monte et l'ordre tombe : repousser le groupe violent de quarante mètres, vers le boulevard Saint-Denis. Un jet d'eau n'est pas sélectif ; dans l'axe, un secouriste est penché sur un blessé, et un photographe travaille à cinq mètres des lanceurs.`,
+      T(120), [
+        rad('MISTRAL', 'NEPTUNE 1', `Repoussez le groupe hostile de QUATRE-ZÉRO mètres vers le boulevard Saint-Denis. Jet diffus, puis jet droit sur les lanceurs. Attention aux tiers.`),
+        voix('CONDUCTEUR', `Brassard dans l'axe ! Le type accroupi, c'est un secouriste, il a quelqu'un par terre.`),
+      ], [`Un secouriste est penché sur un blessé dans l'axe du jet`, `Un journaliste passe dans la ligne de tir`]),
+    ph('fenetres', `Des fenêtres de deux à quatre secondes`,
+      `Le jet ne part que lorsque la zone est nette : deux secondes, quatre au plus, puis on coupe et on regarde de nouveau. Au milieu du groupe violent du boulevard de Bonne Nouvelle, un homme porte un brassard blanc et lance des bouteilles ; le brassard ne fait pas le tiers, le geste fait le lanceur.`,
+      OBJ('o2'), [
+        voix('CHEF D\'ENGIN', `Fenêtre ! Deux secondes… coupe. Brassard à gauche, il revient dans l'axe.`),
+        rad('ICARE', 'NEPTUNE 1', `Un individu avec brassard blanc lance des projectiles : fait filmé. Les autres brassards se sont écartés de UN-ZÉRO mètres vers le nord.`),
+      ], [`Un lanceur de projectiles porte un faux brassard`, `Un brassard est arraché dans la bousculade`, `La pression de la pompe baisse`]),
+    ph('cessation', `Refaire le compte des brassards`,
+      `Le groupe violent a lâché le boulevard de Bonne Nouvelle et reflue vers le boulevard Saint-Denis. Tourelle au repos. À la jumelle, vous refaites le compte des brassards blancs, un par un : c'est la première chose qu'on vous demandera.`,
+      FIN, [
+        rad('MISTRAL', 'NEPTUNE 1', `Halte au jet. Rendez compte : litres consommés, tiers atteints ou non.`),
+        voix('CHEF D\'ENGIN', `Compte-les-moi. Les six du début, tu les retrouves tous ?`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Ne toucher aucun brassard blanc', 'zero_bavure'),
@@ -306,13 +451,36 @@ export const EAU_08 = mission({
     'Une soixantaine d\'individus déterminés.', ['Boulevard Haussmann', 'Rue Tronchet'],
     ['Hiérarchiser les feux', 'Jet diffus', 'Appeler les pompiers au besoin']),
   phases: [
-    ph('feux', 'Premiers feux', 'Deux poubelles brûlent à l\'angle.', T(120),
-      [['NEPTUNE 1', 'CENTRAL ICI NEPTUNE UN. CINQ foyers. Je commence par le scooter. PARLEZ.']], []),
-    ph('extinction', 'Extinction', 'Vous éteignez scooter et trottinette.', T(360),
-      [['NEPTUNE 1', 'CENTRAL ICI NEPTUNE UN. Scooter éteint, reste TROIS foyers. PARLEZ.']], ['Pneu qui éclate']),
-    ph('barricade', 'Barricade', 'Vous attaquez la barricade de palettes.', TENS(0.65),
-      [['NEPTUNE 1', 'CENTRAL ICI NEPTUNE UN. Barricade en cours. Reste QUATRE MILLE litres. PARLEZ.']], []),
-    ph('fin', 'Fin', 'Les foyers sont éteints.', FIN, [['NEPTUNE 1', 'CENTRAL ICI NEPTUNE UN. Tous les foyers éteints. PARLEZ.']], []),
+    ph('cinq-feux', `Cinq feux, pas de pompiers`,
+      `Boulevard Haussmann, un après-midi d'émeute. Cinq feux sur deux cents mètres : deux poubelles à l'angle de la rue Tronchet, une barricade de palettes, un scooter, une trottinette électrique. Les pompiers sont retenus ailleurs ; aujourd'hui, le premier pompier de la compagnie, c'est vous.`,
+      T(90), [
+        rad('MISTRAL', 'NEPTUNE 1', `CINQ foyers boulevard Haussmann, SAPEUR indisponible avant DEUX-ZÉRO minutes. Vous éteignez. Priorité à ce qui peut exploser.`),
+        voix('CHEF D\'ENGIN', `Le scooter et la trottinette d'abord : réservoir, batterie. Les poubelles peuvent attendre.`),
+      ], [`Des curieux filment au ras des flammes`]),
+    ph('scooter-et-trottinette', `Ce qui peut exploser`,
+      `Le scooter brûle contre un arbre du boulevard Haussmann, pneus déjà éclatés, réservoir intact. Dix mètres plus loin, la batterie de la trottinette crache des étincelles. Jet diffus pour économiser, jamais le jet droit sur une batterie : il projetterait des éclats sur les curieux.`,
+      OBJ('o2'), [
+        voix('CONDUCTEUR', `Pneu qui pète ! Ce n'est pas un tir, c'est le scooter. Reste dessus.`),
+        rad('MISTRAL 2', 'NEPTUNE 1', `Je tiens les curieux à DEUX-ZÉRO mètres du scooter. Dites-moi quand je peux les laisser repasser.`),
+      ], [`Un pneu éclate avec une détonation`, `La batterie de la trottinette se rallume`]),
+    ph('palettes', `La barricade de palettes`,
+      `Les deux foyers dangereux sont noyés. Reste la barricade de palettes, au milieu du boulevard Haussmann, dont les flammes montent à trois mètres et lèchent l'auvent d'un grand magasin. Arroser le pied, pas la façade ; et garder la tourelle prête à revenir vers la ligne, d'où partent de nouveaux pavés.`,
+      T(200), [
+        rad('MISTRAL', 'NEPTUNE 1', `La barricade menace une façade, traitez-la maintenant. Attention : ma ligne est prise à partie sur votre gauche.`),
+        voix('CHEF D\'ENGIN', `Le pied des palettes, en diffus. Si tu touches la vitrine avec le jet droit, elle tombe.`),
+      ], [`Un pavé frappe la cabine`, `Les flammes lèchent un auvent`]),
+    ph('poubelles', `Les deux poubelles, et ce qui repart`,
+      `Il reste les deux poubelles de l'angle de la rue Tronchet, et tout ce qui se rallume derrière vous : la batterie, une palette, un pneu. Cinq foyers, cela veut dire cinq foyers froids, pas cinq foyers mouillés ; la jauge, elle, est passée sous la moitié.`,
+      OBJ('o1'), [
+        voix('CHEF D\'ENGIN', `Ça fume encore au scooter. Retournes-y trois secondes avant de finir les poubelles.`),
+        rad('SAPEUR 1', 'NEPTUNE 1', `Je me libère, je suis chez vous dans CINQ minutes par la rue de Caumartin. Dites-moi ce qu'il vous reste à traiter.`),
+      ], [`Un foyer noyé se rallume`, `La pression de la pompe baisse`]),
+    ph('relais-des-pompiers', `Le relais des pompiers`,
+      `Cinq foyers froids. Le fourgon des pompiers débouche de la rue de Caumartin et reprend le boulevard Haussmann à son compte : refroidir, déblayer, vérifier les façades. L'engin recule derrière la ligne, tourelle de nouveau tournée vers la foule.`,
+      FIN, [
+        rad('SAPEUR 1', 'NEPTUNE 1', `Sur place. Je reprends les foyers, merci pour le travail. Indiquez-moi celui de la batterie.`),
+        rad('MISTRAL', 'NEPTUNE 1', `Reprenez votre place derrière la ligne, et rendez compte de votre réserve.`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Éteindre cinq foyers avant qu\'ils gagnent une façade', 'eteindre', { count: 5 }),
@@ -346,13 +514,36 @@ export const EAU_09 = mission({
     'Quarante individus déterminés.', ['Place de la République', 'Boulevard du Temple'],
     ['Repérer le poste de soins', 'Commencer par la pluie', 'Tenir compte du vent']),
   phases: [
-    ph('observation', 'Observation', 'Vous repérez les tiers et le groupe violent.', T(180),
-      [['ICARE', 'NEPTUNE UN ICI ICARE. Groupe violent au pied de la statue, tiers à l\'ouest. PARLEZ.']], []),
-    ph('tir', 'Tir sélectif', 'Vous arrosez uniquement le groupe violent.', T(360),
-      [['NEPTUNE 1', 'CENTRAL ICI NEPTUNE UN. Jet bas sur le groupe violent. Tiers protégés. PARLEZ.']], ['Le vent pousse le jet vers le poste de soins']),
-    ph('vent', 'Vent défavorable', 'Le vent porte l\'eau vers les tiers ; il faut couper.', TENS(0.6),
-      [['NEPTUNE 1', 'CENTRAL ICI NEPTUNE UN. Vent défavorable, je coupe. PARLEZ.']], []),
-    ph('fin', 'Fin', 'Le groupe violent se disperse.', FIN, [['NEPTUNE 1', 'CENTRAL ICI NEPTUNE UN. Aucun tiers touché. PARLEZ.']], []),
+    ph('reperage', `Dix mètres entre les violents et la presse`,
+      `Place de la République, en début de soirée. Quarante individus occupent le pied de la statue et lancent ce qu'ils trouvent. À dix mètres d'eux, une équipe de télévision ; un peu plus loin, sous une bâche, le poste de soins d'une association de secouristes de rue. L'engin est à cinquante mètres, tourelle au repos, et le vent d'ouest est faible.`,
+      T(150), [
+        rad('ICARE', 'NEPTUNE 1', `Groupe violent de QUATRE-ZÉRO au pied de la statue. Tiers à proximité : une équipe de presse à UN-ZÉRO mètres, un poste de soins à DEUX-ZÉRO mètres, sous le vent.`),
+        voix('CHEF D\'ENGIN', `Tu repères la bâche du poste de soins et tu ne la quittes plus des yeux. C'est elle qui décide si on tire.`),
+      ], [`Un journaliste s'avance vers le groupe violent`]),
+    ph('pluie', `La pluie d'abord, jet bas`,
+      `Avertissement au haut-parleur, puis la pluie, jet bas, sur le socle de la statue de la République. Le groupe se resserre et s'abrite derrière des parapluies ; l'équipe de télévision recule de quelques pas et continue de filmer, dos au poste de soins.`,
+      T(180), [
+        rad('MISTRAL', 'NEPTUNE 1', `Dernière sommation faite. Engin : pluie sur le groupe de la statue, uniquement. Diffus à mon signal.`, 'A'),
+        voix('CONDUCTEUR', `La caméra recule vers la bâche. Ils sont en train de se mettre exactement où part ton eau.`),
+      ], [`Un soignant traverse la zone avec un blessé`]),
+    ph('vent', `Le vent tourne vers la bâche`,
+      `Le vent fraîchit et tourne sur la place de la République : la brume du jet dérive maintenant vers la bâche du poste de soins, où deux personnes sont allongées. Rien n'est encore mouillé là-bas. C'est l'instant où l'on coupe, sans attendre l'ordre, et où on le dit.`,
+      OBJ('o2'), [
+        voix('CHEF D\'ENGIN', `Regarde ta brume. Elle part où, là ?`),
+        rad('ICARE', 'NEPTUNE 1', `Votre brume dérive vers le poste de soins. Deux blessés allongés sous la bâche.`),
+      ], [`Le vent pousse le jet vers le poste de soins`, `La pression de la pompe baisse`]),
+    ph('diffus', `Le diffus, quand le vent retombe`,
+      `Jet coupé, signalé, noté. Le vent retombe au bout d'une minute, et le groupe de la statue de la République relance de plus belle. Au signal, le diffus : court, bas, sur les quarante seulement, la main prête à couper de nouveau si la brume repart vers la bâche ou vers la caméra.`,
+      OBJ('o1'), [
+        rad('MISTRAL', 'NEPTUNE 1', `Reprenez quand le vent le permet. Diffus sur le groupe de la statue. Issue libre côté boulevard du Temple.`),
+        voix('CHEF D\'ENGIN', `Vent tombé. À toi. Tu coupes à la première rafale, sans me demander.`),
+      ], [`Un journaliste s'avance dans la zone du jet`, `Un lanceur se réfugie près du poste de soins`]),
+    ph('bache-et-camera', `La bâche et la caméra`,
+      `Le groupe violent quitte le pied de la statue par le boulevard du Temple. Tourelle au repos. Sous la bâche, les secouristes continuent leur travail ; l'équipe de télévision range sa caméra. Ce que vous direz au compte rendu tient en deux lignes : les litres, et qui a été mouillé.`,
+      FIN, [
+        rad('MISTRAL', 'NEPTUNE 1', `Halte à l'emploi de la force. Rendez compte : litres, coupures pour cause de vent, tiers atteints ou non.`),
+        voix('CHEF D\'ENGIN', `Va voir la bâche à la jumelle. Je veux savoir si elle est sèche avant qu'on me le demande.`),
+      ]),
   ],
   objectives: [
     ob('o1', 'Disperser le groupe violent sans toucher un tiers', 'disperser', { place: 'Place de la République' }),

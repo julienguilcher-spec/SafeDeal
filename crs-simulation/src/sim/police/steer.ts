@@ -43,6 +43,23 @@ export function halt(a: Agent, face: number): void {
  * tenir ; `vcap` : vitesse maximale ; `lookAhead` : l'agent regarde où il va (colonne, longs trajets).
  */
 export function steer(k: Kernel, a: Agent, tx: number, tz: number, tvx: number, tvz: number, face: number, vcap: number, lookAhead: boolean): void {
+  // la consigne transite par les champs de l'agent : aucun nombre n'est alloué pour l'appel
+  a.goX = tx;
+  a.goZ = tz;
+  a.goVx = tvx;
+  a.goVz = tvz;
+  a.goFace = face;
+  a.goCap = vcap;
+  steerGo(k, a, lookAhead);
+}
+
+function steerGo(k: Kernel, a: Agent, lookAhead: boolean): void {
+  let tx = a.goX;
+  let tz = a.goZ;
+  let tvx = a.goVx;
+  let tvz = a.goVz;
+  const face = a.goFace;
+  const vcap = a.goCap;
   const p = a.p;
   const cmd = p.cmd;
   let direct = true;

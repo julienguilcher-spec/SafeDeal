@@ -1,12 +1,17 @@
 /* Système d'affichage des monuments : modèle détaillé près de la caméra, silhouette au loin, libération
- * hors de portée, illumination nocturne et scintillement de début d'heure. Ne dépend que du contexte. */
+ * hors de portée, illumination nocturne et scintillement de début d'heure. Ne dépend que du contexte.
+ * Il complète les repères de la carte par les repères supplémentaires (extra.ts), donne à chaque définition son
+ * site (emprise locale, relief relatif, niveau de l'eau) et pose les silhouettes d'horizon hors carte (horizon.ts). */
 import * as THREE from 'three';
 import { SystemOrder, type GameContext, type GameSystem, type LandmarkInfo, type QualityLevel, type Unsubscribe } from '@/core/contracts';
-import type { MonumentsApi, MonumentsStats } from './api';
+import type { MonumentsApi, MonumentsStats, WorldMonumentsApi } from './api';
 import type { MonumentDef, MonumentFrame, MonumentSite } from './types';
 import { getMonument, listMonuments } from './registry';
 import { getWorldColliders, siteOfLandmark } from './colliders';
-import { disposeKitMaterials, disposeObject, setNightLevel, statsOf, tickMaterials } from './kit';
+import { disposeKitMaterials, disposeObject, hazesOf, setNightLevel, statsOf, tickMaterials, type Haze } from './kit';
+import { EXTRA_LANDMARKS, mergeLandmarks } from './extra';
+import { HORIZON, type HorizonDef } from './horizon';
+import { pointInRing } from './shape2d';
 
 interface Slot {
   lm: LandmarkInfo;
@@ -19,6 +24,24 @@ interface Slot {
   level: 0 | 1 | 2;
   dist: number;
 }
+
+/** Silhouette d'horizon : repère hors carte, jamais de modèle détaillé. */
+interface HorizonSlot {
+  def: HorizonDef;
+  group: THREE.Group;
+  obj: THREE.Object3D;
+  hazes: Haze[];
+  stats: { triangles: number; drawCalls: number };
+}
+
+/** Les silhouettes d'horizon n'existent que sur une vraie carte du cœur de Paris : emprise finie, large, contenant la Concorde. */
+const HORIZON_MIN_SPAN = 3000;
+/** Part de camera.far au-delà de laquelle une silhouette est rapprochée (et réduite d'autant : même taille apparente). */
+const HORIZON_SHELL = 0.82;
+/** Portée du voile atmosphérique (m) par temps clair et par brouillard dense. */
+const HAZE_CLEAR = 9500, HAZE_FOG = 500;
+
+const _hazeColor = new THREE.Color();
 
 /** Distance de base (m) du modèle détaillé selon la qualité ; s'y ajoute 2,5 × la hauteur du monument. */
 const NEAR_BASE: Record<QualityLevel, number> = { bas: 160, moyen: 230, haut: 310, ultra: 420 };
@@ -38,6 +61,8 @@ export class MonumentSystem implements GameSystem {
   private ctx: GameContext | null = null;
   private root: THREE.Group | null = null;
   private slots: Slot[] = [];
+  private horizon: HorizonSlot[] = [];
+  private horizonChecked = false;
   private signature = NaN;
   private time = 0;
   private scanTimer = 0;
@@ -51,12 +76,45 @@ export class MonumentSystem implements GameSystem {
     has: (key) => getMonument(key) !== undefined,
     keys: () => listMonuments().map((d) => d.key),
     collidersOf: (lm) => getWorldColliders(lm),
+    landmarks: () => this.landmarks(),
     stats: () => this.stats(),
     prewarm: (keys) => this.prewarm(keys),
   };
 
+  /** Service facultatif attendu par le module des immeubles : ne pas extruder ce qu'un monument remplace. */
+  private readonly worldApi: WorldMonumentsApi = {
+    has: (key) => getMonument(key) !== undefined,
+    covers: (x, z) => this.covers(x, z),
+    horizonKeys: () => HORIZON.map((h) => h.key),
+  };
+
   provide(ctx: GameContext): void {
+    this.ctx = ctx;
     ctx.provide<MonumentsApi>('monuments', this.api);
+    ctx.provide<WorldMonumentsApi>('world.monuments', this.worldApi);
+  }
+
+  /** Repères de la carte + repères supplémentaires situés dans l'emprise (liste recalculée si la carte change). */
+  private landmarks(): readonly LandmarkInfo[] {
+    const ctx = this.ctx;
+    if (!ctx) return EXTRA_LANDMARKS.slice(0, 0);
+    return mergeLandmarks(ctx.world.landmarks, ctx.world.bounds);
+  }
+
+  /** Emprise d'un repère supplémentaire modélisé, ou obstacle plein d'un monument de la carte, en ce point ? */
+  private covers(x: number, z: number): boolean {
+    const list = this.landmarks();
+    for (let i = 0; i < list.length; i++) {
+      const lm = list[i];
+      const def = getMonument(lm.key);
+      if (!def) continue;
+      const reach = def.radius + 4;
+      if (Math.abs(x - lm.x) > reach || Math.abs(z - lm.z) > reach) continue;
+      if (EXTRA_LANDMARKS.includes(lm) && lm.footprint.length >= 6 && pointInRing(x, z, lm.footprint)) return true;
+      const cols = getWorldColliders(lm);
+      for (let k = 0; k < cols.length; k++) if (cols[k].baseY <= 0.5 && pointInRing(x, z, cols[k].ring)) return true;
+    }
+    return false;
   }
 
   init(ctx: GameContext): void {
@@ -81,10 +139,11 @@ export class MonumentSystem implements GameSystem {
   /** Reconstruit la liste des emplacements quand les repères de la carte changent (chargement différé). */
   private sync(): void {
     const ctx = this.ctx!;
-    const list = ctx.world.landmarks;
+    const list = this.landmarks();
     // signature peu coûteuse : la liste peut être recréée à chaque lecture ou complétée après chargement
     let sig = list.length;
-    for (let i = 0; i < list.length; i++) sig += list[i].x * 31 + list[i].z * 17 + list[i].heading;
+    // (la clé compte : deux repères au même endroit, ou un repère dont la clé change, doivent être revus)
+    for (let i = 0; i < list.length; i++) sig += list[i].x * 31 + list[i].z * 17 + list[i].heading + list[i].key.length * 0.37 + list[i].key.charCodeAt(0) * 0.011;
     if (sig === this.signature) return;
     this.clear();
     this.signature = sig;
@@ -98,7 +157,78 @@ export class MonumentSystem implements GameSystem {
       group.rotation.y = lm.heading;
       group.visible = false;
       this.root!.add(group);
-      this.slots.push({ lm, def, site: siteOfLandmark(lm), group, near: null, far: null, level: 0, dist: Infinity });
+      this.slots.push({ lm, def, site: this.siteOf(lm), group, near: null, far: null, level: 0, dist: Infinity });
+    }
+  }
+
+  /**
+   * Site d'un repère : emprise locale, et ce que le monde sait du terrain — altitude du sol relative à l'origine du
+   * monument (tabliers de pont compris) et niveau de l'eau. Les ouvrages qui épousent le relief s'en servent.
+   */
+  private siteOf(lm: LandmarkInfo): MonumentSite {
+    const site = siteOfLandmark(lm);
+    const world = this.ctx!.world;
+    if (typeof world.heightAt !== 'function') return site;
+    const c = Math.cos(lm.heading), s = Math.sin(lm.heading);
+    site.groundAt = (x, z) => world.heightAt(lm.x + x * c + z * s, lm.z - x * s + z * c) - world.heightAt(lm.x, lm.z);
+    if (typeof world.waterLevel === 'number' && Number.isFinite(world.waterLevel)) site.waterY = world.waterLevel - world.heightAt(lm.x, lm.z);
+    return site;
+  }
+
+  /** Crée (une fois) les silhouettes d'horizon si le monde est une vraie carte du cœur de Paris. */
+  private syncHorizon(): void {
+    if (this.horizonChecked) return;
+    const ctx = this.ctx!;
+    const b = ctx.world.bounds;
+    if (!ctx.world.ready && !b) return;
+    this.horizonChecked = true;
+    if (!b || !Number.isFinite(b.maxX - b.minX + b.maxZ - b.minZ)) return;
+    if (b.maxX - b.minX < HORIZON_MIN_SPAN || b.minX > 0 || b.maxX < 0 || b.minZ > 0 || b.maxZ < 0) return;
+    for (const def of HORIZON) {
+      // dans l'emprise (ce ne serait plus un repère lointain) : la carte devrait alors fournir un vrai monument
+      if (def.x > b.minX && def.x < b.maxX && def.z > b.minZ && def.z < b.maxZ) continue;
+      try {
+        const obj = def.build();
+        const group = new THREE.Group();
+        group.name = `horizon:${def.key}`;
+        group.rotation.y = def.heading;
+        group.add(obj);
+        this.root!.add(group);
+        const st = statsOf(obj);
+        this.horizon.push({ def, group, obj, hazes: hazesOf(obj), stats: { triangles: st.triangles, drawCalls: st.drawCalls } });
+      } catch (err) {
+        console.error(`[monuments] silhouette d'horizon « ${def.key} » impossible :`, err);
+      }
+    }
+  }
+
+  /**
+   * Pose les silhouettes d'horizon : position réelle tant qu'elle tient dans le champ de la caméra, sinon rapprochée
+   * sur la même ligne de visée et réduite d'autant (taille apparente inchangée) ; voile atmosphérique d'après la
+   * distance réelle et le brouillard (le brouillard de scène, réglé sur la distance d'affichage, les effacerait).
+   */
+  private placeHorizon(): void {
+    if (this.horizon.length === 0) return;
+    const ctx = this.ctx!, view = ctx.view!;
+    const env = ctx.env.state;
+    const camFar = view.camera && view.camera.far > 0 ? view.camera.far : 8000;
+    const shell = camFar * HORIZON_SHELL;
+    const fogAmount = Math.max(0, Math.min(1, env.fog ?? 0)), rain = Math.max(0, Math.min(1, env.rain ?? 0));
+    const reach = (HAZE_CLEAR + (HAZE_FOG - HAZE_CLEAR) * Math.pow(fogAmount, 0.6)) * (1 - 0.45 * rain);
+    // couleur du voile : celle du brouillard de scène s'il existe (dans l'espace de sortie), sinon un ciel d'horizon
+    const fog = view.scene ? (view.scene.fog as THREE.Fog | THREE.FogExp2 | null) : null;
+    if (fog && fog.color) fog.color.getRGB(_hazeColor, THREE.SRGBColorSpace);
+    else _hazeColor.setRGB(0.79 - 0.7 * this.night, 0.86 - 0.75 * this.night, 0.93 - 0.76 * this.night);
+    const cx = view.camX, cy = view.camY, cz = view.camZ;
+    for (let i = 0; i < this.horizon.length; i++) {
+      const h = this.horizon[i];
+      const dx = h.def.x - cx, dz = h.def.z - cz;
+      const dist = Math.hypot(dx, dz);
+      const k = dist > shell ? shell / dist : 1;
+      h.group.position.set(cx + dx * k, cy + (h.def.baseY - cy) * k, cz + dz * k);
+      if (h.group.scale.x !== k) h.group.scale.setScalar(k);
+      const amount = Math.min(0.97, 1 - Math.exp(-dist / reach));
+      for (let j = 0; j < h.hazes.length; j++) h.hazes[j].set(_hazeColor.r, _hazeColor.g, _hazeColor.b, amount);
     }
   }
 
@@ -115,7 +245,9 @@ export class MonumentSystem implements GameSystem {
       this.time += dt;
       this.quality = view.quality;
       this.sync();
+      this.syncHorizon();
       this.updateLight(dt);
+      this.placeHorizon();
       this.scanTimer -= dt;
       if (this.scanTimer <= 0) {
         this.scanTimer = 0.2;
@@ -220,6 +352,12 @@ export class MonumentSystem implements GameSystem {
     this.slots.length = 0;
   }
 
+  private clearHorizon(): void {
+    for (const h of this.horizon) { disposeObject(h.obj); h.group.removeFromParent(); }
+    this.horizon.length = 0;
+    this.horizonChecked = false;
+  }
+
   private stats(): MonumentsStats {
     let detailed = 0, distant = 0, triangles = 0, drawCalls = 0;
     for (const s of this.slots) {
@@ -229,18 +367,25 @@ export class MonumentSystem implements GameSystem {
       const st = statsOf(shown);
       triangles += st.triangles; drawCalls += st.drawCalls;
     }
-    return { known: this.slots.length, detailed, distant, triangles, drawCalls, night: this.night, sparkle: this.sparkle };
+    let horizonTriangles = 0, horizonDrawCalls = 0;
+    for (const h of this.horizon) { horizonTriangles += h.stats.triangles; horizonDrawCalls += h.stats.drawCalls; }
+    return {
+      known: this.slots.length, detailed, distant, triangles, drawCalls, night: this.night, sparkle: this.sparkle,
+      horizon: this.horizon.length, horizonTriangles, horizonDrawCalls,
+    };
   }
 
   /** Entre deux sessions : on relâche les modèles (les matériaux partagés restent en mémoire). */
   reset(): void {
     this.clear();
+    this.clearHorizon();
     this.signature = NaN;
     this.scanTimer = 0;
   }
 
   dispose(): void {
     this.clear();
+    this.clearHorizon();
     for (const u of this.unsub) u();
     this.unsub.length = 0;
     if (this.root) { this.root.removeFromParent(); this.root = null; }

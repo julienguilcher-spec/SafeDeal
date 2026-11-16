@@ -14,7 +14,9 @@
  *   'traffic:gate'      GateEvent        un barrage s'ouvre ou se referme pour laisser passer un véhicule
  *   'traffic:motorist'  MotoristEvent    automobiliste bloqué, libéré, en fuite, qui abandonne son véhicule,
  *                                        qui fait demi-tour, qui se gare
- *   'traffic:jam'       JamEvent         un bouchon se forme ou se résorbe (file d'au moins 4 véhicules)
+ *   'traffic:jam'       JamEvent         un bouchon se forme (au moins 4 véhicules immobilisés par une foule, un
+ *                                        obstacle ou un barrage) ou se résorbe ; un seul bouchon suivi à la fois, repéré
+ *                                        par le barycentre des véhicules immobilisés
  *
  * Clés lues dans SessionConfig.extra (toutes facultatives) :
  *   options.circulation   'coupee'   périmètre fermé autour du lieu dès le départ (rayon 350 m, barrières
@@ -63,9 +65,10 @@ export type BlockCause = '' | 'feu' | 'carrefour' | 'file' | 'personne' | 'obsta
 
 /** État lisible d'un automobiliste (objet stable par véhicule, mis à jour en place). */
 export interface MotoristStatus {
-  /** 'route' roule vers sa destination ; 'arret' tenu à un point d'arrêt ; 'range' rangé pour une sirène ;
-   *  'stationne' en train de se garer ; 'fuite' s'éloigne d'un danger ; 'abandonne' véhicule laissé sur place. */
-  mode: 'route' | 'arret' | 'range' | 'stationne' | 'fuite' | 'abandonne';
+  /** 'route' roule vers sa destination ; 'arret' tenu à un point d'arrêt (ligne de feu, carrefour, destination) ;
+   *  'range' rangé pour une sirène ; 'stationne' en train de se garer ; 'fuite' s'éloigne d'un danger.
+   *  Un véhicule abandonné n'a plus d'état : TrafficApi.motorist() rend null. */
+  mode: 'route' | 'arret' | 'range' | 'stationne' | 'fuite';
   cause: BlockCause;
   /** Temps passé immobilisé hors feu rouge (s). */
   blockedFor: number;

@@ -91,6 +91,21 @@ export function resolvePlaces(world: readonly PlaceInfo[]): { featured: PlaceCho
   return { featured, others };
 }
 
+/**
+ * Commandant unique (docs/BRIEF.md §1) : le rôle « commissaire » du contrat est un alias du commandant et n'est
+ * pas proposé séparément. Un brouillon qui le porte (scénario enregistré, tirage « Surprends-moi ») devient
+ * le commandant : chef d'unité et autorité habilitée à la fois.
+ */
+export function unifyCommander(d: ScenarioDraft): ScenarioDraft {
+  if (d.role === 'commissaire') {
+    d.role = 'commandant';
+    d.rank = 'commandant';
+    d.poste = 'commandant_unite';
+    d.variante = '';
+  }
+  return d;
+}
+
 export function createHome(env: UiEnv): (host: HTMLElement, data: unknown) => ScreenInstance {
   const { ctx, widgets } = env;
   const store = new ScenarioStore(ctx.save);
@@ -116,7 +131,7 @@ export function createHome(env: UiEnv): (host: HTMLElement, data: unknown) => Sc
         saved.z = match.z;
       }
     }
-    const draft: ScenarioDraft = saved;
+    const draft: ScenarioDraft = unifyCommander(saved);
     draft.options.violence = violence;
     const requested = data && typeof data === 'object' ? (data as { section?: unknown }).section : undefined;
     let section: SectionId = SECTIONS.some((s) => s.id === requested) ? (requested as SectionId) : lastSection;
@@ -344,10 +359,12 @@ export function createHome(env: UiEnv): (host: HTMLElement, data: unknown) => Sc
       store,
       update(patch: Partial<ScenarioDraft>): void {
         Object.assign(draft, sanitizeDraft({ ...draft, ...patch }, draft));
+        unifyCommander(draft);
         refreshSummary();
       },
       replace(next: ScenarioDraft): void {
         Object.assign(draft, sanitizeDraft(next, draft));
+        unifyCommander(draft);
         draft.options.violence = ctx.settings.values.violence;
         refreshSummary();
         show(section);
