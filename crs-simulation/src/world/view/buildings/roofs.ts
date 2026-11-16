@@ -19,7 +19,7 @@ import { vhash } from './layout';
 import type { MeshData } from './meshdata';
 import { WALL_FREE } from './prepare';
 import { distanceToRing, hyp, insetIsValid, insetRing, pointInRing, ringArea, ringCentroid } from './rings';
-import { emitChimneys, emitDormers } from './roofDetails';
+import { emitChimneys, emitDormers, roofTint } from './roofDetails';
 import { triIndices, triangulate, triangulatedArea } from './triangulate';
 import type { BuildCtx, EdgeSet } from './walls';
 
@@ -164,12 +164,6 @@ function emitCap(m: MeshData, c: BuildCtx, src: Float64Array, total: number, nt:
     const a = base + triIndices[3 * t], b = base + triIndices[3 * t + 1], d = base + triIndices[3 * t + 2];
     if (down) m.tri(a, d, b); else m.tri(a, b, d);
   }
-}
-
-/** Teinte de couverture : zinc et ardoise varient peu. */
-export function roofTint(m: MeshData, c: BuildCtx, k = 1): void {
-  const v = (0.86 + 0.16 * vhash(c.b.id, 41)) * k;
-  m.tint(v, v, v * (1 + 0.02 * (c.rand - 0.5)));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────

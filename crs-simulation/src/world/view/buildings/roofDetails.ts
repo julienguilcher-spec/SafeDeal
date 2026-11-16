@@ -10,11 +10,16 @@ import { vhash } from './layout';
 import type { MeshData } from './meshdata';
 import { WALL_FREE } from './prepare';
 import { hyp } from './rings';
-import { roofTint } from './roofs';
 import type { BuildCtx, EdgeSet } from './walls';
 
 /** Période (m) des mitrons le long d'une souche. */
 export const POT_PERIOD_M = 0.7;
+
+/** Teinte de couverture : zinc et ardoise varient peu. */
+export function roofTint(m: MeshData, c: BuildCtx, k = 1): void {
+  const v = (0.86 + 0.16 * vhash(c.b.id, 41)) * k;
+  m.tint(v, v, v * (1 + 0.02 * (c.rand - 0.5)));
+}
 
 /**
  * Lucarnes en volume : une par travée des murs libres de l'anneau extérieur (6 triangles chacune).
