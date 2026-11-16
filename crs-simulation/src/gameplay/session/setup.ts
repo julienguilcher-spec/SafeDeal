@@ -151,6 +151,8 @@ export class SessionSetupSystem implements GameSystem {
         ctx.player.setCameraMode(this.cameraOf(config, player, stand.heading));
         ctx.service<RenderCameraApi>('render.camera')?.cut();
         summary.playerId = player.id;
+        // commandant en salle de commandement : il s'installe dans le véhicule de commandement, vue tactique
+        if (config.role === 'commandant' && config.extra && config.extra['variante'] === 'salle') this.seatInCommandRoom(player);
         // le joueur chef d'une unité (groupe, section) : son unité le suit tant qu'il ne lui donne pas d'autre ordre
         if (config.role !== 'commandant' && config.role !== 'commissaire') {
           for (const s of ctx.squads.list) {
@@ -540,6 +542,36 @@ export class SessionSetupSystem implements GameSystem {
     const fx = Math.sin(forces.heading);
     const fz = Math.cos(forces.heading);
     return { x: forces.x + fz * 14 - fx * 4, z: forces.z - fx * 14 - fz * 4, heading: forces.heading, facing: forces.facing };
+  }
+
+  /**
+   * Mode « salle de commandement » : le commandant n'est pas au contact ; il est installé dans le véhicule de commandement
+   * de sa compagnie (le poste de commandement mobile tient lieu de salle), caméra tactique. Les sommations sont alors
+   * prononcées sur son ordre par un officier (carte tactique : service 'police.command', requestSommation).
+   */
+  private seatInCommandRoom(player: Person): void {
+    const ctx = this.ctx;
+    let best: Vehicle | null = null;
+    let bestD = Infinity;
+    for (const v of ctx.vehicles.list) {
+      if (v.kind !== 'vl_commandement') continue;
+      const d = Math.hypot(v.x - player.x, v.z - player.z);
+      if (d < bestD) { bestD = d; best = v; }
+    }
+    if (best) ctx.vehicles.enter(player, best, 'passenger');
+    ctx.player.setCameraMode('tactical');
+    // l'adjoint (officier IA le plus gradé de la compagnie) porte l'insigne tricolore et somme sur ordre
+    const rank: Record<string, number> = { capitaine: 5, major: 4, brigadier_chef: 3, brigadier: 2, gardien: 1 };
+    let deputy: Person | null = null;
+    for (const p of ctx.people.list) {
+      if (p.isPlayer || p.faction !== 'police' || p.kind !== 'crs' || p.vehicleId !== 0) continue;
+      if (!deputy || (rank[p.rank ?? ''] ?? 0) > (rank[deputy.rank ?? ''] ?? 0)) deputy = p;
+    }
+    if (deputy) {
+      deputy.look.sash = true;
+      if (ctx.actions.has(deputy, 'megaphone') === 0) ctx.actions.give(deputy, 'megaphone');
+      if (ctx.actions.has(deputy, 'fusee_sommation') === 0) ctx.actions.give(deputy, 'fusee_sommation');
+    }
   }
 
   /** Recense les moyens réellement présents (ce que la page d'accueil a demandé et qui a pu être placé). */

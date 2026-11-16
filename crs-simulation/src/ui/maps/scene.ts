@@ -17,7 +17,7 @@ import { aggregateDensity, createDensityGrid, densityColor } from './density';
 import type { DensityGrid, DensityPoint } from './density';
 import { UnitModel } from './units';
 import type { MapUnit } from './units';
-import { incidentVisible, visibilityFor } from './visibility';
+import { incidentVisible, visibilityFor, visibilityForContext } from './visibility';
 
 /** Lecture du champ de gaz (forme du service 'hazards.field', sans dépendre de son module). */
 interface HazardFieldLike {
@@ -136,7 +136,7 @@ export class MapScene {
   };
 
   constructor(private readonly ctx: GameContext) {
-    this.vis = visibilityFor(ctx.player.state.role);
+    this.vis = visibilityForContext(ctx);
   }
 
   /** Force le prochain ensureFresh() à tout recalculer (changement de rôle, nouvelle session). */
@@ -194,7 +194,7 @@ export class MapScene {
 
   private refreshEntities(): void {
     const ctx = this.ctx;
-    const vis = (this.vis = visibilityFor(ctx.player.state.role));
+    const vis = (this.vis = visibilityForContext(ctx));
     this.units = this.unitModel.refresh(ctx, vis);
     this.unitsRevision++;
 

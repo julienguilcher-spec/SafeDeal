@@ -48,7 +48,11 @@ export const ROLES: readonly RoleInfo[] = [
   {
     id: 'commandant', name: 'Commandant', desc: 'Manœuvrez toute la compagnie.', police: true,
     ranks: ['capitaine', 'commandant'], defaultRank: 'commandant',
-    postes: ['commandant_unite'], defaultPoste: 'commandant_unite', variantes: [],
+    postes: ['commandant_unite'], defaultPoste: 'commandant_unite',
+    variantes: [
+      { id: 'terrain', label: 'Sur le terrain', desc: 'À pied au contact (sommations au mégaphone) et au véhicule de commandement, où la carte est complète.' },
+      { id: 'salle', label: 'Salle de commandement', desc: 'Purement stratégique : carte, drone et caméras ; les sommations sont prononcées sur votre ordre.' },
+    ],
   },
   {
     id: 'commissaire', name: 'Commissaire', desc: 'Sommez, autorisez la force.', police: true,

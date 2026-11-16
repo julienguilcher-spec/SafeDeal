@@ -451,3 +451,13 @@ un téléphone lancé en portrait trouve désormais la session EN PAUSE (c'étai
 - Reste le sol en facettes (~200 000 sur 4 tuiles : trottoirs découpés selon le réseau de 8 m) et les façades. Pistes :
   facettes de 16 m en « bas » (TIN_CELL est global : à rendre dépendant de la qualité), découpe simplifiée des trottoirs.
   Jamais mesuré sur un vrai téléphone.
+
+## Poste du commandant (16/11) — LIVRÉ
+- Page d'accueil : variantes du rôle Commandant « Sur le terrain » / « Salle de commandement » (`extra.variante`).
+- Terrain : `commanderOffPost()` (`src/ui/maps/visibility.ts`) — à pied loin du véhicule de commandement (ou poste
+  perdu), la carte ne montre la foule et les dangers qu'à 220 m (comptes rendus) ; au véhicule, tout. Libellé de
+  l'étendue de commandement à jour. Les sommations exigent déjà la portée du mégaphone (module du droit).
+- Salle : le commandant est installé dans le véhicule de commandement, vue tactique conservée (`sim/people/player.ts`) ;
+  l'officier IA le plus gradé reçoit l'écharpe, le mégaphone et la fusée ; le bouton « Sommation suivante » le fait
+  sommer sur ordre (`police.command.requestSommation`, qui ne s'interrompt plus sur une foule présente).
+- Vérifié : `tests/unit/integration.poste.test.ts`. Non vu dans le navigateur.

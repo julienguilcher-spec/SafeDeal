@@ -10,6 +10,7 @@
 import type { GameContext, Person, PlayableRole, PoliceRank, Squad } from '@/core/contracts';
 import { isAuthority } from '@/core/null-services';
 import type { CommandScope } from './api';
+import { commanderOffPost } from '../maps/visibility';
 
 const RANK_LEVEL: Readonly<Record<PoliceRank, number>> = {
   gardien_stagiaire: 0, gardien: 1, brigadier: 2, brigadier_chef: 3, major: 4, capitaine: 5, commandant: 6, commissaire: 7,
@@ -77,7 +78,9 @@ export function computeScope(ctx: GameContext): CommandScope {
     return {
       level: 'tout', squadIds: ids, ownSquadId: led ? led.id : p ? p.squadId : 0, canAuthorize: true, canSommation,
       canTraffic: true, canMetro: true, canDelegate: true,
-      label: `${roleLabel(role === 'commissaire' ? 'commissaire' : 'commandant')} — tout le dispositif`,
+      label: `${roleLabel(role === 'commissaire' ? 'commissaire' : 'commandant')} — tout le dispositif` +
+        (ctx.session.config?.extra?.['variante'] === 'salle' ? ' · salle de commandement'
+          : commanderOffPost(ctx) ? ' · à pied : comptes rendus radio seulement (carte complète au véhicule de commandement)' : ' · véhicule de commandement'),
     };
   }
 

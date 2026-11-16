@@ -103,6 +103,11 @@ export class OrdersPanel {
     const ctx = this.core.ctx;
     const p = this.core.player();
     if (!p) return;
+    // salle de commandement : l'officier de la compagnie se porte à portée de mégaphone et somme sur ordre
+    if (ctx.session.config?.extra?.['variante'] === 'salle') {
+      this.sommationOnOrder();
+      return;
+    }
     const before = ctx.law.roe.sommation;
     const stage = ctx.law.sommation(p);
     if (stage === before) {
@@ -113,6 +118,44 @@ export class OrdersPanel {
     ctx.radio.say({
       channel: 'commandement', from: this.core.callsign(), priority: 2, personId: p.id,
       text: `À TOUS ICI ${this.core.callsign().toUpperCase()}. ${STAGE_LABELS[stage]}. ${stage >= 3 ? 'Emploi de la force possible sur mon ordre.' : 'Aucun emploi de la force avant mon ordre.'} TERMINÉ.`,
+    });
+    this.state.touch();
+  }
+
+  /** Mode salle : point de sommation = point chaud le plus marqué, sinon tête du cortège ; l'ordre part par radio. */
+  private sommationOnOrder(): void {
+    const ctx = this.core.ctx;
+    const cmd = ctx.service<{ requestSommation(companySquadId: number, x: number, z: number): boolean; hotspots: readonly { x: number; z: number }[] }>('police.command');
+    const company = ctx.squads.list.find((q) => q.kind === 'compagnie' && q.faction === 'police');
+    if (!cmd || !company) {
+      ctx.ui.notify('Aucun officier ne peut sommer sur ordre : pas de compagnie engagée.', 'warn', 4);
+      return;
+    }
+    let x = NaN, z = NaN;
+    if (cmd.hotspots.length > 0) {
+      x = cmd.hotspots[0]!.x;
+      z = cmd.hotspots[0]!.z;
+    } else {
+      const route = ctx.director.route;
+      let s = ctx.director.headProgress;
+      for (let i = 0; i + 3 < route.length; i += 2) {
+        const len = Math.hypot(route[i + 2]! - route[i]!, route[i + 3]! - route[i + 1]!);
+        if (s <= len || i + 5 >= route.length) {
+          const k = len > 0 ? Math.min(1, s / len) : 0;
+          x = route[i]! + (route[i + 2]! - route[i]!) * k;
+          z = route[i + 1]! + (route[i + 3]! - route[i + 1]!) * k;
+          break;
+        }
+        s -= len;
+      }
+    }
+    if (!Number.isFinite(x) || !cmd.requestSommation(company.id, x, z)) {
+      ctx.ui.notify('Sommation sur ordre impossible : aucun officier habilité disponible ou aucun attroupement repéré.', 'warn', 5);
+      return;
+    }
+    ctx.radio.say({
+      channel: 'commandement', from: this.core.callsign(), priority: 2, personId: ctx.player.state.personId,
+      text: `${company.name.toUpperCase()} ICI ${this.core.callsign().toUpperCase()}. Portez-vous à portée de mégaphone et procédez à la sommation suivante. PARLEZ.`,
     });
     this.state.touch();
   }

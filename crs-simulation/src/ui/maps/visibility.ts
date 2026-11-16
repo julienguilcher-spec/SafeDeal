@@ -8,7 +8,7 @@
  * dans leur champ de perception ; le parcours déclaré et le métro, qui sont publics.
  * ===================================================================================== */
 
-import type { PlayableRole, RadioChannel } from '@/core/contracts';
+import type { GameContext, PlayableRole, RadioChannel } from '@/core/contracts';
 import type { IncidentKind } from '@/core/extensions';
 import type { MapVisibility } from './api';
 
@@ -77,4 +77,28 @@ export function incidentVisible(vis: MapVisibility, kind: IncidentKind, distance
     case 'near': return WITNESS_KINDS.has(kind) && distance <= vis.nearRadius;
     default: return false;
   }
+}
+
+/**
+ * Commandant à pied, loin de son véhicule de commandement : il ne voit que ce que les unités rapportent (foule et
+ * dangers autour de lui et de ses unités, sans l'image du drone). Au véhicule, ou en salle de commandement : tout.
+ */
+const COMMANDER_FIELD_VIEW: MapVisibility = { ...POLICE_VIEW, crowd: 'near', hazards: 'near', nearRadius: 220 };
+
+interface CommandPostLike { readonly atVehicle: boolean; readonly lost: boolean }
+
+/** Le joueur commandant est-il privé de la carte complète (à pied, loin du véhicule, ou poste perdu) ? */
+export function commanderOffPost(ctx: GameContext): boolean {
+  const role = ctx.player.state.role;
+  if (role !== 'commandant' && role !== 'commissaire') return false;
+  const cfg = ctx.session.config;
+  if (cfg && cfg.extra && cfg.extra['variante'] === 'salle') return false;
+  const post = ctx.service<CommandPostLike>('command.post');
+  if (!post) return false;
+  return post.lost || !post.atVehicle;
+}
+
+/** Visibilité du joueur, compte tenu de son poste de commandement. */
+export function visibilityForContext(ctx: GameContext): MapVisibility {
+  return commanderOffPost(ctx) ? COMMANDER_FIELD_VIEW : visibilityFor(ctx.player.state.role);
 }

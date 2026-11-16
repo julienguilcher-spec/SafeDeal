@@ -227,14 +227,36 @@ export class Reaction {
 
   // ───────────────────────────── sommations ─────────────────────────────
 
+  /**
+   * Officier qui prononce les sommations : le commandant IA ; quand le commandant est le joueur et que la procédure est
+   * demandée par la salle de commandement, un officier IA de la compagnie portant l'insigne tricolore (son adjoint).
+   */
+  private officer(): Person | null {
+    const c = this.cmd.commander();
+    if (c && !c.isPlayer) return c;
+    if (!this.onRequest) return null;
+    const ctx = this.core.ctx;
+    let best: Person | null = null;
+    for (const p of ctx.people.list) {
+      if (p.isPlayer || p.faction !== 'police' || !p.look.sash || ctx.health.isIncapacitated(p)) continue;
+      if (!best || Math.hypot(p.x - this.zoneX, p.z - this.zoneZ) < Math.hypot(best.x - this.zoneX, best.z - this.zoneZ)) best = p;
+    }
+    return best;
+  }
+
   /** Démarre la procédure sur une zone (trouble constaté, ou demande de la salle de commandement). */
   start(x: number, z: number, spotId: number, onRequest: boolean): boolean {
     const core = this.core;
     const cmd = this.cmd;
-    const c = cmd.commander();
-    if (!c || c.isPlayer || core.ctx.health.isIncapacitated(c)) return false;
+    const prev = [this.onRequest, this.zoneX, this.zoneZ] as const;
+    this.onRequest = onRequest;
     this.zoneX = x;
     this.zoneZ = z;
+    const c = this.officer();
+    if (!c || c.isPlayer || core.ctx.health.isIncapacitated(c)) {
+      [this.onRequest, this.zoneX, this.zoneZ] = prev;
+      return false;
+    }
     this.spotId = spotId;
     this.onRequest = onRequest;
     // point de sommation : sur le chemin du commandant vers la zone, à portée de mégaphone
@@ -410,7 +432,7 @@ export class Reaction {
     const ctx = core.ctx;
     const roe = ctx.law.roe;
     const now = core.now;
-    const c = cmd.commander();
+    const c = this.officer();
     if (!c || c.isPlayer || ctx.health.isIncapacitated(c)) {
       // le commandant est hors de combat : la procédure s'arrête, aucune force n'est autorisée
       this.abandon();
@@ -432,7 +454,8 @@ export class Reaction {
       }
     }
     // le trouble a-t-il cessé ? (foule partie, ou plus aucun fait depuis un moment)
-    const quiet = present < ZONE_EMPTY || (this.proc !== 'approche' && this.proc !== 'en_cours' && this.offenders(this.zoneX, this.zoneZ, 45, 90) === 0 && present < CROWD_MIN * 2);
+    // sur ordre de la salle, seule une zone vide arrête la procédure (c'est le commandant qui a qualifié l'attroupement)
+    const quiet = present < ZONE_EMPTY || (!this.onRequest && this.proc !== 'approche' && this.proc !== 'en_cours' && this.offenders(this.zoneX, this.zoneZ, 45, 90) === 0 && present < CROWD_MIN * 2);
     if (quiet) {
       if (this.calmSince === 0) this.calmSince = now;
     } else {

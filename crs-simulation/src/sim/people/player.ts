@@ -191,7 +191,8 @@ export class PlayerController implements GameSystem {
     if (v) {
       this.turret = this.vehicles.turretOf(v, p.seat);
       if (this.turret >= 0) this.setCameraMode('turret');
-      else if (st.cameraMode !== 'vehicle_int' && st.cameraMode !== 'vehicle_ext') this.setCameraMode('vehicle_ext');
+      // la vue tactique (commandant en salle de commandement) est conservée en montant à bord
+      else if (st.cameraMode !== 'vehicle_int' && st.cameraMode !== 'vehicle_ext' && st.cameraMode !== 'tactical') this.setCameraMode('vehicle_ext');
     } else if (st.cameraMode !== 'fps' && st.cameraMode !== 'tps') {
       this.setCameraMode(this.footCamera);
     }
@@ -369,7 +370,8 @@ export class PlayerController implements GameSystem {
     if (v) {
       this.stopPerson(p);
       this.crouch = false;
-      this.setCameraMode(this.turret >= 0 ? 'turret' : 'vehicle_ext');
+      // la vue tactique (commandant installé au poste de commandement) est conservée
+      if (this.state.cameraMode !== 'tactical' || this.turret >= 0) this.setCameraMode(this.turret >= 0 ? 'turret' : 'vehicle_ext');
     } else {
       this.setCameraMode(this.footCamera);
     }
