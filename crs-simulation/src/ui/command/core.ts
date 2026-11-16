@@ -134,6 +134,12 @@ export class CommandCore implements CommandApi {
       const g = geoms ? geoms[geoms.length === 1 ? 0 : i] : undefined;
       // voiture de patrouille (Police secours, BAC) : elle roule déjà, elle se rend elle-même sur le point en urgence
       // (service 'police.patrols') — ni colonne, ni débarquement ; « Faire mouvement » vaut « Avancer jusqu'à »
+      // « avec moi » : l'unité suit le joueur — elle vient en véhicules si elle est loin, puis prend place dans sa
+      // colonne quand il conduit (session/follow.ts), ou le suit à pied
+      if (type === 'avec_moi') {
+        if (this.callWithMe(s, from)) count++;
+        continue;
+      }
       const patrol = this.isPatrol(s.id);
       const t: OrderType = patrol && type === 'faire_mouvement' ? 'avancer' : type;
       // mouvement motorisé : demandé (« Faire mouvement ») ou implicite pour un point éloigné d'une unité qui a ses
@@ -230,6 +236,25 @@ export class CommandCore implements CommandApi {
     ctx.radio.say({
       channel: 'commandement', from, priority: 2, personId: ctx.player.state.personId,
       text: `${s.name} ICI ${from.toUpperCase()}. Embarquez, mouvement en véhicules, deux tons, sur ${ctx.world.sectorName(g.x, g.z) || 'le point indiqué'}. PARLEZ.`,
+    });
+    return true;
+  }
+
+  /** Ordre « avec moi » donné à une unité. */
+  private callWithMe(s: Squad, from: string): boolean {
+    const ctx = this.ctx;
+    const me = ctx.player.person();
+    if (!me) return false;
+    const playerId = me.id;
+    if (this.farFor(s, me.x, me.z) && this.motorize(s, 'suivre', { x: me.x, z: me.z, heading: me.heading, width: 0 }, from)) {
+      this.afterConvoy.set(s.id, { type: 'suivre', geom: { x: me.x, z: me.z, heading: me.heading, width: 0 }, targetId: playerId });
+      return true;
+    }
+    ctx.squads.issue(s.id, { type: 'suivre', targetId: playerId, issuedBy: playerId });
+    this.trace(s, 'suivre');
+    ctx.radio.say({
+      channel: 'commandement', from, priority: 1, personId: playerId,
+      text: `${s.name} ICI ${from.toUpperCase()}. Avec moi : prenez place dans ma colonne, derrière mon véhicule. PARLEZ.`,
     });
     return true;
   }

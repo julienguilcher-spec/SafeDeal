@@ -42,6 +42,9 @@ const FLEET_RADIUS = 90;
 const COLUMN_GAP = 9;
 /** Rayon dans lequel les fourgons d'une unité accompagnatrice peuvent rejoindre la colonne (m). */
 const COMPANY_RADIUS = 160;
+/** Unités appelées « avec moi » : rayon dans lequel leurs véhicules rejoignent la colonne (m), revue périodique (s). */
+const CALLED_RADIUS = 700;
+const JOIN_PERIOD = 3;
 /** Ordres qui n'engagent pas une unité : on peut l'emmener sans défaire une manœuvre (une unité qui tient un barrage reste). */
 const ARMORED: ReadonlySet<string> = new Set(['centaure', 'canon_eau']);
 const FREE_ORDERS: ReadonlySet<string> = new Set(['libre', 'suivre', 'cesser', 'embarquer', 'debarquer', 'colonne', 'escorter']);
@@ -70,6 +73,7 @@ export class FollowLeaderSystem implements GameSystem {
   private escorts: number[] = [];
   private escortSince = 0;
   private nextThink = 0;
+  private nextJoin = 0;
 
   init(ctx: GameContext): void {
     this.ctx = ctx;
@@ -115,6 +119,16 @@ export class FollowLeaderSystem implements GameSystem {
     this.nextThink = now + 0.5;
     void dt;
     this.board(now);
+    // unités appelées « avec moi » arrivées entre-temps (venues en véhicules de loin) : elles prennent place dans la colonne
+    if (now >= this.nextJoin) {
+      this.nextJoin = now + JOIN_PERIOD;
+      const mine: Squad[] = [];
+      this.followers(me, mine);
+      const before = this.escorts.length;
+      const since = this.escortSince;
+      this.gatherEscorts(me, driving!, mine);
+      if (this.escorts.length === before) this.escortSince = since;
+    }
     this.keepColumn(driving!);
   }
 
@@ -205,14 +219,17 @@ export class FollowLeaderSystem implements GameSystem {
     for (const s of ctx.squads.list) {
       if (s.faction !== 'police' || mine.indexOf(s) >= 0 || s.vehicleId === 0 || s.vehicleId === lead.id) continue;
       if (s.members.length === 0 || s.leaderId === me.id) continue;
-      const under = this.underAny(s, led) || s === pair;
+      // unités appelées « avec moi » sur la carte tactique (ordre « suivre » le joueur, à elles ou à une unité mère)
+      const called = this.withMe(s, me.id);
+      const under = this.underAny(s, led) || s === pair || called;
       if (!under && !(companyFree && this.rootOf(s.id) === company)) continue;
       // l'escorte à pied d'un blindé (session/engins.ts) part avec la colonne, dans son fourgon
       const guardsEngine = s.order.type === 'proteger' && ARMORED.has(ctx.vehicles.get(s.order.targetId)?.kind ?? '');
       if (!FREE_ORDERS.has(s.order.type) && s !== pair && !guardsEngine) continue;
       const v = ctx.vehicles.get(s.vehicleId);
       if (!v || v.state === 'wrecked' || v.state === 'burnt' || v.def.flying || !POLICE_FLEET.has(v.kind) && !TROOP_KINDS.has(v.kind)) continue;
-      if (Math.hypot(v.x - lead.x, v.z - lead.z) > COMPANY_RADIUS) continue;
+      if (Math.hypot(v.x - lead.x, v.z - lead.z) > (called ? CALLED_RADIUS : COMPANY_RADIUS)) continue;
+      if (this.escorts.indexOf(s.id) >= 0) continue;
       // le véhicule doit être libre, ou déjà occupé par les siens
       if (v.seats.some((id) => id !== 0 && s.members.indexOf(id) < 0)) continue;
       this.escorts.push(s.id);
@@ -220,6 +237,17 @@ export class FollowLeaderSystem implements GameSystem {
       ctx.squads.issue(s.id, { type: 'embarquer', issuedBy: me.id });
     }
     this.escortSince = ctx.clock.now;
+  }
+
+  /** L'unité (ou une unité dont elle dépend) a-t-elle l'ordre de suivre le joueur ? */
+  private withMe(s: Squad, meId: EntityId): boolean {
+    const ctx = this.ctx!;
+    let q: Squad | undefined = s;
+    for (let guard = 0; q && guard < 8; guard++) {
+      if (q.order.type === 'suivre' && q.order.targetId === meId) return true;
+      q = q.parentId !== 0 ? ctx.squads.get(q.parentId) ?? undefined : undefined;
+    }
+    return false;
   }
 
   /** Unité racine (compagnie) d'une unité. */
