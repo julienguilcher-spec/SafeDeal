@@ -32,8 +32,10 @@ const MAX_SCALE = 1.7;
 const MAX_SIDE = 4096;
 
 export class BaseLayer {
-  /** Nombre de dessins complets du fond (diagnostic, tests). */
+  /** Nombre de dessins complets du fond et durée du dernier (ms) : diagnostic, tests. */
   renders = 0;
+  lastMs = 0;
+  maxMs = 0;
   private readonly canvas: HTMLCanvasElement;
   private readonly g: CanvasRenderingContext2D | null;
   private readonly opts: BaseLayerOptions;
@@ -119,6 +121,7 @@ export class BaseLayer {
       this.canvas.height = h;
     }
     g.setTransform(1, 0, 0, 1, 0, 0);
+    const t0 = performance.now();
     try {
       src.draw(g, view.cx, view.cz, view.mpp / pixelRatio, 0, {
         width: w, height: h, pixelRatio, labels: this.opts.labels, detail: this.opts.detail,
@@ -138,5 +141,7 @@ export class BaseLayer {
     this.rev = src.revision ?? 0;
     this.valid = true;
     this.renders++;
+    this.lastMs = performance.now() - t0;
+    if (this.lastMs > this.maxMs) this.maxMs = this.lastMs;
   }
 }

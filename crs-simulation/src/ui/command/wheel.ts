@@ -31,6 +31,8 @@ function polar(r: number, a: number): string {
 export class RadialMenu {
   readonly root: HTMLDivElement;
   highlighted = -1;
+  /** Le survol à la souris surligne les secteurs (désactivé tant que le pointeur n'a pas réellement bougé). */
+  hoverEnabled = true;
   private readonly svg: SVGSVGElement;
   private readonly wedges: SVGPathElement[] = [];
   private readonly title: SVGTextElement;
@@ -93,10 +95,12 @@ export class RadialMenu {
     host.appendChild(this.root);
 
     svg.addEventListener('pointermove', (e) => {
-      if (e.pointerType === 'touch') return;
+      if (e.pointerType === 'touch' || !this.hoverEnabled) return;
       this.pointerAt(e.clientX, e.clientY);
     });
-    svg.addEventListener('pointerleave', () => this.setHighlight(-1));
+    svg.addEventListener('pointerleave', () => {
+      if (this.hoverEnabled) this.setHighlight(-1);
+    });
     svg.addEventListener('click', (e) => {
       const i = this.indexAtClient(e.clientX, e.clientY);
       e.stopPropagation();

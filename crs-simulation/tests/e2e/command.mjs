@@ -632,8 +632,11 @@ async function plan() {
   const { browser, page } = await open('role=chef_groupe&freeze=1&ai=0');
   const I = await ids(page);
   await page.keyboard.press('KeyM');
-  await settle(page, 700);
+  await page.waitForFunction(() => { const m = window.__cmd.ui.instance('carte'); return !!m && m.map.draws > 0; }, null, { timeout: 20000 });
+  await settle(page, 400);
   check((await stack(page)).includes('carte'), 'la touche M ouvre le plan');
+  const planBase = await page.evaluate(() => { const b = window.__cmd.ui.instance('carte').map.base; return { ms: b.maxMs, n: b.renders }; });
+  info.push(`plan 1280×720 : dessin complet du fond en ${planBase.ms.toFixed(0)} ms au plus (${planBase.n} dessins), puis recopie`);
   check(await page.evaluate(() => window.__cmd.ctx.session.phase === 'paused'), 'le plan met la simulation en pause');
   await shot(page, 'command-plan-1280x720');
   // zoom à la molette, déplacement au glisser
@@ -671,7 +674,8 @@ async function plan() {
   await shot(page, 'command-hud-gps-1280x720');
   // repère par clic droit sur le plan
   await page.keyboard.press('KeyM');
-  await settle(page, 600);
+  await page.waitForFunction(() => { const m = window.__cmd.ui.instance('carte'); return !!m && m.map.draws > 0; }, null, { timeout: 20000 });
+  await settle(page, 300);
   if (process.env.DEBUG_CMD) console.log('avant clic droit', JSON.stringify(await page.evaluate(() => ({ stack: window.__cmd.ui.stack(), el: document.elementFromPoint(820, 300).className, phase: window.__cmd.ctx.session.phase, v: (() => { const m = window.__cmd.ui.instance('carte'); return m ? { cx: m.map.view.cx, cz: m.map.view.cz, mpp: m.map.view.mpp } : null; })(), b: window.__cmd.ctx.world.bounds }))));
   await page.mouse.click(820, 300, { button: 'right' });
   await settle(page, 300);

@@ -113,6 +113,7 @@ export class OrderWheelScreen implements ScreenInstance {
       onChoose: (_i, item) => this.issue(item.id),
       onCancel: () => this.close(),
     });
+    this.wheel.hoverEnabled = false;
     const dist = Math.hypot(this.aimX - px, this.aimZ - pz);
     this.wheel.setCenter(squad.name, this.targetId !== 0 ? 'cible désignée' : `point visé · ${formatDistance(dist)}`);
 
@@ -125,7 +126,11 @@ export class OrderWheelScreen implements ScreenInstance {
     window.addEventListener('pointermove', this.onMove);
   }
 
-  /** Souris hors de la roue : c'est la direction du déplacement depuis son premier mouvement qui choisit. */
+  /**
+   * Souris : le premier événement ne fait que noter la position (le navigateur en fabrique un quand la
+   * roue apparaît sous un pointeur immobile). Ensuite, le survol direct choisit le secteur ; hors de la
+   * roue, c'est la direction du déplacement depuis ce point de départ qui choisit.
+   */
   private relativeMove(e: PointerEvent): void {
     const wheel = this.wheel;
     if (!wheel || e.pointerType === 'touch') return;
@@ -133,6 +138,11 @@ export class OrderWheelScreen implements ScreenInstance {
       this.originX = e.clientX;
       this.originY = e.clientY;
       return;
+    }
+    if (!wheel.hoverEnabled) {
+      if (Math.hypot(e.clientX - this.originX, e.clientY - this.originY) < 8) return;
+      wheel.hoverEnabled = true;
+      wheel.pointerAt(e.clientX, e.clientY);
     }
     if (wheel.indexAtClient(e.clientX, e.clientY) !== -1) return;
     wheel.pointAt(e.clientX - this.originX, e.clientY - this.originY, 34);
