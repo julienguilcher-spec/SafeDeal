@@ -262,6 +262,20 @@ export function buildCrowd(
     profShare[P_PACIFIQUE] = profShare[P_PACIFIQUE]! - toFollow;
     profShare[P_OPPORTUNISTE] = profShare[P_OPPORTUNISTE]! + toFollow - toRadical;
     profShare[P_RADICAL] = profShare[P_RADICAL]! + toRadical;
+    // plancher de radicaux et de suiveurs croissant avec la propension (choix du commanditaire : une manifestation
+    // très volatile doit pouvoir devenir très violente) : 12 % × vol^1,5 de radicaux, 8 % × vol de suiveurs,
+    // pris aux pacifiques
+    const wantRadical = 0.12 * Math.pow(vol, 1.5);
+    const wantFollow = 0.08 * vol;
+    const addR = Math.max(0, wantRadical - profShare[P_RADICAL]!);
+    const addF = Math.max(0, wantFollow - profShare[P_OPPORTUNISTE]!);
+    const take = Math.min(profShare[P_PACIFIQUE]!, addR + addF);
+    if (take > 0) {
+      const k = take / (addR + addF);
+      profShare[P_RADICAL] = profShare[P_RADICAL]! + addR * k;
+      profShare[P_OPPORTUNISTE] = profShare[P_OPPORTUNISTE]! + addF * k;
+      profShare[P_PACIFIQUE] = profShare[P_PACIFIQUE]! - take;
+    }
   }
   if (familiesGiven && !profilesGiven && !comp.scenario) {
     // familles imposées sans profils : on accorde les profils de la cause aux familles demandées — un

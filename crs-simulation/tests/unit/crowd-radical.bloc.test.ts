@@ -61,11 +61,13 @@ describe('groupes radicaux — bloc, salves, repli, fusion', () => {
     };
 
     // ── points de chute des projectiles lancés par des manifestants ──
+    const kinds: Record<string, number> = {};
     let impacts = 0;
     let onLine = 0;
     let onPolice = 0;
     ctx.events.on('projectile:impact', (e) => {
       const owner = ctx.people.get(e.ownerId);
+      if (owner && owner.faction === 'protest') kinds[e.kind] = (kinds[e.kind] ?? 0) + 1;
       if (!owner || owner.faction !== 'protest' || (e.kind !== 'pave' && e.kind !== 'bouteille')) return;
       impacts++;
       if (Math.abs(e.x - 250) < 12 && Math.abs(e.z) < 14) onLine++;
@@ -154,6 +156,7 @@ describe('groupes radicaux — bloc, salves, repli, fusion', () => {
       if (special === 0) expect(n, 'lanceur ' + id).toBeLessThanOrEqual(gained.get(id) ?? 0);
     }
     // les projectiles ont visé la ligne : la plupart tombent sur elle ou à ses pieds, certains touchent un agent ou son bouclier
+    console.log('[radicaux] types', JSON.stringify(kinds));
     console.log('[radicaux] points de chute :', impacts, 'dont', onLine, 'sur la ligne ou à ses pieds et', onPolice, 'sur un agent ou son bouclier');
     expect(impacts).toBeGreaterThanOrEqual(8);
     expect(onLine).toBeGreaterThanOrEqual(Math.ceil(impacts * 0.5));

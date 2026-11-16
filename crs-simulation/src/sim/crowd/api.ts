@@ -30,6 +30,7 @@
  *   crowd.static          boolean  rassemblement statique : pas de marche
  *   crowd.closedStations  (string | number)[]  noms (ou identifiants) de stations fermées au départ
  *   crowd.aleas           string[] aléas imposés (identifiants du catalogue) ; crowd.noAleas : true pour aucun
+ *   crowd.noPressure      boolean  pas de montée de tension due à la propension (tension pilotée par les seuls événements)
  *   crowd.present         number   part de la foule déjà sur place au début (défaut 0,3)
  *   crowd.sono            boolean  forcer ou interdire le camion sono
  *   crowd.bystanders      number   nombre de badauds en lisière

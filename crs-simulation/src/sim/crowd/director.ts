@@ -55,6 +55,10 @@ export class Director implements DirectorApi {
   /** Canaux : tension locale, effectif. */
   private readonly map = new SparseGrid(T.TENSION_CELL, 2, 256);
   private ambient = 0;
+  /** Cumul des baisses de tension (apaisement obtenu), qui retranche à la pression de la volatilité. */
+  private calm = 0;
+  /** extra['crowd.noPressure'] : tension laissée à sa seule dynamique d'événements (missions scriptées, essais). */
+  private noPressure = false;
   private overlay: 'aucun' | 'tension' | 'affrontement' = 'aucun';
   private overlayAt = -1e9;
   private t0 = 0;
@@ -100,6 +104,7 @@ export class Director implements DirectorApi {
     this.rush = 1;
     this.map.clear();
     this.ambient = 0;
+    this.calm = 0;
     this.overlay = 'aucun';
     this.overlayAt = -1e9;
     this.overtime = 0;
@@ -123,6 +128,8 @@ export class Director implements DirectorApi {
     this.marchEnd = this.departAt + sch.depart + sch.march;
     this.ambient = core.tension0;
     this.tension = core.tension0;
+    const extra = core.ctx.session.config?.extra;
+    this.noPressure = extra !== undefined && extra['crowd.noPressure'] === true;
     this.stats.total = core.size;
     this.centerX = this.homeX = core.rallyX;
     this.centerZ = this.homeZ = core.rallyZ;
@@ -174,6 +181,7 @@ export class Director implements DirectorApi {
     if (!core.active || !(amount === amount) || amount === 0) return;
     let a = amount;
     if (a > 0) a *= (0.5 + core.volatility) * (this.liaison ? 0.7 : 1);
+    else this.soothe(-a * 0.5);
     const map = this.map;
     const cx = map.cx(x);
     const cz = map.cx(z);
@@ -195,6 +203,7 @@ export class Director implements DirectorApi {
     const core = this.core;
     if (!core.active || amount === 0) return;
     const a = amount > 0 ? amount * (0.5 + core.volatility) * (this.liaison ? 0.7 : 1) : amount;
+    if (a < 0) this.soothe(-a);
     this.ambient = Math.min(1, Math.max(0, this.ambient + a));
     this.log(reason, a, this.centerX, this.centerZ);
     core.ctx.events.emit('crowd:tension', { tension: this.tension, delta: a, reason, x: this.centerX, z: this.centerZ });
@@ -219,7 +228,10 @@ export class Director implements DirectorApi {
   private publish(): void {
     const base = this.base;
     let shown: CrowdPhase = base;
-    if (this.overlay !== 'aucun' && (base === 'depart' || base === 'cortege' || base === 'dispersion' || base === 'apres_manif')) shown = this.overlay;
+    // « tension » ne masque que le départ et le cortège : l'ordre de dispersion reste affiché tant qu'il n'y a pas
+    // d'affrontement (le joueur doit savoir que les organisateurs ont annoncé la fin)
+    if (this.overlay === 'affrontement' && (base === 'depart' || base === 'cortege' || base === 'dispersion' || base === 'apres_manif')) shown = 'affrontement';
+    else if (this.overlay === 'tension' && (base === 'depart' || base === 'cortege')) shown = 'tension';
     if (shown === this.phase) return;
     const previous = this.phase;
     this.phase = shown;
@@ -262,6 +274,7 @@ export class Director implements DirectorApi {
     if (now >= this.nextSlow) {
       this.nextSlow = now + 1;
       this.decay();
+      this.pressure();
       core.corridor.refresh(core.ctx, core.formation.tailS - 60, core.formation.headS + 160);
     }
     if (now >= this.nextWatch) {
@@ -365,6 +378,30 @@ export class Director implements DirectorApi {
     }
     const floor = core.tension0 * T.AMBIENT_FLOOR;
     if (this.ambient > floor) this.ambient = Math.max(floor, this.ambient - k);
+  }
+
+  /** Apaisement obtenu : il diminue la pression de la propension à dégénérer. */
+  private soothe(amount: number): void {
+    if (amount > 0) this.calm = Math.min(T.PRESSURE_CALM_MAX, this.calm + amount * T.PRESSURE_CALM_W);
+  }
+
+  /**
+   * Pression de la propension à dégénérer (une fois par seconde) : après le départ du cortège, la tension de fond monte
+   * vers une cible qui dépend de la volatilité, moins l'apaisement obtenu. Rien pendant le rassemblement ni après la fin.
+   */
+  private pressure(): void {
+    const core = this.core;
+    const v = core.volatility;
+    if (!(v > 0) || this.noPressure) return;
+    const b = this.base;
+    if (b === 'aucune' || b === 'rassemblement' || b === 'terminee') return;
+    const since = core.now - this.departAt;
+    if (since <= 0) return;
+    const ramp = Math.min(1, since / (T.PRESSURE_RAMP * core.timeScale));
+    const target = Math.min(0.95, core.tension0 + T.PRESSURE_GAIN * v * ramp - this.calm);
+    if (this.ambient >= target) return;
+    const step = (T.PRESSURE_RATE * v) / core.timeScale;
+    this.ambient = Math.min(target, this.ambient + step);
   }
 
   /** Présence ou retrait des forces autour de la foule (bible F.4). */

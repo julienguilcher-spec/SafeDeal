@@ -105,7 +105,7 @@ export function avenueConfig(partial: Partial<SessionConfig> = {}, extra: Record
     crowdSize: 220, tension: 0.5, volatility: 0.9, duration: 'courte',
     ...partial,
     extra: {
-      'crowd.present': 1, 'crowd.noAleas': true, 'crowd.bystanders': 0, 'crowd.scenario': 'samedi_sans_organisateur',
+      'crowd.present': 1, 'crowd.noAleas': true, 'crowd.noPressure': true, 'crowd.bystanders': 0, 'crowd.scenario': 'samedi_sans_organisateur',
       'crowd.route': [50, 7, 430, 7], ...extra,
     },
   });

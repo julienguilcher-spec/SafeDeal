@@ -400,3 +400,16 @@ un téléphone lancé en portrait trouve désormais la session EN PAUSE (c'étai
   (0,4). Attendu par le commanditaire : une propension élevée doit faire dégénérer la majorité des parties (le directeur
   doit faire MONTER la tension selon la volatilité, et la part de radicaux doit suivre `radicalShare` / la composition).
 - `game.perf` ne remonte pas de temps moyen par système en headless (0,00 partout) : à vérifier.
+
+## Équilibrage de la violence (16/11, après-midi) — CORRIGÉ
+- Le directeur de foule applique une **pression de la propension à dégénérer** : après le départ du cortège, la tension de
+  fond monte vers `tension0 + 0,6 × volatilité × montée(300 s) − apaisement` (`src/sim/crowd/tuning.ts`, PRESSURE_*).
+  Les baisses de tension (bonne gestion) s'accumulent en « apaisement » et retranchent à la cible. `extra['crowd.noPressure']`
+  la désactive (missions scriptées, essais).
+- Le module des archétypes impose un plancher de radicaux (12 % × vol^1,5) et de suiveurs (8 % × vol), pris aux pacifiques.
+- L'état « tension » ne masque plus l'annonce de dispersion (seul « affrontement » le fait).
+- Mesuré (`tests/unit/pre-assemblage.manif.test.ts`, quartier d'essai, 200 manifestants, compagnie IA) : volatilité 0,8 →
+  tension 1, 14 radicaux, 12 salves, grenades renvoyées, 6 véhicules et une barricade incendiés, 3 sommations par le
+  commandant IA ; volatilité 0,05 → tension 0,08, aucune violence.
+- Reste : aucune vitrine attaquée ni pillage dans ce scénario (commerces du quartier d'essai hors parcours) — à vérifier
+  sur Paris.

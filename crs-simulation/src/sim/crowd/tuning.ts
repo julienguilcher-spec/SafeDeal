@@ -50,6 +50,20 @@ export const TENSION_MEAN_W = 0.6;
 export const TENSION_MAX_W = 0.4;
 /** La tension de départ retombe vers cette part d'elle-même. */
 export const AMBIENT_FLOOR = 0.4;
+/**
+ * PRESSION DE LA PROPENSION À DÉGÉNÉRER (demande du commanditaire : une forte propension doit faire dégénérer la
+ * manifestation). Une fois le cortège parti, la tension de fond est tirée vers
+ *   cible = tension de départ + PRESSURE_GAIN × volatilité × montée − apaisement,
+ * la montée allant de 0 à 1 en PRESSURE_RAMP secondes (durée standard). L'apaisement est le cumul des baisses de tension
+ * (bonne gestion : dialogue, recul, interpellations ciblées), multiplié par PRESSURE_CALM_W : une foule bien gérée
+ * ne dégénère pas, même volatile. Volatilité nulle → aucune pression.
+ */
+export const PRESSURE_GAIN = 0.6;
+export const PRESSURE_RAMP = 300;
+/** Vitesse maximale de montée de la tension de fond, par seconde, à volatilité 1 (durée standard). */
+export const PRESSURE_RATE = 0.004;
+export const PRESSURE_CALM_W = 1.5;
+export const PRESSURE_CALM_MAX = 0.6;
 /** Tronçon de légitimité et de cohésion (m). */
 export const LEGIT_CELL = 50;
 export const LEGIT_START = 0.7;
