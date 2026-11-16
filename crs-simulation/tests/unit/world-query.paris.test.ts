@@ -176,6 +176,61 @@ describe.skipIf(!available)('monde : vraies données de Paris', () => {
     expect(found).toBeGreaterThan(150);
   });
 
+  it('des marcheurs lâchés dans dix quartiers ne finissent jamais dans un obstacle', async () => {
+    const rand = seededRandom(777);
+    const pos: Vec2 = { x: 0, z: 0 };
+    let steps = 0, solid = 0, hops = 0, jumps = 0, spawned = 0;
+    const spots: [number, number][] = [[1870, 1230], [0, 0], [-1890, -906], [900, 300], [2900, -400], [1200, -600], [3300, 1300], [-1950, 800], [-600, 900], [2300, 500]];
+    for (const [cx, cz] of spots) {
+      w.setFocus(cx, cz);
+      await w.whenLoaded(cx, cz, 450);
+      for (let k = 0; k < 80; k++) {
+        if (!w.randomFreePoint(cx, cz, 350, 'any', rand, pos)) continue;
+        spawned++;
+        let heading = rand() * Math.PI * 2;
+        for (let i = 0; i < 400; i++) {
+          heading += (rand() - 0.5) * 0.08;
+          const bx = pos.x, bz = pos.z;
+          pos.x += Math.sin(heading) * 0.35;
+          pos.z += Math.cos(heading) * 0.35;
+          if (w.resolveCircle(pos, 0.3)) heading += 0.02;
+          steps++;
+          const moved = Math.hypot(pos.x - bx, pos.z - bz);
+          if (moved > 0.77) hops++;
+          if (moved > 1.3) jumps++;
+          if (w.isSolidAt(pos.x, pos.z)) solid++;
+        }
+      }
+    }
+    console.log(`[monde] Paris : ${spawned} marcheurs, ${steps} pas dans dix quartiers — ${solid} dans un obstacle, ${hops} déplacements de plus de 0,77 m (deux fois le pas), dont ${jumps} de plus de 1,3 m`);
+    expect(spawned).toBeGreaterThan(700);
+    expect(solid).toBe(0);
+    // Un recoin plus étroit que le disque (grille posée contre un mur) peut le faire ressortir de
+    // l'autre côté de la grille : rare, et toujours court.
+    expect(hops).toBeLessThan(steps / 5000);
+    expect(jumps).toBeLessThan(4);
+  }, 300000);
+
+  it('Arc de Triomphe : obstacles du monument', async () => {
+    const arc = w.landmarks.find((l) => l.key === 'arc_triomphe' || l.key === 'arc_de_triomphe');
+    expect(arc).toBeDefined();
+    if (arc === undefined) return;
+    w.setFocus(arc.x, arc.z);
+    await w.whenLoaded(arc.x, arc.z, 200);
+    let solid = 0, total = 0;
+    for (let dz = -24; dz <= 24; dz += 2) {
+      for (let dx = -24; dx <= 24; dx += 2) {
+        total++;
+        if (w.isSolidAt(arc.x + dx, arc.z + dz)) solid++;
+      }
+    }
+    const centre = w.isSolidAt(arc.x, arc.z);
+    console.log(`[monde] Arc de Triomphe : ${solid}/${total} points pleins dans un carré de 48 m ; centre ${centre ? 'plein (emprise ordinaire)' : 'libre (piliers du modèle : on passe sous la voûte)'}`);
+    expect(solid).toBeGreaterThan(20); // il y a un monument…
+    expect(solid).toBeLessThan(total * 0.75); // … au milieu d'une place dégagée
+    expect(w.heightAt(arc.x, arc.z)).toBeGreaterThan(15); // l'Étoile est en haut de la butte de Chaillot
+  }, 120000);
+
   it('micro-mesures sur les vraies données', () => {
     const rand = seededRandom(21);
     const walkers: { pos: Vec2; heading: number }[] = [];

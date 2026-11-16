@@ -84,7 +84,13 @@ describe('monde : micro-mesures', () => {
     const ends = new Float64Array(800);
     for (let i = 0; i < 800; i++) ends[i] = (rand() - 0.5) * 1000;
     const path: number[] = [];
-    for (let i = 0; i < 200; i++) w.findPath(ends[4 * i], ends[4 * i + 1], ends[4 * i + 2], ends[4 * i + 3], 'foot', path); // échauffement
+    // Première série, à froid (compilation à la volée comprise), dans les deux modes.
+    const cold0 = performance.now();
+    for (let i = 0; i < 200; i++) w.findPath(ends[4 * i], ends[4 * i + 1], ends[4 * i + 2], ends[4 * i + 3], i % 2 === 0 ? 'vehicle' : 'foot', path);
+    const coldMs = performance.now() - cold0;
+    for (let rep = 0; rep < 5; rep++) {
+      for (let i = 0; i < 200; i++) w.findPath(ends[4 * i], ends[4 * i + 1], ends[4 * i + 2], ends[4 * i + 3], i % 2 === 0 ? 'vehicle' : 'foot', path);
+    }
     let found = 0, points = 0;
     const t0 = performance.now();
     for (let i = 0; i < 200; i++) {
@@ -94,8 +100,8 @@ describe('monde : micro-mesures', () => {
       }
     }
     const ms = performance.now() - t0;
-    console.log(`[mesure] 200 findPath : ${ms.toFixed(2)} ms (${((ms * 1000) / 200).toFixed(1)} µs l'unité), ${found} trouvés, ${(points / Math.max(1, found)).toFixed(1)} points en moyenne`);
-    expect(found).toBeGreaterThan(180);
+    console.log(`[mesure] 200 findPath : ${ms.toFixed(2)} ms (${((ms * 1000) / 200).toFixed(1)} µs l'unité) à chaud, ${coldMs.toFixed(1)} ms à froid ; ${found} trouvés, ${(points / Math.max(1, found)).toFixed(1)} points en moyenne`);
+    expect(found).toBe(200); // une extrémité hors du réseau principal y est raccrochée
     expect(ms).toBeLessThan(1000);
   });
 

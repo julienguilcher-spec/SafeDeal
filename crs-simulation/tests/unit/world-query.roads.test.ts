@@ -173,34 +173,32 @@ describe('monde : réseau de rues (quartier d\'essai)', () => {
     expect(overBridge).toBe(true); // le seul passage vers la rive sud
   });
 
-  it('itinéraires au hasard : toujours valides', () => {
+  it('itinéraires au hasard : toujours trouvés, toujours valides', () => {
     const rand = seededRandom(2024);
     const path: number[] = [];
-    // Un sens unique qui touche le bord de la carte ne mène nulle part (entrée) ou ne vient de nulle part (sortie).
-    const boundaryOneway = (x: number, z: number): boolean => {
-      if (!w.nearestRoad(x, z, sample, 300)) return false;
-      const ed = w.edge(sample.edgeId);
-      const onEdge = (n: number): boolean => Math.abs(w.node(n).x) > 511.9 || Math.abs(w.node(n).z) > 511.9;
-      return ed.oneway && (onEdge(ed.a) || onEdge(ed.b));
-    };
-    let foot = 0, vehicle = 0, deadEnds = 0;
     for (let k = 0; k < 200; k++) {
       const ax = (rand() - 0.5) * 1000, az = (rand() - 0.5) * 1000, bx = (rand() - 0.5) * 1000, bz = (rand() - 0.5) * 1000;
       const byCar = k % 2 === 0;
-      if (!w.findPath(ax, az, bx, bz, byCar ? 'vehicle' : 'foot', path)) {
-        // Seul cas admis : en voiture, une extrémité sur un sens unique du bord de la carte.
-        expect(byCar).toBe(true);
-        expect(boundaryOneway(ax, az) || boundaryOneway(bx, bz)).toBe(true);
-        deadEnds++;
-        continue;
-      }
-      if (byCar) vehicle++; else foot++;
+      expect(w.findPath(ax, az, bx, bz, byCar ? 'vehicle' : 'foot', path)).toBe(true);
       checkPath(path, byCar);
       expect(pathLength(path)).toBeGreaterThanOrEqual(Math.hypot(bx - ax, bz - az) - 1e-6);
     }
-    expect(foot).toBe(100); // à pied, le quartier est d'un seul tenant
-    expect(vehicle + deadEnds).toBe(100);
-    expect(vehicle).toBeGreaterThan(85);
+  });
+
+  it('extrémité sur un sens unique sans issue : raccrochée au réseau principal', () => {
+    // Rue des Glycines (x = 430) : sens unique vers le nord ; son tronçon sud vient du bord de la carte,
+    // on ne peut donc pas y arriver en voiture. L'arrivée est raccrochée à la voie praticable la plus proche.
+    const path: number[] = [];
+    expect(w.findPath(-430, -480, 430, 490, 'vehicle', path)).toBe(true);
+    checkPath(path, true);
+    expect(path[path.length - 2]).toBe(430);
+    expect(path[path.length - 1]).toBe(490);
+    // Le dernier point sur le réseau est sur le quai du Port (z ≈ 430,5), pas sur la rue en sens interdit.
+    expect(path[path.length - 3]).toBeCloseTo(430.5, 1);
+    // À pied, on y va directement.
+    expect(w.findPath(-430, -480, 430, 490, 'foot', path)).toBe(true);
+    expect(path[path.length - 4]).toBeCloseTo(430, 1);
+    expect(path[path.length - 3]).toBeCloseTo(490, 1);
   });
 
   it('aucun itinéraire quand une extrémité est hors du réseau', () => {
