@@ -468,8 +468,8 @@ describe('carrière et campagne', () => {
       CAMPAIGN_SEMAINE.title, CAMPAIGN_SEMAINE.description,
     ];
     for (const t of textesCarriere) {
-      expect(t, 'espace ordinaire avant ponctuation haute').not.toMatch(/[^ ] [;:!?»]/);
-      expect(t, 'guillemet ouvrant sans espace insécable').not.toMatch(/« [^ ]|«[^ ]/);
+      expect(t, 'espace ordinaire avant ponctuation haute').not.toMatch(/\S\u0020[;:!?»]/);
+      expect(t, 'guillemet ouvrant sans espace insécable').not.toMatch(/«[^\u00a0]/);
       expect(t, 'apostrophe droite').not.toMatch(/'/);
     }
   });

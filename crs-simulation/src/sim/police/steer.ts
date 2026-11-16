@@ -208,9 +208,12 @@ export function navigate(k: Kernel, a: Agent, tx: number, tz: number, interval: 
   const world = k.ctx.world;
   if (a.pathN > 0) {
     // le but a bougé (formation en marche) ou est en vue : on reprend le trajet direct
-    const ex = a.path[a.pathN - 2] - tx;
-    const ez = a.path[a.pathN - 1] - tz;
-    if (ex * ex + ez * ez > 36 || (d2 < 900 && world.lineOfSight(p.x, p.z, tx, tz))) a.pathN = 0;
+    const last = a.path.length;
+    const ex = a.path[last - 2] - tx;
+    const ez = a.path[last - 1] - tz;
+    // un point de passage unique (contournement d'un véhicule) est suivi jusqu'au bout
+    const detour = a.pathN === 4 && last === 6;
+    if (ex * ex + ez * ez > 36 || (!detour && d2 < 900 && world.lineOfSight(p.x, p.z, tx, tz))) a.pathN = 0;
   } else if (d2 > 25 && k.now - a.pathAt >= T.REPATH_INTERVAL && !world.lineOfSight(p.x, p.z, tx, tz)) {
     a.pathAt = k.now;
     if (world.findPath(p.x, p.z, tx, tz, 'foot', a.path) && a.path.length >= 4) {
@@ -218,6 +221,45 @@ export function navigate(k: Kernel, a: Agent, tx: number, tz: number, interval: 
       a.pathI = 2;
     } else {
       a.pathN = 0;
+    }
+  }
+  // véhicule ou mobilier en travers du trajet direct : point de passage sur le côté de l'obstacle
+  if (a.pathN === 0 && d2 > 6.25 && k.now >= a.sideUntil) {
+    const d = Math.sqrt(d2);
+    const reach = d < 7 ? d : 7;
+    const ux = dx / d;
+    const uz = dz / d;
+    const hit = k.hit;
+    const ctx = k.ctx;
+    let blocked = ctx.vehicles.raycast(p.x, p.z, p.x + ux * reach, p.z + uz * reach, hit, 'move') && hit.hit && hit.id !== a.boardId;
+    if (!blocked) blocked = ctx.props.raycast(p.x, p.z, p.x + ux * reach, p.z + uz * reach, hit, 'move') && hit.hit && hit.height > 0.9 && hit.t * reach < d - 1;
+    if (blocked) {
+      // on longe la face touchée, du côté qui rapproche du but (à défaut : toujours le même côté pour cet agent)
+      let sx = -hit.nz;
+      let sz = hit.nx;
+      const toward = sx * (tx - hit.x) + sz * (tz - hit.z);
+      if (toward < -0.3 || (toward <= 0.3 && (p.id & 1) === 0)) {
+        sx = -sx;
+        sz = -sz;
+      }
+      let wx = hit.x + hit.nx * 0.75 + sx * 3.4;
+      let wz = hit.z + hit.nz * 0.75 + sz * 3.4;
+      if (!world.isFree(wx, wz, 0.3)) {
+        wx = hit.x + hit.nx * 0.75 - sx * 3.4;
+        wz = hit.z + hit.nz * 0.75 - sz * 3.4;
+      }
+      if (world.isFree(wx, wz, 0.3)) {
+        const path = a.path;
+        path[0] = p.x;
+        path[1] = p.z;
+        path[2] = wx;
+        path[3] = wz;
+        path[4] = tx;
+        path[5] = tz;
+        path.length = 6;
+        a.pathN = 4;
+        a.pathI = 2;
+      }
     }
   }
   // piétinement : l'agent veut avancer mais n'avance pas
