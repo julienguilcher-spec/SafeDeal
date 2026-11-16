@@ -20,6 +20,7 @@ import {
   ACTIONS, ACTION_COUNT, AX_BACK, AX_FORWARD, AX_LEFT, AX_LOOK_DOWN, AX_LOOK_LEFT, AX_LOOK_RIGHT, AX_LOOK_UP,
   AX_RIGHT, BUTTON_COUNT, BUTTON_INDEX, actionContext,
 } from './buttons';
+import { CH_LOOK_X, CH_LOOK_Y, CH_WHEEL } from './core';
 import type { InputCore } from './core';
 import type { KeyLabels } from './labels';
 import { MouseTravel, SRC_KBM, createSourceAxes } from './merge';
@@ -201,7 +202,11 @@ export class KbmSource {
     const ky = (c[AX_LOOK_UP]! > 0 ? 1 : 0) - (c[AX_LOOK_DOWN]! > 0 ? 1 : 0);
     if (kx !== 0) lookX += kx * KEY_YAW_SPEED * sens * dt;
     if (ky !== 0) lookY += ky * KEY_PITCH_SPEED * sens * dt * (s.invertY ? -1 : 1);
-    if (lookX !== 0 || lookY !== 0) this.env.core.addLook(lookX, lookY);
+    if (lookX !== 0 || lookY !== 0) {
+      const pending = this.env.core.pending;
+      pending[CH_LOOK_X] += lookX;
+      pending[CH_LOOK_Y] += lookY;
+    }
 
     // Mouvement de souris intentionnel → périphérique actif.
     if (this.travel.update(this.travelPx, dt)) this.env.activity();
@@ -524,7 +529,7 @@ export class KbmSource {
     if (notches > 3) notches = 3;
     else if (notches < -3) notches = -3;
     this.env.activity();
-    this.env.core.addWheel(notches);
+    this.env.core.pending[CH_WHEEL] += notches;
     this.wheelAcc += notches;
     this.wheelIdle = 0;
     if (this.wheelAcc >= 1) {

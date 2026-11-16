@@ -80,6 +80,21 @@ meilleur que les jeux « CRS simulation » existants. En priorité : **les manif
   - un bouton « Surprends-moi » qui tire un scénario au hasard, et la possibilité d'**enregistrer ses scénarios**.
   Le même écran donne accès à la carrière, à la personnalisation, au garage, aux paramètres (graphismes, commandes, son)
   et aux crédits (dont l'attribution des données cartographiques).
+- **Incidents à traiter : déléguer ou faire soi-même** (demande explicite du commanditaire) : pendant une mission, le jeu
+  fait naître des **incidents** concrets — feu de poubelle, de barricade, de véhicule ou de boutique ; blessé à aller
+  chercher ; agent isolé ou à terre ; pillage en cours ; barricade à dégager ; automobiliste bloqué ; secours empêchés
+  d'avancer. Chaque incident est une **tâche** localisée, visible sur la carte et annoncée à la radio, avec une urgence.
+  - Si le joueur **commande** (commissaire, commandant, chef de groupe), il **délègue** : il désigne l'unité ou le moyen
+    qui s'en charge (un porte-extincteur, un groupe pour extraire un blessé, les pompiers sous escorte, le canon à eau, le
+    Centaure pour ouvrir une barricade, une BRAV-M pour un pillage). L'unité y va réellement, exécute, rend compte ; un
+    incident non traité s'aggrave (le feu se propage, le blessé s'affaiblit) et pèse sur l'évaluation.
+  - Si le joueur **exécute** (pompier, médecin, CRS porte-extincteur, équipage du Centaure ou du canon à eau), c'est lui
+    qui **reçoit** la tâche par radio et va la faire : il se rend sur place, éteint le feu à la lance ou à l'extincteur,
+    relève et évacue le blessé, pousse la barricade à la lame, arrose depuis la tourelle.
+  - Le **pompier** est donc un rôle jouable à part entière (sapeur-pompier de Paris : fourgon, lance, extinction,
+    secours à victime), dépendant de la protection des forces de l'ordre pour travailler.
+  - Réalisme des moyens : le canon à eau et les pompiers éteignent ; le Centaure dégage et pousse (lame) et lance des
+    grenades ; un extincteur suffit pour un petit feu, pas pour un véhicule embrasé.
 - **Tout le matériel** : bouclier, tonfa / bâton de défense, gazeuse, grenades lacrymogènes à main et au lanceur
   (Cougar), grenades de désencerclement, LBD 40, extincteur, menottes, radio, mégaphone, arme de service
   (légitime défense uniquement). **Véhicules conduisibles** : fourgon CRS, car de transport, véhicule de commandement,

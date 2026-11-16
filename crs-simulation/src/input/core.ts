@@ -13,9 +13,10 @@ import { BUTTON_COUNT, BUTTON_INDEX } from './buttons';
 import { ButtonLatch, DeltaLatch, VIEW_FRAME, VIEW_SIM } from './edges';
 import type { ViewId } from './edges';
 
-const CH_LOOK_X = 0;
-const CH_LOOK_Y = 1;
-const CH_WHEEL = 2;
+/** Canaux de InputCore.pending. */
+export const CH_LOOK_X = 0;
+export const CH_LOOK_Y = 1;
+export const CH_WHEEL = 2;
 
 export class InputCore implements InputState {
   device: InputDevice = 'kbm';
@@ -28,6 +29,11 @@ export class InputCore implements InputState {
   /** Boutons du contrat, toutes sources confondues. */
   readonly latch = new ButtonLatch(BUTTON_COUNT);
   private readonly deltas = new DeltaLatch(3);
+  /**
+   * Dépôt des sources : pending[CH_LOOK_X] += radians (droite > 0), pending[CH_LOOK_Y] += radians
+   * (haut > 0), pending[CH_WHEEL] += crans (bas > 0). Réparti entre les deux vues au verrouillage.
+   */
+  readonly pending: Float64Array = this.deltas.pending;
   /** Vue lue par down/pressed/released/lookX/lookY/wheel : simulation pendant les pas, image sinon. */
   private view: ViewId = VIEW_FRAME;
   /** Branché par le système : vibration de la manette ou du téléphone. */

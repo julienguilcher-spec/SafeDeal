@@ -169,26 +169,48 @@ export class ButtonLatch {
 
 /**
  * Accumulateur à deux vues pour les grandeurs « par image » (rotation du regard, molette) :
- * ce qui arrive entre deux verrouillages est additionné, puis rendu une seule fois à la vue.
+ * ce qui arrive entre deux verrouillages est additionné, puis rendu une seule fois à chaque vue.
+ * Les sources écrivent directement dans `pending` (pending[canal] += valeur) : passer un nombre
+ * flottant en argument d'une fonction coûterait une allocation au moteur JavaScript à chaque appel.
  */
 export class DeltaLatch {
+  /** Apports pas encore répartis entre les vues : un nombre par canal. */
+  readonly pending: Float64Array;
   private readonly acc: Float64Array;
   private readonly out: Float64Array;
   readonly channels: number;
 
   constructor(channels: number) {
     this.channels = channels;
+    this.pending = new Float64Array(channels);
     this.acc = new Float64Array(channels * 2);
     this.out = new Float64Array(channels * 2);
   }
 
   add(channel: number, amount: number): void {
     if (amount !== amount) return;
-    this.acc[channel] += amount;
-    this.acc[this.channels + channel] += amount;
+    this.pending[channel] += amount;
+  }
+
+  /** Crédite aux deux vues ce que les sources ont déposé. */
+  private absorb(): void {
+    const n = this.channels;
+    const p = this.pending;
+    const a = this.acc;
+    for (let c = 0; c < n; c++) {
+      const v = p[c]!;
+      if (v !== 0) {
+        if (v === v) {
+          a[c] += v;
+          a[n + c] += v;
+        }
+        p[c] = 0;
+      }
+    }
   }
 
   latch(view: ViewId): void {
+    this.absorb();
     const o = view * this.channels;
     for (let c = 0; c < this.channels; c++) {
       this.out[o + c] = this.acc[o + c]!;
@@ -198,6 +220,7 @@ export class DeltaLatch {
 
   /** Oublie ce qui était en attente pour cette vue (sortie de pause : pas de saut de caméra). */
   flush(view: ViewId): void {
+    this.absorb();
     const o = view * this.channels;
     for (let c = 0; c < this.channels; c++) {
       this.out[o + c] = 0;
@@ -210,6 +233,7 @@ export class DeltaLatch {
   }
 
   clear(): void {
+    this.pending.fill(0);
     this.acc.fill(0);
     this.out.fill(0);
   }

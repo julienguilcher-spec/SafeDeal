@@ -12,10 +12,11 @@
 
 import type { Settings } from '@/core/contracts';
 import type { PadStyle } from './api';
-import { LOOK_STICK, MOVE_STICK, analogButton, shapeStick, shapeTrigger } from './axes';
+import { LOOK_STICK, MOVE_STICK, shapeStick } from './axes';
 import type { StickOut } from './axes';
 import type { BindingStore } from './bindings';
 import { BUTTON_COUNT, BUTTON_INDEX } from './buttons';
+import { CH_LOOK_X, CH_LOOK_Y } from './core';
 import type { InputCore } from './core';
 import { detectPadStyle, padDisplayName } from './labels';
 import { SRC_PAD, clearSourceAxes, createSourceAxes, padIsActive } from './merge';
@@ -30,6 +31,11 @@ const CODES: readonly string[] = Array.from({ length: PAD_BUTTONS }, (_, i) => '
 /** Seuils du stick gauche employé comme croix dans les menus. */
 const UI_ON = 0.6;
 const UI_OFF = 0.4;
+/** Gâchettes : zone morte basse, saturation avant la butée, seuils du bouton avec hystérésis (cf. axes.ts). */
+const TRIG_INNER = 0.06;
+const TRIG_OUTER = 0.94;
+const TRIG_ON = 0.4;
+const TRIG_OFF = 0.25;
 /** Intervalle de recherche d'une manette tant qu'aucune n'est connue (s). */
 const SCAN_INTERVAL = 1;
 
@@ -202,9 +208,12 @@ export class GamepadSource {
   private read(pad: PadLike, dt: number): void {
     const b = pad.buttons;
     const ax = pad.axes;
+    const a = this.axes;
     const bindings = this.env.bindings;
     const want = this.want;
     want.fill(0);
+    a.throttle = 0;
+    a.brake = 0;
     let anyDown = false;
     const n = b.length < PAD_BUTTONS ? b.length : PAD_BUTTONS;
     for (let i = 0; i < n; i++) {
@@ -212,9 +221,13 @@ export class GamepadSource {
       if (!btn) continue;
       let down: boolean;
       if (i === 6 || i === 7) {
-        // gâchettes : bouton tiré de la valeur analogique, avec hystérésis
-        const v = btn.value > 0 ? btn.value : btn.pressed ? 1 : 0;
-        down = analogButton(shapeTrigger(v), this.prev[i] === 1);
+        // Gâchettes : bouton tiré de la valeur analogique mise en forme, avec hystérésis.
+        // (Calcul sur place : dans cette boucle, aucun nombre flottant ne traverse un appel de fonction.)
+        let v = btn.value > 0 ? btn.value : btn.pressed ? 1 : 0;
+        v = v <= TRIG_INNER ? 0 : v >= TRIG_OUTER ? 1 : (v - TRIG_INNER) / (TRIG_OUTER - TRIG_INNER);
+        if (i === 6) a.brake = v;
+        else a.throttle = v;
+        down = this.prev[i] === 1 ? v > TRIG_OFF : v >= TRIG_ON;
       } else {
         down = btn.pressed || btn.value > 0.5;
       }
@@ -240,17 +253,18 @@ export class GamepadSource {
     }
 
     // Stick gauche : déplacement (y de la manette vers le bas → « avant » positif).
-    const a = this.axes;
     shapeStick(ax[0] ?? 0, ax[1] ?? 0, MOVE_STICK, tmp);
     const moveNorm = tmp.n;
-    a.moveX = tmp.x;
-    a.moveY = -tmp.y;
+    const mx = tmp.x;
+    const my = -tmp.y;
+    a.moveX = mx;
+    a.moveY = my;
     // … et croix des menus, avec hystérésis.
     const ui = this.uiDir;
-    ui[0] = analogButton(a.moveY, ui[0] === 1, UI_ON, UI_OFF) ? 1 : 0;
-    ui[1] = analogButton(-a.moveY, ui[1] === 1, UI_ON, UI_OFF) ? 1 : 0;
-    ui[2] = analogButton(-a.moveX, ui[2] === 1, UI_ON, UI_OFF) ? 1 : 0;
-    ui[3] = analogButton(a.moveX, ui[3] === 1, UI_ON, UI_OFF) ? 1 : 0;
+    ui[0] = (ui[0] === 1 ? my > UI_OFF : my >= UI_ON) ? 1 : 0;
+    ui[1] = (ui[1] === 1 ? -my > UI_OFF : -my >= UI_ON) ? 1 : 0;
+    ui[2] = (ui[2] === 1 ? -mx > UI_OFF : -mx >= UI_ON) ? 1 : 0;
+    ui[3] = (ui[3] === 1 ? mx > UI_OFF : mx >= UI_ON) ? 1 : 0;
     if (ui[0] === 1) want[this.uiUp] = 1;
     if (ui[1] === 1) want[this.uiDown] = 1;
     if (ui[2] === 1) want[this.uiLeft] = 1;
@@ -266,14 +280,10 @@ export class GamepadSource {
       const s = this.env.settings();
       const sens = s.gamepadSensitivity > 0 ? s.gamepadSensitivity : 1;
       const up = s.invertY ? tmp.y : -tmp.y;
-      this.env.core.addLook(tmp.x * PAD_YAW_SPEED * sens * dt, up * PAD_PITCH_SPEED * sens * dt);
+      const pending = this.env.core.pending;
+      pending[CH_LOOK_X] += tmp.x * PAD_YAW_SPEED * sens * dt;
+      pending[CH_LOOK_Y] += up * PAD_PITCH_SPEED * sens * dt;
     }
-
-    // Gâchettes analogiques.
-    const lt = b[6];
-    const rt = b[7];
-    a.brake = lt ? shapeTrigger(lt.value > 0 ? lt.value : lt.pressed ? 1 : 0) : 0;
-    a.throttle = rt ? shapeTrigger(rt.value > 0 ? rt.value : rt.pressed ? 1 : 0) : 0;
 
     const latch = this.env.core.latch;
     for (let i = 0; i < BUTTON_COUNT; i++) latch.set(SRC_PAD, i, want[i] === 1);

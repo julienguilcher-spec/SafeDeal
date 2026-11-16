@@ -14,6 +14,7 @@ import type { TouchItem, TouchLayout } from '../api';
 import { TOUCH_STICK, curve, resetVirtualStick, shapePedal, shapeVirtualStick } from '../axes';
 import type { VirtualStick, VirtualStickTuning } from '../axes';
 import { BUTTON_COUNT, BUTTON_INDEX, buttonIndex } from '../buttons';
+import { CH_LOOK_X, CH_LOOK_Y } from '../core';
 import type { InputCore } from '../core';
 import { SRC_TOUCH, clearSourceAxes, createSourceAxes } from '../merge';
 import type { SourceAxes } from '../merge';
@@ -387,7 +388,9 @@ export class TouchOverlay {
       const sens = s.touchSensitivity > 0 ? s.touchSensitivity : 1;
       const k = TOUCH_RAD_PER_PX * sens;
       // doigt vers le haut de l'écran (dy < 0) = lever le regard
-      this.host.core.addLook(this.lookPxX * k, this.lookPxY * k * TOUCH_PITCH_RATIO * (s.invertY ? 1 : -1));
+      const pending = this.host.core.pending;
+      pending[CH_LOOK_X] += this.lookPxX * k;
+      pending[CH_LOOK_Y] += this.lookPxY * k * TOUCH_PITCH_RATIO * (s.invertY ? 1 : -1);
       this.lookPxX = 0;
       this.lookPxY = 0;
     }
