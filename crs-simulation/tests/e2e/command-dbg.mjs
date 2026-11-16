@@ -3,26 +3,22 @@ const server = await startServer();
 const { browser, page, errors } = await openPage(server.url + 'harness/command.html?role=chef_groupe&freeze=1&ai=0');
 await waitFor(page, 'window.__ready === true');
 await page.waitForTimeout(800);
-await page.keyboard.press('KeyM');
-await page.waitForTimeout(700);
-await page.click('[data-id="plan-search"]');
-await page.keyboard.type('bastille');
-await page.waitForTimeout(300);
-await page.click('[data-id="plan-result-0"]');
+page.on('console', (m) => { if (m.text().startsWith('DBG')) console.log(m.text()); });
+await page.evaluate(() => {
+  const b = window.__cmd;
+  let n = 0;
+  const f = () => {
+    const st = b.ui.stack();
+    const inp = b.ctx.input;
+    if (st.length || inp.down('orders') || inp.pressed('orders') || inp.released('orders')) {
+      const inst = b.ui.instance('roue_ordres');
+      console.log('DBG', n, JSON.stringify(st), 'down', inp.down('orders'), 'pressed', inp.pressed('orders'), 'rel', inp.released('orders'), inst ? `held ${inst.held} age ${inst.age.toFixed(3)} hl ${inst.wheel && inst.wheel.highlighted}` : '');
+    }
+    if (++n < 120) requestAnimationFrame(f);
+  };
+  requestAnimationFrame(f);
+});
+await page.mouse.move(640, 250);
+await page.keyboard.press('KeyF');
 await page.waitForTimeout(900);
-await page.click('[data-id="plan-set"]');
-await page.waitForTimeout(400);
-console.log('active1', await page.evaluate(() => document.activeElement && (document.activeElement.dataset.id || document.activeElement.tagName)));
-await page.keyboard.press('KeyM');
-await page.waitForTimeout(1600);
-console.log('stack apres fermeture', await page.evaluate(() => window.__cmd.ui.stack()), await page.evaluate(() => document.activeElement && (document.activeElement.dataset.id || document.activeElement.tagName)));
-await page.keyboard.press('KeyM');
-await page.waitForTimeout(700);
-console.log('stack', await page.evaluate(() => window.__cmd.ui.stack()), await page.evaluate(() => window.__cmd.ctx.session.phase));
-await page.evaluate(() => { const m = window.__cmd.ui.instance('carte').map; const orig = m.handlers.onTap; m.handlers.onTap = (x,y,i) => { console.log('TAP', x, y, JSON.stringify(i)); orig(x,y,i); }; });
-page.on('console', (m) => { if (m.text().startsWith('TAP')) console.log(m.text()); });
-await page.mouse.click(820, 300, { button: 'right' });
-await page.waitForTimeout(400);
-console.log(await page.evaluate(() => ({ wp: window.__cmd.maps.waypoint, mode: window.__cmd.ui.instance('carte').map.gestures.mode, el: document.elementFromPoint(820,300).className })));
-await shot(page, 'command-probe-dbg');
 await finish({ browser, server, errors, label: 'dbg' });
