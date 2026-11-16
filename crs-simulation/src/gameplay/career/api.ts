@@ -131,6 +131,26 @@ export const CAREER_RANK_LABELS: Readonly<Record<PoliceRank, string>> = {
   commissaire: 'Commissaire',
 };
 
+/** Rôles civils : toujours ouverts en carrière (leurs missions ont leurs propres conditions). */
+export const CIVIL_ROLES: readonly PlayableRole[] = ['street_medic', 'secouriste', 'journaliste', 'manifestant'];
+
+/**
+ * Rôles des forces de l'ordre ouverts à partir d'un grade de carrière (cumulatifs) : CRS dès l'école,
+ * les spécialités dès la titularisation, chef de groupe dès brigadier-chef, commandant dès capitaine.
+ */
+export const ROLES_BY_RANK: readonly { from: PoliceRank; roles: readonly PlayableRole[] }[] = [
+  { from: 'gardien_stagiaire', roles: ['crs'] },
+  { from: 'gardien', roles: ['bravm', 'operateur_canon_eau', 'telepilote', 'gendarme_centaure'] },
+  { from: 'brigadier_chef', roles: ['chef_groupe'] },
+  { from: 'capitaine', roles: ['commandant'] },
+];
+
+/** Grade de carrière à partir duquel un rôle s'ouvre (null pour un rôle civil, toujours ouvert, ou inconnu). */
+export function rankOpeningRole(role: PlayableRole): PoliceRank | null {
+  for (const step of ROLES_BY_RANK) if (step.roles.indexOf(role) >= 0) return step.from;
+  return null;
+}
+
 export const GRADE_VALUES: Readonly<Record<CareerGrade, number>> = { A: 4, B: 3, C: 2, D: 1, E: 0 };
 export const GRADE_LETTERS: readonly CareerGrade[] = ['E', 'D', 'C', 'B', 'A'];
 

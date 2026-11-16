@@ -6,6 +6,8 @@
  * assainit le brouillon puis rafraîchit le résumé. « Lancer » construit le SessionConfig
  * (buildSessionConfig) et appelle ctx.session.start.
  * Sur écran bas (téléphone), les onglets passent en bandeau horizontal et le résumé se resserre.
+ * En mode carrière, le brouillon suit la progression (home-career.ts) : grade de carrière, rôles
+ * ouverts, missions déverrouillées. Donnée d'ouverture : { section?, mode?, missionId? }.
  * ===================================================================================== */
 
 import { embedded, fullscreenAvailable, openStandalone, toggleFullscreen } from '../core/fullscreen';
@@ -21,12 +23,14 @@ import type { UiEnv } from '../core/kit';
 import { DEFAULT_CAUSES, DEFAULT_PLACES, DURATIONS, FAMILIES, MODES, fold, roleInfo, weatherLabel } from './catalog';
 import type { PlaceChoice } from './catalog';
 import { buildFoule, buildMoyens, buildOptions, buildScenarios, buildTension } from './home-panes-b';
-import { buildLieu, buildMeteo, buildMode, buildRole } from './home-panes-a';
+import { fitDraftToCareer, readCareer } from './home-career';
+import { buildLieu, buildMeteo, buildMode, buildRole, pickMission } from './home-panes-a';
 import {
   buildSessionConfig, compositionShares, defaultDraft, draftFromConfig, identityLabel, meansSummary, sanitizeDraft, suggestName,
   summarize, surpriseDraft, tensionLabel, volatilityLabelMasc, windLabel,
 } from './scenario';
 import type { ScenarioDraft } from './scenario';
+import type { CareerApi } from '@/gameplay/career/api';
 import { ScenarioStore } from './scenarios-store';
 import { readCauses, readMissions } from './services';
 
@@ -54,6 +58,8 @@ export interface HomeModel {
   readonly causes: readonly CauseLike[];
   readonly missions: readonly MissionLike[];
   readonly store: ScenarioStore;
+  /** Service de carrière (null s'il n'est pas branché) : en mode carrière, grade, rôles et missions en dépendent. */
+  readonly career: CareerApi | null;
   /** Modifie le brouillon (assaini) et rafraîchit le résumé ; le panneau courant n'est pas reconstruit. */
   update(patch: Partial<ScenarioDraft>): void;
   /** Remplace tout le brouillon et reconstruit le panneau courant. */
@@ -121,6 +127,8 @@ export function createHome(env: UiEnv): (host: HTMLElement, data: unknown) => Sc
     const serviceCauses = readCauses(ctx.service('roles.causes'));
     const causes = serviceCauses.length ? serviceCauses : DEFAULT_CAUSES;
     const missions = readMissions(ctx.service('missions'));
+    // mode carrière : grade, rôles et missions suivent la progression enregistrée (service 'career', s'il est branché)
+    const career = readCareer(ctx);
 
     if (!saved) {
       const last = store.last();
@@ -132,9 +140,10 @@ export function createHome(env: UiEnv): (host: HTMLElement, data: unknown) => Sc
         saved.z = match.z;
       }
     }
-    const draft: ScenarioDraft = unifyCommander(saved);
+    const draft: ScenarioDraft = fitDraftToCareer(unifyCommander(saved), career);
     draft.options.violence = violence;
-    const requested = data && typeof data === 'object' ? (data as { section?: unknown }).section : undefined;
+    const request = data && typeof data === 'object' ? (data as { section?: unknown; mode?: unknown; missionId?: unknown }) : {};
+    const requested = request.section;
     let section: SectionId = SECTIONS.some((s) => s.id === requested) ? (requested as SectionId) : lastSection;
 
     // ── structure ──
@@ -361,14 +370,15 @@ export function createHome(env: UiEnv): (host: HTMLElement, data: unknown) => Sc
       causes,
       missions,
       store,
+      career,
       update(patch: Partial<ScenarioDraft>): void {
         Object.assign(draft, sanitizeDraft({ ...draft, ...patch }, draft));
-        unifyCommander(draft);
+        fitDraftToCareer(unifyCommander(draft), career);
         refreshSummary();
       },
       replace(next: ScenarioDraft): void {
         Object.assign(draft, sanitizeDraft(next, draft));
-        unifyCommander(draft);
+        fitDraftToCareer(unifyCommander(draft), career);
         draft.options.violence = ctx.settings.values.violence;
         refreshSummary();
         show(section);
@@ -393,6 +403,13 @@ export function createHome(env: UiEnv): (host: HTMLElement, data: unknown) => Sc
         show(id);
       },
     };
+
+    // ouverture demandée par un autre écran (« Jouer la mission » de l'écran de carrière) : mode et mission choisis
+    if (request.mode === 'carriere' || request.mode === 'libre' || request.mode === 'monde_ouvert') model.update({ mode: request.mode });
+    if (typeof request.missionId === 'string' && request.missionId) {
+      const m = missions.find((x) => x.id === request.missionId);
+      if (m && (!career || draft.mode !== 'carriere' || career.isMissionAvailable(m.id))) pickMission(model, m);
+    }
 
     refreshSummary();
     show(section);

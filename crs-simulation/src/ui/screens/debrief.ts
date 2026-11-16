@@ -4,6 +4,8 @@
  * force, interpellations, suites encourues) et le résultat de mission ('missions'). À défaut, un
  * résumé minimal de la session : durée, foule (ctx.director.stats), journal de la force
  * (ctx.law.forceLog), objectifs (EXT.objectives).
+ * Après une mission jouée en mode carrière, un encart reprend le bilan de carrière ('career' :
+ * promotion, chapitre terminé, missions restant à réussir, sanction inscrite).
  * ===================================================================================== */
 
 import type { ForceVerdictKind, GameContext } from '@/core/contracts';
@@ -15,6 +17,8 @@ import { capitalize, durationLabel, hourLabel, int } from '../core/format';
 import type { UiEnv } from '../core/kit';
 import { sortObjectives } from '../hud/objectives';
 import { isPoliceRole } from '../hud/model';
+import { rankLabel } from './catalog';
+import { readCareer } from './home-career';
 import { draftFromConfig, identityLabel } from './scenario';
 import { readMissionResult } from './services';
 
@@ -141,6 +145,27 @@ export function createDebrief(env: UiEnv): (host: HTMLElement) => ScreenInstance
       const p = h('p', 'ui-para', mission.summary);
       p.style.marginTop = '10px';
       left.append(p);
+    }
+
+    // carrière : bilan du résultat qui vient d'être enregistré (mode carrière seulement)
+    const career = config && config.mode === 'carriere' ? readCareer(ctx) : null;
+    const outcome = career ? career.last : null;
+    if (career && outcome && outcome.missionId === config!.missionId) {
+      left.append(widgets.sectionTitle('Carrière'));
+      const lines = h('div', 'ui-lines');
+      lines.append(line('Grade', rankLabel(career.progress.rank), outcome.promoted ? 'Promotion' : undefined, outcome.promoted ? 1 : undefined));
+      lines.append(line('Note retenue', outcome.grade, outcome.success ? 'Mission réussie' : 'Mission non réussie', outcome.success ? 1 : -1));
+      left.append(lines);
+      const p = h('p', 'ui-para', outcome.message);
+      p.dataset.id = 'debrief-carriere';
+      p.style.marginTop = '8px';
+      left.append(p);
+      if (env.kit.hasScreen('carriere')) {
+        const open = widgets.button('Voir la carrière', () => ctx.ui.open('carriere'), 'ghost', 'chevrons');
+        open.dataset.id = 'debrief-carriere-ouvrir';
+        open.style.marginTop = '6px';
+        left.append(open);
+      }
     }
 
     // objectifs

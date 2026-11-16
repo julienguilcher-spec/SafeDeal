@@ -2,9 +2,14 @@
  * Page d'accueil — panneaux de réglages (1/2) : rôle, mode et mission, lieu, heure et météo.
  * Chaque fonction construit le contenu d'une section à partir du brouillon et appelle
  * model.update() à chaque réglage.
+ * En mode carrière (service 'career' branché) : rôles verrouillés au-delà du grade de carrière, grade
+ * imposé, missions verrouillées grisées avec leur raison ; dans les autres modes, rien ne change.
  * ===================================================================================== */
 
 import type { PolicePoste, PoliceRank, WeatherKind } from '@/core/contracts';
+import { rankOpeningRole } from '@/gameplay/career/api';
+import type { CareerApi } from '@/gameplay/career/api';
+import type { MissionLike } from '../core/api';
 import { clear, el, h } from '../core/dom';
 import { cardinal8, hourLabel } from '../core/format';
 import { icon, roleIconName, weatherIconName } from '../core/icons';
@@ -38,7 +43,12 @@ export function buildRole(model: HomeModel): HTMLElement {
     clear(sub);
     const d = model.draft;
     const info = roleInfo(d.role);
-    if (info.ranks.length > 1) {
+    const inCareer = careerOf(model);
+    if (inCareer && info.ranks.length > 0) {
+      // carrière : le grade suit la progression, il ne se choisit pas
+      const hint = `En carrière, le grade suit votre progression (${rankLabel(inCareer.progress.rank)}).` + (d.rank && RANK_NOTES[d.rank] ? ' ' + RANK_NOTES[d.rank] : '');
+      sub.append(widgets.sectionTitle('Grade et poste'), widgets.field('Grade', null, { value: rankLabel(d.rank, d.role), hint }).el);
+    } else if (info.ranks.length > 1) {
       const field = widgets.field('Grade', null, { value: rankLabel(d.rank, d.role), hint: d.rank ? RANK_NOTES[d.rank] ?? '' : '' });
       const seg = widgets.segmented<PoliceRank>({
         label: 'Grade',
@@ -97,6 +107,8 @@ export function buildRole(model: HomeModel): HTMLElement {
     }
   }
 
+  const career = careerOf(model);
+  const openRoles = career ? career.availableRoles() : null;
   for (const r of ROLES) {
     // commandant unique : « commissaire » est un alias du commandant, sans tuile propre (docs/BRIEF.md §1)
     if (r.id === 'commissaire') continue;
@@ -114,8 +126,29 @@ export function buildRole(model: HomeModel): HTMLElement {
       },
     });
     b.dataset.id = 'role-' + r.id;
+    if (openRoles && openRoles.indexOf(r.id) < 0) {
+      // carrière : rôle pas encore ouvert par le grade
+      const from = rankOpeningRole(r.id);
+      const reason = from ? `Ouvert en carrière au grade de ${rankLabel(from).toLowerCase()}.` : 'Non ouvert en carrière.';
+      b.disabled = true;
+      b.classList.add('is-locked');
+      b.style.opacity = '.5';
+      b.setAttribute('aria-label', `${r.name} — verrouillé : ${reason}`);
+      const box = b.querySelector('.ui-card__icon');
+      if (box) {
+        clear(box);
+        box.append(icon('lock'));
+      }
+      const desc = b.querySelector('.ui-card__desc');
+      if (desc) desc.textContent = reason;
+    }
     buttons.set(r.id, b);
     cards.append(b);
+  }
+  if (career) {
+    const p = note(`Carrière : vous êtes ${rankLabel(career.progress.rank).toLowerCase()}. Les rôles grisés s’ouvrent avec les promotions ; les rôles civils sont toujours ouverts.`);
+    p.style.marginBottom = '10px';
+    root.append(p);
   }
   buildSub();
   root.append(cards, sub);
@@ -123,6 +156,24 @@ export function buildRole(model: HomeModel): HTMLElement {
 }
 
 // ───────────────────────────── mode et mission ─────────────────────────────
+
+/** Service de carrière quand le mode carrière est choisi (null sinon : les panneaux ne changent pas). */
+function careerOf(model: HomeModel): CareerApi | null {
+  return model.draft.mode === 'carriere' ? model.career : null;
+}
+
+/** Choisit une mission : elle apporte ses préréglages (lieu, heure, foule…) ; le reste du brouillon est conservé. */
+export function pickMission(model: HomeModel, m: MissionLike): void {
+  const base = buildSessionConfig(model.draft);
+  const merged = { ...base, ...m.config, missionId: m.id, extra: { ...(base.extra ?? {}), ...((m.config.extra as Record<string, unknown> | undefined) ?? {}) } };
+  if (m.config.place && m.config.x === undefined) {
+    delete merged.x;
+    delete merged.z;
+  }
+  // la fiche de mission se règle en mode libre : choisie en carrière, elle y reste (sinon rien ne serait enregistré)
+  if (base.mode === 'carriere') merged.mode = 'carriere';
+  model.replace(draftFromConfig(merged, model.draft));
+}
 
 export function buildMode(model: HomeModel): HTMLElement {
   const { widgets, kit, ctx } = model.env;
@@ -138,10 +189,20 @@ export function buildMode(model: HomeModel): HTMLElement {
       body.append(widgets.sectionTitle('Mission'), note('Monde ouvert : patrouille libre dans Paris. Aucune mission ni manifestation n’est imposée ; l’heure, la météo, le lieu et les moyens restent réglables.'));
       return;
     }
+    const career = careerOf(model);
     if (d.mode === 'carriere') {
       if (kit.hasScreen('carriere')) {
         const open = widgets.button('Ouvrir la carrière', () => ctx.ui.open('carriere'), 'secondary', 'chevrons');
-        body.append(widgets.sectionTitle('Carrière'), note('En carrière, votre grade et les missions proposées dépendent de votre progression.'), el('div', 'ui-inline', open));
+        body.append(widgets.sectionTitle('Carrière'));
+        if (career) {
+          const c = career.chapters[career.progress.chapter];
+          const where = c ? ` — chapitre ${c.index} « ${c.title} » : ${c.progressLabel}` : '';
+          const rank = h('div', 'ui-sub', `Grade : ${rankLabel(career.progress.rank)}${where}.`);
+          rank.dataset.id = 'carriere-grade';
+          rank.style.marginBottom = '8px';
+          body.append(rank);
+        }
+        body.append(note('En carrière, votre grade et les missions proposées dépendent de votre progression. Seules les missions jouées en mode carrière comptent.'), el('div', 'ui-inline', open));
         (body.lastElementChild as HTMLElement).style.marginTop = '10px';
       } else {
         body.append(widgets.sectionTitle('Carrière'), note('Le suivi de carrière (grades, évaluations, sanctions) n’est pas installé dans cette version : la partie se joue avec les réglages de cette page, sans progression enregistrée.', true));
@@ -153,34 +214,51 @@ export function buildMode(model: HomeModel): HTMLElement {
     const paint = (): void => {
       for (const [id, b] of items) b.setAttribute('aria-pressed', String(id === model.draft.missionId));
     };
-    const add = (id: string, title: string, sub: string, trail: string, onPick: () => void): void => {
+    const add = (id: string, title: string, sub: string, trail: string, onPick: (() => void) | null): HTMLButtonElement => {
       const b = h('button', 'ui-list__item');
       b.type = 'button';
       b.dataset.id = 'mission-' + (id || 'libre');
       b.append(h('span', 'ui-list__title', title), h('span', 'ui-list__trail', trail), h('span', 'ui-list__sub', sub));
-      b.addEventListener('click', onPick);
+      if (onPick) b.addEventListener('click', onPick);
       items.set(id, b);
       list.append(b);
+      return b;
     };
-    add('', 'Scénario libre', 'La manifestation se déroule selon vos réglages, sans objectifs imposés.', '', () => {
+    const inCareer = career;
+    add('', 'Scénario libre', inCareer ? 'Selon vos réglages, sans objectifs imposés : rien n’est enregistré dans la carrière.' : 'La manifestation se déroule selon vos réglages, sans objectifs imposés.', '', () => {
       model.update({ missionId: '' });
       paint();
     });
     const role = d.role;
-    const usable = model.missions.filter((m) => m.roles.length === 0 || m.roles.indexOf(role) >= 0);
-    for (const m of usable) {
-      const stars = m.difficulty > 0 ? '★'.repeat(m.difficulty) + '☆'.repeat(5 - m.difficulty) : '';
-      const sub = [m.type, m.place, m.summary].filter((x) => x).join(' — ');
-      add(m.id, m.title, sub, stars, () => {
-        // la mission apporte ses préréglages (lieu, heure, foule…) ; le reste du brouillon est conservé
-        const base = buildSessionConfig(model.draft);
-        const merged = { ...base, ...m.config, missionId: m.id, extra: { ...(base.extra ?? {}), ...((m.config.extra as Record<string, unknown> | undefined) ?? {}) } };
-        if (m.config.place && m.config.x === undefined) {
-          delete merged.x;
-          delete merged.z;
-        }
-        model.replace(draftFromConfig(merged, model.draft));
-      });
+    const forRole = (m: MissionLike): boolean => m.roles.length === 0 || m.roles.indexOf(role) >= 0;
+    const stars = (m: MissionLike): string => (m.difficulty > 0 ? '★'.repeat(m.difficulty) + '☆'.repeat(5 - m.difficulty) : '');
+    const subOf = (m: MissionLike): string => [m.type, m.place, m.summary].filter((x) => x).join(' — ');
+    let usable: MissionLike[];
+    if (inCareer) {
+      // carrière : toutes les missions ouvertes (le rôle suit la mission choisie), par chapitre, puis celles du rôle
+      // courant encore verrouillées, grisées avec leur raison
+      const ranked = model.missions.map((m) => ({ m, s: inCareer.missionStatus(m.id) })).filter((x) => x.s.chapter >= 0);
+      const open = ranked.filter((x) => x.s.available).sort((a, b) => a.s.chapter - b.s.chapter);
+      usable = open.map((x) => x.m);
+      for (const { m, s } of open) {
+        const r = inCareer.progress.results[m.id];
+        const trail = `Ch. ${s.chapter}` + (r ? ` · ${r.success ? 'réussie' : 'jouée'}, ${r.best}` : ' · ' + stars(m));
+        add(m.id, m.title, subOf(m), trail, () => pickMission(model, m));
+      }
+      for (const { m, s } of ranked) {
+        if (s.available || !forRole(m)) continue;
+        const b = add(m.id, m.title, s.reason, `Ch. ${s.chapter}`, null);
+        b.disabled = true;
+        b.classList.add('is-locked');
+        b.style.opacity = '.5';
+        b.setAttribute('aria-label', `${m.title} — verrouillée : ${s.reason}`);
+        const lock = icon('lock');
+        lock.style.cssText = 'display:inline-block;width:14px;height:14px;vertical-align:-2px;margin-right:6px';
+        b.firstElementChild?.prepend(lock);
+      }
+    } else {
+      usable = model.missions.filter(forRole);
+      for (const m of usable) add(m.id, m.title, subOf(m), stars(m), () => pickMission(model, m));
     }
     paint();
     body.append(list);
@@ -189,7 +267,7 @@ export function buildMode(model: HomeModel): HTMLElement {
       p.style.marginTop = '10px';
       body.append(p);
     } else if (usable.length === 0) {
-      const p = note('Aucune mission du catalogue n’est prévue pour ce rôle : jouez en scénario libre, ou changez de rôle.');
+      const p = note(inCareer ? 'Aucune mission n’est encore ouverte dans votre carrière.' : 'Aucune mission du catalogue n’est prévue pour ce rôle : jouez en scénario libre, ou changez de rôle.');
       p.style.marginTop = '10px';
       body.append(p);
     }
@@ -203,6 +281,7 @@ export function buildMode(model: HomeModel): HTMLElement {
       onClick: () => {
         if (model.draft.mode === m.id) return;
         model.update({ mode: m.id, missionId: m.id === 'monde_ouvert' ? '' : model.draft.missionId });
+        // la liste se refait : en carrière, le rôle a pu changer et une mission verrouillée être retirée
         for (const [id, btn] of modeButtons) btn.setAttribute('aria-pressed', String(id === model.draft.mode));
         buildBody();
       },

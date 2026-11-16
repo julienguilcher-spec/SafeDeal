@@ -357,6 +357,7 @@ export class MissionSystem implements GameSystem {
     for (const r of this.runs) conclude(r, env, failed || reason === 'abandon');
     this.publishObjectives();
     this.result_ = this.buildResult(reason);
+    ctx.events.emitAny('mission:finished', this.result_);
     this.tracker!.stop();
     if (toDebrief && ctx.session.phase === 'playing') ctx.session.end(true);
   }
