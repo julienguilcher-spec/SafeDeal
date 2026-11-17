@@ -21,7 +21,11 @@ export interface GestureHandlers {
   onDragEnd(x: number, y: number, info: PointerInfo, cancelled: boolean): void;
   onTap(x: number, y: number, info: PointerInfo): void;
   onDoubleTap(x: number, y: number, info: PointerInfo): void;
-  onLongPress(x: number, y: number, info: PointerInfo): void;
+  /**
+   * Appui long. Renvoyer `false` quand il n'a rien fait : le geste continue alors comme un appui ordinaire (glisser,
+   * relâcher). Sinon l'appui long « consomme » le geste : le glissement et le relâchement qui suivent sont ignorés.
+   */
+  onLongPress(x: number, y: number, info: PointerInfo): boolean | void;
   onPan(dx: number, dy: number): void;
   /** Zoom d'un facteur (> 1 = on se rapproche) autour du point (x, y). */
   onZoom(x: number, y: number, factor: number): void;
@@ -38,6 +42,8 @@ export class PointerGestures {
   private readonly pointers = new Map<number, Tracked>();
   private primary = 0;
   private longFired = false;
+  /** L'appui long a été proposé pour cet appui (une seule fois), qu'il ait servi ou non. */
+  private longTried = false;
   private pinchDist = 0;
   private pinchX = 0;
   private pinchY = 0;
@@ -63,6 +69,7 @@ export class PointerGestures {
       this.mode = 'press';
       this.primary = id;
       this.longFired = false;
+      this.longTried = false;
     } else if (this.pointers.size === 2) {
       if (this.mode === 'capture') {
         const p = this.pointers.get(this.primary);
@@ -156,12 +163,14 @@ export class PointerGestures {
 
   /** À appeler régulièrement : déclenche l'appui long. */
   tick(t: number): void {
-    if (this.mode !== 'press' || this.longFired) return;
+    if (this.mode !== 'press' || this.longTried) return;
     const p = this.pointers.get(this.primary);
     if (!p || p.info.button !== 0) return;
     if (t - p.t0 >= LONG_PRESS) {
-      this.longFired = true;
-      this.h.onLongPress(p.x, p.y, p.info);
+      this.longTried = true;
+      // Un appui long qui n'a rien fait ne tue pas le geste : appuyer, hésiter une demi-seconde puis glisser pour
+      // tracer une ligne de barrage (ou déplacer la carte) doit marcher, à la souris comme au pavé tactile.
+      this.longFired = this.h.onLongPress(p.x, p.y, p.info) !== false;
     }
   }
 

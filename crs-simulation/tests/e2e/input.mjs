@@ -180,6 +180,8 @@ const lockWorks = s.pointerLocked === true;
 info.push(`capture de la souris dans Chromium headless : ${lockWorks ? 'accordée' : 'refusée (repli testé à la place)'}`);
 if (lockWorks) {
   check(count(s, 'simPressed', 'primary') === 0, 'le clic qui capture la souris ne déclenche pas l\'action principale');
+  // (l'événement d'erreur de la demande « mouvement brut » refusée arrive après l'accord de la demande simple)
+  check(!s.notices.some((n) => n.includes('ne peut pas être capturée')) && s.fallback === false, 'capture accordée : aucun message « la souris ne peut pas être capturée »');
   await resetCounts(page);
   // Sous capture, les déplacements injectés par le protocole de débogage s'annulent deux à deux
   // (le navigateur headless recentre le curseur : +dx puis -dx). On envoie donc à la page des
@@ -242,16 +244,50 @@ if (lockWorks) {
   check(s.pointerLocked === false, 'pause : souris rendue');
   await page.evaluate(() => window.__inputTest.ctx.session.pause(false));
   await frames(page, 3);
+  // (le navigateur refuse les captures trop rapprochées — voir plus bas : on laisse passer son délai)
+  await page.waitForTimeout(2100);
   // capture perdue sans que le jeu l'ait demandé (Échap du navigateur) : pause demandée une fois
   await page.mouse.click(700, 300);
   await frames(page, 8);
   await page.waitForTimeout(1100);
+  s = await snap(page);
+  check(s.pointerLocked === true, 'après la pause : le clic recapture la souris');
   await resetCounts(page);
   await page.evaluate(() => document.exitPointerLock());
   await frames(page, 10);
   s = await snap(page);
   check(s.pointerLocked === false, 'capture rendue par le navigateur');
   check(count(s, 'simPressed', 'pause') === 1 && count(s, 'framePressed', 'pause') === 1, `capture perdue : une demande de pause (sim ${count(s, 'simPressed', 'pause')}, image ${count(s, 'framePressed', 'pause')})`);
+  // Captures trop rapprochées (carte, roue d'ordres, pause ouvertes et refermées coup sur coup) : Chromium refuse un
+  // instant (« Too many pointer lock requests in a short window of time »). Ce n'est pas une capture impossible :
+  // aucun message, la vue reste pilotable, et la capture revient seule quand le délai du navigateur est passé.
+  await page.evaluate(() => window.__inputTest.ctx.session.pause(false));
+  await page.waitForTimeout(2100);
+  const told = (q) => q.notices.filter((n) => n.includes('ne peut pas être capturée')).length;
+  const toldBefore = told(await snap(page));
+  let throttled = false;
+  let granted = 0;
+  for (let i = 0; i < 9 && !throttled; i++) {
+    await page.mouse.click(700, 300);
+    await frames(page, 3);
+    s = await snap(page);
+    if (s.pointerLocked) {
+      granted++;
+      await page.evaluate(() => window.__inputTest.pointer.release());
+      await frames(page, 3);
+    } else {
+      throttled = true;
+    }
+  }
+  info.push(`captures en rafale : ${granted} accordée(s), puis ${throttled ? 'refus passager du navigateur' : 'aucun refus (limite non atteinte)'}`);
+  if (throttled) {
+    check(s.fallback === true, 'refus passager : la vue reste pilotable en attendant (glisser, flèches)');
+    check(told(s) === toldBefore, `refus passager : pas de message « la souris ne peut pas être capturée » (${toldBefore} avant, ${told(s)} après)`);
+    await page.waitForTimeout(2500);
+    await frames(page, 6);
+    s = await snap(page);
+    check(s.pointerLocked === true && s.fallback === false, `refus passager : la capture revient seule, sans clic (capturée ${s.pointerLocked}, repli ${s.fallback})`);
+  }
 } else {
   check(s.fallback === true, 'capture refusée : repli « glisser pour regarder » actif');
 }

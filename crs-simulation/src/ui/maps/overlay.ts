@@ -47,6 +47,12 @@ export interface OverlayOptions extends UnitLayerOptions {
   /** Station de métro et fermeture mises en avant. */
   focusStation: number;
   focusClosure: number;
+  /**
+   * Foule dont on montre les issues ouvertes même si aucune n'est encore tenue (clé de `scene.crowdExits`) : celle que
+   * le joueur vise pour barrer, filtrer ou nasser. Les autres foules ne montrent leurs issues ouvertes que lorsqu'un
+   * encerclement est en cours (au moins une issue tenue, ou nasse détectée) — sinon la carte se couvre de flèches.
+   */
+  focusCrowd?: string;
   /** Accès aux arêtes du graphe (tracé des rues fermées). */
   edge: ((id: number) => RoadEdgeInfo) | null;
 }
@@ -411,6 +417,21 @@ function drawBarrages(g: CanvasRenderingContext2D, t: MapTransform, scene: MapSc
  * Issues autour des foules : une issue OUVERTE est une flèche blanche qui sort par une trouée, avec le nom de la rue ;
  * une nasse fermée est cerclée de rouge. Les issues tenues sont les barrages eux-mêmes (dessinés par-dessus).
  */
+/** Rues déjà nommées pour la foule en cours de dessin. */
+const NAMED: string[] = [];
+
+/** La rue porte un vrai nom (pas « passage piéton », « voie sans nom »…) : elle mérite une étiquette. */
+function namedStreet(street: string): boolean {
+  const s = street.trim().toLowerCase();
+  return s !== '' && s !== 'passage piéton' && s !== 'voie sans nom' && s !== 'voie piétonne';
+}
+
+/** Une issue au moins est tenue, fermée ou filtrée : un encerclement est en cours autour de cette foule. */
+function anyHeld(exits: readonly { held: boolean; mode: string }[]): boolean {
+  for (let i = 0; i < exits.length; i++) if (!exitOpen(exits[i]!)) return true;
+  return false;
+}
+
 function drawExits(g: CanvasRenderingContext2D, t: MapTransform, scene: MapScene, o: OverlayOptions): void {
   const list = scene.crowdExits;
   for (let i = 0; i < list.length; i++) {
@@ -425,6 +446,9 @@ function drawExits(g: CanvasRenderingContext2D, t: MapTransform, scene: MapScene
       g.stroke();
       g.setLineDash([]);
     }
+    // issues ouvertes : seulement là où elles servent (foule visée, ou encerclement commencé)
+    if (c.kettleId === 0 && c.key !== o.focusCrowd && !anyHeld(c.exits)) continue;
+    NAMED.length = 0;
     for (let k = 0; k < c.exits.length; k++) {
       const e = c.exits[k]!;
       if (!exitOpen(e) || !t.contains(e.x, e.z, 30)) continue;
@@ -468,7 +492,9 @@ function drawExits(g: CanvasRenderingContext2D, t: MapTransform, scene: MapScene
       g.stroke();
       g.fill();
       g.restore();
-      if (!o.compact && t.mpp < 3.2) {
+      // nom de la rue : une seule fois par rue ; une trouée hors voie (passage piéton, esplanade) n'a que sa flèche
+      if (!o.compact && t.mpp < 3.2 && namedStreet(e.street) && NAMED.indexOf(e.street) < 0) {
+        NAMED.push(e.street);
         label(g, exitName(e), ex + Math.cos(a) * 26, ey + Math.sin(a) * 26, '#ffffff', 10, 700);
       }
     }

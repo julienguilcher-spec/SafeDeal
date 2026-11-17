@@ -5,7 +5,7 @@ import type { GestureHandlers, PointerInfo } from '@/ui/maps/gestures';
 const MOUSE: PointerInfo = { button: 0, shift: false, ctrl: false, kind: 'mouse' };
 const TOUCH: PointerInfo = { button: 0, shift: false, ctrl: false, kind: 'touch' };
 
-function setup(capture = false): { g: PointerGestures; log: string[]; pan: { x: number; y: number }; zoom: number[] } {
+function setup(capture = false, longHandled = true): { g: PointerGestures; log: string[]; pan: { x: number; y: number }; zoom: number[] } {
   const log: string[] = [];
   const pan = { x: 0, y: 0 };
   const zoom: number[] = [];
@@ -18,7 +18,10 @@ function setup(capture = false): { g: PointerGestures; log: string[]; pan: { x: 
     onDragEnd: (x, y, _i, cancelled) => log.push(`dragEnd ${x},${y}${cancelled ? ' annulé' : ''}`),
     onTap: (x, y, info) => log.push(`tap ${x},${y} b${info.button}`),
     onDoubleTap: (x, y) => log.push(`double ${x},${y}`),
-    onLongPress: (x, y) => log.push(`long ${x},${y}`),
+    onLongPress: (x, y) => {
+      log.push(`long ${x},${y}`);
+      return longHandled;
+    },
     onPan: (dx, dy) => {
       pan.x += dx;
       pan.y += dy;
@@ -94,6 +97,36 @@ describe('cartes — gestes', () => {
     s.g.tick(0.9);
     s.g.up(1, 200, 200, 1);
     expect(s.log).toEqual(['long 200,200']);
+  });
+
+  it('appui long qui a servi : le glissement qui suit est ignoré', () => {
+    const s = setup(true);
+    s.g.down(1, 200, 200, 0, MOUSE);
+    s.g.tick(0.6);
+    s.g.move(1, 260, 210);
+    s.g.up(1, 260, 210, 1);
+    expect(s.log).toEqual(['long 200,200']);
+  });
+
+  it('appui long qui n’a rien fait (ordre en préparation) : appuyer, hésiter, puis glisser trace quand même', () => {
+    // à la souris ou au pavé tactile, on appuie souvent une demi-seconde avant de glisser : le tracé d'une ligne de
+    // barrage ne partait pas, et rien ne se passait au relâchement
+    const s = setup(true, false);
+    s.g.down(1, 200, 200, 0, MOUSE);
+    s.g.tick(0.6);
+    s.g.tick(0.9);                      // proposé une seule fois
+    s.g.move(1, 260, 210);
+    s.g.move(1, 300, 220);
+    s.g.up(1, 300, 220, 1.5);
+    expect(s.log).toEqual(['long 200,200', 'dragStart', 'dragMove 260,210', 'dragMove 300,220', 'dragEnd 300,220']);
+  });
+
+  it('appui long qui n’a rien fait, sans glisser : le relâchement reste un toucher', () => {
+    const s = setup(false, false);
+    s.g.down(1, 200, 200, 0, MOUSE);
+    s.g.tick(0.7);
+    s.g.up(1, 201, 200, 1);
+    expect(s.log).toEqual(['long 200,200', 'tap 201,200 b0']);
   });
 
   it('pincement : zoom du rapport des écartements, puis un doigt continue à déplacer', () => {

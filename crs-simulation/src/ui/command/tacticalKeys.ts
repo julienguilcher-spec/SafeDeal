@@ -21,7 +21,7 @@ export interface KeyUnit {
 
 /** Légende affichée sur la carte tactique au clavier. */
 export const TACTICAL_KEYS_LEGEND =
-  'Clavier : flèches = curseur · Entrée = sélectionner / désigner · 1–9 = section · U = unité suivante · E = ordre rapide · L = liste des ordres · N = fermer la nasse · B = barrage : passants bloqués / admis · Échap = retour';
+  'Clavier : flèches = curseur · Entrée = désigner · 1–9 = section · U = unité suivante · E = ordre rapide · L = ordres · N = fermer la nasse · B = barrage : passants bloqués / admis · Échap = retour';
 
 /** Touche (KeyboardEvent.code) de l'option « Passants : bloqués / laissés passer » de « Barrer la rue ». */
 export const PASSERSBY_KEY = 'KeyB';

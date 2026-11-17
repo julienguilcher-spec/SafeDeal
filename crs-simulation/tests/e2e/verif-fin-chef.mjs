@@ -112,12 +112,17 @@ try {
     C.note(`carte tactique : ${ui.units.length} unité(s) listée(s) (${ui.units.slice(0, 4).map((u) => u.t).join(' | ')}), ${ui.verbs.filter((v) => !v.off).length} verbes actifs sur ${ui.verbs.length}, onglets ${ui.tabs.join(', ')}`);
     try {
       const before = await mates();
-      if (ui.units.length) { await page.locator('[data-id^="unit-"]').first().click(); await frames(page, 2); }
+      // l'unité du joueur (chef de groupe : la seule sous ses ordres — la première ligne de la liste est la compagnie)
+      const own = await page.evaluate(() => window.__CRS.ctx.player.person().squadId);
+      const row = page.locator(`[data-id="unit-${own}"]`);
+      if (await row.count()) { await row.first().click({ timeout: 15000 }); await frames(page, 2); }
+      else if (ui.units.length) { await page.locator('[data-id^="unit-"]').first().click(); await frames(page, 2); }
       const tabOrders = page.locator('[data-id="tactical"] [data-id="tab-ordres"], [data-id="tactical"] [data-id="tab-orders"]');
       if (await tabOrders.count()) { await tabOrders.first().click(); await frames(page, 2); }
       const verb = page.locator('[data-id="verb-ligne"]');
-      await verb.first().scrollIntoViewIfNeeded({ timeout: 5000 });
-      await verb.first().click({ timeout: 5000 });
+      // (rendu logiciel : une image peut durer une demi-seconde, et le clic attend deux images stables)
+      await verb.first().scrollIntoViewIfNeeded({ timeout: 15000 });
+      await verb.first().click({ timeout: 15000 });
       await frames(page, 2);
       const box = await page.locator('[data-id="tac-map"]').boundingBox();
       const px = box.x + box.width * 0.5 + 40, py = box.y + box.height * 0.5 - 30;
@@ -126,13 +131,14 @@ try {
       await frames(page, 3);
       await snap(page, tag + '-07-tactique-ordre');
       // validation éventuelle
-      const confirm = page.locator('[data-id="tactical"] button').filter({ hasText: /Valider|Confirmer|Donner|Ordonner|Envoyer/ });
+      // (visibles seulement : la carte porte aussi des boutons masqués, comme « Valider » du bandeau de nasse)
+      const confirm = page.locator('[data-id="tactical"] button:visible').filter({ hasText: /Valider|Confirmer|Donner|Ordonner|Envoyer/ });
       if (await confirm.count()) { await confirm.first().click(); await frames(page, 3); }
       const after = await mates();
       report.ordreTactique = { before: before.order, after: after.order, by: after.by, moved: Math.hypot(after.ox - before.ox, after.oz - before.oz) };
       C.check(after.order === 'ligne', 'TACTIQUE : l’ordre « En ligne » posé sur la carte est enregistré', `ordre « ${before.order} » → « ${after.order} », point déplacé de ${R(Math.hypot(after.ox - before.ox, after.oz - before.oz), 0)} m ; notifications : ${(await notices(page)).join(' | ').slice(0, 160)}`);
     } catch (err) {
-      C.check(false, 'TACTIQUE : donner un ordre par la carte', String(err).slice(0, 300));
+      C.check(false, 'TACTIQUE : donner un ordre par la carte', String(err).slice(0, 1200));
     }
     await hold(page, 'Tab');
     await frames(page, 3);

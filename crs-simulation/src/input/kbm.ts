@@ -35,6 +35,12 @@ export const KEY_PITCH_SPEED = 1.4;
 const MAX_MOVE = 500;
 /** Nombre d'échecs de verrouillage au-delà duquel on ne réessaie plus. */
 const MAX_LOCK_FAILURES = 3;
+/**
+ * Refus passager du navigateur (« trop de demandes de capture en peu de temps » : Chromium bloque après quatre ou cinq
+ * captures enchaînées à moins de 2 s l'une de l'autre, jusqu'à 2 s après la dernière accordée). On attend ce délai,
+ * puis on redemande tout seul.
+ */
+const LOCK_RETRY_MS = 2100;
 
 /** Touches dont l'action par défaut du navigateur gêne le jeu (défilement, recherche rapide, focus). */
 const NUISANCE: Readonly<Record<string, true>> = {
@@ -120,12 +126,24 @@ export class KbmSource {
   private wheelAcc = 0;
   private wheelIdle = 0;
   private pendingLock = false;
-  /** La demande en cours rendra son verdict par une promesse : l'événement d'erreur fait doublon. */
+  /**
+   * La dernière demande rend son verdict par une promesse : l'événement d'erreur fait doublon. Il peut aussi arriver
+   * en retard — celui de la demande « mouvement brut » refusée tombe après que la demande simple a été accordée, avant
+   * l'événement de capture : pris au sérieux, il affichait « la souris ne peut pas être capturée » à tort.
+   */
   private viaPromise = false;
   private softRequest = false;
   private selfExit = false;
   private lockFailures = 0;
   private toldFallback = false;
+  /** Le navigateur ne connaît pas l'option « mouvement brut » : on ne la redemande plus (chaque demande compte dans sa limite). */
+  private rawUnsupported = false;
+  /** Refus passager : aucune nouvelle demande avant cet instant (horloge du navigateur, ms). */
+  private retryAt = 0;
+  /** Une capture est due dès que le navigateur l'acceptera de nouveau (redemandée sans attendre un clic). */
+  private retryDue = false;
+  /** Numéro de la demande en cours : le verdict tardif d'une demande abandonnée ne vaut pas pour la suivante. */
+  private reqSeq = 0;
   private captureCb: ((code: string | null) => void) | null = null;
   private attached = false;
   private readonly travel = new MouseTravel();
@@ -233,6 +251,13 @@ export class KbmSource {
   /** Libère la souris si le jeu ne doit plus la tenir (écran modal, pause). */
   enforceLockPolicy(): void {
     if (this.locked && !this.env.canLock()) this.releasePointer();
+    // Capture refusée un instant plus tôt (« trop de demandes ») : on la redemande dès que le délai est passé.
+    if (this.retryDue && !this.locked && !this.pendingLock && performance.now() >= this.retryAt) {
+      if (this.env.canLock()) {
+        this.retryDue = false;
+        this.requestPointer(true);
+      }
+    }
   }
 
   // ───────────────────────────── verrouillage de la souris ─────────────────────────────
@@ -248,36 +273,50 @@ export class KbmSource {
       if (!soft) this.lockFailed();
       return;
     }
+    // Le navigateur vient de refuser pour « trop de demandes » : insister ne ferait qu'en ajouter. La demande partira
+    // d'elle-même à la fin du délai (enforceLockPolicy).
+    if (performance.now() < this.retryAt) {
+      this.retryDue = true;
+      return;
+    }
     this.pendingLock = true;
     this.viaPromise = false;
     this.softRequest = soft;
+    // Une demande abandonnée entre-temps (souris rendue par le jeu, puis nouvelle demande) peut rendre son verdict
+    // après coup : il ne doit pas être imputé à la demande suivante (message « ne peut pas être capturée » à tort).
+    const id = ++this.reqSeq;
+    const plain = (): void => {
+      this.pendingLock = true;
+      try {
+        const p2 = el.requestPointerLock!() as Promise<void> | undefined;
+        if (p2 && typeof p2.then === 'function') {
+          this.viaPromise = true;
+          p2.then(undefined, (err: unknown) => {
+            if (id === this.reqSeq) this.lockRefused(err);
+          });
+        } else {
+          this.viaPromise = false;
+        }
+      } catch {
+        this.lockFailed();
+      }
+    };
+    if (this.rawUnsupported) {
+      plain();
+      return;
+    }
     try {
       // Mouvement brut (sans accélération du système) quand le navigateur le propose.
       const p = el.requestPointerLock({ unadjustedMovement: true }) as Promise<void> | undefined;
       if (p && typeof p.then === 'function') {
         this.viaPromise = true;
-        p.then(() => {
-          this.viaPromise = false;
-        }, (err: unknown) => {
+        p.then(undefined, (err: unknown) => {
           const name = (err as { name?: string } | null)?.name;
-          if (name === 'NotSupportedError') {
-            // option refusée : on redemande sans elle
-            this.pendingLock = true;
-            try {
-              const p2 = el.requestPointerLock!() as Promise<void> | undefined;
-              if (p2 && typeof p2.then === 'function') {
-                p2.then(() => {
-                  this.viaPromise = false;
-                }, () => this.lockFailed());
-              } else {
-                this.viaPromise = false;
-              }
-            } catch {
-              this.lockFailed();
-            }
-          } else {
-            this.lockFailed();
-          }
+          // option refusée : on ne la proposera plus ; et, si cette demande est toujours celle en cours, on la refait sans elle
+          if (name === 'NotSupportedError') this.rawUnsupported = true;
+          if (id !== this.reqSeq) return;
+          if (name === 'NotSupportedError') plain();
+          else this.lockRefused(err);
         });
       }
     } catch {
@@ -285,9 +324,34 @@ export class KbmSource {
     }
   }
 
+  /** Verdict d'une demande rejetée : refus passager (on réessaiera seul) ou capture impossible (repli). */
+  private lockRefused(err: unknown): void {
+    const e = err as { name?: string; message?: string } | null;
+    if (e && e.name === 'NotAllowedError' && typeof e.message === 'string' && /too many/i.test(e.message)) this.lockThrottled();
+    else this.lockFailed();
+  }
+
+  /**
+   * Le navigateur refuse pour un instant (captures trop rapprochées : carte, roue d'ordres ou pause ouvertes et
+   * refermées coup sur coup). Ce n'est pas une capture impossible : aucun message, aucun échec compté. En attendant,
+   * la vue reste pilotable (glisser, flèches) et la capture est redemandée dès que le délai est passé.
+   */
+  private lockThrottled(): void {
+    this.viaPromise = false;
+    this.pendingLock = false;
+    this.retryAt = performance.now() + LOCK_RETRY_MS;
+    this.retryDue = true;
+    this.fallback = true;
+  }
+
   /** Rend la souris (demande du jeu : ne produit pas de « pause »). */
   releasePointer(): void {
-    this.pendingLock = false;
+    if (this.pendingLock) {
+      // demande en cours abandonnée : son verdict ne compte plus
+      this.pendingLock = false;
+      this.viaPromise = false;
+      this.reqSeq++;
+    }
     if (!this.locked) return;
     this.selfExit = true;
     try {
@@ -320,6 +384,7 @@ export class KbmSource {
     if (this.locked) {
       this.lockFailures = 0;
       this.fallback = false;
+      this.retryDue = false;
       this.dragging = false;
       this.accX = 0;
       this.accY = 0;

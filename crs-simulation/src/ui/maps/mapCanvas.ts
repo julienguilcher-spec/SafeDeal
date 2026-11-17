@@ -25,7 +25,8 @@ export interface MapCanvasHandlers {
   onTap?(x: number, y: number, info: PointerInfo): void;
   /** Retourner true si le double toucher a été traité (sinon : zoom avant). */
   onDoubleTap?(x: number, y: number, info: PointerInfo): boolean;
-  onLongPress?(x: number, y: number, info: PointerInfo): void;
+  /** Renvoyer `false` si l'appui long n'a rien fait : le geste continue (glisser, relâcher). */
+  onLongPress?(x: number, y: number, info: PointerInfo): boolean | void;
   /** Survol (souris sans bouton, ou curseur de la manette). */
   onHover?(x: number, y: number): void;
   /** Dessins de l'outil courant, par-dessus les couches (aperçus de tracé, cadre de sélection). */
@@ -109,7 +110,12 @@ export class MapCanvas {
         if (!self.handlers.onDoubleTap?.(x, y, info)) self.zoomAt(x, y, 1.8);
         self.dirty = true;
       },
-      onLongPress: (x, y, info) => { self.handlers.onLongPress?.(x, y, info); self.dirty = true; },
+      onLongPress: (x, y, info) => {
+        // (pas de gestionnaire : rien n'a été fait, le geste continue)
+        const done = self.handlers.onLongPress ? self.handlers.onLongPress(x, y, info) !== false : false;
+        self.dirty = true;
+        return done;
+      },
       onPan: (dx, dy) => {
         self.fly = null;
         self.view.panByPixels(dx, dy);

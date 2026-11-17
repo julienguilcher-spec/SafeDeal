@@ -756,9 +756,10 @@ export class TacticalScreen implements ScreenInstance {
     if (pending && this.core.ctx.input.device === 'kbm' && !coarsePointer()) {
       text += ' Clavier\u00a0: Entrée ou P pour valider, Échap pour annuler.';
     } else if (mode.kind !== 'idle' && this.core.ctx.input.device === 'kbm' && !coarsePointer()) {
+      // (court : la consigne ne doit pas couvrir la carte — le détail des touches est dans la légende et le guide)
       text += mode.kind === 'close_area'
-        ? ' Clavier\u00a0: flèches pour placer le centre, Entrée maintenue et flèches pour le rayon.'
-        : ' Clavier\u00a0: flèches pour viser, Entrée pour désigner (Entrée maintenue et flèches pour tracer)\u00a0; Échap annule.';
+        ? ' Clavier\u00a0: flèches, puis Entrée maintenue et flèches pour le rayon.'
+        : ' Clavier\u00a0: flèches, puis Entrée (maintenue\u00a0: tracer).';
     }
     setText(this.hintText, text);
     setText(this.hintRule, rule);
@@ -839,12 +840,19 @@ export class TacticalScreen implements ScreenInstance {
         if (from === 'idle' && kind !== 'idle' && active instanceof HTMLElement && this.rightEl.contains(active)) this.focusMap();
       }
       const keysOn = this.core.ctx.input.device === 'kbm' && !coarsePointer() && this.core.scope().level !== 'lecture';
-      this.keysLegend.style.display = keysOn ? '' : 'none';
+      // (en haut de la carte, à la place de la consigne d'ordre quand il n'y en a pas : en bas, elle passait sous les
+      // messages radio)
+      this.keysLegend.style.display = keysOn && this.hint.classList.contains('is-off') ? '' : 'none';
       const o = this.map.overlay;
       o.hoverKey = st.dropKey !== 0 ? st.dropKey : st.hoverKey;
       o.focusIncident = st.focusIncident;
       o.focusStation = st.focusStation;
       o.focusClosure = st.focusClosure;
+      // issues ouvertes montrées autour d'une foule sans barrage : celle que le joueur a touchée, celle d'une
+      // proposition « Fermer la nasse » en attente, ou celle visée pendant qu'il prépare un barrage, un filtrage, une nasse
+      const mode = st.mode;
+      const aiming = mode.kind === 'order' && (mode.verb.type === 'couper_circulation' || mode.verb.type === 'filtrer' || mode.verb.type === 'encercler');
+      o.focusCrowd = st.focusCrowd !== '' ? st.focusCrowd : this.core.nasse !== null || aiming ? this.targetCrowd()?.key ?? '' : '';
       this.map.canvas.style.cursor = st.mode.kind !== 'idle' || st.tool === 'box' ? 'crosshair' : '';
       this.map.invalidate();
     }

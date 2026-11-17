@@ -487,14 +487,20 @@ export class TacticalMap {
     return true;
   }
 
-  private longPress(x: number, y: number): void {
-    if (this.state.mode.kind !== 'idle') return;
+  /** Appui long : sélectionne l'unité touchée, sinon ouvre l'ordre rapide. `false` = rien fait, le geste continue. */
+  private longPress(x: number, y: number): boolean {
+    // ordre en préparation : un appui hésitant reste le début du tracé (ligne, zone, point)
+    if (this.state.mode.kind !== 'idle') return false;
     const u = this.pickUnit(x, y, 24);
     if (u && !this.state.selection.has(u.key)) {
       this.state.select(u.key, true);
-      return;
+      return true;
     }
-    if (this.selectedUnits().length > 0) this.onQuickMenu?.(x, y);
+    if (this.selectedUnits().length > 0 && this.onQuickMenu) {
+      this.onQuickMenu(x, y);
+      return true;
+    }
+    return false;
   }
 
   private dragStart(x: number, y: number, info: PointerInfo): 'pan' | 'capture' {

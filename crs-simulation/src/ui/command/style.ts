@@ -146,13 +146,18 @@ color:var(--cm-dim);font:inherit;font-size:10.5px;font-weight:700;letter-spacing
 .ct-hint{position:absolute;left:50%;top:10px;transform:translateX(-50%);z-index:5;display:flex;align-items:center;gap:10px;width:max-content;max-width:calc(100% - 130px);padding:6px 8px 6px 12px;border-radius:8px;
 background:var(--cm-panel);border:1px solid var(--cm-line2);box-shadow:0 6px 18px rgba(0,0,0,.4);font-size:12px;line-height:1.35}
 .ct-hint{pointer-events:none}
-.ct-keys{position:absolute;left:50%;bottom:8px;transform:translateX(-50%);z-index:4;width:max-content;max-width:calc(100% - 150px);padding:4px 10px;border-radius:8px;background:var(--cm-panel);border:1px solid var(--cm-line);font-size:11px;line-height:1.35;color:var(--cm-dim);text-align:center;pointer-events:none}
+.ct-keys{position:absolute;left:50%;top:10px;transform:translateX(-50%);z-index:4;width:max-content;max-width:calc(100% - 130px);padding:4px 10px;border-radius:8px;background:var(--cm-panel);border:1px solid var(--cm-line);font-size:11px;line-height:1.35;color:var(--cm-dim);text-align:center;pointer-events:none}
 .cm-coarse .ct-keys{display:none}
 .ct-hint .cm-btn{pointer-events:auto}
 .ct-hint.is-off{display:none}
 .ct-hint.is-mode{border-color:var(--cm-yellow)}
 .ct-hint b{color:var(--cm-yellow);font-weight:800;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap}
 .ct-hint span{min-width:0}
+/* carte étroite : le texte garde sa largeur, les boutons passent à la ligne (sinon la consigne devenait une colonne d'un
+   mot par ligne qui couvrait la carte) */
+.ct-hint{flex-wrap:wrap;row-gap:6px;justify-content:flex-end}
+.ct-hint>span{flex:1 1 190px;min-width:min(190px,100%)}
+.ct-hint .cm-btn{flex:none}
 .ct-hint small{display:block;font-size:11px;color:#ffcf8a}
 .ct-tools{position:absolute;left:10px;top:10px;z-index:5;display:flex;flex-direction:column;gap:6px}
 .ct-tools .cm-btn{background:var(--cm-panel);box-shadow:0 4px 14px rgba(0,0,0,.35)}
