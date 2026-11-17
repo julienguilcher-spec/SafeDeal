@@ -4,12 +4,15 @@
  *   MA MISSION                                                  [NOUVEL ORDRE]
  *   CRS — Gardien stagiaire
  *   Groupe MISTRAL 1 ALFA — Section MISTRAL 1 — Cie MISTRAL
+ *   Ordre de MISTRAL : Barrer la rue — rue de Turbigo                 1,2 km
  *   Tenir la ligne, rue de Turbigo                                      12 m
  *   Restez à votre place dans la ligne, bouclier levé.
+ *   ⏱ Embarquement : 5 / 7 à bord — départ dès que tout le monde est à bord
  *   ↗ Suivez votre chef de groupe : Brigadier-chef Martin · 8 m
  *   Radio : votre groupe, votre section… · trafic masqué (5)
  *
- * Zone : haut droite, sous les objectifs ; sur écran bas, en haut au centre en version réduite (consigne + chef).
+ * Zone : haut droite, sous les objectifs ; sur écran bas, en haut au centre en version réduite : au plus trois lignes
+ * (l'ordre d'en haut, la consigne, l'état du départ ; le chef quand il n'y a ni ordre d'en haut ni départ).
  * À la première session d'un CRS, une astuce explique la carte (fermée d'un geste ou au bout de 30 s, mémorisée
  * dans la sauvegarde, section « hud.tips »).
  * ===================================================================================== */
@@ -43,6 +46,12 @@ const CSS = `
 .hud-mis__chief { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #dfe6f1; }
 .hud-mis__arrow { display: inline-block; width: 14px; text-align: center; font-weight: 800; color: var(--ui-yellow, #ffd60a); flex: none; }
 .hud-mis__radio { font-size: 11px; color: #93a1b8; }
+.hud-mis__cmd { display: grid; grid-template-columns: 1fr auto; column-gap: 8px; align-items: baseline; font-size: 12.5px; line-height: 1.3;
+  padding: 3px 6px; border-radius: 5px; background: rgba(255, 214, 10, .1); }
+.hud-mis__cmdtxt { color: #f3f6fb; min-width: 0; }
+.hud-mis__cmdtxt b { color: var(--ui-yellow, #ffd60a); font-weight: 750; }
+.hud-mis__status { font-size: 12.5px; font-weight: 650; color: #9fe3ff; line-height: 1.3; }
+.hud-mis__status::before { content: '⏱ '; }
 .hud-mis__tip { margin-top: 3px; padding: 6px 8px; border-radius: 6px; background: rgba(255, 214, 10, .14); border: 1px solid rgba(255, 214, 10, .4);
   font-size: 12px; line-height: 1.35; display: grid; grid-template-columns: 1fr auto; gap: 6px; align-items: start; }
 .hud-mis__tipx { pointer-events: auto; cursor: pointer; font: inherit; font-weight: 700; color: #10141c; background: var(--ui-yellow, #ffd60a);
@@ -55,6 +64,11 @@ const CSS = `
 .ui-hud[data-compact="1"] .hud-mis__head, .ui-hud[data-compact="1"] .hud-mis__tip { display: none; }
 .ui-hud[data-compact="1"] .hud-mis__who, .ui-hud[data-compact="1"] .hud-mis__chain, .ui-hud[data-compact="1"] .hud-mis__detail, .ui-hud[data-compact="1"] .hud-mis__radio { display: none; }
 .ui-hud[data-compact="1"] .hud-mis__title { font-size: 12.5px; }
+.ui-hud[data-compact="1"] .hud-mis__cmd { padding: 0 4px; font-size: 11.5px; }
+.ui-hud[data-compact="1"] .hud-mis__cmdtxt, .ui-hud[data-compact="1"] .hud-mis__title, .ui-hud[data-compact="1"] .hud-mis__status,
+.ui-hud[data-compact="1"] .hud-mis__chief { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.ui-hud[data-compact="1"] .hud-mis__status { font-size: 11.5px; }
+.ui-hud[data-compact="1"] .hud-mis.has-more .hud-mis__chief { display: none; }
 `;
 
 function injectStyle(): void {
@@ -70,6 +84,13 @@ export function chiefText(b: Pick<MissionBrief, 'chief' | 'regroup'>): string {
   const c = b.chief;
   if (!c) return '';
   return `${b.regroup ? 'Rejoignez' : 'Suivez'} votre ${c.role} : ${c.label}`;
+}
+
+/** Ligne de l'ordre d'en haut : « Ordre de MISTRAL : Barrer la rue — rue de Turbigo » ('' sans ordre). */
+export function commandLine(b: Pick<MissionBrief, 'command'>): string {
+  const c = b.command;
+  if (!c) return '';
+  return `Ordre de ${c.from} : ${c.text}${c.place ? ` — ${c.place}` : ''}`;
 }
 
 /** Angle (degrés, sens horaire à l'écran) de la flèche vers un point, selon le cap du regard. */
@@ -100,12 +121,20 @@ export function createMissionCard(env: HudEnv): HudPart {
   const chiefTxt = h('span');
   chief.append(arrow, chiefTxt);
   const radio = h('div', 'hud-mis__radio');
+  const cmd = h('div', 'hud-mis__cmd');
+  const cmdFrom = h('b');
+  const cmdRest = h('span');
+  const cmdTxt = h('span', 'hud-mis__cmdtxt');
+  cmdTxt.append(cmdFrom, cmdRest);
+  const cmdDist = h('span', 'hud-mis__dist');
+  cmd.append(cmdTxt, cmdDist);
+  const status = h('div', 'hud-mis__status');
   const tip = h('div', 'hud-mis__tip');
   const tipClose = h('button', 'hud-mis__tipx', 'OK');
   tipClose.type = 'button';
   tip.append(h('span', undefined, 'Astuce : cette carte vous dit à qui obéir, qui suivre et quoi faire. '
     + 'Le repère jaune montre votre place ou votre chef. La radio ne garde que les messages pour votre unité.'), tipClose);
-  root.append(head, who, chain, task, detail, chief, radio, tip);
+  root.append(head, who, chain, cmd, task, detail, status, chief, radio, tip);
 
   const whoB = new Txt(who), chainB = new Txt(chain), titleB = new Txt(title), distB = new Txt(dist), detailB = new Txt(detail);
   const chiefB = new Txt(chiefTxt), radioB = new Txt(radio), badgeB = new Txt(badge);
@@ -113,6 +142,9 @@ export function createMissionCard(env: HudEnv): HudPart {
   const radioShown = new Shown(radio), tipShown = new Shown(tip), distShown = new Shown(dist);
   const isNew = new Flag(root, 'is-new');
   const isRegroup = new Flag(root, 'is-regroup');
+  const hasMore = new Flag(root, 'has-more');
+  const cmdFromB = new Txt(cmdFrom), cmdRestB = new Txt(cmdRest), cmdDistB = new Txt(cmdDist), statusB = new Txt(status);
+  const cmdShown = new Shown(cmd), statusShown = new Shown(status);
   const arrowRot = new Transform(arrow);
   let lastSeq = -1;
   let tipState: 'unknown' | 'show' | 'done' = 'unknown';
@@ -180,7 +212,10 @@ export function createMissionCard(env: HudEnv): HudPart {
       titleB.set(ins.title);
       detailB.set(ins.detail);
       detailShown.set(ins.detail !== '');
-      if (ins.x !== undefined && ins.z !== undefined && ins.target !== 'none') {
+      // pas deux fois la même distance : quand la consigne vise le point de l'ordre d'en haut, sa ligne la porte déjà
+      const cmdPoint = b.command ?? null;
+      const samePoint = !!cmdPoint && ins.x !== undefined && ins.z !== undefined && Math.hypot(ins.x - cmdPoint.x, ins.z - cmdPoint.z) < 30;
+      if (ins.x !== undefined && ins.z !== undefined && ins.target !== 'none' && !samePoint) {
         distB.set(distanceLabel(Math.hypot(ins.x - s.x, ins.z - s.z)));
         distShown.set(true);
       } else distShown.set(false);
@@ -188,6 +223,18 @@ export function createMissionCard(env: HudEnv): HudPart {
         chiefB.set(`${chiefText(b)} · ${distanceLabel(Math.hypot(b.chief.x - s.x, b.chief.z - s.z))}`);
         chiefShown.set(true);
       } else chiefShown.set(false);
+      // ordre d'en haut (qui, quoi, où, distance) et état du départ de la colonne (champs lus prudemment)
+      const c = b.command ?? null;
+      if (c) {
+        cmdFromB.set(`Ordre de ${c.from}${c.by ? ` (${c.by})` : ''} : `);
+        cmdRestB.set(`${c.text}${c.place ? ` — ${c.place}` : ''}`);
+        cmdDistB.set(distanceLabel(Math.hypot(c.x - s.x, c.z - s.z)));
+      }
+      cmdShown.set(c !== null);
+      const st = typeof b.status === 'string' ? b.status : '';
+      statusB.set(st);
+      statusShown.set(st !== '');
+      hasMore.set(c !== null || st !== '');
       const hidden = b.radioHidden > 0 ? ` · trafic radio masqué (${b.radioHidden})` : '';
       radioB.set(b.radioLabel + hidden);
       radioShown.set(b.radioLabel !== '' || hidden !== '');

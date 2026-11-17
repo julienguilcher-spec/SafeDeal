@@ -18,18 +18,25 @@ export interface ServiceBase {
   readonly name: string;
 }
 
+/*
+ * Commissariats d'arrondissement : adresses réelles, projetées sur la carte, le point posé SUR LA VOIE devant l'entrée
+ * (relevé sur le réseau de rues : chaussée libre, avec une sortie). Les coordonnées d'origine tombaient dans
+ * l'emprise des bâtiments (1er, 7e, 8e, 9e) : la BRAV-M du 9e ne trouvait aucune place pour ses motos et partait de
+ * la caserne de la compagnie, et l'emplacement des forces était cherché au hasard autour d'un îlot.
+ */
+const COMMISSARIAT_1 = { x: 781, z: -211, name: 'commissariat du 1er arrondissement (marché Saint-Honoré)' } as const;
+const COMMISSARIAT_9 = { x: 1350, z: -897, name: 'commissariat du 9e arrondissement (rue Chauchat)' } as const;
+const COMMISSARIAT_3 = { x: 2255, z: 271, name: 'commissariat du 3e arrondissement (rue aux Ours)' } as const;
+const COMMISSARIAT_8 = { x: -535, z: -130, name: 'commissariat du 8e arrondissement (Grand Palais)' } as const;
+const COMMISSARIAT_7 = { x: -731, z: 738, name: 'commissariat du 7e arrondissement (rue Fabert)' } as const;
+
 /**
  * Lieux de prise de service, par ordre de préférence : la caserne de la Cité (point central), puis des commissariats
- * d'arrondissement (adresses réelles, projetées sur la carte). On part de la première base située entre
- * BASE_MIN_DIST et BASE_MAX_DIST du rassemblement : un vrai trajet en colonne, sans traverser tout Paris.
+ * d'arrondissement. On part de la première base située entre BASE_MIN_DIST et BASE_MAX_DIST du rassemblement : un
+ * vrai trajet en colonne, sans traverser tout Paris.
  */
 export const SERVICE_BASES: readonly ServiceBase[] = [
-  SERVICE_BASE,
-  { x: 767, z: -119, name: 'commissariat du 1er arrondissement (marché Saint-Honoré)' },
-  { x: 1412, z: -897, name: 'commissariat du 9e arrondissement (rue Chauchat)' },
-  { x: 2255, z: 271, name: 'commissariat du 3e arrondissement (rue aux Ours)' },
-  { x: -640, z: -96, name: 'commissariat du 8e arrondissement (Grand Palais)' },
-  { x: -765, z: 738, name: 'commissariat du 7e arrondissement (rue Fabert)' },
+  SERVICE_BASE, COMMISSARIAT_1, COMMISSARIAT_9, COMMISSARIAT_3, COMMISSARIAT_8, COMMISSARIAT_7,
 ];
 export const BASE_MIN_DIST = 1200;
 export const BASE_MAX_DIST = 3200;
@@ -38,13 +45,7 @@ export const BASE_MAX_DIST = 3200;
  * Points de départ de la BRAV-M en journée de service : un autre commissariat que la compagnie (on se rejoint sur
  * place). Ordre de préférence ; le 1er arrondissement en dernier (souvent la base de la compagnie).
  */
-export const BRAVM_BASES: readonly ServiceBase[] = [
-  { x: 1412, z: -897, name: 'commissariat du 9e arrondissement (rue Chauchat)' },
-  { x: 2255, z: 271, name: 'commissariat du 3e arrondissement (rue aux Ours)' },
-  { x: -640, z: -96, name: 'commissariat du 8e arrondissement (Grand Palais)' },
-  { x: -765, z: 738, name: 'commissariat du 7e arrondissement (rue Fabert)' },
-  { x: 767, z: -119, name: 'commissariat du 1er arrondissement (marché Saint-Honoré)' },
-];
+export const BRAVM_BASES: readonly ServiceBase[] = [COMMISSARIAT_9, COMMISSARIAT_3, COMMISSARIAT_8, COMMISSARIAT_7, COMMISSARIAT_1];
 
 /** Préchargement de la base de la BRAV-M (écrite dans `extra.baseBravm`). */
 export function bravmBasePreload(): { candidates: ServiceBase[]; minDist: number; maxDist: number; as: string } {

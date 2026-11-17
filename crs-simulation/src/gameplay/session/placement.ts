@@ -78,6 +78,60 @@ function frontClearance(ctx: GameContext, x: number, z: number, heading: number)
   return free / total;
 }
 
+/**
+ * Distance (m) qu'on doit pouvoir parcourir depuis un point de départ sans traverser le décor : une cour d'immeuble,
+ * un jardin clos ou une impasse fermée par une grille en sont loin (5 à 40 m), la rue ou la place ouverte jamais.
+ */
+export const WAY_OUT = 60;
+let wayCells = new Uint8Array(0);
+let wayQueue = new Int32Array(0);
+
+/**
+ * Le point (x, z) a-t-il une SORTIE : peut-on s'en éloigner de `reach` mètres (disque de rayon `radius` : une personne,
+ * une moto, un fourgon) sans traverser le bâti, un mur, une grille ni l'eau ? Remplissage sur une grille d'un mètre.
+ * Sans ce contrôle, un emplacement « libre » dans une cour intérieure (le Palais de justice, à côté de la caserne de la
+ * Cité) recevait les motos et l'équipe de la BRAV-M du joueur : il commençait enfermé, sans pouvoir sortir.
+ * (Une tuile non chargée — sol « void » — compte comme libre : on ne condamne pas un point faute de données.)
+ */
+export function hasWayOut(ctx: GameContext, x: number, z: number, radius: number, reach: number = WAY_OUT): boolean {
+  const world = ctx.world;
+  const lim = Math.ceil(reach) + 1;
+  const n = lim * 2 + 1;
+  if (wayCells.length < n * n) {
+    wayCells = new Uint8Array(n * n);
+    wayQueue = new Int32Array(n * n);
+  } else {
+    wayCells.fill(0, 0, n * n);
+  }
+  const r2 = reach * reach;
+  let head = 0;
+  let tail = 0;
+  wayQueue[tail++] = lim * n + lim;
+  wayCells[lim * n + lim] = 1;
+  while (head < tail) {
+    const c = wayQueue[head++]!;
+    const i = c % n;
+    const k = (c - i) / n;
+    for (let d = 0; d < 4; d++) {
+      const ni = d === 0 ? i + 1 : d === 1 ? i - 1 : i;
+      const nk = d === 2 ? k + 1 : d === 3 ? k - 1 : k;
+      if (ni < 0 || nk < 0 || ni >= n || nk >= n) continue;
+      const nc = nk * n + ni;
+      if (wayCells[nc]) continue;
+      wayCells[nc] = 1;
+      const px = x + ni - lim;
+      const pz = z + nk - lim;
+      const s = world.surfaceAt(px, pz);
+      if (s === 'building' || s === 'water' || !world.isFree(px, pz, radius)) continue;
+      const di = ni - lim;
+      const dk = nk - lim;
+      if (di * di + dk * dk >= r2) return true;
+      wayQueue[tail++] = nc;
+    }
+  }
+  return false;
+}
+
 const roadSample: RoadSample = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '', roadClass: 'residential', oneway: false };
 const tmp: Vec2 = { x: 0, z: 0 };
 
@@ -119,7 +173,8 @@ export function chooseStand(ctx: GameContext, x: number, z: number, rand: () => 
         score += Math.cos(a) * 1.2; // préférence pour le côté sud du repère
         // rester du côté du lieu demandé quand le repère en est éloigné
         score -= Math.hypot(cx - x, cz - z) * 0.01;
-        if (score > bestScore) {
+        // jamais dans une cour fermée ou un square grillagé : il faut pouvoir en sortir
+        if (score > bestScore && hasWayOut(ctx, cx, cz, 0.6)) {
           bestScore = score;
           best = { x: cx, z: cz, heading: wrap(heading), facing: lm.key };
         }
@@ -131,12 +186,16 @@ export function chooseStand(ctx: GameContext, x: number, z: number, rand: () => 
   // pas de repère (ou aucun emplacement dégagé autour) : sur place, dans l'axe de la voie
   let sx = x;
   let sz = z;
-  if (!(world.isFree(x, z, 0.6) && WALKABLE[world.surfaceAt(x, z)] > 0)) {
-    for (let radius = 10; radius <= 80; radius *= 2) {
-      if (world.randomFreePoint(x, z, radius, 'any', rand, tmp)) {
-        sx = tmp.x;
-        sz = tmp.z;
-        break;
+  if (!(world.isFree(x, z, 0.6) && WALKABLE[world.surfaceAt(x, z)] > 0 && hasWayOut(ctx, x, z, 0.6))) {
+    // (un point libre mais enclos — cour d'immeuble, jardin grillagé — ne convient pas : on cherche plus loin)
+    let found = false;
+    for (let radius = 10; radius <= 160 && !found; radius *= 2) {
+      for (let tries = 0; tries < 6 && !found; tries++) {
+        if (world.randomFreePoint(x, z, radius, 'any', rand, tmp) && hasWayOut(ctx, tmp.x, tmp.z, 0.6)) {
+          sx = tmp.x;
+          sz = tmp.z;
+          found = true;
+        }
       }
     }
   }
@@ -182,6 +241,8 @@ export function parkingRoom(ctx: GameContext, x: number, z: number, heading: num
     const px = x - fx * back - fz * file * 1.8;
     const pz = z - fz * back + fx * file * 1.8;
     if (!(world.isFree(px, pz, 1.3) && world.isFree(px + fx * 2.4, pz + fz * 2.4, 1.2) && world.isFree(px - fx * 2.4, pz - fz * 2.4, 1.2))) break;
+    // une pelouse (jardins du Trocadéro, des Invalides) n'est pas une place de stationnement : des fourgons y finissaient
+    if (!(WHEELED[world.surfaceAt(px, pz)] > 0)) break;
   }
   return n;
 }
@@ -228,7 +289,7 @@ export function chooseStandOffCrowd(
         score += parkingRoom(ctx, cx, cz, heading) * 0.7;
         // plutôt loin du parcours (on le borde, on ne le coupe pas)
         score += Math.min(dRoute, 90) / 45;
-        if (score > bestScore) {
+        if (score > bestScore && hasWayOut(ctx, cx, cz, 0.6)) {
           bestScore = score;
           best = { x: cx, z: cz, heading: wrap(heading), facing: '' };
         }
@@ -313,7 +374,8 @@ export function parkingSpot(
       const lateral = lateral0 + (side % 2 === 0 ? 1 : -1) * Math.ceil(side / 2) * pitch;
       const px = stand.x - fx * back + rx * lateral;
       const pz = stand.z - fz * back + rz * lateral;
-      if (!world.isFree(px, pz, half) || !(WALKABLE[world.surfaceAt(px, pz)] > 0)) continue;
+      // sur un sol où l'on gare (chaussée, esplanade, pavés) : jamais sur la pelouse d'un jardin (Trocadéro, Invalides)
+      if (!world.isFree(px, pz, half) || !(WHEELED[world.surfaceAt(px, pz)] > 0)) continue;
       // les deux bouts de la caisse aussi (isFree d'un grand disque ne voit pas les murets minces)
       if (!world.isFree(px + fx * length * 0.4, pz + fz * length * 0.4, width * 0.5)) continue;
       if (!world.isFree(px - fx * length * 0.4, pz - fz * length * 0.4, width * 0.5)) continue;
@@ -321,6 +383,8 @@ export function parkingSpot(
       if (n > 0) continue;
       if (ctx.vehicles.queryRadius(px, pz, half, propsOut as never[]) > 0) continue;
       if (ctx.people.countIn(px, pz, half + 0.5) > 0) continue;
+      // une place libre au fond d'une cour : le véhicule n'en sortirait pas
+      if (!hasWayOut(ctx, px, pz, Math.min(1.2, width * 0.5))) continue;
       out.x = px;
       out.z = pz;
       out.heading = wrap(stand.heading + Math.PI);
@@ -363,6 +427,8 @@ export function supportSpot(
       const lz = pz - fz * b;
       if (!world.isFree(lx, lz, 3.4) || ctx.vehicles.queryRadius(lx, lz, 4, propsOut as never[]) > 0) return false;
     }
+    // jamais au fond d'une cour intérieure (Palais de justice, à côté de la caserne de la Cité) : il faut en sortir
+    if (!hasWayOut(ctx, px, pz, Math.min(1.2, radius * 0.25))) return false;
     out.x = px;
     out.z = pz;
     out.heading = stand.heading;
@@ -417,6 +483,7 @@ export function roadSpot(
         if (ctx.vehicles.queryRadius(px, pz, half + 0.6, propsOut as never[]) > 0) continue;
         if (ctx.props.queryRadius(px, pz, half, propsOut as never[], (p) => p.blocksMove) > 0) continue;
         if (ctx.people.countIn(px, pz, Math.max(1, width * 0.5 + 0.3)) > 0) continue;
+        if (!hasWayOut(ctx, px, pz, Math.min(1.2, width * 0.5))) continue;
         out.x = px;
         out.z = pz;
         out.heading = h;

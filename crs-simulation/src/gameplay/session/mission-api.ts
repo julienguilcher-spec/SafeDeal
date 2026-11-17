@@ -28,6 +28,32 @@ export interface MissionChief {
   distance: number;
 }
 
+/**
+ * Repère « où l'on va » : objectif secondaire posé sur le point de l'ordre reçu d'en haut (ou sur la destination de la
+ * colonne), affiché dans le monde et sur la mini-carte, même quand la consigne du joueur est « suivez votre chef ».
+ */
+export const MISSION_DEST_OBJECTIVE_ID = 'destination';
+
+/** Ordre reçu d'en haut par l'unité du joueur (son groupe, sa section, sa compagnie). */
+export interface MissionCommand {
+  /** Indicatif de celui qui l'a donné (« MISTRAL », « CENTRAL »). */
+  readonly from: string;
+  /** Qui c'est (« Commandant Durand »), '' s'il n'est pas connu. */
+  readonly by: string;
+  /** L'ordre en français courant (« Tenir la ligne », « Faire mouvement »). */
+  readonly text: string;
+  /** Unité qui l'a reçu (« Section MISTRAL 1 », « Cie MISTRAL »). */
+  readonly to: string;
+  /** Nom du lieu (« rue de Turbigo »), '' s'il n'y en a pas. */
+  readonly place: string;
+  readonly x: number;
+  readonly z: number;
+  /** Distance du joueur au point (m), mise à jour. */
+  readonly distance: number;
+  /** Instant (temps de session) où l'ordre a été donné. */
+  readonly at: number;
+}
+
 export interface MissionBrief {
   /** La carte s'affiche (rôle qui reçoit des ordres ou une tâche, joueur incarné). */
   readonly active: boolean;
@@ -54,6 +80,13 @@ export interface MissionBrief {
   readonly radioLabel: string;
   /** Objectifs déjà présentés par la carte (la liste des objectifs ne les répète pas). */
   readonly covered: readonly string[];
+  /** Dernier ordre reçu d'en haut par l'unité du joueur (null s'il n'y en a pas) : qui, quoi, où. */
+  readonly command: MissionCommand | null;
+  /**
+   * État du départ et du trajet de la colonne du joueur, en quelques mots (« Embarquement : 5 / 7 à bord »,
+   * « Départ dans 12 s », « La colonne part », « En route — 1,2 km, environ 3 min », « Débarquement ») ; '' sinon.
+   */
+  readonly status: string;
   /** Incrémenté à chaque changement de la carte (texte, chef, unité). */
   readonly version: number;
 }

@@ -270,7 +270,7 @@ export class JourneeSystem implements GameSystem {
     const hour = this.hourIn(15 * 60);
     ctx.radio.say({ channel: 'commandement', from: 'CENTRAL', priority: 2,
       text: `${this.companyName()} de CENTRAL. Prise de service ${this.atBase()}. Manifestation déclarée${cause}, rassemblement ${cfg.place || 'en ville'} vers ${hour}. Préparez-vous au départ.` });
-    ctx.ui.notify('Prise de service à la caserne de la Cité : écoutez la radio.', 'info', 6);
+    ctx.ui.notify(`Prise de service ${this.atBase()} : écoutez la radio.`, 'info', 6);
   }
 
   /** Heure de jeu dans `seconds` secondes (« 14 h 25 »). */
@@ -637,10 +637,16 @@ export class JourneeSystem implements GameSystem {
     const ctx = this.ctx!;
     const list: Vehicle[] = [];
     const idle: Vehicle[] = [];
+    // l'engin du joueur (Centaure, canon à eau) reste à côté de lui, où la mise en place l'a garé : rangé dans la file
+    // de son escorte, il partait à près de 80 m
+    const me = ctx.player.person();
+    const own = me && me.squadId !== 0 ? ctx.squads.get(me.squadId) : undefined;
+    const ownEngine = own && own.leaderId === me!.id ? own.vehicleId : 0;
     for (const s of ctx.squads.list) {
       if (s.vehicleId === 0 || this.companyOf(s.id) !== companyId) continue;
       const v = ctx.vehicles.get(s.vehicleId);
       if (!v || !CONVOY_KINDS.has(v.kind) || v.def.flying || list.indexOf(v) >= 0 || idle.indexOf(v) >= 0 || Math.abs(v.speed) >= 0.2) continue;
+      if (v.id === ownEngine && (v.kind === 'centaure' || v.kind === 'canon_eau')) continue;
       // (un véhicule sans conducteur — fourgon cellulaire sans équipage — ne part pas : il est rangé hors de la file)
       if (v.seats[0] !== 0) list.push(v);
       else idle.push(v);
@@ -672,6 +678,10 @@ export class JourneeSystem implements GameSystem {
         const sf = ctx.world.surfaceAt(x + fx * k * hl, z + fz * k * hl);
         if (sf !== 'road' && sf !== 'bridge' && sf !== 'sett' && sf !== 'plaza' && sf !== 'quay' && sf !== 'void') return false;
       }
+      // personne dans l'emprise de la caisse (la file longe l'itinéraire, qui passe souvent par l'emplacement de la
+      // compagnie : un fourgon était posé SUR le joueur)
+      if (ctx.people.countIn(x, z, hl + 0.6, (q) => q.vehicleId === 0
+        && Math.abs((q.x - x) * fx + (q.z - z) * fz) < hl + 0.4 && Math.abs((q.x - x) * fz - (q.z - z) * fx) < hw + 0.4) > 0) return false;
       const n = ctx.vehicles.queryRadius(x, z, hl + 6, near);
       for (let i = 0; i < n; i++) {
         const o = near[i]!;

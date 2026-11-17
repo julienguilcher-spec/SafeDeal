@@ -511,7 +511,9 @@ export const POMP_09 = mission({
         voix('CRS', `On a vidé deux extincteurs, ça n'a rien fait ! C'est à vous !`),
         voix('CHEF D\'AGRÈS', `De trois quarts arrière ! Jamais par l'avant : si un vérin de pare-chocs part, il traverse une jambe.`),
         voix('ÉQUIPIER', `Pneu !… Deuxième pneu ! Il en reste deux.`),
-      ], [`Un pneu éclate avec une détonation`, `Les curieux se rapprochent à moins de vingt mètres`, `Un projectile est lancé sur l'engin`]),
+        // premier aléa : il allume le foyer que la phase attend (aleas.ts, « flammes ») ; sans lui, aucun feu avant
+        // la fin de phase forcée (5 min)
+      ], [`Un pneu éclate et les flammes repartent sous la voiture`, `Les curieux se rapprochent à moins de vingt mètres`, `Un projectile est lancé sur l'engin`]),
     ph('scooter', `Le scooter et la voiture d'à côté`,
       `La voiture ne flambe plus. Le scooter couché près d'elle, lui, a pris : réservoir, selle, carénage, et la chaleur cloque déjà la peinture d'une voiture en stationnement de l'avenue de la République, à deux mètres. Refroidir, écarter, surveiller ; un feu de véhicule se propage par ce qu'on a oublié de mouiller.`,
       T(180), [

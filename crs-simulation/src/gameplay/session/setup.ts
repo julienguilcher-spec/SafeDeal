@@ -142,6 +142,9 @@ export class SessionSetupSystem implements GameSystem {
         player = this.buildCast(cast, stand, helper, rand, summary);
       }
       this.countMeans(summary);
+      // personne posée au ras d'une façade, sur une case « bâti » de la grille des sols (au mètre, plus large que les
+      // collisions) : ramenée sur le sol libre le plus proche, pour que tout le jeu la voie dehors
+      this.ontoGround(rand);
 
       if (player) {
         // unité tenue par l'IA : le joueur ne commence pas enfermé dans les rangs (voir stepOutOfRanks)
@@ -265,6 +268,27 @@ export class SessionSetupSystem implements GameSystem {
         return;
       }
     }
+  }
+
+  /** Les personnes à pied de la mise en place qui se tiennent sur le bâti, l'intérieur ou l'eau sont reposées dehors. */
+  private ontoGround(rand: () => number): void {
+    const ctx = this.ctx;
+    const pos = this.pos;
+    let moved = false;
+    for (const id of this.people) {
+      const p = ctx.people.get(id);
+      if (!p || p.vehicleId !== 0) continue;
+      const s = ctx.world.surfaceAt(p.x, p.z);
+      if (s !== 'building' && s !== 'interior' && s !== 'water') continue;
+      pos.x = p.x;
+      pos.z = p.z;
+      if (!settle(ctx, pos, 0.35, rand)) continue;
+      p.x = pos.x;
+      p.z = pos.z;
+      p.y = ctx.world.heightAt(p.x, p.z);
+      moved = true;
+    }
+    if (moved) ctx.people.rebuildIndex();
   }
 
   /** Couloir large comme un homme, libre de tout obstacle du décor sur `length` mètres dans la direction (fx, fz). */
@@ -457,7 +481,9 @@ export class SessionSetupSystem implements GameSystem {
     let bstand: Stand = stand;
     if (bb) {
       const sp = { x: 0, z: 0, heading: 0 };
-      if (roadSpot(ctx, bb.x, bb.z, 60, 4, sp)) bstand = { ...stand, x: sp.x, z: sp.z, heading: sp.heading };
+      // une longue bande de chaussée de préférence (les motos s'y rangent en file) ; à défaut — rue étroite, voitures
+      // garées — la chaussée devant le commissariat : sans elle, la BRAV-M partait de la caserne de la compagnie
+      if (roadSpot(ctx, bb.x, bb.z, 60, 4, sp) || roadSpot(ctx, bb.x, bb.z, 12, 3, sp)) bstand = { ...stand, x: sp.x, z: sp.z, heading: sp.heading };
     }
     if (typeof units.createBravm === 'function') {
       for (let i = 0; i < means.bravm; i++) {

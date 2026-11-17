@@ -248,3 +248,88 @@ export const REGROUP_NEAR = 20;
 export function strayed(distance: number, wasAway: boolean): boolean {
   return wasAway ? distance > REGROUP_NEAR : distance > REGROUP_FAR;
 }
+
+// ───────────────────────────── ordre d'en haut, départ de la colonne ─────────────────────────────
+
+/** Ordre reçu d'en haut, en deux ou trois mots (« Tenir la ligne », « Faire mouvement ») ; '' s'il ne se dit pas. */
+const COMMAND_TEXTS: Readonly<Record<string, string>> = {
+  tenir: 'Tenir la position', ligne: 'Tenir la ligne', tortue: 'Tortue', proteger: 'Protéger le site',
+  couper_circulation: 'Barrer la rue', filtrer: 'Barrage filtrant', encercler: 'Encercler', disperser_gaz: 'Disperser (gaz)',
+  colonne: 'Faire mouvement', avancer: 'Avancer', bond_offensif: 'Bond offensif', charge: 'Charger', refoulement: 'Refouler',
+  repli: 'Se replier', interpeller: 'Interpeller', degager_barricade: 'Dégager la barricade', escorter: 'Escorter l’engin',
+  eteindre: 'Protéger l’extinction', secourir: 'Couvrir les secours', releve: 'Relever une unité', degager_obstacle: 'Dégager la voie',
+};
+
+/** Texte d'un ordre reçu d'en haut ; '' pour les ordres sans contenu pour l'exécutant (libre, suivre, embarquer…). */
+export function commandText(type: string): string {
+  return COMMAND_TEXTS[type] ?? '';
+}
+
+/** « 350 m », « 1,2 km » (distances parlées de la carte). */
+export function distanceWords(m: number): string {
+  if (!Number.isFinite(m) || m < 0) return '';
+  if (m < 1000) return `${Math.max(10, Math.round(m / 10) * 10)} m`;
+  return `${(Math.round(m / 100) / 10).toFixed(1).replace('.', ',')} km`;
+}
+
+/** « moins d'une minute », « environ 3 min ». */
+export function etaWords(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return '';
+  if (seconds < 60) return 'moins d’une minute';
+  return `environ ${Math.round(seconds / 60)} min`;
+}
+
+/** Ce que la carte sait du départ de la colonne du joueur. */
+export interface DepartureFacts {
+  /** Étape du convoi (police.command) : route, stationnement, debarquement, en_place, rembarquement, depart, parti, echec. */
+  stage: string;
+  /** La colonne roule (un de ses véhicules a démarré) depuis tant de secondes ; −1 : elle n'a pas encore démarré. */
+  movingFor: number;
+  /** Agents de la colonne à bord, et total attendu (joueur compris). */
+  aboard: number;
+  total: number;
+  /** Le joueur est encore à pied. */
+  playerAfoot: boolean;
+  /** Délai connu avant le départ (s), −1 s'il n'est pas connu. */
+  departIn: number;
+  /** Reste du trajet (m) et allure de la colonne (m/s), −1 s'ils ne sont pas connus. */
+  remaining: number;
+  speed: number;
+  /** La colonne est arrêtée en route depuis tant de secondes (0 si elle roule). */
+  stoppedFor: number;
+}
+
+/** Durée pendant laquelle « La colonne part » reste affiché (s), et arrêt en route au-delà duquel on dit pourquoi (s). */
+const LEAVING_SECONDS = 8;
+const STOPPED_SECONDS = 10;
+
+/**
+ * État du départ en une ligne (fonction pure) : « Embarquement : 5 / 7 à bord — départ dès que tout le monde est à
+ * bord », « Départ dans 12 s », « La colonne part », « En route — 1,2 km, environ 3 min », « Débarquement »… ; '' quand
+ * il n'y a rien à dire.
+ */
+export function departureLine(f: DepartureFacts): string {
+  const boarding = (word: string): string => {
+    const count = f.total > 0 ? `${word} : ${Math.min(f.aboard, f.total)} / ${f.total} à bord` : word;
+    if (f.departIn >= 0) return `${count} — départ dans ${Math.max(1, Math.ceil(f.departIn))} s`;
+    if (f.playerAfoot && f.total > 0 && f.aboard >= f.total - 1) return `${count} — on n’attend plus que vous`;
+    if (f.playerAfoot) return `${count} — la colonne vous attend`;
+    if (f.total > 0 && f.aboard >= f.total) return `${count} — départ au signal du chef de colonne`;
+    return `${count} — départ dès que tout le monde est à bord`;
+  };
+  switch (f.stage) {
+    case 'route': {
+      if (f.movingFor < 0) return boarding('Embarquement');
+      if (f.movingFor < LEAVING_SECONDS) return 'La colonne part';
+      if (f.stoppedFor > STOPPED_SECONDS) return 'Colonne à l’arrêt — elle repart dès que la voie est libre';
+      const left = f.remaining >= 0 ? ` — ${distanceWords(f.remaining)}` : '';
+      const eta = f.remaining >= 0 && f.speed > 0.5 ? `, ${etaWords(f.remaining / f.speed)}` : '';
+      return `En route${left}${eta}`;
+    }
+    case 'stationnement': return 'Arrivée : la colonne se gare';
+    case 'debarquement': return 'Débarquement : descendez et mettez-vous en ligne';
+    case 'rembarquement': return boarding('Rembarquement');
+    case 'depart': return f.movingFor >= 0 && f.movingFor < LEAVING_SECONDS ? 'La colonne part' : 'Retour en colonne';
+    default: return '';
+  }
+}
