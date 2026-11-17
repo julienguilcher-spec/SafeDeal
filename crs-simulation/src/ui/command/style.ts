@@ -203,8 +203,8 @@ box-shadow:0 8px 22px rgba(0,0,0,.5);will-change:transform;white-space:nowrap}
 .ct.is-compact .ct-status .ct-clock-s{display:none}
 .ct.is-compact .ct-mapwrap{left:0;right:calc(60px + var(--safe-right,0px))}
 .ct.is-compact .ct-left,.ct.is-compact .ct-panes,.ct.is-compact .ct-tabs{background:#0c1526}
-.ct.is-compact .ct-left{width:min(250px,44vw);left:var(--safe-left,0px);transform:translateX(-110%);transition:transform .16s ease-out;box-shadow:8px 0 24px rgba(0,0,0,.45)}
-.ct.is-compact .ct-left.is-open{transform:none}
+.ct.is-compact .ct-left{width:min(250px,44vw);left:var(--safe-left,0px);transform:translateX(-110%);visibility:hidden;transition:transform .16s ease-out,visibility 0s linear .16s;box-shadow:8px 0 24px rgba(0,0,0,.45)}
+.ct.is-compact .ct-left.is-open{transform:none;visibility:visible;transition:transform .16s ease-out,visibility 0s}
 .ct.is-compact .ct-right{width:auto;left:auto;right:0;flex-direction:row;background:transparent;border-left:0;pointer-events:none}
 .ct.is-compact .ct-right>*{pointer-events:auto}
 .ct.is-compact .ct-tabs{order:2;flex-direction:column;width:calc(60px + var(--safe-right,0px));padding-right:var(--safe-right,0px);border-bottom:0;border-left:1px solid var(--cm-line);background:#0c1526}

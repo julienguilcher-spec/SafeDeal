@@ -24,7 +24,9 @@ try {
     };
   });
   console.log(JSON.stringify(res, null, 1));
-  if (!res.order || res.tracked !== 'ordre') ok = false;
+  // l'objectif suivi est celui de la carte « Ma mission » ('consigne'), qui porte le point de l'ordre ; à défaut 'ordre'
+  if (!res.order || !['ordre', 'consigne'].includes(res.tracked)) ok = false;
+  if (!res.objectives.some((o) => o.startsWith('consigne:actif:') || o.startsWith('ordre:actif:'))) ok = false;
   await shot(page, 'verif-ordre-joueur');
 } catch (e) { console.error(e); ok = false; }
 await finish({ browser, server, errors, ok, label: 'ordre-joueur' });

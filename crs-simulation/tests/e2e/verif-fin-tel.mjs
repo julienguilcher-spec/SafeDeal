@@ -128,7 +128,7 @@ try {
   let s = await state(page);
   C.check(s.screen === 'carte', 'le plan s’ouvre', String(s.screen));
   await snap(page, tag + '-07-plan');
-  const closeBtn = async () => { const b = (await rects(page, '.ui-screen [data-id="fermer"], .ui-screen .ui-close, [data-id$="-fermer"], [aria-label="Fermer"]'))[0]; if (b) { await F.tap(...center(b)); await frames(page, 3); return true; } return false; };
+  const closeBtn = async () => { const b = (await rects(page, '[data-id="plan-close"], [data-id="tac-close"], .ui-screen [data-id="fermer"], .ui-screen .ui-close, [data-id$="-fermer"], [aria-label="Fermer"]'))[0]; if (b) { await F.tap(...center(b)); await frames(page, 3); return true; } return false; };
   const closed1 = await closeBtn();
   s = await state(page);
   if (s.screen !== null) { await page.keyboard.press('Escape'); await frames(page, 3); s = await state(page); }

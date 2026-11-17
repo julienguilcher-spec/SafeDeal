@@ -133,7 +133,7 @@ export class RenderView implements ViewApi, RenderBaseApi {
     this.canvas.addEventListener('webglcontextlost', (e) => {
       e.preventDefault();
       this.contextLost = true;
-      console.error('[render] contexte WebGL perdu : rendu suspendu');
+      console.warn('[render] contexte WebGL perdu : rendu suspendu');   // (cas prévu : le rendu reprend à la restauration)
     });
     this.canvas.addEventListener('webglcontextrestored', () => {
       this.contextLost = false;

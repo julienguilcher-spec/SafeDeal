@@ -123,7 +123,7 @@ try {
 
   await safe('ce que touche le doigt', async () => {
     const hits = await page.evaluate(() => ['radio', 'orders', 'primary', 'secondary', 'jump', 'crouch', 'interact', 'pause', 'map', 'tactical', 'camera', 'forward', 'mask', 'visor', 'lamp'].map((k) => {
-      const e = document.querySelector(`.crs-touch .ct-l-pied.ct-k-${k}`); if (!e) return { k, missing: true };
+      const e = document.querySelector(`.crs-touch .ct-l-pied.ct-k-${k}`); if (!e || e.classList.contains('ct-off')) return { k, missing: true };   // (masqué : bouton « Ordres » d'un poste qui n'en donne pas)
       const b = e.getBoundingClientRect(); const pts = [[0.5, 0.5], [0.2, 0.2], [0.8, 0.2], [0.2, 0.8], [0.8, 0.8]];
       const res = pts.map(([fx, fy]) => { const h = document.elementFromPoint(b.left + b.width * fx, b.top + b.height * fy); return !!h && (h === e || e.contains(h)); });
       const h = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
@@ -134,6 +134,10 @@ try {
     C.check(bad.length === 0, 'chaque bouton tactile reçoit bien le doigt sur toute sa surface (rien par-dessus)', bad.map((h) => `${h.k} ${h.ok}/${h.of} (dessus : ${h.top})`).join(' ; '));
   });
   await safe('ordres', async () => {
+    if (await page.evaluate(() => { const e = document.querySelector('.crs-touch .ct-l-pied.ct-k-orders'); return !e || e.classList.contains('ct-off'); })) {
+      C.note('bouton « Ordres » masqué : ce poste reçoit les ordres, il n’en donne pas');
+      return;
+    }
     const r = await ctl('orders');
     await F.tap(...center(r)); await frames(page, 5); await page.waitForTimeout(400);
     let s = await state(page);

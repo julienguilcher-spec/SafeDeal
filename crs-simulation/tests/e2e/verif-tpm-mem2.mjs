@@ -67,8 +67,8 @@ try {
       await page.evaluate(() => window.__CRS.ctx.session.pause(false)); await frames(page, 4); await sample('reprise par session.pause(false)');
       await settle('reprise (API)');
     } else if (part === 'pause_clavier') {
-      await page.keyboard.press('KeyP'); await frames(page, 4); await sample('pause au clavier (P) — premier geste clavier');
-      await page.keyboard.press('KeyP'); await frames(page, 4); await sample('reprise au clavier (P)');
+      await page.keyboard.press('Escape'); await frames(page, 4); await sample('pause au clavier (Échap) — premier geste clavier');
+      await page.keyboard.press('Escape'); await frames(page, 4); await sample('reprise au clavier (Échap)');
       await settle('reprise (clavier)');
     } else if (part === 'touche') {
       await page.keyboard.press('KeyV'); await frames(page, 4); await sample('touche V (premier geste clavier)');
@@ -77,7 +77,7 @@ try {
       await page.mouse.move(2, 2); await page.mouse.click(2, 2); await frames(page, 4); await sample('clic dans la vue (capture de la souris)');
       await settle('clic dans la vue');
     } else if (part === 'echap_reprendre') {
-      await page.keyboard.press('KeyP'); await frames(page, 4); await sample('pause (P)');
+      await page.keyboard.press('Escape'); await frames(page, 4); await sample('pause (Échap)');
       await page.locator('[data-id="pause-reprendre"]').click(); await frames(page, 4); await sample('clic sur « Reprendre »');
       await settle('« Reprendre »');
     } else if (part === 'masque') {

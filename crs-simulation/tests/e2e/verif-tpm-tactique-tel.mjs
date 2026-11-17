@@ -44,7 +44,7 @@ try {
     C.check(!/is-open/.test(d2.right || ''), `second toucher sur « ${id} » : referme le volet (la carte redevient visible)`, `classe ${d2.right}`);
   }
   // volet des unités (outil en haut à gauche)
-  const tu = await rectOf('.ct-tool-units, [data-id="tac-units"]');
+  const tu = await rectOf('.ct-tool-units');
   console.log('  outil unités : ' + J(tu) + ' ; état : ' + J(await page.evaluate(() => { const b = document.querySelector('.ct-tool-units'); return { cls: b?.className, disp: b ? getComputedStyle(b).display : null, root: document.querySelector('.ct')?.className }; })));
   if (tu) { await F.tap(tu.x, tu.y); await frames(page, 5); await page.waitForTimeout(400); const d = await dump(); console.log('  outil unités → gauche « ' + d.left + ' » ' + d.leftRect); C.check(/is-open/.test(d.left || ''), 'carte tactique (téléphone) : le volet des unités s’ouvre au doigt', `${d.left} ${d.leftRect}`);
     if (!/is-open/.test(d.left || '')) { await page.evaluate(() => document.querySelector('.ct-tool-units').click()); await frames(page, 5); await page.waitForTimeout(300); const d3 = await dump(); console.log('  par element.click() → gauche « ' + d3.left + ' » ' + d3.leftRect + ' ; racine ' + d3.root); } await snap(page, `${tag}-unites`);

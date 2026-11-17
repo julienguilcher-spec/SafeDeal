@@ -51,6 +51,13 @@ imparfait, et où trouver les propositions d'améliorations.
 - **Circulation** : des voitures restaient dans une rue fermée et roulaient vers le barrage ; la circulation continuait d'apparaître à l'intérieur d'un périmètre fermé.
 - **Évacuation filtrée** : une interpellation faite dans la file d'attente, avant le contrôle, n'était pas comptée.
 
+### Trouvés par la vérification complète dans le navigateur (dernière passe)
+- **Vue qui ne suit plus le pavé tactile** : après plusieurs écrans ouverts et refermés coup sur coup (carte, roue d'ordres, pause), le navigateur refusait un instant la capture du pointeur ; le jeu prenait ce refus pour définitif, affichait « La souris ne peut pas être capturée ici » et ne tournait plus la vue qu'en glissant, bouton tenu. Le refus passager est maintenant attendu (deux secondes), sans message, et la capture revient seule.
+- Ce même message pouvait s'afficher à tort au premier clic alors que la capture réussissait.
+- **Carte tactique, tracé** : appuyer, hésiter une demi-seconde puis glisser ne traçait rien (ligne de barrage, zone) ; le tracé part maintenant quel que soit le temps d'appui.
+- **Carte tactique, lisibilité** : les flèches d'issues ouvertes couvraient la carte autour de chaque foule (26 flèches et autant d'étiquettes « passage piéton » place de la Concorde) — elles n'apparaissent plus qu'autour de la foule visée ou d'un encerclement commencé, avec une étiquette par rue ; sur une carte étroite, la consigne d'un ordre devenait une colonne d'un mot par ligne ; la légende des touches passait sous les messages radio.
+- **Petite fenêtre et téléphone** : le bouton « Carte tactique » recouvrait le bas de la mini-carte ; sur téléphone, le volet des unités refermé de la carte tactique restait atteignable au clavier.
+
 ## Nouveautés
 
 - **Rue barrée** : une unité envoyée sur une rue la barre d'un mur à l'autre ; plus personne ne passe, dans aucun sens (sauf police, secours et joueur). Option « Passants : bloqués / laissés passer » (touche B sur la carte tactique). Unité trop petite : compte rendu « largeur insuffisante » et renfort proposé.
@@ -85,6 +92,8 @@ imparfait, et où trouver les propositions d'améliorations.
 - Barrage avec passants admis : deux passants qui se croisent dans le même intervalle peuvent se gêner.
 - Certains tests de trajet donnent un résultat différent selon la charge de la machine (chargement de la carte) ; à rendre déterministe.
 - Les couloirs de bus ne sont pas traités à part ; la forme de Paris (tunnels, largeurs de voies) reste à reprendre.
+- Vérification : deux scénarios de la première génération (manette et téléphone, `verif-tpm-manette`, `verif-tpm-tel`) relèvent encore des écarts qui tiennent à leurs attentes d'origine (poste choisi autrement, départ de la base, volets refermés) ; leurs versions suivantes (`…-manette2`, `…-tel2`, `verif-fin-tel`) passent.
+- Tenir la touche d'avance fait courir jusqu'à l'essoufflement (voulu) : le souffle tombe en une vingtaine de secondes, puis l'allure redescend d'elle-même à la petite foulée, puis au pas.
 
 ## Propositions d'améliorations
 

@@ -73,7 +73,7 @@ try {
       await wait(12000); await sample(`${part} fermé +12 s`);
       await wait(12000); await sample(`${part} fermé +24 s`);
     } else if (part === 'pause') {
-      await key('KeyP');
+      await key('Escape');   // (la pause est sur Échap ; P accepte la proposition de l'adjoint)
       await sample('pause ouverte');
       for (let i = 1; i <= 3; i++) { await wait(12000); await sample(`pause +${i * 12} s`); }
       await page.locator('[data-id="pause-reprendre"]').click(); await frames(page, 4);

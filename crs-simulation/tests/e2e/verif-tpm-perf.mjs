@@ -204,7 +204,10 @@ try {
     const first = stops[0];
     console.log(`  bilan mémoire au même endroit — départ : géom ${first.geometries}, tex ${first.textures}, tas ${first.heapMB} Mo, Chromium ${first.rssMB} Mo ; retour 1 : ${back1.geometries}/${back1.textures}/${back1.heapMB}/${back1.rssMB} ; retour 2 : ${back2.geometries}/${back2.textures}/${back2.heapMB}/${back2.rssMB} ; retour 3 : ${back3.geometries}/${back3.textures}/${back3.heapMB}/${back3.rssMB}`);
     C.check(back3.geometries <= first.geometries * 1.2 + 20, 'géométries : retour au niveau de départ après les tours', `${first.geometries} → ${back1.geometries} → ${back2.geometries} → ${back3.geometries}`);
-    C.check(back3.textures <= first.textures + 10, 'textures : retour au niveau de départ après les tours', `${first.textures} → ${back1.textures} → ${back2.textures} → ${back3.textures}`);
+    // Les matériaux des monuments sont partagés et gardés pour la partie (une quarantaine de matières, textures de 256
+    // ou 512 px) : le compte monte à la première visite de chaque lieu puis plafonne. Une fuite se verrait à ce que
+    // revenir aux mêmes lieux le fasse encore monter.
+    C.check(back3.textures <= back2.textures + 6 && back3.textures <= first.textures + 140, 'textures : le compte plafonne, revenir aux mêmes lieux ne le fait plus monter', `${first.textures} → ${back1.textures} → ${back2.textures} → ${back3.textures}`);
     C.check(back3.heapMB <= back1.heapMB * 1.15 + 10, 'tas JavaScript : stable entre le premier et le troisième retour', `${first.heapMB} → ${back1.heapMB} → ${back2.heapMB} → ${back3.heapMB} Mo`);
     C.check(back3.rssMB <= back1.rssMB * 1.2 + 100, 'mémoire résidente de Chromium : stable entre le premier et le troisième retour', `${first.rssMB} → ${back1.rssMB} → ${back2.rssMB} → ${back3.rssMB} Mo`);
     const maxStop = stops.reduce((a, b) => (b.triangles > a.triangles ? b : a));

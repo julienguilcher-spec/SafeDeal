@@ -63,6 +63,8 @@ export class Hud {
   };
 
   private noticeTop = -1;
+  /** Position imposée à la zone de gauche ('' = centrée, règle de la feuille de style). */
+  private leftTop = '';
   private toastMax = -1;
   private subBottom = -1;
 
@@ -213,7 +215,32 @@ export class Hud {
         console.error(`[ui] HUD « ${e.id} » : erreur dans update()`, err);
       }
     }
-    if (tick) this.placeMessages();
+    if (tick) {
+      this.placeMessages();
+      this.placeLeft();
+    }
+  }
+
+  /**
+   * Zone de gauche (boutons « Carte tactique », « Secours », proposition de l'adjoint) : centrée en hauteur, mais jamais
+   * sur la zone du haut à gauche (état, mini-carte). Dans une petite fenêtre ou sur un téléphone, le bouton
+   * « Carte tactique » recouvrait le bas de la mini-carte : la zone descend juste sous elle.
+   */
+  private placeLeft(): void {
+    const zone = this.slots.left;
+    let top = '';
+    if (zone.childElementCount > 0) {
+      const r = zone.getBoundingClientRect();
+      const above = this.slots['top-left'].getBoundingClientRect();
+      if (r.height > 0 && above.height > 0 && r.left < above.right && r.right > above.left) {
+        const center = above.bottom + 8 + r.height / 2;
+        if (center > this.state.height / 2) top = Math.round(center) + 'px';
+      }
+    }
+    if (top !== this.leftTop) {
+      this.leftTop = top;
+      zone.style.top = top;
+    }
   }
 
   /**
