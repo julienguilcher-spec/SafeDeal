@@ -54,7 +54,7 @@ export const BRAVM_01 = mission({
       ]),
   ],
   objectives: [
-    ob('o1', 'Rouler en colonne de binômes sans renverser un seul cône', 'personnalise', { target: 'parcours_cones', count: 12 }),
+    ob('o1', 'Rouler en colonne de binômes jusqu\'à la place Salvador Allende sans renverser un seul cône', 'atteindre', { place: 'Place Salvador Allende', target: 'parcours_cones', count: 12 }),
     ob('o2', 'Mettre pied à terre ensemble en moins de cinq secondes', 'duree', { seconds: 5 }),
     os('o3', 'Garder en colonne un intervalle de deux longueurs de moto', 'personnalise', { target: 'distance_en_colonne', count: 2 }),
   ],
@@ -116,7 +116,7 @@ export const BRAVM_02 = mission({
       ]),
   ],
   objectives: [
-    ob('o1', 'Suivre le groupe pendant huit minutes sans rouler dans la foule', 'guider_unite', { target: 'cortege_sauvage', seconds: 480 }),
+    ob('o1', 'Suivre le groupe pendant huit minutes sans rouler dans la foule', 'duree', { target: 'cortege_sauvage', seconds: 480 }),
     ob('o2', 'Empêcher l\'atteinte d\'au moins deux des trois cibles', 'proteger_site', { target: 'cible_du_cortege', count: 2 }),
     os('o3', 'Interpeller deux auteurs sur faits', 'interpeller', { count: 2 }),
     os('o4', 'Ne laisser aucune moto sans garde', 'proteger_site', { target: 'motos' }),
@@ -180,7 +180,7 @@ export const BRAVM_03 = mission({
   ],
   objectives: [
     ob('o1', 'Atteindre la cible en moins de trente secondes', 'interpeller', { target: 'cible_drone', count: 1, seconds: 30 }),
-    ob('o2', 'Remettre une fiche complète avec heure et fait', 'personnalise', { target: 'fiche_interpellation', count: 1 }),
+    ob('o2', 'Conduire l\'interpellé au fourgon, rue de Richelieu, et remettre une fiche complète avec heure et fait', 'escorter', { place: 'Rue de Richelieu', target: 'fiche_interpellation', count: 1 }),
     os('o3', 'Ne confondre personne', 'zero_bavure'),
     os('o4', 'Garder la moto sous surveillance', 'proteger_site', { target: 'moto' }),
   ],
@@ -232,7 +232,7 @@ export const BRAVM_04 = mission({
       ]),
   ],
   objectives: [
-    ob('o1', 'Arriver sur place en moins de quatre-vingt-dix secondes', 'guider_unite', { place: 'Rue de la Paix', seconds: 90 }),
+    ob('o1', 'Arriver sur place en moins de quatre-vingt-dix secondes', 'atteindre', { place: 'Rue de la Paix', seconds: 90 }),
     ob('o2', 'Tenir le magasin sans engager seul', 'proteger_site', { target: 'bijouterie' }),
     os('o3', 'Garder la moto intacte', 'proteger_site', { target: 'moto' }),
     os('o4', 'Rendre compte à chaque phase', 'personnalise', { target: 'compte_rendu', count: 3 }),
@@ -295,7 +295,7 @@ export const BRAVM_05 = mission({
       ]),
   ],
   objectives: [
-    ob('o1', 'Guider le fourgon jusqu\'à l\'immeuble en feu', 'escorter', { place: 'Boulevard Henri IV', target: 'pompiers' }),
+    ob('o1', 'Guider le fourgon jusqu\'à l\'immeuble en feu, rue Saint-Antoine', 'escorter', { place: 'Rue Saint-Antoine', target: 'pompiers' }),
     ob('o2', 'Tenir un couloir de trois mètres jusqu\'à la fin de l\'extinction', 'proteger_site', { target: 'couloir_secours', seconds: 600 }),
     os('o3', 'Ne laisser aucun projectile atteindre l\'engin des pompiers', 'personnalise', { target: 'projectile_sur_engin', max: 0 }),
     os('o4', 'Évacuer deux riverains par l\'escalier', 'evacuer', { target: 'riverain', count: 2 }),
@@ -486,7 +486,7 @@ export const BRAVM_08 = mission({
   ],
   objectives: [
     ob('o1', 'Récupérer l\'agent tombé', 'secourir', { target: 'agent_a_terre', count: 1 }),
-    ob('o2', 'Rejoindre la ligne de CRS sans autre perte', 'guider_unite', { place: 'Place de la République' }),
+    ob('o2', 'Rejoindre la ligne de CRS sans autre perte', 'atteindre', { place: 'Place de la République' }),
     os('o3', 'Ramener au moins quatre motos sur six', 'proteger_site', { target: 'motos', count: 4 }),
     os('o4', 'Demander le renfort dès le premier jet', 'personnalise', { target: 'renfort' }),
   ],
@@ -548,7 +548,7 @@ export const BRAVM_09 = mission({
       ]),
   ],
   objectives: [
-    ob('o1', 'Conduire la colonne par un itinéraire libre jusqu\'au parvis', 'guider_unite', { place: 'Place de l\'Hôtel de Ville' }),
+    ob('o1', 'Conduire la colonne par un itinéraire libre jusqu\'au parvis', 'atteindre', { place: 'Place de l\'Hôtel de Ville' }),
     ob('o2', 'Repousser deux tentatives de vol de moto sans coup', 'proteger_site', { target: 'motos', count: 2 }),
     os('o3', 'Ne perdre aucune moto', 'personnalise', { target: 'moto_perdue', max: 0 }),
     os('o4', 'Arriver en moins de cinq minutes', 'duree', { seconds: 300 }),

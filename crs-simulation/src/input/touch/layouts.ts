@@ -89,6 +89,12 @@ export interface ControlSpec {
   contextual?: boolean;
   /** Mis en avant (action principale). */
   accent?: boolean;
+  /**
+   * Disposition véhicule : commande réservée à la place qui la sert — 'conduite' (pédales, frein à main, klaxon,
+   * avertisseurs, phares : conducteur seulement) ou 'arme' (tir : conducteur d'un engin armé, tireur). Un passager
+   * n'a que « Sortir », la radio et les boutons système ; ses autres boutons ne feraient rien.
+   */
+  seat?: 'conduite' | 'arme';
 }
 
 /** Socle du joystick virtuel : centre par défaut et rayon de course. */
@@ -151,16 +157,18 @@ const PIED: ControlSpec[] = [
 
 const VEHICULE: ControlSpec[] = [
   ...systemRow('vehicule'),
-  { key: 'headlights', layout: 'vehicule', button: 'headlights', label: 'Phares', icon: 'headlights', shape: 'chip', side: 'right', x: 12, anchor: 'top', y: 62, w: 51, h: 46 },
+  { key: 'headlights', layout: 'vehicule', button: 'headlights', label: 'Phares', icon: 'headlights', shape: 'chip', side: 'right', x: 12, anchor: 'top', y: 62, w: 51, h: 46, seat: 'conduite' },
   ...commsRow('vehicule'),
-  { key: 'exit', layout: 'vehicule', button: 'interact', label: 'Sortir', icon: 'exit', shape: 'pill', side: 'left', x: 18, anchor: 'bottom', y: 260, w: 118, h: 46, contextual: true },
-  { key: 'gas', layout: 'vehicule', button: null, label: 'Accélérer', icon: 'gas', shape: 'pedal', side: 'right', x: 24, anchor: 'bottom', y: 24, w: 86, h: 136, pedal: 'throttle', accent: true },
-  { key: 'brake', layout: 'vehicule', button: null, label: 'Frein', icon: 'brake', shape: 'pedal', side: 'right', x: 122, anchor: 'bottom', y: 24, w: 78, h: 108, pedal: 'brake' },
-  { key: 'handbrake', layout: 'vehicule', button: 'handbrake', label: 'Frein à main', icon: 'handbrake', shape: 'round', side: 'right', x: 212, anchor: 'bottom', y: 20, w: 58, h: 58 },
-  { key: 'fire', layout: 'vehicule', button: 'primary', label: 'Action', icon: 'action', shape: 'round', side: 'right', x: 212, anchor: 'bottom', y: 88, w: 62, h: 62, lookDrag: true },
-  { key: 'horn', layout: 'vehicule', button: 'horn', label: 'Klaxon', icon: 'horn', shape: 'round', side: 'right', x: 24, anchor: 'bottom', y: 172, w: 58, h: 58 },
-  { key: 'siren', layout: 'vehicule', button: 'siren', label: 'Sirène', icon: 'siren', shape: 'round', side: 'right', x: 90, anchor: 'bottom', y: 172, w: 58, h: 58 },
-  { key: 'beacons', layout: 'vehicule', button: 'beacons', label: 'Gyro', icon: 'beacons', shape: 'round', side: 'right', x: 156, anchor: 'bottom', y: 172, w: 58, h: 58 },
+  // « Sortir » à droite, au-dessus des avertisseurs, comme « Interagir » à pied : à gauche, le libellé contextuel
+  // élargi (« Descendre — Fourgon de CRS ») passait sous la mini-carte et ne recevait plus le doigt
+  { key: 'exit', layout: 'vehicule', button: 'interact', label: 'Sortir', icon: 'exit', shape: 'pill', side: 'right', x: 24, anchor: 'top', y: 113, w: 118, h: 46, contextual: true },
+  { key: 'gas', layout: 'vehicule', button: null, label: 'Accélérer', icon: 'gas', shape: 'pedal', side: 'right', x: 24, anchor: 'bottom', y: 24, w: 86, h: 136, pedal: 'throttle', accent: true, seat: 'conduite' },
+  { key: 'brake', layout: 'vehicule', button: null, label: 'Frein', icon: 'brake', shape: 'pedal', side: 'right', x: 122, anchor: 'bottom', y: 24, w: 78, h: 108, pedal: 'brake', seat: 'conduite' },
+  { key: 'handbrake', layout: 'vehicule', button: 'handbrake', label: 'Frein à main', icon: 'handbrake', shape: 'round', side: 'right', x: 212, anchor: 'bottom', y: 20, w: 58, h: 58, seat: 'conduite' },
+  { key: 'fire', layout: 'vehicule', button: 'primary', label: 'Action', icon: 'action', shape: 'round', side: 'right', x: 212, anchor: 'bottom', y: 88, w: 62, h: 62, lookDrag: true, seat: 'arme' },
+  { key: 'horn', layout: 'vehicule', button: 'horn', label: 'Klaxon', icon: 'horn', shape: 'round', side: 'right', x: 24, anchor: 'bottom', y: 168, w: 58, h: 58, seat: 'conduite' },
+  { key: 'siren', layout: 'vehicule', button: 'siren', label: 'Sirène', icon: 'siren', shape: 'round', side: 'right', x: 90, anchor: 'bottom', y: 168, w: 58, h: 58, seat: 'conduite' },
+  { key: 'beacons', layout: 'vehicule', button: 'beacons', label: 'Gyro', icon: 'beacons', shape: 'round', side: 'right', x: 156, anchor: 'bottom', y: 168, w: 58, h: 58, seat: 'conduite' },
 ];
 
 const DRONE: ControlSpec[] = [
@@ -175,6 +183,45 @@ const DRONE: ControlSpec[] = [
 ];
 
 export const CONTROLS: readonly ControlSpec[] = [...PIED, ...VEHICULE, ...DRONE];
+
+/** Place occupée à bord (disposition véhicule) : décide quelles commandes de la disposition sont utiles. */
+export type TouchSeat = 'conducteur' | 'passager' | 'tireur';
+
+export interface TouchSeatInfo {
+  seat: TouchSeat;
+  /** La place sert une arme (tourelle autre qu'une caméra) : bouton « Action ». */
+  armed: boolean;
+  /** Le véhicule a une sirène. */
+  siren: boolean;
+  /** Le véhicule a des gyrophares. */
+  beacons: boolean;
+}
+
+/** Forme minimale d'un véhicule lue ici (aucune dépendance au reste du contrat). */
+export interface SeatVehicleLike {
+  def: {
+    seats?: readonly { role: string }[];
+    turrets?: readonly { kind: string }[];
+    hasSiren?: boolean;
+    hasBeacons?: boolean;
+  };
+}
+
+/**
+ * Place du joueur à bord, pour la surcouche : le conducteur a volant, pédales et avertisseurs ; le passager
+ * (équipier transporté dans la colonne) ne conduit rien ; le tireur ne garde que le tir. Comme la simulation
+ * (sim/people/player.ts), le conducteur d'un engin armé sert aussi l'arme. Sans description des places : conducteur.
+ */
+export function touchSeatInfo(v: SeatVehicleLike, seatIndex: number): TouchSeatInfo {
+  const seats = v.def.seats;
+  const role = seats && seatIndex >= 0 && seatIndex < seats.length ? seats[seatIndex]!.role : seats && seats.length > 0 ? 'passenger' : 'driver';
+  const turrets = v.def.turrets ?? [];
+  let armedTurret = false;
+  for (let i = 0; i < turrets.length; i++) if (turrets[i]!.kind !== 'camera') armedTurret = true;
+  const seat: TouchSeat = role === 'driver' ? 'conducteur' : role === 'gunner' ? 'tireur' : 'passager';
+  const armed = seat === 'conducteur' ? armedTurret : seat === 'tireur' ? turrets.length > 0 : false;
+  return { seat, armed, siren: v.def.hasSiren !== false, beacons: v.def.hasBeacons !== false };
+}
 
 /** Barre d'objets (à pied) : bande centrée en bas, entre le joystick et les boutons de droite. */
 export const ITEM_BAR = { left: 186, right: 196, bottom: 8, height: 52, slot: 46, gap: 5, max: 9 } as const;

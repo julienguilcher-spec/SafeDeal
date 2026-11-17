@@ -26,7 +26,11 @@ export const TOUCH_CSS = `
   box-shadow:0 calc(var(--s)*2px) calc(var(--s)*7px) rgba(0,0,0,.38);
   transition:transform .07s ease-out,background-color .07s ease-out,border-color .07s ease-out,opacity .15s}
 .crs-touch[data-layout="pied"] .ct-l-pied,.crs-touch[data-layout="vehicule"] .ct-l-vehicule,.crs-touch[data-layout="drone"] .ct-l-drone{display:flex}
-.crs-touch .ct-off{display:none!important}
+.crs-touch .ct-off,.crs-touch .ct-na{display:none!important}
+.crs-touch[data-seat="passager"] .ct-drv,.crs-touch[data-seat="tireur"] .ct-drv,.crs-touch[data-arme="0"] .ct-gun,
+.crs-touch[data-sirene="0"] .ct-l-vehicule.ct-k-siren,.crs-touch[data-gyro="0"] .ct-l-vehicule.ct-k-beacons{display:none!important}
+.crs-touch[data-layout="vehicule"][data-seat="passager"] .ct-stick,.crs-touch[data-layout="vehicule"][data-seat="tireur"] .ct-stick,
+.crs-touch[data-layout="vehicule"][data-seat="passager"] .ct-move,.crs-touch[data-layout="vehicule"][data-seat="tireur"] .ct-move{display:none!important}
 .ct-round{border-radius:50%}
 .ct-chip{border-radius:calc(var(--s)*12px);gap:calc(var(--s)*1px)}
 .ct-pill{border-radius:calc(var(--s)*23px);flex-direction:row;gap:calc(var(--s)*7px);padding:0 calc(var(--s)*14px);

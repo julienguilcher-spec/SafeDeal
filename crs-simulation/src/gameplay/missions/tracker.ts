@@ -32,6 +32,10 @@ export class MissionTracker {
   readonly crowdPhases = new Set<string>();
   /** Membres du groupe du joueur interpellés ou blessés graves (rôle manifestant). */
   ownHarmed = 0;
+  /** Personnes prises en charge (soins), pour les objectifs qui visent des victimes précises. */
+  readonly treatedIds = new Set<EntityId>();
+  /** Étape la plus avancée des sommations prononcées par le joueur (0 aucune, 1 annonce, 2 première, 3 dernière). */
+  playerSommation = 0;
 
   private subs: Unsubscribe[] = [];
 
@@ -47,7 +51,7 @@ export class MissionTracker {
         if (e.lawful) this.lawfulArrests++;
         this.harmOwn(e.id);
       }),
-      ev.on('person:treated', () => { this.treated++; }),
+      ev.on('person:treated', (e) => { this.treated++; this.treatedIds.add(e.id); }),
       ev.on('fire:out', () => { this.firesOut++; }),
       ev.on('fire:started', (e) => { if (e.targetKind !== 'person') this.fires++; }),
       ev.on('shop:window', (e) => { if (e.state === 'broken') this.windows++; }),
@@ -72,6 +76,7 @@ export class MissionTracker {
         if (e.info.sourceId === pid() && e.id !== pid() && (k === 'blunt' || k === 'impact')) this.playerBlows++;
       }),
       ev.on('crowd:phase', (e) => { this.crowdPhases.add(e.phase); }),
+      ev.on('law:sommation', (e) => { if (e.byId === pid()) this.playerSommation = Math.max(this.playerSommation, e.stage); }),
       ev.on('person:down', (e) => {
         const p = this.ctx.people.get(e.id);
         if (p && (p.injury === 'serious' || p.injury === 'critical' || p.injury === 'dead')) this.harmOwn(e.id);
@@ -101,6 +106,8 @@ export class MissionTracker {
     this.barricadesCleared = this.playerOrders = this.reliefs = 0;
     this.playerWorstFault = this.anyWorstFault = this.withoutWarning = this.forceUses = 0;
     this.ownHarmed = 0;
+    this.playerSommation = 0;
     this.crowdPhases.clear();
+    this.treatedIds.clear();
   }
 }

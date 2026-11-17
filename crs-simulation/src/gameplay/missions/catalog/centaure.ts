@@ -56,11 +56,11 @@ export const CENT_01 = mission({
       ]),
   ],
   objectives: [
-    ob('o1', 'Suivre le parcours sans toucher un seul cône', 'personnalise', { target: 'parcours_cones', count: 10 }),
-    ob('o2', 'Vérifier l\'obstacle avant de pousser la barrière', 'degager_barricade', { target: 'barriere', count: 1 }),
+    ob('o1', 'Suivre le parcours de plots sans en toucher un seul, jusqu\'à l\'esplanade Bernard Duperier', 'atteindre', { place: 'Esplanade Bernard Duperier', target: 'parcours_cones', count: 10 }),
+    ob('o2', 'Amener la lame à la barrière du pont d\'Iéna et vérifier l\'obstacle avant de pousser', 'atteindre', { place: 'Pont d\'Iéna', target: 'barriere', count: 1 }),
     os('o3', 'S\'arrêter à dix mètres de l\'obstacle', 'personnalise', { target: 'arret_precis' }),
   ],
-  failures: [fail('bavure_grave', 'Poussée sans vérification.'), fail('temps', 'Temps d\'atelier dépassé.', 180)],
+  failures: [fail('bavure_grave', 'Poussée sans vérification.'), fail('temps', 'Temps d\'atelier dépassé.', 300)],
   randomEvents: ['Un cône s\'effondre', 'Le moniteur place un mannequin derrière la barrière'],
   unique: 'La première règle du Centaure : vérifier avant de pousser.',
   tags: ['formation', 'blinde'],
@@ -94,7 +94,7 @@ export const CENT_02 = mission({
       ], [`Jets de projectiles sur le blindé`]),
     ph('verification', `Personne derrière, personne dedans`,
       `Arrêt à dix mètres. La fumée noire du plastique masque tout ce qui se trouve derrière la barricade de la rue Royale ; l'opérateur balaie à la caméra thermique, foyer par foyer. À quatre mètres de la lame, sur le trottoir, un photographe de presse refuse de reculer.`,
-      OBJ('o2'), [
+      T(60), [
         voix('OPÉRATEUR', `Je vérifie. Les foyers saturent la caméra… Attends, j'ai une silhouette à droite, derrière le bac. Elle bouge.`),
         voix('CHEF D\'ENGIN', `Annonce au haut-parleur : engin en mouvement, écartez-vous de l'obstacle. On ne bouge pas tant qu'il reste quelqu'un.`),
       ], [`Une personne est cachée derrière un bac`, `Un journaliste se tient à quatre mètres de la lame`]),
@@ -163,7 +163,7 @@ export const CENT_03 = mission({
       ], [`Un manifestant se cache derrière les palettes`]),
     ph('verification-du-feu', `Vérifier ce qui brûle`,
       `La troisième barricade brûle : une voiture retournée, des vélos électriques jetés dessus, des pneus. La chaleur sature la caméra thermique et la fumée noire couvre le boulevard de Strasbourg sur toute sa largeur ; il faut pourtant savoir s'il y a quelqu'un dans cette voiture, ou derrière elle, avant d'y mettre la lame.`,
-      OBJ('o2'), [
+      T(60), [
         voix('OPÉRATEUR', `Je ne vois rien à la thermique, tout est blanc. Avance de deux mètres, je regarde à l'œil par le côté.`),
         rad('ÉPERVIER 1', 'CENTAURE 1', `Deux de mes hommes font le tour par le trottoir pour voir l'arrière de la voiture. Ne bougez pas avant mon signal.`),
       ], [`La caméra thermique est saturée par le foyer`]),
@@ -463,7 +463,7 @@ export const CENT_08 = mission({
       ], [`La foule s'assoit sur la chaussée`]),
     ph('ordre-hors-cadre', `Une salve sur des gens assis`,
       `L'ordre tombe sur la fréquence : une salve de six sur la foule de l'avenue de la Grande Armée, tout de suite. Devant votre pare-brise, trois cents personnes assises, aucune violence, aucune sommation entendue. Exécuter n'exonère pas : c'est à vous de répondre, sur la fréquence, avec les mots qui conviennent.`,
-      OBJ('o5'), [
+      OBJ('o1'), [
         rad('ÉPERVIER', 'CENTAURE 1', `Salve de SIX sur la foule devant ÉPERVIER DEUX. Exécutez.`),
         voix('OPÉRATEUR', `Chef, ils sont assis. Il n'y a pas eu de sommation. Je tire, ou je ne tire pas ?`),
       ], [`Un gendarme du peloton réclame le tir`, `Ordre contradictoire de la salle`]),
@@ -487,7 +487,7 @@ export const CENT_08 = mission({
       ]),
   ],
   objectives: [
-    ob('o1', 'Couvrir le peloton pendant toute l\'action', 'proteger_site', { target: 'peloton' }),
+    ob('o1', 'Couvrir le peloton, avenue de la Grande Armée, quatre minutes au moins', 'tenir_position', { place: 'Avenue de la Grande Armée', target: 'peloton', seconds: 240 }),
     ob('o2', 'Refuser le tir hors cadre', 'zero_bavure'),
     ob('o5', 'Faire part de ses objections à l\'ordre de tir hors cadre et demander sa confirmation', 'personnalise', { target: 'objections_ordre_illegal', count: 1 }),
     os('o3', 'Rendre compte de chaque salve', 'personnalise', { target: 'compte_rendu', count: 2 }),

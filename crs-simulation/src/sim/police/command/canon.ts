@@ -91,8 +91,56 @@ export class CanonUnit extends SpecialUnit {
     return this.core.ctx.vehicles.get(this.squad.vehicleId) !== undefined;
   }
 
+  /** Canon servi par l'équipage IA (index de tourelle), mis à jour par gunner(). */
+  private jt = 0;
+
+  /**
+   * Équipier IA qui sert un canon, et ce canon (this.jt) : l'opérateur, sinon le chef d'engin, sinon le conducteur
+   * depuis la cabine. Jamais le joueur : à la place d'un opérateur, il sert son canon lui-même (tâche « jet » ou
+   * « extinction », session/orders.ts) ; l'équipage tire alors avec l'autre canon, et la force employée n'est pas
+   * imputée au joueur qui n'a pas touché à la détente.
+   */
   private gunner(v: Vehicle): Person | null {
-    return this.seated(v, 'gunner') ?? this.seated(v, 'gunner', 1) ?? this.seated(v, 'driver');
+    const ctx = this.core.ctx;
+    const ext = this.core.vext;
+    const seats = v.def.seats;
+    let playerTurret = -1;
+    for (let i = 0; i < seats.length; i++) {
+      const id = v.seats[i];
+      const p = id !== 0 ? ctx.people.get(id) : undefined;
+      if (p && p.isPlayer && ext) playerTurret = ext.turretOfSeat(v, i);
+    }
+    for (let i = 0; i < seats.length; i++) {
+      if (seats[i].role !== 'gunner') continue;
+      const id = v.seats[i];
+      const p = id !== 0 ? ctx.people.get(id) : undefined;
+      if (!p || p.isPlayer) continue;
+      const t = ext ? ext.turretOfSeat(v, i) : 0;
+      if (t >= 0 && t !== playerTurret) {
+        this.jt = t;
+        return p;
+      }
+    }
+    const d = this.seated(v, 'driver');
+    if (!d || d.isPlayer) return null;
+    // conducteur : un canon que le joueur ne sert pas
+    for (let t = 0; t < v.def.turrets.length; t++) {
+      if (v.def.turrets[t].kind === 'canon_eau' && t !== playerTurret) {
+        this.jt = t;
+        return d;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Le joueur tient le volant de l'engin : c'est lui qui conduit et décide du plein (bouche d'incendie à portée de
+   * tuyau, ou ravitaillement demandé — sim/police/supply-player.ts). L'équipage ne se replie pas à sa place et ne
+   * remplit pas la cuve n'importe où.
+   */
+  private playerDriving(v: Vehicle): boolean {
+    const d = this.seated(v, 'driver');
+    return !!d && d.isPlayer;
   }
 
   private capacity(v: Vehicle): number {
@@ -140,7 +188,7 @@ export class CanonUnit extends SpecialUnit {
   private stopJet(v: Vehicle): void {
     this.jet = false;
     const ext = this.core.vext;
-    if (ext) ext.clearTurretTarget(v, 0);
+    if (ext) ext.clearTurretTarget(v, this.jt);
   }
 
   // ───────────────────────────── mise en place derrière la ligne ─────────────────────────────
@@ -211,7 +259,7 @@ export class CanonUnit extends SpecialUnit {
       for (let i = 0; i < n; i++) if (core.props[i].burning > 0.05) this.fireId = core.props[i].id;
     }
     this.status.targetId = this.fireId;
-    if (!core.vext || v.def.turrets.length === 0) {
+    if (!core.vext || v.def.turrets.length === 0 || !this.gunner(v)) {
       this.say(refused(this.squad.name, 'Canons indisponibles'));
       this.refuse(o, 'Canons indisponibles.');
       return;
@@ -334,16 +382,23 @@ export class CanonUnit extends SpecialUnit {
       return;
     }
     this.emptySince = 0;
+    // (équipier aux canons : celui que le joueur ne sert pas — voir gunner())
+    if (!this.gunner(v)) {
+      this.stopJet(v);
+      this.finish(false, 'Aucun équipier aux canons.');
+      this.setStage('repos');
+      return;
+    }
     const d = Math.hypot(this.fx - v.x, this.fz - v.z);
     // mobilier léger en feu : jet en pluie, qui l'arrose sans le projeter ; sinon diffusé de près, droit de loin
     const mode: JetMode = burningProp && burningProp.movable ? 'pluie' : d <= 18 ? 'diffus' : 'droit';
     if (mode !== this.mode || !this.jet) {
       this.mode = mode;
-      ext.setJetMode(v, 0, mode);
+      ext.setJetMode(v, this.jt, mode);
     }
     this.aimX = this.fx;
     this.aimZ = this.fz;
-    this.jet = ext.aimTurretAt(v, 0, this.fx, ctx.world.heightAt(this.fx, this.fz), this.fz);
+    this.jet = ext.aimTurretAt(v, this.jt, this.fx, ctx.world.heightAt(this.fx, this.fz), this.fz);
     if (!this.jet && this.sinceStage() > 6) {
       // hors du débattement : on se rapproche
       this.reach(v, this.fx, this.fz, DOUSE_RANGE * 0.6, 'approche_feu', 'jet_feu');
@@ -474,7 +529,7 @@ export class CanonUnit extends SpecialUnit {
       if (now >= this.burstUntil || this.protectedInImpact()) {
         this.jet = false;
         this.pauseUntil = now + PAUSE;
-        ext.clearTurretTarget(v, 0);
+        ext.clearTurretTarget(v, this.jt);
       }
       return;
     }
@@ -503,8 +558,8 @@ export class CanonUnit extends SpecialUnit {
     let mode: JetMode = 'pluie';
     if (this.bursts >= 1) mode = d >= core.tuning.canonMinStraight + 3 ? 'droit' : 'diffus';
     this.mode = mode;
-    ext.setJetMode(v, 0, mode);
-    if (!ext.aimTurretAt(v, 0, this.aimX, ctx.world.heightAt(this.aimX, this.aimZ), this.aimZ)) {
+    ext.setJetMode(v, this.jt, mode);
+    if (!ext.aimTurretAt(v, this.jt, this.aimX, ctx.world.heightAt(this.aimX, this.aimZ), this.aimZ)) {
       this.pauseUntil = now + 1;
       if (this.sinceStage() > 20 && this.bursts === 0) endPush(false, 'Zone hors du débattement des canons', 'Zone hors de portée.');
       return;
@@ -548,6 +603,13 @@ export class CanonUnit extends SpecialUnit {
   private beginRefill(v: Vehicle, automatic: boolean): void {
     const core = this.core;
     this.stopJet(v);
+    if (this.playerDriving(v)) {
+      // (le joueur conduit : l'ordre en cours s'arrête là, le plein est à sa main)
+      this.resume = null;
+      if (this.order) this.finish(false, 'Cuve basse : plein à faire par le conducteur.');
+      this.setStage('repos');
+      return;
+    }
     this.findWater(v);
     this.refilling = false;
     const body = 'Cuve à ' + this.litres(v) + ', je me replie pour ravitailler';
@@ -651,7 +713,7 @@ export class CanonUnit extends SpecialUnit {
       return;
     }
     const by = this.gunner(v);
-    if (!by || !ctx.vehicles.fireTurret(v, 0, by.id)) this.jet = false;
+    if (!by || !ctx.vehicles.fireTurret(v, this.jt, by.id)) this.jet = false;
   }
 
   think(): void {
@@ -690,7 +752,7 @@ export class CanonUnit extends SpecialUnit {
       }
       default:
         // au repos : la cuve basse est signalée, et l'engin va faire le plein de lui-même
-        if (!this.lowReported && this.capacity(v) > 0 && v.turretAmmo[0] <= this.capacity(v) * this.core.tuning.canonLow && this.core.vext) {
+        if (!this.lowReported && this.capacity(v) > 0 && v.turretAmmo[0] <= this.capacity(v) * this.core.tuning.canonLow && this.core.vext && !this.playerDriving(v)) {
           this.lowReported = true;
           this.beginRefill(v, true);
         }

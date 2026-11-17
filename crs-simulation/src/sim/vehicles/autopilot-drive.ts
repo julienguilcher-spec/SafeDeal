@@ -334,11 +334,16 @@ export class ApDriver {
         // la tête ralentit quand le suivant décroche, et s'arrête s'il est resté loin derrière (bloqué au départ)
         // (seulement s'il me suit bien encore : une colonne reformée ne laisse pas de lien périmé)
         // (on l'attend une minute au plus à l'arrêt : un suivant égaré rejoint en suivant notre trace, il ne fige pas toute la colonne)
+        // (au milieu de la colonne, on n'attend que le suivant qui nous a déjà rejoints : celui qui était garé à l'écart
+        // — le cellulaire de l'autre côté de la rue — rejoint la trace seul ; l'attendre retenait toute la file au départ)
         if (bap.mode === 'follow' && bap.leaderId === v.id && lag > bap.followDist * 2.5) {
-          if (lag > 70) ap.lagWaitT += dt;
-          if (ap.lagWaitT < LAG_WAIT_MAX) vt = Math.min(vt, lag > 70 ? 0 : Math.max(1, vt * 0.4));
+          if (ap.mode === 'drive' || ap.behindJoined) {
+            if (lag > 70) ap.lagWaitT += dt;
+            if (ap.lagWaitT < LAG_WAIT_MAX) vt = Math.min(vt, lag > 70 ? 0 : Math.max(1, vt * 0.4));
+          }
         } else if (lag < bap.followDist * 2.5) {
           ap.lagWaitT = 0;
+          ap.behindJoined = true;
         }
       }
     }

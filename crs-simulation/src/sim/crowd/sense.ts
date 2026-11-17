@@ -205,13 +205,14 @@ export class Sense {
     return this.violence.near(x, z, r, this.core.now - T.JUSTIFY_WINDOW * Math.min(1.5, Math.max(0.6, this.core.timeScale))) !== null;
   }
 
-  /** La personne est-elle dans une nasse active ? */
-  kettleAt(x: number, z: number): Spot | null {
+  /** La personne est-elle dans une nasse active ? (`margin` : lisière comprise, en mètres au-delà du rayon) */
+  kettleAt(x: number, z: number, margin = 0): Spot | null {
     const items = this.kettles.items;
     for (let i = 0; i < items.length; i++) {
       const k = items[i]!;
       if (k.t < this.core.now) continue;
-      if ((k.x - x) * (k.x - x) + (k.z - z) * (k.z - z) <= k.a * k.a) return k;
+      const r = k.a + margin;
+      if ((k.x - x) * (k.x - x) + (k.z - z) * (k.z - z) <= r * r) return k;
     }
     return null;
   }

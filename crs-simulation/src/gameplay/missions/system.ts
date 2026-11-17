@@ -22,8 +22,9 @@ import type { Objective, ObjectivesApi } from '@/core/extensions';
 import type { MissionDef, MissionPhase } from '@/core/missions-schema';
 import { sessionDurationSeconds } from '@/core/session';
 import { MISSIONS, missionById } from './catalog';
+import { isRadioCallsign } from './catalog/dsl';
 import { missionConfig } from './config';
-import { conclude, evaluate, isPreserve } from './objectives';
+import { conclude, evaluate, isPreserve, pronounces } from './objectives';
 import { PhaseAleas } from './aleas';
 import type { EvalEnv, ObjectiveRun } from './objectives';
 import { MissionTracker } from './tracker';
@@ -34,6 +35,13 @@ export const PHASE_TIMEOUT = 300;
 const LAST_PHASE_MIN = 45;
 /** Attente maximale de l'arrivée sur place avant de lancer la mission quand même (s). */
 const TRAVEL_MAX = 900;
+/**
+ * Ordre des phases de la foule. Une phase de mission qui attend « départ » ou « cortège » est close quand la foule en est
+ * déjà plus loin : en journée de service, le cortège part pendant le trajet en colonne, avant le début de la mission.
+ */
+const CROWD_ORDER: readonly string[] = [
+  'aucune', 'rassemblement', 'depart', 'cortege', 'tension', 'affrontement', 'dispersion', 'apres_manif', 'terminee',
+];
 
 export interface MissionResultLine {
   label: string;
@@ -194,9 +202,64 @@ export class MissionSystem implements GameSystem {
       note: '',
       decidedAt: -1,
     }));
+    this.stageVictims();
     this.publishObjectives();
+    this.equipForSommations();
     ctx.ui.banner(def.title, def.pitch, 6);
     this.enterPhase(0);
+  }
+
+  /**
+   * Mission où le joueur doit prononcer lui-même les sommations (atelier de l'école : un élève, écharpe en bandoulière
+   * et mégaphone en main) : il porte l'écharpe tricolore et a un mégaphone, sans quoi la loi refuse ses sommations et
+   * l'objectif est impossible.
+   */
+  private equipForSommations(): void {
+    const ctx = this.ctx!;
+    const me = ctx.player.person();
+    if (!me || me.faction !== 'police' || !this.runs.some((r) => !r.def.secondary && pronounces(r))) return;
+    me.look.sash = true;
+    if (ctx.actions.has(me, 'megaphone') <= 0) ctx.actions.give(me, 'megaphone', 1);
+  }
+
+  /**
+   * Atelier sans foule dont les objectifs sont de soigner (« Premiers secours » de l'école : trois mannequins sur
+   * l'aire d'exercice) : rien ne blesserait personne, l'objectif serait impossible. Les victimes annoncées sont posées
+   * à terre près du lieu de la mission, une par objectif (ou autant que son nombre), et le joueur des forces reçoit
+   * une trousse de secours (sa dotation de soins) s'il n'en a pas. Seuls les soins portés à ces victimes comptent pour leur objectif.
+   */
+  private stageVictims(): void {
+    const ctx = this.ctx!;
+    const def = this.def!;
+    const env = this.env!;
+    if (def.crowd.size > 0) return;
+    const runs = this.runs.filter((r) => r.def.kind === 'soigner' || r.def.kind === 'secourir');
+    if (runs.length === 0) return;
+    const me = ctx.player.person();
+    const cx = me ? me.x : env.homeX;
+    const cz = me ? me.z : env.homeZ;
+    const health = ctx.service<{ knockDown(p: Person, seconds: number, sourceId: number): void }>('people.health');
+    let slot = 0;
+    for (const r of runs) {
+      r.victims = [];
+      const n = Math.max(1, Math.min(4, r.def.count ?? 1));
+      for (let i = 0; i < n; i++) {
+        // en arc, à quelques mètres les uns des autres, sur un sol libre
+        let x = cx, z = cz;
+        for (let k = 0; k < 24; k++, slot++) {
+          const a = slot * 1.1;
+          const d = 5 + 2.5 * Math.floor(slot / 5);
+          const tx = cx + Math.sin(a) * d, tz = cz + Math.cos(a) * d;
+          if (ctx.world.isFree(tx, tz, 0.6)) { x = tx; z = tz; slot++; break; }
+        }
+        const v = ctx.archetypes.spawn('passant', x, z);
+        ctx.health.hurt(v, { amount: 55, kind: 'blunt', sourceId: 0, x, z, zone: 0.5 });
+        if (health) health.knockDown(v, 3600, 0);
+        else ctx.health.setDown(v, true, 0);
+        r.victims.push(v.id);
+      }
+    }
+    if (me && me.faction === 'police' && ctx.actions.has(me, 'trousse_secours') <= 0) ctx.actions.give(me, 'trousse_secours');
   }
 
   private phase(): MissionPhase | null {
@@ -215,9 +278,13 @@ export class MissionSystem implements GameSystem {
     // aléas imposés par la phase : joués au fil de la phase (voir aleas.ts)
     this.aleas.schedule(ph.events, ctx.clock.now);
     for (const line of ph.radio) {
-      // indicatif en capitales = procédure radio ; sinon voix (rue, rédaction, ami) sur le canal public
-      const radio = /^[A-ZÀ-ÖØ-Þ0-9 '\-]+$/.test(line.from) && line.from !== 'VOUS';
-      ctx.radio.say({ channel: radio ? 'commandement' : 'public', from: line.from, text: line.text, priority: 1 });
+      // indicatif radio (catalog/dsl.ts) = procédure radio, sur le réseau des secours pour SANTÉ et SAPEUR ; tout autre
+      // émetteur est une voix entendue sur place (chef de groupe, mégaphone, ami, rédaction), sur le canal public — même
+      // écrite en capitales, comme le veut le catalogue : sinon le manifestant ou le journaliste, qui n'ont pas la radio
+      // de police, n'entendaient aucune des voix de leur propre mission
+      const radio = isRadioCallsign(line.from);
+      const channel = !radio ? 'public' : /^(SANTÉ|SAPEUR)\b/.test(line.from) ? 'secours' : 'commandement';
+      ctx.radio.say({ channel, from: line.from, text: line.text, priority: 1 });
     }
   }
 
@@ -232,9 +299,14 @@ export class MissionSystem implements GameSystem {
     const inPhase = ctx.clock.now - this.phaseAt;
     switch (u.kind) {
       case 'temps':
-        return this.elapsed() >= u.seconds;
-      case 'phase_foule':
-        return this.tracker!.crowdPhases.has(u.phase) || ctx.director.phase === u.phase || inPhase >= PHASE_TIMEOUT;
+        // durée de la phase elle-même (le catalogue additionne ses phases minutées pour tenir dans la durée de la
+        // mission) : comptée depuis le début de la mission, une phase de 120 s après une de 210 s était sautée
+        return inPhase >= u.seconds;
+      case 'phase_foule': {
+        const want = CROWD_ORDER.indexOf(u.phase);
+        const past = want >= 0 && CROWD_ORDER.indexOf(ctx.director.phase) > want;
+        return this.tracker!.crowdPhases.has(u.phase) || ctx.director.phase === u.phase || past || inPhase >= PHASE_TIMEOUT;
+      }
       case 'tension':
         return ctx.director.tension >= u.above || inPhase >= PHASE_TIMEOUT;
       case 'objectif': {
@@ -326,7 +398,8 @@ export class MissionSystem implements GameSystem {
           break;
         }
         case 'trop_de_blesses':
-          if (ctx.director.stats.injured > (f.value ?? 20)) return f.text;
+          // « Trop de blessés parmi vos agents », « Trop d'agents brûlés » : les agents des forces, et non la foule
+          if ((/\bagents?\b/i.test(f.text) ? this.policeInjured() : ctx.director.stats.injured) > (f.value ?? 20)) return f.text;
           break;
         case 'interpelle':
           if (me && me.custody !== 'free') return f.text;
@@ -348,6 +421,13 @@ export class MissionSystem implements GameSystem {
       }
     }
     return '';
+  }
+
+  /** Agents des forces de l'ordre blessés (même légèrement), comme la foule compte ses blessés. */
+  private policeInjured(): number {
+    let n = 0;
+    for (const p of this.ctx!.people.list) if (p.faction === 'police' && p.injury !== 'none') n++;
+    return n;
   }
 
   private publishObjectives(): void {

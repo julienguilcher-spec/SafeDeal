@@ -2,9 +2,12 @@
  * GPS : cible suivie (repère du joueur, sinon objectif suivi, sinon incident confié) et itinéraire
  * calculé par ctx.world.findPath, recalculé au plus une fois par seconde et seulement si le joueur
  * a bougé ou si la cible a changé.
+ * Passager d'un véhicule conduit par l'IA (colonne, engin de secours) : le tracé est l'itinéraire que
+ * le pilote automatique suit réellement (celui de la tête de colonne), relu chaque seconde — le GPS
+ * montre la route que l'on prend, pas un autre chemin calculé de son côté.
  * ===================================================================================== */
 
-import type { GameContext } from '@/core/contracts';
+import type { GameContext, Vehicle } from '@/core/contracts';
 import { EXT } from '@/core/extensions';
 import type { IncidentsApi, ObjectivesApi } from '@/core/extensions';
 import { polylineLength, projectOnPolyline } from '@/core/math';
@@ -35,6 +38,10 @@ export class GpsTracker {
   private readonly objectiveTarget: GpsTarget = { x: 0, z: 0, label: '', source: 'objectif' };
   private readonly incidentTarget: GpsTarget = { x: 0, z: 0, label: '', source: 'incident' };
   private readonly proj = { x: 0, z: 0 };
+  /** Itinéraire du pilote automatique relu à la dernière seconde (passager), et son dernier point. */
+  private readonly driven: number[] = [];
+  private drivenAt = -1e9;
+  private following = false;
 
   constructor(private readonly ctx: GameContext) {}
 
@@ -58,6 +65,8 @@ export class GpsTracker {
     this.route.length = 0;
     this.distance = -1;
     this.lastPlan = -1e9;
+    this.following = false;
+    this.drivenAt = -1e9;
     this.revision++;
   }
 
@@ -120,6 +129,13 @@ export class GpsTracker {
       this.distance = -1;
       return;
     }
+    // passager d'un véhicule conduit par l'IA : l'itinéraire réellement suivi par la colonne (sauf vers un repère que
+    // le joueur a posé lui-même)
+    if (target.source !== 'repere' && this.followDriven(time)) {
+      this.measure(px, pz, target, direct);
+      return;
+    }
+    this.stopFollowing();
     const moved = Math.hypot(px - this.planX, pz - this.planZ);
     const targetMoved = target.x !== this.planTx || target.z !== this.planTz;
     const due = time - this.lastPlan;
@@ -140,11 +156,52 @@ export class GpsTracker {
       this.routeLength = this.route.length >= 4 ? polylineLength(this.route) : 0;
       this.revision++;
     }
+    this.measure(px, pz, target, direct);
+  }
+
+  private measure(px: number, pz: number, target: GpsTarget, direct: number): void {
     if (this.route.length >= 4) {
       const s = projectOnPolyline(px, pz, this.route, this.proj);
       const off = Math.hypot(px - this.proj.x, pz - this.proj.z);
       const end = Math.hypot(target.x - this.route[this.route.length - 2]!, target.z - this.route[this.route.length - 1]!);
       this.distance = Math.max(0, this.routeLength - s) + off + end;
     } else this.distance = direct;
+  }
+
+  /**
+   * Le joueur est passager d'un véhicule que le pilote automatique conduit (ou qui suit une colonne) : le tracé est
+   * l'itinéraire de la tête de colonne (relu au plus une fois par seconde, nouveau tracé quand elle change de route).
+   * false sinon (le GPS calcule alors son propre itinéraire).
+   */
+  private followDriven(time: number): boolean {
+    const ctx = this.ctx;
+    const me = ctx.player.person();
+    const v: Vehicle | undefined = me && me.vehicleId !== 0 ? ctx.vehicles.get(me.vehicleId) : undefined;
+    const ap = v && v.seats[0] !== me!.id ? ctx.service<{ plannedPath?(v: Vehicle, out: number[]): boolean }>('vehicles.autopilot') : undefined;
+    if (!v || !ap || typeof ap.plannedPath !== 'function') return this.stopFollowing();
+    if (time - this.drivenAt < MIN_PERIOD && this.following) return true;
+    this.drivenAt = time;
+    const path = this.driven;
+    if (!ap.plannedPath(v, path) || path.length < 4) return this.stopFollowing();
+    const route = this.route;
+    // même itinéraire (la tête a seulement avancé) : on garde le tracé, raccourci par la projection du joueur
+    const changed = !this.following || route.length < 4
+      || route[route.length - 2] !== path[path.length - 2] || route[route.length - 1] !== path[path.length - 1]
+      || Math.abs(polylineLength(path) - this.routeLength) > 5;
+    this.following = true;
+    route.length = 0;
+    for (let i = 0; i < path.length; i++) route.push(path[i]!);
+    this.routeLength = polylineLength(route);
+    if (changed) this.revision++;
+    return true;
+  }
+
+  private stopFollowing(): boolean {
+    if (this.following) {
+      // retour au calcul ordinaire, tout de suite
+      this.following = false;
+      this.lastPlan = -1e9;
+    }
+    return false;
   }
 }

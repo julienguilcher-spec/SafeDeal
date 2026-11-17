@@ -167,6 +167,15 @@ export const FOOT_ENTRY_MAX = 240;
 export const LEAVE_METRO_SHARE = 0.5;
 export const LEAVE_METRO_RADIUS = 300;
 export const LEAVE_STREET_DIST = 230;
+/**
+ * Lisière d'une nasse (m au-delà de son rayon) : les lignes qui l'encerclent se tiennent quelques mètres au-delà du
+ * cercle désigné (issues mesurées 3 m plus loin) ; qui y était pris le reste jusqu'à elles — il n'en sort que par la
+ * porte. (Sans elle, un nassé poussé à 45,1 m d'un cercle de 45 m « n'était plus nassé » : il décidait de partir et
+ * traversait l'anneau.)
+ */
+export const KETTLE_EDGE = 4;
+/** Durée (s) pendant laquelle on se sait encore pris dans la nasse qu'on vient de quitter (lisière comprise). */
+export const KETTLE_MEMORY = 60;
 /** Débit d'entrée d'une bouche à la dispersion (personnes/s) et rayon d'arrivée (m). */
 export const ENTER_RATE = 4;
 export const EXIT_REACH_METRO = 3.2;

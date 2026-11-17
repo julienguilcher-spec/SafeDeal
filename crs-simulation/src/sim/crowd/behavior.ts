@@ -14,6 +14,7 @@ import type { PoliceSight } from './api';
 import { A, F, S } from './brain';
 import type { CrowdBrain } from './brain';
 import type { CrowdCore } from './core';
+import type { Spot } from './sense';
 import { Manners } from './manners';
 import { Reactions } from './reactions';
 import * as T from './tuning';
@@ -126,8 +127,15 @@ export class Behavior {
 
     // ── en train de partir ──
     if (b.state === S.LEAVE) {
-      this.manners.leaving(p, b, now);
-      return;
+      // pris dans une nasse (parti de sa lisière, ou revenu dedans en cherchant son chemin) : on ne la traverse pas
+      // pour s'en aller par l'intervalle de deux agents de l'anneau — on n'en sort que par la porte filtrée
+      if (this.kettled(p, b, now) === null) {
+        this.manners.leaving(p, b, now);
+        return;
+      }
+      b.flags &= ~F.LEAVING;
+      b.path = null;
+      this.setState(b, S.REGROUP);
     }
 
     // ── 1. gaz, feu : se couvrir le visage, sortir du nuage, s'écarter des flammes ──
@@ -150,6 +158,7 @@ export class Behavior {
       const src = gassed ? core.sense.gas.near(p.x, p.z, 60, now - 180) : null;
       if (src !== null) {
         this.react.awayAlongRoad(p, b, src.x, src.z, 10 + 15 * b.docility);
+        this.confine(p, b, now, 2);
         b.speed = 1.6;
         b.stateSince = now + 5;
       }
@@ -193,6 +202,7 @@ export class Behavior {
     }
     // ── 5. forces de l'ordre à proximité ──
     const sense = core.sense;
+    const kettle = this.kettled(p, b, now);
     if (sense.policeTotal > 0 && sense.policeNear(p.x, p.z, 2) < 30 && sense.nearestPolice(p.x, p.z, 26, this.sight)) {
       const sight = this.sight;
       // une ligne qui court vers soi : c'est une charge, annoncée ou non
@@ -210,6 +220,8 @@ export class Behavior {
         b.tx = p.x + (p.x - sight.x) * k;
         b.tz = p.z + (p.z - sight.z) * k;
         b.path = null;
+        // dans une nasse, on recule jusqu'aux lignes de l'anneau, pas au-delà (on ne sort que par la porte)
+        if (kettle !== null) this.confine(p, b, now, 2);
         b.speed = sight.closing > 0.6 ? 1.8 : 1.1;
         b.run = sight.closing > 0.6;
         b.lookX = sight.x;
@@ -231,7 +243,6 @@ export class Behavior {
     }
     // ── 7. peur : quitter les lieux, ou reculer loin du dernier danger ──
     const quit = tune.quit * (0.85 + 0.3 * b.courage);
-    const kettle = sense.kettleAt(p.x, p.z);
     if (p.fear > quit && kettle === null && !(b.flags & F.PINNED)) {
       this.startLeaving(p, b, -1);
       return;
@@ -542,6 +553,35 @@ export class Behavior {
   /** Fuite devant une charge, une détonation, un jet d'eau : 30 à 60 m, puis on se regroupe. */
   startFlee(p: Person, b: CrowdBrain, fromX: number, fromZ: number, dist: number): void {
     this.react.startFlee(p, b, fromX, fromZ, dist);
+  }
+
+  /**
+   * Pris dans une nasse : le but (b.tx, b.tz) est ramené en deçà des lignes de l'anneau (rayon + `edge`). On recule, on
+   * fuit le gaz, on se presse contre les lignes — on ne sort que par la porte filtrée.
+   */
+  confine(p: Person, b: CrowdBrain, now: number, edge: number): void {
+    const k = this.kettled(p, b, now);
+    if (k === null) return;
+    const kx = b.tx - k.x;
+    const kz = b.tz - k.z;
+    const kl = Math.hypot(kx, kz);
+    const lim = Math.max(2, k.a + edge);
+    if (kl <= lim) return;
+    b.tx = k.x + (kx / kl) * lim;
+    b.tz = k.z + (kz / kl) * lim;
+    b.path = null;
+  }
+
+  /**
+   * Nasse où se trouve la personne : dans son cercle, ou sur sa lisière (jusqu'aux lignes qui l'encerclent) si elle y
+   * était prise il y a peu.
+   */
+  kettled(p: Person, b: CrowdBrain, now: number): Spot | null {
+    const sense = this.core.sense;
+    let k = sense.kettleAt(p.x, p.z);
+    if (k === null && now - b.kettledAt < T.KETTLE_MEMORY) k = sense.kettleAt(p.x, p.z, T.KETTLE_EDGE);
+    if (k !== null) b.kettledAt = now;
+    return k;
   }
 
   /** Quitte la manifestation : vers une bouche de métro ouverte ou une rue qui s'éloigne ; le groupe suit. */

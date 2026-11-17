@@ -28,7 +28,7 @@ import { RadioLogView } from './radioLog';
 import { ensureCommandStyle } from './style';
 import { TacticalMap } from './tacticalMap';
 import { MapPopover } from './tacticalPop';
-import { IDLE, TacticalState } from './tacticalState';
+import { IDLE, TacticalState, tacticalFrame } from './tacticalState';
 import { acceptNasse, openFilteredExit, proposeNasse, resolveCrowd } from './nasse';
 import { kettleBanner } from '../maps/barrages';
 import type { SceneCrowdExits } from '../maps/barrages';
@@ -400,8 +400,12 @@ export class TacticalScreen implements ScreenInstance {
     }
     const v = this.map.view;
     v.setSize(Math.max(200, this.map.el.clientWidth), Math.max(200, this.map.el.clientHeight));
-    v.fitBounds(minX, minZ, maxX, maxZ, 90);
-    v.setMpp(Math.min(2.2, Math.max(0.55, open.mpp ?? v.mpp)));
+    if (open.mpp !== undefined) {
+      v.fitBounds(minX, minZ, maxX, maxZ, 90);
+      v.setMpp(Math.min(2.2, Math.max(0.55, open.mpp)));
+    } else {
+      tacticalFrame(v, minX, minZ, maxX, maxZ, scene.hasPlayer ? { x: scene.px, z: scene.pz } : null, 0.55, 2.2);
+    }
     this.map.invalidate();
   }
 

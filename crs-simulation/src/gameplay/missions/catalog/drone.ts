@@ -56,7 +56,7 @@ export const DRONE_01 = mission({
       ]),
   ],
   objectives: [
-    ob('o1', 'Survoler les trois balises sans sortir du périmètre', 'reperer_signaux', { count: 3 }),
+    ob('o1', 'Survoler les trois balises sans sortir du périmètre', 'duree', { count: 3, seconds: 120 }),
     ob('o2', 'Rester sous le plafond de cent mètres', 'personnalise', { target: 'plafond_altitude', max: 100 }),
     os('o3', 'Rentrer avec plus de vingt pour cent de batterie', 'personnalise', { target: 'batterie', count: 20 }),
   ],
@@ -517,7 +517,7 @@ export const DRONE_09 = mission({
       ], [`Un ballon du cortège masque la vue`]),
     ph('dix-reperes', `Dix points de repère`,
       `Le cortège remplit le boulevard Beaumarchais d'un trottoir à l'autre. Dix repères ont été fixés le long du parcours : à chacun, on fige l'image, on compte un bloc, on mesure la longueur entre deux balises, on en tire une densité. La tête n'est pas la queue : elle est serrée, la queue s'étire, et les trottoirs ne sont pas vides.`,
-      OBJ('o1'), [
+      T(120), [
         voix('ASSISTANT DE VOL', `Repère trois : je compte quatre-vingt-dix dans le carré. Toi ?`),
         rad('LIAISON', 'CENTRAL', `Les organisateurs demandent quel chiffre le drone va donner. Ils disent qu'ils ont leur propre comptage.`),
       ], [`Les organisateurs font pression sur le chiffre`, `Un drone privé gêne le vol`]),

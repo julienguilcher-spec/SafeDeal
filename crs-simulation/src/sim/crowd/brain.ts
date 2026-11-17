@@ -153,6 +153,9 @@ export interface CrowdBrain {
   /** Faits déjà traités (instants) : dernière charge, dernière interpellation regardée. */
   seenCharge: number;
   seenArrest: number;
+  /** Dernier instant où la personne se trouvait dans une nasse (−1e9 : jamais) : la lisière de la nasse, jusqu'à la
+   * ligne qui l'encercle, en fait encore partie pour elle. */
+  kettledAt: number;
   /** Objet tenu en main avant un geste (filmer), pour le reprendre ensuite (−2 : rien à reprendre). */
   hand: number;
   /** Minuterie libre de l'état courant (prochain petit déplacement, fin d'un repos). */
@@ -187,6 +190,6 @@ export function createBrain(p: Person, index: number, now: number, r1: number, r
     watchId: 0, watchX: 0, watchZ: 0, watchUntil: -1, act: A.NONE, actUntil: 0,
     stuckX: p.x, stuckZ: p.z, stuckSince: now, origin: p.profile, nextRad: now + 4 + r3 * 10, radAt: -1e9,
     calmSince: now, density: 0, gasSince: -1, controller: null, data: null,
-    dir: NaN, anchorX: p.x, anchorZ: p.z, stuck: 0, seenCharge: -1, seenArrest: -1, hand: -2, timer: 0, gawkUntil: -1, side: 0, waitS: NaN, panic: -1,
+    dir: NaN, anchorX: p.x, anchorZ: p.z, stuck: 0, seenCharge: -1, seenArrest: -1, kettledAt: -1e9, hand: -2, timer: 0, gawkUntil: -1, side: 0, waitS: NaN, panic: -1,
   };
 }

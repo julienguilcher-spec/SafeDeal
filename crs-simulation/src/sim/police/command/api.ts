@@ -329,6 +329,20 @@ export interface ConvoyStatus {
   alignError: number;
   headingError: number;
   t0: number;
+  /** Agents de l'unité déjà assis dans un véhicule, et agents attendus (valides, libres). */
+  aboard?: number;
+  total?: number;
+  /**
+   * Secondes avant le départ de la colonne au plus tard tant qu'elle attend (embarquement, retardataires, joueur) ;
+   * 0 quand elle part ou roule.
+   */
+  departIn?: number;
+  /** La colonne n'attend plus que le joueur (il est à pied). */
+  awaitingPlayer?: boolean;
+  /** Mètres d'itinéraire restant à la tête de colonne (0 à l'arrêt). */
+  remaining?: number;
+  /** Itinéraire prévu de la tête de colonne (x, z, x, z…), vide hors trajet. */
+  route?: number[];
 }
 
 export interface ConvoyEvent { squadId: number; stage: ConvoyStage }

@@ -284,6 +284,12 @@ export function buildLine(
         i++;
         continue;
       }
+      // barrage filtrant (porte) : le binôme d'interpellation reste derrière la ligne, prêt à saisir à la porte les
+      // personnes retenues au contrôle (monté en ligne, il n'en sortait qu'en ouvrant un trou dans le barrage)
+      if (doorW > 0 && a.p.poste === 'interpellation') {
+        i++;
+        continue;
+      }
       a.cls = CLS_FRONT;
       cFront.push(a);
       cSecond.splice(i, 1);

@@ -290,6 +290,11 @@ export interface AutopilotApi {
    * sans rien changer d'autre : allure, urgence, place dans la colonne. false si impossible (l'ancien est gardé).
    */
   reroute?(v: Vehicle, pushThrough?: boolean, avoid?: DriveOptions['avoid']): boolean;
+  /**
+   * Itinéraire restant réellement suivi par ce véhicule (x, z, x, z…, sa position en premier) : le sien s'il conduit,
+   * celui de la tête de sa colonne s'il suit (GPS d'un passager). false si aucun (pilote au repos, meneur à pied).
+   */
+  plannedPath?(v: Vehicle, out: number[]): boolean;
   /** Arrête le véhicule et rend la main. */
   stop(v: Vehicle): void;
   status(v: Vehicle): Readonly<AutopilotStatus>;

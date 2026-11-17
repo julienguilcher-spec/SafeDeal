@@ -12,7 +12,7 @@
  * ===================================================================================== */
 
 import { concludeCustom, watchCustom } from './custom';
-import type { GameContext, Person, PlaceInfo } from '@/core/contracts';
+import type { EntityId, GameContext, Person, PlaceInfo } from '@/core/contracts';
 import { EXT } from '@/core/extensions';
 import type { TrafficControlApi } from '@/core/extensions';
 import type { MissionObjective, ObjectiveKind } from '@/core/missions-schema';
@@ -35,6 +35,8 @@ export interface ObjectiveRun {
   decidedAt: number;
   /** « Tenir la position » : temps cumulé où la position est submergée (ligne enfoncée). */
   broken?: number;
+  /** « Soigner », « secourir » : victimes mises en scène pour cet objectif (atelier sans foule), seules comptées. */
+  victims?: EntityId[];
 }
 
 /** Objectifs jugés seulement à la fin (sauf violation). */
@@ -45,7 +47,16 @@ const PRESERVE: ReadonlySet<ObjectiveKind> = new Set<ObjectiveKind>([
 
 export function isPreserve(o: ObjectiveRun): boolean {
   if (o.def.kind === 'proteger_les_siens') return o.def.seconds === undefined;
+  if (o.def.kind === 'sommations_regulieres') return !pronounces(o);
   return PRESERVE.has(o.def.kind);
+}
+
+/**
+ * « Prononcer l'annonce et les sommations » : objectif à atteindre (le joueur les prononce lui-même, une à une), et non
+ * plus seulement la règle « pas de force sans sommations », qui était jugée réussie à la fin sans que rien ait été dit.
+ */
+export function pronounces(o: ObjectiveRun): boolean {
+  return o.def.kind === 'sommations_regulieres' && /prononcer/i.test(o.def.text);
 }
 
 /** Ressources partagées pour une évaluation (évite d'allouer à chaque appel). */
@@ -130,7 +141,11 @@ export function evaluate(o: ObjectiveRun, env: EvalEnv): void {
       break;
     case 'secourir':
     case 'soigner':
-      countReached(o, env, tracker.treated, 1, '{n} victime(s) prise(s) en charge.');
+      if (o.victims && o.victims.length > 0) {
+        let n = 0;
+        for (const id of o.victims) if (tracker.treatedIds.has(id)) n++;
+        countReached(o, env, n, o.victims.length, '{n} victime(s) prise(s) en charge.');
+      } else countReached(o, env, tracker.treated, 1, '{n} victime(s) prise(s) en charge.');
       break;
     case 'photographier':
     case 'filmer':
@@ -192,6 +207,12 @@ export function evaluate(o: ObjectiveRun, env: EvalEnv): void {
     }
     case 'sommations_regulieres':
       if (tracker.withoutWarning > 0) fail(o, env, 'Force employée sur un attroupement sans sommations.');
+      else if (pronounces(o)) {
+        // annonce (1), première (2), dernière sommation (3) prononcées par le joueur
+        const want = Math.max(1, Math.min(3, o.def.count ?? 3));
+        o.progress = Math.min(1, tracker.playerSommation / want);
+        if (tracker.playerSommation >= want) succeed(o, env, want === 3 ? 'Annonce et sommations prononcées dans l’ordre.' : 'Sommation(s) prononcée(s).');
+      }
       break;
     case 'limiter_blesses': {
       const max = o.def.max ?? 10;
@@ -242,8 +263,14 @@ export function conclude(o: ObjectiveRun, env: EvalEnv, failed: boolean): void {
   if (o.state !== 'actif') return;
   const t = env.tracker;
   switch (o.def.kind) {
-    case 'zero_bavure':
     case 'sommations_regulieres':
+      if (pronounces(o)) {
+        const n = Math.min(3, t.playerSommation);
+        fail(o, env, n > 0 ? `Sommations incomplètes : ${n} formule(s) sur ${Math.max(1, Math.min(3, o.def.count ?? 3))}.` : 'Aucune sommation prononcée.');
+      }
+      else succeed(o, env, 'Respecté jusqu’à la fin.');
+      break;
+    case 'zero_bavure':
     case 'limiter_blesses':
     case 'limiter_degats':
     case 'ne_pas_etre_interpelle':

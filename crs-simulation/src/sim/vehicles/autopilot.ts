@@ -603,6 +603,28 @@ export class Autopilot implements AutopilotApi {
     return this.replan(rt, ap, false);
   }
 
+  plannedPath(v: Vehicle, out: number[]): boolean {
+    out.length = 0;
+    const ctx = this.k.ctx;
+    let cur: Vehicle | undefined = v;
+    // on remonte la colonne jusqu'à sa tête (celle qui conduit vers le point)
+    for (let guard = 0; cur && guard < 24; guard++) {
+      const rt = this.k.peek(cur.id);
+      const ap = rt ? (rt.ap as ApState | null) : null;
+      if (!ap) return false;
+      if (ap.mode === 'follow') {
+        cur = ctx.vehicles.get(ap.leaderId);
+        continue;
+      }
+      if (ap.mode !== 'drive' || ap.n < 2) return false;
+      out.push(v.x, v.z);
+      if (cur !== v) out.push(cur.x, cur.z);
+      for (let i = ap.seg + 1; i < ap.n; i++) out.push(ap.path[i * 2]!, ap.path[i * 2 + 1]!);
+      return out.length >= 4;
+    }
+    return false;
+  }
+
   stop(v: Vehicle): void {
     const rt = this.k.peek(v.id);
     if (!rt || !rt.ap) return;

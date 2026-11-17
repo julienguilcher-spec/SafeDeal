@@ -14,6 +14,7 @@ import { el } from '../maps/icons';
 import { coarsePointer } from '../maps/style';
 import { formatDistance } from '../maps/transform';
 import type { CommandCore } from './core';
+import { FOLLOW_ORDERS } from './core';
 import { verbOf } from './orders';
 import type { OrderGeom } from './orders';
 import { ensureCommandStyle } from './style';
@@ -40,6 +41,17 @@ export const WHEEL: readonly { type: string; label: string; sub?: string }[] = [
   { type: 'suivre_pied', label: 'Me suivre', sub: 'à pied' },
   { type: 'avec_moi', label: 'Me suivre', sub: 'en colonne (véh.)' },
 ];
+
+/**
+ * Roue réduite d'un policier sans autorité de commandement (CRS, BRAV-M, équipage d'engin, télépilote) : il ne donne
+ * que les deux ordres « me suivre » à son unité (et, quand il prend le volant, toute la colonne le suit).
+ */
+export const FOLLOW_WHEEL: readonly { type: string; label: string; sub?: string }[] = WHEEL.filter((w) => FOLLOW_ORDERS.has(w.type));
+
+/** Secteurs de la roue selon le niveau de commandement du joueur. */
+export function wheelOrders(level: string): readonly { type: string; label: string; sub?: string }[] {
+  return level === 'lecture' ? FOLLOW_WHEEL : WHEEL;
+}
 
 /** Durée en deçà de laquelle un appui est « bref » : la roue reste alors affichée (s). */
 const TAP_SECONDS = 0.24;
@@ -78,8 +90,10 @@ export class OrderWheelScreen implements ScreenInstance {
     const st = ctx.player.state;
     const p = core.player();
     const sc = core.scope();
-    const squad = sc.level !== 'lecture' && sc.ownSquadId !== 0 ? ctx.squads.get(sc.ownSquadId) ?? null : null;
+    // sans autorité : la roue réduite aux deux ordres « me suivre », adressés à son unité
+    const squad = sc.level !== 'lecture' && sc.ownSquadId !== 0 ? ctx.squads.get(sc.ownSquadId) ?? null : core.followUnit();
     this.squad = squad;
+    const orders = wheelOrders(sc.level);
     this.yaw = st.camYaw;
     const px = p ? p.x : 0;
     const pz = p ? p.z : 0;
@@ -112,8 +126,8 @@ export class OrderWheelScreen implements ScreenInstance {
     const labels = ctx.service<InputLabelsApi>('input.labels');
     const codeLabel = labels && typeof labels.codeLabel === 'function' ? (code: string) => labels.codeLabel('kbm', code) : undefined;
     const items: WheelItem[] = [];
-    for (let i = 0; i < WHEEL.length; i++) {
-      const w = WHEEL[i]!;
+    for (let i = 0; i < orders.length; i++) {
+      const w = orders[i]!;
       const verb = verbOf(w.type)!;
       let disabled = verb.force > roe.authorizedForce && !roe.underAttack;
       let sub: string | undefined = w.sub;
@@ -129,7 +143,7 @@ export class OrderWheelScreen implements ScreenInstance {
     });
     this.wheel.hoverEnabled = false;
     const dist = Math.hypot(this.aimX - px, this.aimZ - pz);
-    this.wheel.setCenter(squad.name, this.targetId !== 0 ? 'cible désignée' : `point visé · ${formatDistance(dist)}`);
+    this.wheel.setCenter(squad.name, orders !== WHEEL ? 'vous suivre' : this.targetId !== 0 ? 'cible désignée' : `point visé · ${formatDistance(dist)}`);
 
     const cap = el('div', 'cw-cap');
     const key = core.kit ? core.kit.keyLabel('orders') : '';

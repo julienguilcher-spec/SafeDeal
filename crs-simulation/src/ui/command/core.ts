@@ -14,6 +14,7 @@ import { BARRAGE_LET_PASSERSBY, verbOf } from './orders';
 import type { OrderGeom, OrderVerb } from './orders';
 import { orderPhrase } from './phrases';
 import { computeScope } from './scope';
+import { isPoliceRole } from '../maps/visibility';
 import type { FollowApi } from '@/gameplay/session/follow';
 import type { NasseProposal } from './nasse';
 
@@ -24,6 +25,13 @@ const MOTOR_AUTO: ReadonlySet<string> = new Set(['colonne', 'avancer', 'tenir', 
 const SCOPE_PERIOD = 0.5;
 /** Service des ordres « me suivre » (gameplay/session/follow.ts, FOLLOW_SERVICE). */
 const FOLLOW_SERVICE = 'session.follow';
+/**
+ * Ordres « Me suivre à pied » / « Me suivre en colonne (véhicules) » : tout policier les donne, même sans autorité de
+ * commandement (CRS, BRAV-M, équipage d'engin, télépilote) — à son unité, et avec elle à la colonne de sa compagnie quand
+ * il prend le volant (session/follow.ts). Demande du commanditaire : « l'ordre suivre en colonne ou suivre à pied,
+ * tu ne l'as pas mis ».
+ */
+export const FOLLOW_ORDERS: ReadonlySet<string> = new Set(['suivre_pied', 'avec_moi']);
 
 export interface IssueResult {
   ok: boolean;
@@ -89,6 +97,26 @@ export class CommandCore implements CommandApi {
     return squadId > 0 && this.scope().squadIds.has(squadId);
   }
 
+  /**
+   * Unité à qui s'adressent les ordres « me suivre » du joueur policier : celle qu'il commande ; sans autorité de
+   * commandement, la sienne (null hors police, ou sans unité).
+   */
+  followUnit(): Squad | null {
+    const p = this.player();
+    if (!p || p.faction !== 'police' || !isPoliceRole(this.ctx.player.state.role)) return null;
+    const sc = this.scope();
+    const id = sc.level !== 'lecture' && sc.ownSquadId !== 0 ? sc.ownSquadId : p.squadId;
+    const s = id !== 0 ? this.ctx.squads.get(id) : undefined;
+    return s && s.faction === 'police' ? s : null;
+  }
+
+  /** Ordre « me suivre » du joueur à son unité (roue d'ordres, actions rapides) : `column` en colonne de véhicules. */
+  callFollow(column: boolean): IssueResult {
+    const unit = this.followUnit();
+    if (!unit) return { ok: false, reason: 'Aucune unité avec vous\u00a0: personne à qui donner cet ordre.', count: 0 };
+    return this.issue(column ? 'avec_moi' : 'suivre_pied', [unit], null);
+  }
+
   /** Indicatif de celui qui parle à la radio : son unité, à défaut son nom. */
   callsign(): string {
     const p = this.player();
@@ -110,7 +138,10 @@ export class CommandCore implements CommandApi {
    */
   check(verb: OrderVerb): { ok: boolean; reason: string; warning: string } {
     const roe = this.ctx.law.roe;
-    if (this.scope().level === 'lecture') return { ok: false, reason: 'Lecture seule\u00a0: vous ne donnez pas d’ordre.', warning: '' };
+    // sans autorité : seuls les ordres « me suivre » à sa propre unité
+    if (this.scope().level === 'lecture' && !(FOLLOW_ORDERS.has(verb.type) && this.followUnit())) {
+      return { ok: false, reason: 'Lecture seule\u00a0: vous ne donnez pas d’ordre.', warning: '' };
+    }
     if (verb.force > roe.authorizedForce && !roe.underAttack) {
       return {
         ok: false, warning: '',
@@ -138,11 +169,13 @@ export class CommandCore implements CommandApi {
     const ctx = this.ctx;
     const playerId = ctx.player.state.personId;
     const maxForce = this.effectiveForce();
-    const from = this.callsign();
+    const follow = FOLLOW_ORDERS.has(type) ? this.followUnit() : null;
+    // sans autorité, le joueur parle en son nom à son unité (« MISTRAL 1 ALFA ICI GARDIEN … »)
+    const from = follow && this.scope().level === 'lecture' ? this.player()!.name : this.callsign();
     let count = 0;
     for (let i = 0; i < squads.length; i++) {
       const s = squads[i]!;
-      if (!this.canCommand(s.id)) continue;
+      if (!this.canCommand(s.id) && !(follow && follow.id === s.id)) continue;
       const g = geoms ? geoms[geoms.length === 1 ? 0 : i] : undefined;
       // un nouvel ordre annule celui qui attendait le débarquement d'une colonne précédente (motorize le repose au besoin)
       this.afterConvoy.delete(s.id);

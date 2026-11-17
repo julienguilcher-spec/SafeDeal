@@ -605,13 +605,14 @@ async function roles() {
     check(r.units > 20 && r.crowd > 250, `CRS : il voit les unités (${r.units}) et la foule (${r.crowd})`);
     await shot(page, 'command-tactique-crs-lecture-1280x720');
     await key(page, 'Tab', 'carte_tactique', false);
-    // roue d'ordres : message, aucun ordre possible
+    // roue d'ordres réduite : les deux ordres « me suivre » (à pied, en colonne) à son unité, touches 1 et 2
     await page.keyboard.down('KeyF');
     await untilStack(page, 'roue_ordres', true);
     await frames(page, 3);
-    // pas de roue à ce poste : l'écran se referme aussitôt et une notification le dit
+    const labels = await page.evaluate(() => Array.from(document.querySelectorAll('.cw-label')).map((e) => e.textContent));
+    check(labels.length === 2 && labels.every((t) => /Me suivre/.test(t)), `roue d'ordres d'un CRS : les deux ordres « me suivre » seulement (${JSON.stringify(labels)})`);
     const wheelNt = await notices(page);
-    check(wheelNt.some((t) => /recevez les ordres/.test(t)), `roue d'ordres d'un CRS : « vous recevez les ordres » (${JSON.stringify(wheelNt.slice(-3))})`);
+    check(!wheelNt.some((t) => /recevez les ordres/.test(t)), `roue d'ordres d'un CRS : plus de « vous recevez les ordres » (${JSON.stringify(wheelNt.slice(-3))})`);
     await page.keyboard.up('KeyF');
     check(await untilStack(page, 'roue_ordres', false), 'la roue se referme au relâchement');
     await browser.close();

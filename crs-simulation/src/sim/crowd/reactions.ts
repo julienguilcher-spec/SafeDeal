@@ -106,6 +106,9 @@ export class Reactions {
     }
     b.dir = best;
     b.path = null;
+    // pris dans une nasse : on sort du nuage sans franchir les lignes de l'anneau (les nassés gazés se pressaient
+    // dehors par l'intervalle de deux agents)
+    this.mind.confine(p, b, now, 2);
     b.run = fire || gasHere > 0.15 || p.gas > 0.3;
     b.speed = b.run ? 3.4 : 1.7;
     b.threatX = p.x;
@@ -179,6 +182,10 @@ export class Reactions {
     const core = this.core;
     if (b.flags & F.PINNED) b.flags &= ~F.PINNED;
     this.awayAlongRoad(p, b, fromX, fromZ, dist);
+    // pris dans une nasse : on recule DANS la nasse, on ne fuit pas à travers les lignes qui l'encerclent (une
+    // section qui trottait vers sa porte faisait « fuir » les nassés de 30 à 60 m — hors du cercle, par l'intervalle
+    // de deux agents de l'anneau)
+    this.mind.confine(p, b, core.now, -4);
     const tune = T.PROFILE[p.profile ?? 'pacifique'];
     b.run = true;
     b.speed = Math.min(T.RUN_FLEE, p.speedSprint) * (tune.pace < 0.9 ? 0.66 : 0.9 + 0.1 * b.pace);
@@ -238,7 +245,9 @@ export class Reactions {
         b.tz = p.z + dz * r;
       }
     }
+    // on se presse contre les lignes de l'anneau, on ne passe pas au-delà (la seule sortie est la porte filtrée)
     b.path = null;
+    this.mind.confine(p, b, now, 2);
     b.speed = 0.9;
     b.run = false;
     if (core.rngThink.chance(0.2) && core.voices.call(core.rngThink.chance(0.5) ? 'Laissez-nous sortir !' : 'Il y a des enfants ! Laissez-nous sortir !', p.x, p.z, 7)) {

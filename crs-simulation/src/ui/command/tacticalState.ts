@@ -16,6 +16,30 @@ export type TacticalMode =
 
 export const IDLE: TacticalMode = { kind: 'idle' };
 
+/** Vue minimale lue et réglée par tacticalFrame (MapTransform de src/ui/maps/transform.ts). */
+export interface FrameView {
+  mpp: number;
+  fitBounds(minX: number, minZ: number, maxX: number, maxZ: number, paddingPx?: number): void;
+  setMpp(mpp: number): void;
+  setCenter(x: number, z: number): void;
+}
+
+/**
+ * Cadrage à l'ouverture de la carte tactique : le rectangle des unités (et du joueur), à une échelle bornée.
+ * Quand les unités sont éparpillées dans tout Paris (patrouilles, foyers secondaires : cas d'un équipier en
+ * lecture seule, qui voit tout le monde), l'échelle plafonnée ne montre qu'une partie du rectangle : on centre
+ * alors sur le joueur au lieu du milieu du rectangle, qui tombait loin de lui (il ne se trouvait plus sur la carte).
+ */
+export function tacticalFrame(
+  v: FrameView, minX: number, minZ: number, maxX: number, maxZ: number, player: { x: number; z: number } | null,
+  minMpp: number, maxMpp: number, paddingPx = 90,
+): void {
+  v.fitBounds(minX, minZ, maxX, maxZ, paddingPx);
+  const fitted = v.mpp;
+  v.setMpp(Math.min(maxMpp, Math.max(minMpp, fitted)));
+  if (player && fitted > maxMpp * 1.001) v.setCenter(player.x, player.z);
+}
+
 export class TacticalState {
   /** Clés des unités sélectionnées (MapUnit.key). */
   readonly selection = new Set<number>();

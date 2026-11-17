@@ -13,7 +13,8 @@ export const CSS_SCREENS = `
 /* ── marque ── */
 .ui-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .ui-brand__mark { width: 30px; height: 30px; flex: none; }
-.ui-brand__name { font-size: 15px; font-weight: 750; letter-spacing: .3em; color: #fff; white-space: nowrap; }
+.ui-brand > div { min-width: 0; }
+.ui-brand__name { font-size: 15px; font-weight: 750; letter-spacing: .3em; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ui-brand__tag { font-size: 12px; color: var(--ui-text-mute); letter-spacing: .03em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ── accueil ── */
@@ -243,5 +244,11 @@ export const CSS_SCREENS = `
   .ui-tile span { font-size: 16px; }
   .ui-tile { padding: 6px 9px; }
   .ui-title { font-size: 19px; }
+}
+/* téléphone en paysage : sans pictogrammes, les entrées du bandeau laissent la place au nom du jeu
+   (sur 844 px, « CRS SIMULATION FRANCE » passait sous « Carrière ») */
+@media (max-height: 520px) and (max-width: 900px) {
+  .ui-home__nav { gap: 0; }
+  .ui-home__nav .ui-btn .ui-ic { display: none; }
 }
 `;

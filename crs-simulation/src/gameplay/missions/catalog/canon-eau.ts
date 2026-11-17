@@ -49,7 +49,7 @@ export const EAU_01 = mission({
       ]),
   ],
   objectives: [
-    ob('o1', 'Toucher trois cibles à trente mètres avec le jet droit', 'personnalise', { target: 'cible_carton', count: 3 }),
+    ob('o1', 'Toucher trois cibles à trente mètres avec le jet droit, en deux minutes et demie d\'atelier', 'duree', { target: 'cible_carton', count: 3, seconds: 150 }),
     ob('o2', 'Garder plus de quatre mille litres après l\'exercice', 'personnalise', { target: 'reserve_eau', count: 4000 }),
     os('o3', 'Ne jamais viser la tête', 'zero_bavure'),
   ],
@@ -295,7 +295,7 @@ export const EAU_05 = mission({
   ],
   objectives: [
     ob('o1', 'Ne causer aucune chute due au verglas', 'limiter_blesses', { max: 0 }),
-    ob('o2', 'Justifier chaque usage de l\'eau au journal', 'personnalise', { target: 'journal_decisions', count: 2 }),
+    ob('o2', 'Rester en appui de la ligne, place du Trocadéro, chaque décision d\'emploi notée au journal', 'tenir_position', { place: 'Place du Trocadéro et du 11 Novembre', target: 'journal_decisions', seconds: 420 }),
     os('o3', 'Refuser un jet d\'eau inadapté au froid', 'zero_bavure'),
     os('o4', 'Protéger les personnes âgées', 'proteger_site', { target: 'personne_agee' }),
   ],
@@ -339,7 +339,7 @@ export const EAU_06 = mission({
       ], [`La jauge passe sous le quart de cuve`, `Fuite sur un raccord de la cuve`]),
     ph('ravitaillement', `Six cents mètres jusqu'à la bouche d'incendie`,
       `Compte rendu passé, vous quittez la ligne par une rue latérale, sous escorte, vers la bouche d'incendie de l'avenue Montaigne. Brancher, ouvrir, attendre : le plein prend quatre-vingt-dix secondes si la bouche fonctionne, et pendant ce temps la ligne n'a plus d'eau derrière elle.`,
-      OBJ('o2'), [
+      T(300), [
         rad('MISTRAL', 'NEPTUNE 1', `Reçu pour le ravitaillement. Escorte : un groupe de MISTRAL QUATRE. Faites vite, la ligne est découverte.`),
         voix('CHEF D\'ENGIN', `Bouche d'incendie à droite, après le kiosque. Colle-toi au trottoir, je descends brancher.`),
       ], [`La bouche d'incendie est masquée par un véhicule mal garé`, `L'escorte est en retard`]),
@@ -528,7 +528,7 @@ export const EAU_09 = mission({
       ], [`Un soignant traverse la zone avec un blessé`]),
     ph('vent', `Le vent tourne vers la bâche`,
       `Le vent fraîchit et tourne sur la place de la République : la brume du jet dérive maintenant vers la bâche du poste de soins, où deux personnes sont allongées. Rien n'est encore mouillé là-bas. C'est l'instant où l'on coupe, sans attendre l'ordre, et où on le dit.`,
-      OBJ('o2'), [
+      T(90), [
         voix('CHEF D\'ENGIN', `Regarde ta brume. Elle part où, là ?`),
         rad('ICARE', 'NEPTUNE 1', `Votre brume dérive vers le poste de soins. Deux blessés allongés sous la bâche.`),
       ], [`Le vent pousse le jet vers le poste de soins`, `La pression de la pompe baisse`]),

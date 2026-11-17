@@ -11,7 +11,7 @@ import type { SeatRole } from '@/core/contracts';
 import type { HudSlot, HudWidget } from '@/core/extensions';
 import type { InputTouchApi } from '@/input/api';
 import { h } from '../core/dom';
-import { isCompact, touchScale } from './layout';
+import { isCompact, leftZoneCenter, touchScale } from './layout';
 import { hudProfile } from './model';
 import type { HudEnv, HudPart, HudState, TouchMode } from './types';
 
@@ -67,6 +67,8 @@ export class Hud {
   private leftTop = '';
   private toastMax = -1;
   private subBottom = -1;
+  /** Bord gauche imposé aux sous-titres par la zone de gauche (px ; −1 : aucun). */
+  private subLeft = -1;
 
   constructor(
     layer: HTMLElement, private readonly env: HudEnv, private readonly styleRoot: HTMLElement,
@@ -152,6 +154,7 @@ export class Hud {
       this.noticeTop = -1;
       this.toastMax = -1;
       this.subBottom = -1;
+      this.subLeft = -1;
       this.lastTouch = '';
     } else {
       this.tickAcc = TICK;
@@ -224,18 +227,22 @@ export class Hud {
   /**
    * Zone de gauche (boutons « Carte tactique », « Secours », proposition de l'adjoint) : centrée en hauteur, mais jamais
    * sur la zone du haut à gauche (état, mini-carte). Dans une petite fenêtre ou sur un téléphone, le bouton
-   * « Carte tactique » recouvrait le bas de la mini-carte : la zone descend juste sous elle.
+   * « Carte tactique » recouvrait le bas de la mini-carte : la zone descend juste sous elle — sans jamais passer sur
+   * la zone du bas ni sur la barre d'objets tactile (voir leftZoneCenter).
    */
   private placeLeft(): void {
     const zone = this.slots.left;
     let top = '';
     if (zone.childElementCount > 0) {
+      const s = this.state;
       const r = zone.getBoundingClientRect();
       const above = this.slots['top-left'].getBoundingClientRect();
-      if (r.height > 0 && above.height > 0 && r.left < above.right && r.right > above.left) {
-        const center = above.bottom + 8 + r.height / 2;
-        if (center > this.state.height / 2) top = Math.round(center) + 'px';
-      }
+      // plancher : haut de la zone du bas si elle est sous la zone de gauche, à défaut haut de la barre d'objets tactile
+      const below = this.slots.bottom.getBoundingClientRect();
+      let floor = s.touch === 'pied' ? s.height - 68 * touchScale(s.width, s.height) : s.height;
+      if (below.height > 0 && r.left < below.right && r.right > below.left && below.top < floor) floor = below.top;
+      const center = leftZoneCenter(r, above, floor, s.height);
+      if (center !== null) top = center + 'px';
     }
     if (top !== this.leftTop) {
       this.leftTop = top;
@@ -256,9 +263,10 @@ export class Hud {
       const mid = this.slots.top.getBoundingClientRect();
       const left = this.slots['top-left'].getBoundingClientRect();
       const right = this.slots['top-right'].getBoundingClientRect();
-      // rangées de boutons système de la surcouche tactile, en haut à droite (290 × 110 à l'échelle 1)
+      // rangées de boutons système de la surcouche tactile, en haut à droite (290 × 110 à l'échelle 1) ;
+      // en véhicule, la pastille « Sortir » est juste dessous (jusqu'à 159)
       const chipsLeft = s.touch === 'none' ? s.width : s.width - 293 * scale;
-      const chipsBottom = s.touch === 'none' ? 0 : (s.touch === 'drone' ? 60 : 112) * scale;
+      const chipsBottom = s.touch === 'none' ? 0 : (s.touch === 'drone' ? 60 : s.touch === 'vehicule' ? 161 : 112) * scale;
       let top = (mid.height > 0 ? mid.bottom : 0) + 8;
       // place disponible de part et d'autre du centre, à côté des panneaux encore présents à cette hauteur
       const leftLimit = left.height > 0 && left.bottom > top ? left.right + 10 : 12;
@@ -290,7 +298,49 @@ export class Hud {
         this.subBottom = bottom;
         this.styleRoot.style.setProperty('--ui-sub-bottom', bottom + 'px');
       }
+      // la zone de gauche (proposition de l'adjoint et ses boutons « Accepter » / « Plus tard ») descend à la hauteur
+      // des sous-titres : ils passent à sa droite au lieu de cacher les boutons
+      let edge = -1;
+      const zone = this.slots.left;
+      if (zone.childElementCount > 0) {
+        const z = zone.getBoundingClientRect();
+        const bandBottom = s.height - bottom;
+        if (z.height > 0 && z.bottom > bandBottom - 64 && z.top < bandBottom && z.right < s.width * 0.75) edge = Math.round(z.right + 8);
+      }
+      if (Math.abs(edge - this.subLeft) > 1) {
+        this.subLeft = edge;
+        this.applySubBand();
+      }
     }
+  }
+
+  /**
+   * Largeur et décalage des sous-titres : en tactile, entre le joystick et les boutons d'action ; à droite de la zone
+   * de gauche quand elle est à leur hauteur (subLeft).
+   */
+  private applySubBand(): void {
+    const s = this.state;
+    const st = this.styleRoot.style;
+    if (s.touch === 'none' && this.subLeft < 0) {
+      st.removeProperty('--ui-sub-max');
+      st.removeProperty('--ui-sub-shift');
+      return;
+    }
+    const scale = touchScale(s.width, s.height);
+    let left: number;
+    let right: number;
+    if (s.touch === 'none') {
+      const half = Math.min(360, s.width * 0.37);
+      left = s.width / 2 - half;
+      right = s.width / 2 + half;
+    } else {
+      const [l, r] = TOUCH_SIDES[s.touch];
+      left = l * scale;
+      right = s.width - r * scale;
+    }
+    if (this.subLeft >= 0) left = Math.min(Math.max(left, this.subLeft), right - 160);
+    st.setProperty('--ui-sub-max', Math.round(right - left) + 'px');
+    st.setProperty('--ui-sub-shift', Math.round((left + right) / 2 - s.width / 2) + 'px');
   }
 
   reset(): void {
@@ -370,15 +420,7 @@ export class Hud {
     this.root.setAttribute('data-touch', s.touch);
     this.root.setAttribute('data-compact', s.compact ? '1' : '0');
     this.root.style.setProperty('--ts', scale.toFixed(3));
-    // en tactile, les sous-titres tiennent entre le joystick et les boutons d'action
-    if (s.touch === 'none') {
-      this.styleRoot.style.removeProperty('--ui-sub-max');
-      this.styleRoot.style.removeProperty('--ui-sub-shift');
-    } else {
-      const [left, right] = TOUCH_SIDES[s.touch];
-      this.styleRoot.style.setProperty('--ui-sub-max', Math.round(s.width - (left + right) * scale) + 'px');
-      this.styleRoot.style.setProperty('--ui-sub-shift', Math.round(((left - right) * scale) / 2) + 'px');
-    }
+    this.applySubBand();
     // positions de départ des messages ; affinées par placeMessages() dès qu'un message est affiché
     this.noticeTop = -1;
     this.toastMax = -1;

@@ -4,6 +4,10 @@
 // soustraites à la nasse — quels que soient la graine et l'effectif (le moindre changement de trajectoire suffisait à
 // en laisser repartir une ou deux : ordre « interpeller » refusé faute d'agent hors du premier rang ; poursuivant qui
 // restait à 1,7 m dans le dos d'un fuyard sans jamais l'atteindre).
+// La nasse ne fuit pas : chaque personne prise dans la nasse en sort par la porte filtrée ou interpellée — aucune ne
+// passe l'anneau ailleurs (mesuré : où chacun franchit pour la première fois le cercle des lignes). Une section qui
+// trottait vers sa porte faisait « fuir » les nassés à travers l'anneau ; un nassé poussé sur la lisière du cercle
+// « n'était plus nassé » et s'en allait par l'intervalle de deux agents.
 import { describe, expect, it } from 'vitest';
 
 import type { Person, SessionConfig } from '@/core/contracts';
@@ -15,8 +19,8 @@ import { createSystems as vehicles } from '@/sim/vehicles';
 import { createSystems as crowd, CROWD_CORE, CROWD_EVACUATIONS, CROWD_FLAG } from '@/sim/crowd';
 import type { CrowdCoreApi, EvacuationsApi } from '@/sim/crowd';
 import { createSystems as police } from '@/sim/police';
-import { ENCIRCLE_CLOSE_ALL, POLICE_UNITS_SERVICE } from '@/sim/police/api';
-import type { PoliceUnitsApi } from '@/sim/police/api';
+import { ENCIRCLE_CLOSE_ALL, POLICE_FORMATION_SERVICE, POLICE_UNITS_SERVICE } from '@/sim/police/api';
+import type { PoliceFormationApi, PoliceUnitsApi } from '@/sim/police/api';
 import { createSystems as items } from '@/sim/items';
 import { createSystems as props } from '@/sim/props';
 import { createSystems as hazards } from '@/sim/hazards';
@@ -38,7 +42,14 @@ const VARIANTES = [
   { seed: 19, foule: 70 },
   { seed: 23, foule: 110 },
   { seed: 31, foule: 140 },
+  { seed: 43, foule: 160 },
+  { seed: 5, foule: 100 },
+  { seed: 13, foule: 80 },
 ];
+
+/** Au-delà de ce rayon (m), on a franchi l'anneau (lignes tenues à R + 3 m) ; à moins de PORTE m de la porte, par elle. */
+const DEHORS = R + 8;
+const PORTE = 15;
 
 /** Nasse sur l'esplanade, sortie filtrée, quatre auteurs de faits établis dans la nasse : tous finissent interpellés. */
 async function scenario(seed: number, foule: number): Promise<void> {
@@ -96,10 +107,36 @@ async function scenario(seed: number, foule: number): Promise<void> {
   const ev = evac.list[0]!;
   let dead = 0;
   ctx.events.on('person:down', (e) => { if (e.injury === 'dead') dead++; });
-  for (let s = 0; s < 90 && ev.active; s++) t.step(10);
+  const formation = ctx.require<PoliceFormationApi>(POLICE_FORMATION_SERVICE);
+  let front: string[] = [];
+  // où chaque nassé franchit l'anneau pour la première fois : par la porte, ou ailleurs (fuite)
+  const crossed = new Map<number, { t: number; porte: number; x: number; z: number }>();
+  for (let s = 0; s < 900 && ev.active; s++) {
+    t.step(1);
+    if (s === 40) front = (formation.of(filtre.id, 0)?.front ?? []).map((id) => ctx.people.get(id)?.poste ?? '?');
+    for (const p of inside0) {
+      if (crossed.has(p.id) || p.custody !== 'free' || Math.hypot(p.x - S.x, p.z - S.z) < DEHORS) continue;
+      crossed.set(p.id, { t: s, porte: Math.hypot(p.x - door!.x, p.z - door!.z), x: p.x, z: p.z });
+    }
+  }
+  const leaks = [...crossed].filter(([, c]) => c.porte > PORTE);
+  const byDoor = [...crossed].filter(([, c]) => c.porte <= PORTE).length;
+  const arrested = inside0.filter((p) => p.custody !== 'free').length;
+  for (const p of inside0) {
+    if (crossed.has(p.id) || p.custody !== 'free') continue;
+    const b = core.brain(p);
+    console.log(`  resté : ${p.id} à ${Math.hypot(p.x - S.x, p.z - S.z).toFixed(1)} m du centre, ${p.posture}, état ${b ? b.state : 'parti'}`);
+  }
+  for (const [id, c] of leaks) console.log(`  fuite : ${id} à t+${c.t} s, (${c.x.toFixed(0)}, ${c.z.toFixed(0)}), à ${c.porte.toFixed(0)} m de la porte`);
   const refus = ctx.radio.log.filter((m) => /FILTRE/.test(m.from) && /Aucun binôme/.test(m.text)).length;
-  console.log(`[graine ${seed}, ${foule}] nasse ${inside0.length}, sorties ${ev.out}, interpellations ${ev.arrested}, actif ${ev.active} ; auteurs : ${culprits.map((p) => p.custody).join(', ')} ; refus ${refus}`);
+  console.log(`[graine ${seed}, ${foule}] nasse ${inside0.length}, sorties ${ev.out} (dont ${byDoor} nassés, ${Math.round((100 * byDoor) / inside0.length)} %), interpellations ${ev.arrested}, fuites ${leaks.length}, actif ${ev.active} ; auteurs : ${culprits.map((p) => p.custody).join(', ')} ; refus ${refus}`);
   expect(ev.active).toBe(false);
+  // le barrage filtrant garde son binôme d'interpellation derrière la ligne, prêt à saisir à la porte
+  expect(front.length).toBeGreaterThan(4);
+  expect(front).not.toContain('interpellation');
+  // aucune fuite : chaque nassé est sorti par la porte ou a été interpellé
+  expect(leaks.map(([id]) => id)).toEqual([]);
+  expect(byDoor + arrested).toBe(inside0.length);
   expect(culprits.every((p) => p.custody !== 'free')).toBe(true);
   expect(ev.arrested).toBeGreaterThanOrEqual(culprits.length);
   expect(dead).toBe(0);

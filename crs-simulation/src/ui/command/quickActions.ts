@@ -5,6 +5,9 @@
  *                        au point où se trouve le joueur, liée à l'incident qu'on lui a confié s'il y en a un ;
  *   « Drone »           ouvre ou ferme le retour vidéo du drone (service 'ui.drone') ; montré seulement quand un drone
  *                        de police est engagé dans la session ;
+ *   « À pied » / « En colonne »  ordres « Me suivre à pied » et « Me suivre en colonne (véhicules) » à son unité, pour
+ *                        TOUT policier, qu'il commande ou non (« l'ordre suivre en colonne ou suivre à pied, tu ne l'as
+ *                        pas mis ») — compacts sur écran tactile ;
  *   propositions        le joueur commandant reçoit celles de son adjoint (mise en place du dispositif, fermetures,
  *                        relèves, fin de mission…) : « Accepter » les exécute, « Plus tard » les écarte. Elles
  *                        n'étaient dites qu'à la radio, sans moyen d'y répondre.
@@ -64,9 +67,16 @@ function ensureQuickStyle(): void {
 .cq .cm-btn.is-off{display:none}
 .cq-line{display:flex;gap:6px}
 .cq .cq-drone.is-on{border-color:rgba(255,90,79,.7);background:rgba(60,18,22,.86)}
+.cq .cq-follow{border-color:rgba(120,190,255,.5)}
+.cq-line.is-off{display:none}
 @media (pointer:coarse){.cq .cq-key{display:none}.cq .cm-btn{min-height:44px}}
 `;
   document.head.appendChild(s);
+}
+
+/** Boutons « me suivre » (à pied, en colonne) : montrés à tout policier qui a une unité avec lui. */
+export function followButtonsShown(core: CommandCore): boolean {
+  return core.followUnit() !== null;
 }
 
 export class QuickActionsHud implements HudWidget {
@@ -76,6 +86,9 @@ export class QuickActionsHud implements HudWidget {
   private readonly rescueBtn: HTMLButtonElement;
   private readonly droneBtn: HTMLButtonElement;
   private droneShown = false;
+  /** Ordres « me suivre » (à pied, en colonne) à son unité. */
+  private readonly followLine: HTMLDivElement;
+  private followShown = false;
   private readonly sub: HTMLDivElement;
   private last = -1;
   private open = false;
@@ -135,7 +148,14 @@ export class QuickActionsHud implements HudWidget {
     // « Secours » et « Vue drone » côte à côte : la colonne de gauche ne s'allonge pas (mini-carte au-dessus)
     const line = el('div', 'cq-line');
     line.append(this.rescueBtn, this.droneBtn);
-    this.root.append(this.mapBtn, line, this.sub, this.prop);
+    // les deux ordres « me suivre », côte à côte sous « Secours » (F : roue d'ordres)
+    this.followLine = el('div', 'cq-line is-off');
+    this.followLine.dataset.id = 'hud-follow';
+    this.followLine.append(
+      button('À pied', () => this.callFollow(false), { icon: 'arrow', id: 'quick-follow-foot', className: 'cq-follow', title: 'Me suivre à pied (F : roue d’ordres)' }),
+      button('En colonne', () => this.callFollow(true), { icon: 'road', id: 'quick-follow-column', className: 'cq-follow', title: 'Me suivre en colonne (véhicules) (F : roue d’ordres)' }),
+    );
+    this.root.append(this.mapBtn, line, this.followLine, this.sub, this.prop);
     host.appendChild(this.root);
   }
 
@@ -227,7 +247,24 @@ export class QuickActionsHud implements HudWidget {
       if (key) key.textContent = commander ? 'Tab' : 'M';
     }
     this.refreshDrone();
+    const follow = followButtonsShown(core);
+    if (follow !== this.followShown) {
+      this.followShown = follow;
+      setClass(this.followLine, 'is-off', !follow);
+    }
     this.refreshProposal();
+  }
+
+  /** « Me suivre à pied » / « Me suivre en colonne (véhicules) » à son unité (même ordre que la roue d'ordres). */
+  private callFollow(column: boolean): void {
+    const core = this.core;
+    this.closeRescue();
+    const unit = core.followUnit();
+    const r = core.callFollow(column);
+    if (!r.ok) {
+      core.ctx.ui.notify(r.reason, 'warn', 5);
+      core.ctx.audio.play('ui_alerte');
+    } else core.ctx.ui.notify(`${unit ? unit.name : 'Unité'}\u00a0: ${column ? 'me suivre en colonne (véhicules)' : 'me suivre à pied'}`, 'ok', 2.5);
   }
 
   private droneFeed(): DroneFeedApi | undefined {

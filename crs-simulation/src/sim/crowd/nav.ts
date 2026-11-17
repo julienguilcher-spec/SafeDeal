@@ -9,7 +9,7 @@ import { EXT } from '@/core/extensions';
 import type { CordonsApi } from '@/core/extensions';
 import type { CrowdExit } from './api';
 import type { CrowdBrain } from './brain';
-import { F } from './brain';
+import { F, S } from './brain';
 import type { CrowdCore } from './core';
 import { footAround, pathCrossesCordon } from './detour';
 import * as T from './tuning';
@@ -66,6 +66,18 @@ export class Nav {
       }
     }
     if (!ok || s.length < 6) return null;
+    // d'un point d'une nasse à un autre (vers la porte filtrée) : on reste dans la nasse. Le réseau piéton ne passe
+    // pas au milieu des places : l'itinéraire le plus court sortait par une rue voisine pour revenir à la porte de
+    // l'extérieur — la personne butait contre les lignes de l'anneau (ou une façade) et n'arrivait jamais. On va droit.
+    const kettle = this.core.sense.kettleAt(ax, az, T.KETTLE_EDGE);
+    if (kettle !== null && this.core.sense.kettleAt(bx, bz, T.KETTLE_EDGE) === kettle) {
+      const lim = (kettle.a + T.KETTLE_EDGE + 2) * (kettle.a + T.KETTLE_EDGE + 2);
+      for (let i = 2; i + 1 < s.length; i += 2) {
+        const dx = s[i]! - kettle.x;
+        const dz = s[i + 1]! - kettle.z;
+        if (dx * dx + dz * dz > lim) return null;
+      }
+    }
     const out: number[] = [];
     for (let i = 2; i < s.length; i += 2) {
       const x = s[i]!;
@@ -105,9 +117,13 @@ export class Nav {
       b.pathPending = false;
       if (b.index < 0) continue;
       const p = b.person;
-      // le groupe partage l'itinéraire de celui qui l'a demandé en premier
+      // le groupe partage l'itinéraire de celui qui l'a demandé en premier — vers l'issue par laquelle il s'en va, et
+      // seulement pour qui s'en va par elle (une personne nassée qui va faire la queue à la porte filtrée gardait
+      // l'issue de son départ manqué : on lui donnait l'itinéraire du groupe vers cette issue, de l'autre côté de
+      // l'anneau, et elle oscillait sur place entre les deux buts sans jamais rejoindre la porte)
       const g = b.group >= 0 ? this.core.groups[b.group] : undefined;
-      if (g && g.path && g.exit === b.exit && b.exit >= 0) {
+      const leaving = b.state === S.LEAVE && b.exit >= 0;
+      if (g && g.path && g.exit === b.exit && leaving) {
         b.path = g.path;
         b.pathI = this.entryIndex(g.path, p.x, p.z);
         continue;
@@ -116,7 +132,7 @@ export class Nav {
       const cordons = (b.flags & F.BYSTANDER) !== 0 ? this.core.ctx.service<CordonsApi>(EXT.cordons) : undefined;
       b.path = this.compute(p.x, p.z, b.tx, b.tz, !!cordons && !!cordons.passerby && cordons.passerby(p));
       b.pathI = 0;
-      if (g && b.exit >= 0) {
+      if (g && leaving) {
         g.path = b.path;
         g.exit = b.exit;
       }

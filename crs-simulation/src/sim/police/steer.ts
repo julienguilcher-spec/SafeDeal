@@ -253,9 +253,22 @@ export function navigate(k: Kernel, a: Agent, tx: number, tz: number, interval: 
     if (ctx.vehicles.raycast(p.x, p.z, p.x + ux * reach, p.z + uz * reach, hit, 'move') && hit.hit && hit.id !== a.boardId) {
       const v = ctx.vehicles.get(hit.id);
       if (v) cornerDetour(k, a, v.x, v.z, v.def.width * 0.5, v.def.length * 0.5, v.heading, tx, tz);
-    } else if (ctx.props.raycast(p.x, p.z, p.x + ux * reach, p.z + uz * reach, hit, 'move') && hit.hit && hit.height > 0.9 && hit.t * reach < d - 1) {
-      const prop = ctx.props.get(hit.id);
-      if (prop) cornerDetour(k, a, prop.x, prop.z, prop.halfX, prop.halfZ, prop.heading, tx, tz);
+    } else if (
+      // pas pendant un enjambement ni juste après : en l'air au-dessus de la barrière, l'agent « voyait » encore
+      // celle-ci en travers, prenait un contournement par son coin, retombait de l'autre côté… puis revenait vers ce
+      // coin et restait collé à la barrière (cinq agents d'une section sur seize, derrière une rue fermée)
+      k.now - a.vaultAt >= VAULT_SETTLE &&
+      ctx.props.raycast(p.x, p.z, p.x + ux * reach, p.z + uz * reach, hit, 'move') && hit.hit && hit.height > 0.9 && hit.t * reach < d - 1
+    ) {
+      // obstacle bas déjà contourné par un coin il y a un instant et toujours en travers (ligne de barrières
+      // jointives : le coin de l'une est dans la suivante) : plus de contournement, l'agent va droit dessus et
+      // l'enjambe — il oscillait sinon d'un coin à l'autre de la barrière sans jamais piétiner assez pour sauter
+      const again = hit.height <= VAULT_HEIGHT && k.now - a.detourAt < DETOUR_RETRY;
+      const prop = again ? undefined : ctx.props.get(hit.id);
+      if (prop) {
+        cornerDetour(k, a, prop.x, prop.z, prop.halfX, prop.halfZ, prop.heading, tx, tz);
+        a.detourAt = k.now;
+      }
     }
   }
   // piétinement : l'agent veut avancer mais n'avance pas
@@ -305,6 +318,10 @@ export function navigate(k: Kernel, a: Agent, tx: number, tz: number, interval: 
 const VAULT_HEIGHT = 1.15;
 /** Portée de la recherche d'un obstacle à enjamber devant l'agent (m). */
 const VAULT_LOOK = 1.2;
+/** Après un enjambement, délai sans nouveau contournement de mobilier (s) : le temps de franchir et de se recevoir. */
+const VAULT_SETTLE = 1.5;
+/** Délai pendant lequel un obstacle bas encore en travers après un contournement est enjambé au lieu d'être contourné (s). */
+const DETOUR_RETRY = 8;
 
 /**
  * Obstacle bas (barrière Vauban, banc, jardinière) juste devant l'agent, vers son but : il l'enjambe (cmd.jump,
@@ -331,6 +348,7 @@ function vaultOver(k: Kernel, a: Agent, tx: number, tz: number): boolean {
   a.pathN = 0;
   a.sideUntil = 0;
   a.avoidUntil = 0;
+  a.vaultAt = k.now;
   p.cmd.jump = true;
   return true;
 }

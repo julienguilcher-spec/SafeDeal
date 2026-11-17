@@ -14,7 +14,7 @@
  * Fin : quand la nasse est vide (20 s sans personne), ou quand l'unité qui filtre reçoit un autre ordre.
  * ===================================================================================== */
 
-import type { EntityId, GameContext, GameSystem, Person, SquadOrder, Vec2 } from '@/core/contracts';
+import type { EntityId, GameContext, GameSystem, Person, SquadOrder, Vec2, Vehicle } from '@/core/contracts';
 import { SystemOrder } from '@/core/contracts';
 import { CROWD_EVACUATIONS, CROWD_EVACUATION_SYSTEM, EVACUATION_EVENT } from './api';
 import type { BehaviorController, EvacuationView, EvacuationsApi } from './api';
@@ -70,6 +70,8 @@ interface Evac {
   seen: Set<EntityId>;
   /** Instant de la fin de l'évacuation (−1 tant qu'elle dure). */
   endedAt: number;
+  /** Personnes déjà sorties par la porte (comptées une seule fois). */
+  released: Set<EntityId>;
 }
 
 interface Tie {
@@ -96,6 +98,7 @@ export class EvacuationSystem implements GameSystem {
   private nextId = 1;
   private readonly buf: Person[] = [];
   private readonly v2: Vec2 = { x: 0, z: 0 };
+  private readonly vbuf: Vehicle[] = [];
   private readonly controller: BehaviorController;
   private readonly api: EvacuationsApi;
 
@@ -216,7 +219,7 @@ export class EvacuationSystem implements GameSystem {
     }
     const ev: Evac = {
       view, radius: best.a, ox, oz, lanes: new Array<EntityId>(LANES).fill(0), queue: [], arrests: [], arrestAt: -1e9, arrestId: 0,
-      emptySince: -1, nextReport: now + 45, exitIndex, ready: false, startedAt: now, seen: new Set(), endedAt: -1,
+      emptySince: -1, nextReport: now + 45, exitIndex, ready: false, startedAt: now, seen: new Set(), endedAt: -1, released: new Set(),
     };
     this.evacs.push(ev);
     this.views.push(view);
@@ -262,7 +265,7 @@ export class EvacuationSystem implements GameSystem {
 
   private inside(ev: Evac, p: Person): boolean {
     const v = ev.view;
-    return Math.hypot(p.x - v.kettleX, p.z - v.kettleZ) <= ev.radius + 4;
+    return Math.hypot(p.x - v.kettleX, p.z - v.kettleZ) <= ev.radius + T.KETTLE_EDGE;
   }
 
   private step(ev: Evac, now: number): void {
@@ -270,7 +273,8 @@ export class EvacuationSystem implements GameSystem {
     const core = this.core;
     const v = ev.view;
     // personnes encore dans la nasse
-    const n = ctx.people.queryRadius(v.kettleX, v.kettleZ, ev.radius + 4, this.buf);
+    // (lisière comprise : la foule s'y sait encore nassée, behavior.kettled)
+    const n = ctx.people.queryRadius(v.kettleX, v.kettleZ, ev.radius + T.KETTLE_EDGE, this.buf);
     let waiting = 0;
     const free: Person[] = [];
     for (let i = 0; i < n; i++) {
@@ -398,9 +402,24 @@ export class EvacuationSystem implements GameSystem {
     }
   }
 
-  /** Reste-t-il une personne retenue ou recherchée à interpeller ? */
+  /**
+   * Reste-t-il une personne retenue ou recherchée à interpeller, ou une personne contrôlée qui n'a pas encore passé la
+   * porte ? (Sans cette dernière condition, l'évacuation se terminait pendant que le dernier contrôlé — contrôlé dans
+   * la file, à vingt mètres de la porte, faute de pouvoir l'atteindre — traversait encore la nasse : rendu à lui-même,
+   * il y restait, sans plus personne pour le faire sortir.)
+   */
   private pending(ev: Evac): boolean {
-    for (const t of this.ties.values()) if (t.e === ev && (t.role === 'hold' || t.role === 'wanted')) return true;
+    const v = ev.view;
+    for (const [id, t] of this.ties) {
+      if (t.e !== ev) continue;
+      if (t.role === 'hold' || t.role === 'wanted') return true;
+      if (t.role !== 'out') continue;
+      const p = this.ctx.people.get(id);
+      // (à terre, tenu ou à bord d'un véhicule, il ne marche plus vers la porte ; au-delà du délai de sortie, il est
+      // rendu à lui-même : on ne l'attend pas indéfiniment)
+      if (!p || p.custody !== 'free' || p.posture === 'down' || p.heldBy !== 0 || p.vehicleId !== 0) continue;
+      if ((p.x - v.x) * ev.ox + (p.z - v.z) * ev.oz < 2 && this.core.now - t.since < 150) return true;
+    }
     return false;
   }
 
@@ -480,7 +499,11 @@ export class EvacuationSystem implements GameSystem {
     t.lastX = p.x;
     t.lastZ = p.z;
     t.lastAt = now;
-    t.e.view.out++;
+    // chacun n'est compté qu'une fois, même revenu dans la nasse après sa sortie (la file le reprend alors)
+    if (!t.e.released.has(p.id)) {
+      t.e.released.add(p.id);
+      t.e.view.out++;
+    }
     const b = brainOf(p);
     if (b && b.group >= 0) {
       const g = this.core.groups[b.group];
@@ -552,11 +575,15 @@ export class EvacuationSystem implements GameSystem {
           b.leaveAt = Math.min(b.leaveAt, now);
           b.dir = NaN;
           b.nextThink = now + 0.2;
+          // on s'en va par l'issue de l'autre côté de la porte (sinon l'issue « la plus proche » pouvait être de
+          // l'autre côté de la nasse : on y retournait, on refaisait la queue — et l'on était compté deux fois)
+          if (ev.exitIndex >= 0 && b.state !== S.LEAVE) core.behavior.startLeaving(p, b, ev.exitIndex);
           return false;
         }
         const tx = ahead < 1 ? v.x + ev.ox * 2 : v.x + ev.ox * (CLEAR + 8);
         const tz = ahead < 1 ? v.z + ev.oz * 2 : v.z + ev.oz * (CLEAR + 8);
         core.steering.goTo(p, b, tx, tz, T.WALK_MAX * b.pace, false);
+        if (ahead < -6) this.unstick(p, b, tx, tz);
         // coincé dans la ligne : les agents de la porte le font passer
         if (Math.hypot(p.x - t.lastX, p.z - t.lastZ) > 0.5) {
           t.lastX = p.x;
@@ -573,14 +600,69 @@ export class EvacuationSystem implements GameSystem {
 
   private goNear(p: Person, b: CrowdBrain, x: number, z: number, speed: number): void {
     const d = Math.hypot(x - p.x, z - p.z);
-    if (d > 0.6) this.core.steering.goTo(p, b, x, z, d > 6 ? T.WALK_MAX * b.pace : speed, false);
-    else {
+    if (d > 0.6) {
+      this.core.steering.goTo(p, b, x, z, d > 6 ? T.WALK_MAX * b.pace : speed, false);
+      if (d > 3) this.unstick(p, b, x, z);
+    } else {
       b.path = null;
       b.tx = p.x;
       b.tz = p.z;
     }
     if (b.state === S.STRANDED) b.timer = this.core.now + 5;
     b.flags &= ~F.PINNED;
+  }
+
+  /**
+   * Bloqué en chemin vers la porte (voiture garée sur l'esplanade, fourgon, mobilier) : on le contourne par le côté le
+   * plus dégagé. (Sans cela, une personne collée contre une voiture garée entre elle et la porte y restait jusqu'à la
+   * fin : contrôlée « à distance » au bout de 25 s, renvoyée vers la porte, toujours bloquée — l'évacuation ne finissait
+   * jamais.)
+   */
+  private unstick(p: Person, b: CrowdBrain, x: number, z: number): void {
+    const core = this.core;
+    const now = core.now;
+    if (!core.behavior.stalled(p, b, now, 2.5)) return;
+    b.stuckSince = now;
+    b.stuck++;
+    const ctx = this.ctx;
+    let ux = x - p.x;
+    let uz = z - p.z;
+    const ul = Math.hypot(ux, uz) || 1;
+    ux /= ul;
+    uz /= ul;
+    // obstacle : le véhicule le plus proche s'il y en a un tout près, sinon un pas de côté
+    let cx = p.x;
+    let cz = p.z;
+    let around = 1.6;
+    const n = ctx.vehicles.queryRadius(p.x, p.z, 5, this.vbuf);
+    let best = Infinity;
+    for (let i = 0; i < n; i++) {
+      const v = this.vbuf[i]!;
+      if (v.def.flying) continue;
+      const dv = Math.hypot(v.x - p.x, v.z - p.z);
+      if (dv < best) {
+        best = dv;
+        cx = v.x;
+        cz = v.z;
+        around = Math.hypot(v.def.length, v.def.width) * 0.5 + 1.2;
+      }
+    }
+    this.vbuf.length = 0;
+    const first = b.stuck % 2 === 0 ? 1 : -1;
+    for (let k = 0; k < 2; k++) {
+      const side = k === 0 ? first : -first;
+      // contourner : se décaler sur le flanc, un peu en avant vers la porte
+      const wx = cx - uz * side * around + ux * around * 0.6;
+      const wz = cz + ux * side * around + uz * around * 0.6;
+      if (!ctx.world.isFree(wx, wz, 0.4)) continue;
+      this.v2.x = wx;
+      this.v2.z = wz;
+      if (ctx.vehicles.resolveCircle(this.v2, 0.4)) continue;
+      b.path = [wx, wz];
+      b.pathI = 0;
+      b.pathPending = false;
+      return;
+    }
   }
 
   /** Passage de la porte : la personne est conduite de l'autre côté de la ligne (premier point libre). */

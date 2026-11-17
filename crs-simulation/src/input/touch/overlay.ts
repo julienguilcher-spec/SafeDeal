@@ -19,7 +19,7 @@ import type { InputCore } from '../core';
 import { SRC_TOUCH, clearSourceAxes, createSourceAxes } from '../merge';
 import type { SourceAxes } from '../merge';
 import { CONTROLS, ICONS, ITEM_BAR, STICKS, overlayScale } from './layouts';
-import type { ControlSpec, GameLayout, StickSpec } from './layouts';
+import type { ControlSpec, GameLayout, StickSpec, TouchSeatInfo } from './layouts';
 import { STYLE_ID, TOUCH_CSS } from './style';
 
 /** Rotation par pixel de glissement à sensibilité 1 (rad) ; le vertical est un peu moins vif. */
@@ -103,6 +103,8 @@ export class TouchOverlay {
   private readonly probeEl: HTMLDivElement;
   private itemEls: HTMLElement[] = [];
   private itemActive = -1;
+  /** Équipement appliqué aux pastilles (bits : masque 1, visière 2, lampe 4 ; −1 : jamais appliqué). */
+  private gearBits = -1;
 
   private readonly stick: VirtualStick = { x: 0, y: 0, knobX: 0, knobY: 0, full: false };
   private readonly tuning: VirtualStickTuning = { radius: 62, ...TOUCH_STICK };
@@ -176,7 +178,8 @@ export class TouchOverlay {
       const c = CONTROLS[i]!;
       this.controlButton[i] = c.button ? BUTTON_INDEX[c.button] : -1;
       const el = doc.createElement('div');
-      el.className = `ct-c ct-${c.shape} ct-l-${c.layout} ct-k-${c.key}` + (c.accent ? ' ct-accent' : '') + (c.label.indexOf(' ') >= 0 && !c.contextual ? ' ct-w2' : '');
+      el.className = `ct-c ct-${c.shape} ct-l-${c.layout} ct-k-${c.key}` + (c.accent ? ' ct-accent' : '') + (c.label.indexOf(' ') >= 0 && !c.contextual ? ' ct-w2' : '')
+        + (c.seat === 'conduite' ? ' ct-drv' : c.seat === 'arme' ? ' ct-gun' : '');
       el.dataset.ct = (c.pedal ? 'p' : 'b') + i;
       el.setAttribute('role', 'button');
       el.setAttribute('aria-label', c.label);
@@ -295,6 +298,34 @@ export class TouchOverlay {
       el.setAttribute('aria-label', label);
       el.classList.toggle('is-ctx', text !== null);
       el.classList.toggle('is-dim', text === null && c.key === 'interact');
+    }
+  }
+
+  /**
+   * Place à bord et équipement : attributs de la racine (data-seat, data-arme, data-sirene, data-gyro) lus par la
+   * feuille de style, et pastilles d'équipement sans objet masquées (classe ct-na, distincte de ct-off que pose
+   * setButtonVisible). Écritures seulement quand quelque chose change.
+   */
+  setPlace(seat: TouchSeatInfo, gear: { mask: boolean; visor: boolean; flashlight: boolean }): void {
+    const d = this.root.dataset;
+    const arme = seat.armed ? '1' : '0';
+    const sirene = seat.siren ? '1' : '0';
+    const gyro = seat.beacons ? '1' : '0';
+    if (d.seat !== seat.seat) {
+      // le conducteur qui devient passager ne doit pas garder l'accélérateur enfoncé
+      if (d.seat !== undefined) this.cancelAll();
+      d.seat = seat.seat;
+    }
+    if (d.arme !== arme) d.arme = arme;
+    if (d.sirene !== sirene) d.sirene = sirene;
+    if (d.gyro !== gyro) d.gyro = gyro;
+    const g = (gear.mask ? 1 : 0) | (gear.visor ? 2 : 0) | (gear.flashlight ? 4 : 0);
+    if (g === this.gearBits) return;
+    this.gearBits = g;
+    for (let i = 0; i < CONTROLS.length; i++) {
+      const b = CONTROLS[i]!.button;
+      const na = (b === 'mask' && !gear.mask) || (b === 'visor' && !gear.visor) || (b === 'flashlight' && !gear.flashlight);
+      this.controlEls[i]!.classList.toggle('ct-na', na);
     }
   }
 

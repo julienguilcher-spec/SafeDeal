@@ -75,6 +75,8 @@ describe('mise en place derrière une rue fermée', () => {
     const far = ppl.map((p) => Math.round(Math.hypot(p.x - DOOR.x, p.z - DOOR.z)));
     console.log('filtrer derrière des barrières — distances au poste :', far.join(','), '| en place avec', placedNear, 'agents à moins de 3 m de leur emplacement');
     expect(placedNear).toBeGreaterThanOrEqual(Math.ceil(ppl.length * 0.75));
+    // personne ne reste collé aux barrières (20 m avant le poste) : chacun les a enjambées
+    expect(Math.max(...far)).toBeLessThan(12);
     expect(ctx.radio.log.some((m) => m.from === 'FILTRE' && /Barrage filtrant en place/.test(m.text))).toBe(true);
   }, 300000);
 

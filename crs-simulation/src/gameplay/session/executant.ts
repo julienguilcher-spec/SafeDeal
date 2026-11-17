@@ -305,16 +305,18 @@ const STOPPED_SECONDS = 10;
 
 /**
  * État du départ en une ligne (fonction pure) : « Embarquement : 5 / 7 à bord — départ dès que tout le monde est à
- * bord », « Départ dans 12 s », « La colonne part », « En route — 1,2 km, environ 3 min », « Débarquement »… ; '' quand
+ * bord », « départ dans 12 s au plus tard », « La colonne part », « En route — 1,2 km, environ 3 min », « Débarquement »… ; '' quand
  * il n'y a rien à dire.
  */
 export function departureLine(f: DepartureFacts): string {
   const boarding = (word: string): string => {
     const count = f.total > 0 ? `${word} : ${Math.min(f.aboard, f.total)} / ${f.total} à bord` : word;
-    if (f.departIn >= 0) return `${count} — départ dans ${Math.max(1, Math.ceil(f.departIn))} s`;
+    // tant que le joueur est à pied, c'est lui qu'on attend : le délai publié par la colonne est un « au plus tard »
+    // (jusqu'à cinq minutes), pas un compte à rebours — l'afficher ferait croire qu'on ne part que dans cinq minutes
     if (f.playerAfoot && f.total > 0 && f.aboard >= f.total - 1) return `${count} — on n’attend plus que vous`;
     if (f.playerAfoot) return `${count} — la colonne vous attend`;
     if (f.total > 0 && f.aboard >= f.total) return `${count} — départ au signal du chef de colonne`;
+    if (f.departIn > 0) return `${count} — départ dans ${Math.ceil(f.departIn)} s au plus tard`;
     return `${count} — départ dès que tout le monde est à bord`;
   };
   switch (f.stage) {

@@ -10,8 +10,8 @@ import { BUTTON_COUNT, BUTTON_INDEX, buttonIndex } from '../buttons';
 import type { InputCore } from '../core';
 import { createSourceAxes } from '../merge';
 import type { SourceAxes } from '../merge';
-import { ITEM_BAR } from './layouts';
-import type { GameLayout } from './layouts';
+import { ITEM_BAR, touchSeatInfo } from './layouts';
+import type { GameLayout, TouchSeatInfo } from './layouts';
 import { TouchOverlay } from './overlay';
 
 export interface TouchEnv {
@@ -23,6 +23,16 @@ export interface TouchEnv {
 }
 
 const NO_AXES: SourceAxes = createSourceAxes();
+/** Coiffes à visière (même liste que hasVisor, src/sim/people/gear.ts). */
+const VISOR_HEADGEAR: readonly string[] = ['casque_crs', 'casque_gendarme', 'casque_moto', 'casque_pompier'];
+
+/** Équipement dont dépendent les pastilles « Masque », « Visière » et « Lampe » (disposition à pied). */
+export interface TouchGear {
+  mask: boolean;
+  visor: boolean;
+  flashlight: boolean;
+}
+
 /** Période de relecture de l'inventaire pour la barre d'objets automatique (s). */
 const ITEMS_PERIOD = 0.2;
 
@@ -33,6 +43,16 @@ export class TouchController implements InputTouchApi {
   overlay: TouchOverlay | null = null;
   /** Incrémenté quand la disposition affichée change (libellés). */
   version = 0;
+  /** Place à bord (disposition véhicule) : un passager n'a ni volant, ni pédales, ni avertisseurs. */
+  readonly seat: TouchSeatInfo = { seat: 'conducteur', armed: true, siren: true, beacons: true };
+  /**
+   * Pastilles d'équipement utiles à la personne incarnée : un manifestant n'a pas de visière, un CRS pas de
+   * lampe torche… Un bouton qui ne peut que répondre « vous n'en avez pas » n'a pas sa place à l'écran.
+   */
+  readonly gear: TouchGear = { mask: true, visor: true, flashlight: true };
+  /** Véhicule et place dont `seat` est la lecture (évite de la refaire à chaque image). */
+  private placeVehicle: object | null = null;
+  private placeSeat = -1;
 
   private readonly env: TouchEnv;
   private forced: boolean | null = null;
@@ -168,11 +188,13 @@ export class TouchController implements InputTouchApi {
     }
     const visible = layout !== 'cache' && (this.forced ?? device === 'touch');
     this.visible = visible;
+    if (visible) this.readPlace(layout);
     const o = this.overlay;
     if (!o) return;
     o.setLayout(layout);
     o.setVisible(visible);
     if (!visible) return;
+    o.setPlace(this.seat, this.gear);
 
     const ctx = this.env.ctx;
     const label = this.explicitLabel ?? ctx.player.state.prompt?.label ?? null;
@@ -182,6 +204,55 @@ export class TouchController implements InputTouchApi {
     }
     if (layout === 'pied') this.updateItems(dt);
     o.sync();
+  }
+
+  /** Place à bord et équipement de la personne incarnée (sans allocation : écrit dans seat et gear). */
+  private readPlace(layout: TouchLayout): void {
+    const ctx = this.env.ctx;
+    const person = ctx.player.person();
+    const seat = this.seat;
+    const vehicle = layout === 'vehicule' && person ? ctx.player.vehicle() : null;
+    if (vehicle && person) {
+      const index = typeof person.seat === 'number' ? person.seat : 0;
+      // relue seulement quand le véhicule ou la place change
+      if (vehicle !== this.placeVehicle || index !== this.placeSeat) {
+        this.placeVehicle = vehicle;
+        this.placeSeat = index;
+        const info = touchSeatInfo(vehicle, index);
+        seat.seat = info.seat;
+        seat.armed = info.armed;
+        seat.siren = info.siren;
+        seat.beacons = info.beacons;
+      }
+    } else {
+      this.placeVehicle = null;
+      this.placeSeat = -1;
+      seat.seat = 'conducteur';
+      seat.armed = true;
+      seat.siren = true;
+      seat.beacons = true;
+    }
+    const gear = this.gear;
+    const look = person ? person.look : undefined;
+    if (!person || !look) {
+      gear.mask = true;
+      gear.visor = true;
+      gear.flashlight = true;
+      return;
+    }
+    let mask = look.gasMask === true;
+    let lamp = false;
+    const inv = person.inventory;
+    if (inv) {
+      for (let i = 0; i < inv.length; i++) {
+        const id = inv[i]!.id;
+        if (id === 'masque_gaz') mask = true;
+        else if (id === 'lampe') lamp = true;
+      }
+    }
+    gear.mask = mask;
+    gear.visor = VISOR_HEADGEAR.indexOf(look.headgear) >= 0;
+    gear.flashlight = lamp;
   }
 
   private resolveLayout(): TouchLayout {

@@ -33,6 +33,8 @@ export const CSS_HUD = `
   top: calc(8px * var(--ts) + var(--ui-safe-t)); max-width: calc(100vw - 586px * var(--ts)); }
 .ui-hud[data-touch="pied"] .hud-slot--top-right, .ui-hud[data-touch="vehicule"] .hud-slot--top-right {
   right: calc(12px * var(--ts) + var(--ui-safe-r)); top: calc(116px * var(--ts) + var(--ui-safe-t)); }
+/* en véhicule, la pastille « Sortir » occupe 113…159 sous les boutons système */
+.ui-hud[data-touch="vehicule"] .hud-slot--top-right { top: calc(166px * var(--ts) + var(--ui-safe-t)); }
 .ui-hud[data-touch="drone"] .hud-slot--top-right { right: calc(12px * var(--ts) + var(--ui-safe-r)); top: calc(64px * var(--ts) + var(--ui-safe-t)); }
 .ui-hud[data-touch="pied"] .hud-slot--left, .ui-hud[data-touch="vehicule"] .hud-slot--left, .ui-hud[data-touch="drone"] .hud-slot--left {
   left: calc(210px * var(--ts) + var(--ui-safe-l)); }

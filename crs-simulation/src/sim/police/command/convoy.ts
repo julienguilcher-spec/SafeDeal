@@ -56,6 +56,11 @@ interface Convoy {
   routeLen: number;
   /** Prochain nouvel itinéraire possible de la tête arrêtée par la foule (s). */
   rerouteAt: number;
+  /** Tête de colonne : dernière position où elle bougeait et depuis quand elle n'en a pas bougé ; redémarrages. */
+  stallX: number;
+  stallZ: number;
+  stallAt: number;
+  restarts: number;
 }
 
 /** Attente maximale du joueur avant que la colonne parte sans lui (s), et intervalle des rappels radio. */
@@ -123,9 +128,10 @@ export class ConvoyControl {
     let c = this.of(squadId);
     if (!c) {
       c = {
-        status: { squadId, stage: 'route', vehicles: 0, parked: 0, alignError: -1, headingError: -1, t0: this.core.now },
+        status: { squadId, stage: 'route', vehicles: 0, parked: 0, alignError: -1, headingError: -1, t0: this.core.now, aboard: 0, total: 0, departIn: 0, awaitingPlayer: false, remaining: 0, route: [] },
         vehicles: [], dest: { x: 0, z: 0, heading: 0 }, hasDest: false, exitX: 0, exitZ: 0, hasExit: false, stageT: this.core.now,
         fromX: 0, fromZ: 0, orderDone: false, stragglersAt: 0, boarding: false, waitSince: 0, remindAt: 0, solo: [], unstuckAt: 0, staggerIdx: 0, staggerAt: 0, startX: [], startZ: [], zones: [], zonesAt: 0, routeLen: -1, rerouteAt: 0,
+        stallX: 0, stallZ: 0, stallAt: 0, restarts: 0,
       };
       this.list.push(c);
     }
@@ -260,6 +266,8 @@ export class ConvoyControl {
     c.hasDest = true;
     c.routeLen = -1;
     c.orderDone = false;
+    c.stallAt = 0;
+    c.restarts = 0;
     c.status.t0 = core.now;
     c.status.parked = 0;
     c.status.alignError = -1;
@@ -314,6 +322,7 @@ export class ConvoyControl {
     c.boarding = false;
     c.stageT = core.now;
     c.routeLen = -1;
+    c.stallAt = 0;
     const squad = core.ctx.squads.get(c.status.squadId);
     if (ap && c.vehicles.length > 0 && c.dest.stagger) {
       c.staggerIdx = 0;
@@ -574,7 +583,28 @@ export class ConvoyControl {
       ap.reroute(lead, undefined, this.crowdZones(c));
     }
     const st = ap.status(lead);
-    const arrived = st.state === 'arrive' || st.mode === 'idle';
+    const leadToDest = Math.hypot(lead.x - c.dest.x, lead.z - c.dest.z);
+    // tête immobile (à 4 m près) depuis combien de temps : manœuvres sur place comprises
+    if (c.stallAt === 0 || Math.hypot(lead.x - c.stallX, lead.z - c.stallZ) > 4) {
+      c.stallX = lead.x;
+      c.stallZ = lead.z;
+      c.stallAt = now;
+    }
+    // pilote de tête au repos loin du point (rendu la main, itinéraire abandonné) alors qu'il reste de la route : ce n'est
+    // pas une arrivée — la colonne repart vers le point (comme un véhicule sorti de la colonne), trois fois au plus
+    if (st.mode === 'idle' && st.state !== 'arrive' && leadToDest > 90 && c.restarts < 3 && now >= c.unstuckAt) {
+      c.restarts++;
+      c.unstuckAt = now + 10;
+      for (const v of c.solo) if (c.vehicles.indexOf(v) < 0) c.vehicles.push(v);
+      c.solo.length = 0;
+      if (ap.convoy(c.vehicles, c.dest.x, c.dest.z, { gap: core.tuning.convoyGap, speed: urgentSpeed(core), urgence: true, avoid: this.crowdZones(c) })) return;
+    }
+    // tête arrivée à quelques dizaines de mètres du point mais arrêtée là (mobilier, véhicule, manœuvre sans fin sur
+    // ses derniers mètres) : la colonne est arrivée, elle se gare — sans attendre qu'un demi-tour sur la place la
+    // retourne nez à nez avec ses propres fourgons (elle ne pourrait plus repartir)
+    const parkedNear = leadToDest < 60 && Math.abs(lead.speed) < 0.5 && st.state !== 'en_route'
+      && (now - c.stallAt > 15 || ((st.state === 'bloque' || st.state === 'attente') && st.blockedFor > 6));
+    const arrived = st.state === 'arrive' || parkedNear || (st.mode === 'idle' && (leadToDest <= 90 || c.restarts >= 3));
     const max = this.routeMax(c, 420);
     const stuck = st.state === 'echec' || (st.state === 'bloque' && st.blockedFor > 40) || now - c.stageT > max;
     if (!arrived && !stuck) return;
@@ -635,13 +665,22 @@ export class ConvoyControl {
     }
     let parked = 0;
     let failed = 0;
+    const now = this.core.now;
+    if (c.stallAt < c.stageT) c.stallAt = c.stageT;
     for (let i = 0; i < c.vehicles.length; i++) {
-      const st = ap.status(c.vehicles[i]);
+      const v = c.vehicles[i];
+      const st = ap.status(v);
       if (st.state === 'arrive' || st.mode === 'idle') parked++;
       else if (st.state === 'echec') failed++;
+      // (un véhicule qui roule ou manœuvre réellement : le stationnement avance)
+      if (Math.abs(v.speed) > 0.3) c.stallAt = now;
     }
     c.status.parked = parked;
-    if (parked + failed < c.vehicles.length && this.core.now - c.stageT < 300) return;
+    // plus rien ne bouge depuis 20 s (chacun attend un voisin qui l'attend lui-même, mobilier sur une place) : les
+    // véhicules restent où ils sont, en file le long de la voie, et l'on débarque — pas cinq minutes d'attente
+    const deadlock = now - c.stallAt > 20;
+    if (parked + failed < c.vehicles.length && now - c.stageT < 300 && !deadlock) return;
+    if (parked + failed < c.vehicles.length) for (const v of c.vehicles) ap.stop(v);
     this.measure(c);
     this.beginDisembark(c);
   }
@@ -805,6 +844,52 @@ export class ConvoyControl {
         case 'depart': this.thinkLeave(c); break;
         default: break;
       }
+      this.publish(c);
+    }
+  }
+
+  /**
+   * État lisible du départ et du trajet (carte de mission du joueur, GPS) : agents à bord sur agents attendus, délai
+   * maximal avant le départ, distance et itinéraire restants de la tête. Relu deux fois par seconde.
+   */
+  private publish(c: Convoy): void {
+    const core = this.core;
+    const st = c.status;
+    const now = core.now;
+    const waiting = (st.stage === 'route' && c.boarding) || st.stage === 'rembarquement';
+    const moving = (st.stage === 'route' && !c.boarding) || st.stage === 'depart';
+    if (waiting || moving) {
+      const n = core.members(st.squadId, core.people);
+      let aboard = 0;
+      let total = 0;
+      for (let i = 0; i < n; i++) {
+        const p = core.people[i];
+        if (p.posture === 'down' || p.custody !== 'free') continue;
+        total++;
+        if (p.vehicleId !== 0) aboard++;
+      }
+      st.aboard = aboard;
+      st.total = total;
+    }
+    st.awaitingPlayer = waiting && c.waitSince > 0;
+    if (waiting) {
+      // l'ordre d'embarquer, puis les retardataires, puis le joueur : la colonne part au plus tard au bout du plus long
+      let left = !c.orderDone && now - c.stageT < BOARD_MAX ? BOARD_MAX - (now - c.stageT) : 0;
+      if (c.stragglersAt > 0 && now - c.stragglersAt < STRAGGLERS_MAX) left = Math.max(left, STRAGGLERS_MAX - (now - c.stragglersAt));
+      if (c.waitSince > 0) left = Math.max(left, PLAYER_WAIT - (now - c.waitSince));
+      st.departIn = Math.max(0, Math.ceil(left));
+    } else {
+      st.departIn = 0;
+    }
+    const route = st.route ?? (st.route = []);
+    const ap = core.autopilot;
+    const lead = c.vehicles[0];
+    if (moving && ap && lead) {
+      st.remaining = ap.status(lead).remaining;
+      if (!ap.plannedPath || !ap.plannedPath(lead, route)) route.length = 0;
+    } else {
+      st.remaining = 0;
+      route.length = 0;
     }
   }
 

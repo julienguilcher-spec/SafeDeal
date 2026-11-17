@@ -101,6 +101,8 @@ export class ApState {
   replans = 0;
   /** Reculs pour prendre l'angle, nez contre un véhicule arrêté (sortie d'un stationnement en bloc ; compteur). */
   nudges = 0;
+  /** Le véhicule qui me suit en colonne m'a déjà rejoint une fois (je l'attends s'il décroche). */
+  behindJoined = false;
   // ── demi-tour ──
   /** 0 aucun, 1 marche avant braquée, 2 marche arrière contre-braquée. */
   uturn = 0;
@@ -191,6 +193,7 @@ export class ApState {
     this.avoidWaitT = 0;
     this.replans = 0;
     this.nudges = 0;
+    this.behindJoined = false;
     this.uturn = 0;
     this.uturnMoves = 0;
     this.laneT = 0;

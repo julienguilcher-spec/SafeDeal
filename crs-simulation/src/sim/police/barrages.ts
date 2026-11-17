@@ -272,7 +272,12 @@ export class Cordons implements CordonsApi {
     const rz = Math.sin(g.ah);
     const world = k.ctx.world;
     const hit = k.hit;
-    const gap2 = T.CORDON_GAP * T.CORDON_GAP;
+    // ligne d'une nasse : tenue jusqu'à l'intervalle d'une ligne lâche (l'encerclement répartit son effectif jusqu'à
+    // SPACING_MAX ; une issue ainsi tenue est fermée — police.encerclement). Avec le seul CORDON_GAP, aucun tronçon de
+    // l'anneau n'existait : les nassés passaient entre deux agents de toute ligne d'encerclement.
+    const ring = u.order !== null && u.order.type === 'encercler';
+    const gapMax = ring ? T.SPACING_MAX + 0.2 : T.CORDON_GAP;
+    const gap2 = gapMax * gapMax;
     const admit = letsPassersby(u);
     let first = -1;
     let prev = -1;

@@ -272,7 +272,8 @@ describe('« Ma mission » : l’ordre du chef et le départ de la colonne, vus 
   it('ligne de départ (fonction pure) : chaque étape a sa phrase, les nombres sont ceux donnés', () => {
     const base = { stage: 'route', movingFor: -1, aboard: 5, total: 7, playerAfoot: false, departIn: -1, remaining: -1, speed: 5, stoppedFor: 0 };
     expect(departureLine(base)).toBe('Embarquement : 5 / 7 à bord — départ dès que tout le monde est à bord');
-    expect(departureLine({ ...base, departIn: 11.2 })).toBe('Embarquement : 5 / 7 à bord — départ dans 12 s');
+    expect(departureLine({ ...base, departIn: 11.2 })).toBe('Embarquement : 5 / 7 à bord — départ dans 12 s au plus tard');
+    expect(departureLine({ ...base, departIn: 298, playerAfoot: true })).toBe('Embarquement : 5 / 7 à bord — la colonne vous attend');
     expect(departureLine({ ...base, aboard: 6, playerAfoot: true })).toBe('Embarquement : 6 / 7 à bord — on n’attend plus que vous');
     expect(departureLine({ ...base, aboard: 7 })).toBe('Embarquement : 7 / 7 à bord — départ au signal du chef de colonne');
     expect(departureLine({ ...base, movingFor: 3 })).toBe('La colonne part');

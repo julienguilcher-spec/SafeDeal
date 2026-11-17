@@ -121,8 +121,9 @@ export class CommandSystem implements GameSystem {
   }
 
   /**
-   * Écran tactile : le bouton « Ordres » n'est montré qu'à ceux qui commandent une unité (chef de groupe, de
-   * section, commandant). Pour un équipier il n'ouvrirait rien : il est masqué. Recalculé à chaque incarnation.
+   * Écran tactile : le bouton « Ordres » est montré à tout policier — roue complète pour ceux qui commandent une unité,
+   * roue des deux ordres « me suivre » (à pied, en colonne) pour les autres. Masqué hors police (il n'ouvrirait rien).
+   * Recalculé à chaque incarnation.
    */
   private syncOrdersButton(): void {
     this.ordersDirty = false;
@@ -132,7 +133,7 @@ export class CommandSystem implements GameSystem {
     const touch = ctx.service<{ setButtonVisible(button: 'orders', visible: boolean): void }>('input.touch');
     if (!touch || typeof touch.setButtonVisible !== 'function') return;
     try {
-      touch.setButtonVisible('orders', core.scope().level !== 'lecture');
+      touch.setButtonVisible('orders', ordersButtonVisible(core));
     } catch (err) {
       console.error('[commandement] bouton « Ordres » de l’écran tactile : mise à jour impossible', err);
     }
@@ -160,8 +161,8 @@ export class CommandSystem implements GameSystem {
     const core = this.core;
     if (!ctx || !core || !e || (!refused && e.ok !== false) || !e.reason) return;
     const s = ctx.squads.get(e.squadId);
-    // seulement les unités sous les ordres du joueur, pour un ordre qu'il a donné
-    if (!s || !core.canCommand(s.id) || s.order.issuedBy !== ctx.player.state.personId) return;
+    // seulement les unités sous les ordres du joueur (ou la sienne, qu'il appelle à le suivre), pour un ordre qu'il a donné
+    if (!s || !(core.canCommand(s.id) || core.followUnit()?.id === s.id) || s.order.issuedBy !== ctx.player.state.personId) return;
     ctx.ui.notify(`${s.name} — ${refused ? 'ordre refusé' : 'ordre abandonné'} : ${e.reason}`, 'warn', 6);
   }
 
@@ -178,6 +179,11 @@ export class CommandSystem implements GameSystem {
     this.ownMaps?.dispose();
     void this.ctx;
   }
+}
+
+/** Bouton tactile « Ordres » : ceux qui commandent, et tout policier pour les ordres « me suivre » à son unité. */
+export function ordersButtonVisible(core: CommandCore): boolean {
+  return core.scope().level !== 'lecture' || core.followUnit() !== null;
 }
 
 export const createSystems: ModuleFactory = () => [new CommandSystem()];

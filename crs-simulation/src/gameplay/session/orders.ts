@@ -28,6 +28,12 @@ import { SystemOrder } from '@/core/contracts';
 import { EXT } from '@/core/extensions';
 import type { IncidentsApi, Objective, ObjectivesApi } from '@/core/extensions';
 
+/** Vue minimale du cadre de mission (service 'missions', src/gameplay/missions/system.ts). */
+interface MissionLike {
+  readonly current: unknown;
+  readonly objectives: readonly { state: string; at: unknown; def: { secondary: boolean } }[];
+}
+
 /** Vue minimale du commandement IA (police.command). */
 interface PostLike { kind: string; x: number; z: number; heading: number; name: string; state: string }
 interface CommandLike {
@@ -216,6 +222,12 @@ export class PlayerOrdersSystem implements GameSystem {
     }
     // désignation de tir : prime sur le poste ; retirée quand la situation change
     if (kind === 'engin' && this.thinkFire(me, now)) return;
+    // mission du catalogue qui dit elle-même où aller (objectif principal en cours, placé sur la carte) : pas de poste
+    // du commandement IA en plus, ailleurs (un seul objectif clair à la fois)
+    if (this.missionPlaces()) {
+      if (this.cur) this.drop();
+      return;
+    }
     const want = this.decide(me, kind);
     const cur = this.cur;
     if (!want) {
@@ -228,6 +240,13 @@ export class PlayerOrdersSystem implements GameSystem {
     const due = !cur || cur.idle === true || (cur.arrived ? now - cur.arrivedAt > HOLD_TIME : now - cur.since > MIN_ORDER_GAP);
     if (far && due) this.give(me, want.x, want.z, want.text, want.radio, now, false);
     else this.republish();
+  }
+
+  /** Une mission du catalogue est en cours et l'un de ses objectifs principaux en cours porte un lieu. */
+  private missionPlaces(): boolean {
+    const m = this.ctx!.service<MissionLike>('missions');
+    if (!m || !m.current) return false;
+    return m.objectives.some((r) => r.state === 'actif' && !r.def.secondary && r.at !== null);
   }
 
   // ───────────────────────────── choix du poste ─────────────────────────────
