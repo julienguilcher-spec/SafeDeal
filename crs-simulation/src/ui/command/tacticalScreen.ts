@@ -18,7 +18,7 @@ import { coarsePointer } from '../maps/style';
 import { ScaleBar, WindRose, mapControls } from '../maps/widgets';
 import type { TacticalOpenData, TacticalTab } from './api';
 import type { CommandCore } from './core';
-import { verbOf } from './orders';
+import { hasPassersbyOption, passersbyLabel, verbHint, verbOf } from './orders';
 import type { OrderVerb } from './orders';
 import { IncidentsPanel } from './panelIncidents';
 import { OrdersPanel } from './panelOrders';
@@ -32,7 +32,7 @@ import { IDLE, TacticalState } from './tacticalState';
 import { acceptNasse, openFilteredExit, proposeNasse, resolveCrowd } from './nasse';
 import { kettleBanner } from '../maps/barrages';
 import type { SceneCrowdExits } from '../maps/barrages';
-import { TACTICAL_KEYS_LEGEND, cycleUnitKey, keyboardSections, sectionKeyIndex } from './tacticalKeys';
+import { PASSERSBY_KEY, PASSERSBY_KEY_LABEL, TACTICAL_KEYS_LEGEND, cycleUnitKey, keyboardSections, sectionKeyIndex } from './tacticalKeys';
 import { RadialMenu } from './wheel';
 import type { WheelItem } from './wheel';
 import { wheelKeyLabel } from './wheelKeys';
@@ -58,6 +58,7 @@ const LAYERS: readonly { key: keyof LayerMask; label: string }[] = [
 /** Légende des symboles de barrage et de nasse (panneau des couches) : pastille dessinée en SVG, libellé. */
 const LEGEND: readonly { svg: string; label: string }[] = [
   { svg: '<rect x="1" y="5" width="26" height="6" fill="#ff3b30" stroke="#0b1322"/>', label: 'Rue barrée\u00a0: personne ne passe, dans les deux sens' },
+  { svg: '<rect x="1" y="5" width="26" height="6" fill="#ff3b30" stroke="#0b1322"/><circle cx="14" cy="8" r="2.2" fill="#fff"/>', label: 'Rue barrée, «\u00a0passants admis\u00a0»\u00a0: les manifestants ne passent pas, les passants oui' },
   { svg: '<line x1="1" y1="8" x2="27" y2="8" stroke="#ff3b30" stroke-width="4" stroke-dasharray="5 3"/>', label: 'Barrage en route' },
   { svg: '<rect x="1" y="5" width="14" height="6" fill="#ff9500"/><rect x="15" y="5" width="12" height="6" fill="none" stroke="#ff9500"/><path d="M15 11l6-6M19 11l6-6M23 11l4-4" stroke="#ff9500"/>', label: 'Barrage incomplet (hachures\u00a0: partie non tenue)' },
   { svg: '<rect x="1" y="5" width="11" height="6" fill="#34c759"/><rect x="16" y="5" width="11" height="6" fill="#34c759"/>', label: 'Barrage filtrant (une porte)' },
@@ -66,13 +67,21 @@ const LEGEND: readonly { svg: string; label: string }[] = [
   { svg: '<rect x="2" y="5" width="24" height="6" fill="#ff3b30"/><rect x="8" y="5" width="6" height="6" fill="#fff"/><rect x="20" y="5" width="6" height="6" fill="#fff"/>', label: 'Rue fermée à la circulation (barrières)' },
 ];
 
+/** Deuxième ligne d'un secteur de l'ordre rapide : « Barrer » dit l'option des passants retenue. */
+export function quickSub(type: string, letPass: boolean): string | undefined {
+  if (type === 'suivre_pied') return 'à pied';
+  if (type === 'avec_moi') return 'en colonne (véh.)';
+  if (type === 'couper_circulation') return letPass ? 'passants admis' : 'personne ne passe';
+  return undefined;
+}
+
 /** Verbes de l'ordre rapide (appui long, clic droit maintenu, bouton X de la manette). */
 export const QUICK_VERBS: readonly string[] = [
   'avancer', 'bond_offensif', 'charge', 'encercler', 'repli', 'cesser', 'tenir', 'ligne', 'suivre_pied', 'avec_moi', 'couper_circulation',
 ];
 
 /** Vue et sélection retrouvées à la réouverture de la carte pendant la même session. */
-interface Memory { cx: number; cz: number; mpp: number; tab: TacticalTab; selection: number[]; session: unknown }
+interface Memory { cx: number; cz: number; mpp: number; tab: TacticalTab; selection: number[]; session: unknown; passersby: boolean }
 const MEMORY = new WeakMap<CommandCore, Memory>();
 
 export class TacticalScreen implements ScreenInstance {
@@ -105,6 +114,8 @@ export class TacticalScreen implements ScreenInstance {
   private readonly hintRule: HTMLElement;
   private readonly hintCancel: HTMLButtonElement;
   private readonly hintOk: HTMLButtonElement;
+  /** « Barrer la rue » en cours : option « Passants : bloqués / laissés passer » (touche B). */
+  private readonly hintPassants: HTMLButtonElement;
   /** Bandeau « NASSE FERMÉE — lieu — environ N personnes » et son action « Ouvrir une issue filtrée » (F). */
   private readonly kettle: HTMLDivElement;
   private readonly kettleText: HTMLElement;
@@ -136,6 +147,9 @@ export class TacticalScreen implements ScreenInstance {
   private readonly onResize = (): void => this.layout();
   /** Raccourcis du clavier seul (tacticalKeys.ts) : sections, unité suivante, liste des ordres. */
   private readonly onKeyDown = (e: KeyboardEvent): void => this.shortcut(e);
+  /** Point (écran) où l'ordre rapide est ouvert : la roue s'y rouvre quand l'option des passants change. */
+  private quickSX = 0;
+  private quickSY = 0;
 
   constructor(private readonly core: CommandCore, host: HTMLElement, data: unknown) {
     ensureCommandStyle();
@@ -208,7 +222,8 @@ export class TacticalScreen implements ScreenInstance {
     hintBody.append(this.hintText, this.hintRule);
     this.hintCancel = button('Annuler', () => this.cancelHint(), { className: 'is-small', id: 'tac-cancel' });
     this.hintOk = button('Valider', () => this.acceptNasse(), { className: 'is-small is-primary', id: 'tac-nasse-ok', title: 'Valider (Entrée ou P)' });
-    this.hint.append(this.hintTitle, hintBody, this.hintOk, this.hintCancel);
+    this.hintPassants = button(passersbyLabel(false), () => this.togglePassersby(), { className: 'is-small ct-passants', id: 'tac-passants' });
+    this.hint.append(this.hintTitle, hintBody, this.hintPassants, this.hintOk, this.hintCancel);
 
     this.kettle = el('div', 'ct-kettle is-off');
     this.kettle.dataset.id = 'tac-kettle';
@@ -312,6 +327,8 @@ export class TacticalScreen implements ScreenInstance {
     core.maps.scene.invalidate();
     core.maps.use();
     const mem = MEMORY.get(core);
+    // option « passants » de « Barrer la rue » : retenue d'une ouverture de la carte à l'autre
+    if (mem) st.passersby = mem.passersby;
     const sameSession = mem !== undefined && mem.session === ctx.session.config;
     if (sameSession && open.x === undefined) {
       this.map.jumpTo(mem.cx, mem.cz, mem.mpp);
@@ -465,12 +482,11 @@ export class TacticalScreen implements ScreenInstance {
     for (let i = 0; i < QUICK_VERBS.length; i++) {
       const v = verbOf(QUICK_VERBS[i]!)!;
       verbs.push(v);
-      // « me suivre » : intitulé complet (« À pied » seul ne dirait pas qui l'unité suit)
-      const follow = v.type === 'suivre_pied' ? 'à pied' : v.type === 'avec_moi' ? 'en colonne (véh.)' : '';
-      // « Barrer la rue » : personne ne passe, dans les deux sens
-      const sub = follow !== '' ? follow : v.type === 'couper_circulation' ? 'la rue' : undefined;
+      // « me suivre » : intitulé complet (« À pied » seul ne dirait pas qui l'unité suit) ; « Barrer » : option des
+      // passants retenue (B la change, roue ouverte)
+      const follow = v.type === 'suivre_pied' || v.type === 'avec_moi';
       items.push({
-        id: v.type, label: follow !== '' ? 'Me suivre' : v.short, sub, force: v.coercive,
+        id: v.type, label: follow ? 'Me suivre' : v.short, sub: quickSub(v.type, this.state.passersby), force: v.coercive,
         disabled: v.force > roe.authorizedForce && !roe.underAttack, key: wheelKeyLabel(i),
       });
     }
@@ -488,6 +504,14 @@ export class TacticalScreen implements ScreenInstance {
       onCancel: () => this.closeQuick(),
     });
     this.quick.setCenter('Ordre rapide', n > 1 ? `${n} unités` : 'au point désigné');
+    this.quickSX = x;
+    this.quickSY = y;
+    // option des passants de « Barrer la rue », au doigt comme au clavier (B)
+    const opt = button(passersbyLabel(this.state.passersby), () => this.togglePassersby(), {
+      className: 'is-small ct-quick-opt' + (this.state.passersby ? ' is-on' : ''), id: 'tac-quick-passants', title: `${passersbyLabel(!this.state.passersby)} (${PASSERSBY_KEY_LABEL})`,
+    });
+    if (!coarsePointer()) opt.appendChild(el('span', 'cm-kbd', PASSERSBY_KEY_LABEL));
+    this.quick.root.appendChild(opt);
     // ouvert par un appui long encore en cours : le relâchement ne doit pas annuler le menu ;
     // on peut aussi glisser vers un secteur et relâcher pour le choisir
     this.quick.swallowHubClick = this.map.gestures.active;
@@ -514,7 +538,28 @@ export class TacticalScreen implements ScreenInstance {
     this.zone = 0;
   }
 
+  /**
+   * Bascule « Passants : bloqués / laissés passer » de « Barrer la rue » (B, boutons de la palette, du bandeau et de
+   * l'ordre rapide) : retenue pour les ordres suivants ; la roue ouverte se redessine avec la nouvelle option.
+   */
+  togglePassersby(): void {
+    const on = this.state.togglePassersby();
+    this.core.ctx.ui.notify(`Barrer la rue — ${passersbyLabel(on)}`, 'info', 2.5);
+    if (this.quick) this.openQuick(this.quickSX, this.quickSY);
+    this.refresh(true);
+  }
+
   private shortcut(e: KeyboardEvent): void {
+    // B : option des passants, aussi roue d'ordre rapide ouverte (elle se rouvre avec la nouvelle option)
+    if (e.code === PASSERSBY_KEY && !e.repeat && !e.ctrlKey && !e.altKey && !e.metaKey && !this.root.closest('[inert]')
+      && this.core.scope().level !== 'lecture') {
+      const t0 = e.target as HTMLElement | null;
+      if (!t0 || (t0.tagName !== 'INPUT' && t0.tagName !== 'TEXTAREA' && !t0.isContentEditable)) {
+        e.preventDefault();
+        this.togglePassersby();
+        return;
+      }
+    }
     if (e.repeat || e.ctrlKey || e.altKey || e.metaKey || this.quick) return;
     // écran recouvert par un autre (inerte), ou frappe destinée à autre chose que la carte : rien
     if (this.root.closest('[inert]')) return;
@@ -686,7 +731,7 @@ export class TacticalScreen implements ScreenInstance {
       text = nasse.text;
     } else if (mode.kind === 'order') {
       title = mode.verb.short;
-      text = mode.verb.hint;
+      text = verbHint(mode.verb, st.passersby);
       rule = mode.verb.rule;
     } else if (mode.kind === 'close_road') {
       title = 'Fermer une rue';
@@ -722,6 +767,17 @@ export class TacticalScreen implements ScreenInstance {
     if (lbl) setText(lbl as HTMLElement, mode.kind === 'close_road' ? 'Terminer' : 'Annuler');
     this.hintCancel.style.display = mode.kind !== 'idle' || pending ? '' : 'none';
     this.hintOk.style.display = pending ? '' : 'none';
+    // « Barrer la rue » : l'option des passants, à changer avant de désigner la rue (B, ou toucher)
+    const opt = mode.kind === 'order' && hasPassersbyOption(mode.verb.type);
+    this.hintPassants.style.display = opt ? '' : 'none';
+    if (opt) {
+      const t = this.hintPassants.querySelector('.cm-btn-t');
+      const label = passersbyLabel(st.passersby);
+      if (t) setText(t as HTMLElement, label);
+      setClass(this.hintPassants, 'is-on', st.passersby);
+      this.hintPassants.title = `${passersbyLabel(!st.passersby)} (${PASSERSBY_KEY_LABEL})`;
+      if (!coarsePointer() && !this.hintPassants.querySelector('.cm-kbd')) this.hintPassants.appendChild(el('span', 'cm-kbd', PASSERSBY_KEY_LABEL));
+    }
     void level;
   }
 
@@ -889,7 +945,7 @@ export class TacticalScreen implements ScreenInstance {
     const v = this.map.view;
     MEMORY.set(this.core, {
       cx: v.cx, cz: v.cz, mpp: v.mpp, tab: this.state.tab, selection: Array.from(this.state.selection),
-      session: this.core.ctx.session.config,
+      session: this.core.ctx.session.config, passersby: this.state.passersby,
     });
     if (this.slow) this.core.ctx.clock.timeScale = this.savedScale;
     window.removeEventListener('resize', this.onResize);

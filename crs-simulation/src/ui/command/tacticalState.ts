@@ -35,6 +35,11 @@ export class TacticalState {
   /** Unité survolée (carte ou liste) et unité cible d'un dépôt d'incident. */
   hoverKey = 0;
   dropKey = 0;
+  /**
+   * Option de « Barrer la rue » : true = « Passants : laissés passer » (manifestants et véhicules restent bloqués),
+   * false = « Passants : bloqués » (défaut). Retenue pour les ordres suivants.
+   */
+  passersby = false;
   /** Vrai dès qu'un changement attend d'être reflété à l'écran. */
   dirty = true;
   revision = 0;
@@ -64,6 +69,13 @@ export class TacticalState {
     if (this.selection.size === 0) return;
     this.selection.clear();
     this.touch();
+  }
+
+  /** Bascule « Passants : bloqués / laissés passer » (touche B, bouton de la palette et de l'ordre rapide). */
+  togglePassersby(): boolean {
+    this.passersby = !this.passersby;
+    this.touch();
+    return this.passersby;
   }
 
   setMode(mode: TacticalMode): void {

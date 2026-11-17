@@ -14,7 +14,7 @@ import type { SceneFoyer } from '../maps/scene';
 import { createShown, visibleUnits } from '../maps/overlay-units';
 import type { MapUnit } from '../maps/units';
 import type { CommandCore } from './core';
-import { MIN_LINE, areaToOrder, lineToOrder, pointHeading, slotsAlongLine, splitLine, spreadPoint, verbOf } from './orders';
+import { MIN_LINE, areaToOrder, barrageTargetId, lineToOrder, pointHeading, slotsAlongLine, splitLine, spreadPoint, verbOf } from './orders';
 import type { OrderGeom, OrderVerb } from './orders';
 import { nearestCrowd } from './nasse';
 import { FieldActions } from './tacticalActions';
@@ -258,7 +258,9 @@ export class TacticalMap {
       this.geoms.length = 1;
       this.geoms[0] = { x, z, heading, width: 0 };
     }
-    return this.report(this.core.issue(verb.type, this.squadsOf(ordered), this.geoms, targetId, targetName), verb);
+    // « Barrer la rue » : option « Passants : bloqués / laissés passer » retenue sur la carte (SquadOrder.targetId)
+    const tid = barrageTargetId(verb.type, this.state.passersby, targetId);
+    return this.report(this.core.issue(verb.type, this.squadsOf(ordered), this.geoms, tid, targetName), verb);
   }
 
   /** Ligne de barrage tracée de A (flanc gauche) vers B (flanc droit), partagée entre les unités sélectionnées. */

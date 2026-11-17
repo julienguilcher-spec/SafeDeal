@@ -18,6 +18,7 @@ import { MOTORIST_EVENT } from './api';
 import type { MotoristState } from './api';
 import { CarBrain, MODE_CLEAR, MODE_GO, MODE_HOLD, MODE_PARK, MODE_PULL } from './car-brain';
 import { CarClearer } from './car-clear';
+import { CarPurge } from './car-purge';
 import { AXIS_NUDGE, CarRouter } from './car-routing';
 import { CarThinker } from './car-think';
 import type { EdgePoint } from './graph';
@@ -48,6 +49,8 @@ export class Cars {
   readonly router: CarRouter;
   /** Automobilistes qu'on fait dégager (deux-tons d'un véhicule arrêté, ordre d'un policier). */
   readonly clearer: CarClearer;
+  /** Rue fermée vidée de ses voitures (car-purge.ts). */
+  readonly purge: CarPurge;
   /** Facteur local selon le type des voies autour du joueur (grands axes : plus de trafic). */
   roadFactor = 1;
 
@@ -67,6 +70,7 @@ export class Cars {
     this.router = new CarRouter(k);
     this.thinker = new CarThinker(k, this);
     this.clearer = new CarClearer(k, this);
+    this.purge = new CarPurge(k, this);
   }
 
   reset(): void {
@@ -79,6 +83,7 @@ export class Cars {
     this.roadFactor = 1;
     this.thinker.reset();
     this.clearer.reset();
+    this.purge.reset();
   }
 
   private services(): void {
@@ -109,6 +114,8 @@ export class Cars {
       if (b.thinkT < 0) b.thinkT = 0;
       this.thinker.think(b);
     }
+    // rue fermée : les voitures restées au-delà du barrage s'en vont puis disparaissent
+    this.purge.update(dt);
     this.popT -= dt;
     if (this.popT <= 0) {
       this.popT = 0.5;
@@ -266,6 +273,8 @@ export class Cars {
       // pas d'apparition sous les yeux du joueur (au bout d'une avenue rectiligne qu'il regarde) : il naît hors
       // champ ou derrière les façades, et entre dans la vue en roulant
       if (k.visible(x, z)) continue;
+      // ni à l'intérieur d'un périmètre fermé (ses rues intérieures restent ouvertes, mais on n'y entre plus)
+      if (k.closures.inClosedArea(x, z)) continue;
       if (!ctx.world.isLoaded(x, z)) continue;
       if (ctx.vehicles.queryRadius(x, z, 22, this.near) > 0) continue;
       if (ctx.people.countIn(x, z, 6) > 0) continue;

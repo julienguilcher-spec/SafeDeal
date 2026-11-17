@@ -38,7 +38,7 @@ import { abortOps, autoOps, opReport, resupplyNext, startTask, updateOps } from 
 import { ackBody, acknowledge, negative, spell } from './radio';
 import { looksAhead, thinkAgent } from './reflex';
 import { findExits, unjoin } from './encircle';
-import { countFrontAble, isShield } from './ops-core';
+import { countFrontAble, coverShields, isShield } from './ops-core';
 import { Barrages } from './barrages';
 import { EXT } from '@/core/extensions';
 import { halt, steer } from './steer';
@@ -215,7 +215,9 @@ export class PoliceSystem implements GameSystem {
     if (p.injury === 'serious' || p.injury === 'critical') {
       // (la couverture par deux boucliers n'est détachée que s'il en reste au moins cinq valides — takeCover : on ne
       // l'annonce que dans ce cas)
-      const cover = countFrontAble(u) - (a.able && isShield(a) ? 1 : 0) >= 5; // (le blessé est encore compté valide à cet instant)
+      // (rue barrée : le premier rang tient la rue, la couverture ne peut venir que du second rang)
+      const cover = countFrontAble(u) - (a.able && isShield(a) ? 1 : 0) >= 5 // (le blessé est encore compté valide à cet instant)
+        && coverShields(u) - (a.able && isShield(a) && !u.man.barrage ? 1 : 0) >= 2;
       k.say(a.home ?? u, 'ICI ' + (a.home ?? u).squad.name.toUpperCase() + '. URGENT. Agent à terre ! ' + (cover ? 'Deux boucliers en couverture, je le dégage' : 'Je le dégage, la ligne tient') + '. PARLEZ.', 2, 'unite');
     }
   }

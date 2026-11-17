@@ -84,7 +84,15 @@ export interface PlainOrderOptions {
   vehicle?: string;
   /** Le joueur a un emplacement réservé dans la formation de son groupe. */
   hasPost: boolean;
+  /**
+   * Le groupe tient un barrage de rue qui laisse passer les passants (service 'police.barrages', BarrageView.passersby) :
+   * la carte le dit, quel que soit l'ordre qui a mené au barrage (barrer la rue, tenir, ligne, avancer sur une rue).
+   */
+  passersby?: boolean;
 }
+
+/** Ordres qui finissent en barrage de rue (option « passants »). */
+const BARRAGE_ORDERS: ReadonlySet<string> = new Set(['couper_circulation', 'tenir', 'ligne', 'avancer']);
 
 /** Ce que fait le joueur dans une ligne, selon son poste. */
 function inLine(poste: PolicePoste | null): string {
@@ -110,6 +118,12 @@ export function plainOrder(type: string, o: PlainOrderOptions): PlainOrder {
   const to = o.place ? ` vers ${o.place}` : '';
   const post: InstructionTarget = o.hasPost ? 'post' : 'chef';
   const hold = HOLD.has(type) ? post : 'chef';
+  // barrage qui laisse passer les passants : manifestants et véhicules restent bloqués
+  if (o.passersby && BARRAGE_ORDERS.has(type)) {
+    return { title: `Barrage${o.place ? ` — ${o.place}` : ''} : les manifestants ne passent pas, les passants oui`,
+      detail: `${cap(inLine(o.poste))}. Laissez passer les passants entre deux collègues, dans les deux sens ; aucun manifestant, aucun véhicule.`,
+      radio: `on barre la rue${at}, les passants passent, pas les manifestants`, target: post };
+  }
   switch (type) {
     case 'tenir':
       return { title: `Tenir la position${at}`, detail: `${cap(inLine(o.poste))}. On ne bouge pas sans ordre.`, radio: `on tient la position${at}, chacun à sa place`, target: hold };

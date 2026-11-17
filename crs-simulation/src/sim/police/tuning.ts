@@ -53,6 +53,12 @@ export const FILTER_DOOR = 2.0;
 export const BARRAGE_SPACING = 1.1;
 /** Deux agents voisins du premier rang, à l'arrêt, tiennent le cordon entre eux en deçà de cet écart (m). */
 export const CORDON_GAP = 1.6;
+/**
+ * Place faite à un passant par un barrage qui laisse passer les passants (m) : les deux agents s'écartent de
+ * PASSER_DOOR + 0,6 m (épaules à épaules, de quoi laisser passer une personne), en deçà de CORDON_GAP — le cordon tient
+ * entre eux pour tous les autres, un manifestant ne s'engouffre pas derrière le passant.
+ */
+export const PASSER_DOOR = 0.85;
 /** L'agent de flanc tient le passage le long du mur en deçà de cette distance à la façade (m). */
 export const CORDON_WALL = 1.6;
 /** Demi-épaisseur du cordon (m) : épaules, boucliers. */

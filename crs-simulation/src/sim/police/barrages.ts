@@ -9,6 +9,11 @@
  *                tronçon que personne ne franchit (ni manifestant, ni passant, ni cycliste) ; forces de l'ordre,
  *                secours et joueur passent. Le cordon suit les agents : une ligne enfoncée (agents écartés,
  *                à terre) s'ouvre — la pression de la foule agit comme avant ;
+ *   passants     option de l'ordre (targetId = BARRAGE_LET_PASSERSBY) : « Passants : laissés passer » — les passants à
+ *                pied (isPasserby : badauds, piétons, riverains, journalistes, street medics) franchissent le cordon
+ *                dans les deux sens, entre deux agents (la ligne leur fait place sans s'ouvrir : l'intervalle reste
+ *                plus étroit que CORDON_GAP, le tronçon tient pour les autres) ; manifestants et véhicules restent
+ *                bloqués. Défaut : « Passants : bloqués », personne ne passe (ce qu'il faut à une nasse) ;
  *   fermeture    la rue est déclarée fermée (TrafficControlApi) dès que le barrage est en place, rouverte quand
  *                l'unité s'en va ou que la ligne est rompue (détours des cortèges, circulation) ;
  *   nasses       une foule dont toutes les issues (rues et passages piétons) sont tenues — barrages, rues
@@ -22,7 +27,7 @@ import { EXT } from '@/core/extensions';
 import type { CordonsApi, TrafficControlApi } from '@/core/extensions';
 import { angleDiff, cardinalFr, wrapAngle } from '@/core/math';
 import type { BarrageState, BarrageView, BarragesApi, ExitInfo, ExitView, KettleView } from './api';
-import { BARRAGE_EVENT, KETTLE_EVENT } from './api';
+import { BARRAGE_EVENT, BARRAGE_LET_PASSERSBY, KETTLE_EVENT } from './api';
 import type { FormGroup, Unit } from './brain';
 import { F_LINE, agentOf } from './brain';
 import { probe, probeStreet } from './formation';
@@ -167,10 +172,31 @@ function passes(p: Person): boolean {
     || p.heldBy !== 0 || p.vehicleId !== 0;
 }
 
+/** Ordres qui finissent en barrage de rue et peuvent laisser passer les passants (pas « filtrer » : il a sa porte). */
+const PASSERSBY_ORDERS: ReadonlySet<string> = new Set(['couper_circulation', 'tenir', 'ligne', 'avancer']);
+
+/** L'unité tient-elle un barrage de rue qui laisse passer les passants ? (jamais une ligne d'encerclement) */
+export function letsPassersby(u: Unit): boolean {
+  const o = u.order;
+  return u.man.barrage && o !== null && o.targetId === BARRAGE_LET_PASSERSBY && PASSERSBY_ORDERS.has(o.type);
+}
+
+/**
+ * Passant au sens des barrages : civil à pied, libre, qui ne manifeste pas — badaud, piéton, riverain, commerçant,
+ * touriste, journaliste, street medic, observateur. Celui qui a pris part à la manifestation (faction « protest »,
+ * qu'il défile, se disperse ou s'en aille) n'en est jamais un, ni quiconque est habillé en manifestant (kind
+ * « manifestant ») : on ne passe pas un barrage en se donnant l'air d'un passant.
+ */
+export function isPasserby(p: Person): boolean {
+  if (p.vehicleId !== 0 || p.heldBy !== 0 || p.custody !== 'free' || p.kind === 'manifestant') return false;
+  return p.faction === 'civil' || p.faction === 'press' || p.faction === 'medic';
+}
+
 export class Cordons implements CordonsApi {
-  /** Tronçons [ax, az, bx, bz] et unité qui les tient. */
+  /** Tronçons [ax, az, bx, bz], unité qui les tient, passants admis (1) ou non (0). */
   private seg = new Float64Array(256);
   private owner = new Int32Array(64);
+  private admit = new Uint8Array(64);
   count = 0;
   private minX = 0;
   private maxX = 0;
@@ -181,7 +207,7 @@ export class Cordons implements CordonsApi {
     this.count = 0;
   }
 
-  private add(ax: number, az: number, bx: number, bz: number, unit: number): void {
+  private add(ax: number, az: number, bx: number, bz: number, unit: number, admit: boolean): void {
     const n = this.count;
     if ((n + 1) * 4 > this.seg.length) {
       const s = new Float64Array(this.seg.length * 2);
@@ -190,6 +216,9 @@ export class Cordons implements CordonsApi {
       const o = new Int32Array(this.owner.length * 2);
       o.set(this.owner);
       this.owner = o;
+      const a = new Uint8Array(this.admit.length * 2);
+      a.set(this.admit);
+      this.admit = a;
     }
     const s = this.seg;
     s[n * 4] = ax;
@@ -197,6 +226,7 @@ export class Cordons implements CordonsApi {
     s[n * 4 + 2] = bx;
     s[n * 4 + 3] = bz;
     this.owner[n] = unit;
+    this.admit[n] = admit ? 1 : 0;
     this.count = n + 1;
     const x0 = ax < bx ? ax : bx;
     const x1 = ax < bx ? bx : ax;
@@ -243,6 +273,7 @@ export class Cordons implements CordonsApi {
     const world = k.ctx.world;
     const hit = k.hit;
     const gap2 = T.CORDON_GAP * T.CORDON_GAP;
+    const admit = letsPassersby(u);
     let first = -1;
     let prev = -1;
     for (let i = 0; i < n; i++) {
@@ -253,7 +284,7 @@ export class Cordons implements CordonsApi {
         const q = front[prev].p;
         const dx = p.x - q.x;
         const dz = p.z - q.z;
-        if (dx * dx + dz * dz <= gap2) this.add(q.x, q.z, p.x, p.z, u.id);
+        if (dx * dx + dz * dz <= gap2) this.add(q.x, q.z, p.x, p.z, u.id, admit);
       }
       prev = i;
     }
@@ -262,12 +293,12 @@ export class Cordons implements CordonsApi {
     const a = front[first].p;
     if (world.raycast(a.x, a.z, a.x - rx * T.CORDON_WALL, a.z - rz * T.CORDON_WALL, hit) && hit.hit) {
       const t = hit.t * T.CORDON_WALL + 0.3;
-      this.add(a.x - rx * t, a.z - rz * t, a.x, a.z, u.id);
+      this.add(a.x - rx * t, a.z - rz * t, a.x, a.z, u.id, admit);
     }
     const b = front[prev].p;
     if (world.raycast(b.x, b.z, b.x + rx * T.CORDON_WALL, b.z + rz * T.CORDON_WALL, hit) && hit.hit) {
       const t = hit.t * T.CORDON_WALL + 0.3;
-      this.add(b.x, b.z, b.x + rx * t, b.z + rz * t, u.id);
+      this.add(b.x, b.z, b.x + rx * t, b.z + rz * t, u.id, admit);
     }
   }
 
@@ -346,7 +377,15 @@ export class Cordons implements CordonsApi {
     return this.seg;
   }
 
-  crosses(ax: number, az: number, bx: number, bz: number): boolean {
+  get admits(): ArrayLike<number> {
+    return this.admit;
+  }
+
+  passerby(p: Person): boolean {
+    return isPasserby(p);
+  }
+
+  crosses(ax: number, az: number, bx: number, bz: number, passerby = false): boolean {
     if (this.count === 0) return false;
     if ((ax < this.minX && bx < this.minX) || (ax > this.maxX && bx > this.maxX)) return false;
     if ((az < this.minZ && bz < this.minZ) || (az > this.maxZ && bz > this.maxZ)) return false;
@@ -354,6 +393,7 @@ export class Cordons implements CordonsApi {
     const dx = bx - ax;
     const dz = bz - az;
     for (let i = 0; i < this.count; i++) {
+      if (passerby && this.admit[i] !== 0) continue;
       const cx = s[i * 4];
       const cz = s[i * 4 + 1];
       const ex = s[i * 4 + 2] - cx;
@@ -377,8 +417,11 @@ export class Cordons implements CordonsApi {
     const oz = p.z;
     const keep = r + T.CORDON_THICK;
     const s = this.seg;
+    // passant : les barrages qui le laissent passer ne le retiennent pas (les autres, si)
+    const passer = isPasserby(p);
     let moved = false;
     for (let i = 0; i < this.count; i++) {
+      if (passer && this.admit[i] !== 0) continue;
       const ax = s[i * 4];
       const az = s[i * 4 + 1];
       const ex = s[i * 4 + 2] - ax;
@@ -471,10 +514,13 @@ export class Barrages implements BarragesApi {
     const rz = fx;
     const half = g.width * 0.5;
     const near = this.near;
+    const admit = letsPassersby(u);
     const n = ctx.people.queryRadius(g.ax, g.az, half + 3, near);
     for (let i = 0; i < n; i++) {
       const p = near[i];
-      if (!passes(p) || p.vehicleId !== 0 || p.posture === 'down') continue;
+      // passant devant un barrage qui le laisse passer : la ligne lui fait place entre deux agents, sans s'ouvrir
+      const passer = !passes(p) && admit && isPasserby(p);
+      if ((!passer && !passes(p)) || p.vehicleId !== 0 || p.posture === 'down') continue;
       const a = agentOf(p);
       if (a && a.root === u) continue;
       const dx = p.x - g.ax;
@@ -486,7 +532,22 @@ export class Barrages implements BarragesApi {
       const vf = p.vx * fx + p.vz * fz;
       const sp2 = p.vx * p.vx + p.vz * p.vz;
       if (!(vf * fwd < -0.1 || (Math.abs(fwd) < 1.2 && sp2 > 0.04))) continue;
-      this.door(k, g, lat, T.DOOR_WIDTH, 2.5);
+      if (!passer) {
+        this.door(k, g, lat, T.DOOR_WIDTH, 2.5);
+        continue;
+      }
+      // passant : place faite dans l'intervalle où il se présente, entre ses deux agents (chacun s'écarte de
+      // quelques centimètres) — pas devant le corps d'un agent, ce qui repousserait la file jusqu'au flanc et ouvrirait
+      // un trou contre la façade ; le long d'une façade, l'agent de flanc lui laisse déjà le passage
+      const front = g.front;
+      let mid = NaN;
+      for (let j = 1; j < front.length; j++) {
+        if (lat < front[j].lx) {
+          if (lat >= front[j - 1].lx) mid = (front[j - 1].lx + front[j].lx) * 0.5;
+          break;
+        }
+      }
+      if (mid === mid && !(k.now < g.doorUntil && g.doorW > T.PASSER_DOOR)) this.door(k, g, mid, T.PASSER_DOOR, 2.5);
     }
     near.length = 0;
     const nv = ctx.vehicles.queryRadius(g.ax, g.az, half + 18, this.nearV);
@@ -535,6 +596,7 @@ export class Barrages implements BarragesApi {
       this.list.push({
         squadId: u.id, x: m.bx, z: m.bz, heading: m.bh, width: m.bWidth, covered: m.bCovered, state: STATE_NAMES[m.bState],
         street: m.bStreet, edgeId: m.bEdge, mode: u.order.type === 'filtrer' || (g !== null && g.doorW > 0 && g.doorUntil === Infinity) ? 'filtrant' : 'ferme',
+        passersby: letsPassersby(u),
       });
     }
     if (now >= this.kettleAt) {

@@ -17,7 +17,7 @@ import { ACT_NONE, F_NONE, OP_EXTINGUISH, OP_RESCUE, ROLE_LEAD, createOp } from 
 import { beginAct } from './weapons';
 import type { Kernel } from './kernel';
 import {
-  anyTrooper, busy, dist, engage, finish, isCatcher, isHelper, nearest, nextStage, openDoor, setGoal, takeCover,
+  anyTrooper, busy, dist, engage, finish, isCatcher, isHelper, lineDoor, nearest, nextStage, offLine, openDoor, setGoal, takeCover,
 } from './ops-core';
 import { sectorOf } from './radio';
 import * as T from './tuning';
@@ -31,9 +31,13 @@ export function carriable(victim: Person): boolean {
 
 export function createRescue(k: Kernel, root: Unit, owner: Unit, victim: Person, ordered: boolean): Op | null {
   const within = ordered ? owner : null;
-  let lead = nearest(root, within, victim.x, victim.z, isHelper, null);
-  if (!lead) lead = nearest(root, within, victim.x, victim.z, isCatcher, null);
-  if (!lead) lead = nearest(root, null, victim.x, victim.z, anyTrooper, null);
+  // rue barrée : l'agent de secours sort du second rang, le premier tient la rue (pas de trou dans le barrage)
+  let lead = nearest(root, within, victim.x, victim.z, offLine(root, isHelper), null);
+  if (!lead) lead = nearest(root, within, victim.x, victim.z, offLine(root, isCatcher), null);
+  if (!lead) lead = nearest(root, null, victim.x, victim.z, offLine(root, anyTrooper), null);
+  // personne au second rang (avenue large : tout le monde monte en ligne) : un blessé ne reste pas à terre, le plus
+  // proche du premier rang va le chercher
+  if (!lead && root.man.barrage) lead = nearest(root, null, victim.x, victim.z, anyTrooper, null);
   if (!lead) return null;
   const op = createOp(OP_RESCUE, root, owner, k.now);
   op.ordered = ordered;
@@ -65,6 +69,11 @@ export function createRescue(k: Kernel, root: Unit, owner: Unit, victim: Person,
 }
 
 export function updateRescue(k: Kernel, op: Op): void {
+  stepRescue(k, op);
+  lineDoor(k, op);
+}
+
+function stepRescue(k: Kernel, op: Op): void {
   const ctx = k.ctx;
   const now = k.now;
   const victim = ctx.people.get(op.targetId);
@@ -261,6 +270,11 @@ export function createExtinguish(k: Kernel, root: Unit, owner: Unit, x: number, 
 }
 
 export function updateExtinguish(k: Kernel, op: Op): void {
+  stepExtinguish(k, op);
+  lineDoor(k, op);
+}
+
+function stepExtinguish(k: Kernel, op: Op): void {
   const ctx = k.ctx;
   const now = k.now;
   const lead = op.lead;

@@ -181,7 +181,8 @@ export function progressBarrage(k: Kernel, u: Unit): void {
   const where = sec && sec !== 'secteur inconnu' ? ', ' + sec : '';
   inPlace(k, u, type === 'filtrer'
     ? 'Barrage filtrant en place' + (station !== '' ? ', sortie de la station ' + station : where)
-    : 'Circulation coupée' + where + ', barrage en place face ' + cardinalFr(g.ah));
+    // rue barrée de façade à façade : piétons compris, personne ne passe (pas seulement les voitures)
+    : 'Rue barrée' + (m.bStreet !== '' ? ', ' + m.bStreet : where) + ' : personne ne passe, barrage en place face ' + cardinalFr(g.ah));
   done(k, u, type, true, '');
 }
 

@@ -206,7 +206,7 @@ describe('police — refoulement, protection, escorte, suivi, barrages', () => {
     expect(info.width).toBeGreaterThan(8.5);
     expect(info.width).toBeLessThan(10);
     expect(fit.error).toBeLessThan(0.5);
-    expect(ctx.radio.log.some((m) => m.text.includes('Circulation coupée'))).toBe(true);
+    expect(ctx.radio.log.some((m) => m.text.includes('Rue barrée') && m.text.includes('personne ne passe'))).toBe(true);
     // barrage filtrant : même ligne, avec une porte de 2 m au milieu
     ctx.squads.issue(sec.squad.id, { type: 'filtrer', x: 170, z: -125, heading: NORTH });
     pt.run(60, 0.5, () => pt.status.of(sec.squad.id)!.phase === 'en_place');

@@ -8,7 +8,8 @@
  *   E              ordre rapide (roue) au curseur pour la sélection ;
  *   L              liste des ordres (palette de l'onglet « Ordres ») : flèches puis Entrée ; Échap revient à la carte ;
  *   N              « Fermer la nasse » autour de la foule visée : proposition montrée sur la carte, Entrée (ou P) la valide ;
- *   F              nasse fermée : ouvrir une issue filtrée (ordre « filtrer » à l'unité qui tient l'issue la plus large).
+ *   F              nasse fermée : ouvrir une issue filtrée (ordre « filtrer » à l'unité qui tient l'issue la plus large) ;
+ *   B              « Barrer la rue » : passants bloqués / laissés passer (option retenue pour les ordres suivants).
  * ===================================================================================== */
 
 /** Ce que la logique lit d'une unité de la carte (sous-ensemble de MapUnit). */
@@ -20,7 +21,12 @@ export interface KeyUnit {
 
 /** Légende affichée sur la carte tactique au clavier. */
 export const TACTICAL_KEYS_LEGEND =
-  'Clavier : flèches = curseur · Entrée = sélectionner / désigner · 1–9 = section · U = unité suivante · E = ordre rapide · L = liste des ordres · N = fermer la nasse · Échap = retour';
+  'Clavier : flèches = curseur · Entrée = sélectionner / désigner · 1–9 = section · U = unité suivante · E = ordre rapide · L = liste des ordres · N = fermer la nasse · B = barrage : passants bloqués / admis · Échap = retour';
+
+/** Touche (KeyboardEvent.code) de l'option « Passants : bloqués / laissés passer » de « Barrer la rue ». */
+export const PASSERSBY_KEY = 'KeyB';
+/** Lettre affichée de cette touche. */
+export const PASSERSBY_KEY_LABEL = 'B';
 
 /** Unités que le joueur peut commander, dans l'ordre de l'arborescence. */
 export function commandableUnits<U extends KeyUnit>(units: readonly U[], canCommand: (squadId: number) => boolean): U[] {

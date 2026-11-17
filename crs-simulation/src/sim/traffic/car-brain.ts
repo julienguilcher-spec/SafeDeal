@@ -109,6 +109,11 @@ export class CarBrain {
   /** Temps passé sans avancer malgré la commande (s) ; dernier coup d'avertisseur (s). */
   clearStall = 0;
   clearHorn = 0;
+  // ── rue fermée vidée de ses voitures (car-purge.ts) ──
+  /** Instant où il a été pris dans une rue fermée (il s'en va puis disparaît) ; −1 sinon (s). */
+  purgeAt = -1;
+  /** Fermeture qui l'a pris (null : nasse). */
+  purgeRec: ClosureRec | null = null;
 
   constructor(readonly v: Vehicle) {
     this.halfL = v.def.length * 0.5;

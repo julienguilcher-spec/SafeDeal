@@ -56,6 +56,10 @@
  *   releve              targetId = un membre de l'unité à relever, ou son numéro d'unité (sinon la ligne la plus proche de x, z)
  *   ravitailler         targetId = véhicule (sinon le fourgon de l'unité, puis le plus proche)
  *   couper_circulation  x, z = point de la voie à barrer ; filtrer : idem avec une porte de passage
+ *                       Barrage de rue (couper_circulation, tenir, ligne, avancer sur une rue) : targetId =
+ *                       BARRAGE_LET_PASSERSBY (−2) pour laisser passer les passants (manifestants et véhicules
+ *                       restent bloqués) ; 0 : personne ne passe. Redonné à l'unité en place, l'ordre ne change que
+ *                       cette option (l'unité ne bouge pas).
  *   cesser              arrête la manœuvre et les tâches en cours, sur place ; libre : initiative rendue
  * ===================================================================================== */
 
@@ -77,6 +81,13 @@ export const PLAYER_SUPPLY_SERVICE = 'session.supply';
 
 /** Valeur de SquadOrder.targetId pour « encercler » : fermer toutes les issues (aucune laissée ouverte). */
 export const ENCIRCLE_CLOSE_ALL: EntityId = -1;
+/**
+ * Valeur de SquadOrder.targetId pour un ordre qui finit en barrage de rue (couper_circulation, tenir, ligne, avancer sur
+ * une rue) : « Passants : laissés passer ». Les passants à pied (badauds, piétons, riverains, journalistes, street
+ * medics) franchissent la ligne dans les deux sens ; les manifestants (même dispersés) et tous les véhicules restent
+ * bloqués. 0 (défaut) : « Passants : bloqués », personne ne passe.
+ */
+export const BARRAGE_LET_PASSERSBY: EntityId = -2;
 
 // ── événements libres (ctx.events.onAny) ──
 /** { squadId, type, ok, reason } : manœuvre ou tâche terminée (ok = false : abandonnée, motif en français). */
@@ -367,6 +378,8 @@ export interface BarrageView {
   street: string;
   edgeId: number;
   mode: 'ferme' | 'filtrant';
+  /** Passants laissés passer (ordre donné avec BARRAGE_LET_PASSERSBY) ; false : personne ne passe. */
+  passersby: boolean;
 }
 
 /** Une issue d'une zone : rue ou passage piéton. */

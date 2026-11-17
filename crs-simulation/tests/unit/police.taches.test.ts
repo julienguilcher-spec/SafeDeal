@@ -51,14 +51,15 @@ describe('police — collègue à terre', () => {
     expect(calls.some((m) => m.text.includes('Je le dégage'))).toBe(true);
   });
 
-  it('un agent grièvement blessé sur la ligne est traîné derrière elle, couvert par deux boucliers, et la ligne se referme', async () => {
+  it('un agent grièvement blessé sur la ligne est traîné derrière elle par le second rang, sans qu’un bouclier quitte la rue barrée, et la ligne se referme', async () => {
     const { pt, sec } = await lineUp();
     const { ctx } = pt;
     const radical = spawnProtesters(ctx, 1, 0, -125, 0, 'radical')[0];
     const front = frontRank(pt, sec.squad.id);
     // un agent du premier rang qui ne porte pas de bouclier, vers le milieu de la ligne : les cinq boucliers de la
-    // section restent valides, et deux d'entre eux couvrent l'évacuation (la ligne barre la rue de façade à façade :
-    // l'agent du milieu, lui, est un porte-bouclier — voir l'essai suivant)
+    // section restent valides (la ligne barre la rue de façade à façade : l'agent du milieu, lui, est un porte-bouclier).
+    // Rue barrée : tout le premier rang tient la rue, la couverture ne peut pas en sortir (elle ouvrirait des trous) —
+    // un équipier du second rang dégage le blessé, sans couverture
     const mid = Math.floor(front.length / 2);
     const victim = front.slice().sort((a, b) => Math.abs(front.indexOf(a) - mid) - Math.abs(front.indexOf(b) - mid)).find((p) => p.poste !== 'bouclier')!;
     expect(victim).toBeDefined();
@@ -89,8 +90,9 @@ describe('police — collègue à terre', () => {
     expect(dropped).toBeGreaterThan(0);
     expect(dropped).toBeLessThan(40); // « moins de 20 s » de traction à 0,6 m/s, plus l'approche
     expect(victim.z - z0).toBeGreaterThan(4);
-    expect(covers).toBeGreaterThanOrEqual(3); // un agent qui tire, deux boucliers qui couvrent
-    expect(ctx.radio.log.some((m) => m.priority === 2 && m.text.includes('Agent à terre'))).toBe(true);
+    expect(covers).toBe(1); // un agent du second rang qui tire ; aucun bouclier ne quitte la ligne
+    expect(ctx.radio.log.some((m) => m.priority === 2 && m.text.includes('Agent à terre') && m.text.includes('la ligne tient'))).toBe(true);
+    expect(ctx.radio.log.some((m) => m.text.includes('Deux boucliers en couverture'))).toBe(false);
     expect(ctx.radio.log.some((m) => m.priority === 2 && m.text.includes('blessé évacué derrière la ligne'))).toBe(true);
     // chacun reprend sa place : la ligne se referme sur le vide et reste droite
     pt.step(20);
@@ -130,7 +132,7 @@ describe('police — collègue à terre', () => {
 });
 
 describe('police — extinction', () => {
-  it('ordre « eteindre » : le porte-extincteur éteint la nappe de feu désignée, couvert par les boucliers, puis reprend sa place', async () => {
+  it('ordre « eteindre » : le porte-extincteur éteint la nappe de feu désignée, sans détacher de boucliers de la rue barrée, puis reprend sa place', async () => {
     const { pt, sec } = await lineUp();
     const { ctx } = pt;
     const fx = 2;
@@ -155,7 +157,7 @@ describe('police — extinction', () => {
     // une nappe non traitée brûle plus de 30 s : ici elle est éteinte bien avant
     expect(outAt).toBeGreaterThan(0);
     expect(outAt).toBeLessThan(22);
-    expect(escort).toBe(3);
+    expect(escort).toBe(1); // rue barrée : les boucliers du premier rang tiennent la rue, il sort seul
     expect(count(bearer, 'extincteur')).toBeLessThan(charge0);
     pt.step(15);
     expect(pt.status.of(sec.squad.id)!.detached).toBe(0);

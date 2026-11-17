@@ -319,8 +319,11 @@ export class MissionBriefSystem implements GameSystem {
     const v = group.vehicleId !== 0 ? ctx.vehicles.get(group.vehicleId) : undefined;
     let place = o.x === 0 && o.z === 0 ? '' : this.place(o.x, o.z);
     // barrage : la rue que l'unité barre réellement (service 'police.barrages'), à défaut la voie la plus proche
-    if (o.type === 'couper_circulation' || o.type === 'filtrer') place = this.barrageStreet(group) || place;
-    const plain = plainOrder(o.type, { place, poste: me.poste, hasPost: !!slot, vehicle: v ? this.vehicleLabel(v, group) : undefined });
+    const barrage = this.barrageOf(group);
+    if (o.type === 'couper_circulation' || o.type === 'filtrer' || (barrage !== null && barrage.passersby)) place = (barrage ? barrage.street : '') || place;
+    const plain = plainOrder(o.type, {
+      place, poste: me.poste, hasPost: !!slot, vehicle: v ? this.vehicleLabel(v, group) : undefined, passersby: barrage !== null && barrage.passersby,
+    });
     let x: number | undefined, z: number | undefined;
     if (plain.target === 'post' && slot) { x = slot.x; z = slot.z; }
     else if (plain.target === 'vehicle' && v) { x = v.x; z = v.z; }
@@ -665,19 +668,28 @@ export class MissionBriefSystem implements GameSystem {
     if (control.listen !== this.listenFn) control.listen = this.listenFn;
   }
 
-  /** Rue barrée par le groupe du joueur ou par une unité supérieure (service 'police.barrages') ; '' si inconnue. */
-  private barrageStreet(group: Squad): string {
+  /**
+   * Barrage tenu par le groupe ou une unité dont il fait partie (service 'police.barrages') : rue réellement barrée
+   * ('' si sans nom, ni chez lui ni chez ses supérieurs) et option « passants laissés passer » ; null s'il n'en tient pas.
+   */
+  private barrageOf(group: Squad): { street: string; passersby: boolean } | null {
     const ctx = this.ctx!;
-    const api = ctx.service<{ list?: readonly { squadId: number; street: string; state: string }[] }>('police.barrages');
+    const api = ctx.service<{ list?: readonly { squadId: number; street: string; state: string; passersby?: boolean }[] }>('police.barrages');
     const list = api && Array.isArray(api.list) ? api.list : null;
-    if (!list) return '';
+    if (!list) return null;
     let id = group.id;
+    let found: { street: string; passersby: boolean } | null = null;
     for (let guard = 0; id !== 0 && guard < 6; guard++) {
       const b = list.find((q) => q.squadId === id && q.state !== 'rompu');
-      if (b && typeof b.street === 'string' && b.street.trim() !== '') return b.street.trim();
+      if (b) {
+        const street = typeof b.street === 'string' ? b.street.trim() : '';
+        // option : celle du premier barrage trouvé ; rue sans nom : son nom se cherche chez l'unité supérieure
+        if (!found) found = { street, passersby: b.passersby === true };
+        if (street !== '') return { street, passersby: found.passersby };
+      }
       id = ctx.squads.get(id)?.parentId ?? 0;
     }
-    return '';
+    return found;
   }
 
   /** Nom parlé d'un lieu : voie nommée la plus proche, sinon le secteur. */

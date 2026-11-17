@@ -27,14 +27,48 @@ import {
 import { appendPath, measure, placeGroup, settleSlots } from './place';
 import { ackBody, acknowledge, spell } from './radio';
 import { leavePost, progressEncircle, startEncircle } from './encircle';
-import { formStreetBarrage, streetAt } from './barrages';
+import { B_EN_ROUTE, formStreetBarrage, letsPassersby, streetAt } from './barrages';
+import { BARRAGE_LET_PASSERSBY } from './api';
 import {
   progressBarrage, progressBoarding, progressCrew, progressRelief, startBarrage, startCrewOrder, startDisembark, startEmbark, startRelief,
 } from './special';
 import * as T from './tuning';
 
+/** Ordres qui finissent en barrage de rue (option « passants », SquadOrder.targetId). */
+const BARRAGE_ORDERS: ReadonlySet<string> = new Set(['couper_circulation', 'tenir', 'ligne', 'avancer']);
+
+/**
+ * Le même barrage redonné à l'unité qui le tient déjà (même rue, à quelques mètres) avec l'autre option « passants » :
+ * seule l'option change — ni la rue rouverte puis refermée, ni la ligne refaite. true si l'ordre a été pris ainsi.
+ */
+function retuneBarrage(k: Kernel, u: Unit, o: SquadOrder): boolean {
+  const m = u.man;
+  const cur = u.order;
+  if (!m.barrage || !m.bWalls || m.bState === B_EN_ROUTE || !cur || !BARRAGE_ORDERS.has(o.type) || !BARRAGE_ORDERS.has(cur.type)) return false;
+  const want = o.targetId === BARRAGE_LET_PASSERSBY;
+  if (want === letsPassersby(u)) return false;
+  if (o.targetId !== 0 && !want) return false;
+  // le point désigné est sur ce barrage : dans la rue, à moins de 8 m de la ligne
+  const fx = Math.sin(m.bh);
+  const fz = Math.cos(m.bh);
+  const along = (o.x - m.bx) * fx + (o.z - m.bz) * fz;
+  const lat = (o.x - m.bx) * -fz + (o.z - m.bz) * fx;
+  if (Math.abs(along) > 8 || Math.abs(lat) > m.bWidth / 2 + 2) return false;
+  // l'ordre en cours garde son type, son point et son cap : seule l'option change
+  cur.targetId = want ? BARRAGE_LET_PASSERSBY : 0;
+  cur.issuedAt = o.issuedAt;
+  cur.issuedBy = o.issuedBy;
+  cur.maxForce = o.maxForce;
+  u.ackAt = k.now + 0.35 + ((u.id * 0.173) % 0.4);
+  u.ackText = acknowledge(u.squad.name, want
+    ? 'les passants passent' + (m.bStreet !== '' ? ', ' + m.bStreet : '') + ', les manifestants restent bloqués'
+    : 'plus personne ne passe' + (m.bStreet !== '' ? ', ' + m.bStreet : '') + ', passants compris');
+  return true;
+}
+
 /** Prise en compte d'un ordre de formation par l'unité racine `u`. */
 export function startOrder(k: Kernel, u: Unit, o: SquadOrder): void {
+  if (retuneBarrage(k, u, o)) return;
   leavePost(k, u);
   const order = copyOrder(o);
   u.order = order;

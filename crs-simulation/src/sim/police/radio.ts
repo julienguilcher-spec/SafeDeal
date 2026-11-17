@@ -115,7 +115,7 @@ export function ackBody(k: Kernel, o: SquadOrder, dist: number): string {
     case 'secourir': return 'je vais chercher le blessé';
     case 'releve': return 'je relève sur place, passage de ligne';
     case 'ravitailler': return 'ravitaillement aux véhicules';
-    case 'couper_circulation': return 'je coupe la circulation' + at(sec);
+    case 'couper_circulation': return 'je barre la rue' + at(sec);
     case 'filtrer': return 'barrage filtrant' + at(sec);
     case 'cesser': return 'halte à l’action en cours';
     case 'libre': return 'je reprends ma mission';

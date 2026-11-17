@@ -7,10 +7,11 @@ import type { ForceLevel, SommationStage } from '@/core/contracts';
 import { button, el, setClass, setText } from '../maps/icons';
 import { coarsePointer } from '../maps/style';
 import type { CommandCore } from './core';
-import { FORCE_LABELS, ORDER_GROUP_LABELS, ORDER_VERBS } from './orders';
+import { FORCE_LABELS, ORDER_GROUP_LABELS, ORDER_VERBS, hasPassersbyOption, passersbyLabel, verbHint } from './orders';
 import type { OrderGroup, OrderVerb } from './orders';
 import { forceRequest } from './phrases';
 import type { TacticalMap } from './tacticalMap';
+import { PASSERSBY_KEY_LABEL } from './tacticalKeys';
 import { IDLE } from './tacticalState';
 import type { TacticalState } from './tacticalState';
 import { exitsSummary } from '../maps/barrages';
@@ -43,6 +44,8 @@ export class OrdersPanel {
   private readonly target: HTMLElement;
   private readonly verbBtns: { verb: OrderVerb; b: HTMLButtonElement }[] = [];
   private readonly rule: HTMLElement;
+  /** « Barrer la rue » choisi : « Passants : bloqués / laissés passer » (touche B), retenu pour les ordres suivants. */
+  private readonly passants: HTMLButtonElement;
   private readonly palette: HTMLElement;
   private readonly sRescue: HTMLDivElement;
   private readonly firemenBtn: HTMLButtonElement;
@@ -116,8 +119,14 @@ export class OrdersPanel {
       this.verbBtns.push({ verb: v, b });
     }
     this.rule = el('div', 'ct-note');
+    this.passants = button(passersbyLabel(false), () => {
+      this.state.togglePassersby();
+      this.refresh();
+    }, { className: 'is-small ct-passants', id: 'tac-palette-passants' });
+    if (!coarsePointer()) this.passants.appendChild(el('span', 'cm-kbd', PASSERSBY_KEY_LABEL));
+    this.passants.style.display = 'none';
     this.readonlyNote = el('div', 'ct-note', 'Lecture seule\u00a0: vous recevez les ordres, vous n’en donnez pas. La carte montre le dispositif et la foule.');
-    sVerbs.append(vh, this.palette, this.rule, this.readonlyNote);
+    sVerbs.append(vh, this.palette, this.rule, this.passants, this.readonlyNote);
 
     // secours : les engager sur un point précis, un feu ou un blessé (clic sur la carte)
     this.sRescue = el('div', 'ct-sec');
@@ -344,9 +353,17 @@ export class OrdersPanel {
     }
     if (mode.kind === 'order') {
       const v = mode.verb;
-      setText(this.rule, v.rule !== '' ? v.rule : v.hint);
+      setText(this.rule, v.rule !== '' ? v.rule : verbHint(v, this.state.passersby));
       setClass(this.rule, 'is-warn', v.rule !== '');
       this.rule.style.display = '';
     } else this.rule.style.display = 'none';
+    const opt = mode.kind === 'order' && hasPassersbyOption(mode.verb.type);
+    this.passants.style.display = opt ? '' : 'none';
+    if (opt) {
+      const t = this.passants.querySelector('.cm-btn-t');
+      if (t) setText(t as HTMLElement, passersbyLabel(this.state.passersby));
+      setClass(this.passants, 'is-on', this.state.passersby);
+      this.passants.title = `${passersbyLabel(!this.state.passersby)} (${PASSERSBY_KEY_LABEL})`;
+    }
   }
 }

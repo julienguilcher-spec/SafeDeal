@@ -3,7 +3,8 @@
  * modèle d'affichage, sans DOM : couleur et tracé de chaque barrage, issues autour d'une foule, résumé
  * « Issues : 3 tenues sur 5 — ouvertes : … », bandeau « NASSE FERMÉE — … ».
  *
- * Une unité envoyée sur une rue la barre d'un trottoir à l'autre : personne ne passe, dans les deux sens.
+ * Une unité envoyée sur une rue la barre d'un trottoir à l'autre : personne ne passe, dans les deux sens — sauf option
+ * « Passants : laissés passer » (étiquette « passants admis ») : les manifestants et les véhicules restent bloqués.
  * Une nasse est fermée quand toutes les issues autour d'une foule sont tenues. Le service est facultatif :
  * sans lui, aucune couche ne se dessine et aucun résumé ne s'affiche.
  *
@@ -29,6 +30,8 @@ export interface BarrageView {
   street: string;
   edgeId: number;
   mode: 'ferme' | 'filtrant' | string;
+  /** Passants laissés passer (facultatif : absent d'une version du service qui ne connaît pas l'option). */
+  passersby?: boolean;
 }
 
 export interface ExitView {
@@ -82,9 +85,14 @@ export interface SceneBarrage {
   street: string;
   edgeId: number;
   mode: string;
+  /** Passants laissés passer (« passants admis ») ; false : personne ne passe. */
+  passersby: boolean;
   /** Indicatif de l'unité qui le tient (« MISTRAL 1 ALFA »), '' si inconnu. */
   callsign: string;
 }
+
+/** Étiquette d'un barrage qui laisse passer les passants (carte, légende). */
+export const PASSERSBY_TAG = 'passants admis';
 
 /** Aspect d'un barrage sur la carte. */
 export interface BarrageLook {
@@ -110,7 +118,14 @@ export const BARRAGE_COLORS = {
 
 /** Aspect d'un barrage selon son état : en route = pointillés ; en place = rouge plein ; incomplet = orange et part
  * non couverte hachurée ; filtrant = vert avec une porte ; rompu = gris. */
-export function barrageLook(b: { state: string; mode: string; covered: number }): BarrageLook {
+export function barrageLook(b: { state: string; mode: string; covered: number; passersby?: boolean }): BarrageLook {
+  const look = baseLook(b);
+  // passants laissés passer : la barre reste celle d'un barrage fermé (aux manifestants), l'étiquette le dit
+  if (b.passersby === true && b.state !== 'rompu') look.tag = look.tag !== '' ? `${look.tag} · ${PASSERSBY_TAG}` : PASSERSBY_TAG;
+  return look;
+}
+
+function baseLook(b: { state: string; mode: string; covered: number }): BarrageLook {
   const covered = Number.isFinite(b.covered) ? Math.max(0, Math.min(1, b.covered)) : 0;
   const filtrant = b.mode === 'filtrant';
   switch (b.state) {

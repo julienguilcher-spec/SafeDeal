@@ -187,6 +187,8 @@ box-shadow:0 8px 22px rgba(0,0,0,.5);will-change:transform;white-space:nowrap}
 .ct-quick{position:absolute;left:0;top:0;z-index:9;display:none;will-change:transform}
 .ct-quick.is-on{display:block}
 .ct-quick .cw-wheel{width:270px;height:270px;margin:-135px 0 0 -135px}
+.ct-quick-opt{position:absolute;left:50%;top:calc(100% + 4px);transform:translateX(-50%);white-space:nowrap}
+.ct-passants.is-on,.ct-quick-opt.is-on{border-color:var(--cm-yellow);color:var(--cm-yellow)}
 
 /* ── disposition compacte (téléphone) : tiroirs par-dessus la carte ── */
 .ct.is-compact .ct-top{height:46px;gap:8px;padding-left:calc(10px + var(--safe-left,0px))}

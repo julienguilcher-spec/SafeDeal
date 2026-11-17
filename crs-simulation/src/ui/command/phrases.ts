@@ -63,6 +63,8 @@ export interface OrderPhraseInput {
   distance: number;
   /** Nom de la cible éventuelle (unité à protéger, à escorter…). */
   target: string;
+  /** « Barrer la rue » : les passants sont laissés passer (manifestants et véhicules restent bloqués). */
+  passersby?: boolean;
 }
 
 function at(sector: string): string {
@@ -90,7 +92,8 @@ export function orderPhrase(o: OrderPhraseInput): string {
       body = `Bouclage${at(o.sector)}, rayon ${spellNumber(Math.round(o.width / 2))} mètres. Sortie contrôlée laissée ouverte face ${facingCardinal(o.heading)}, annonce aux personnes retenues`;
       break;
     case 'couper_circulation':
-      body = `Barrez la rue${at(o.sector)}, d’une façade à l’autre. Plus personne ne passe, dans les deux sens`;
+      body = `Barrez la rue${at(o.sector)}, d’une façade à l’autre. `
+        + (o.passersby ? 'Laissez passer les passants, pas les manifestants ni les véhicules' : 'Plus personne ne passe, dans les deux sens');
       break;
     case 'filtrer': body = `Barrage filtrant${at(o.sector)}. Une porte\u00a0: laissez sortir un par un`; break;
     case 'disperser_gaz': body = `Lacrymogènes${at(o.sector)}, tir courbe, sur mon ordre`; break;

@@ -47,6 +47,16 @@ export class ClosureRec {
   areaX = 0;
   areaZ = 0;
   areaR = 0;
+  /** Carrefours aux deux bouts du tronçon fermé. */
+  nodeA = -1;
+  nodeB = -1;
+  /**
+   * Côté vers lequel le barrage fait face (unitaire, le long de la rue) : la foule, la rue qu'il interdit. Inconnu
+   * (faced = false) pour des barrières seules, sans unité ni foule : tout le tronçon est alors la rue fermée.
+   */
+  faced = false;
+  faceX = 0;
+  faceZ = 0;
   /** Véhicules déjà engagés au moment de la fermeture : autorisés à franchir le barrage pour sortir. */
   readonly permits = new Set<EntityId>();
   gateOpen = false;
@@ -290,6 +300,8 @@ export class Closures implements TrafficControlApi {
     }
     rec.dx = pt.dx;
     rec.dz = pt.dz;
+    rec.nodeA = info.nodeA;
+    rec.nodeB = info.nodeB;
     rec.width = Math.max(3, c.edgeWidth[at]!);
     rec.lane = (c.edgeFlags[at]! & E_ONEWAY) !== 0 ? 0 : Math.min(rec.width * 0.25, 3.2);
     rec.byId = byId;
@@ -550,6 +562,19 @@ export class Closures implements TrafficControlApi {
         this.blockRec = rec;
       }
     }
+  }
+
+  /** Le point est-il à l'intérieur d'un périmètre fermé (closeArea) ? Rien n'y apparaît, rien n'y va. */
+  inClosedArea(x: number, z: number): boolean {
+    const recs = this.recs;
+    for (let i = 0; i < recs.length; i++) {
+      const rec = recs[i]!;
+      if (rec.areaId === 0) continue;
+      const dx = x - rec.areaX;
+      const dz = z - rec.areaZ;
+      if (dx * dx + dz * dz < rec.areaR * rec.areaR) return true;
+    }
+    return false;
   }
 
   /** Fermeture qui interdit cette arête (null si elle est ouverte). */

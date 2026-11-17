@@ -10,7 +10,7 @@ import type { IncidentsApi, MetroApi, RescueApi, TrafficControlApi, UiKit } from
 import type { MapsRuntime } from '../maps/runtime';
 import type { CommandApi, CommandScope, IssuedOrder } from './api';
 import { issueObstacle } from './obstacleOrder';
-import { verbOf } from './orders';
+import { BARRAGE_LET_PASSERSBY, verbOf } from './orders';
 import type { OrderGeom, OrderVerb } from './orders';
 import { orderPhrase } from './phrases';
 import { computeScope } from './scope';
@@ -162,7 +162,7 @@ export class CommandCore implements CommandApi {
       if (g && !patrol && (type === 'faire_mouvement' || (MOTOR_AUTO.has(type) && this.farFor(s, g.x, g.z)))) {
         // une unité dont un supérieur est aussi désigné fait partie de sa colonne
         if (squads.some((q) => q !== s && this.isAncestor(q.id, s))) { count++; continue; }
-        if (this.motorize(s, type, g, from)) { count++; continue; }
+        if (this.motorize(s, type, g, from, false, targetId)) { count++; continue; }
         if (type === 'faire_mouvement') {
           ctx.ui.notify(`${s.name} n’a pas de véhicule disponible : mouvement à pied.`, 'warn', 4);
           ctx.squads.issue(s.id, { type: 'colonne', x: g.x, z: g.z, heading: g.heading, width: 0, targetId, maxForce, issuedBy: playerId });
@@ -188,7 +188,7 @@ export class CommandCore implements CommandApi {
           channel: 'commandement', from, priority: verb.coercive ? 2 : 1, personId: playerId,
           text: orderPhrase({
             type: t, unit: s.name, from, sector: g ? this.placeName(t, o.x, o.z) : '', heading: o.heading, width: o.width,
-            distance: dist, target: targetName,
+            distance: dist, target: targetName, passersby: targetId === BARRAGE_LET_PASSERSBY,
           }),
         });
       }
@@ -254,15 +254,19 @@ export class CommandCore implements CommandApi {
   /**
    * Lance la colonne de l'unité vers le point (police.command.arrive) ; false si elle n'a pas de véhicule.
    * `stayAboard` : l'unité reste à bord à l'arrivée (« Me suivre en colonne » : elle rejoint le joueur, sans débarquer).
+   * `targetId` : seule l'option « passants laissés passer » de « Barrer la rue » est reprise au débarquement.
    */
-  private motorize(s: Squad, type: OrderType, g: OrderGeom, from: string, stayAboard = false): boolean {
+  private motorize(s: Squad, type: OrderType, g: OrderGeom, from: string, stayAboard = false, targetId = 0): boolean {
     const ctx = this.ctx;
     const cmd = ctx.service<{ arrive(id: number, dest: Record<string, unknown>): boolean }>('police.command');
     if (!cmd || !this.hasVehicles(s)) return false;
     const lead = ctx.people.get(s.leaderId) ?? (s.members.length ? ctx.people.get(s.members[0]!) : undefined);
     const heading = lead ? Math.atan2(g.x - lead.x, g.z - lead.z) : g.heading;
     if (!cmd.arrive(s.id, { x: g.x, z: g.z, heading, layout: 'file', boardFirst: true, stagger: true, disembark: !stayAboard })) return false;
-    if (type !== 'faire_mouvement' && type !== 'colonne' && !stayAboard) this.afterConvoy.set(s.id, { type, geom: g, targetId: 0 });
+    if (type !== 'faire_mouvement' && type !== 'colonne' && !stayAboard) {
+      // l'option du barrage (passants laissés passer) vaut aussi pour l'ordre repris au débarquement
+      this.afterConvoy.set(s.id, { type, geom: g, targetId: targetId === BARRAGE_LET_PASSERSBY ? targetId : 0 });
+    }
     else this.afterConvoy.delete(s.id);
     ctx.radio.say({
       channel: 'commandement', from, priority: 2, personId: ctx.player.state.personId,

@@ -29,6 +29,40 @@ export interface OrderVerb {
 
 /** Consigne de l'ordre « Barrer la rue » (palette, ordre rapide, roue, aperçu). */
 export const BARRER_HINT = 'Plus personne ne passe, dans les deux sens';
+/** Consigne de « Barrer la rue » avec l'option « Passants : laissés passer ». */
+export const BARRER_HINT_PASSANTS = 'Les manifestants ne passent pas, les passants oui';
+
+/**
+ * Valeur de SquadOrder.targetId de « Barrer la rue » quand les passants sont laissés passer (copie locale de
+ * BARRAGE_LET_PASSERSBY, src/sim/police/api.ts : l'interface n'importe rien de src/sim).
+ */
+export const BARRAGE_LET_PASSERSBY = -2;
+
+/** Libellé de l'option du barrage : « Passants : bloqués » (défaut) ou « Passants : laissés passer ». */
+export function passersbyLabel(letPass: boolean): string {
+  return letPass ? 'Passants : laissés passer' : 'Passants : bloqués';
+}
+
+/** Consigne de « Barrer la rue » selon l'option des passants. */
+export function barrerHint(letPass: boolean): string {
+  return letPass ? BARRER_HINT_PASSANTS : BARRER_HINT;
+}
+
+/** L'option « passants » vaut pour cet ordre (« Barrer la rue ») ? */
+export function hasPassersbyOption(type: OrderType): boolean {
+  return type === 'couper_circulation';
+}
+
+/** Consigne d'un verbe (palette, bandeau de la carte) avec l'option des passants de « Barrer la rue ». */
+export function verbHint(v: OrderVerb, letPass: boolean): string {
+  if (!hasPassersbyOption(v.type) || !v.hint.startsWith(BARRER_HINT)) return v.hint;
+  return barrerHint(letPass) + v.hint.slice(BARRER_HINT.length);
+}
+
+/** targetId de l'ordre donné depuis la carte : l'option des passants pour « Barrer la rue », sinon `targetId`. */
+export function barrageTargetId(type: OrderType, letPass: boolean, targetId = 0): number {
+  return hasPassersbyOption(type) && targetId === 0 && letPass ? BARRAGE_LET_PASSERSBY : targetId;
+}
 
 export const ORDER_VERBS: readonly OrderVerb[] = [
   { type: 'tenir', label: 'Tenir la position', short: 'Tenir', group: 'posture', gesture: 'immediate', force: 1, coercive: false,

@@ -7,7 +7,7 @@ import { drawBarrageLine, drawNasse, drawOrderArrow, drawTargetMark } from '../m
 import type { MapTransform } from '../maps/transform';
 import type { MapUnit } from '../maps/units';
 import type { CommandCore } from './core';
-import { BARRER_HINT, MIN_LINE, areaToOrder, lineToOrder } from './orders';
+import { MIN_LINE, areaToOrder, barrerHint, lineToOrder } from './orders';
 import type { OrderGeom, OrderVerb } from './orders';
 import type { TacticalState } from './tacticalState';
 
@@ -139,7 +139,7 @@ export function drawTacticalPreview(
     // la barre suit la perpendiculaire à la rue : cap de la formation = axe de la rue
     drawBarrageLine(g, view, r.x, r.z, r.heading, Math.max(6, r.width), mode.verb.type === 'filtrer' ? '#34c759' : '#ff3b30', false, 4);
     view.worldToScreen(r.x, r.z, SP);
-    text(g, `${r.name || 'Voie sans nom'} — ${mode.verb.type === 'filtrer' ? 'une porte, sortie une à une' : BARRER_HINT.toLowerCase()}`, SP.x, SP.y - 20, '#ffffff');
+    text(g, `${r.name || 'Voie sans nom'} — ${mode.verb.type === 'filtrer' ? 'une porte, sortie une à une' : barrerHint(st.passersby).toLowerCase()}`, SP.x, SP.y - 20, '#ffffff');
   } else if (mode.kind === 'order' && mode.verb.gesture !== 'immediate') {
     for (let i = 0; i < units.length; i++) {
       view.worldToScreen(units[i]!.x, units[i]!.z, SP);

@@ -421,7 +421,7 @@ export class MapScene {
       out.push({
         squadId: b.squadId, x: b.x, z: b.z, heading: Number.isFinite(b.heading) ? b.heading : 0,
         width: Number.isFinite(b.width) && b.width > 0 ? b.width : 0, covered: b.covered, state: b.state, street: b.street ?? '',
-        edgeId: b.edgeId, mode: b.mode, callsign: sq && vis.police ? sq.name : '',
+        edgeId: b.edgeId, mode: b.mode, passersby: b.passersby === true, callsign: sq && vis.police ? sq.name : '',
       });
     }
   }

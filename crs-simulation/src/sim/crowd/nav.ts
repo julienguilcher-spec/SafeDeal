@@ -9,6 +9,7 @@ import { EXT } from '@/core/extensions';
 import type { CordonsApi } from '@/core/extensions';
 import type { CrowdExit } from './api';
 import type { CrowdBrain } from './brain';
+import { F } from './brain';
 import type { CrowdCore } from './core';
 import { footAround, pathCrossesCordon } from './detour';
 import * as T from './tuning';
@@ -42,8 +43,11 @@ export class Nav {
     this.computed = 0;
   }
 
-  /** Itinéraire de A à B, sans le point de départ ; null si la ligne droite suffit ou s'il n'y a pas de chemin. */
-  compute(ax: number, az: number, bx: number, bz: number): number[] | null {
+  /**
+   * Itinéraire de A à B, sans le point de départ ; null si la ligne droite suffit ou s'il n'y a pas de chemin.
+   * `passerby` : itinéraire d'un passant (badaud) — un barrage qui laisse passer les passants ne se contourne pas.
+   */
+  compute(ax: number, az: number, bx: number, bz: number, passerby = false): number[] | null {
     const s = this.scratch;
     const ctx = this.core.ctx;
     this.computed++;
@@ -56,8 +60,8 @@ export class Nav {
         s.length = 0;
         s.push(ax, az, bx, bz);
       }
-      if (pathCrossesCordon(cordons, s)) {
-        if (!footAround(ctx, ax, az, bx, bz, cordons, s)) return null;
+      if (pathCrossesCordon(cordons, s, passerby)) {
+        if (!footAround(ctx, ax, az, bx, bz, cordons, s, passerby)) return null;
         ok = true;
       }
     }
@@ -108,7 +112,9 @@ export class Nav {
         b.pathI = this.entryIndex(g.path, p.x, p.z);
         continue;
       }
-      b.path = this.compute(p.x, p.z, b.tx, b.tz);
+      // badaud : passant au sens des barrages (un manifestant qui s'en va n'en est pas un)
+      const cordons = (b.flags & F.BYSTANDER) !== 0 ? this.core.ctx.service<CordonsApi>(EXT.cordons) : undefined;
+      b.path = this.compute(p.x, p.z, b.tx, b.tz, !!cordons && !!cordons.passerby && cordons.passerby(p));
       b.pathI = 0;
       if (g && b.exit >= 0) {
         g.path = b.path;

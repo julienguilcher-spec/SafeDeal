@@ -69,6 +69,8 @@ export class CarRouter {
       const clearB = (c.nodeFlags[b]! & N_JUNCTION) !== 0 ? c.nodeRadius[b]! + 36 : 1;
       if (len < clearA + clearB + 1) continue;
       c.pointAt(e, clearA + rng.next() * (len - clearA - clearB), 0, pt);
+      // jamais à l'intérieur d'un périmètre fermé : il n'y entrerait pas
+      if (k.closures.inClosedArea(pt.x, pt.z)) continue;
       const fx = pt.x - fromX;
       const fz = pt.z - fromZ;
       if (fx * fx + fz * fz < 120 * 120) continue;

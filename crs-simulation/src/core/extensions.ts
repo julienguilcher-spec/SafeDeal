@@ -128,10 +128,20 @@ export interface CordonsApi {
    * elle se trouve ; true si `pos` a été corrigée. Forces de l'ordre, secours et joueur passent (la ligne s'ouvre).
    */
   resolve(p: Person, pos: Vec2, r: number): boolean;
-  /** Le segment (a → b) franchit-il un cordon tenu ? (itinéraires à pied : une rue barrée se contourne) */
-  crosses(ax: number, az: number, bx: number, bz: number): boolean;
+  /**
+   * Le segment (a → b) franchit-il un cordon tenu ? (itinéraires à pied : une rue barrée se contourne). `passerby` :
+   * l'itinéraire d'un passant — les barrages qui laissent passer les passants ne comptent pas.
+   */
+  crosses(ax: number, az: number, bx: number, bz: number, passerby?: boolean): boolean;
   /** Tronçons tenus, quatre nombres par tronçon [ax, az, bx, bz] (les `count` premiers). */
   readonly segments: ArrayLike<number>;
+  /** Par tronçon (les `count` premiers) : 1 si son barrage laisse passer les passants, 0 sinon. */
+  readonly admits?: ArrayLike<number>;
+  /**
+   * La personne est-elle un passant au sens des barrages (civil à pied qui ne manifeste pas : badaud, piéton, riverain,
+   * journaliste, street medic) ? Un manifestant, même dispersé, n'en est jamais un.
+   */
+  passerby?(p: Person): boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────

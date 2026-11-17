@@ -12,7 +12,8 @@ import { F_NONE, OP_ARREST, ROLE_LEAD, ROLE_SECOND, createOp } from './brain';
 import type { Kernel } from './kernel';
 import { report } from './mcore';
 import {
-  anyTrooper, approachPoint, busy, dist, engage, finish, isCatcher, isHelper, nearest, nextStage, openDoor, release, setGoal, takeCover,
+  anyTrooper, approachPoint, busy, dist, engage, finish, isCatcher, isHelper, nearest, lineDoor, nextStage, offLine, openDoor, release, setGoal,
+  takeCover,
 } from './ops-core';
 import { fleetOf } from './tree';
 import * as T from './tuning';
@@ -22,9 +23,12 @@ import * as T from './tuning';
 /** Lance l'interpellation d'une personne par le binôme le plus proche. null si personne n'est disponible. */
 export function createArrest(k: Kernel, root: Unit, owner: Unit, target: Person, ordered: boolean): Op | null {
   const within = ordered ? owner : null;
-  let lead = nearest(root, within, target.x, target.z, isCatcher, null);
-  if (!lead) lead = nearest(root, within, target.x, target.z, isHelper, null);
-  if (!lead && ordered) lead = nearest(root, within, target.x, target.z, anyTrooper, null);
+  // rue barrée : le binôme sort du second rang, le premier tient la rue (pas de trou dans le barrage)
+  const catcher = offLine(root, isCatcher);
+  const helper = offLine(root, isHelper);
+  let lead = nearest(root, within, target.x, target.z, catcher, null);
+  if (!lead) lead = nearest(root, within, target.x, target.z, helper, null);
+  if (!lead && ordered) lead = nearest(root, within, target.x, target.z, offLine(root, anyTrooper), null);
   if (!lead) return null;
   const op = createOp(OP_ARREST, root, owner, k.now);
   op.ordered = ordered;
@@ -33,7 +37,7 @@ export function createArrest(k: Kernel, root: Unit, owner: Unit, target: Person,
   op.z = target.z;
   op.lead = lead;
   engage(op, lead, ROLE_LEAD);
-  op.second = nearest(root, within, target.x, target.z, isCatcher, lead) ?? nearest(root, within, target.x, target.z, isHelper, lead);
+  op.second = nearest(root, within, target.x, target.z, catcher, lead) ?? nearest(root, within, target.x, target.z, helper, lead);
   engage(op, op.second, ROLE_SECOND);
   takeCover(op, lead.p.x, lead.p.z, null);
   openDoor(k, lead, target.x, target.z, 5);
@@ -91,6 +95,11 @@ function findHandover(k: Kernel, op: Op, from: Person): void {
 }
 
 export function updateArrest(k: Kernel, op: Op): void {
+  stepArrest(k, op);
+  lineDoor(k, op);
+}
+
+function stepArrest(k: Kernel, op: Op): void {
   const ctx = k.ctx;
   const root = op.root;
   const now = k.now;
@@ -209,14 +218,17 @@ export function updateArrest(k: Kernel, op: Op): void {
       break;
     }
     case 3: {
-      // les boucliers de couverture rentrent ; l'interpellé est pris en escorte
-      if (op.cover1) {
-        release(op.cover1);
-        op.cover1 = null;
-      }
-      if (op.cover2) {
-        release(op.cover2);
-        op.cover2 = null;
+      // les boucliers de couverture rentrent ; l'interpellé est pris en escorte (rue barrée : ils rentrent avec le
+      // binôme, par la même porte, au lieu de forcer la ligne chacun de son côté)
+      if (!root.man.barrage) {
+        if (op.cover1) {
+          release(op.cover1);
+          op.cover1 = null;
+        }
+        if (op.cover2) {
+          release(op.cover2);
+          op.cover2 = null;
+        }
       }
       if (busy(k, lead)) {
         lead.hold = true;
@@ -283,6 +295,9 @@ export function updateArrest(k: Kernel, op: Op): void {
       }
       setGoal(lead, gx, gz);
       if (second) setGoal(second, p.x - Math.sin(p.heading) * 1.1, p.z - Math.cos(p.heading) * 1.1);
+      // (rue barrée) les boucliers suivent le binôme jusque derrière la ligne
+      setGoal(op.cover1, p.x - Math.sin(p.heading) * 2.2, p.z - Math.cos(p.heading) * 2.2);
+      setGoal(op.cover2, p.x - Math.sin(p.heading) * 3.2, p.z - Math.cos(p.heading) * 3.2);
       const d = dist(p, gx, gz);
       if (busy(k, lead)) {
         lead.hold = true;

@@ -377,10 +377,13 @@ export function planDetour(
 const barred = new Set<number>();
 const goals: number[] = [];
 
-/** L'itinéraire (polyligne [x0, z0, x1, z1, …]) franchit-il un cordon de police tenu ? */
-export function pathCrossesCordon(cordons: CordonsApi, pts: readonly number[]): boolean {
+/**
+ * L'itinéraire (polyligne [x0, z0, x1, z1, …]) franchit-il un cordon de police tenu ? `passerby` : itinéraire d'un passant
+ * (les barrages qui laissent passer les passants ne comptent pas).
+ */
+export function pathCrossesCordon(cordons: CordonsApi, pts: readonly number[], passerby = false): boolean {
   if (cordons.count === 0) return false;
-  for (let i = 2; i + 1 < pts.length; i += 2) if (cordons.crosses(pts[i - 2]!, pts[i - 1]!, pts[i]!, pts[i + 1]!)) return true;
+  for (let i = 2; i + 1 < pts.length; i += 2) if (cordons.crosses(pts[i - 2]!, pts[i - 1]!, pts[i]!, pts[i + 1]!, passerby)) return true;
   return false;
 }
 
@@ -389,13 +392,18 @@ export function pathCrossesCordon(cordons: CordonsApi, pts: readonly number[]): 
  * la rue) : `out` reçoit la polyligne depuis A. false s'il n'y a pas d'autre chemin (la personne est nassée, ou la
  * seule rue qui mène à B est barrée) : elle n'a alors nulle part où aller par là.
  */
-export function footAround(ctx: GameContext, ax: number, az: number, bx: number, bz: number, cordons: CordonsApi, out: number[]): boolean {
+export function footAround(
+  ctx: GameContext, ax: number, az: number, bx: number, bz: number, cordons: CordonsApi, out: number[], passerby = false,
+): boolean {
   const world = ctx.world;
   if (world.nodeCount === 0 || cordons.count === 0) return false;
   // voies barrées : celles que coupe en travers un tronçon de cordon
   barred.clear();
   const s = cordons.segments;
+  const admits = cordons.admits;
   for (let i = 0; i < cordons.count; i++) {
+    // passant : un barrage qui laisse passer les passants n'est pas une rue barrée pour lui
+    if (passerby && admits && admits[i] !== 0) continue;
     const sx = s[i * 4]!;
     const sz = s[i * 4 + 1]!;
     const ex = s[i * 4 + 2]! - sx;
@@ -412,7 +420,7 @@ export function footAround(ctx: GameContext, ax: number, az: number, bx: number,
   for (const id of [e0.a, e0.b]) {
     const n = world.node(id);
     // on ne repart que vers le carrefour de son côté du barrage
-    if (cordons.crosses(ax, az, n.x, n.z)) continue;
+    if (cordons.crosses(ax, az, n.x, n.z, passerby)) continue;
     seeds.push({ node: id, cost: Math.hypot(n.x - ax, n.z - az) });
   }
   if (seeds.length === 0) return false;
@@ -426,7 +434,7 @@ export function footAround(ctx: GameContext, ax: number, az: number, bx: number,
     if (d === Infinity) continue;
     const nd = world.node(n);
     // le dernier bout jusqu'à B ne doit pas, lui non plus, franchir le barrage
-    if (cordons.crosses(nd.x, nd.z, bx, bz)) continue;
+    if (cordons.crosses(nd.x, nd.z, bx, bz, passerby)) continue;
     const score = d + Math.hypot(nd.x - bx, nd.z - bz);
     if (score < best) {
       best = score;
@@ -436,7 +444,7 @@ export function footAround(ctx: GameContext, ax: number, az: number, bx: number,
   if (goal < 0) return false;
   search.pathTo(ctx, goal, ax, az, out);
   push(out, bx, bz);
-  return out.length >= 4 && !pathCrossesCordon(cordons, out);
+  return out.length >= 4 && !pathCrossesCordon(cordons, out, passerby);
 }
 
 /** La place est-elle close : impossible de s'en éloigner de plus de ENCLOSED_REACH m de chemin ? */
