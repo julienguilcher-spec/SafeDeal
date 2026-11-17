@@ -93,6 +93,11 @@ export class CommandCore {
 
   /** Journal des décisions du commandant IA (borné). */
   readonly decisions: CommandDecision[] = [];
+  /**
+   * Unités retenues par le script de mission pour l'objectif du joueur exécutant (CommandApi.pin) : le commandant IA
+   * ne les emploie plus (ni emplacement, ni tâche, ni réserve).
+   */
+  readonly pinned = new Set<number>();
 
   bind(ctx: GameContext): void {
     this.ctx = ctx;
@@ -123,6 +128,7 @@ export class CommandCore {
     this.rng = this.ctx.rng.fork('police.command');
     this.now = 0;
     this.decisions.length = 0;
+    this.pinned.clear();
     this.resolve();
   }
 

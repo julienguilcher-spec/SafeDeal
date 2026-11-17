@@ -60,7 +60,12 @@ export function createCoreApi(core: CrowdCore): CrowdCoreApi {
     setProfile: (p, to) => core.emotions.setProfile(p, to),
     createGroup: (kind, members) => core.createGroup(kind, members),
     triggerAlea: (id) => core.aleas.trigger(id),
-    setLiaison: (active) => { core.director.liaison = active; },
+    setLiaison: (active) => {
+      const was = core.director.liaison;
+      core.director.liaison = active;
+      // événement libre lu par le cadre de mission (objectif « parcours négocié par la liaison »)
+      if (was !== active) core.ctx.events.emitAny('crowd:liaison', { active });
+    },
     announceDispersal: () => core.director.announceDispersal('organisateurs'),
   };
 }

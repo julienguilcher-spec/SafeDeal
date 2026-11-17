@@ -190,7 +190,8 @@ describe('intégration : mise en place de session', () => {
       { role: 'chef_groupe', extra: { poste: 'chef_section' }, kind: 'crs', poste: 'chef_section', faction: 'police', vehicles: 3, squad: 4 },
       { role: 'commandant', kind: 'crs', poste: 'commandant_unite', faction: 'police', vehicles: 4, squad: 2 },
       { role: 'commissaire', kind: 'crs', poste: 'commandant_unite', faction: 'police', vehicles: 4, squad: 2 },
-      { role: 'bravm', kind: 'bravm', poste: 'passager_moto', faction: 'police', vehicles: 3, squad: 6 },
+      // (passager : opérateur d'un binôme — lui et son pilote — sous le chef de groupe de la BRAV-M, trois motos)
+      { role: 'bravm', kind: 'bravm', poste: 'passager_moto', faction: 'police', vehicles: 3, squad: 2 },
       { role: 'gendarme_centaure', kind: 'gendarme', poste: 'conducteur', faction: 'police', vehicles: 1, squad: 3 },
       { role: 'operateur_canon_eau', kind: 'crs', poste: 'conducteur', faction: 'police', vehicles: 1, squad: 3 },
       { role: 'telepilote', kind: 'telepilote', poste: 'telepilote', faction: 'police', vehicles: 1, squad: 2 },

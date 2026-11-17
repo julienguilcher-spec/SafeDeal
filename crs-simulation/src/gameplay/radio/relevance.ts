@@ -94,6 +94,16 @@ function addressOf(msg: RadioMessage, known: (name: string) => boolean): { to: s
   return { to: '', from: canonicalCallsign(msg.from), header: h && !h.loose ? h : null };
 }
 
+/**
+ * Voix d'une mission entendue sur place (catalogue : « CHEF DE GROUPE », « CHEF D'AGRÈS », « MONITEUR », mégaphone…) :
+ * canal public, émetteur écrit en capitales, sans personne attachée (une unité qui parle au mégaphone a sa personne).
+ * Elle s'adresse au personnage incarné : ni trafic d'une autre unité, ni réseau d'un autre métier.
+ */
+export function isOnSiteVoice(msg: RadioMessage): boolean {
+  return msg.channel === 'public' && (msg.personId === undefined || msg.personId === 0)
+    && /\p{Lu}/u.test(msg.from) && msg.from === msg.from.toUpperCase();
+}
+
 /** Le message concerne-t-il le joueur exécutant ? */
 export function classifyRadio(msg: RadioMessage, scope: RadioScope): RadioRelevance {
   if (msg.personId !== undefined && msg.personId !== 0 && (msg.personId === scope.self || scope.people.has(msg.personId))) return 'mine';
@@ -187,6 +197,9 @@ export class ExecutantRadioFilter {
 
   accept(msg: RadioMessage, scope: RadioScope, now: number): boolean {
     if (msg.personId !== undefined && msg.personId !== 0 && msg.personId === scope.self) return true;
+    // voix de sa mission entendue sur place (chef de groupe à la voix, sommations au mégaphone) : sans formule
+    // d'appel, elle était classée « autre unité » et masquée — seules les redites sont écartées
+    if (isOnSiteVoice(msg)) return this.fresh(`public|${msg.from}|${radioBody(msg.text)}`, now);
     const rel = classifyRadio(msg, scope);
     if (rel === 'other') return this.hide(now);
     const h = parseRadioHeader(msg.text);
@@ -209,10 +222,18 @@ export class ExecutantRadioFilter {
     if (msg.personId !== undefined && msg.personId !== 0 && msg.personId === self) return true;
     const sender = canonicalCallsign(msg.from);
     const only = listen.onlyFrom;
-    const onChannel = listen.channels.has(msg.channel) && (!only || only.some((p) => sender === p || sender.startsWith(`${p} `)));
-    const ok = onChannel || listen.senders.some((p) => sender.startsWith(p));
+    const inNet = (name: string): boolean => !only || only.some((p) => name === p || name.startsWith(`${p} `));
+    // sur le réseau écouté : un émetteur du réseau, ou un appel adressé à l'un des siens (« SAPEUR UN ICI CENTRAL. »)
+    const h = only ? parseRadioHeader(msg.text) : null;
+    const onChannel = listen.channels.has(msg.channel) && (inNet(sender) || (h !== null && !h.reply && h.to !== '' && inNet(h.to)));
+    // la voix de sa mission entendue sur place (chef d'agrès, équipier…) : quel que soit le réseau du métier
+    const ok = onChannel || isOnSiteVoice(msg) || listen.senders.some((p) => sender.startsWith(p));
     if (!ok) return this.hide(now);
-    const key = `${msg.channel}|${radioBody(msg.text)}`;
+    return this.fresh(`${msg.channel}|${radioBody(msg.text)}`, now);
+  }
+
+  /** Message pas encore entendu récemment (anti-redite) ; le note comme entendu. */
+  private fresh(key: string, now: number): boolean {
     const last = this.seen.get(key);
     if (last !== undefined && now >= last && now - last < this.cfg.repeat) return this.hide(now);
     this.seen.set(key, now);

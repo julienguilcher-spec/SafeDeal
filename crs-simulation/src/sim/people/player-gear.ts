@@ -4,6 +4,7 @@
  * Le masque se met en 8 s et se retire en 3 s (docs/research/02 §2.3) : pendant ce temps les
  * mains sont prises (pas d'usage d'objet), et le geste est interrompu si l'on est frappé,
  * étourdi ou mis à terre, ou si l'on appuie de nouveau. La visière se manœuvre d'un geste.
+ * La touche « flashlight » (L à pied) allume ou éteint la lampe torche de la dotation.
  * ===================================================================================== */
 
 import type { GameContext, Person } from '@/core/contracts';
@@ -87,6 +88,14 @@ export class GearControl {
     if (input.pressed('visor') && canAct) {
       if (!hasVisor(p)) ctx.ui.notify('Pas de visière sur cette coiffe.', 'warn', 2);
       else setVisor(p, e, !p.look.visorDown);
+    }
+
+    // lampe torche (touche L / pastille « Lampe ») : à pied seulement — en véhicule, L commande les phares.
+    // Emploi rapide de la lampe de la dotation, sans changer l'objet en main (voir sim/items, useItem).
+    if (input.pressed('flashlight') && canAct && p.vehicleId === 0) {
+      const items = ctx.service<{ useItem(p: Person, id: 'lampe'): unknown }>('items');
+      if (ctx.actions.has(p, 'lampe') <= 0) ctx.ui.notify("Vous n'avez pas de lampe torche.", 'warn', 2);
+      else items?.useItem(p, 'lampe');
     }
   }
 

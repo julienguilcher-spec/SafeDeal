@@ -515,7 +515,13 @@ export class Autopilot implements AutopilotApi {
     const farX = x - hs * run;
     const farZ = z - hc * run;
     let long = world.isFree(farX, farZ, rt.radius) && world.lineOfSight(farX, farZ, x, z);
-    for (let attempt = 0; attempt < 2; attempt++) {
+    // déjà dans l'axe de la place, tourné comme elle, la place devant lui (tête de colonne arrivée au point que le rang
+    // fait avancer de quelques mètres) : il avance s'y garer. Le point d'approche, en arrière de la place, tombait
+    // derrière lui — l'itinéraire, parti dans le sens où il est tourné, faisait le tour du quartier pour y revenir.
+    const ahead = (x - v.x) * hs + (z - v.z) * hc;
+    const aside = (x - v.x) * hc - (z - v.z) * hs;
+    const inAxis = ahead > 0.5 && ahead < run && aside < 1.2 && aside > -1.2 && Math.abs(angleDiff(v.heading, heading)) < 0.3;
+    for (let attempt = 0; attempt < 2 && !inAxis; attempt++) {
       const ax = long ? farX : x - hs * back;
       const az = long ? farZ : z - hc * back;
       const dx = ax - v.x;
@@ -537,6 +543,11 @@ export class Autopilot implements AutopilotApi {
       const turn = Math.abs(angleDiff(Math.atan2(ix, iz), heading));
       if (turn <= 2.2) break;
       long = false;
+    }
+    if (inAxis) {
+      this.scratch[0] = v.x;
+      this.scratch[1] = v.z;
+      ap.setPath(this.scratch, 1);
     }
     ap.axisUntil = 0;
     ap.append(x, z);
@@ -601,6 +612,23 @@ export class Autopilot implements AutopilotApi {
     if (pushThrough !== undefined) ap.pushThrough = pushThrough && v.def.canPush === true;
     if (avoid) ap.avoidZones = avoid.length > 0 ? avoid : null;
     return this.replan(rt, ap, false);
+  }
+
+  /**
+   * Cède le passage à l'arrêt : marche arrière droite de `metres` (au plus 5), arrêtée par ce qui est derrière (voir
+   * ApDriver.backOff). Pour deux véhicules d'une même colonne nez contre flanc au sortir d'un stationnement en bloc,
+   * chacun attendant l'autre (session/follow.ts, unjam). false si le véhicule roule ou n'est pas au pilote automatique.
+   */
+  giveWay(v: Vehicle, metres: number): boolean {
+    const rt = this.k.peek(v.id);
+    if (!rt || !rt.ap || !this.usable(v) || Math.abs(v.speed) > 0.3) return false;
+    const ap = rt.ap as ApState;
+    if (ap.mode !== 'drive' && ap.mode !== 'follow') return false;
+    ap.avoidBack = Math.max(0.5, Math.min(5, metres));
+    ap.avoidBackT = 0;
+    ap.scanT = 0;
+    ap.giveWay = true;
+    return true;
   }
 
   plannedPath(v: Vehicle, out: number[]): boolean {
@@ -686,6 +714,12 @@ export class Autopilot implements AutopilotApi {
       return;
     }
     if (ap.mode === 'follow' && !this.trackLeader(rt, ap)) return;
+    // (suivant qui cède le passage — giveWay — : la marche arrière d'abord, l'attente derrière le meneur ensuite)
+    if (ap.mode === 'follow' && ap.giveWay && ap.avoidBack > 0) {
+      this.driver.backOff(rt, ap, dt);
+      if (ap.avoidBack <= 0) ap.giveWay = false;
+      return;
+    }
     if (ap.mode === 'follow' && this.holdBehind(rt, ap)) {
       this.hold(v);
       this.driver.setStatus(rt, ap, 'attente', '');

@@ -316,12 +316,15 @@ describe('intégration : forces de l’ordre réelles (assemblage 2)', () => {
     const company = ctx.squads.list.find((q) => q.kind === 'compagnie')!;
     expect(company).toBeDefined();
     expect(ctx.people.get(company.leaderId)!.isPlayer).toBe(false);
-    const mine = ctx.squads.get(me.squadId)!;
-    expect(mine.members.length).toBe(6);
+    // (poste par défaut : opérateur passager — trois binômes, une moto chacun, sous le groupe « BRAV-M 1 »)
+    let top = ctx.squads.get(me.squadId)!;
+    while (top.parentId !== 0) top = ctx.squads.get(top.parentId)!;
+    const team = ctx.squads.list.filter((q) => q.id === top.id || q.parentId === top.id).flatMap((q) => q.members);
+    expect(team.length).toBe(6);
     // personne de l'équipe du joueur n'est posé dans les rangs de la compagnie
-    const others = ctx.people.list.filter((p) => p.faction === 'police' && p.squadId !== me.squadId && p.vehicleId === 0);
+    const others = ctx.people.list.filter((p) => p.faction === 'police' && team.indexOf(p.id) < 0 && p.vehicleId === 0);
     let closest = Infinity;
-    for (const id of mine.members) {
+    for (const id of team) {
       const p = ctx.people.get(id)!;
       for (const o of others) closest = Math.min(closest, Math.hypot(p.x - o.x, p.z - o.z));
     }

@@ -17,6 +17,7 @@ import { angleDiff, cardinalFr, wrapAngle } from '@/core/math';
 import type { Agent, Unit } from './brain';
 import { F_NONE, agentOf, unitOf } from './brain';
 import type { Kernel } from './kernel';
+import { isAble } from './kernel';
 import {
   allSettled, done, formHold, formLate, formLine, inPlace, leaderOf, mainGroup, moveTo, report, setPhase, setStep, unitCenter,
 } from './mcore';
@@ -233,13 +234,18 @@ function seatsLeft(u: Unit, v: Vehicle, self: Agent): number {
  * de sa branche, puis de l'unité, puis n'importe quel véhicule de troupe de police de la colonne alentour (le fourgon
  * d'un autre groupe, le VL), et en dernier recours les places avant du fourgon cellulaire. 0 si aucune.
  */
+/** Poste de conduite : conducteur d'un véhicule, pilote d'une moto de la BRAV-M (sa place est le guidon, pas la selle arrière). */
+function drives(p: { poste: string | null }): boolean {
+  return p.poste === 'conducteur' || p.poste === 'pilote_moto';
+}
+
 function seatFor(k: Kernel, u: Unit, a: Agent): EntityId {
   const ctx = k.ctx;
   const p = a.p;
   for (let x: Unit | null = a.home; x; x = x.parent) {
     const v = x.squad.vehicleId !== 0 ? ctx.vehicles.get(x.squad.vehicleId) : undefined;
     if (!usable(v) || v.kind === 'fourgon_cellulaire') continue;
-    if (p.poste === 'conducteur' && driverSeatFree(v)) return v.id;
+    if (drives(p) && driverSeatFree(v)) return v.id;
     if (seatsLeft(u, v, a) > 0) return v.id;
   }
   // puis le véhicule de l'unité le plus proche où il reste une place
@@ -341,13 +347,13 @@ export function startEmbark(k: Kernel, u: Unit, o: SquadOrder): void {
       const vi = x.squad.vehicleId !== 0 ? fleet.indexOf(x.squad.vehicleId) : -1;
       if (vi < 0) continue;
       const v = ctx.vehicles.get(fleet[vi]);
-      if (p.poste === 'conducteur' && usable(v) && driverSeatFree(v)) pick = vi;
+      if (drives(p) && usable(v) && driverSeatFree(v)) pick = vi;
       else if (freeSeats[vi] > 0) pick = vi;
     }
     for (let j = 0; j < fleet.length && pick < 0; j++) if (freeSeats[j] > 0) pick = j;
     if (pick < 0) continue;
     const v = ctx.vehicles.get(fleet[pick])!;
-    if (!(p.poste === 'conducteur' && driverSeatFree(v) && fleet[pick] === (a.home ? a.home.squad.vehicleId : 0))) freeSeats[pick]--;
+    if (!(drives(p) && driverSeatFree(v) && fleet[pick] === (a.home ? a.home.squad.vehicleId : 0))) freeSeats[pick]--;
     a.boardId = v.id;
     a.boardAt = k.now;
     a.hasSlot = false;
@@ -451,12 +457,33 @@ export function startCrewOrder(k: Kernel, u: Unit, o: SquadOrder): boolean {
   const type = o.type;
   u.groups.length = 0;
   if (type === 'embarquer' || type === 'debarquer') {
+    // un conducteur valide dans l'équipage (le joueur compris) : les autres lui laissent le volant ; sans lui (conducteur
+    // blessé ou interpellé), le premier qui monte prend le volant, comme avant
+    let driver = false;
+    for (let i = 0; i < u.agents.length && !driver; i++) {
+      const p = u.agents[i].p;
+      driver = p.squadId === u.squad.id && p.poste === 'conducteur' && isAble(k.ctx, p);
+    }
     for (let i = 0; i < u.agents.length; i++) {
       const p = u.agents[i].p;
       if (type === 'debarquer') {
         if (p.vehicleId !== 0) k.ctx.vehicles.exit(p);
       } else if (p.vehicleId === 0 && !p.isPlayer) {
-        k.ctx.vehicles.enter(p, v, p.poste === 'conducteur' ? 'driver' : undefined);
+        // seul l'équipage monte dans l'engin : le groupe de CRS qui l'escorte (rattaché à l'équipage) monte dans son
+        // propre fourgon. Sans cela, l'escorte remplissait les trois places du canon à eau du joueur à l'embarquement
+        // de la journée de service, et l'opérateur était envoyé dans un fourgon de CRS.
+        const sub = p.squadId !== u.squad.id ? k.ctx.squads.get(p.squadId) : undefined;
+        if (sub) {
+          const ride = sub.vehicleId !== 0 ? k.ctx.vehicles.get(sub.vehicleId) : undefined;
+          if (ride && ride !== v) k.ctx.vehicles.enter(p, ride, drives(p) ? 'driver' : ride.kind === 'moto_bravm' ? 'passenger' : undefined);
+          continue;
+        }
+        // le conducteur (ou le pilote de la moto) prend le volant ; à moto, l'équipier prend la selle arrière ;
+        // (un équipier qui n'est pas le conducteur laisse le volant libre : le joueur conducteur y prend place)
+        if (drives(p)) k.ctx.vehicles.enter(p, v, 'driver');
+        else if (v.kind === 'moto_bravm') k.ctx.vehicles.enter(p, v, 'passenger');
+        else if (!driver) k.ctx.vehicles.enter(p, v);
+        else if (!k.ctx.vehicles.enter(p, v, 'gunner') && !k.ctx.vehicles.enter(p, v, 'passenger')) k.ctx.vehicles.enter(p, v);
       }
     }
     setPhase(k, u, type === 'embarquer' ? 'embarque' : 'en_place');

@@ -302,11 +302,20 @@ export class Command {
     this.supports.length = 0;
     const secs: Squad[] = [];
     this.sections(secs);
+    // unités retenues par la mission du joueur exécutant (voir pin) : jamais éléments de manœuvre
+    for (let i = secs.length - 1; i >= 0; i--) if (core.pinned.has(secs[i].id)) secs.splice(i, 1);
     if (secs.length === 0) return;
-    // la réserve : la dernière section (une seule unité : elle manœuvre, sans réserve)
-    const reserveIndex = secs.length >= 2 ? secs.length - 1 : -1;
+    // la réserve : la dernière section (une seule unité : elle manœuvre, sans réserve) — pas celle d'un groupe retenu
+    let reserveIndex = -1;
+    if (secs.length >= 2) for (let i = secs.length - 1; i >= 0 && reserveIndex < 0; i--) if (!this.holdsPinned(secs[i].id)) reserveIndex = i;
     for (let i = 0; i < secs.length; i++) {
       const s = secs[i];
+      if (this.holdsPinned(s.id)) {
+        // section d'un groupe retenu : ses autres groupes manœuvrent seuls, la section n'est pas un élément (son ordre
+        // emmènerait le groupe retenu avec elle)
+        this.addFreeChildren(s, s.id);
+        continue;
+      }
       if (i === reserveIndex) {
         const el = this.addElement(s, s.id, 'reserve');
         this.state.reserveId = el.squadId;
@@ -340,6 +349,47 @@ export class Command {
       }
       if (made === 0) this.addElement(s, s.id, 'libre');
     }
+  }
+
+  /** Une unité retenue par la mission (core.pinned) est-elle cette unité ou l'une de ses subordonnées ? */
+  holdsPinned(squadId: number): boolean {
+    for (const id of this.core.pinned) if (this.core.isUnder(id, squadId)) return true;
+    return false;
+  }
+
+  /** Les subordonnées de `s` non retenues deviennent des éléments libres (récursivement autour d'une unité retenue). */
+  private addFreeChildren(s: Squad, sectionId: number): void {
+    const core = this.core;
+    const kids = core.ctx.squads.childrenOf(s.id);
+    for (let g = 0; g < kids.length; g++) {
+      const k = kids[g];
+      if (core.pinned.has(k.id) || core.members(k.id, core.people) === 0 || this.element(k.id)) continue;
+      if (this.holdsPinned(k.id)) this.addFreeChildren(k, sectionId);
+      else this.addElement(k, sectionId, 'libre');
+    }
+  }
+
+  /**
+   * Une unité vient d'être retenue par la mission du joueur exécutant (« Tenir sa place dans la ligne » boulevard
+   * Saint-Martin) : elle, ou l'élément qui l'englobe, quitte le dispositif de l'IA — sans quoi le commandant
+   * l'emmenait tenir un débouché à trois cents mètres de l'objectif, et le joueur qui suivait son chef ne pouvait plus
+   * réussir sa mission. L'emplacement qu'elle tenait est rendu au dispositif ; les autres groupes de sa section
+   * restent des éléments libres.
+   */
+  dropPinned(): void {
+    for (let i = this.elements.length - 1; i >= 0; i--) {
+      const el = this.elements[i];
+      if (!this.holdsPinned(el.squadId)) continue;
+      if (el.post && el.post.squadId === el.squadId) {
+        el.post.squadId = 0;
+        if (el.post.state === 'ordonne' || el.post.state === 'tenu') el.post.state = 'prevu';
+      }
+      if (this.state.reserveId === el.squadId) this.state.reserveId = 0;
+      this.elements.splice(i, 1);
+      const s = this.core.ctx.squads.get(el.squadId);
+      if (s && !this.core.pinned.has(s.id)) this.addFreeChildren(s, el.sectionId);
+    }
+    for (let i = this.supports.length - 1; i >= 0; i--) if (this.holdsPinned(this.supports[i].squadId)) this.supports.splice(i, 1);
   }
 
   // ───────────────────────────── événements ─────────────────────────────

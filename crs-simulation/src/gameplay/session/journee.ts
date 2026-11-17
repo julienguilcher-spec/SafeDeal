@@ -54,7 +54,7 @@ interface CommandLike {
   depart(companyId: number, exit?: { x: number; z: number }): boolean;
   convoyOf(companyId: number): { stage: string } | null;
   stateOf(companyId: number): { phase: string; missionEnded: boolean } | null;
-  special?(squadId: number): { kind: string } | null;
+  special?(squadId: number): { kind: string; stage?: string; x?: number; z?: number } | null;
 }
 interface VehiclesExt {
   setSiren?(v: Vehicle, mode: 0 | 1 | 2): void;
@@ -80,8 +80,12 @@ const RETURN_MAX = 900;
 const INTERVENTION_MAX = 420;
 /** Arrivée sans colonne : distance du joueur (ou du chef de son unité) à la zone de stationnement (m). */
 const SOLO_ARRIVE = 70;
+/** BRAV-M arrêtée « en position » à moins de tant de mètres du point (retenue devant la foule) : arrivée (m). */
+const BRAVM_PARKED = 250;
 
 const CONVOY_KINDS: ReadonlySet<string> = new Set(['fourgon_crs', 'car_crs', 'vl_commandement', 'fourgon_cellulaire', 'canon_eau', 'centaure']);
+/** Engins à équipage : on n'y monte que si l'on en fait partie. */
+const ENGINE_KINDS: ReadonlySet<string> = new Set(['canon_eau', 'centaure']);
 
 export class JourneeSystem implements GameSystem {
   readonly id = 'session.journee';
@@ -351,9 +355,9 @@ export class JourneeSystem implements GameSystem {
     const ctx = this.ctx!;
     const command = ctx.service<CommandLike>('police.command');
     const st = command ? command.convoyOf(this.companyId) : null;
-    // la colonne roule dès que la tête bouge
-    const lead = this.convoyLead();
-    if (lead && Math.abs(lead.speed) > 1.2) {
+    // la colonne roule dès que l'un de ses véhicules part : au départ échelonné, le véhicule de commandement ne part
+    // qu'en dernier, une demi-minute après le premier fourgon (attendre la tête laissait « En route bientôt » affiché)
+    if (this.convoyMoving()) {
       this.stage_ = 'route';
       this.setSirens(true);
       const d = this.dest!;
@@ -376,7 +380,13 @@ export class JourneeSystem implements GameSystem {
       const own = ctx.squads.get(this.companyId);
       const lead = own ? ctx.people.get(own.leaderId) : undefined;
       const near = (p: { x: number; z: number } | undefined | null): boolean => !!p && !!d && Math.hypot(p.x - d.x, p.z - d.z) < SOLO_ARRIVE;
-      if (near(me) || near(lead)) this.arrived();
+      // BRAV-M : sa colonne s'arrête avant la foule, jamais dedans (police/command/bravm.ts) — à plus de SOLO_ARRIVE m du
+      // point quand le rassemblement déborde : arrivée quand elle a rendu compte « en position » à proximité
+      const command = ctx.service<CommandLike>('police.command');
+      const sp = own && command && command.special ? command.special(own.id) : null;
+      const parked = !!sp && !!d && sp.kind === 'bravm' && sp.stage === 'repos' && typeof sp.x === 'number' && typeof sp.z === 'number'
+        && Math.hypot(sp.x - d.x, sp.z - d.z) < BRAVM_PARKED;
+      if (near(me) || near(lead) || parked) this.arrived();
       return;
     }
     const command = ctx.service<CommandLike>('police.command');
@@ -768,6 +778,21 @@ export class JourneeSystem implements GameSystem {
     return null;
   }
 
+  /** Un véhicule de la colonne de la compagnie, conduit par l'IA, roule-t-il ? */
+  private convoyMoving(): boolean {
+    const ctx = this.ctx!;
+    const me = ctx.player.person();
+    const lead = this.convoyLead();
+    if (lead && Math.abs(lead.speed) > 1.2) return true;
+    for (const s of ctx.squads.list) {
+      if (s.vehicleId === 0 || this.companyOf(s.id) !== this.companyId) continue;
+      const v = ctx.vehicles.get(s.vehicleId);
+      if (!v || !CONVOY_KINDS.has(v.kind) || v.def.flying || v.seats[0] === 0 || (me && v.seats[0] === me.id)) continue;
+      if (Math.abs(v.speed) > 1.2) return true;
+    }
+    return false;
+  }
+
   /** Véhicule où le joueur doit monter : celui de son groupe s'il y reste une place, sinon un véhicule de la compagnie. */
   private seatFor(me: Person): Vehicle | null {
     const ctx = this.ctx!;
@@ -780,14 +805,18 @@ export class JourneeSystem implements GameSystem {
     };
     if (own && own.vehicleId !== 0) {
       const v = ctx.vehicles.get(own.vehicleId);
-      if (v && free(v)) return v;
+      // le véhicule de sa propre unité, même volant vide : l'engin du canon à eau dont il est le conducteur, la voiture
+      // de l'équipe du drone (il prend le volant, ou le commandement y assoit un équipier). Exiger un conducteur envoyait
+      // l'opérateur du canon dans un fourgon de CRS et le télépilote à pied jusqu'à la manifestation.
+      if (v && (free(v) || (v.seats[0] === 0 && !v.def.flying))) return v;
     }
     let best: Vehicle | null = null;
     let bestD = Infinity;
     for (const s of ctx.squads.list) {
       if (s.vehicleId === 0 || this.companyOf(s.id) !== this.companyId) continue;
       const v = ctx.vehicles.get(s.vehicleId);
-      if (!v || !CONVOY_KINDS.has(v.kind) || !free(v)) continue;
+      // (un Centaure, un canon à eau n'emportent que leur équipage : jamais un CRS à pied)
+      if (!v || !CONVOY_KINDS.has(v.kind) || ENGINE_KINDS.has(v.kind) || !free(v)) continue;
       const d = Math.hypot(v.x - me.x, v.z - me.z);
       if (d < bestD) { bestD = d; best = v; }
     }

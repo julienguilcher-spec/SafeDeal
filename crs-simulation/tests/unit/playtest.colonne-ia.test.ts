@@ -54,9 +54,7 @@ function cases(): Case[] {
  */
 const KNOWN: Record<string, string> = {
   '1|1|chef_groupe': 'commissariat du 1er : un passant planté devant le fourgon du joueur au départ (piétons de la circulation), et itinéraire 2,15 fois plus long que le plus court chemin pour contourner la foule de la Concorde',
-  '2|2|bravm': 'BRAV-M, poste passager : les motos proches du joueur n’ont pas de pilote (0/0), aucune place de passager libre sur les motos armées — mise en place',
   '4|1|crs': 'commissariat du 8e : véhicules garés en vrac dans la cour (caps 3,06 / 1,50 / 2,21), le VL force contre un fourgon sans le voir — mise en place',
-  '5|2|chef_groupe': 'commissariat du 7e : le fourgon du joueur reste arrêté à 540 m du point (cause non élucidée)',
 };
 
 interface Ap {
@@ -164,7 +162,10 @@ describe('playtest — colonnes conduites par l’IA', () => {
       }
       // tous les véhicules armés ont quitté la base
       t.step(40);
-      const left = crewed.filter((v) => Math.hypot(v.x - from.get(v.id)!.x, v.z - from.get(v.id)!.z) < 25);
+      // (BRAV-M : les motos de l'unité du joueur ; l'autre BRAV-M, ici garée à la même base que la compagnie — en jeu,
+      // à un autre commissariat —, attend que les fourgons soient sortis : son arrivée est vérifiée plus bas)
+      const ownMotos = new Set(isBravm ? ctx.squads.list.filter((q) => q.vehicleId !== 0 && unitOf(ctx, ctx.people.get(q.leaderId) ?? me)?.id === unitOf(ctx, me)?.id).map((q) => q.vehicleId) : []);
+      const left = crewed.filter((v) => (!isBravm || ownMotos.has(v.id)) && Math.hypot(v.x - from.get(v.id)!.x, v.z - from.get(v.id)!.z) < 25);
       console.log(`  ${crewed.length} véhicules armés ; restés à leur place : ${left.map((v) => v.kind + '#' + v.id).join(', ') || 'aucun'}`);
       expect(left.map((v) => v.kind)).toEqual([]);
       // arrivée dans un délai raisonnable : la route à 5 m/s, plus quatre minutes
@@ -176,8 +177,15 @@ describe('playtest — colonnes conduites par l’IA', () => {
       console.log(`  arrivée : ${j.stage} après ${took.toFixed(0)} s (limite ${limit.toFixed(0)}) ; joueur à ${Math.hypot(me.x - dest.x, me.z - dest.z).toFixed(0)} m du point`);
       expect(j.stage).toBe('sur_place');
       t.step(isBravm ? 20 : 40);
-      expect(me.vehicleId, 'le joueur est descendu').toBe(0);
-      expect(Math.hypot(me.x - dest.x, me.z - dest.z)).toBeLessThan(120);
+      if (isBravm) {
+        // BRAV-M : en position en selle, à distance de retenue de la foule (pied à terre sur ordre) — le joueur derrière
+        // son pilote, avec son unité
+        expect(me.vehicleId === 0 || ctx.vehicles.get(me.vehicleId)?.kind === 'moto_bravm', 'le joueur est avec son unité').toBe(true);
+        expect(Math.hypot(me.x - dest.x, me.z - dest.z)).toBeLessThan(250);
+      } else {
+        expect(me.vehicleId, 'le joueur est descendu').toBe(0);
+        expect(Math.hypot(me.x - dest.x, me.z - dest.z)).toBeLessThan(120);
+      }
       // tout le monde : aucun véhicule ni agent à pied resté à la base
       const atBase = crewed.filter((v) => Math.hypot(v.x - base.x, v.z - base.z) < 250);
       const afoot = ctx.people.list.filter((p) => p.faction === 'police' && !p.isPlayer && p.vehicleId === 0 && p.custody === 'free' && p.posture !== 'down'

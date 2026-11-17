@@ -28,6 +28,7 @@ import { placeGroup, settleSlots } from './place';
 import { spell } from './radio';
 import { clearBarrage } from './barrages';
 import { refreshFormable, resolveLeads } from './tree';
+import * as T from './tuning';
 
 // ───────────────────────────── issues d'une zone ─────────────────────────────
 
@@ -432,12 +433,34 @@ export function progressEncircle(k: Kernel, u: Unit, relayout: boolean): void {
   allSettled(u, 0.45);
   let held = 0;
   let open = -1;
+  let toHold = 0;
   for (let i = 0; i < u.exits.length; i++) {
+    if (u.exits[i].held) toHold++;
     if (u.exits[i].held && u.exits[i].agents > 0) held++;
     else if (!u.exits[i].held) open = i;
   }
-  const body = 'Bouclage en place, ' + spell(held) + (held > 1 ? ' issues tenues' : ' issue tenue')
-    + (open >= 0 ? ', sortie contrôlée laissée ouverte face ' + cardinalFr(u.exits[open].bearing) : ', toutes les issues sont fermées');
+  // largeur que les lignes ne tiennent pas : issue sans agent, ou plus large que sa ligne et les intervalles qui la
+  // ferment jusqu'aux façades (cordon : au plus SPACING_MAX + 0,2 m entre deux agents, ou d'un agent de flanc au mur).
+  // Trop peu nombreuse, l'unité le dit et demande un renfort, comme un barrage de rue trop court.
+  const gap = T.SPACING_MAX + 0.2;
+  let gaps = 0;
+  for (let i = 0; i < u.exits.length; i++) {
+    const ex = u.exits[i];
+    if (!ex.held) continue;
+    let covered = 0;
+    for (let j = 0; j < u.groups.length; j++) {
+      const g = u.groups[j];
+      if (g.kind === F_NONE || g.exitIndex !== i || g.front.length === 0) continue;
+      covered = g.spacing <= gap + 1e-6 ? g.width - g.spacing + 2 * gap : 0;
+    }
+    if (ex.width > covered) gaps += ex.width - covered;
+  }
+  const thin = gaps > 2;
+  const body = thin
+    ? 'Bouclage incomplet, ' + spell(held) + ' issue' + (held > 1 ? 's' : '') + ' tenue' + (held > 1 ? 's' : '') + ' sur ' + spell(toHold)
+      + ', environ ' + spell(Math.max(1, Math.round(gaps))) + ' mètres non tenus, demande renfort'
+    : 'Bouclage en place, ' + spell(held) + (held > 1 ? ' issues tenues' : ' issue tenue')
+      + (open >= 0 ? ', sortie contrôlée laissée ouverte face ' + cardinalFr(u.exits[open].bearing) : ', toutes les issues sont fermées');
   inPlace(k, u, body);
   for (let i = 0; i < u.joined.length; i++) setPhase(k, u.joined[i], 'en_place');
   k.emit(ENCIRCLED_EVENT, { squadId: u.id, exits: u.exits.length, held, open: open >= 0 ? 1 : 0 });

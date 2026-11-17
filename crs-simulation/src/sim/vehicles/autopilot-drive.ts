@@ -35,6 +35,9 @@ const AVOID_WAIT_URGENT = 1.5;
 const AVOID_WAIT = 4;
 /** Suivant arrêté par une personne immobile sur la trace de son meneur : attente avant de la contourner au pas (s). */
 const FOLLOW_PEOPLE_DODGE = 5;
+/** Arrêt devant un obstacle fixe infranchissable avant de chercher un autre itinéraire (s) : en conduite normale, en urgence. */
+const OBSTACLE_REROUTE = 10;
+const OBSTACLE_REROUTE_URGENT = 6;
 
 /** Emprise d'un obstacle dans le repère de l'itinéraire (abscisses le long, écarts à droite de l'axe). */
 interface Extent { sMin: number; sMax: number; latMin: number; latMax: number }
@@ -47,6 +50,16 @@ interface Extent { sMin: number; sMax: number; latMin: number; latMax: number }
  */
 export function urgentLane(width: number, oneway: boolean): number {
   return oneway ? 0 : clamp(width * 0.25 - 2, 0, 3.2);
+}
+
+/**
+ * Un véhicule de police ou de secours (ou deux-tons allumés) n'est pas arrêté par un barrage : les agents qui le tiennent
+ * rangent les barrières sur le trottoir à son approche et les remettent derrière lui (sim/traffic/closures.ts) ; il le
+ * franchit au pas, comme une intervention urgente — sinon une colonne de police restait plantée pour de bon devant le
+ * barrage que sa tête de colonne venait de franchir.
+ */
+function passesClosures(v: Vehicle): boolean {
+  return v.faction === 'police' || v.faction === 'rescue' || v.faction === 'medic' || v.siren !== 0;
 }
 
 export class ApDriver {
@@ -65,6 +78,8 @@ export class ApDriver {
   private readonly extent: Extent = { sMin: 0, sMax: 0, latMin: 0, latMax: 0 };
   /** Le couloir de contournement peut passer sur le trottoir (intervention, mur sur l'axe). */
   private kerbOk = false;
+  /** Contournements de personnes en cours (repérés par leur fin, ap.avoidS1) : voir dodgePeople. */
+  private readonly dodging = new WeakMap<ApState, number>();
   /** Couloir regardé à courte portée (contournement d'un mur). */
   private shortCorridor = false;
   /** Nouvel itinéraire depuis la position courante (branché par Autopilot) ; false si impossible. */
@@ -200,9 +215,10 @@ export class ApDriver {
       // (en colonne, un suivant garé à contresens fait demi-tour à l'arrêt, si son meneur n'est pas tout près)
       const followTurn = ap.mode === 'follow' && au < 0.6 && ap.total - ap.s > 12 && this.leaderAway(rt, ap, 10);
       // (ou, arrêté nez contre un obstacle fixe alors que l'itinéraire part franchement de côté : on manœuvre en
-      // plusieurs temps pour s'aligner au lieu de forcer contre le réverbère)
-      const wedged = au < 0.3 && ap.blockedFor > 1 && (ap.obsReason === 'mur' || ap.obsReason === 'obstacle') && (turnErr > 1.25 || turnErr < -1.25)
-        && ap.avoidVeh === 0 && ap.avoidProp === 0;
+      // plusieurs temps pour s'aligner au lieu de forcer contre le réverbère — ou contre le véhicule garé en travers
+      // devant lequel on vient de prendre un autre itinéraire)
+      const wedged = au < 0.3 && ap.blockedFor > 1 && (ap.obsReason === 'mur' || ap.obsReason === 'obstacle' || (ap.obsReason === 'vehicule' && this.fixedBlocker(rt, ap)))
+        && (turnErr > 1.25 || turnErr < -1.25) && ap.avoidVeh === 0 && ap.avoidProp === 0;
       if (ap.uturn === 0 && au < 3 && (turnErr > 2 || turnErr < -2 || wedged) && ap.total - ap.s > 6 && (ap.mode !== 'follow' || followTurn || wedged)) {
         ap.uturn = 1;
         ap.uturnDir = turnErr >= 0 ? 1 : -1;
@@ -351,7 +367,8 @@ export class ApDriver {
     let closed = false;
     if (ap.closureS >= 0 && ap.closureS > ap.s - 2) {
       const d = ap.closureS - ap.s;
-      if (ap.urgence) {
+      if (ap.urgence || passesClosures(v)) {
+        // (intervention urgente, ou véhicule de police ou de secours : les barrières s'ouvrent devant lui)
         if (d < 20) vt = Math.min(vt, 20 / 3.6); // on passe, au pas
       } else {
         const stop = Math.sqrt(2 * aDec * Math.max(0, d));
@@ -362,7 +379,10 @@ export class ApDriver {
 
     // ── obstacles dans le couloir ──
     ap.scanT -= dt;
-    if (ap.scanT <= 0) {
+    if (ap.avoidBack > 0) {
+      // (marche arrière de dégagement en cours : backOff relève l'arrière ; un relevé vers l'avant ici écrasait le sien
+      // par l'obstacle de devant, à moins de 1,2 m, et la marche arrière s'arrêtait au bout d'un dixième de seconde)
+    } else if (ap.scanT <= 0) {
       ap.scanT = SCAN_PERIOD;
       // en fin de stationnement, on regarde juste devant soi : les voisins déjà garés ne sont pas des obstacles
       const horizon = finalLeg ? clamp(au * au / 4 + 2.5, 2.5, 8) : clamp((au * au) / (2 * 3) + 6 + au * 0.6, 6, 45);
@@ -534,6 +554,19 @@ export class ApDriver {
         this.setStatus(rt, ap, 'manoeuvre', '');
         return;
       }
+      // arrêté devant un obstacle fixe qui ferme la chaussée et que l'on ne peut contourner (station de vélos, barrières,
+      // mobilier en travers, véhicule garé sans conducteur ou épave) : l'endroit est signalé et l'on prend un autre
+      // itinéraire — sans quoi le véhicule restait là pour de bon (« bloqué »), loin du point, et sa colonne arrivait sans lui
+      // (pas la circulation civile : sa patience, son demi-tour ou son contournement sont réglés par sim/traffic)
+      if (stopped && !closed && v.faction !== 'civil' && ap.avoidVeh === 0 && ap.avoidProp === 0 && (ap.mode === 'drive' || ap.mode === 'follow')
+        && ap.blockedFor > (ap.urgence ? OBSTACLE_REROUTE_URGENT : OBSTACLE_REROUTE) && this.replan && ap.replans < 8 && this.fixedBlocker(rt, ap)) {
+        ap.replans++;
+        ap.blockedFor = 0;
+        if (this.replan(rt, ap, false, true)) {
+          this.setStatus(rt, ap, 'en_route', '');
+          return;
+        }
+      }
       // (suivant arrêté derrière son propre meneur : il attend sa place dans la colonne, il n'est pas bloqué)
       const queued = ap.mode === 'follow' && ap.obsReason === 'vehicule' && ap.obsId === ap.leaderId && ap.stuckAcc <= 3;
       this.setStatus(rt, ap, queued ? 'attente' : (stopped && fixed && ap.blockedFor > 3) || ap.stuckAcc > 3 ? 'bloque' : 'attente', queued ? '' : reason);
@@ -615,7 +648,9 @@ export class ApDriver {
       if (!known || leaving || passed || ap.avoidT > AVOID_GIVE_UP) ap.avoidWant = 0;
       // couloir revu régulièrement tant qu'on n'est pas à hauteur de l'obstacle
       let hold = false;
-      if (ap.avoidWant !== 0 && known && ap.s + rt.halfL < ext.sMin + 1) {
+      // (contournement de personnes arrêtées : pas de recontrôle du couloir — les passants qui longent le véhicule le
+      // fermaient sans cesse et il renonçait ; le capteur l'arrête de toute façon devant quiconque s'y engage)
+      if (ap.avoidWant !== 0 && known && ap.s + rt.halfL < ext.sMin + 1 && this.dodging.get(ap) !== ap.avoidS1) {
         ap.avoidCheckT -= dt;
         if (ap.avoidCheckT <= 0) {
           ap.avoidCheckT = AVOID_CHECK;
@@ -659,7 +694,15 @@ export class ApDriver {
     let propId = 0;
     // (suivant arrêté depuis un moment par une personne immobile sur la trace de son meneur — agent en formation, à pied,
     // là où le meneur s'est faufilé — : on la contourne au pas comme un obstacle fixe, si un couloir libre le permet)
-    const standing = ap.obsReason === 'personne' && ap.mode === 'follow' && !ap.convoy && ap.blockedFor > FOLLOW_PEOPLE_DODGE && au < 0.3;
+    // (de même, un véhicule de police conduit seul, arrêté par des collègues à pied immobiles devant lui — les hommes de
+    // son unité, une autre compagnie rangée sur la chaussée — : ils tiennent leur place, ils ne s'écartent pas ; sans
+    // contournement il les attendait pour de bon)
+    const standing = ap.obsReason === 'personne' && !ap.convoy && ap.blockedFor > FOLLOW_PEOPLE_DODGE && au < 0.3
+      && (ap.mode === 'follow' || (ap.mode === 'drive' && v.faction === 'police' && this.colleaguesAhead(rt)));
+    // (personnes immobiles, ou à terre — un blessé allongé sur la chaussée —, devant un suivant : on les contourne
+    // franchement, en leur laissant un mètre, comme un objet arrêté sur la voie ; un petit pas de côté ne suffisait pas
+    // et la colonne attendait derrière un blessé jusqu'à la fin)
+    if (standing && ap.mode === 'follow' && this.dodgePeople(rt, ap, au)) return false;
     if (ap.obsReason === 'mur' || standing) {
       // chaussée barrée devant par un mur ou du mobilier fixe (la rue se resserre, l'axe de la carte longe une façade) :
       // on cherche un couloir libre à côté, le plus près possible de sa voie
@@ -737,6 +780,75 @@ export class ApDriver {
     return false;
   }
 
+  /**
+   * Contournement des personnes arrêtées devant soi : emprise des personnes dans le couloir (sur la longueur de l'arrêt,
+   * plus quelques mètres), puis décalage à gauche ou à droite, couloir libre vérifié (au besoin à cheval sur le trottoir,
+   * au pas). Le décalage est tenu comme pour un mur, jusqu'à ce que la voie habituelle soit de nouveau libre. false si
+   * aucun couloir ne convient.
+   */
+  private dodgePeople(rt: VehicleRt, ap: ApState, au: number): boolean {
+    const v = rt.v;
+    const ctx = this.k.ctx;
+    const sn = Math.sin(v.heading);
+    const cs = Math.cos(v.heading);
+    const reach = rt.halfL + Math.max(0, ap.obsDist) + 4;
+    const pt = this.pt2;
+    // position latérale réelle du véhicule par rapport à l'itinéraire (en colonne, il roule sur la trace de son meneur,
+    // sans décalage de voie : ap.laneOffset n'y est pas appliqué)
+    ap.sample(ap.s, pt);
+    const off0 = (v.x - pt.x) * -pt.dz + (v.z - pt.z) * pt.dx;
+    const ext = this.extent;
+    ext.sMin = Infinity;
+    ext.sMax = -Infinity;
+    ext.latMin = Infinity;
+    ext.latMax = -Infinity;
+    const n = ctx.people.queryRadius(v.x + sn * reach * 0.5, v.z + cs * reach * 0.5, reach * 0.5 + rt.halfW + 2, this.nearPeople);
+    for (let i = 0; i < n; i++) {
+      const p = this.nearPeople[i]!;
+      if (p.vehicleId !== 0 || p.dormant) continue;
+      const fwd = (p.x - v.x) * sn + (p.z - v.z) * cs;
+      if (fwd < rt.halfL - 1 || fwd > reach) continue;
+      const sP = clamp(ap.s + fwd, 0, ap.total);
+      ap.sample(sP, pt);
+      const along = (p.x - pt.x) * pt.dx + (p.z - pt.z) * pt.dz;
+      const lat = (p.x - pt.x) * -pt.dz + (p.z - pt.z) * pt.dx;
+      // (dans le couloir du véhicule sur sa voie, avec la marge du capteur)
+      if (Math.abs(lat - off0) > rt.halfW + p.radius + 0.6) continue;
+      const r = p.radius + 0.6;
+      if (sP + along - r < ext.sMin) ext.sMin = sP + along - r;
+      if (sP + along + r > ext.sMax) ext.sMax = sP + along + r;
+      if (lat - r < ext.latMin) ext.latMin = lat - r;
+      if (lat + r > ext.latMax) ext.latMax = lat + r;
+    }
+    this.nearPeople.length = 0;
+    if (ext.sMin === Infinity) return false;
+    const left = Math.max(0.4, off0 - (ext.latMin - AVOID_MARGIN - rt.halfW));
+    const right = Math.min(-0.4, off0 - (ext.latMax + AVOID_MARGIN + rt.halfW));
+    const maxShift = Math.max(3.5, ap.roadHalf * 2 + 0.5);
+    const order: number[] = [];
+    if (left <= maxShift) order.push(left);
+    if (-right <= maxShift) order.push(right);
+    if (order.length === 2 && -right < left) order.reverse();
+    // (sur la chaussée d'abord ; à défaut, à cheval sur le trottoir s'il est libre)
+    for (let pass = 0; pass < 2; pass++) {
+      this.kerbOk = pass === 1;
+      for (const shift of order) {
+        if (!this.corridorClear(rt, ap, off0 - shift, ext, shift)) continue;
+        ap.avoidVeh = 0;
+        ap.avoidProp = -1;
+        // (tenu jusqu'à ce que l'arrière du véhicule ait dépassé les personnes : voir avoid, cas du mur)
+        ap.avoidS1 = ext.sMax + rt.halfL + 1;
+        this.dodging.set(ap, ap.avoidS1);
+        ap.avoidKerb = this.kerbOk;
+        this.kerbOk = false;
+        this.engageAvoid(rt, ap, shift, au);
+        return true;
+      }
+    }
+    this.kerbOk = false;
+    return false;
+  }
+
   /** Engage le décalage de contournement ; marche arrière d'abord si l'on est trop près pour braquer. */
   private engageAvoid(rt: VehicleRt, ap: ApState, shift: number, au: number): void {
     const v = rt.v;
@@ -754,7 +866,7 @@ export class ApDriver {
   }
 
   /** Marche arrière dans l'axe avant un contournement (place pour braquer), arrêtée par ce qui est derrière. */
-  private backOff(rt: VehicleRt, ap: ApState, dt: number): void {
+  backOff(rt: VehicleRt, ap: ApState, dt: number): void {
     const v = rt.v;
     const cmd = v.cmd;
     ap.avoidBackT += dt;
@@ -796,6 +908,37 @@ export class ApDriver {
     ap.avoidBack = 3;
     ap.avoidBackT = 0;
     ap.scanT = 0;
+  }
+
+  /** Les personnes à pied dans mon couloir, juste devant, sont-elles toutes des policiers immobiles (au moins un) ? */
+  private colleaguesAhead(rt: VehicleRt): boolean {
+    const v = rt.v;
+    const sn = Math.sin(v.heading), cs = Math.cos(v.heading);
+    const reach = 6;
+    const n = this.k.ctx.people.queryRadius(v.x + sn * (rt.halfL + reach * 0.5), v.z + cs * (rt.halfL + reach * 0.5), reach * 0.5 + rt.halfW + 1, this.nearPeople);
+    let found = 0;
+    for (let i = 0; i < n; i++) {
+      const p = this.nearPeople[i]!;
+      if (p.vehicleId !== 0 || p.dormant) continue;
+      const dx = p.x - v.x, dz = p.z - v.z;
+      const f = dx * sn + dz * cs - rt.halfL;
+      const l = dx * cs - dz * sn;
+      if (f < -0.5 || f > reach || l > rt.halfW + 0.9 || l < -(rt.halfW + 0.9)) continue;
+      if (p.faction !== 'police' || p.vx * p.vx + p.vz * p.vz > 0.09) return false;
+      found++;
+    }
+    return found > 0;
+  }
+
+  /** L'obstacle qui m'arrête est-il là pour de bon : objet, ou véhicule garé sans conducteur, ou épave (hors de ma colonne) ? */
+  private fixedBlocker(rt: VehicleRt, ap: ApState): boolean {
+    if (ap.obsReason === 'obstacle') return ap.obsPropId !== 0;
+    if (ap.obsReason !== 'vehicule' || ap.obsId === 0) return false;
+    // (un véhicule de ma colonne, même laissé sans conducteur — le joueur descendu du sien —, n'est pas un obstacle à
+    // contourner par un autre itinéraire : on l'attend à sa place)
+    if (this.inMyColumn(rt, ap, ap.obsId)) return false;
+    const o = this.k.ctx.vehicles.get(ap.obsId);
+    return !!o && (o.seats[0] === 0 || o.state === 'wrecked' || o.state === 'burnt') && Math.abs(o.speed) < 0.3;
   }
 
   /** Le véhicule `id` est-il mon meneur, l'un des meneurs de ma colonne, ou celui qui me suit ? */

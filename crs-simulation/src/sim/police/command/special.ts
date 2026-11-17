@@ -72,7 +72,11 @@ export abstract class SpecialUnit {
     if (o && o.issuedBy !== 0) {
       const by = ctx.people.get(o.issuedBy);
       const s = by && by.squadId !== 0 ? ctx.squads.get(by.squadId) : undefined;
-      if (s && s.id !== this.squad.id && s.name !== '') return s.name;
+      // (ordre donné par son propre chef, membre d'une sous-unité — chef de groupe de la BRAV-M dans le premier
+      // binôme : on rend compte à l'échelon supérieur, pas à son propre binôme « FAUCON UN-UN ICI FAUCON UN »)
+      let inside = false;
+      for (let q = s, guard = 0; q && guard < 8 && !inside; q = q.parentId !== 0 ? ctx.squads.get(q.parentId) : undefined, guard++) inside = q.id === this.squad.id;
+      if (s && !inside && s.name !== '') return s.name;
     }
     const parent = this.squad.parentId !== 0 ? ctx.squads.get(this.squad.parentId) : undefined;
     return parent && parent.name !== '' ? parent.name : 'CENTRAL';

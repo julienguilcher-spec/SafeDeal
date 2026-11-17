@@ -232,6 +232,16 @@ export function castFor(config: SessionConfig, helper: SpawnHelperApi | undefine
         slot('bravm', 'pilote_moto', 'gardien', 'Pilote'),
       ];
       cast.slots = attach(s, g);
+      if (want === 'passager_moto') {
+        // passager : trois binômes (opérateur + pilote, une moto chacun) sous le chef de groupe IA, comme toute BRAV-M ;
+        // le joueur est l'opérateur du troisième, son pilote le conduit et la colonne part avec lui
+        const b = [group('BRAV-M 1-1', 'binome', 'police', g), group('BRAV-M 1-2', 'binome', 'police', g), group('BRAV-M 1-3', 'binome', 'police', g)];
+        cast.slots = [
+          { ...s[0]!, squad: b[0]! }, { ...s[3]!, squad: b[0]! },
+          { ...s[1]!, squad: b[1]! }, { ...s[4]!, squad: b[1]! },
+          { ...s[2]!, squad: b[2]! }, { ...s[5]!, squad: b[2]! },
+        ];
+      }
       cast.player = Math.max(0, find(cast.slots, want));
       cast.vehicles = ['moto_bravm', 'moto_bravm', 'moto_bravm'];
       break;

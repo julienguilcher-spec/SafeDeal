@@ -24,7 +24,7 @@ import {
 } from './api';
 import type { Agent, Op, Unit } from './brain';
 import {
-  ACT_NONE, F_BOX, F_COLUMN, F_HOLD, F_LINE, F_NONE, F_SCREEN, F_TORTUE, OP_EXTINGUISH, OP_RESUPPLY, agentOf, isTaskOrder, unitOf,
+  ACT_NONE, F_BOX, F_COLUMN, F_HOLD, F_LINE, F_NONE, F_SCREEN, F_TORTUE, OP_ARREST, OP_EXTINGUISH, OP_RESUPPLY, agentOf, isTaskOrder, unitOf,
 } from './brain';
 import { senseUnit } from './force';
 import { cancelAct, decideForce, updateAct } from './weapons';
@@ -192,6 +192,17 @@ export class PoliceSystem implements GameSystem {
     const src = sourceId !== 0 ? ctx.people.get(sourceId) : undefined;
     if (src && src.faction === 'police') return;
     if (!src && kind !== 'impact' && kind !== 'blunt' && kind !== 'blast' && kind !== 'burn') return;
+    // coup porté par la personne qu'on interpelle (elle se débat) ou qu'on tient déjà : la résistance se règle au
+    // contact, par le binôme — ce n'est pas une attaque de l'unité. (Sinon l'unité ripostait aux lacrymogènes sur le
+    // point d'origine : à la porte d'une nasse filtrée, sur la file de nassés calmes qui attendaient leur contrôle.)
+    // (la cible d'une interpellation n'est épargnée que pour un coup, ou au contact : celle qui caillasse l'unité de
+    // loin l'attaque bien)
+    const contact = src !== undefined && (kind === 'blunt' || Math.hypot(src.x - a.p.x, src.z - a.p.z) < 3);
+    if (src && (src.custody !== 'free' || src.heldBy !== 0
+      || (contact && ((a.op !== null && a.op.targetId === src.id) || this.arresting(a.root, src.id))))) {
+      a.alertUntil = this.k.now + T.SHIELD_ALERT_TIME;
+      return;
+    }
     const s = a.root.sense;
     s.hurtAt = this.k.now;
     if (src) {
@@ -199,6 +210,13 @@ export class PoliceSystem implements GameSystem {
       s.oz = src.z;
     }
     a.alertUntil = this.k.now + T.SHIELD_ALERT_TIME;
+  }
+
+  /** Une interpellation de `targetId` est-elle en cours dans l'unité `u` ? */
+  private arresting(u: Unit, targetId: number): boolean {
+    const ops = u.ops;
+    for (let i = 0; i < ops.length; i++) if (ops[i].kind === OP_ARREST && ops[i].targetId === targetId && !ops[i].done) return true;
+    return false;
   }
 
   private onDown(id: number): void {
@@ -589,7 +607,8 @@ export class PoliceSystem implements GameSystem {
     const walk = Math.sqrt(dx * dx + dz * dz) / BOARD_WALK;
     const stuck = k.now - a.boardAt > BOARD_STUCK + walk && this.unseen(p);
     if (stuck || dx * dx + dz * dz <= (reach + 0.3) * (reach + 0.3)) {
-      const ok = p.poste === 'conducteur' ? ctx.vehicles.enter(p, v, 'driver') || ctx.vehicles.enter(p, v, 'passenger') : ctx.vehicles.enter(p, v, 'passenger');
+      // (le pilote de la BRAV-M prend le guidon de sa moto, comme le conducteur le volant : passager, la moto restait sans pilote)
+      const ok = p.poste === 'conducteur' || p.poste === 'pilote_moto' ? ctx.vehicles.enter(p, v, 'driver') || ctx.vehicles.enter(p, v, 'passenger') : ctx.vehicles.enter(p, v, 'passenger');
       if (!ok) a.boardId = 0;
       return;
     }

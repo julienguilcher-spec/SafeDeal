@@ -228,8 +228,10 @@ export function navigate(k: Kernel, a: Agent, tx: number, tz: number, interval: 
   if (a.pathN > 0) {
     // le but a bougé (formation en marche) ou est en vue : on reprend le trajet direct
     const last = a.path.length;
-    const ex = a.path[last - 2] - tx;
-    const ez = a.path[last - 1] - tz;
+    // (le but de l'itinéraire, et non son dernier point : vers un but pris dans un obstacle, l'itinéraire à pied
+    // s'arrête au sol libre le plus proche — comparé au dernier point, il était abandonné aussitôt calculé)
+    const ex = a.pathGx - tx;
+    const ez = a.pathGz - tz;
     // un contournement de véhicule (un ou deux coins, puis le but) est suivi jusqu'au bout
     const detour = (a.pathN === 4 && last === 6) || (a.pathN === 6 && last === 8);
     if (ex * ex + ez * ez > 36 || (!detour && d2 < 900 && world.lineOfSight(p.x, p.z, tx, tz))) a.pathN = 0;
@@ -238,6 +240,8 @@ export function navigate(k: Kernel, a: Agent, tx: number, tz: number, interval: 
     if (world.findPath(p.x, p.z, tx, tz, 'foot', a.path) && a.path.length >= 4) {
       a.pathN = a.path.length;
       a.pathI = 2;
+      a.pathGx = tx;
+      a.pathGz = tz;
     } else {
       a.pathN = 0;
     }
@@ -305,6 +309,8 @@ export function navigate(k: Kernel, a: Agent, tx: number, tz: number, interval: 
         if (world.findPath(p.x, p.z, tx, tz, 'foot', a.path) && a.path.length >= 6) {
           a.pathN = a.path.length;
           a.pathI = 2;
+          a.pathGx = tx;
+          a.pathGz = tz;
         }
       }
     }
@@ -436,6 +442,8 @@ function cornerDetour(k: Kernel, a: Agent, cx: number, cz: number, halfX: number
     a.pathN = 6;
   }
   a.pathI = 2;
+  a.pathGx = tx;
+  a.pathGz = tz;
 }
 
 /** Coin n° i (0 à 3) d'une boîte orientée agrandie de la marge (mx, mz). */

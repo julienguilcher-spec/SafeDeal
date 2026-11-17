@@ -29,6 +29,7 @@ import type { TileGrid } from './raster';
 import { ROAD_ANY, ROAD_DRIVABLE } from './roads';
 import { clearQuayWalls, clearTrees } from './quaywalls';
 import { DEFAULT_BASE_URL, FetchMapSource, createTestDistrictSource, testDistrictRaw } from './sources';
+import { AccessLegs } from './route-legs';
 import { findSpawnPoint } from './spawn';
 import { buildTileGrid, patchNeighbourGrid } from './surfaces';
 import { DEFAULT_LOAD_RADIUS, DEFAULT_UNLOAD_RADIUS } from './tiles';
@@ -90,6 +91,8 @@ export class WorldQueryImpl implements WorldQueryExt, TileHost {
   private readonly loadRadius: number;
   private readonly unloadRadius: number;
   private readonly collision = new CollisionWorld();
+  /** Tronçons d'accès des itinéraires à pied (départ → voie, voie → arrivée) : contournement d'un mur, d'une grille. */
+  private readonly legs = new AccessLegs(this.collision);
 
   private base: WorldBase;
   private current: SourceName = 'none';
@@ -546,7 +549,11 @@ export class WorldQueryImpl implements WorldQueryExt, TileHost {
   }
 
   findPath(ax: number, az: number, bx: number, bz: number, mode: 'foot' | 'vehicle', out: number[], start?: PathStartOptions): boolean {
-    return this.base.paths.find(ax, az, bx, bz, mode === 'vehicle', out, start);
+    if (!this.base.paths.find(ax, az, bx, bz, mode === 'vehicle', out, start)) return false;
+    // (à pied, le premier et le dernier tronçon vont tout droit hors des rues : ils ne doivent traverser ni mur ni
+    // grille ; en véhicule, le pilote automatique a ses propres reprises — mur signalé, nouvel itinéraire)
+    if (mode === 'foot') this.legs.fix(out, false);
+    return true;
   }
 
   randomFreePoint(x: number, z: number, radius: number, surface: 'sidewalk' | 'road' | 'any', rand: () => number, out: Vec2): boolean {

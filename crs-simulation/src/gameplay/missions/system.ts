@@ -15,24 +15,41 @@
  * temps est écoulé, ou que tous les objectifs à atteindre le sont. Simulation pure.
  * ===================================================================================== */
 
-import type { GameContext, GameSystem, Person } from '@/core/contracts';
+import type { EntityId, GameContext, GameSystem, Person } from '@/core/contracts';
 import { SystemOrder } from '@/core/contracts';
 import { EXT } from '@/core/extensions';
-import type { Objective, ObjectivesApi } from '@/core/extensions';
+import type { IncidentsApi, Objective, ObjectivesApi } from '@/core/extensions';
 import type { MissionDef, MissionPhase } from '@/core/missions-schema';
 import { sessionDurationSeconds } from '@/core/session';
 import { MISSIONS, missionById } from './catalog';
 import { isRadioCallsign } from './catalog/dsl';
 import { missionConfig } from './config';
-import { conclude, evaluate, isPreserve, pronounces } from './objectives';
+import { conclude, crowdInjured, evaluate, isPreserve, pronounces } from './objectives';
 import { PhaseAleas } from './aleas';
 import type { EvalEnv, ObjectiveRun } from './objectives';
 import { MissionTracker } from './tracker';
+
+/**
+ * Rôles exécutants dont le groupe tient à pied le poste de leur objectif. Les équipages d'engins (Centaure, canon à
+ * eau) et les binômes BRAV-M ont leur propre conduite (escorte, poursuite) : un ordre de ligne les démonterait.
+ */
+const EXECUTANTS: ReadonlySet<string> = new Set(['crs']);
+
+/** Vue minimale du service 'police.command' (src/sim/police/command/api.ts) : unité retenue par la mission. */
+interface CommandPin {
+  pin?(squadId: number, on: boolean): void;
+}
 
 /** Délai maximal d'une phase qui attend un objectif (s). */
 export const PHASE_TIMEOUT = 300;
 /** Durée minimale de la dernière phase avant une fin anticipée par objectifs atteints (s). */
 const LAST_PHASE_MIN = 45;
+/** Recherche d'une victime réelle autour du lieu d'un objectif de soins (m), et blessure infligée (grave, à terre). */
+const CASUALTY_RANGE = 120;
+const CASUALTY_HURT = 55;
+const CASUALTY_MAX = 12;
+/** Portée d'observation d'un signe avant-coureur pour un compte rendu radio (m). */
+const REPORT_RANGE = 150;
 /** Attente maximale de l'arrivée sur place avant de lancer la mission quand même (s). */
 const TRAVEL_MAX = 900;
 /**
@@ -114,6 +131,13 @@ export class MissionSystem implements GameSystem {
   private failure = '';
   private result_: MissionResult | null = null;
   private env: EvalEnv | null = null;
+  private readonly signalScratch: unknown[] = [];
+  /** Objectifs « soigner / secourir » dont les victimes ont déjà été mises en scène (mission avec foule). */
+  private readonly casualtiesFor = new Set<string>();
+  /** Victimes mises en scène (prémisse de la mission : non reprochées au joueur dans les blessés). */
+  private readonly staged = new Set<EntityId>();
+  /** Groupe du joueur exécutant retenu pour l'objectif de la mission (0 : aucun). */
+  private pinnedId = 0;
   private readonly catalog_: Record<string, unknown>[];
 
   constructor() {
@@ -127,6 +151,8 @@ export class MissionSystem implements GameSystem {
   provide(ctx: GameContext): void {
     this.ctx = ctx;
     this.tracker = new MissionTracker(ctx);
+    this.tracker.reportable = () => this.somethingToReport();
+    this.aleas.onVictim = (id) => { this.staged.add(id); };
     const self = this;
     const api: MissionsApi = {
       get catalog() { return self.catalog_; },
@@ -160,6 +186,9 @@ export class MissionSystem implements GameSystem {
   }
 
   private clear(): void {
+    this.unpin();
+    this.casualtiesFor.clear();
+    this.staged.clear();
     this.aleas.reset();
     this.waitSince = -1;
     this.tracker?.reset();
@@ -192,6 +221,7 @@ export class MissionSystem implements GameSystem {
       homeZ: home ? home.z : me ? me.z : 0,
       isCommander: def.role === 'commandant' || def.role === 'chef_groupe',
       scratch: [] as Person[],
+      staged: this.staged,
     };
     this.runs = def.objectives.map((o) => ({
       def: o,
@@ -203,8 +233,10 @@ export class MissionSystem implements GameSystem {
       decidedAt: -1,
     }));
     this.stageVictims();
+    this.postGroup();
     this.publishObjectives();
     this.equipForSommations();
+    this.equipForCare();
     ctx.ui.banner(def.title, def.pitch, 6);
     this.enterPhase(0);
   }
@@ -220,6 +252,24 @@ export class MissionSystem implements GameSystem {
     if (!me || me.faction !== 'police' || !this.runs.some((r) => !r.def.secondary && pronounces(r))) return;
     me.look.sash = true;
     if (ctx.actions.has(me, 'megaphone') <= 0) ctx.actions.give(me, 'megaphone', 1);
+  }
+
+  /**
+   * Mission dont un objectif principal est de soigner ou de secourir : le joueur a la trousse de secours (et le sérum
+   * physiologique pour rincer des yeux gazés), quel que soit son rôle. Relevé de la recette : le pompier de
+   * « Sous protection » (lance et extincteurs seulement), le télépilote de « Thermique » ou le chef de groupe de
+   * « Guet-apens » arrivaient au blessé sans rien pour le soigner ; l'objectif était impossible.
+   */
+  private equipForCare(): void {
+    const ctx = this.ctx!;
+    const me = ctx.player.person();
+    if (!me) return;
+    const care = this.runs.filter((r) => !r.def.secondary && (r.def.kind === 'soigner' || r.def.kind === 'secourir'));
+    if (care.length === 0) return;
+    if (ctx.actions.def('trousse_secours') && ctx.actions.has(me, 'trousse_secours') <= 0) ctx.actions.give(me, 'trousse_secours');
+    if (care.some((r) => r.def.target === 'yeux_gaz') && ctx.actions.def('serum_physiologique') && ctx.actions.has(me, 'serum_physiologique') <= 0) {
+      ctx.actions.give(me, 'serum_physiologique');
+    }
   }
 
   /**
@@ -257,9 +307,124 @@ export class MissionSystem implements GameSystem {
         if (health) health.knockDown(v, 3600, 0);
         else ctx.health.setDown(v, true, 0);
         r.victims.push(v.id);
+        this.staged.add(v.id);
       }
     }
     if (me && me.faction === 'police' && ctx.actions.has(me, 'trousse_secours') <= 0) ctx.actions.give(me, 'trousse_secours');
+  }
+
+  /**
+   * Exécutant dont l'objectif principal se tient en un lieu (« Tenir sa place dans la ligne » boulevard Saint-Martin,
+   * « Couvrir le lanceur du groupe ») : son groupe y est posté par son chef et le commandant IA ne l'emploie plus
+   * ailleurs. Sans cela, le dispositif de l'IA emmenait le groupe tenir un débouché à 300 m de l'objectif : le
+   * joueur qui obéissait à son chef ne pouvait plus réussir (0 agent au point, « 0 principal sur 2 »).
+   */
+  private postGroup(): void {
+    const ctx = this.ctx!;
+    const def = this.def!;
+    const me = ctx.player.person();
+    if (!me || me.faction !== 'police' || !EXECUTANTS.has(def.role) || me.squadId === 0) return;
+    // un poste placé seulement : sans lieu, rien ne dit où le groupe doit se tenir
+    const run = this.runs.find((r) => !r.def.secondary && r.at && (r.def.kind === 'tenir_position' || r.def.kind === 'proteger_site'));
+    if (!run || !run.at) return;
+    const group = ctx.squads.get(me.squadId);
+    const cmd = ctx.service<CommandPin>('police.command');
+    if (!group || !cmd || !cmd.pin) return;
+    const x = run.at.x;
+    const z = run.at.z;
+    // face à la foule : le manifestant le plus proche du poste
+    let heading = me.heading;
+    let bd = Infinity;
+    for (const p of ctx.people.list) {
+      if (p.faction !== 'protest' || p.custody !== 'free') continue;
+      const d = Math.hypot(p.x - x, p.z - z);
+      if (d > 2 && d < bd) { bd = d; heading = Math.atan2(p.x - x, p.z - z); }
+    }
+    cmd.pin(group.id, true);
+    this.pinnedId = group.id;
+    const parent = group.parentId !== 0 ? ctx.squads.get(group.parentId) : undefined;
+    const by = parent && parent.leaderId !== 0 ? parent.leaderId : group.leaderId;
+    ctx.squads.issue(group.id, run.def.kind === 'proteger_site'
+      ? { type: 'proteger', x, z, heading, width: 20, issuedBy: by }
+      : { type: 'ligne', x, z, heading, width: 0, issuedBy: by });
+  }
+
+  /**
+   * Le joueur a-t-il en ce moment quelque chose à signaler par radio ? La phase en cours attend un objectif « signaler »
+   * (le script a mis le fait devant lui : l'homme qui filme la grille), ou un signe avant-coureur est visible à moins de
+   * REPORT_RANGE m. Un compte rendu passé alors compte pour les objectifs « signaler / repérer ».
+   */
+  private somethingToReport(): boolean {
+    const ph = this.phase();
+    if (ph && ph.until.kind === 'objectif') {
+      const id = ph.until.id;
+      if (this.runs.some((r) => r.def.id === id && r.def.kind === 'reperer_signaux')) return true;
+    }
+    const me = this.ctx?.player.person();
+    const sig = this.ctx?.service<{ near(x: number, z: number, r: number, out: unknown[]): number }>('crowd.signals');
+    return !!me && !!sig && sig.near(me.x, me.z, REPORT_RANGE, this.signalScratch) > 0;
+  }
+
+  private unpin(): void {
+    if (this.pinnedId === 0) return;
+    this.ctx?.service<CommandPin>('police.command')?.pin?.(this.pinnedId, false);
+    this.pinnedId = 0;
+  }
+
+  /**
+   * Mission avec foule dont un objectif principal est de soigner ou de secourir (« Secourir l'agent à terre », « Prendre
+   * en charge la victime », « Soigner le malaise ») : la ou les victimes annoncées existent vraiment. Quand s'ouvre la
+   * phase qui attend cet objectif (au début de la mission s'il n'est attendu par aucune phase), de vraies personnes
+   * sont mises à terre, blessées, près du lieu de l'objectif ou du joueur — un agent des forces pour « agent… », sinon
+   * quelqu'un de la foule — et signalées comme incident « blessé ». Relevé de la recette : semaine-04, bravm-08,
+   * centaure-05, medecin-04 ou pompier-03 n'avaient personne à secourir, l'objectif restait impossible.
+   */
+  private stageCasualties(phaseIdx: number): void {
+    const ctx = this.ctx!;
+    const def = this.def!;
+    const env = this.env;
+    if (!env || def.crowd.size <= 0) return;
+    const ph = def.phases[phaseIdx];
+    const me = ctx.player.person();
+    const health = ctx.service<{ knockDown(p: Person, seconds: number, sourceId: number): void }>('people.health');
+    const incidents = ctx.service<IncidentsApi>(EXT.incidents);
+    for (const r of this.runs) {
+      if (r.def.secondary || r.state !== 'actif' || (r.def.kind !== 'soigner' && r.def.kind !== 'secourir') || r.victims) continue;
+      if (this.casualtiesFor.has(r.def.id)) continue;
+      const waited = def.phases.some((p) => p.until.kind === 'objectif' && p.until.id === r.def.id);
+      const now = ph && ph.until.kind === 'objectif' && ph.until.id === r.def.id;
+      if (waited ? !now : phaseIdx !== 0) continue;
+      this.casualtiesFor.add(r.def.id);
+      const cx = r.at ? r.at.x : me ? me.x : env.homeX;
+      const cz = r.at ? r.at.z : me ? me.z : env.homeZ;
+      const police = /agent|gendarme|collegue|collègue/i.test(r.def.target ?? '');
+      // autant de victimes que l'objectif en compte (« Trier les douze victimes ») : des personnes réelles de la foule
+      const n = Math.max(1, Math.min(CASUALTY_MAX, r.def.count ?? 1));
+      const taken = new Set<number>();
+      for (let k = 0; k < n; k++) {
+        let v: Person | null = null;
+        let bd = CASUALTY_RANGE;
+        for (const p of ctx.people.list) {
+          if (p === me || p.isPlayer || taken.has(p.id) || p.dormant || p.vehicleId !== 0 || p.posture === 'down' || p.injury !== 'none') continue;
+          // un agent d'une autre unité que celle du joueur : un équipier blessé ferait échouer « Ramener tous les siens »
+          if (police ? p.faction !== 'police' || p.poste === 'conducteur' || (!!me && me.squadId !== 0 && p.squadId === me.squadId) : p.faction !== 'protest' && p.faction !== 'civil') continue;
+          if (p.custody !== 'free') continue;
+          const d = Math.hypot(p.x - cx, p.z - cz);
+          if (d < bd) { bd = d; v = p; }
+        }
+        if (!v) {
+          const free = { x: cx + 6 + 2 * k, z: cz + 4 };
+          ctx.world.resolveCircle(free, 0.6);
+          v = ctx.archetypes.spawn('passant', free.x, free.z);
+        }
+        taken.add(v.id);
+        this.staged.add(v.id);
+        ctx.health.hurt(v, { amount: CASUALTY_HURT, kind: 'blunt', sourceId: 0, x: v.x, z: v.z, zone: 0.5 });
+        if (health) health.knockDown(v, 900, 0);
+        else ctx.health.setDown(v, true, 0);
+        if (incidents) incidents.open('blesse', v.x, v.z, 'person', v.id, 2);
+      }
+    }
   }
 
   private phase(): MissionPhase | null {
@@ -277,13 +442,17 @@ export class MissionSystem implements GameSystem {
     ctx.ui.banner(ph.title, ph.text, 7);
     // aléas imposés par la phase : joués au fil de la phase (voir aleas.ts)
     this.aleas.schedule(ph.events, ctx.clock.now);
+    this.stageCasualties(i);
     for (const line of ph.radio) {
       // indicatif radio (catalog/dsl.ts) = procédure radio, sur le réseau des secours pour SANTÉ et SAPEUR ; tout autre
       // émetteur est une voix entendue sur place (chef de groupe, mégaphone, ami, rédaction), sur le canal public — même
       // écrite en capitales, comme le veut le catalogue : sinon le manifestant ou le journaliste, qui n'ont pas la radio
       // de police, n'entendaient aucune des voix de leur propre mission
       const radio = isRadioCallsign(line.from);
-      const channel = !radio ? 'public' : /^(SANTÉ|SAPEUR)\b/.test(line.from) ? 'secours' : 'commandement';
+      // émis par un engin des secours ou adressé à l'un d'eux (« SAPEUR UN ICI CENTRAL. ») : réseau des secours, que le
+      // pompier écoute — sur le réseau de commandement de la police, il n'entendait aucun appel de sa propre mission
+      const rescue = /^(SANTÉ|SAPEUR)\b/.test(line.from) || /^(SANTÉ|SAPEUR)\b/.test(line.text);
+      const channel = !radio ? 'public' : rescue ? 'secours' : 'commandement';
       ctx.radio.say({ channel, from: line.from, text: line.text, priority: 1 });
     }
   }
@@ -399,7 +568,7 @@ export class MissionSystem implements GameSystem {
         }
         case 'trop_de_blesses':
           // « Trop de blessés parmi vos agents », « Trop d'agents brûlés » : les agents des forces, et non la foule
-          if ((/\bagents?\b/i.test(f.text) ? this.policeInjured() : ctx.director.stats.injured) > (f.value ?? 20)) return f.text;
+          if ((/\bagents?\b/i.test(f.text) ? this.policeInjured() : crowdInjured(this.env!)) > (f.value ?? 20)) return f.text;
           break;
         case 'interpelle':
           if (me && me.custody !== 'free') return f.text;
@@ -426,7 +595,7 @@ export class MissionSystem implements GameSystem {
   /** Agents des forces de l'ordre blessés (même légèrement), comme la foule compte ses blessés. */
   private policeInjured(): number {
     let n = 0;
-    for (const p of this.ctx!.people.list) if (p.faction === 'police' && p.injury !== 'none') n++;
+    for (const p of this.ctx!.people.list) if (p.faction === 'police' && p.injury !== 'none' && !this.staged.has(p.id)) n++;
     return n;
   }
 
@@ -458,6 +627,7 @@ export class MissionSystem implements GameSystem {
     this.result_ = this.buildResult(reason);
     ctx.events.emitAny('mission:finished', this.result_);
     this.tracker!.stop();
+    this.unpin();
     if (toDebrief && ctx.session.phase === 'playing') ctx.session.end(true);
   }
 

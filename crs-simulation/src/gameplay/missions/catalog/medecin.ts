@@ -36,13 +36,13 @@ export const MED_01 = mission({
       T(25), [
         voix('COÉQUIPIÈRE', `Lunettes, masque, gants. Si tu pleures, tu ne soignes personne. Et tu restes du côté d'où vient le vent.`),
         voix('MANIFESTANTE', `Mes yeux ! Je ne vois plus rien, ça brûle !`),
-      ]),
+      ], [`Une salve de grenades lacrymogènes tombe dans le cortège`]),
     ph('rincage', `Quinze paires d'yeux`,
       `Ils sortent du nuage un par un, pliés en deux, les mains sur le visage, et s'assoient au pied de la statue de la République. Tête en arrière, de l'intérieur de l'œil vers l'extérieur, huit secondes chacun ; puis on les envoie vers l'air frais, et on passe au suivant sans traîner dans le gaz.`,
       OBJ('o1'), [
         voix('COÉQUIPIÈRE', `Ne frottez pas, respirez calmement ! Dis-le à chacun. Et change de gants dès que tu as touché un visage.`),
         voix('MANIFESTANT', `Moi d'abord ! Ça fait dix minutes que j'attends, lui, il vient d'arriver !`),
-      ], [`Un manifestant exige d'être soigné le premier`, `Le vent rabat le nuage vers vous`, `Une personne asthmatique cherche son inhalateur`]),
+      ], [`Nouvelle salve de grenades lacrymogènes sur le cortège`, `Un manifestant exige d'être soigné le premier`, `Le vent rabat le nuage vers vous`, `Une personne asthmatique cherche son inhalateur`]),
     ph('paniques', `Deux personnes qui n'arrivent plus à respirer`,
       `Quinze personnes rincées. Deux autres sont assises contre un banc de la place de la République, les yeux propres mais le souffle court : la panique, pas le gaz. Les asseoir, leur parler lentement, compter avec elles ; pendant ce temps vous êtes immobile, et le nuage, lui, ne l'est pas.`,
       T(60), [

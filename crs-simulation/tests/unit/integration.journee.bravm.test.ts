@@ -41,7 +41,8 @@ describe('journée de service — BRAV-M', () => {
     for (let i = 0; i < 20; i++) t.step(50);
     const near = (v: { x: number; z: number }, r: number): boolean => Math.hypot(v.x - dest.x, v.z - dest.z) < r;
     console.log(`BRAV-M : ${motos.filter((v) => near(v, 80)).length}/${motos.length} motos sur place ; fourgons ${vans.map((v) => Math.hypot(v.x - dest.x, v.z - dest.z).toFixed(0)).join(' ')} m ; étape ${j.stage}`);
-    expect(motos.filter((v) => near(v, 80)).length).toBeGreaterThanOrEqual(Math.ceil(motos.length * 0.8));
+    // toutes les motos (une moto arrêtée en route, « en position » à des kilomètres, n'arrivait jamais)
+    expect(motos.filter((v) => near(v, 80)).length).toBe(motos.length);
     expect(vans.filter((v) => near(v, 150)).length).toBeGreaterThanOrEqual(2);
   }, 900000);
 });

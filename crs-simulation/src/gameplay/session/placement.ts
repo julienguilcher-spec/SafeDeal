@@ -354,10 +354,12 @@ const propsOut: { blocksMove: boolean }[] = [];
 
 /**
  * Emplacement de stationnement d'un véhicule de l'unité : derrière le front, hors du bâti et du mobilier.
- * `rank` décale les véhicules suivants (rangés côte à côte). Retourne false si aucune place n'est trouvée.
+ * `rank` décale les véhicules suivants (rangés côte à côte). `accept` (facultatif) écarte en plus des places
+ * (par exemple celles qu'une grille sépare de l'unité). Retourne false si aucune place n'est trouvée.
  */
 export function parkingSpot(
   ctx: GameContext, stand: Stand, rank: number, length: number, width: number, out: { x: number; z: number; heading: number },
+  accept?: (x: number, z: number) => boolean,
 ): boolean {
   const world = ctx.world;
   const fx = Math.sin(stand.heading);
@@ -385,6 +387,7 @@ export function parkingSpot(
       if (ctx.people.countIn(px, pz, half + 0.5) > 0) continue;
       // une place libre au fond d'une cour : le véhicule n'en sortirait pas
       if (!hasWayOut(ctx, px, pz, Math.min(1.2, width * 0.5))) continue;
+      if (accept && !accept(px, pz)) continue;
       out.x = px;
       out.z = pz;
       out.heading = wrap(stand.heading + Math.PI);

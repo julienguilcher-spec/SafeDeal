@@ -32,7 +32,8 @@ import { SystemOrder } from '@/core/contracts';
 interface Autopilot {
   follow(v: Vehicle, leaderId: EntityId, distance?: number, trail?: readonly number[]): boolean;
   stop(v: Vehicle): void;
-  status?(v: Vehicle): Readonly<{ mode: string; leaderId: EntityId; state?: string; blockedFor?: number }>;
+  status?(v: Vehicle): Readonly<{ mode: string; leaderId: EntityId; state?: string; reason?: string; blockedFor?: number }>;
+  giveWay?(v: Vehicle, metres: number): boolean;
 }
 interface CommandLike {
   stateOf(companyId: number): { phase: string; commanderId: EntityId; missionEnded: boolean } | null;
@@ -80,6 +81,9 @@ const FIRST_ENGAGE = 42;
 /** Colonne coincée (voir unjam) : attente avant de faire passer le gêneur devant (s), délai avant un nouvel échange (s). */
 const JAM_WAIT = 5;
 const SWAP_COOLDOWN = 12;
+/** Colonne coincée nez contre flanc (voir unjam) : recul de celui qui cède le passage (m), place minimale derrière lui (m). */
+const YIELD_BACK = 4;
+const YIELD_MIN = 1.5;
 /** Véhicule « juste devant » : à moins de tant de mètres devant le pare-chocs, dans l'axe (m). */
 const BOXED_AHEAD = 10;
 const BOXED_SIDE = 2.4;
@@ -161,6 +165,9 @@ export class FollowLeaderSystem implements GameSystem {
   private readonly trails = new Map<EntityId, number[]>();
   /** La sortie du stationnement a été ordonnée (une fois par départ, voir exitOrder). */
   private exitSorted = false;
+  /** Véhicule de la colonne qui recule pour céder le passage (voir unjam), et l'instant de la demande. */
+  private yielder: EntityId = 0;
+  private yieldAt = -1;
   /** Véhicules de la colonne passés devant celui qu'ils bloquaient (voir unjam) : instant du dernier échange. */
   private readonly swapped = new Map<EntityId, number>();
   /** Équipiers sans place à qui une place a été donnée pendant ce départ (voir seatOrphans) : véhicules essayés. */
@@ -1043,14 +1050,24 @@ export class FollowLeaderSystem implements GameSystem {
       if (pilot) {
         const st = pilot.status ? pilot.status(v) : null;
         if (this.mayFollow(v, prev, lead, st) && (!st || st.mode !== 'follow' || st.leaderId !== prev)) pilot.follow(v, prev, COLUMN_GAP, this.trails.get(prev));
+        // (après la reprise de « follow », qui remet à zéro toute manœuvre en cours)
+        if (v.id === this.yielder) {
+          this.yielder = 0;
+          if (pilot.giveWay && ctx.clock.now - this.yieldAt < 1) pilot.giveWay(v, YIELD_BACK);
+        }
       }
-      this.mirrorLights(v, lead, ext);
+      this.mirrorLights(v, lead, ext, pilot);
       prev = v.id;
     }
   }
 
-  private mirrorLights(v: Vehicle, lead: Vehicle, ext: VehiclesExt | undefined): void {
+  private mirrorLights(v: Vehicle, lead: Vehicle, ext: VehiclesExt | undefined, pilot?: Autopilot): void {
     const ctx = this.ctx!;
+    // (suivant arrêté par des personnes plantées devant lui : session/engins.ts lui fait mettre ses deux-tons — et donc
+    // ses gyrophares — pour que la foule s'écarte ; on ne les coupe pas pour les régler sur ceux du joueur, sinon ils
+    // s'éteignaient aussitôt allumés)
+    const st = lead.siren === 0 && v.siren !== 0 && pilot && pilot.status ? pilot.status(v) : null;
+    if (st && (st.state === 'attente' || st.state === 'bloque') && st.reason === 'personne') return;
     if (v.siren !== lead.siren) {
       if (ext && ext.setSiren) ext.setSiren(v, lead.siren);
       else { v.siren = lead.siren; ctx.events.emit('vehicle:siren', { id: v.id, siren: lead.siren }); }
@@ -1205,8 +1222,13 @@ export class FollowLeaderSystem implements GameSystem {
         const st = pilot.status ? pilot.status(v) : null;
         // (garé en bloc, il attend que le meneur se dégage : feux et sirène déjà comme lui)
         if (this.mayFollow(v, prev, lead, st) && (!st || st.mode !== 'follow' || st.leaderId !== prev)) pilot.follow(v, prev, COLUMN_GAP, this.trails.get(prev));
+        // (après la reprise de « follow », qui remet à zéro toute manœuvre en cours)
+        if (v.id === this.yielder) {
+          this.yielder = 0;
+          if (pilot.giveWay && ctx.clock.now - this.yieldAt < 1) pilot.giveWay(v, YIELD_BACK);
+        }
       }
-      this.mirrorLights(v, lead, ext);
+      this.mirrorLights(v, lead, ext, pilot);
       prev = v.id;
     }
   }
@@ -1231,10 +1253,46 @@ export class FollowLeaderSystem implements GameSystem {
       const k = o !== 0 ? ids.indexOf(o) : -1;
       if (k <= i || (this.swapped.get(o) ?? -1e9) > now - SWAP_COOLDOWN) continue;
       this.swapped.set(o, now);
+      // nez contre flanc, chacun arrêté par l'autre (au sortir du bloc, l'un s'est mis en travers de la sortie de
+      // l'autre) : le seul échange de l'ordre de marche ne débloque rien — ils se le rendaient indéfiniment. Celui qui a
+      // de la place derrière lui recule de quoi dégager l'autre, qui passe devant ; puis il le suit.
+      const ov = ctx.vehicles.get(o);
+      if (ov && obstacleOf(pilot, ov) === v.id && pilot.giveWay) {
+        const vRoom = this.rearRoom(v);
+        const oRoom = this.rearRoom(ov);
+        if (Math.max(vRoom, oRoom) >= YIELD_MIN) {
+          this.yielder = vRoom >= oRoom ? v.id : o;
+          this.yieldAt = now;
+          // (o recule : v garde la tête, rien à échanger)
+          if (this.yielder === o) return;
+        }
+      }
       ids.splice(k, 1);
       ids.splice(i, 0, o);
       return;
     }
+  }
+
+  /** Place libre derrière le véhicule, dans son axe (m, au plus YIELD_BACK + 1) : autres véhicules et décor. */
+  private rearRoom(v: Vehicle): number {
+    const ctx = this.ctx!;
+    const fx = Math.sin(v.heading);
+    const fz = Math.cos(v.heading);
+    const half = v.def.length * 0.5;
+    let room = YIELD_BACK + 1;
+    for (const o of ctx.vehicles.list) {
+      if (o === v || o.def.flying) continue;
+      const dx = o.x - v.x;
+      const dz = o.z - v.z;
+      const behind = -(dx * fx + dz * fz) - half - o.def.length * 0.5;
+      if (behind < -1 || behind > room) continue;
+      if (Math.abs(-dx * fz + dz * fx) < (v.def.width + o.def.width) * 0.5 + 0.4) room = Math.max(0, behind);
+    }
+    // décor (mur, mobilier) : pas à pas, derrière le pare-chocs arrière
+    for (let d = 0.5; d < room; d += 0.5) {
+      if (!ctx.world.isFree(v.x - fx * (half + d), v.z - fz * (half + d), v.def.width * 0.5)) { room = Math.max(0, d - 0.5); break; }
+    }
+    return room;
   }
 
   /** Le joueur descend : la colonne s'arrête, tout le monde descend et reprend « suivre » à pied. */

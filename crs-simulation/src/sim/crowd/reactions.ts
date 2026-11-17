@@ -5,7 +5,7 @@
  * (Suite de behavior.ts : ces méthodes sont appelées par la réflexion de chaque personne.)
  * ===================================================================================== */
 
-import type { Person, RayHit, RoadSample } from '@/core/contracts';
+import type { Person, RayHit, RoadSample, Vehicle } from '@/core/contracts';
 import { EXT } from '@/core/extensions';
 import type { IncidentsApi } from '@/core/extensions';
 import { makeRayHit } from '@/core/null-services';
@@ -18,6 +18,16 @@ import type { CrowdCore } from './core';
 import type { Spot } from './sense';
 import * as T from './tuning';
 
+/** Lecture de l'état du pilote automatique (service du module des véhicules). */
+const AUTOPILOT_SERVICE = 'vehicles.autopilot';
+interface AutopilotView {
+  status(v: Vehicle): Readonly<{ mode: string; state: string; reason: string }>;
+}
+/** Véhicule qui veut passer : portée de la recherche, distance devant son pare-chocs, marge sur ses flancs (m). */
+const MAKE_WAY_REACH = 16;
+const MAKE_WAY_AHEAD = 9;
+const MAKE_WAY_SIDE = 1.2;
+
 export class Reactions {
   private readonly sight: PoliceSight = { id: 0, x: 0, z: 0, dist: Infinity, count: 0, closing: 0 };
   private readonly hit: RayHit = makeRayHit();
@@ -25,9 +35,81 @@ export class Reactions {
   private readonly help: HelpEvent = { personId: 0, byId: 0, x: 0, z: 0 };
   private readonly kettleEv: KettleEvent = { enclosed: true, x: 0, z: 0, people: 0 };
   nextKettleTension = 0;
+  private readonly vbuf: Vehicle[] = [];
 
   constructor(private readonly core: CrowdCore, private readonly mind: Behavior) {}
 
+
+  /**
+   * Un véhicule prioritaire (police, secours) arrêté ou au pas devant soi, deux-tons ou avertisseur : on s'écarte de son
+   * passage, sur le côté où l'on est déjà, puis l'on revient à sa place quand il est passé. (Sans cela, un manifestant
+   * arrêté à sa place dans le cortège tenait toute une colonne de fourgons derrière lui, deux-tons hurlants.)
+   * Retourne true si la personne s'écarte.
+   */
+  makeWay(p: Person, b: CrowdBrain, now: number): boolean {
+    const ctx = this.core.ctx;
+    const list = this.vbuf;
+    const n = ctx.vehicles.queryRadius(p.x, p.z, MAKE_WAY_REACH, list);
+    let v: Vehicle | null = null;
+    let lat = 0;
+    let fwd = 0;
+    for (let i = 0; i < n; i++) {
+      const o = list[i]!;
+      if (o.def.flying || o.dormant || o.seats[0] === 0 || o.speed < -0.3) continue;
+      if (o.faction !== 'police' && o.faction !== 'rescue' && o.faction !== 'medic') continue;
+      // deux-tons, avertisseur, ou véhicule sous pilote automatique arrêté par des personnes devant lui (la colonne qui
+      // suit le joueur ne prend pas les deux-tons d'elle-même : elle recopie les feux de sa tête de colonne)
+      if (o.siren === 0 && !o.cmd.horn && !this.waitsForPeople(o)) continue;
+      const sn = Math.sin(o.heading);
+      const cs = Math.cos(o.heading);
+      const rx = p.x - o.x;
+      const rz = p.z - o.z;
+      const f = rx * sn + rz * cs;
+      const l = -rx * cs + rz * sn; // à droite du véhicule
+      const halfL = o.def.length * 0.5;
+      if (f < halfL - 0.5 || f > halfL + MAKE_WAY_AHEAD || Math.abs(l) > o.def.width * 0.5 + MAKE_WAY_SIDE) continue;
+      if (v === null || f < fwd) {
+        v = o;
+        fwd = f;
+        lat = l;
+      }
+    }
+    list.length = 0;
+    if (v === null) return false;
+    const sn = Math.sin(v.heading);
+    const cs = Math.cos(v.heading);
+    const off = v.def.width * 0.5 + MAKE_WAY_SIDE + 0.8;
+    const first = Math.abs(lat) > 0.2 ? (lat >= 0 ? 1 : -1) : b.sway >= 0 ? 1 : -1;
+    const world = ctx.world;
+    for (let k = 0; k < 2; k++) {
+      const side = k === 0 ? first : -first;
+      // pas de côté (un peu en avant : on ne recule pas sous le capot), hors de la largeur du véhicule
+      const along = fwd + 1;
+      const x = v.x + sn * along - cs * side * off;
+      const z = v.z + cs * along + sn * side * off;
+      if (!world.isFree(x, z, 0.35) || world.raycast(p.x, p.z, x, z, this.hit)) continue;
+      b.tx = x;
+      b.tz = z;
+      b.path = null;
+      b.run = false;
+      b.speed = 1.5;
+      b.lookX = v.x;
+      b.lookZ = v.z;
+      this.mind.setState(b, S.REGROUP);
+      // (à l'écart le temps que le véhicule passe : la phase ne le renvoie pas tout de suite à sa place)
+      b.stateSince = now + 4;
+      return true;
+    }
+    return false;
+  }
+
+  /** Le pilote automatique de ce véhicule (ordre, colonne) est-il arrêté par des personnes ? */
+  private waitsForPeople(v: Vehicle): boolean {
+    const ap = this.core.ctx.service<AutopilotView>(AUTOPILOT_SERVICE);
+    if (!ap) return false;
+    const st = ap.status(v);
+    return (st.mode === 'drive' || st.mode === 'follow') && (st.state === 'attente' || st.state === 'bloque') && st.reason === 'personne';
+  }
 
   /** Sort du nuage (ou s'écarte du feu) : direction où l'air est le plus sain, pas sous le vent, pas dans un mur. */
   avoidGas(p: Person, b: CrowdBrain, gasHere: number, fire: boolean): void {

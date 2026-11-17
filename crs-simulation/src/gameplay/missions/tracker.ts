@@ -8,6 +8,8 @@
 import type { EntityId, GameContext, Unsubscribe } from '@/core/contracts';
 
 const MEDIA_ITEMS = new Set(['appareil_photo', 'camera_tv', 'telephone']);
+/** Intervalle minimal entre deux comptes rendus comptés (s) : répéter le même message ne signale rien de plus. */
+const REPORT_GAP = 15;
 
 export class MissionTracker {
   arrests = 0;
@@ -36,6 +38,16 @@ export class MissionTracker {
   readonly treatedIds = new Set<EntityId>();
   /** Étape la plus avancée des sommations prononcées par le joueur (0 aucune, 1 annonce, 2 première, 3 dernière). */
   playerSommation = 0;
+  /**
+   * Comptes rendus radio du joueur (écran radio : « Compte rendu de situation ») passés quand il y avait quelque chose
+   * à signaler (voir `reportable`), un au plus toutes les REPORT_GAP secondes.
+   */
+  playerReports = 0;
+  private lastReport = -Infinity;
+  /** L'équipe de liaison a été mise au contact des organisateurs (crowd.core.setLiaison). */
+  liaison = false;
+  /** Y a-t-il en ce moment quelque chose à signaler ? (fourni par le cadre de mission ; défaut : oui) */
+  reportable: () => boolean = () => true;
 
   private subs: Unsubscribe[] = [];
 
@@ -82,6 +94,16 @@ export class MissionTracker {
         if (p && (p.injury === 'serious' || p.injury === 'critical' || p.injury === 'dead')) this.harmOwn(e.id);
       }),
       ev.onAny('props:barricade_cleared', () => { this.barricadesCleared++; }),
+      ev.on('radio:message', (e) => {
+        const m = e.msg;
+        if (m.personId === undefined || m.personId === 0 || m.personId !== pid()) return;
+        if (m.channel !== 'commandement' && m.channel !== 'unite') return;
+        const now = this.ctx.clock.now;
+        if (now - this.lastReport < REPORT_GAP || !this.reportable()) return;
+        this.lastReport = now;
+        this.playerReports++;
+      }),
+      ev.onAny('crowd:liaison', (e) => { if ((e as { active?: boolean } | null)?.active) this.liaison = true; }),
     );
     const phase = this.ctx.director.phase;
     if (phase) this.crowdPhases.add(phase);
@@ -107,6 +129,9 @@ export class MissionTracker {
     this.playerWorstFault = this.anyWorstFault = this.withoutWarning = this.forceUses = 0;
     this.ownHarmed = 0;
     this.playerSommation = 0;
+    this.playerReports = 0;
+    this.lastReport = -Infinity;
+    this.liaison = false;
     this.crowdPhases.clear();
     this.treatedIds.clear();
   }

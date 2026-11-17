@@ -73,6 +73,11 @@ const STRAGGLERS_MAX = 45;
 const PLAYER_WAIT = 300;
 /** Un véhicule de la colonne bloqué plus longtemps que cela (s) la quitte et rejoint seul. */
 const STUCK_LEAVE = 25;
+/** Distance au point en deçà de laquelle un véhicule arrivé prend sa place dans le rang garé (m) ; au-delà, il finit le trajet seul. */
+const ROW_REACH = 160;
+/** Attente maximale du stationnement (s) ; et tant qu'un véhicule décroché finit le trajet seul, loin du point. */
+const PARK_WAIT = 300;
+const PARK_WAIT_JOINING = 720;
 const PLAYER_REMIND = 30;
 
 /**
@@ -154,7 +159,7 @@ export class ConvoyControl {
    * sortie (le début de l'itinéraire vers la destination), sans quoi un fourgon attend celui qui le bloque et qui
    * l'attend lui-même. Le véhicule de commandement reste en tête s'il n'est pas enfermé derrière les autres.
    */
-  private orderForDeparture(c: Convoy, tx: number, tz: number, commandFirst = true): void {
+  private orderForDeparture(c: Convoy, tx: number, tz: number, commandFirst = true, urgent = true): void {
     const list = c.vehicles;
     if (list.length < 2) return;
     const ctx = this.core.ctx;
@@ -167,7 +172,7 @@ export class ConvoyControl {
     const path = this.pathBuf;
     path.length = 0;
     try {
-      if (ctx.world.findPath(cx, cz, tx, tz, 'vehicle', path) && path.length >= 4) {
+      if (this.departRoute(c, cx, cz, tx, tz, path, urgent) && path.length >= 4) {
         for (let i = 2; i < path.length; i += 2) {
           const d = Math.hypot(path[i]! - cx, path[i + 1]! - cz);
           ex = path[i]! - cx;
@@ -209,6 +214,28 @@ export class ConvoyControl {
       out.push(rest.splice(k, 1)[0]!);
     }
     for (let i = 0; i < out.length; i++) list[i] = out[i]!;
+  }
+
+  /**
+   * Itinéraire de sortie du stationnement, calculé comme le pilote automatique calculera celui de la tête (autopilot.ts,
+   * plan) : départ dans le sens où les véhicules sont tournés, foule contournée (crowdZones), contresens au pas permis
+   * en urgence, chaussée assez large. Le plus court chemin brut partait parfois de l'autre côté : la tête désignée était
+   * alors le véhicule de queue, qui butait contre ceux qui devaient le suivre — colonne figée au départ.
+   */
+  private departRoute(c: Convoy, cx: number, cz: number, tx: number, tz: number, out: number[], urgent = true): boolean {
+    const list = c.vehicles;
+    let hx = 0, hz = 0;
+    for (const v of list) { hx += Math.sin(v.heading); hz += Math.cos(v.heading); }
+    // (cap commun seulement si les véhicules sont rangés dans le même sens)
+    const aligned = list.length > 0 && Math.hypot(hx, hz) > list.length * 0.7;
+    const width = list.reduce((w, v) => Math.max(w, v.def.width), 0);
+    return this.core.ctx.world.findPath(cx, cz, tx, tz, 'vehicle', out, {
+      heading: aligned ? Math.atan2(hx, hz) : NaN,
+      uturn: aligned ? 35 : 0,
+      avoid: this.crowdZones(c),
+      contraflow: urgent ? 3 : 0,
+      minWidth: width + 1.2,
+    });
   }
 
   /**
@@ -414,7 +441,7 @@ export class ConvoyControl {
     const path = this.pathBuf;
     path.length = 0;
     let ok = false;
-    try { ok = ctx.world.findPath(cx, cz, tx, tz, 'vehicle', path) && path.length >= 4; } catch { ok = false; }
+    try { ok = this.departRoute(c, cx, cz, tx, tz, path) && path.length >= 4; } catch { ok = false; }
     if (!ok) return;
     this.orderForDeparture(c, tx, tz, false);
     const p = { x: 0, z: 0 };
@@ -617,7 +644,7 @@ export class ConvoyControl {
     const near = Math.hypot(lead.x - d.x, lead.z - d.z) < 60;
     // véhicules encore loin (partis seuls par un autre chemin) : ils finissent le trajet et s'arrêtent derrière la file
     // (les garer d'ici, à des centaines de mètres, les ferait manœuvrer à travers la ville)
-    const rowList = near ? c.vehicles.filter((v) => Math.hypot(v.x - d.x, v.z - d.z) < 160) : c.vehicles;
+    const rowList = near ? c.vehicles.filter((v) => Math.hypot(v.x - d.x, v.z - d.z) < ROW_REACH) : c.vehicles;
     if (near) {
       let k = rowList.length;
       for (const v of c.vehicles) {
@@ -665,6 +692,8 @@ export class ConvoyControl {
     }
     let parked = 0;
     let failed = 0;
+    /** Un véhicule décroché finit encore le trajet seul jusqu'au point. */
+    let joining = false;
     const now = this.core.now;
     if (c.stallAt < c.stageT) c.stallAt = c.stageT;
     for (let i = 0; i < c.vehicles.length; i++) {
@@ -674,12 +703,20 @@ export class ConvoyControl {
       else if (st.state === 'echec') failed++;
       // (un véhicule qui roule ou manœuvre réellement : le stationnement avance)
       if (Math.abs(v.speed) > 0.3) c.stallAt = now;
+      // (un véhicule décroché, trop loin pour prendre place dans le rang, qui finit le trajet seul — voir thinkRoute — :
+      // il manœuvre, attend un passage, prend un autre itinéraire ; on l'attend jusqu'à ce qu'il s'arrête derrière la
+      // file. Compté comme « plus rien ne bouge », ou au bout des cinq minutes du stationnement, il était arrêté là où il
+      // était et son équipage débarquait à des centaines de mètres du point — le joueur passager avec lui)
+      if (st.mode === 'drive' && !(st.state === 'bloque' && st.blockedFor > 60)) {
+        joining = true;
+        c.stallAt = now;
+      }
     }
     c.status.parked = parked;
     // plus rien ne bouge depuis 20 s (chacun attend un voisin qui l'attend lui-même, mobilier sur une place) : les
     // véhicules restent où ils sont, en file le long de la voie, et l'on débarque — pas cinq minutes d'attente
     const deadlock = now - c.stallAt > 20;
-    if (parked + failed < c.vehicles.length && now - c.stageT < 300 && !deadlock) return;
+    if (parked + failed < c.vehicles.length && now - c.stageT < (joining ? PARK_WAIT_JOINING : PARK_WAIT) && !deadlock) return;
     if (parked + failed < c.vehicles.length) for (const v of c.vehicles) ap.stop(v);
     this.measure(c);
     this.beginDisembark(c);
@@ -799,7 +836,7 @@ export class ConvoyControl {
     if (c.hasExit && ap && c.vehicles.length > 0) {
       this.seatStragglers(c);
       this.manVehicles(c);
-      this.orderForDeparture(c, c.exitX, c.exitZ);
+      this.orderForDeparture(c, c.exitX, c.exitZ, true, false);
     }
     if (c.hasExit && ap && c.vehicles.length > 0 && ap.convoy(c.vehicles, c.exitX, c.exitZ, { gap: core.tuning.convoyGap, speed: core.tuning.convoySpeed, avoid: this.crowdZones(c) })) {
       this.setStage(c, 'depart');

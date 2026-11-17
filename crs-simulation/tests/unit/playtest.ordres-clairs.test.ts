@@ -191,7 +191,7 @@ describe('« Ma mission » : l’ordre du chef et le départ de la colonne, vus 
 
   it('BRAV-M : « En selle » sur la moto (pas « un véhicule de la compagnie »), puis l’état du trajet', async () => {
     const t = createTestContext({ seed: 5, strict: false, modules: SIM });
-    await t.start({ ...JOURNEE, role: 'bravm', extra: { moyens: { ...MEANS, bravm: 1 }, journee: true } });
+    await t.start({ ...JOURNEE, role: 'bravm', extra: { moyens: { ...MEANS, bravm: 1 }, journee: true, poste: 'pilote_moto' } });
     const { ctx } = t;
     const brief = ctx.service<MissionBrief>(MISSION_SERVICE)!;
     const j = ctx.service<Journee>('session.journee')!;
@@ -227,6 +227,23 @@ describe('« Ma mission » : l’ordre du chef et le départ de la colonne, vus 
     console.log(`trajet : ${seen.join(' | ')}`);
     expect(seen.some((s) => s === 'La colonne part')).toBe(true);
     expect(seen.some((s) => /^En route — [\d,]+ (km|m), (environ \d+ min|moins d’une minute)$/.test(s))).toBe(true);
+  }, 600000);
+
+  it('BRAV-M passager : en selle derrière son pilote dès le départ, la carte ne lui dit pas qu’il mène la colonne', async () => {
+    const t = createTestContext({ seed: 5, strict: false, modules: SIM });
+    await t.start({ ...JOURNEE, role: 'bravm', extra: { moyens: { ...MEANS, bravm: 1 }, journee: true, poste: 'passager_moto' } });
+    const { ctx } = t;
+    const brief = ctx.service<MissionBrief>(MISSION_SERVICE)!;
+    t.step(2);
+    const me = ctx.player.person()!;
+    const moto = ctx.vehicles.get(me.vehicleId);
+    console.log(`passager : ${brief.instruction.title} — ${brief.instruction.detail} | ${brief.status}`);
+    expect(moto && moto.kind).toBe('moto_bravm');
+    expect(moto!.seats[0]).not.toBe(0);
+    expect(moto!.seats[0]).not.toBe(me.id);
+    expect(brief.instruction.detail).toMatch(/derrière votre pilote/);
+    expect(brief.instruction.detail).not.toMatch(/Vous menez/);
+    expect(brief.status === 'Prêt au départ : votre pilote démarre avec la colonne' || /^(La colonne part|En route — )/.test(brief.status)).toBe(true);
   }, 600000);
 
   it('chef de groupe : carte réduite (ordre de mouvement, embarquement compté), toute la radio', async () => {

@@ -16,14 +16,31 @@ beforeAll(async () => {
 });
 
 /**
- * Contrôle un itinéraire : hors du premier et du dernier saut (accroche), chaque tronçon suit une
- * voie ; en mode véhicule, jamais à contresens d'un sens unique ni sur une voie piétonne.
+ * Contrôle un itinéraire : hors des tronçons d'accès (accroche), chaque tronçon suit une voie ; en mode véhicule,
+ * jamais à contresens d'un sens unique ni sur une voie piétonne. En véhicule l'accès est un seul saut à chaque bout ;
+ * à pied il peut en compter plusieurs de chaque côté (contournement d'un mur ou d'une grille entre le point et la
+ * voie, voir route-legs.ts) — mais jamais au milieu de l'itinéraire.
  */
 function checkPath(path: readonly number[], vehicle: boolean): void {
   expect(path.length % 2).toBe(0);
   expect(path.length).toBeGreaterThanOrEqual(4);
   const n = path.length >> 1;
-  for (let i = 1; i + 2 < n; i++) {
+  const onRoad = (i: number): boolean => {
+    const ax = path[2 * i], az = path[2 * i + 1], bx = path[2 * i + 2], bz = path[2 * i + 3];
+    const mx = (ax + bx) / 2, mz = (az + bz) / 2;
+    return w.nearestRoad(mx, mz, sample, 5) && sample.dist < 0.02;
+  };
+  // tronçons d'accès : un saut de chaque côté en véhicule ; à pied, les sauts hors voie des deux bouts (le tour d'un
+  // bâtiment ou d'une grille peut en demander plusieurs, huit au plus)
+  let first = 1;
+  let last = n - 3;
+  if (!vehicle) {
+    while (first <= last && !onRoad(first)) first++;
+    while (last >= first && !onRoad(last)) last--;
+    expect(first, 'accès de départ : huit sauts au plus').toBeLessThanOrEqual(8);
+    expect(n - 2 - last, 'accès d’arrivée : huit sauts au plus').toBeLessThanOrEqual(8);
+  }
+  for (let i = first; i <= last; i++) {
     const ax = path[2 * i], az = path[2 * i + 1], bx = path[2 * i + 2], bz = path[2 * i + 3];
     const len = Math.hypot(bx - ax, bz - az);
     expect(len).toBeGreaterThan(0.04); // pas de point doublé
@@ -181,7 +198,16 @@ describe('monde : réseau de rues (quartier d\'essai)', () => {
       const byCar = k % 2 === 0;
       expect(w.findPath(ax, az, bx, bz, byCar ? 'vehicle' : 'foot', path)).toBe(true);
       checkPath(path, byCar);
-      expect(pathLength(path)).toBeGreaterThanOrEqual(Math.hypot(bx - ax, bz - az) - 1e-6);
+      // l'itinéraire part du point demandé ; il finit au point demandé — ou, à pied, au sol libre le plus proche quand
+      // ce point est pris dans un bâtiment (on ne traverse plus le mur pour y entrer)
+      expect(Math.hypot(path[0] - ax, path[1] - az)).toBeLessThan(1e-6);
+      const ex = path[path.length - 2], ez = path[path.length - 1];
+      if (Math.hypot(ex - bx, ez - bz) > 1e-6) {
+        expect(byCar, `k=${k} : en véhicule, arrivée au point demandé`).toBe(false);
+        expect(w.isFree(bx, bz, 0.3), `k=${k} : arrivée déplacée seulement si le point demandé est pris dans un obstacle`).toBe(false);
+        expect(w.isFree(ex, ez, 0.25), `k=${k} : arrivée sur un sol libre`).toBe(true);
+      }
+      expect(pathLength(path)).toBeGreaterThanOrEqual(Math.hypot(ex - ax, ez - az) - 1e-6);
     }
   });
 

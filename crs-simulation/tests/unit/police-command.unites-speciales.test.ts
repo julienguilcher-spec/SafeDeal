@@ -115,8 +115,11 @@ describe('BRAV-M', () => {
         if (ctx.people.countIn(m.x, m.z, 30, (p) => p.faction !== 'police') > 0) maxSpeedNearPeople = Math.max(maxSpeedNearPeople, Math.abs(m.speed));
       }
       if (st.stage === 'route' && Math.abs(motos[0].speed) > 3) {
-        for (let i = 1; i < motos.length; i++) {
-          const g = Math.hypot(motos[i].x - motos[i - 1].x, motos[i].z - motos[i - 1].z);
+        // (intervalle de chaque moto avec sa plus proche voisine : l'ordre de départ de la colonne n'est pas forcément
+        // celui des binômes — la moto la mieux placée vers la sortie mène)
+        for (let i = 0; i < motos.length; i++) {
+          let g = Infinity;
+          for (let j = 0; j < motos.length; j++) if (j !== i) g = Math.min(g, Math.hypot(motos[i].x - motos[j].x, motos[i].z - motos[j].z));
           rideGapMax = Math.max(rideGapMax, g);
           rideGapMin = Math.min(rideGapMin, g);
         }

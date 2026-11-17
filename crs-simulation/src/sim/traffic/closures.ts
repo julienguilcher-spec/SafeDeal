@@ -22,6 +22,11 @@ import { E_ONEWAY, makeEdgeHit } from './graph';
 import { BARRIER_LENGTH, CLOSURE_REACH } from './tuning';
 
 const RADIO_PHRASES = 'radio.phrases';
+/** État du pilote automatique (service du module des véhicules) : un véhicule arrêté devant le barrage veut-il passer ? */
+const AUTOPILOT_SERVICE = 'vehicles.autopilot';
+interface AutopilotView {
+  status(v: Vehicle): Readonly<{ mode: string; state: string }>;
+}
 
 /** Fiche interne d'une fermeture. */
 export class ClosureRec {
@@ -436,9 +441,11 @@ export class Closures implements TrafficControlApi {
       const halfL = v.def.length * 0.5;
       if (Math.abs(along) < halfL + 1.6) onLine = true;
       if (!isPriority(v)) continue;
-      // il roule vers le barrage (un véhicule de police garé en travers ne l'ouvre pas)
+      // il roule vers le barrage (un véhicule de police garé en travers ne l'ouvre pas) ; ou, arrêté nez aux
+      // barrières, son conducteur veut passer (le pilote automatique attend devant elles, le joueur accélère) : sans
+      // cela il attendait pour de bon devant un barrage qui ne s'ouvre qu'aux véhicules en mouvement
       const closing = -(v.vx * rx + v.vz * rz);
-      if (Math.abs(v.speed) > 0.4 && closing > 0) {
+      if ((Math.abs(v.speed) > 0.4 && closing > 0) || this.waitsAtGate(v, rx, rz)) {
         want = true;
         priority = true;
         who = v.id;
@@ -449,6 +456,23 @@ export class Closures implements TrafficControlApi {
     if (priority) rec.gateUntil = Math.max(rec.gateUntil, now + 2.5);
     if (want && !rec.gateOpen) this.setGate(rec, true, who);
     else if (!want && rec.gateOpen && !onLine) this.setGate(rec, false, 0);
+  }
+
+  /**
+   * Véhicule prioritaire arrêté tout près du barrage, nez vers lui, qui veut avancer : conducteur à bord qui accélère,
+   * ou pilote automatique en route arrêté devant un obstacle. (`rx`, `rz` : position du véhicule par rapport au barrage)
+   */
+  private waitsAtGate(v: Vehicle, rx: number, rz: number): boolean {
+    if (v.seats[0] === 0 || Math.abs(v.speed) > 0.4) return false;
+    const d = Math.hypot(rx, rz);
+    if (d > v.def.length * 0.5 + 6) return false;
+    // nez vers le barrage
+    if (-(Math.sin(v.heading) * rx + Math.cos(v.heading) * rz) < 0.6 * d) return false;
+    if (v.cmd.throttle > 0.05) return true;
+    const ap = this.ctx.service<AutopilotView>(AUTOPILOT_SERVICE);
+    if (!ap) return false;
+    const st = ap.status(v);
+    return (st.mode === 'drive' || st.mode === 'follow') && (st.state === 'attente' || st.state === 'bloque');
   }
 
   /** Un automobiliste autorisé approche : le barrage s'ouvre pour lui. */

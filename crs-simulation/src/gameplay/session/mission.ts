@@ -132,6 +132,7 @@ export class MissionBriefSystem implements GameSystem {
   private scope: RadioScope = { group: '', section: '', company: '', people: new Set(), self: 0 };
   private channels: ChannelListen | null = null;
   private listenFn: ((msg: RadioMessage) => boolean) | null = null;
+  private offStarted: (() => void) | null = null;
   private road: RoadSample = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '' } as RoadSample;
 
   // état publié
@@ -200,6 +201,17 @@ export class MissionBriefSystem implements GameSystem {
 
   init(ctx: GameContext): void {
     this.ctx = ctx;
+    // Rôles non policiers : le filtre d'écoute du métier est posé dès le début de la session, avant le premier
+    // passage de la carte — sinon un message de police de la mise en place (t = 0, escorte d'un engin…) passe
+    // et s'affiche sous-titré chez le journaliste, le manifestant ou le pompier.
+    this.offStarted = ctx.events.on('session:started', ({ config }) => {
+      const role = config.role;
+      if (isExecutantRole(role) || role === 'chef_groupe') return;
+      const listen = listenForRole(role);
+      if (!listen) return;
+      this.channels = listen;
+      this.setListen(true);
+    });
   }
 
   reset(): void {
@@ -237,6 +249,8 @@ export class MissionBriefSystem implements GameSystem {
   }
 
   dispose(): void {
+    this.offStarted?.();
+    this.offStarted = null;
     this.setListen(false);
   }
 
@@ -503,7 +517,9 @@ export class MissionBriefSystem implements GameSystem {
         if (this.convoyKey !== 'seul') this.restart('seul');
         const f = this.facts('route', [v], v, dest, 0, 0, me, now);
         if (f.movingFor >= 0) return departureLine(f);
-        return v.seats[0] === me.id && group && group.leaderId === me.id ? 'Prêt au départ : démarrez, vos équipiers vous suivent' : '';
+        if (v.seats[0] === me.id) return group && group.leaderId === me.id ? 'Prêt au départ : démarrez, vos équipiers vous suivent' : '';
+        // passager d'une moto : c'est son pilote qui part, avec la colonne
+        return v.kind === 'moto_bravm' && v.seats[0] !== 0 ? 'Prêt au départ : votre pilote démarre avec la colonne' : '';
       }
       this.convoyKey = '';
       return '';
@@ -765,7 +781,10 @@ export class MissionBriefSystem implements GameSystem {
         // BRAV-M : à moto, en tête de ses motards ou derrière son chef de bord (pas de « véhicule de la compagnie »)
         const moto = v ? undefined : this.motoOf(me, group);
         if (v && v.kind === 'moto_bravm') {
-          detail = group && group.leaderId === me.id ? 'Vous menez la BRAV-M : vos motards vous suivent, deux tons.' : 'À moto derrière votre chef de bord, deux tons.';
+          // passager (opérateur en selle derrière son pilote) : il ne mène rien, son pilote conduit — « Vous menez la
+          // BRAV-M » lui était affiché parce qu'il est le premier de son binôme
+          detail = v.seats[0] !== me.id ? 'En selle derrière votre pilote : il conduit, les motos de la BRAV-M roulent ensemble, deux tons.'
+            : group && group.leaderId === me.id ? 'Vous menez la BRAV-M : vos motards vous suivent, deux tons.' : 'À moto derrière votre chef de bord, deux tons.';
         } else if (moto) {
           title = dest ? `En selle : ${dest.name}` : obj.text;
           detail = 'Enfourchez votre moto (repère) : la BRAV-M part, deux tons.';
@@ -947,9 +966,22 @@ export class MissionBriefSystem implements GameSystem {
       this.heading = 'Manifestant';
       this.chain = crew ? `Cortège — ${crew.name}` : 'Cortège';
       this.chief = null;
-      const c = this.cortege(false);
-      inputs.task = { title: c ? `Défilez avec le cortège, ${this.place(c.x, c.z)}` : 'Rejoignez le cortège',
-        detail: 'Restez avec votre groupe, suivez le parcours déclaré.', x: c?.x, z: c?.z, target: c ? 'place' : 'none' };
+      // la consigne suit la variante choisie : service d'ordre en tête, radical fondu dans la foule, pacifique au défilé
+      const variante = ctx.session.config?.extra?.['variante'];
+      if (variante === 'service_ordre') {
+        this.heading = 'Manifestant — service d’ordre';
+        const c = this.cortege(true);
+        inputs.task = { title: c ? `Tenez la tête du cortège, ${this.place(c.x, c.z)}` : 'Rejoignez la tête du cortège',
+          detail: 'Chasubles en ligne : canalisez le cortège, tenez-le à distance des forces de l’ordre.', x: c?.x, z: c?.z, target: c ? 'place' : 'none' };
+      } else if (variante === 'radical') {
+        const c = this.cortege(false);
+        inputs.task = { title: c ? `Restez dans le cortège, ${this.place(c.x, c.z)}` : 'Rejoignez le cortège',
+          detail: 'Fondez-vous dans la foule ; tout acte violent filmé ou vu vous expose à l’interpellation.', x: c?.x, z: c?.z, target: c ? 'place' : 'none' };
+      } else {
+        const c = this.cortege(false);
+        inputs.task = { title: c ? `Défilez avec le cortège, ${this.place(c.x, c.z)}` : 'Rejoignez le cortège',
+          detail: 'Restez avec votre groupe, suivez le parcours déclaré.', x: c?.x, z: c?.z, target: c ? 'place' : 'none' };
+      }
     }
     this.apply(resolveInstruction(inputs), now);
   }

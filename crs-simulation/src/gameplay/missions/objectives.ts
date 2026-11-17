@@ -59,6 +59,16 @@ export function pronounces(o: ObjectiveRun): boolean {
   return o.def.kind === 'sommations_regulieres' && /prononcer/i.test(o.def.text);
 }
 
+/**
+ * « Obtenir un parcours négocié par la liaison » : atteint dès que l'équipe de liaison est mise au contact des
+ * organisateurs (crowd.core.setLiaison) — la phase qui l'attend s'ouvre alors sans délai. Sans liaison, il reste une
+ * prévention jugée à la fin sur les dégâts (l'interface n'offre pas encore partout l'ordre de liaison : il ne doit pas
+ * devenir impossible).
+ */
+export function isLiaison(o: ObjectiveRun): boolean {
+  return o.def.kind === 'prevention' && o.def.target === 'liaison';
+}
+
 /** Ressources partagées pour une évaluation (évite d'allouer à chaque appel). */
 export interface EvalEnv {
   ctx: GameContext;
@@ -71,6 +81,23 @@ export interface EvalEnv {
   homeZ: number;
   isCommander: boolean;
   scratch: Person[];
+  /**
+   * Victimes mises en scène par le cadre de mission (le blessé à secourir, les douze victimes du mouvement de foule) :
+   * elles sont la prémisse de la mission et ne comptent pas parmi les blessés reprochés au joueur.
+   */
+  staged?: ReadonlySet<EntityId>;
+}
+
+/** Blessés de la foule, hors victimes mises en scène par la mission. */
+export function crowdInjured(env: EvalEnv): number {
+  const n = env.ctx.director.stats.injured;
+  if (!env.staged || env.staged.size === 0) return n;
+  let k = 0;
+  for (const id of env.staged) {
+    const p = env.ctx.people.get(id);
+    if (p && p.faction === 'protest' && p.injury !== 'none') k++;
+  }
+  return Math.max(0, n - k);
 }
 
 const NEAR_PLACE = 30;
@@ -153,8 +180,13 @@ export function evaluate(o: ObjectiveRun, env: EvalEnv): void {
       countReached(o, env, tracker.shots, 3, '{n} prise(s) de vue.');
       break;
     case 'reperer_signaux': {
+      // signes avant-coureurs des groupes radicaux, ou comptes rendus radio du joueur quand il y avait à signaler
+      // (« Signaler le passant suspect à la radio » : une nuit calme n'a aucun signe de groupe radical)
       const signals = ctx.service<{ list: readonly unknown[] }>('crowd.signals');
-      countReached(o, env, signals ? signals.list.length : 0, 3, '{n} signe(s) avant-coureur(s) relevé(s).');
+      // un compte rendu ne vaut que pour un objectif de signalement (« Signaler… », « … par radio ») : pas pour
+      // « Désigner trois cibles » ni « Localiser et marquer douze foyers », qui demandent de vraiment les repérer
+      const n = Math.max(signals ? signals.list.length : 0, /signal|radio/i.test(o.def.text) ? tracker.playerReports : 0);
+      countReached(o, env, n, 3, n > (signals ? signals.list.length : 0) ? '{n} fait(s) signalé(s) par radio.' : '{n} signe(s) avant-coureur(s) relevé(s).');
       break;
     }
     case 'guider_unite':
@@ -216,7 +248,8 @@ export function evaluate(o: ObjectiveRun, env: EvalEnv): void {
       break;
     case 'limiter_blesses': {
       const max = o.def.max ?? 10;
-      if (d.stats.injured > max) fail(o, env, `${d.stats.injured} blessés (plafond : ${max}).`);
+      const injured = crowdInjured(env);
+      if (injured > max) fail(o, env, `${injured} blessés (plafond : ${max}).`);
       break;
     }
     case 'limiter_degats': {
@@ -252,6 +285,7 @@ export function evaluate(o: ObjectiveRun, env: EvalEnv): void {
       watchCustom(o, env, (note) => fail(o, env, note));
       break;
     case 'prevention':
+      if (isLiaison(o) && tracker.liaison) succeed(o, env, 'Équipe de liaison au contact des organisateurs : parcours négocié.');
       break;
     default:
       break;
@@ -279,7 +313,8 @@ export function conclude(o: ObjectiveRun, env: EvalEnv, failed: boolean): void {
       succeed(o, env, 'Respecté jusqu’à la fin.');
       break;
     case 'prevention':
-      if (t.windows + t.fires <= 2) succeed(o, env, 'Peu de dégâts : la prévention a porté.');
+      if (isLiaison(o) && t.liaison) succeed(o, env, 'Équipe de liaison au contact des organisateurs : parcours négocié.');
+      else if (t.windows + t.fires <= 2) succeed(o, env, 'Peu de dégâts : la prévention a porté.');
       else fail(o, env, `${t.windows + t.fires} dégâts malgré la prévention.`);
       break;
     case 'rester_dans_cortege':

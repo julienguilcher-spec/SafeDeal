@@ -163,15 +163,18 @@ export class SessionSetupSystem implements GameSystem {
         summary.playerId = player.id;
         // commandant en salle de commandement : il s'installe dans le véhicule de commandement, vue tactique
         if (config.role === 'commandant' && config.extra && config.extra['variante'] === 'salle') this.seatInCommandRoom(player);
+        // BRAV-M, poste passager : opérateur d'un binôme, en selle derrière son pilote ; le chef de groupe de l'IA
+        // commande (voir mountBravm) — le joueur ne prend pas la tête de l'unité, son pilote ne le « suit » pas à pied
+        const bravmPassenger = config.role === 'bravm' && player.poste === 'passager_moto' && this.mountBravm(player);
         // rôles à responsabilité : le joueur prend la tête de son unité (BRAV-M, équipage d'engin, équipe du drone)
-        if (LEADER_ROLES.has(config.role) && player.squadId !== 0) {
+        if (LEADER_ROLES.has(config.role) && player.squadId !== 0 && !bravmPassenger) {
           const own = ctx.squads.get(player.squadId);
           if (own && own.faction === 'police' && own.leaderId !== player.id) ctx.squads.setLeader(own.id, player.id);
           // canon à eau, Centaure : un groupe de CRS de la compagnie l'escorte et le suit
           if (own && (config.role === 'operateur_canon_eau' || config.role === 'gendarme_centaure')) this.attachEscort(player, own);
         }
         // le joueur chef d'une unité (groupe, section) : son unité le suit tant qu'il ne lui donne pas d'autre ordre
-        if (config.role !== 'commandant' && config.role !== 'commissaire') {
+        if (config.role !== 'commandant' && config.role !== 'commissaire' && !bravmPassenger) {
           for (const s of ctx.squads.list) {
             if (s.faction === 'police' && s.leaderId === player.id && s.members.length > 1) {
               ctx.squads.issue(s.id, { type: 'suivre', targetId: player.id, issuedBy: player.id });
@@ -629,6 +632,34 @@ export class SessionSetupSystem implements GameSystem {
   }
 
   /**
+   * BRAV-M, poste passager (roster : trois binômes sous « BRAV-M 1 ») : chaque binôme se met en selle, pilote au guidon
+   * et opérateur derrière — le joueur derrière le pilote de son binôme — et le chef de groupe de l'IA (opérateur du
+   * premier binôme) commande le groupe. Le joueur commençait à pied, à côté de motos sans pilote, chef d'une unité
+   * qu'il ne pouvait pas conduire : la BRAV-M partait sans lui, ou ne partait pas. false : joueur non monté.
+   */
+  private mountBravm(player: Person): boolean {
+    const ctx = this.ctx;
+    const own = player.squadId !== 0 ? ctx.squads.get(player.squadId) : undefined;
+    const group = own && own.kind === 'binome' && own.parentId !== 0 ? ctx.squads.get(own.parentId) : undefined;
+    if (!group) return false;
+    let seated = false;
+    for (const b of ctx.squads.childrenOf(group.id)) {
+      const v = b.kind === 'binome' && b.vehicleId !== 0 ? ctx.vehicles.get(b.vehicleId) : undefined;
+      if (!v || v.kind !== 'moto_bravm' || v.seats.some((id) => id !== 0)) continue;
+      const crew = b.members.map((id) => ctx.people.get(id)).filter((p): p is Person => !!p && p.vehicleId === 0);
+      const pilot = crew.find((p) => p.poste === 'pilote_moto');
+      const op = crew.find((p) => p.poste !== 'pilote_moto');
+      if (!pilot || !op || !ctx.vehicles.enter(pilot, v, 'driver')) continue;
+      if (!ctx.vehicles.enter(op, v, 'passenger')) continue;
+      // le binôme est commandé par son opérateur ; le groupe, par l'opérateur du premier binôme (chef de groupe)
+      b.leaderId = op.id;
+      if (group.leaderId === 0 && !op.isPlayer) group.leaderId = op.id;
+      if (op === player) seated = true;
+    }
+    return seated;
+  }
+
+  /**
    * Escorte d'un engin conduit par le joueur : le groupe de CRS le plus proche quitte sa section (le commandant IA
    * ne lui donne plus de poste) et passe sous l'équipage du joueur ; il suit l'engin à pied.
    */
@@ -695,6 +726,9 @@ export class SessionSetupSystem implements GameSystem {
 
     // véhicules stationnés derrière le front (créés d'abord : les conducteurs se tiennent à leur portière)
     const vehicles: Vehicle[] = [];
+    const hit = this.hit;
+    const reachable = (px: number, pz: number): boolean =>
+      !ctx.world.raycast(stand.x, stand.z, px, pz, hit) || (hit.kind !== 'building' && hit.kind !== 'barrier');
     const faction = cast.squads[0]?.faction ?? 'police';
     for (let i = 0; i < cast.vehicles.length; i++) {
       const kind = cast.vehicles[i]!;
@@ -702,7 +736,10 @@ export class SessionSetupSystem implements GameSystem {
       const length = def ? def.length : 5;
       const width = def ? def.width : 2;
       // derrière l'unité ; à défaut (place prise par une compagnie, parvis piéton), sur la chaussée la plus proche
-      if (!parkingSpot(ctx, stand, i, length, width, this.spot) && !roadSpot(ctx, stand.x, stand.z, length, width, this.spot)) continue;
+      // jamais derrière une grille ou un mur qui le sépare de l'unité (Concorde : motos de la BRAV-M garées dans
+      // l'entrée des Tuileries, de l'autre côté de la grille, pilotes coupés de leur chef)
+      if (!parkingSpot(ctx, stand, i, length, width, this.spot, reachable)
+        && !roadSpot(ctx, stand.x, stand.z, length, width, this.spot)) continue;
       const v = ctx.vehicles.spawn(kind, this.spot.x, this.spot.z, this.spot.heading, { faction });
       v.cmd.handbrake = true;
       vehicles.push(v);

@@ -95,6 +95,8 @@ export class ApState {
   /** Marche arrière à faire avant de s'engager (m restants) et instant de son début. */
   avoidBack = 0;
   avoidBackT = 0;
+  /** Marche arrière demandée pour céder le passage (Autopilot.giveWay), avant toute attente derrière le meneur. */
+  giveWay = false;
   /** Temps passé arrêté derrière un obstacle contournable sans couloir libre (s). */
   avoidWaitT = 0;
   /** Nouvel itinéraire après des blocages répétés (compteur). */
@@ -190,6 +192,7 @@ export class ApState {
     this.avoidT = 0;
     this.avoidBack = 0;
     this.avoidBackT = 0;
+    this.giveWay = false;
     this.avoidWaitT = 0;
     this.replans = 0;
     this.nudges = 0;

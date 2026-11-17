@@ -318,6 +318,14 @@ export class SessionController implements SessionApi {
         x = cfg.x;
         z = cfg.z;
       } else {
+        // Le reset des systèmes peut avoir lancé le chargement de la carte de Paris (session « paris » après un
+        // démarrage sur la carte de test, ou lancement direct d'une mission) : le lieu n'est connu qu'une fois la
+        // carte installée — sans cette attente, départ « au centre du monde », à plusieurs kilomètres du lieu.
+        const ready = (ctx.world as { whenReady?(): Promise<void> }).whenReady;
+        if (cfg.place && typeof ready === 'function') {
+          await ready.call(ctx.world);
+          if (token !== this.token) return; // remplacée ou annulée pendant le chargement
+        }
         const place = cfg.place ? ctx.world.placeByName(cfg.place) : null;
         if (place) {
           x = place.x;

@@ -31,6 +31,25 @@ const WATCH_DISTANCE = 12;
 const SEARCH_RADIUS = 32;
 /** Durée maximale du constat sur place avant de renoncer (s). */
 const WATCH_TIME = 25;
+/**
+ * Tête de colonne arrêtée (circulation, rue encombrée) à plus de tant de mètres du point (m) : la colonne repart par un
+ * nouvel itinéraire, au plus RELAUNCH_MAX fois, au lieu de se déclarer « en position » en pleine ville, à des
+ * kilomètres de l'objectif (elle n'y arrivait jamais) ; le délai de route ne s'applique que plus près.
+ */
+const RIDE_FAR = 200;
+/** Trajet de plus de tant de mètres : la colonne roule en urgence (fermetures de rue franchies) (m). */
+const URGENT_BEYOND = 300;
+const RELAUNCH_MAX = 12;
+/** Délai minimal entre deux nouveaux départs (s). */
+const RELAUNCH_GAP = 20;
+/** Moto à plus de tant de mètres de la tête : la tête l'attend (m) ; regroupée à moins de REGROUP_DONE m ; attente maximale (s). */
+const REGROUP_SPREAD = 120;
+const REGROUP_DONE = 45;
+const REGROUP_MAX = 40;
+/** Regroupements par trajet : au-delà, une moto coincée pour de bon ne retient plus l'unité (elle la rejoint seule). */
+const REGROUP_TRIES = 2;
+/** Opérateurs à moins de tant de mètres de leurs machines : ils y montent directement (embarquement), sans colonne à pied (m). */
+const MOUNT_REACH = 40;
 
 /** L'unité est-elle un groupe de BRAV-M (au moins un binôme subordonné doté d'une moto, ou binôme isolé) ? */
 export function isBravmGroup(core: CommandCore, s: Squad): boolean {
@@ -61,6 +80,19 @@ export class BravmUnit extends SpecialUnit {
   private standZ = 0;
   private slow = false;
   private convoyAt = -100;
+  /** Nouveaux départs de la colonne arrêtée loin du point (voir RIDE_FAR). */
+  private relaunches = 0;
+  private relaunchX = 0;
+  /** Début du regroupement en cours (s), −1 sans regroupement (voir REGROUP_SPREAD). */
+  private regroupAt = -1;
+  private regroups = 0;
+  /** Trajet en urgence (voir URGENT_BEYOND). */
+  private urgent = false;
+  private relaunchZ = 0;
+  /** Motos dans l'ordre de départ du trajet en cours (identifiants), vide : ordre des binômes. */
+  private readonly departOrder: number[] = [];
+  /** Dernière position et instant où chaque moto a bougé (voir les retardataires dans thinkRide). */
+  private readonly still = new Map<number, { x: number; z: number; t: number }>();
   private clearSince = 0;
   private watchAt = 0;
   private arrestOk = false;
@@ -69,6 +101,8 @@ export class BravmUnit extends SpecialUnit {
   /** Ordre à exécuter une fois le pied à terre fait (manœuvre à pied laissée au module de police). */
   private after: SquadOrder | null = null;
   private handoverSet = false;
+  /** Action différée à la prochaine réflexion (voir defer). */
+  private pending: (() => void) | null = null;
   private policeReported = false;
 
   constructor(core: CommandCore, pic: Picture, squad: Squad) {
@@ -87,6 +121,15 @@ export class BravmUnit extends SpecialUnit {
     const core = this.core;
     core.fleet(this.squad.id, this.motos);
     for (let i = this.motos.length - 1; i >= 0; i--) if (this.motos[i].kind !== 'moto_bravm' || !core.usable(this.motos[i])) this.motos.splice(i, 1);
+    // ordre de départ du trajet en cours (voir departure) : la tête est la moto qui mène réellement la colonne
+    const order = this.departOrder;
+    if (order.length > 0) {
+      const rank = (v: Vehicle): number => {
+        const r = order.indexOf(v.id);
+        return r < 0 ? order.length : r;
+      };
+      this.motos.sort((a, b) => rank(a) - rank(b));
+    }
     const lead = this.motos[0];
     const st = this.status;
     st.vehicleId = lead ? lead.id : 0;
@@ -125,6 +168,8 @@ export class BravmUnit extends SpecialUnit {
 
   claim(o: SquadOrder): boolean {
     this.refresh();
+    // un nouvel ordre remplace l'action différée du précédent
+    this.pending = null;
     const type = o.type;
     const mounted = this.mountedOperators() > 0;
     const stage = this.status.stage;
@@ -165,7 +210,7 @@ export class BravmUnit extends SpecialUnit {
       this.tx = o.x;
       this.tz = o.z;
       this.say(received(this.squad.name, 'trop loin à pied, on remonte en selle'));
-      this.backToMotos();
+      this.defer(() => this.backToMotos());
       return true;
     }
     if (mounted && this.motos.length > 0) {
@@ -202,27 +247,37 @@ export class BravmUnit extends SpecialUnit {
       case 'interpeller':
         this.say(received(this.squad.name, 'interception de l’objectif' + (core.sector(this.tx, this.tz) !== '' ? ', ' + core.sector(this.tx, this.tz) : '') + ', pied à terre à distance'));
         if (mounted) this.ride(this.tx, this.tz, core.tuning.bravmStandoff);
-        else this.approach();
+        else this.defer(() => this.approach());
         break;
       case 'avancer':
       case 'colonne':
       case 'repli':
         this.say(received(this.squad.name, o.type === 'repli' ? 'je me replie en colonne' : 'en colonne vers le point'));
         if (mounted) this.ride(this.tx, this.tz, 0);
-        else this.backToMotos();
+        else this.defer(() => this.backToMotos());
         break;
       case 'embarquer':
         if (mounted) this.complete(true, '');
-        else this.backToMotos();
+        else this.defer(() => this.backToMotos());
         break;
       case 'debarquer':
         if (mounted) this.dismount();
         else this.complete(true, '');
         break;
       default: // cesser
-        this.backToMotos();
+        this.defer(() => this.backToMotos());
         break;
     }
+  }
+
+  /**
+   * Ordre interne différé à la prochaine réflexion : donné pendant la prise en charge (claim), il arrivait au module de
+   * police pendant que celui-ci traitait encore l'ordre reçu par la même unité — et il était perdu (l'unité était
+   * déjà dans sa liste d'ordres à traiter, vidée ensuite) : la BRAV-M à pied restait plantée sur place.
+   */
+  private defer(action: () => void): void {
+    this.pending = action;
+    this.setStage('retour');
   }
 
   // ───────────────────────────── à moto ─────────────────────────────
@@ -241,7 +296,9 @@ export class BravmUnit extends SpecialUnit {
     let sx = x;
     let sz = z;
     const path = core.path;
-    if (core.ctx.world.findPath(lead.x, lead.z, x, z, 'vehicle', path) && path.length >= 4) {
+    const routed = core.ctx.world.findPath(lead.x, lead.z, x, z, 'vehicle', path) && path.length >= 4;
+    this.departure(routed ? path : null, x, z);
+    if (routed) {
       let total = 0;
       for (let i = 2; i + 1 < path.length; i += 2) total += Math.hypot(path[i] - path[i - 2], path[i + 1] - path[i - 1]);
       let back = standoff;
@@ -276,6 +333,16 @@ export class BravmUnit extends SpecialUnit {
       this.arrived();
       return;
     }
+    this.relaunches = 0;
+    // trajet à travers la ville : en urgence, les fermetures de rue de la police sont franchies (arrêtée devant un
+    // barrage à 600 m du point, la colonne s'y déclarait « en position » et n'arrivait jamais) ; manœuvre courte : au pas
+    // de la colonne, en file serrée. Décidé au départ, gardé pour tout le trajet (relances, changements d'allure)
+    this.urgent = Math.hypot(sx - lead.x, sz - lead.z) > URGENT_BEYOND;
+    this.regroupAt = -1;
+    this.regroups = 0;
+    this.relaunchX = lead.x;
+    this.relaunchZ = lead.z;
+    this.still.clear();
     if (!this.convoy(core.tuning.bravmSpeed)) {
       this.dismount();
       return;
@@ -283,6 +350,42 @@ export class BravmUnit extends SpecialUnit {
     // délai de route : quatre minutes, davantage pour traverser Paris (8 m/s de moyenne, marge comprise)
     this.rideMax = Math.max(240, Math.hypot(sx - lead.x, sz - lead.z) * 1.6 / 8 + 60);
     this.setStage('route');
+  }
+
+  /**
+   * Ordre de départ : la moto la plus avancée vers la sortie mène, les autres suivent dans l'ordre où elles sont garées
+   * (une tête garée derrière les autres attendait qu'elles passent, et elles l'attendaient : personne ne partait). À
+   * égalité, la moto où le joueur est en selle derrière son pilote mène : toutes les motos de l'unité suivent la sienne.
+   */
+  private departure(path: readonly number[] | null, x: number, z: number): void {
+    const motos = this.motos;
+    this.departOrder.length = 0;
+    if (motos.length < 2) return;
+    let cx = 0;
+    let cz = 0;
+    for (let i = 0; i < motos.length; i++) {
+      cx += motos[i].x / motos.length;
+      cz += motos[i].z / motos.length;
+    }
+    // direction de sortie : 30 m le long de l'itinéraire (à défaut, vers le point)
+    let tx = x;
+    let tz = z;
+    if (path) {
+      this.pointOnPath(path, 30);
+      tx = this.core.v2.x;
+      tz = this.core.v2.z;
+    }
+    const len = Math.hypot(tx - cx, tz - cz);
+    if (len < 1e-3) return;
+    const dx = (tx - cx) / len;
+    const dz = (tz - cz) / len;
+    const me = this.core.ctx.player.person();
+    const mine = me && me.vehicleId !== 0 ? me.vehicleId : 0;
+    const ahead = (v: Vehicle): number => (v.x - cx) * dx + (v.z - cz) * dz + (v.id === mine && v.seats[0] !== me!.id ? 0.5 : 0);
+    const sorted = motos.slice().sort((a, b) => ahead(b) - ahead(a));
+    for (let i = 0; i < sorted.length; i++) this.departOrder.push(sorted[i].id);
+    motos.length = 0;
+    for (let i = 0; i < sorted.length; i++) motos.push(sorted[i]);
   }
 
   private pointOnPath(path: readonly number[], s: number): void {
@@ -306,7 +409,7 @@ export class BravmUnit extends SpecialUnit {
     const ap = this.core.autopilot;
     if (!ap) return false;
     this.convoyAt = this.core.now;
-    return ap.convoy(this.motos, this.standX, this.standZ, { gap: 3.5, speed });
+    return ap.convoy(this.motos, this.standX, this.standZ, { gap: 3.5, speed, urgence: this.urgent });
   }
 
   private stopMotos(): void {
@@ -339,28 +442,92 @@ export class BravmUnit extends SpecialUnit {
       this.slow = false;
       this.convoy(core.tuning.bravmSpeed);
     }
+    // regroupement : la tête s'arrête tant que des motos sont loin derrière (encore loin du point) ; elles la rejoignent
+    // — la tête ne file plus seule en laissant le reste de l'unité, et le joueur en selle, à des centaines de mètres
+    const d0 = Math.hypot(this.standX - lead.x, this.standZ - lead.z);
+    let spread = 0;
+    for (let i = 1; i < this.motos.length; i++) {
+      const m = this.motos[i];
+      if (m.seats[0] !== 0) spread = Math.max(spread, Math.hypot(m.x - lead.x, m.z - lead.z));
+    }
+    if (this.regroupAt >= 0) {
+      if (spread < REGROUP_DONE || now - this.regroupAt > REGROUP_MAX) {
+        this.regroupAt = -1;
+        this.still.clear();
+        this.convoy(this.slow ? core.tuning.bravmSlow : core.tuning.bravmSpeed);
+      }
+      return;
+    }
+    if (spread > REGROUP_SPREAD && d0 > RIDE_FAR && now - this.convoyAt > 5 && this.regroups < REGROUP_TRIES) {
+      this.regroupAt = now;
+      this.regroups++;
+      ap.stop(lead);
+      for (let i = 1; i < this.motos.length; i++) {
+        const m = this.motos[i];
+        if (m.seats[0] !== 0 && Math.hypot(m.x - lead.x, m.z - lead.z) > REGROUP_DONE) ap.driveTo(m, lead.x, lead.z, { speed: core.tuning.bravmSpeed, stopBefore: 4 + i * 3.5, urgence: true });
+      }
+      return;
+    }
     // une moto qui ne suit plus (coincée au départ, perdue dans la circulation) rejoint le point seule
     if (now >= this.stragglerAt) {
       this.stragglerAt = now + 5;
       for (let i = 1; i < this.motos.length; i++) {
         const m = this.motos[i];
-        const ms = ap.status(m);
-        if (ms.mode === 'follow' && (ms.state === 'bloque' || ms.state === 'attente') && ms.blockedFor > 15 && Math.hypot(m.x - lead.x, m.z - lead.z) > 40) {
-          ap.driveTo(m, this.standX, this.standZ, { speed: core.tuning.bravmSpeed, stopBefore: 4 + i * 3.5 });
+        // immobile depuis plus de 15 s, quel que soit l'état que donne le pilote automatique (un suiveur qui attend son
+        // meneur annonce « attente » sans compter le temps bloqué ; une moto en manœuvre ou laissée à l'arrêt n'était
+        // jamais relancée : elle restait à sa place, le joueur parfois en selle derrière son pilote)
+        let s = this.still.get(m.id);
+        if (!s || Math.hypot(m.x - s.x, m.z - s.z) > 3) {
+          if (!s) this.still.set(m.id, s = { x: m.x, z: m.z, t: now });
+          s.x = m.x;
+          s.z = m.z;
+          s.t = now;
+          continue;
         }
+        if (m.seats[0] === 0 || now - s.t <= 15 || Math.hypot(m.x - lead.x, m.z - lead.z) <= 40) continue;
+        const ms = ap.status(m);
+        if (ms.mode === 'drive' && ms.state !== 'bloque' && ms.state !== 'attente' && ms.state !== 'echec' && ms.state !== 'arrive') continue;
+        ap.driveTo(m, this.standX, this.standZ, { speed: core.tuning.bravmSpeed, stopBefore: 4 + i * 3.5, urgence: true });
+        s.t = now;
       }
     }
     const st = ap.status(lead);
     const d = Math.hypot(this.standX - lead.x, this.standZ - lead.z);
     const stopped = Math.abs(lead.speed) < 0.4;
+    // tête arrêtée loin du point (circulation, rue encombrée, pilote automatique arrêté) : la colonne n'est pas
+    // « arrivée » — elle repart par un nouvel itinéraire (voir RIDE_FAR) ; le délai de route ne joue que près du point
+    const far = d > RIDE_FAR && this.relaunches < RELAUNCH_MAX;
+    const blocked = st.state === 'echec' || (st.state === 'bloque' && st.blockedFor > 12) || (st.state === 'attente' && st.blockedFor > 40)
+      || (st.mode === 'idle' && stopped);
+    if (far) {
+      if (st.state === 'arrive' && stopped) {
+        // point d'arrêt atteint (calculé au départ) : rien de plus à faire
+        this.arrived();
+        return;
+      }
+      // (loin du point, une attente de 20 s derrière un véhicule suffit : sortie de caserne encombrée, bouchon)
+      const stuck = blocked || (st.state === 'attente' && st.blockedFor > RELAUNCH_GAP);
+      if (!stuck || now - this.convoyAt < RELAUNCH_GAP) return;
+      // une tête qui n'a pas bougé depuis le dernier départ (coincée derrière un véhicule) passe en queue : une autre mène
+      this.relaunches++;
+      if (Math.hypot(lead.x - this.relaunchX, lead.z - this.relaunchZ) < 5 && this.motos.length > 1) {
+        this.departOrder.length = 0;
+        for (let i = 1; i < this.motos.length; i++) this.departOrder.push(this.motos[i].id);
+        this.departOrder.push(lead.id);
+        this.refresh();
+      }
+      this.relaunchX = this.motos[0].x;
+      this.relaunchZ = this.motos[0].z;
+      if (this.convoy(this.slow ? core.tuning.bravmSlow : core.tuning.bravmSpeed)) return;
+    }
     if ((st.state === 'arrive' || st.mode === 'idle' || d < 6) && stopped) {
       this.arrived();
-    } else if (st.state === 'echec' || (st.state === 'bloque' && st.blockedFor > 12) || (st.state === 'attente' && st.blockedFor > 40)
+    } else if (blocked
       // délai de route dépassé : pied à terre si la tête n'avance plus, mais pas en plein mouvement (motos ralenties
       // derrière la colonne de la compagnie partie de la même caserne : elles arrivent en retard, mais elles arrivent ;
       // arrêtées net à 200 m du point, elles n'y étaient jamais) — au double du délai, dans tous les cas
       || (this.sinceStage() > this.rideMax && (stopped || this.sinceStage() > this.rideMax * 2))) {
-      // route coupée ou foule en travers : on termine à pied, sans forcer le passage
+      // route coupée ou foule en travers près du point : on termine à pied, sans forcer le passage
       this.stopMotos();
       this.arrived();
     }
@@ -539,8 +706,35 @@ export class BravmUnit extends SpecialUnit {
       this.remountDone();
       return;
     }
+    // point de regroupement : là où sont les machines (garées par les pilotes). Le point d'arrêt de la colonne valait
+    // (0, 0) tant qu'elle n'avait jamais roulé : les opérateurs partaient à pied vers l'origine de la carte
+    const lead = this.motos[0];
+    if (lead.seats[0] !== 0 || (this.standX === 0 && this.standZ === 0)) {
+      this.standX = lead.x;
+      this.standZ = lead.z;
+    }
+    // déjà aux machines : en selle tout de suite (la marche vers un point déjà atteint ne se terminait pas)
+    if (this.atMotos()) {
+      this.remount();
+      return;
+    }
     this.internal({ type: 'colonne', x: this.standX, z: this.standZ, width: 0, issuedBy: this.order ? this.order.issuedBy : 0 });
     this.setStage('retour');
+  }
+
+  /**
+   * Tous les opérateurs à pied sont-ils à portée des machines (moins de MOUNT_REACH m du point de regroupement ou d'une
+   * moto du groupe) ? L'embarquement les y mène lui-même.
+   */
+  private atMotos(): boolean {
+    const n = this.footOperators();
+    for (let i = 0; i < n; i++) {
+      const p = this.people[i];
+      let near = Math.hypot(p.x - this.standX, p.z - this.standZ) < MOUNT_REACH;
+      for (let j = 0; j < this.motos.length && !near; j++) near = Math.hypot(p.x - this.motos[j].x, p.z - this.motos[j].z) < MOUNT_REACH;
+      if (!near) return false;
+    }
+    return true;
   }
 
   private remount(): void {
@@ -637,6 +831,12 @@ export class BravmUnit extends SpecialUnit {
 
   think(): void {
     this.refresh();
+    const pending = this.pending;
+    if (pending) {
+      this.pending = null;
+      pending();
+      return;
+    }
     const stage = this.status.stage;
     switch (stage) {
       case 'route':
@@ -666,7 +866,7 @@ export class BravmUnit extends SpecialUnit {
         }
         break;
       case 'retour':
-        if (this.sinceStage() > 150) this.remount();
+        if (this.sinceStage() > 150 || (this.sinceStage() > 2 && this.atMotos())) this.remount();
         break;
       case 'remontee':
         if (this.sinceStage() > 100) this.remountDone();

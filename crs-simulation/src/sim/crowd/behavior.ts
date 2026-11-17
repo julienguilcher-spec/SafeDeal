@@ -9,7 +9,7 @@
  * proximité → comportement de la phase (arriver, se rassembler, marcher, rester) → gestes d'ambiance.
  * ===================================================================================== */
 
-import type { Person } from '@/core/contracts';
+import type { Person, Prop, RayHit } from '@/core/contracts';
 import type { PoliceSight } from './api';
 import { A, F, S } from './brain';
 import type { CrowdBrain } from './brain';
@@ -21,6 +21,10 @@ import * as T from './tuning';
 
 export class Behavior {
   private readonly sight: PoliceSight = { id: 0, x: 0, z: 0, dist: Infinity, count: 0, closing: 0 };
+  private readonly hit: RayHit = { hit: false, t: 0, x: 0, z: 0, nx: 0, nz: 0, kind: 'none', id: 0, height: 0 };
+  private readonly props: Prop[] = [];
+  private readonly row: Prop[] = [];
+  private readonly pts: number[] = [];
   private focusX = NaN;
   private focusZ = NaN;
   private readonly react: Reactions;
@@ -130,6 +134,9 @@ export class Behavior {
       // pris dans une nasse (parti de sa lisière, ou revenu dedans en cherchant son chemin) : on ne la traverse pas
       // pour s'en aller par l'intervalle de deux agents de l'anneau — on n'en sort que par la porte filtrée
       if (this.kettled(p, b, now) === null) {
+        // face à une rangée de barrières (rue fermée à la circulation), ou arrêté contre elle : on la contourne par
+        // le trottoir
+        this.aroundLine(p, b, now, this.stalled(p, b, now, 1.5) ? 3 : 0.9);
         this.manners.leaving(p, b, now);
         return;
       }
@@ -200,6 +207,8 @@ export class Behavior {
       this.startFlee(p, b, b.threatX, b.threatZ, tune.flee * (0.6 + 0.4 * core.rngThink.next()));
       return;
     }
+    // ── 4 bis. véhicule de police ou de secours qui veut passer (deux-tons, avertisseur) : on s'écarte ──
+    if (b.state !== S.SIT && (b.flags & F.PINNED) === 0 && this.react.makeWay(p, b, now)) return;
     // ── 5. forces de l'ordre à proximité ──
     const sense = core.sense;
     const kettle = this.kettled(p, b, now);
@@ -303,6 +312,129 @@ export class Behavior {
     this.byPhase(p, b, now, bystander);
     // ── 13. gestes d'ambiance ──
     if (b.act === A.NONE && (b.flags & F.BANNER) === 0) this.manners.ambient(p, b, now, bystander);
+  }
+
+  /**
+   * Bloqué contre une rangée d'objets bas en travers du chemin (barrières Vauban d'une rue fermée à la circulation :
+   * elles barrent la chaussée, pas les trottoirs) : on passe par le bout de la rangée le plus proche, puis on reprend
+   * son chemin. (Sans cela, la personne restait plantée contre la rangée, puis renonçait à cette direction et
+   * choisissait une autre issue — au sortir d'une nasse filtrée, une issue de l'autre côté de la nasse : elle
+   * repassait la porte et refaisait la queue.) Retourne true si un contournement a été pris.
+   */
+  aroundLine(p: Person, b: CrowdBrain, now: number, look: number): boolean {
+    const ctx = this.core.ctx;
+    // itinéraire en cours de calcul : on l'attend (il remplacerait le détour)
+    if (b.pathPending) return false;
+    const path = b.path;
+    const i = b.pathI * 2;
+    const wx = path !== null && i + 1 < path.length ? path[i]! : b.tx;
+    const wz = path !== null && i + 1 < path.length ? path[i + 1]! : b.tz;
+    let ux = wx - p.x;
+    let uz = wz - p.z;
+    const d = Math.hypot(ux, uz);
+    if (d < 1) return false;
+    ux /= d;
+    uz /= d;
+    const reach = Math.min(d, look);
+    const hit = this.hit;
+    if (!ctx.props.raycast(p.x, p.z, p.x + ux * reach, p.z + uz * reach, hit, 'move') || !hit.hit) return false;
+    // la rangée : de proche en proche depuis l'objet heurté, les objets qui se touchent (intervalle où l'on ne passe pas)
+    const n = ctx.props.queryRadius(hit.x, hit.z, 16, this.props);
+    const row = this.row;
+    row.length = 0;
+    let seed = -1;
+    let best = Infinity;
+    for (let k = 0; k < n; k++) {
+      const q = this.props[k]!;
+      if (!q.blocksMove || q.carriedBy !== 0) continue;
+      const dq = Math.hypot(q.x - hit.x, q.z - hit.z) - Math.max(q.halfX, q.halfZ);
+      if (dq < best) {
+        best = dq;
+        seed = k;
+      }
+    }
+    if (seed < 0 || best > 0.8) {
+      this.props.length = 0;
+      return false;
+    }
+    row.push(this.props[seed]!);
+    for (let r = 0; r < row.length; r++) {
+      const a = row[r]!;
+      for (let k = 0; k < n; k++) {
+        const q = this.props[k]!;
+        if (!q.blocksMove || q.carriedBy !== 0 || row.indexOf(q) >= 0) continue;
+        if (Math.hypot(q.x - a.x, q.z - a.z) < Math.max(a.halfX, a.halfZ) + Math.max(q.halfX, q.halfZ) + 0.8) row.push(q);
+      }
+    }
+    this.props.length = 0;
+    // axe de la rangée : ses deux objets les plus éloignés (un objet seul : en travers du chemin)
+    let e1 = row[0]!;
+    let e2 = row[0]!;
+    let span = 0;
+    for (let a = 0; a < row.length; a++) {
+      for (let c = a + 1; c < row.length; c++) {
+        const dd = Math.hypot(row[a]!.x - row[c]!.x, row[a]!.z - row[c]!.z);
+        if (dd > span) {
+          span = dd;
+          e1 = row[a]!;
+          e2 = row[c]!;
+        }
+      }
+    }
+    let ax = -uz;
+    let az = ux;
+    if (span > 0.5) {
+      ax = (e2.x - e1.x) / span;
+      az = (e2.z - e1.z) / span;
+    }
+    // normale de la rangée, tournée vers où l'on va
+    let mx = -az;
+    let mz = ax;
+    if (mx * ux + mz * uz < 0) {
+      mx = -mx;
+      mz = -mz;
+    }
+    row.length = 0;
+    const world = ctx.world;
+    const pts = this.pts;
+    // bout le plus proche d'abord ; on le contourne largement (les sommets d'un itinéraire sont atteints à 2,4 m près)
+    const near1 = Math.hypot(e1.x - p.x, e1.z - p.z) <= Math.hypot(e2.x - p.x, e2.z - p.z);
+    for (let s = 0; s < 2; s++) {
+      const e = (s === 0) === near1 ? e1 : e2;
+      const out = e === e1 ? -1 : 1;
+      const r = Math.max(e.halfX, e.halfZ) + 1.4;
+      const ex = e.x + ax * out * r;
+      const ez = e.z + az * out * r;
+      pts.length = 0;
+      pts.push(ex - mx * 3, ez - mz * 3, ex, ez, ex + mx * 3.5, ez + mz * 3.5);
+      // (passage libre : ni façade, ni objet, ni voiture garée le long du trottoir)
+      let ok = true;
+      for (let k = 0; k < 6 && ok; k += 2) if (!world.isFree(pts[k]!, pts[k + 1]!, 0.35)) ok = false;
+      for (let k = -2; k + 3 < 6 && ok; k += 2) {
+        const sx = k < 0 ? p.x : pts[k]!;
+        const sz = k < 0 ? p.z : pts[k + 1]!;
+        if (k >= 0 && ctx.props.raycast(sx, sz, pts[k + 2]!, pts[k + 3]!, hit, 'move') && hit.hit) ok = false;
+        else if (ctx.vehicles.raycast(sx, sz, pts[k + 2]!, pts[k + 3]!, hit, 'move') && hit.hit) ok = false;
+      }
+      if (!ok) continue;
+      // déjà en train de prendre ce détour (le rayon vers son premier sommet touche encore la rangée) : on ne le
+      // réinjecte pas à chaque pas — l'itinéraire s'allongerait sans fin, et le repère d'arrêt, remis à zéro, ne
+      // laisserait jamais la personne renoncer à cette direction si elle est vraiment bloquée
+      if (path !== null && i + 1 < path.length) {
+        let same = false;
+        for (let k = 0; k < 6 && !same; k += 2) same = Math.hypot(path[i]! - pts[k]!, path[i + 1]! - pts[k + 1]!) < 1;
+        if (same) return false;
+      }
+      const rest: number[] = pts.slice();
+      if (path !== null) for (let k = i; k + 1 < path.length; k += 2) rest.push(path[k]!, path[k + 1]!);
+      b.path = rest;
+      b.pathI = 0;
+      b.stuckX = p.x;
+      b.stuckZ = p.z;
+      b.stuckSince = now;
+      return true;
+    }
+    return false;
   }
 
   /** Aucune progression depuis `seconds` ? (met à jour le repère) */

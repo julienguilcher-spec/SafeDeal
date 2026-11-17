@@ -99,6 +99,11 @@ export class CommandSystem implements GameSystem {
         const c = this.commandOf(id);
         if (c) c.endRequested = true;
       },
+      pin: (id, on) => {
+        if (on) core.pinned.add(id);
+        else core.pinned.delete(id);
+        if (on) for (let i = 0; i < this.commands.length; i++) this.commands[i].dropPinned();
+      },
       requestSommation: (id, x, z) => {
         const i = this.indexOf(id);
         return i >= 0 && this.reactions[i].start(x, z, 0, true);

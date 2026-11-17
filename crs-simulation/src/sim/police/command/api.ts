@@ -434,6 +434,12 @@ export interface CommandApi {
   /** Demande la fin de mission (script de mission, joueur) : rembarquement puis message de fin. */
   endMission(companySquadId: number): void;
   /**
+   * Retient (on) ou rend (off) une unité pour le script de mission : le groupe du joueur exécutant tient le poste de
+   * son objectif (« Tenir sa place dans la ligne », « Couvrir le lanceur ») ; le commandant IA ne l'emploie plus
+   * ailleurs (ni emplacement du dispositif, ni tâche, ni réserve), et l'élément qui l'englobait est fractionné.
+   */
+  pin?(squadId: number, on: boolean): void;
+  /**
    * Sommation sur ordre (salle de commandement) : l'officier IA de la compagnie se porte à portée de mégaphone
    * de (x, z) et prononce l'étape suivante. false s'il n'y a pas d'officier IA habilité.
    */

@@ -123,7 +123,11 @@ export class Nav {
       // l'anneau, et elle oscillait sur place entre les deux buts sans jamais rejoindre la porte)
       const g = b.group >= 0 ? this.core.groups[b.group] : undefined;
       const leaving = b.state === S.LEAVE && b.exit >= 0;
-      if (g && g.path && g.exit === b.exit && leaving) {
+      // (et seulement s'il mène bien à cette issue : l'issue du groupe est réaffectée sans son itinéraire — sortie
+      // filtrée d'une nasse, issues renouvelées d'un cortège, autre issue choisie par un membre bloqué. L'itinéraire
+      // resté en mémoire menait ailleurs : un nassé contrôlé et sorti par la porte repartait vers une issue de
+      // l'autre côté de la nasse, repassait la porte en sens inverse et refaisait la queue)
+      if (g && g.path && g.exit === b.exit && leaving && this.leadsTo(g.path, b.exit)) {
         b.path = g.path;
         b.pathI = this.entryIndex(g.path, p.x, p.z);
         continue;
@@ -145,6 +149,14 @@ export class Nav {
       q.splice(0, this.head);
       this.head = 0;
     }
+  }
+
+  /** L'itinéraire se termine-t-il à l'issue `exit` (à quelques mètres près : dispersion des arrivées) ? */
+  private leadsTo(path: number[], exit: number): boolean {
+    const e = this.exits[exit];
+    const n = path.length;
+    if (!e || n < 2) return false;
+    return Math.hypot(path[n - 2]! - e.x, path[n - 1]! - e.z) < 8;
   }
 
   /** Sommet d'un itinéraire partagé par lequel une personne déjà en chemin doit le reprendre. */
