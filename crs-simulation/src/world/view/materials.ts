@@ -115,6 +115,10 @@ float gClassOf(float code) {
   if (abs(code - ${CODE_WATER}.0) < 0.5) return ${CL_STONE}.0;
   return c > ${CLASS_LAYERS - 0.5} ? ${CL_SIDEWALK}.0 : c;
 }
+// 1 : cellule hors de la nappe (surface surélevée, tablier) ; l'eau garde sa classe (pierre des quais).
+float gRaised(float code) {
+  return code > 127.5 && abs(code - ${CODE_WATER}.0) > 0.5 ? 1.0 : 0.0;
+}
 // Dérivées fournies : l'échantillonnage a lieu dans des branches, où les dérivées implicites ne sont pas définies.
 vec4 gLayer(float cls, vec2 uv, vec2 dx, vec2 dy) {
   float m = 1.0 / uMeters[int(cls)];
@@ -143,7 +147,18 @@ if (gMode < 0.5) {
   if (abs(cN - ${CODE_WATER}.0) < 0.5) discard;
   if (min(min(c00, c10), min(c01, c11)) > 127.5) discard;
   float k00 = gClassOf(c00), k10 = gClassOf(c10), k01 = gClassOf(c01), k11 = gClassOf(c11);
-  gCls = gClassOf(cN);
+  // Cellule surélevée (trottoir, terre-plein, tablier) : la nappe n'y est visible qu'au-delà du bord du polygone, côté
+  // chaussée ; elle y prend donc la classe d'une cellule voisine au niveau (en x, puis en z, puis en diagonale : l'une
+  // d'elles l'est, sinon la nappe aurait été écartée ci-dessus). Sans cela, le dallage du trottoir débordait sur la
+  // chaussée en dents de scie le long de chaque bordure (jusqu'à une cellule : 2 m en qualité basse).
+  float r00 = gRaised(c00), r10 = gRaised(c10), r01 = gRaised(c01), r11 = gRaised(c11);
+  float f00 = r10 < 0.5 ? k10 : (r01 < 0.5 ? k01 : k11);
+  float f10 = r00 < 0.5 ? k00 : (r11 < 0.5 ? k11 : k01);
+  float f01 = r11 < 0.5 ? k11 : (r00 < 0.5 ? k00 : k10);
+  float f11 = r01 < 0.5 ? k01 : (r10 < 0.5 ? k10 : k00);
+  k00 = mix(k00, f00, r00); k10 = mix(k10, f10, r10); k01 = mix(k01, f01, r01); k11 = mix(k11, f11, r11);
+  // classe de la cellule la plus proche (celle de cN), après remplacement
+  gCls = gf.x < 0.5 ? (gf.y < 0.5 ? k00 : k01) : (gf.y < 0.5 ? k10 : k11);
   #ifdef G_BLEND
     if (k00 == k10 && k00 == k01 && k00 == k11) {
       gTex = gLayer(k00, gUv, gDx, gDy);
@@ -308,22 +323,26 @@ uniform vec3 uSky;
 varying vec3 vFWorld;
 ${NOISE_GLSL}
 float fWater = 0.0;
+float fFres = 0.0;
 `;
 
 const FAR_FRAG_MAP = /* glsl */ `
 #ifdef USE_MAP
   vec4 fTex = texture2D(map, vMapUv);
-  fWater = 1.0 - step(0.5, fTex.a);
+  // Fondu (et non seuil) : au loin, les niveaux réduits de la texture mêlent l'alpha de l'eau et des berges.
+  fWater = 1.0 - smoothstep(0.25, 0.75, fTex.a);
+  // Reflet du ciel comme sur l'eau détaillée (createWaterMaterial), calculé avec la verticale et non la normale
+  // du maillage : les berges du maillage grossier (16 m) penchent, et le fleuve lointain s'y couvrait de bosses
+  // claires et sombres, bien plus pâle que l'eau proche à la limite des deux versions.
+  float fNdv = saturate(dot(normalize(vViewPosition), normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz)));
+  fFres = 0.03 + 0.97 * pow(1.0 - fNdv, 5.0);
   float fVar = 0.9 + 0.2 * (cNoise(vFWorld.xz / 23.0) * 0.6 + cNoise(vFWorld.xz / 71.0) * 0.4);
-  diffuseColor.rgb *= fTex.rgb * mix(fVar, 0.55, fWater);
+  diffuseColor.rgb *= fTex.rgb * mix(fVar, 1.0 - 0.6 * fFres, fWater);
 #endif
 `;
 
 const FAR_FRAG_EMISSIVE = /* glsl */ `
-if (fWater > 0.5) {
-  float fNdv = saturate(dot(normalize(vViewPosition), normal));
-  totalEmissiveRadiance += uSky * (0.05 + 0.6 * pow(1.0 - fNdv, 4.0));
-}
+totalEmissiveRadiance += uSky * fFres * 0.8 * fWater;
 `;
 
 /** Sol d'une tuile lointaine : une texture de couleurs ; l'eau (alpha nul) reflète le ciel. */

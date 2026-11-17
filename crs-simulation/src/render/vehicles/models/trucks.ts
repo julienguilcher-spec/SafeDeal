@@ -105,9 +105,11 @@ export function truckBase(g: Geo, far: boolean, def: VehicleDef, o: TruckBaseOpt
     meta.doors.push({ index: 2, x: hw, z: (rd0 + rd1) / 2 }, { index: 3, x: -hw, z: (rd0 + rd1) / 2 });
   }
   if (!far) {
-    // marchepieds
+    // marchepieds : derrière la roue avant (sous la porte, ils traversaient le pneu à hauteur du moyeu — barre noire
+    // en travers de la roue, vue de profil)
+    const st1 = Math.min(fd1 - 0.2, zF - r - 0.06), st0 = Math.max(zCab + 0.08, Math.min(fd0, st1 - 0.5));
     g.paint(COL.plastic, SURF_FIXED);
-    g.mirror(() => { g.box(hw - 0.08, hw + 0.015, gc + 0.02, gc + 0.2, fd0, fd1 - 0.2); });
+    if (st1 - st0 > 0.2) g.mirror(() => { g.box(hw - 0.08, hw + 0.015, gc + 0.02, gc + 0.2, st0, st1); });
   }
 
   // ── face avant ──

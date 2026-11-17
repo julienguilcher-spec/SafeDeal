@@ -144,8 +144,17 @@ uniform sampler2D uAtlas;
 varying vec3 vCrsText;
 `;
 
+// Marquage sur la face avant seulement : les matériaux transparents sont dessinés des deux côtés (bouclier),
+// et l'envers d'une face marquée montrerait le texte en miroir (« ECILOP » vu de dos ou en vue subjective).
+// Three.js dessine un transparent double face en deux passes ; la passe de l'envers (FLIP_SIDED) inverse le
+// sens des faces avant (gl.frontFace), si bien que gl_FrontFacing y vaut vrai : on l'écarte par la définition.
 const FRAG_TEXT = /* glsl */`
-if ( vCrsText.z > 0.5 ) {
+#ifdef FLIP_SIDED
+	bool crsRecto = false;
+#else
+	bool crsRecto = gl_FrontFacing;
+#endif
+if ( vCrsText.z > 0.5 && crsRecto ) {
 	float crsTa = texture2D( uAtlas, vCrsText.xy ).r;
 	float crsLum = dot( diffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
 	vec3 crsTc = crsLum > 0.2 ? vec3( 0.012, 0.016, 0.035 ) : vec3( 0.9 );

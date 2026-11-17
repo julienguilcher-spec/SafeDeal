@@ -3,7 +3,8 @@
 // Vues (paramètre d'URL `view`) :
 //   alignement : tous les modèles côte à côte avec une silhouette de 1,80 m (&page=1..6 ; &cam=face|profil|trois-quarts|dessus ;
 //                &nuit=1 ; &etat=damaged|wrecked|burning|burnt ; &loin=1 pour voir les modèles lointains au téléobjectif)
-//   fiche      : un modèle sous quatre angles (&kind=… ; &nuit=1 ; &loin=1 ; &portes=1 ; &gis=°, &site=° ; &braq=°)
+//   fiche      : un modèle sous quatre angles (&kind=… ; &nuit=1 ; &loin=1 ; &portes=1 ; &gis=°, &site=° ; &braq=° ;
+//                &revers=1 : arrière, flanc gauche, trois-quarts arrière et dessus)
 //   etats      : un modèle dans ses cinq états (&kind=…)
 //   interieur  : vue du conducteur (&kind=… ; &regard=° ; &vitesse=km/h ; &braq=° ; &nuit=1)
 //   tourelle   : écran de visée (&kind=centaure|canon_eau ; &gis=° ; &site=°)
@@ -345,6 +346,8 @@ function camPreset(name: string, cx: number, cz: number, span: number, height: n
   target = new THREE.Vector3(cx, height * 0.5, cz);
   if (name === 'face') camera.position.set(cx, height * 0.5, cz + (halfZ + d) * k);
   else if (name === 'profil') camera.position.set(cx + (halfX + d) * k, height * 0.5, cz);
+  else if (name === 'dos') camera.position.set(cx, height * 0.5, cz - (halfZ + d) * k);
+  else if (name === 'profil-g') camera.position.set(cx - (halfX + d) * k, height * 0.5, cz);
   else if (name === 'dessus') { camera.position.set(cx, (height + d) * k, cz + 0.01); target.y = 0; }
   else {
     const dd = d + Math.max(halfX, halfZ) * 0.9;
@@ -553,7 +556,10 @@ let clockT = 0;
 const fixedDt = num('pas', 0);
 const cpu: number[] = [];
 const proj = new THREE.Vector3();
-const VIEWS: [string, number, number][] = [['face', 0, 0.5], ['profil', 0.5, 0.5], ['trois-quarts', 0, 0], ['dessus', 0.5, 0]];
+const VIEWS: [string, number, number][] = params.get('revers') === '1'
+  // l'autre moitié du tour : arrière, flanc gauche, trois-quarts arrière gauche, dessus (&revers=1)
+  ? [['dos', 0, 0.5], ['profil-g', 0.5, 0.5], ['arriere', 0, 0], ['dessus', 0.5, 0]]
+  : [['face', 0, 0.5], ['profil', 0.5, 0.5], ['trois-quarts', 0, 0], ['dessus', 0.5, 0]];
 
 function renderMulti(v: Vehicle): void {
   const W = renderer.domElement.width, H = renderer.domElement.height;
@@ -567,7 +573,7 @@ function renderMulti(v: Vehicle): void {
     renderer.setScissor(vx, vy, vw, vh);
     camera.aspect = vw / vh;
     const side = def.width + 2.4;
-    const span = name === 'face' ? side : name === 'profil' ? def.length + 0.6 : name === 'dessus' ? Math.max(side, def.length * camera.aspect * 1.05) : Math.max(def.length * 0.8, side) * 1.0;
+    const span = name === 'face' || name === 'dos' ? side : name === 'profil' || name === 'profil-g' ? def.length + 0.6 : name === 'dessus' ? Math.max(side, def.length * camera.aspect * 1.05) : Math.max(def.length * 0.8, side) * 1.0;
     camPreset(name === 'trois-quarts' && params.get('arriere') === '1' ? 'arriere' : name, 0, 0, span * (rotor && name !== 'profil' ? 2.2 : 1), def.height + (rotor ? 0.4 : 0.25), def.width / 2, def.length / 2);
     renderer.render(scene, camera);
   }

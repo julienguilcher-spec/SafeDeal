@@ -92,7 +92,7 @@ export function buildVan(g: Geo, far: boolean, def: VehicleDef, st: VanStyle): M
     if (i === 0 && st.slideDoor) cab.side.push({ z0: w.z0, z1: w.z1, kind: st.windowKind, side: 'L', t0, t1 });
     else cab.side.push({ z0: w.z0, z1: w.z1, kind: st.windowKind, t0, t1 });
   }
-  if (far) cab.side.push({ z0: wins.length ? wins[wins.length - 1]!.z0 : fd0, z1: zA });
+  if (far) cab.side.push({ z0: wins.length ? wins[wins.length - 1]!.z0 : fd0, z1: zA, ...(st.slits ? { t0, t1 } : {}) });
   cabin(g, far, cab, body);
   if (highRoof) {
     const from = g.mark();

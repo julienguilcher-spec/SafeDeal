@@ -264,9 +264,14 @@ export function cabin(g: Geo, far: boolean, c: CabinSpec, bodyStyle: () => void)
     if (sideGlass) {
       // flancs : peinture, puis une seule bande vitrée couvrant l'étendue des vitres
       bodyStyle(); g.face(q(1, 2, 6, 5), ref); g.face(q(3, 0, 4, 7), ref);
-      let z0 = Infinity, z1 = -Infinity;
-      for (const w of c.side) { if (w.z0 < z0) z0 = w.z0; if (w.z1 > z1) z1 = w.z1; }
-      const band: WindowSpec = { z0, z1 };
+      // la bande garde la hauteur des vitres (vitres hautes des cellules : les inscriptions posées dessous ne
+      // doivent pas disparaître sous le verre en changeant de niveau de détail)
+      let z0 = Infinity, z1 = -Infinity, t0 = Infinity, t1 = -Infinity;
+      for (const w of c.side) {
+        if (w.z0 < z0) z0 = w.z0; if (w.z1 > z1) z1 = w.z1;
+        t0 = Math.min(t0, w.t0 ?? 0.1); t1 = Math.max(t1, w.t1 ?? 0.9);
+      }
+      const band: WindowSpec = { z0, z1, t0, t1 };
       const poly = sideWindowPoly(c, band, 0.02, 0.03);
       const n = sideNormal(c);
       g.paint(glassCol, SURF_GLASS);
@@ -376,9 +381,11 @@ export function door(g: Geo, far: boolean, d: DoorSpec, c: CabinSpec | null, bod
   const gap = 0.012;
   const hingeZ = d.z1;
   // embrasure (fixe) et contour du panneau (deux rectangles s'il y a une encoche de passage de roue)
+  // (porte entièrement en avant de l'encoche — cabine de poids lourd posée sur la roue avant : tout le panneau
+  // s'arrête au-dessus du passage de roue, sinon il recouvrait la roue et le pneu affleurant le traversait)
   const rects: number[][] = d.notch && d.notch.z < d.z1 && d.notch.z > d.z0
     ? [[d.z0, d.notch.z, d.y0], [d.notch.z, d.z1, d.notch.y]]
-    : [[d.z0, d.z1, d.y0]];
+    : d.notch && d.notch.z <= d.z0 && d.notch.y < d.y1 - 0.2 ? [[d.z0, d.z1, d.notch.y]] : [[d.z0, d.z1, d.y0]];
   g.noPart().light(LIGHT_NONE).tile(null).paint(COL.interior, SURF_DARK);
   for (const q of rects) {
     g.face([x + 0.006 * s, q[2]!, q[0]!, x + 0.006 * s, q[2]!, q[1]!, x + 0.006 * s, d.y1, q[1]!, x + 0.006 * s, d.y1, q[0]!], null, [s, 0, 0]);
@@ -452,8 +459,13 @@ export function rearDoors(
       g.paint(COL.glass, SURF_GLASS).tile(tile('verre')).face(quad, null, [0, 0, -1]).tile(null);
       if (window === 'grille') grilleOver(g, quad, [0, 0, -1], 0.04);
     }
-    // poignée centrale
-    g.paint(COL.plastic, SURF_FIXED).cube(0.07 * s, y0 + (y1 - y0) * 0.42, zz - 0.014, 0.05, 0.16, 0.026);
+    // poignée centrale ; si elle tombe sur l'inscription (« POLICE » coupé par les poignées), elle passe juste dessous
+    let hy = y0 + (y1 - y0) * 0.42;
+    if (text && text.name !== 'chevrons') {
+      const below = text.y - text.h / 2 - 0.11;
+      if (Math.abs(hy - text.y) < text.h / 2 + 0.08 && below > y0 + 0.12) hy = below;
+    }
+    g.paint(COL.plastic, SURF_FIXED).cube(0.07 * s, hy, zz - 0.014, 0.05, 0.16, 0.026);
     if (text) {
       // le vantail gauche (+x, à gauche pour qui regarde l'arrière) porte la première moitié du texte
       const tw = Math.min(hw * 1.8, text.h * tileAspect(text.name));

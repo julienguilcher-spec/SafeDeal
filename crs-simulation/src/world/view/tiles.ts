@@ -18,13 +18,12 @@ import { buildBarriers } from './barriers';
 import { buildBridges } from './bridges';
 import { buildTileBuildings, buildTileBuildingsFar } from './buildings/index';
 import type { TileBuildingsView } from './buildings/index';
-import { CODE_WATER } from './classes';
 import type { BridgeProfile } from './decks';
 import type { EdgeIndex } from './edgeindex';
 import { GroundBuilder } from './ground';
 import { createFarGroundMaterial, createGroundMaterial } from './materials';
 import { MeshBuf } from './meshbuf';
-import { bakeMacro, codeAt, createRaster, flushOverRaised, liftOfCode, rasterSteps, rasterizeTile } from './raster';
+import { bakeMacro, codeAt, createRaster, flushOverRaised, liftOfCode, rasterSteps, rasterizeTile, waterShare } from './raster';
 import type { TileRaster } from './raster';
 import type { SharedResources } from './shared';
 import { surfaceY } from './site';
@@ -432,8 +431,85 @@ export class DetailTile {
 // ─────────────────────────────── version lointaine ───────────────────────────────
 
 /** Cellules par côté du maillage lointain (16 m) et de sa grille de surfaces (2 m). */
-const FAR_GRID = 32;
+export const FAR_GRID = 32;
 const FAR_RASTER = 256;
+/** Profondeur (m) des jupes du maillage lointain sous le niveau de l'eau. */
+const FAR_SKIRT = 1.5;
+
+/**
+ * Maillage grossier d'une tuile lointaine, en coordonnées de la tuile : nœuds tous les 16 m au niveau du sol,
+ * ou au niveau de l'eau quand l'eau couvre au moins la moitié des 16 m × 16 m autour du nœud (le partage
+ * entre berge et fleuve tombe ainsi à sa place ; exiger de l'eau tout autour laissait les nœuds des bras
+ * étroits et des abords des ponts au niveau des quais : le fleuve lointain devenait une suite de bosses).
+ * Là où de l'eau touche un bord de la tuile, une jupe descend du bord jusque sous le niveau de l'eau : le
+ * fleuve d'une tuile voisine détaillée, plus bas que ce bord, ne laisse plus voir le ciel par la fente.
+ * Triangles tournés vers le haut ; jupes tournées vers l'extérieur de la tuile.
+ */
+export function farGroundMesh(
+  raster: TileRaster, heightAt: (x: number, z: number) => number, level: number,
+): { pos: Float32Array; uv: Float32Array; idx: Uint16Array } {
+  const w = FAR_GRID + 1, step = TILE_SIZE / FAR_GRID;
+  const n = raster.n, cells = n / FAR_GRID, half = cells / 2;
+  const share = (i0: number, j0: number, i1: number, j1: number): number => (raster.hasWater ? waterShare(raster, i0, j0, i1, j1) : 0);
+  // Jupes : segments de bord (4 côtés × FAR_GRID) le long desquels il y a de l'eau.
+  const skirts: number[] = [];
+  for (let side = 0; side < 4; side++) {
+    for (let s = 0; s < FAR_GRID; s++) {
+      const a = s * cells, b = (s + 1) * cells - 1;
+      const wet = side === 0 ? share(a, 0, b, 1) : side === 1 ? share(n - 2, a, n - 1, b) : side === 2 ? share(a, n - 2, b, n - 1) : share(0, a, 1, b);
+      if (wet > 0) skirts.push(side, s);
+    }
+  }
+  const nSkirt = skirts.length / 2;
+  const pos = new Float32Array((w * w + nSkirt * 4) * 3), uv = new Float32Array((w * w + nSkirt * 4) * 2);
+  for (let j = 0; j < w; j++) {
+    for (let i = 0; i < w; i++) {
+      const k = j * w + i;
+      let y = heightAt(raster.ox + i * step, raster.oz + j * step);
+      if (share(i * cells - half, j * cells - half, i * cells + half - 1, j * cells + half - 1) >= 0.5) y = Math.min(y, level);
+      pos[3 * k] = i * step;
+      pos[3 * k + 1] = y;
+      pos[3 * k + 2] = j * step;
+      uv[2 * k] = i / FAR_GRID;
+      uv[2 * k + 1] = j / FAR_GRID;
+    }
+  }
+  const idx = new Uint16Array(FAR_GRID * FAR_GRID * 6 + nSkirt * 6);
+  let m = 0;
+  for (let j = 0; j < FAR_GRID; j++) {
+    for (let i = 0; i < FAR_GRID; i++) {
+      const a = j * w + i, b = a + 1, c = a + w, d = c + 1;
+      idx[m++] = a; idx[m++] = d; idx[m++] = b;
+      idx[m++] = a; idx[m++] = c; idx[m++] = d;
+    }
+  }
+  // Sommets propres aux jupes (normales horizontales, sans toucher à celles du sol).
+  let v = w * w;
+  for (let t = 0; t < nSkirt; t++) {
+    const side = skirts[2 * t], s = skirts[2 * t + 1];
+    // nœuds du bord, dans l'ordre qui tourne la face vers l'extérieur
+    let p: number, q: number;
+    if (side === 0) { p = s; q = s + 1; }                                       // z = 0 : face vers -z
+    else if (side === 1) { p = s * w + FAR_GRID; q = (s + 1) * w + FAR_GRID; } // x = 512 : face vers +x
+    else if (side === 2) { p = FAR_GRID * w + s + 1; q = FAR_GRID * w + s; }   // z = 512 : face vers +z
+    else { p = (s + 1) * w; q = s * w; }                                       // x = 0 : face vers -x
+    const top0 = v, top1 = v + 1, bot0 = v + 2, bot1 = v + 3;
+    const copy = (dst: number, src: number): void => {
+      pos[3 * dst] = pos[3 * src];
+      pos[3 * dst + 1] = pos[3 * src + 1];
+      pos[3 * dst + 2] = pos[3 * src + 2];
+      uv[2 * dst] = uv[2 * src];
+      uv[2 * dst + 1] = uv[2 * src + 1];
+    };
+    copy(top0, p); copy(top1, q); copy(bot0, p); copy(bot1, q);
+    pos[3 * bot0 + 1] = Math.min(pos[3 * p + 1], level) - FAR_SKIRT;
+    pos[3 * bot1 + 1] = Math.min(pos[3 * q + 1], level) - FAR_SKIRT;
+    idx[m++] = top0; idx[m++] = top1; idx[m++] = bot1;
+    idx[m++] = top0; idx[m++] = bot1; idx[m++] = bot0;
+    v += 4;
+  }
+  return { pos, uv, idx };
+}
 
 export class FarTile {
   readonly tx: number;
@@ -473,33 +549,7 @@ export class FarTile {
     const texture = macroTexture(pixels, FAR_RASTER, `ville-couleurs-loin-${tile.tx}_${tile.tz}`);
     this.texture = texture;
     const terrain = ctx.terrain;
-    // Maillage grossier : chaque nœud au niveau du sol, ou au niveau de l'eau s'il est entouré d'eau.
-    const w = FAR_GRID + 1, step = TILE_SIZE / FAR_GRID;
-    const level = tileWaterLevel(tile, ctx.waterLevel);
-    const pos = new Float32Array(w * w * 3), uv = new Float32Array(w * w * 2);
-    const cells = FAR_RASTER / FAR_GRID;
-    for (let j = 0; j < w; j++) {
-      for (let i = 0; i < w; i++) {
-        const k = j * w + i;
-        const x = ox + i * step, z = oz + j * step;
-        let y = sampleTerrain(terrain, x, z);
-        if (raster.hasWater && this.wet(raster, i * cells, j * cells)) y = Math.min(y, level);
-        pos[3 * k] = i * step;
-        pos[3 * k + 1] = y;
-        pos[3 * k + 2] = j * step;
-        uv[2 * k] = i / FAR_GRID;
-        uv[2 * k + 1] = j / FAR_GRID;
-      }
-    }
-    const idx = new Uint16Array(FAR_GRID * FAR_GRID * 6);
-    let n = 0;
-    for (let j = 0; j < FAR_GRID; j++) {
-      for (let i = 0; i < FAR_GRID; i++) {
-        const a = j * w + i, b = a + 1, c = a + w, d = c + 1;
-        idx[n++] = a; idx[n++] = d; idx[n++] = b;
-        idx[n++] = a; idx[n++] = c; idx[n++] = d;
-      }
-    }
+    const { pos, uv, idx } = farGroundMesh(raster, (x, z) => sampleTerrain(terrain, x, z), tileWaterLevel(tile, ctx.waterLevel));
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', attribute(pos, 3));
     g.setAttribute('uv', attribute(uv, 2));
@@ -513,9 +563,9 @@ export class FarTile {
     this.ground = makeMesh(g, this.material, 'sol-loin');
     this.ground.receiveShadow = false;
     this.group.add(this.ground);
-    this.stats.triangles += FAR_GRID * FAR_GRID * 2;
+    this.stats.triangles += idx.length / 3;
     this.stats.drawCalls++;
-    this.stats.gpuBytes = w * w * 32 + idx.byteLength + FAR_RASTER * FAR_RASTER * 4 * 1.33;
+    this.stats.gpuBytes = (pos.length / 3) * 32 + idx.byteLength + FAR_RASTER * FAR_RASTER * 4 * 1.33;
     yield 0;
     if (this.disposed) return;
     if (ctx.shared.quality.farTrees && tile.trees.count > 0) {
@@ -544,18 +594,6 @@ export class FarTile {
     // Les données de la tuile ne servent plus : la vue lointaine ne garde que ses maillages.
     this.tile = null;
     this.ready = true;
-  }
-
-  /** Le nœud de maillage est-il entouré d'eau ? (cellules de la grille autour de lui) */
-  private wet(r: TileRaster, ci: number, cj: number): boolean {
-    const n = r.n;
-    for (let dj = -2; dj <= 1; dj++) {
-      for (let di = -2; di <= 1; di++) {
-        const i = Math.min(n - 1, Math.max(0, ci + di)), j = Math.min(n - 1, Math.max(0, cj + dj));
-        if (r.codes[j * n + i] !== CODE_WATER) return false;
-      }
-    }
-    return true;
   }
 
   /** Cache le sol (le sol détaillé vient d'entrer en scène) puis les immeubles et les arbres. */

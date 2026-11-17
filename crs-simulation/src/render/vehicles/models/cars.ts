@@ -208,14 +208,21 @@ export function buildCar(g: Geo, far: boolean, def: VehicleDef, st: CarStyle): M
     // capot : « POLICE » lisible de face ; hayon ; bande tricolore avant
     const s5 = stations[last - 2]!;
     const hy = (s5.y1 + yBelt) / 2 + 0.012, hz = (zA + s5.z) / 2;
-    const slope = Math.atan2(yBelt - s5.y1, zA - s5.z);
-    decalFree(g, 'police', 0, hy, hz, [1, 0, 0], [0, Math.sin(slope), -Math.cos(slope)], Math.min(0.24, (zA - s5.z) * 0.55));
+    // pente et longueur du capot, comptées de l'avant (s5) vers le pied de pare-brise (zA) : le « haut » du texte
+    // remonte vers le pare-brise et la normale (droite × haut) pointe vers le ciel et l'avant. Avec zA − s5.z (négatif),
+    // le panneau était retourné vers le sol, de hauteur négative, enfoui sous le capot : seuls dépassaient des bouts de
+    // lettres renversées, sombres, au pied du pare-brise
+    const slope = Math.atan2(yBelt - s5.y1, s5.z - zA);
+    decalFree(g, 'police', 0, hy, hz, [1, 0, 0], [0, Math.sin(slope), -Math.cos(slope)], Math.min(0.24, (s5.z - zA) * 0.55));
     if (!far) {
       decal(g, 'police', 'B', 0, rY1 - 0.09 + 0.2, rz - 0.002, 0.13);
       g.mirror(() => { /* liseré bleu de bas de caisse */ g.paint(COL.policeBlue, SURF_FIXED).box(hw + 0.012, hw + 0.016, sill + 0.01, sill + 0.06, zR + r * 1.25, zF - r * 1.25); });
     } else {
-      g.paint(COL.policeBlue, SURF_FIXED);
-      g.mirror(() => { g.face([hw + 0.01, sill + 0.1, zR + r, hw + 0.01, sill + 0.1, zF - r, hw + 0.01, sill + 0.32, zF - r, hw + 0.01, sill + 0.32, zR + r], null, [1, 0, 0]); });
+      // au loin, les portes ne sont pas émises : le même « POLICE » est posé sur le flanc de la coque (au lieu d'un
+      // aplat bleu qui faisait changer le marquage au passage d'un niveau de détail à l'autre)
+      const ty = sill + (yBelt - sill) * 0.5, tz = (frontDoor.z0 + frontDoor.z1) / 2, th = (yBelt - sill) * 0.42;
+      decal(g, 'police', 'L', hw + 0.01, ty, tz, th);
+      decal(g, 'police', 'R', -hw - 0.01, ty, tz, th);
     }
   }
   body();
