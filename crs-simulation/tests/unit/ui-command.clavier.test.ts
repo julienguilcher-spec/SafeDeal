@@ -39,8 +39,10 @@ describe('roue d’ordres au clavier — touche → secteur → ordre', () => {
     // touches sans secteur
     expect(wheelKeyIndex('KeyF', n)).toBe(-1);
     expect(wheelKeyIndex('Enter', n)).toBe(-1);
-    // roue plus petite (ordre rapide de la carte : 10 secteurs) : « ) » ne choisit rien
-    expect(wheelKeyIndex('Minus', QUICK_VERBS.length)).toBe(-1);
+    // ordre rapide de la carte : onze secteurs, « Barrer la rue » sur la touche après le 0
+    expect(wheelKeyIndex('Minus', QUICK_VERBS.length)).toBe(10);
+    expect(QUICK_VERBS[10]).toBe('couper_circulation');
+    expect(wheelKeyIndex('Equal', QUICK_VERBS.length)).toBe(-1);
     expect(wheelKeyIndex('Digit0', QUICK_VERBS.length)).toBe(9);
   });
 

@@ -89,6 +89,10 @@ export function orderPhrase(o: OrderPhraseInput): string {
     case 'encercler':
       body = `Bouclage${at(o.sector)}, rayon ${spellNumber(Math.round(o.width / 2))} mètres. Sortie contrôlée laissée ouverte face ${facingCardinal(o.heading)}, annonce aux personnes retenues`;
       break;
+    case 'couper_circulation':
+      body = `Barrez la rue${at(o.sector)}, d’une façade à l’autre. Plus personne ne passe, dans les deux sens`;
+      break;
+    case 'filtrer': body = `Barrage filtrant${at(o.sector)}. Une porte\u00a0: laissez sortir un par un`; break;
     case 'disperser_gaz': body = `Lacrymogènes${at(o.sector)}, tir courbe, sur mon ordre`; break;
     case 'interpeller': body = `Interpellez l’objectif désigné${at(o.sector)}, sur fait constaté`; break;
     case 'proteger': body = `Protégez ${o.target !== '' ? o.target : 'le point'}${at(o.sector)}`; break;

@@ -346,6 +346,26 @@ export interface Maneuver {
   /** Agents restant à débarquer ou à embarquer. */
   pending: number;
   nextExitAt: number;
+  /**
+   * Barrage de rue (barrages.ts) : l'unité barre la rue de façade à façade. Milieu entre les façades, cap, largeur
+   * à barrer (m), voie et nom de la rue ; état (BARRAGE_* de barrages.ts), part tenue (0..1) et meilleure part tenue
+   * depuis la mise en place, état candidat et depuis quand, compte rendu « largeur insuffisante » fait.
+   */
+  barrage: boolean;
+  /** Barrage de façade à façade (rue bordée) : la ligne elle-même barre la rue, sans barrières. */
+  bWalls: boolean;
+  bx: number;
+  bz: number;
+  bh: number;
+  bWidth: number;
+  bEdge: number;
+  bStreet: string;
+  bState: number;
+  bCovered: number;
+  bBest: number;
+  bNext: number;
+  bSince: number;
+  bShort: boolean;
 }
 
 /** Mémoire d'une unité (Squad.brain). */
@@ -493,6 +513,7 @@ function createManeuver(): Maneuver {
   return {
     step: 0, stepT: 0, x0: 0, z0: 0, h0: 0, gx: 0, gz: 0, gh: 0, left: 0, pauseUntil: 0, otherId: 0, targetId: 0,
     closureId: 0, stationId: 0, deploy: false, deployWidth: 0, volleys: 0, volleyAt: 0, pending: 0, nextExitAt: 0,
+    barrage: false, bWalls: false, bx: 0, bz: 0, bh: 0, bWidth: 0, bEdge: -1, bStreet: '', bState: 0, bCovered: 0, bBest: 0, bNext: 0, bSince: 0, bShort: false,
   };
 }
 

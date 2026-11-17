@@ -163,6 +163,16 @@ background:var(--cm-panel);border:1px solid var(--cm-line2);box-shadow:0 6px 18p
 .ct-wind{left:10px;bottom:46px}
 .ct-layers{position:absolute;right:54px;bottom:10px;z-index:6;display:none;flex-direction:column;gap:2px;padding:8px;min-width:170px}
 .ct-layers.is-on{display:flex}
+.ct-layers{max-height:calc(100% - 20px);overflow-y:auto}
+.ct-legend{display:flex;flex-direction:column;gap:3px;margin-top:6px;padding-top:6px;border-top:1px solid var(--cm-line);max-width:250px}
+.ct-legend-r{display:flex;align-items:center;gap:8px;font-size:11px;line-height:1.3;color:var(--cm-dim)}
+.ct-legend-r i{flex:none;display:inline-flex}
+/* nasse fermée : bandeau rouge en bas de la carte, au-dessus des touches du clavier ; action « issue filtrée » (F) */
+.ct-kettle{position:absolute;left:50%;bottom:44px;transform:translateX(-50%);z-index:5;display:flex;align-items:center;gap:10px;width:max-content;max-width:calc(100% - 150px);padding:6px 8px 6px 12px;border-radius:8px;background:rgba(60,10,12,.94);border:2px solid #ff3b30;color:#fff;box-shadow:0 6px 18px rgba(0,0,0,.45)}
+.ct-kettle.is-off{display:none}
+.ct-kettle b{min-width:0;font-size:12.5px;font-weight:800;letter-spacing:.02em;line-height:1.3}
+.ct-kettle .cm-btn{flex:none}
+.ct-issues{color:var(--cm-text)}
 .ct-layers .cm-btn{justify-content:flex-start;border-color:transparent;background:transparent}
 .ct-layers .cm-btn::before{content:"";flex:none;width:14px;height:14px;border-radius:3px;border:1.5px solid var(--cm-line2)}
 .ct-layers .cm-btn.is-on{background:transparent;color:var(--cm-text)}
@@ -197,6 +207,8 @@ box-shadow:0 8px 22px rgba(0,0,0,.5);will-change:transform;white-space:nowrap}
 .ct.is-compact .ct-right.is-open .ct-panes{display:flex}
 .ct.is-compact .ct-hint{left:calc(64px + var(--safe-left,0px));right:66px;top:8px;transform:none;width:auto;max-width:none;font-size:11.5px;padding:5px 6px 5px 10px;background:rgba(12,21,39,.86)}
 .ct.is-compact .ct-wind{display:none}
+.ct.is-compact .ct-kettle{left:calc(64px + var(--safe-left,0px));right:10px;bottom:calc(10px + var(--safe-bottom,0px));transform:none;width:auto;max-width:none;flex-wrap:wrap;gap:6px;padding:5px 6px 5px 10px}
+.ct.is-compact .ct-kettle b{font-size:11.5px}
 .ct-panes{display:flex;flex-direction:column;flex:1;min-height:0}
 
 /* ── roue d'ordres ── */

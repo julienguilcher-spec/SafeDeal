@@ -7,6 +7,8 @@
 import type { RoadEdgeInfo } from '@/core/contracts';
 import type { Incident, IncidentKind, RescueCall } from '@/core/extensions';
 import type { GpsTarget } from './api';
+import { BARRAGE_COLORS, barrageLook, exitName, exitOpen } from './barrages';
+import type { SceneBarrage } from './barrages';
 import { drawOrders, drawUnits } from './overlay-units';
 import type { UnitLayerOptions } from './overlay-units';
 import type { MapScene } from './scene';
@@ -17,6 +19,8 @@ export interface LayerMask {
   hazards: boolean;
   route: boolean;
   closures: boolean;
+  /** Barrages de rue tenus par la police, issues ouvertes autour des foules, nasses. */
+  barrages: boolean;
   metro: boolean;
   incidents: boolean;
   rescue: boolean;
@@ -28,7 +32,7 @@ export interface LayerMask {
 }
 
 export const ALL_LAYERS: Readonly<LayerMask> = {
-  crowd: true, hazards: true, route: true, closures: true, metro: true, incidents: true, rescue: true,
+  crowd: true, hazards: true, route: true, closures: true, barrages: true, metro: true, incidents: true, rescue: true,
   objectives: true, units: true, orders: true, player: true, gps: true,
 };
 
@@ -241,12 +245,31 @@ function drawManifs(g: CanvasRenderingContext2D, t: MapTransform, scene: MapScen
 
 // ───────────────────────────── fermetures, métro ─────────────────────────────
 
-function drawClosures(g: CanvasRenderingContext2D, t: MapTransform, scene: MapScene, o: OverlayOptions): void {
+/** Distance (m) en deçà de laquelle la fermeture d'une rue et le barrage de l'unité qui la tient sont la même chose. */
+const SAME_BARRAGE = 40;
+
+/** Fermeture de circulation tenue par un barrage déjà dessiné (même unité, ou même rue tout près) ? */
+export function closureCoveredByBarrage(
+  c: { x: number; z: number; squadId: number; edgeId: number }, barrages: readonly { x: number; z: number; squadId: number; edgeId: number; state: string }[],
+): boolean {
+  for (let i = 0; i < barrages.length; i++) {
+    const b = barrages[i]!;
+    if (b.state === 'rompu') continue;
+    const near = Math.hypot(b.x - c.x, b.z - c.z) < SAME_BARRAGE;
+    if (near && ((c.squadId > 0 && b.squadId === c.squadId) || (c.edgeId >= 0 && b.edgeId === c.edgeId))) return true;
+  }
+  return false;
+}
+
+function drawClosures(g: CanvasRenderingContext2D, t: MapTransform, scene: MapScene, o: OverlayOptions, withBarrages: boolean): void {
   const closures = scene.closures;
   for (let i = 0; i < closures.length; i++) {
     const c = closures[i]!;
     if (!t.contains(c.x, c.z, 260)) continue;
     const focus = c.id === o.focusClosure;
+    // fermeture créée par le barrage d'une unité : le barrage la montre déjà (barre à la largeur de la rue, indicatif) ;
+    // on garde le tracé de la rue fermée, pas une seconde barrière au même endroit
+    const covered = withBarrages && closureCoveredByBarrage(c, scene.barrages);
     if (o.edge && !o.compact) {
       const e = o.edge(c.edgeId);
       if (e && e.points && e.points.length >= 4) {
@@ -262,6 +285,7 @@ function drawClosures(g: CanvasRenderingContext2D, t: MapTransform, scene: MapSc
         g.setLineDash([]);
       }
     }
+    if (covered && !focus) continue;
     // barrière rouge et blanche en travers de la rue
     t.worldToScreen(c.x, c.z, SP);
     const a = t.headingToScreenAngle(c.heading);
@@ -283,6 +307,171 @@ function drawClosures(g: CanvasRenderingContext2D, t: MapTransform, scene: MapSc
       g.strokeRect(-w / 2 - 4, -h / 2 - 4, w + 8, h + 8);
     }
     g.restore();
+  }
+}
+
+// ───────────────────────────── barrages, issues ─────────────────────────────
+
+/** Largeur minimale d'un barrage à l'écran (px) : lisible même vue de loin ; épaisseur du trait (px). */
+const BARRAGE_MIN_PX = 16;
+
+/** Hachures obliques sur un rectangle local [x0, x1] × [−h/2, h/2] (repère déjà tourné). */
+function hatch(g: CanvasRenderingContext2D, x0: number, x1: number, h: number, color: string): void {
+  if (x1 - x0 < 1) return;
+  g.save();
+  g.beginPath();
+  g.rect(x0, -h / 2, x1 - x0, h);
+  g.clip();
+  g.fillStyle = 'rgba(11,19,34,.7)';
+  g.fillRect(x0, -h / 2, x1 - x0, h);
+  g.strokeStyle = color;
+  g.lineWidth = 1.5;
+  g.beginPath();
+  for (let x = x0 - h; x < x1 + h; x += 4) {
+    g.moveTo(x, h / 2);
+    g.lineTo(x + h, -h / 2);
+  }
+  g.stroke();
+  g.restore();
+  g.strokeStyle = color;
+  g.lineWidth = 1;
+  g.strokeRect(x0, -h / 2, x1 - x0, h);
+}
+
+function drawBarrage(g: CanvasRenderingContext2D, t: MapTransform, b: SceneBarrage, o: OverlayOptions): void {
+  const look = barrageLook(b);
+  t.worldToScreen(b.x, b.z, SP);
+  const cx = SP.x, cy = SP.y;
+  // la barre suit le flanc droit de la formation (perpendiculaire à son cap), à la largeur réelle de la rue
+  const w = Math.max(o.compact ? 8 : BARRAGE_MIN_PX, b.width / t.mpp);
+  const h = o.compact ? 3 : Math.max(6, Math.min(12, 3 / t.mpp));
+  const a = t.headingToScreenAngle(b.heading);
+  g.save();
+  g.translate(cx, cy);
+  g.rotate(a);
+  const x0 = -w / 2;
+  const holdW = w * (1 - look.hatched);
+  // liseré sombre : la barre reste lisible sur le fond de plan et sur la densité de foule
+  g.fillStyle = HALO;
+  g.fillRect(x0 - 1.5, -h / 2 - 1.5, w + 3, h + 3);
+  if (look.dashed) {
+    g.strokeStyle = look.color;
+    g.lineWidth = h * 0.7;
+    g.lineCap = 'butt';
+    g.setLineDash([Math.max(3, h * 0.9), Math.max(3, h * 0.7)]);
+    g.beginPath();
+    g.moveTo(x0, 0);
+    g.lineTo(x0 + w, 0);
+    g.stroke();
+    g.setLineDash([]);
+  } else {
+    g.fillStyle = look.color;
+    g.fillRect(x0, -h / 2, holdW, h);
+    if (look.hatched > 0) hatch(g, x0 + holdW, x0 + w, h, look.color);
+  }
+  if (look.gap) {
+    // porte du barrage filtrant : une trouée au milieu
+    const gw = Math.max(4, Math.min(w * 0.3, 2.5 / t.mpp));
+    g.fillStyle = HALO;
+    g.fillRect(-gw / 2, -h / 2 - 1.5, gw, h + 3);
+  }
+  // côté face : petites dents vers la foule (sens du cap)
+  if (!o.compact && !look.dashed) {
+    g.fillStyle = look.color;
+    for (let k = 1; k <= 3; k++) {
+      const x = x0 + (w * k) / 4;
+      g.beginPath();
+      g.moveTo(x - 3, -h / 2);
+      g.lineTo(x, -h / 2 - 4);
+      g.lineTo(x + 3, -h / 2);
+      g.fill();
+    }
+  }
+  g.restore();
+  if (o.compact) return;
+  // indicatif derrière la barre (côté opposé à la foule), le mot d'état dessous
+  const back = a + Math.PI / 2;
+  const off = h / 2 + 11;
+  const lx = cx + Math.cos(back) * off;
+  const ly = cy + Math.sin(back) * off;
+  if (b.callsign !== '') label(g, b.callsign, lx, ly, look.color === BARRAGE_COLORS.rompu ? '#c9d1df' : '#ffffff', 11, 800);
+  if (look.tag !== '' && t.mpp < 3) label(g, look.tag, lx, ly + (b.callsign !== '' ? 12 : 0), look.color, 9.5, 700);
+}
+
+function drawBarrages(g: CanvasRenderingContext2D, t: MapTransform, scene: MapScene, o: OverlayOptions): void {
+  const list = scene.barrages;
+  for (let i = 0; i < list.length; i++) {
+    const b = list[i]!;
+    if (!t.contains(b.x, b.z, Math.max(30, b.width))) continue;
+    drawBarrage(g, t, b, o);
+  }
+}
+
+/**
+ * Issues autour des foules : une issue OUVERTE est une flèche blanche qui sort par une trouée, avec le nom de la rue ;
+ * une nasse fermée est cerclée de rouge. Les issues tenues sont les barrages eux-mêmes (dessinés par-dessus).
+ */
+function drawExits(g: CanvasRenderingContext2D, t: MapTransform, scene: MapScene, o: OverlayOptions): void {
+  const list = scene.crowdExits;
+  for (let i = 0; i < list.length; i++) {
+    const c = list[i]!;
+    if (c.closed && t.contains(c.x, c.z, c.radius + 40)) {
+      t.worldToScreen(c.x, c.z, SP);
+      g.strokeStyle = BARRAGE_COLORS.ferme;
+      g.lineWidth = o.compact ? 1.5 : 2.5;
+      g.setLineDash(o.compact ? [] : [10, 5]);
+      g.beginPath();
+      g.arc(SP.x, SP.y, Math.max(o.compact ? 6 : 14, c.radius / t.mpp), 0, Math.PI * 2);
+      g.stroke();
+      g.setLineDash([]);
+    }
+    for (let k = 0; k < c.exits.length; k++) {
+      const e = c.exits[k]!;
+      if (!exitOpen(e) || !t.contains(e.x, e.z, 30)) continue;
+      t.worldToScreen(e.x, e.z, SP);
+      const ex = SP.x, ey = SP.y;
+      t.worldToScreen(c.x, c.z, SP);
+      // vers l'extérieur : du centre de la foule vers l'issue
+      let a = Math.atan2(ey - SP.y, ex - SP.x);
+      if (!Number.isFinite(a)) a = 0;
+      const s = o.compact ? 0.55 : 1;
+      const gap = Math.max(10 * s, Math.min(60, e.width / t.mpp));
+      g.save();
+      g.translate(ex, ey);
+      g.rotate(a);
+      // bords de la trouée (perpendiculaires à la sortie)
+      g.strokeStyle = HALO;
+      g.lineWidth = 4 * s;
+      g.lineCap = 'round';
+      g.beginPath();
+      g.moveTo(0, -gap / 2 - 5 * s);
+      g.lineTo(0, -gap / 2);
+      g.moveTo(0, gap / 2);
+      g.lineTo(0, gap / 2 + 5 * s);
+      g.stroke();
+      g.strokeStyle = BARRAGE_COLORS.issue;
+      g.lineWidth = 2 * s;
+      g.stroke();
+      // flèche qui passe par la trouée
+      g.fillStyle = BARRAGE_COLORS.issue;
+      g.strokeStyle = HALO;
+      g.lineWidth = 1.5;
+      g.beginPath();
+      g.moveTo(-9 * s, -2.5 * s);
+      g.lineTo(5 * s, -2.5 * s);
+      g.lineTo(5 * s, -7 * s);
+      g.lineTo(14 * s, 0);
+      g.lineTo(5 * s, 7 * s);
+      g.lineTo(5 * s, 2.5 * s);
+      g.lineTo(-9 * s, 2.5 * s);
+      g.closePath();
+      g.stroke();
+      g.fill();
+      g.restore();
+      if (!o.compact && t.mpp < 3.2) {
+        label(g, exitName(e), ex + Math.cos(a) * 26, ey + Math.sin(a) * 26, '#ffffff', 10, 700);
+      }
+    }
   }
 }
 
@@ -684,7 +873,9 @@ export function drawOverlay(g: CanvasRenderingContext2D, t: MapTransform, scene:
   if (L.route && vis.route) drawRoute(g, t, scene, o.compact);
   if (L.route) drawManifs(g, t, scene, o.compact);
   if (L.hazards) drawHazards(g, t, scene, o.time, o.compact);
-  if (L.closures && vis.closures) drawClosures(g, t, scene, o);
+  if (L.closures && vis.closures) drawClosures(g, t, scene, o, L.barrages);
+  if (L.barrages) drawExits(g, t, scene, o);
+  if (L.barrages) drawBarrages(g, t, scene, o);
   if (L.metro && vis.metro) drawMetro(g, t, scene, o);
   if (L.gps) drawGps(g, t, o);
   if (L.orders && vis.police) drawOrders(g, t, scene, o);

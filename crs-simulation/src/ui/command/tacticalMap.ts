@@ -16,6 +16,7 @@ import type { MapUnit } from '../maps/units';
 import type { CommandCore } from './core';
 import { MIN_LINE, areaToOrder, lineToOrder, pointHeading, slotsAlongLine, splitLine, spreadPoint, verbOf } from './orders';
 import type { OrderGeom, OrderVerb } from './orders';
+import { nearestCrowd } from './nasse';
 import { FieldActions } from './tacticalActions';
 import { drawTacticalPreview } from './tacticalPreview';
 import type { Drag } from './tacticalPreview';
@@ -42,6 +43,8 @@ export class TacticalMap {
   hoverRoad: RoadSample | null = null;
   /** Demande d'ouverture du menu radial d'ordre rapide (écran) : lue par l'écran. */
   onQuickMenu: ((x: number, y: number) => void) | null = null;
+  /** Validation de la proposition « Fermer la nasse » (Entrée sur la carte) : l'écran la fait exécuter. */
+  onAcceptNasse: (() => void) | null = null;
   /** Élément de carte touché hors unité (station, fermeture) : l'écran ouvre la bulle correspondante. */
   onPickEntity: ((pick: MapPick, x: number, y: number) => void) | null = null;
 
@@ -353,7 +356,7 @@ export class TacticalMap {
       st.hoverKey = key;
       this.map.invalidate();
     }
-    if (mode.kind === 'close_road') {
+    if (mode.kind === 'close_road' || (mode.kind === 'order' && (mode.verb.type === 'couper_circulation' || mode.verb.type === 'filtrer'))) {
       this.map.worldAt(x, y, this.w);
       const ok = this.core.ctx.world.nearestRoad(this.w.x, this.w.z, this.road, 40);
       this.hoverRoad = ok ? this.road : null;
@@ -374,8 +377,10 @@ export class TacticalMap {
       }
       const verb = mode.verb;
       let ok = false;
-      // un point désigné sur le marqueur d'un foyer vaut son centre (« avancer jusqu'au rassemblement… »)
-      const foyer = verb.gesture === 'point' || verb.gesture === 'area' ? this.pickFoyer(x, y, touch) : null;
+      // un point désigné sur le marqueur d'un foyer vaut son centre (« avancer jusqu'au rassemblement… ») ; pas pour un
+      // barrage : c'est la rue désignée qu'on barre, pas le milieu de la foule
+      const street = verb.type === 'couper_circulation' || verb.type === 'filtrer';
+      const foyer = !street && (verb.gesture === 'point' || verb.gesture === 'area') ? this.pickFoyer(x, y, touch) : null;
       if (verb.gesture === 'target') ok = this.issueTarget(verb, x, y, touch);
       else if (verb.gesture === 'area') ok = foyer ? this.issueArea(verb, foyer.x, foyer.z, foyer.x, foyer.z) : this.issueArea(verb, wx, wz, wx, wz);
       else ok = foyer ? this.issuePoint(verb, foyer.x, foyer.z, NaN, 0, foyer.name) : this.issuePoint(verb, wx, wz, NaN);
@@ -407,6 +412,13 @@ export class TacticalMap {
       st.setMode(IDLE);
       return;
     }
+    // proposition « Fermer la nasse » en attente : Entrée (bouton du curseur au clavier) la valide, le clic droit l'écarte
+    if (this.core.nasse && (info.kind === 'pad' || info.button === 2)) {
+      if (info.button === 2) this.core.nasse = null;
+      else this.onAcceptNasse?.();
+      st.touch();
+      return;
+    }
     // mode libre
     if (info.button === 2) {
       // clic droit : « avancer » immédiat pour la sélection (au centre du foyer désigné, s'il y en a un)
@@ -429,6 +441,9 @@ export class TacticalMap {
         this.issuePoint(verbOf('avancer')!, f.x, f.z, NaN, 0, f.name);
         return;
       }
+      // foule visée par « Fermer la nasse » (N) et résumé de ses issues dans l'onglet « Ordres »
+      st.focusCrowd = nearestCrowd(this.core.maps.scene.crowdExits, f.x, f.z, 40)?.key ?? '';
+      st.touch();
       const tension = f.tension < 0.35 ? 'calme' : f.tension < 0.65 ? 'tension montante' : 'très tendu';
       this.core.ctx.ui.notify(`${f.label} — ${f.people} personnes, ${tension}${f.kettled ? ', encerclé' : ''}. Sélectionnez des unités puis touchez le foyer pour les y envoyer.`, 'info', 6);
       return;

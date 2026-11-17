@@ -339,6 +339,67 @@ export interface ExitInfo {
   /** Agents affectés. */
   agents: number;
   name: string;
+  /** Voie du graphe routier franchie (−1 : passage piéton sans rue — trottoir, esplanade). */
+  edgeId?: number;
+}
+
+// ───────────────────────────── barrages de rue et nasses (service 'police.barrages') ─────────────────────────────
+
+export const POLICE_BARRAGES_SERVICE = 'police.barrages';
+/** Événement libre : { squadId, state, x, z } — un barrage change d'état. */
+export const BARRAGE_EVENT = 'police:barrage';
+/** Événement libre : { id, closed, inside, x, z, radius } — une nasse se ferme ou se rouvre. */
+export const KETTLE_EVENT = 'police:kettle';
+
+export type BarrageState = 'en_route' | 'en_place' | 'incomplet' | 'rompu';
+
+/** Une unité qui barre (ou va barrer) une rue de façade à façade. */
+export interface BarrageView {
+  squadId: number;
+  x: number;
+  z: number;
+  heading: number;
+  /** Largeur totale à barrer, de façade à façade (m). */
+  width: number;
+  /** Part réellement tenue, 0..1. */
+  covered: number;
+  state: BarrageState;
+  street: string;
+  edgeId: number;
+  mode: 'ferme' | 'filtrant';
+}
+
+/** Une issue d'une zone : rue ou passage piéton. */
+export interface ExitView {
+  x: number;
+  z: number;
+  heading: number;
+  width: number;
+  street: string;
+  /** −1 pour un passage piéton sans rue. */
+  edgeId: number;
+  held: boolean;
+  /** Unité qui la tient (0 si personne). */
+  squadId: number;
+  mode: 'ouvert' | 'ferme' | 'filtrant';
+}
+
+/** Une foule dont toutes les issues sont tenues (ou qui est en passe de l'être). */
+export interface KettleView {
+  id: number;
+  x: number;
+  z: number;
+  radius: number;
+  exits: readonly ExitView[];
+  closed: boolean;
+  inside: number;
+  place: string;
+}
+
+export interface BarragesApi {
+  readonly list: readonly BarrageView[];
+  readonly kettles: readonly KettleView[];
+  exitsAround(x: number, z: number, r: number): readonly ExitView[];
 }
 
 export interface PoliceFormationApi {

@@ -85,7 +85,7 @@ const ROLE_KIND: Readonly<Record<string, Kind>> = {
 /** Libellés des ordres de groupe rappelés au CRS. */
 const GROUP_ORDER_TEXT: Readonly<Record<string, string>> = {
   tenir: 'tenir la position', ligne: 'tenir la ligne', colonne: 'se déplacer en colonne', avancer: 'avancer',
-  proteger: 'protéger le site', couper_circulation: 'couper la circulation', filtrer: 'filtrer le passage',
+  proteger: 'protéger le site', couper_circulation: 'barrer la rue, personne ne passe', filtrer: 'tenir un barrage filtrant',
   encercler: 'encercler', refoulement: 'refouler', charge: 'charger', repli: 'se replier', degager_barricade: 'dégager la barricade',
   escorter: 'escorter', releve: 'relever une unité', eteindre: 'éteindre le feu', secourir: 'secourir',
 };

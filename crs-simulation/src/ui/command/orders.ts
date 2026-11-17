@@ -27,6 +27,9 @@ export interface OrderVerb {
   rule: string;
 }
 
+/** Consigne de l'ordre « Barrer la rue » (palette, ordre rapide, roue, aperçu). */
+export const BARRER_HINT = 'Plus personne ne passe, dans les deux sens';
+
 export const ORDER_VERBS: readonly OrderVerb[] = [
   { type: 'tenir', label: 'Tenir la position', short: 'Tenir', group: 'posture', gesture: 'immediate', force: 1, coercive: false,
     hint: '', rule: '' },
@@ -34,6 +37,11 @@ export const ORDER_VERBS: readonly OrderVerb[] = [
     hint: 'Tracez la ligne d’un flanc à l’autre\u00a0: l’unité fait face du côté où le flanc gauche est à votre gauche.', rule: '' },
   { type: 'colonne', label: 'En file (à pied) vers…', short: 'En file', group: 'posture', gesture: 'point', force: 0, coercive: false,
     hint: 'Désignez le point à rejoindre à pied, en file.', rule: '' },
+  // une unité envoyée sur une rue la barre d'une façade à l'autre : piétons, véhicules, dans les deux sens
+  { type: 'couper_circulation', label: 'Barrer la rue', short: 'Barrer', group: 'posture', gesture: 'point', force: 1, coercive: false,
+    hint: BARRER_HINT + '. Désignez la rue\u00a0: l’unité la barre d’une façade à l’autre.', rule: '' },
+  { type: 'filtrer', label: 'Barrage filtrant', short: 'Filtrer', group: 'posture', gesture: 'point', force: 1, coercive: false,
+    hint: 'Désignez la rue\u00a0: l’unité la barre en laissant une porte, les personnes sortent une à une.', rule: 'Issue de nasse\u00a0: annoncez-la à la foule.' },
   { type: 'tortue', label: 'Tortue', short: 'Tortue', group: 'posture', gesture: 'immediate', force: 1, coercive: false,
     hint: '', rule: 'Boucliers de face et au-dessus des têtes\u00a0: aucun tir possible.' },
   { type: 'avancer', label: 'Avancer jusqu’à…', short: 'Avancer', group: 'mouvement', gesture: 'point', force: 1, coercive: false,

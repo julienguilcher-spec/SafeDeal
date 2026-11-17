@@ -27,6 +27,7 @@ import {
 import { appendPath, measure, placeGroup, settleSlots } from './place';
 import { ackBody, acknowledge, spell } from './radio';
 import { leavePost, progressEncircle, startEncircle } from './encircle';
+import { formStreetBarrage, streetAt } from './barrages';
 import {
   progressBarrage, progressBoarding, progressCrew, progressRelief, startBarrage, startCrewOrder, startDisembark, startEmbark, startRelief,
 } from './special';
@@ -62,11 +63,16 @@ export function startOrder(k: Kernel, u: Unit, o: SquadOrder): void {
   const type = order.type;
   switch (type) {
     case 'ligne':
-      formLine(k, u, order.x, order.z, order.heading, order.width);
+      // sur une rue : la ligne la barre de façade à façade (barrages.ts)
+      if (!formStreetBarrage(k, u, order.x, order.z, order.heading)) formLine(k, u, order.x, order.z, order.heading, order.width);
       setPhase(k, u, 'mise_en_place');
       break;
 
     case 'tenir': {
+      if (formStreetBarrage(k, u, order.x, order.z, order.heading)) {
+        setPhase(k, u, 'mise_en_place');
+        break;
+      }
       const near = (order.x - g.ax) * (order.x - g.ax) + (order.z - g.az) * (order.z - g.az) <= (12 + g.width * 0.6) * (12 + g.width * 0.6);
       if ((isAligned(g) || g.kind === F_COLUMN) && near && u.groups.length === 1) {
         // déjà en formation ici : halte sur place et réalignement
@@ -273,6 +279,14 @@ function startAdvance(k: Kernel, u: Unit, o: SquadOrder): void {
   const g = mainGroup(u);
   const m = u.man;
   if (g.kind === F_COLUMN) {
+    // en colonne vers un point d'une rue : à l'arrivée, l'unité barre la rue
+    if (streetAt(k, o.x, o.z)) {
+      m.deploy = true;
+      m.gx = o.x;
+      m.gz = o.z;
+      m.gh = o.heading;
+      m.deployWidth = 0;
+    }
     startColumn(k, u, o.x, o.z, g.files);
     return;
   }
@@ -453,7 +467,7 @@ function followFrame(k: Kernel, g: FormGroup): void {
 
 function lineReport(u: Unit, g: FormGroup): string {
   const w = Math.round(g.width);
-  return 'Barrage en place, face ' + cardinalFr(g.ah) + (w >= 2 ? ', front ' + spell(w) + ' mètres' : '') + ', ' + spell(u.formed) + ' à pied';
+  return 'Barrage en place' + (u.man.barrage && u.man.bStreet !== '' ? ', ' + u.man.bStreet : '') + ', face ' + cardinalFr(g.ah) + (w >= 2 ? ', front ' + spell(w) + ' mètres' : '') + ', ' + spell(u.formed) + ' à pied';
 }
 
 /** Avancement de la manœuvre de l'unité racine `u` (appelé à chaque pas). */
@@ -541,7 +555,7 @@ export function progress(k: Kernel, u: Unit, dt: number): void {
         } else if (m.step === 1 && arrived) {
           if (m.deploy) {
             m.deploy = false;
-            formLine(k, u, m.gx, m.gz, m.gh, m.deployWidth);
+            if (type !== 'avancer' || !formStreetBarrage(k, u, m.gx, m.gz, m.gh)) formLine(k, u, m.gx, m.gz, m.gh, m.deployWidth);
             setStep(k, u, 2);
             setPhase(k, u, 'mise_en_place');
           } else {
@@ -551,6 +565,8 @@ export function progress(k: Kernel, u: Unit, dt: number): void {
           }
         }
       } else if (m.step === 1 && arrived) {
+        // ligne arrivée sur un point d'une rue : elle s'y déploie de façade à façade (une tortue reste une tortue)
+        if (type === 'avancer' && g.kind === F_LINE) formStreetBarrage(k, u, o.x, o.z, o.heading);
         setStep(k, u, 2);
         setPhase(k, u, 'mise_en_place');
       } else if ((m.step === 2 || u.phase === 'mise_en_place') && (allSettled(u, T.IN_PLACE_TOLERANCE) || formLate(k, u))) {

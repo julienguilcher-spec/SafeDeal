@@ -25,6 +25,8 @@ import { truncate } from '@/core/arrays';
 import { TAU, turnToward, wrapAngle } from '@/core/math';
 import { makeRayHit } from '@/core/null-services';
 import { SpatialHash } from '@/core/spatial';
+import { EXT } from '@/core/extensions';
+import type { CordonsApi } from '@/core/extensions';
 import { PEOPLE_LOCOMOTION_SERVICE } from './api';
 import type { PeopleLocomotionApi } from './api';
 import { CellMarks } from './cellmarks';
@@ -64,6 +66,8 @@ export class LocomotionSystem implements GameSystem {
   readonly pos: Vec2 = { x: 0, z: 0 };
   readonly hit: RayHit = makeRayHit();
   private tick = 0;
+  /** Cordons de police tenus (service facultatif), relu à chaque pas. */
+  private cordons: CordonsApi | null = null;
   /**
    * Valeurs de travail de la personne en cours, échangées entre les méthodes par champs plutôt que par
    * arguments (un flottant passé en argument à une fonction non intégrée est emballé dans un objet) :
@@ -125,6 +129,8 @@ export class LocomotionSystem implements GameSystem {
 
     this.marks.rebuild(ctx.vehicles.list);
     this.grid.rebuild(list, notAnObstacle);
+    const cordons = ctx.service<CordonsApi>(EXT.cordons);
+    this.cordons = cordons && cordons.count > 0 ? cordons : null;
 
     const held = this.held;
     let heldCount = 0;
@@ -607,6 +613,12 @@ export class LocomotionSystem implements GameSystem {
     if (e.vault !== 2 && ctx.world.resolveCircle(pos, r)) hit = true;
     if (e.vault !== 1 && ctx.props.resolveCircle(pos, r)) hit = true;
     if (this.marks.has(pos.x, pos.z) && ctx.vehicles.resolveCircle(pos, r)) hit = true;
+    // ligne de barrage tenue : on ne passe ni entre les agents ni le long des murs, même coincé contre un objet du
+    // décor (le cordon pousse le long de la façade : le monde est revu seulement s'il a corrigé la position)
+    if (this.cordons !== null && this.cordons.resolve(p, pos, r)) {
+      hit = true;
+      ctx.world.resolveCircle(pos, r);
+    }
     if (hit) {
       const cx = pos.x - nx;
       const cz = pos.z - nz;

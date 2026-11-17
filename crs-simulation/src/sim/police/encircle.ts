@@ -26,18 +26,19 @@ import type { Kernel } from './kernel';
 import { adopt, clearSlots, done, formHold, gather, inPlace, setPhase, setStep, allSettled } from './mcore';
 import { placeGroup, settleSlots } from './place';
 import { spell } from './radio';
+import { clearBarrage } from './barrages';
 import { refreshFormable, resolveLeads } from './tree';
 
 // ───────────────────────────── issues d'une zone ─────────────────────────────
 
-interface Crossing { x: number; z: number; dx: number; dz: number; w: number; a: number; name: string }
+interface Crossing { x: number; z: number; dx: number; dz: number; w: number; a: number; name: string; edge: number }
 const crossings: Crossing[] = [];
 let crossingCount = 0;
 
-function addCrossing(x: number, z: number, dx: number, dz: number, w: number, a: number, name: string): void {
+function addCrossing(x: number, z: number, dx: number, dz: number, w: number, a: number, name: string, edge: number): void {
   let c = crossings[crossingCount];
   if (!c) {
-    c = { x: 0, z: 0, dx: 0, dz: 0, w: 0, a: 0, name: '' };
+    c = { x: 0, z: 0, dx: 0, dz: 0, w: 0, a: 0, name: '', edge: -1 };
     crossings[crossingCount] = c;
   }
   c.x = x;
@@ -47,6 +48,7 @@ function addCrossing(x: number, z: number, dx: number, dz: number, w: number, a:
   c.w = w;
   c.a = a;
   c.name = name;
+  c.edge = edge;
   crossingCount++;
 }
 
@@ -101,7 +103,7 @@ export function findExits(k: Kernel, cx: number, cz: number, r: number, out: Exi
       const s = ina ? 1 : -1;
       const px = ax + ex * t;
       const pz = az + ez * t;
-      addCrossing(cx + px, cz + pz, (ex / l) * s, (ez / l) * s, w, Math.atan2(px, pz), info.name);
+      addCrossing(cx + px, cz + pz, (ex / l) * s, (ez / l) * s, w, Math.atan2(px, pz), info.name, e);
     }
   }
   out.length = 0;
@@ -131,6 +133,7 @@ export function findExits(k: Kernel, cx: number, cz: number, r: number, out: Exi
     let maxT = 0;
     let maxW = c.w;
     let name = c.name;
+    let edge = c.edge;
     used[i] = true;
     // axe transversal du groupe
     const tx = -c.dz;
@@ -153,6 +156,7 @@ export function findExits(k: Kernel, cx: number, cz: number, r: number, out: Exi
       if (o.w > maxW) {
         maxW = o.w;
         name = o.name;
+        edge = o.edge;
       }
     }
     const dl = Math.sqrt(dx * dx + dz * dz) || 1;
@@ -170,7 +174,7 @@ export function findExits(k: Kernel, cx: number, cz: number, r: number, out: Exi
       x += -Math.cos(h) * shift;
       z += Math.sin(h) * shift;
     }
-    out.push({ x, z, bearing: Math.atan2(x - cx, z - cz), width, held: true, agents: 0, name });
+    out.push({ x, z, bearing: Math.atan2(x - cx, z - cz), width, held: true, agents: 0, name, edgeId: edge });
   }
   // doublons après recentrage
   for (let i = out.length - 1; i > 0; i--) {
@@ -184,8 +188,72 @@ export function findExits(k: Kernel, cx: number, cz: number, r: number, out: Exi
       }
     }
   }
+  addFootGaps(k, cx, cz, r, out);
   out.sort(byBearing);
   return out.length;
+}
+
+/** Pas de sondage du cercle (m) et plus grand passage piéton tenu par une seule ligne (m). */
+const GAP_STEP = 1.5;
+const GAP_MAX = 24;
+const freeArc: boolean[] = [];
+
+/**
+ * Passages piétons : arcs du cercle à l'air libre (trottoirs, esplanade, square) qui ne sont pas déjà une issue
+ * routière. Sans eux, un côté de place sans rue restait ouvert et les nassés sortaient à pied.
+ */
+function addFootGaps(k: Kernel, cx: number, cz: number, r: number, out: ExitInfo[]): void {
+  const world = k.ctx.world;
+  const n = Math.max(24, Math.ceil((2 * Math.PI * r) / GAP_STEP));
+  const step = (2 * Math.PI * r) / n;
+  const roads = out.length;
+  let any = false;
+  let start = -1;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    const x = cx + Math.sin(a) * r;
+    const z = cz + Math.cos(a) * r;
+    let free = world.isFree(x, z, 0.3) && world.surfaceAt(x, z) !== 'water';
+    for (let j = 0; j < roads && free; j++) {
+      const e = out[j];
+      if ((e.x - x) * (e.x - x) + (e.z - z) * (e.z - z) <= (e.width * 0.5 + 1.5) * (e.width * 0.5 + 1.5)) free = false;
+    }
+    freeArc[i] = free;
+    if (free) any = true;
+    else if (start < 0) start = i;
+  }
+  if (!any) return;
+  // parcours circulaire à partir d'un point fermé (tout libre : départ à 0)
+  if (start < 0) start = 0;
+  let run = 0;
+  for (let q = 1; q <= n; q++) {
+    const i = (start + q) % n;
+    if (freeArc[i] && q < n) {
+      run++;
+      continue;
+    }
+    if (freeArc[i] && q === n) run++;
+    if (run > 0) {
+      const last = q === n && freeArc[i] ? q : q - 1;
+      emitGaps(cx, cz, r, n, step, start + last - run + 1, run, out);
+    }
+    run = 0;
+  }
+}
+
+/** Arc libre de `run` points à partir de l'indice `first` : une issue par tronçon d'au plus GAP_MAX mètres. */
+function emitGaps(cx: number, cz: number, r: number, n: number, step: number, first: number, run: number, out: ExitInfo[]): void {
+  const arc = run * step;
+  if (arc < 1.2) return;
+  const parts = Math.ceil(arc / GAP_MAX);
+  const per = run / parts;
+  for (let p = 0; p < parts; p++) {
+    const mid = first + per * p + (per - 1) / 2;
+    const a = (mid / n) * Math.PI * 2;
+    const x = cx + Math.sin(a) * r;
+    const z = cz + Math.cos(a) * r;
+    out.push({ x, z, bearing: Math.atan2(x - cx, z - cz), width: per * step + GAP_STEP, held: true, agents: 0, name: 'passage piéton', edgeId: -1 });
+  }
 }
 
 // ───────────────────────────── encerclement ─────────────────────────────
@@ -382,9 +450,11 @@ export function progressEncircle(k: Kernel, u: Unit, relayout: boolean): void {
 export function leavePost(k: Kernel, u: Unit): void {
   const m = u.man;
   const ctx = k.ctx;
+  clearBarrage(u);
   if (m.closureId !== 0) {
     const traffic = ctx.service<TrafficControlApi>(EXT.traffic);
-    if (traffic) traffic.open(m.closureId);
+    // −1 : la rue était déjà fermée par d'autres (barrières, périmètre) — ce n'est pas à nous de la rouvrir
+    if (traffic && m.closureId > 0) traffic.open(m.closureId);
     m.closureId = 0;
   }
   if (m.stationId !== 0) {

@@ -44,6 +44,27 @@ export const DOOR_WIDTH = 1.5;
 /** Porte d'un barrage filtrant (m). */
 export const FILTER_DOOR = 2.0;
 
+// ───────────────────────────── rue barrée (barrages.ts) ─────────────────────────────
+
+/**
+ * Intervalle maximal du premier rang d'une rue barrée (m) : entre deux agents (0,56 m d'épaules), il reste moins
+ * que la largeur d'une personne — personne ne se glisse entre eux.
+ */
+export const BARRAGE_SPACING = 1.1;
+/** Deux agents voisins du premier rang, à l'arrêt, tiennent le cordon entre eux en deçà de cet écart (m). */
+export const CORDON_GAP = 1.6;
+/** L'agent de flanc tient le passage le long du mur en deçà de cette distance à la façade (m). */
+export const CORDON_WALL = 1.6;
+/** Demi-épaisseur du cordon (m) : épaules, boucliers. */
+export const CORDON_THICK = 0.14;
+/**
+ * Écart entre l'agent et son emplacement au-delà duquel il ne tient plus le cordon (m) : parti ailleurs. Une ligne
+ * repoussée par la foule reste une ligne ; c'est l'écart entre deux voisins (CORDON_GAP) qui l'ouvre.
+ */
+export const CORDON_SLOT = 3.0;
+/** Part de la rue tenue au-delà de laquelle elle est barrée de façade à façade. */
+export const BARRAGE_FULL = 0.95;
+
 // ───────────────────────────── allures et délais ─────────────────────────────
 
 /**

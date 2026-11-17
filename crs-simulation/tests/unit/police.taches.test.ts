@@ -26,12 +26,42 @@ function count(p: Person, id: string): number {
 }
 
 describe('police — collègue à terre', () => {
+  it('porte-bouclier blessé, quatre boucliers valides seulement : dégagé sans détacher de couverture, et la radio ne l’annonce pas', async () => {
+    const { pt, sec } = await lineUp();
+    const { ctx } = pt;
+    const radical = spawnProtesters(ctx, 1, 0, -125, 0, 'radical')[0];
+    const victim = frontRank(pt, sec.squad.id).find((p) => p.poste === 'bouclier')!;
+    expect(victim).toBeDefined();
+    for (let i = 0; i < 12 && victim.injury !== 'critical'; i++) {
+      ctx.health.hurt(victim, { amount: 45, kind: 'impact', sourceId: radical.id, x: victim.x, z: victim.z, zone: 0.6, dirX: 0, dirZ: -1 });
+    }
+    let carried = false;
+    let engaged = 0;
+    pt.run(60, 0.25, () => {
+      if (victim.heldBy !== 0) carried = true;
+      engaged = Math.max(engaged, pt.status.of(sec.squad.id)!.detached);
+      return carried && victim.heldBy === 0;
+    });
+    expect(carried).toBe(true);
+    // la ligne garde ses boucliers : seul le collègue qui dégage le blessé a quitté le rang
+    expect(engaged).toBeLessThan(3);
+    const calls = ctx.radio.log.filter((m) => m.priority === 2 && m.text.includes('Agent à terre'));
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls.some((m) => m.text.includes('Deux boucliers en couverture'))).toBe(false);
+    expect(calls.some((m) => m.text.includes('Je le dégage'))).toBe(true);
+  });
+
   it('un agent grièvement blessé sur la ligne est traîné derrière elle, couvert par deux boucliers, et la ligne se referme', async () => {
     const { pt, sec } = await lineUp();
     const { ctx } = pt;
     const radical = spawnProtesters(ctx, 1, 0, -125, 0, 'radical')[0];
     const front = frontRank(pt, sec.squad.id);
-    const victim = front[Math.floor(front.length / 2)];
+    // un agent du premier rang qui ne porte pas de bouclier, vers le milieu de la ligne : les cinq boucliers de la
+    // section restent valides, et deux d'entre eux couvrent l'évacuation (la ligne barre la rue de façade à façade :
+    // l'agent du milieu, lui, est un porte-bouclier — voir l'essai suivant)
+    const mid = Math.floor(front.length / 2);
+    const victim = front.slice().sort((a, b) => Math.abs(front.indexOf(a) - mid) - Math.abs(front.indexOf(b) - mid)).find((p) => p.poste !== 'bouclier')!;
+    expect(victim).toBeDefined();
     const z0 = victim.z;
     // blessure très grave (pavés reçus de dos, hors bouclier) : l'agent tombe sur place et ne se relèvera pas seul
     for (let i = 0; i < 12 && victim.injury !== 'critical'; i++) {

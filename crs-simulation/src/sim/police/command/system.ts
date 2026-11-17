@@ -10,7 +10,7 @@
 
 import type { GameContext, GameSystem, Person, Squad, Vehicle } from '@/core/contracts';
 import { SystemOrder } from '@/core/contracts';
-import { IN_PLACE_EVENT, ORDER_DONE_EVENT } from '../api';
+import { BARRAGE_EVENT, IN_PLACE_EVENT, ORDER_DONE_EVENT } from '../api';
 import type { PoliceOrderDone, UnitHandle } from '../api';
 import { Adjoint } from './adjoint';
 import {
@@ -32,6 +32,10 @@ import { Reaction } from './react';
 import { SpecialRegistry } from './special';
 import { OBSTACLE_SERVICE, ObstacleDesk } from './obstacle';
 import { onMetroWave } from './sustain';
+import * as TX from './texts';
+
+/** Un barrage renforcé (ou une unité envoyée en renfort) ne redemande pas de renfort avant ce délai (s). */
+const REINFORCE_MEMORY = 600;
 
 const HOSTILE_PROJECTILES: Readonly<Record<string, number>> = { pave: 0.25, bouteille: 0.25, molotov: 0.7, mortier: 0.5, oeuf_peinture: 0.1, debris: 0.15 };
 
@@ -57,6 +61,8 @@ export class CommandSystem implements GameSystem {
   private readonly members: Person[] = [];
   /** Compagnies chargées d'une autre manifestation que la principale : cortège suivi. */
   private readonly sources = new Map<number, CortegeSource>();
+  /** Barrages incomplets déjà renforcés et unités envoyées en renfort : instant du renfort. */
+  private readonly reinforced = new Map<number, number>();
   /** Coût du dernier pas (ms), pour les mesures. */
   lastStepMs = 0;
 
@@ -168,6 +174,12 @@ export class CommandSystem implements GameSystem {
         this.commands[i].onOrderDone(e);
       }
     });
+    // rue barrée trop large pour l'unité qui la tient : renfort proposé (adjoint, touche P) ou envoyé (IA)
+    ev.onAny(BARRAGE_EVENT, (payload) => {
+      const e = payload as { squadId: number; state: string; x: number; z: number };
+      if (e.state !== 'incomplet') return;
+      for (let i = 0; i < this.commands.length; i++) this.reinforce(this.commands[i], e.squadId, e.x, e.z);
+    });
     ev.on('order:issued', (e) => {
       // ordre du joueur-commandant : le dispositif conseillé en tient compte
       const pid = ctx.player.state.personId;
@@ -265,6 +277,7 @@ export class CommandSystem implements GameSystem {
     this.reactions.length = 0;
     this.states.length = 0;
     this.sources.clear();
+    this.reinforced.clear();
     this.secondAt = 0;
     this.forcedMode = '';
     this.hook();
@@ -279,6 +292,34 @@ export class CommandSystem implements GameSystem {
   }
 
   // ───────────────────────────── commandement ─────────────────────────────
+
+  /** Renfort d'un barrage incomplet : un élément disponible vient barrer la rue juste derrière la ligne. */
+  private reinforce(c: Command, squadId: number, x: number, z: number): void {
+    const el = c.elementOver(squadId);
+    if (!el) return;
+    // poste du dispositif que le commandant (IA) a lui-même dimensionné, ou sa réserve en attente : il garde ses
+    // moyens pour l'action
+    if (c.ia && (el.role === 'poste' || el.role === 'reserve')) return;
+    // un seul renfort par barrage, et un renfort ne demande pas à son tour un renfort (pas de cascade d'unités
+    // retirées les unes après les autres pour se renforcer mutuellement)
+    const now = this.core.now;
+    const was = this.reinforced.get(squadId);
+    if (was !== undefined && now - was < REINFORCE_MEMORY) return;
+    const st = this.core.status ? this.core.status.of(squadId) : null;
+    // pas une fraction de l'unité qui tient déjà le barrage (elle y est), ni l'unité qui la commande
+    const res = c.available(x, z, (r) => this.core.isUnder(r.squadId, squadId) || this.core.isUnder(squadId, r.squadId));
+    if (!res) return;
+    const name = this.ctx.squads.get(squadId)?.name ?? el.name;
+    const h = st ? st.heading : 0;
+    const bx = x - Math.sin(h) * 3;
+    const bz = z - Math.cos(h) * 3;
+    const sector = this.core.sector(x, z);
+    c.act('renfort:' + squadId, 2, bx, bz, TX.propose(name + ' : largeur insuffisante' + (sector !== '' ? ', ' + sector : ''), 'd’envoyer ' + res.name + ' en renfort sur le barrage'), () => {
+      this.reinforced.set(squadId, this.core.now);
+      this.reinforced.set(res.squadId, this.core.now);
+      c.order(res, 'renfort', { type: 'couper_circulation', x: bx, z: bz, heading: h, width: 0 }, TX.orderBarrage(res.name, c.squad.name, sector, h, true));
+    });
+  }
 
   private indexOf(squadId: number): number {
     for (let i = 0; i < this.commands.length; i++) if (this.commands[i].squad.id === squadId) return i;

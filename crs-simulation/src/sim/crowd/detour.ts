@@ -20,7 +20,7 @@
 
 import type { GameContext, Person, RoadSample, Rng } from '@/core/contracts';
 import { EXT } from '@/core/extensions';
-import type { TrafficControlApi } from '@/core/extensions';
+import type { CordonsApi, TrafficControlApi } from '@/core/extensions';
 import type { RoutePoint } from './api';
 import type { Corridor } from './route';
 
@@ -372,6 +372,71 @@ export function planDetour(
     if (sample.edgeId !== e0.id && sample.name !== '' && sample.name !== e0.name) via = sample.name;
   }
   return { points, toDestination, x: gx, z: gz, name, via };
+}
+
+const barred = new Set<number>();
+const goals: number[] = [];
+
+/** L'itinéraire (polyligne [x0, z0, x1, z1, …]) franchit-il un cordon de police tenu ? */
+export function pathCrossesCordon(cordons: CordonsApi, pts: readonly number[]): boolean {
+  if (cordons.count === 0) return false;
+  for (let i = 2; i + 1 < pts.length; i += 2) if (cordons.crosses(pts[i - 2]!, pts[i - 1]!, pts[i]!, pts[i + 1]!)) return true;
+  return false;
+}
+
+/**
+ * Itinéraire à pied de A vers B qui contourne les rues barrées par une ligne de police (cordons tenus en travers de
+ * la rue) : `out` reçoit la polyligne depuis A. false s'il n'y a pas d'autre chemin (la personne est nassée, ou la
+ * seule rue qui mène à B est barrée) : elle n'a alors nulle part où aller par là.
+ */
+export function footAround(ctx: GameContext, ax: number, az: number, bx: number, bz: number, cordons: CordonsApi, out: number[]): boolean {
+  const world = ctx.world;
+  if (world.nodeCount === 0 || cordons.count === 0) return false;
+  // voies barrées : celles que coupe en travers un tronçon de cordon
+  barred.clear();
+  const s = cordons.segments;
+  for (let i = 0; i < cordons.count; i++) {
+    const sx = s[i * 4]!;
+    const sz = s[i * 4 + 1]!;
+    const ex = s[i * 4 + 2]! - sx;
+    const ez = s[i * 4 + 3]! - sz;
+    const l = Math.hypot(ex, ez);
+    if (l < 0.05 || !world.nearestRoad(sx + ex * 0.5, sz + ez * 0.5, sample, 12) || sample.edgeId < 0) continue;
+    // en travers de la voie, pas le long d'elle (une ligne au débouché d'une rue latérale ne barre pas l'avenue)
+    if (Math.abs((ex * Math.sin(sample.heading) + ez * Math.cos(sample.heading)) / l) > 0.6) continue;
+    barred.add(sample.edgeId);
+  }
+  if (barred.size === 0 || !world.nearestRoad(ax, az, sample, 60) || sample.edgeId < 0) return false;
+  const e0 = world.edge(sample.edgeId);
+  const seeds: { node: number; cost: number }[] = [];
+  for (const id of [e0.a, e0.b]) {
+    const n = world.node(id);
+    // on ne repart que vers le carrefour de son côté du barrage
+    if (cordons.crosses(ax, az, n.x, n.z)) continue;
+    seeds.push({ node: id, cost: Math.hypot(n.x - ax, n.z - az) });
+  }
+  if (seeds.length === 0) return false;
+  nodesNear(ctx, bx, bz, goals);
+  if (goals.length === 0) return false;
+  search.run(ctx, seeds, barred, SEARCH_LIMIT);
+  let goal = -1;
+  let best = Infinity;
+  for (const n of goals) {
+    const d = search.dist[n]!;
+    if (d === Infinity) continue;
+    const nd = world.node(n);
+    // le dernier bout jusqu'à B ne doit pas, lui non plus, franchir le barrage
+    if (cordons.crosses(nd.x, nd.z, bx, bz)) continue;
+    const score = d + Math.hypot(nd.x - bx, nd.z - bz);
+    if (score < best) {
+      best = score;
+      goal = n;
+    }
+  }
+  if (goal < 0) return false;
+  search.pathTo(ctx, goal, ax, az, out);
+  push(out, bx, bz);
+  return out.length >= 4 && !pathCrossesCordon(cordons, out);
 }
 
 /** La place est-elle close : impossible de s'en éloigner de plus de ENCLOSED_REACH m de chemin ? */

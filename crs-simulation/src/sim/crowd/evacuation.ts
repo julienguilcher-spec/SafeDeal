@@ -43,6 +43,9 @@ const ARREST_TRIES = 2;
 const WANTED_RANGE = 60;
 
 /** 'wanted' : auteur de faits établis qui s'est soustrait à la nasse (hors de la porte) ; l'unité qui filtre l'interpelle. */
+/** Durée (s) après la fin de l'évacuation pendant laquelle une interpellation en cours lui est encore comptée. */
+const LATE_ARREST = 120;
+
 type Role = 'queue' | 'check' | 'hold' | 'out' | 'wanted';
 
 interface Evac {
@@ -65,6 +68,8 @@ interface Evac {
   exitIndex: number;
   /** Auteurs de faits établis vus dans la nasse (ils ne sortent que par la porte, interpellés). */
   seen: Set<EntityId>;
+  /** Instant de la fin de l'évacuation (−1 tant qu'elle dure). */
+  endedAt: number;
 }
 
 interface Tie {
@@ -117,6 +122,25 @@ export class EvacuationSystem implements GameSystem {
         for (const ev of this.evacs) if (ev.view.active && ev.view.squadId === e.squadId) this.end(ev, 'ordre');
       }
     });
+    // interpellation dans la nasse par l'unité qui filtre, de sa propre initiative (auteur de faits établis venu au
+    // contact de la porte avant d'être pris dans la file) : c'est une interpellation de l'évacuation comme une autre
+    ctx.events.on('person:arrested', (e) => {
+      if (!this.core.active || this.ties.has(e.id)) return;
+      const p = ctx.people.get(e.id);
+      const by = ctx.people.get(e.byId);
+      if (!p || !by) return;
+      for (const ev of this.evacs) {
+        const v = ev.view;
+        // par l'unité qui filtre (dans la nasse ou à sa porte), ou par une autre unité sur une personne vue dans la nasse ;
+        // une interpellation en cours quand l'évacuation se termine compte encore (deux minutes après la fin)
+        const known = ev.seen.has(p.id);
+        if (!v.active && (!known || ev.endedAt < 0 || this.core.now - ev.endedAt > LATE_ARREST)) continue;
+        if (!known && (!this.under(by.squadId, v.squadId) || Math.hypot(p.x - v.kettleX, p.z - v.kettleZ) > ev.radius + 6)) continue;
+        v.arrested++;
+        ev.seen.delete(p.id);
+        break;
+      }
+    });
     // fin d'une interpellation demandée (module de police) : la suivante peut partir
     ctx.events.onAny('police:order_done', (payload) => {
       const e = payload as { squadId: number; type: string };
@@ -125,6 +149,16 @@ export class EvacuationSystem implements GameSystem {
       if (e.type !== 'interpeller') return;
       for (const ev of this.evacs) if (ev.view.squadId === e.squadId) ev.arrestId = 0;
     });
+  }
+
+  /** L'unité `squadId` est-elle `top` ou l'une de ses subordonnées ? */
+  private under(squadId: number, top: number): boolean {
+    for (let id = squadId, guard = 0; id !== 0 && guard < 8; guard++) {
+      if (id === top) return true;
+      const sq = this.ctx.squads.get(id);
+      id = sq ? sq.parentId : 0;
+    }
+    return false;
   }
 
   reset(): void {
@@ -182,7 +216,7 @@ export class EvacuationSystem implements GameSystem {
     }
     const ev: Evac = {
       view, radius: best.a, ox, oz, lanes: new Array<EntityId>(LANES).fill(0), queue: [], arrests: [], arrestAt: -1e9, arrestId: 0,
-      emptySince: -1, nextReport: now + 45, exitIndex, ready: false, startedAt: now, seen: new Set(),
+      emptySince: -1, nextReport: now + 45, exitIndex, ready: false, startedAt: now, seen: new Set(), endedAt: -1,
     };
     this.evacs.push(ev);
     this.views.push(view);
@@ -193,6 +227,7 @@ export class EvacuationSystem implements GameSystem {
   private end(ev: Evac, why: 'vide' | 'ordre'): void {
     if (!ev.view.active) return;
     ev.view.active = false;
+    ev.endedAt = this.core.now;
     for (const [id, t] of this.ties) {
       if (t.e !== ev) continue;
       this.ties.delete(id);
@@ -259,7 +294,15 @@ export class EvacuationSystem implements GameSystem {
       const p = ctx.people.get(id);
       if (!t || t.role !== 'queue' || !p || p.custody !== 'free') {
         q.splice(i, 1);
-        if (t && t.role === 'queue') this.ties.delete(id);
+        if (t && t.role === 'queue') {
+          // interpellé dans la file, avant son tour de contrôle : c'est une interpellation de l'évacuation (elle
+          // n'était comptée nulle part : le lien était retiré ici avant le décompte)
+          if (p && p.custody !== 'free') {
+            v.arrested++;
+            ev.seen.delete(id);
+          }
+          this.ties.delete(id);
+        }
       }
     }
     if (q.length < QUEUE && free.length > 0) {
@@ -323,7 +366,9 @@ export class EvacuationSystem implements GameSystem {
         continue;
       }
       if (p.custody !== 'free') {
-        if (t.role === 'hold' || t.role === 'check' || t.role === 'wanted') v.arrested++;
+        // dans la file aussi (auteur de faits établis interpellé à la porte avant son tour de contrôle), et à la
+        // sortie : une personne relâchée faute d'avoir pu être saisie, rattrapée juste après la porte, compte aussi
+        v.arrested++;
         this.ties.delete(id);
         ev.seen.delete(id);
       } else if ((t.role === 'hold' || t.role === 'wanted') && t.tries > 0 && ev.arrestId !== id && ev.arrests.indexOf(id) < 0) {
@@ -429,7 +474,7 @@ export class EvacuationSystem implements GameSystem {
   }
 
   private letOut(t: Tie, p: Person, now: number): void {
-    t.e.seen.delete(p.id);
+    // (la personne reste connue de l'évacuation : relâchée faute d'avoir pu être saisie puis rattrapée, elle compte)
     t.role = 'out';
     t.since = now;
     t.lastX = p.x;

@@ -21,6 +21,7 @@ import {
   allSettled, done, formHold, formLate, formLine, inPlace, leaderOf, mainGroup, moveTo, report, setPhase, setStep, unitCenter,
 } from './mcore';
 import { spell } from './radio';
+import { formStreetBarrage, markBarrage } from './barrages';
 import { fleetOf } from './tree';
 import * as T from './tuning';
 
@@ -126,6 +127,13 @@ export function progressRelief(k: Kernel, u: Unit, arrived: boolean): void {
 // ───────────────────────────── barrages de rue ─────────────────────────────
 
 export function startBarrage(k: Kernel, u: Unit, o: SquadOrder): void {
+  const doorW = o.type === 'filtrer' ? T.FILTER_DOOR : 0;
+  // rue bordée de façades : barrée de façade à façade, pour tout le monde (barrages.ts)
+  if (formStreetBarrage(k, u, o.x, o.z, o.heading, doorW)) {
+    setStep(k, u, 0);
+    setPhase(k, u, 'mise_en_place');
+    return;
+  }
   let x = o.x;
   let z = o.z;
   let h = o.heading;
@@ -135,7 +143,7 @@ export function startBarrage(k: Kernel, u: Unit, o: SquadOrder): void {
     z = road.z;
     h = Math.cos(angleDiff(road.heading, o.heading)) >= 0 ? road.heading : wrapAngle(road.heading + Math.PI);
   }
-  formLine(k, u, x, z, h, o.width, o.type === 'filtrer' ? T.FILTER_DOOR : 0);
+  markBarrage(k, u, formLine(k, u, x, z, h, o.width, doorW, T.BARRAGE_SPACING));
   setStep(k, u, 0);
   setPhase(k, u, 'mise_en_place');
 }
@@ -150,8 +158,14 @@ export function progressBarrage(k: Kernel, u: Unit): void {
   const leader = leaderOf(k, u);
   const traffic = ctx.service<TrafficControlApi>(EXT.traffic);
   if (traffic && m.closureId === 0) {
-    const c = traffic.closeRoad(g.ax, g.az, leader ? leader.id : 0, u.id);
-    if (c) m.closureId = c.id;
+    // rue barrée de façade à façade : la ligne est le barrage (pas de barrières où les agents se tiennent, et la
+    // ligne s'ouvre pour les collègues et les secours) ; ailleurs, barrières posées par la circulation
+    if (m.bWalls && traffic.isClosed(m.bEdge)) {
+      m.closureId = -1;
+    } else {
+      const c = traffic.closeRoad(g.ax, g.az, leader ? leader.id : 0, u.id, m.bWalls);
+      if (c) m.closureId = c.id;
+    }
   }
   let station = '';
   if (type === 'filtrer') {

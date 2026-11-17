@@ -214,14 +214,14 @@ export class Command {
     return null;
   }
 
-  /** Élément disponible le plus proche de (x, z) : la réserve d'abord, puis un élément libre. */
-  available(x: number, z: number): Element | null {
+  /** Élément disponible le plus proche de (x, z) : la réserve d'abord, puis un élément libre (sauf ceux que `skip` écarte). */
+  available(x: number, z: number, skip?: (el: Element) => boolean): Element | null {
     const core = this.core;
     let best: Element | null = null;
     let bestD = Infinity;
     for (let i = 0; i < this.elements.length; i++) {
       const el = this.elements[i];
-      if (el.role === 'poste' || el.task !== '' || el.pending || el.hold) continue;
+      if (el.role === 'poste' || el.task !== '' || el.pending || el.hold || (skip && skip(el))) continue;
       const st = core.status ? core.status.of(el.squadId) : null;
       if (st && (st.valid < Math.max(2, st.total * 0.5) || st.phase === 'embarque')) continue;
       if (!core.centerOf(el.squadId)) continue;

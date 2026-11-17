@@ -19,7 +19,7 @@ import type {
   ExitInfo, FormationInfo, PoliceFormationApi, PoliceSlotApi, PoliceStatusApi, PoliceUnitsApi, SlotInfo, UnitStatus, VehicleReserve,
 } from './api';
 import {
-  ENCIRCLE_CLOSE_ALL, OFFICER_DOWN_EVENT, ORDER_REFUSED_EVENT, POLICE_FORMATION_SERVICE, POLICE_KERNEL_SERVICE, POLICE_SLOT_SERVICE,
+  ENCIRCLE_CLOSE_ALL, OFFICER_DOWN_EVENT, POLICE_BARRAGES_SERVICE, ORDER_REFUSED_EVENT, POLICE_FORMATION_SERVICE, POLICE_KERNEL_SERVICE, POLICE_SLOT_SERVICE,
   POLICE_STATUS_SERVICE, POLICE_SYSTEM_ID, POLICE_TUNING_SERVICE, POLICE_UNITS_SERVICE,
 } from './api';
 import type { Agent, Op, Unit } from './brain';
@@ -37,7 +37,10 @@ import { measure, placeGroup } from './place';
 import { abortOps, autoOps, opReport, resupplyNext, startTask, updateOps } from './ops';
 import { ackBody, acknowledge, negative, spell } from './radio';
 import { looksAhead, thinkAgent } from './reflex';
-import { unjoin } from './encircle';
+import { findExits, unjoin } from './encircle';
+import { countFrontAble, isShield } from './ops-core';
+import { Barrages } from './barrages';
+import { EXT } from '@/core/extensions';
 import { halt, steer } from './steer';
 import { eachDescendant, refreshFormable, resolveLeads, syncTree, ledByPlayer, playerDetached } from './tree';
 import * as T from './tuning';
@@ -60,6 +63,8 @@ export class PoliceSystem implements GameSystem {
   readonly order = SystemOrder.CONTROL;
 
   readonly k = new Kernel();
+  /** Rues barrées, cordons des lignes à l'arrêt, nasses (service 'police.barrages', 'police.cordons'). */
+  readonly barrages = new Barrages();
   private ctx!: GameContext;
   /** Unités ayant reçu un ordre depuis le dernier pas. */
   private readonly ordered: number[] = [];
@@ -137,6 +142,10 @@ export class PoliceSystem implements GameSystem {
     ctx.provide(POLICE_SLOT_SERVICE, slots);
     ctx.provide(POLICE_FORMATION_SERVICE, formation);
     ctx.provide(POLICE_TUNING_SERVICE, k.tuning);
+    this.barrages.bind(k);
+    this.barrages.findExits = findExits;
+    ctx.provide(POLICE_BARRAGES_SERVICE, this.barrages);
+    ctx.provide(EXT.cordons, this.barrages.cordons);
     // service privé du module : le commandement (src/sim/police/command) y trouve le noyau partagé
     ctx.provide(POLICE_KERNEL_SERVICE, k);
   }
@@ -163,6 +172,7 @@ export class PoliceSystem implements GameSystem {
 
   reset(): void {
     this.k.reset();
+    this.barrages.reset();
     this.ordered.length = 0;
     this.pruneAt = 0;
   }
@@ -203,7 +213,10 @@ export class PoliceSystem implements GameSystem {
       u.sense.hurtAt = k.now;
     }
     if (p.injury === 'serious' || p.injury === 'critical') {
-      k.say(a.home ?? u, 'ICI ' + (a.home ?? u).squad.name.toUpperCase() + '. URGENT. Agent à terre ! Deux boucliers en couverture, je le dégage. PARLEZ.', 2, 'unite');
+      // (la couverture par deux boucliers n'est détachée que s'il en reste au moins cinq valides — takeCover : on ne
+      // l'annonce que dans ce cas)
+      const cover = countFrontAble(u) - (a.able && isShield(a) ? 1 : 0) >= 5; // (le blessé est encore compté valide à cet instant)
+      k.say(a.home ?? u, 'ICI ' + (a.home ?? u).squad.name.toUpperCase() + '. URGENT. Agent à terre ! ' + (cover ? 'Deux boucliers en couverture, je le dégage' : 'Je le dégage, la ligne tient') + '. PARLEZ.', 2, 'unite');
     }
   }
 
@@ -439,6 +452,8 @@ export class PoliceSystem implements GameSystem {
         u.ackText = '';
       }
     }
+    // cordons des lignes à l'arrêt, état des rues barrées, nasses
+    this.barrages.update(k);
     // agents : focalisation (réflexion moins fréquente loin du joueur)
     const player = ctx.player.person();
     const px = player ? player.x : 0;

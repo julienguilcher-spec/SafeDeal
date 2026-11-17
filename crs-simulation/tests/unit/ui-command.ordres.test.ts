@@ -129,7 +129,7 @@ describe('commandement — catalogue des ordres', () => {
   const CONTRACT: OrderType[] = [
     'libre', 'suivre', 'tenir', 'ligne', 'colonne', 'tortue', 'avancer', 'bond_offensif', 'charge', 'refoulement', 'repli',
     'encercler', 'disperser_gaz', 'interpeller', 'proteger', 'embarquer', 'debarquer', 'degager_barricade', 'escorter', 'cesser',
-    'degager_obstacle',
+    'degager_obstacle', 'couper_circulation', 'filtrer',
   ];
 
   it('tous les verbes d\'OrderType du contrat ont un libellé français, une seule fois', () => {

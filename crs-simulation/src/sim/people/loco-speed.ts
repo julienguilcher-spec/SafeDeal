@@ -168,8 +168,10 @@ export function computeLoad(ctx: GameContext, p: Person): number {
 
 const DENSITY_AREA = Math.PI * T.CROWD_RADIUS * T.CROWD_RADIUS;
 
+/** Ordres qui tiennent une position (même liste que l'IA de police, src/sim/police/brain.ts : isHoldOrder). */
 function isHoldOrder(type: string): boolean {
-  return type === 'ligne' || type === 'tenir' || type === 'tortue' || type === 'encercler' || type === 'proteger';
+  return type === 'ligne' || type === 'tenir' || type === 'tortue' || type === 'encercler' || type === 'proteger'
+    || type === 'couper_circulation' || type === 'filtrer';
 }
 
 /** Réflexion lente d'une personne : résistance à la poussée, sol, densité ; `heavy` : recalcule aussi la charge. */
@@ -180,7 +182,8 @@ export function refreshSlow(ctx: GameContext, shared: PeopleShared, p: Person, e
   if (p.alt && shieldRaised(p)) w *= T.RESIST_SHIELD;
   if (p.squadId !== 0 && p.faction === 'police') {
     const sq = ctx.squads.get(p.squadId);
-    if (sq && isHoldOrder(sq.order.type)) w *= T.RESIST_LINE;
+    // « avancer » jusqu'à une rue : arrivée, l'unité la barre et s'arc-boute comme une ligne qui tient
+    if (sq && (isHoldOrder(sq.order.type) || (sq.order.type === 'avancer' && p.vx * p.vx + p.vz * p.vz < 0.25))) w *= T.RESIST_LINE;
   }
   if (p.stun > 0.3 || p.injury === 'serious' || p.injury === 'critical') w *= 0.6;
   shared.setResist(p.id, w);

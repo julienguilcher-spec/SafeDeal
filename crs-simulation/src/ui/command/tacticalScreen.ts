@@ -29,6 +29,9 @@ import { ensureCommandStyle } from './style';
 import { TacticalMap } from './tacticalMap';
 import { MapPopover } from './tacticalPop';
 import { IDLE, TacticalState } from './tacticalState';
+import { acceptNasse, openFilteredExit, proposeNasse, resolveCrowd } from './nasse';
+import { kettleBanner } from '../maps/barrages';
+import type { SceneCrowdExits } from '../maps/barrages';
 import { TACTICAL_KEYS_LEGEND, cycleUnitKey, keyboardSections, sectionKeyIndex } from './tacticalKeys';
 import { RadialMenu } from './wheel';
 import type { WheelItem } from './wheel';
@@ -49,11 +52,24 @@ const TABS: readonly { id: TacticalTab; label: string; icon: IconName }[] = [
 const LAYERS: readonly { key: keyof LayerMask; label: string }[] = [
   { key: 'units', label: 'Unités' }, { key: 'orders', label: 'Ordres en cours' }, { key: 'crowd', label: 'Foule (densité, tension)' },
   { key: 'hazards', label: 'Gaz et feux' }, { key: 'incidents', label: 'Incidents' }, { key: 'closures', label: 'Rues fermées' },
-  { key: 'metro', label: 'Métro' }, { key: 'route', label: 'Parcours déclaré' },
+  { key: 'barrages', label: 'Barrages, issues, nasses' }, { key: 'metro', label: 'Métro' }, { key: 'route', label: 'Parcours déclaré' },
+];
+
+/** Légende des symboles de barrage et de nasse (panneau des couches) : pastille dessinée en SVG, libellé. */
+const LEGEND: readonly { svg: string; label: string }[] = [
+  { svg: '<rect x="1" y="5" width="26" height="6" fill="#ff3b30" stroke="#0b1322"/>', label: 'Rue barrée\u00a0: personne ne passe, dans les deux sens' },
+  { svg: '<line x1="1" y1="8" x2="27" y2="8" stroke="#ff3b30" stroke-width="4" stroke-dasharray="5 3"/>', label: 'Barrage en route' },
+  { svg: '<rect x="1" y="5" width="14" height="6" fill="#ff9500"/><rect x="15" y="5" width="12" height="6" fill="none" stroke="#ff9500"/><path d="M15 11l6-6M19 11l6-6M23 11l4-4" stroke="#ff9500"/>', label: 'Barrage incomplet (hachures\u00a0: partie non tenue)' },
+  { svg: '<rect x="1" y="5" width="11" height="6" fill="#34c759"/><rect x="16" y="5" width="11" height="6" fill="#34c759"/>', label: 'Barrage filtrant (une porte)' },
+  { svg: '<path d="M3 8h11v-4l9 4-9 4v-4" fill="#fff" stroke="#0b1322"/><path d="M14 1v3M14 12v3" stroke="#fff" stroke-width="2"/>', label: 'Issue ouverte (nom de la rue)' },
+  { svg: '<circle cx="14" cy="8" r="6.5" fill="none" stroke="#ff3b30" stroke-width="2" stroke-dasharray="4 2"/>', label: 'Nasse fermée' },
+  { svg: '<rect x="2" y="5" width="24" height="6" fill="#ff3b30"/><rect x="8" y="5" width="6" height="6" fill="#fff"/><rect x="20" y="5" width="6" height="6" fill="#fff"/>', label: 'Rue fermée à la circulation (barrières)' },
 ];
 
 /** Verbes de l'ordre rapide (appui long, clic droit maintenu, bouton X de la manette). */
-export const QUICK_VERBS: readonly string[] = ['avancer', 'bond_offensif', 'charge', 'encercler', 'repli', 'cesser', 'tenir', 'ligne', 'suivre_pied', 'avec_moi'];
+export const QUICK_VERBS: readonly string[] = [
+  'avancer', 'bond_offensif', 'charge', 'encercler', 'repli', 'cesser', 'tenir', 'ligne', 'suivre_pied', 'avec_moi', 'couper_circulation',
+];
 
 /** Vue et sélection retrouvées à la réouverture de la carte pendant la même session. */
 interface Memory { cx: number; cz: number; mpp: number; tab: TacticalTab; selection: number[]; session: unknown }
@@ -88,6 +104,12 @@ export class TacticalScreen implements ScreenInstance {
   private readonly hintText: HTMLElement;
   private readonly hintRule: HTMLElement;
   private readonly hintCancel: HTMLButtonElement;
+  private readonly hintOk: HTMLButtonElement;
+  /** Bandeau « NASSE FERMÉE — lieu — environ N personnes » et son action « Ouvrir une issue filtrée » (F). */
+  private readonly kettle: HTMLDivElement;
+  private readonly kettleText: HTMLElement;
+  private readonly kettleBtn: HTMLButtonElement;
+  private kettleShown: SceneCrowdExits | null = null;
   private readonly toolMain: HTMLButtonElement;
   private readonly toolBox: HTMLButtonElement;
   private readonly unitsBtn: HTMLButtonElement;
@@ -164,6 +186,7 @@ export class TacticalScreen implements ScreenInstance {
     };
     this.tmap = new TacticalMap(core, this.map, st);
     this.tmap.onQuickMenu = (x, y) => this.openQuick(x, y);
+    this.tmap.onAcceptNasse = () => this.acceptNasse();
     this.tmap.onPickEntity = (pick) => this.pop.open(pick.station, pick.station ? null : pick.closure);
     // en mode carte, les directions pilotent le curseur : la navigation au focus ne s'en mêle pas
     this.map.canvas.addEventListener('ui:nav', (e) => e.preventDefault());
@@ -183,8 +206,16 @@ export class TacticalScreen implements ScreenInstance {
     this.hintText = el('span');
     this.hintRule = el('small');
     hintBody.append(this.hintText, this.hintRule);
-    this.hintCancel = button('Annuler', () => st.setMode(IDLE), { className: 'is-small', id: 'tac-cancel' });
-    this.hint.append(this.hintTitle, hintBody, this.hintCancel);
+    this.hintCancel = button('Annuler', () => this.cancelHint(), { className: 'is-small', id: 'tac-cancel' });
+    this.hintOk = button('Valider', () => this.acceptNasse(), { className: 'is-small is-primary', id: 'tac-nasse-ok', title: 'Valider (Entrée ou P)' });
+    this.hint.append(this.hintTitle, hintBody, this.hintOk, this.hintCancel);
+
+    this.kettle = el('div', 'ct-kettle is-off');
+    this.kettle.dataset.id = 'tac-kettle';
+    this.kettleText = el('b');
+    this.kettleBtn = button('Ouvrir une issue filtrée', () => this.filterKettle(), { icon: 'check', className: 'is-small', id: 'tac-kettle-filter', title: 'Ouvrir une issue filtrée (F)' });
+    this.kettleBtn.appendChild(el('span', 'cm-kbd', 'F'));
+    this.kettle.append(this.kettleText, this.kettleBtn);
 
     const tools = el('div', 'ct-tools');
     this.unitsBtn = button('', () => {
@@ -211,6 +242,17 @@ export class TacticalScreen implements ScreenInstance {
       }, { className: 'is-small is-on', id: 'layer-' + L.key });
       this.layersBox.appendChild(b);
     }
+    // légende des barrages et des nasses
+    const legend = el('div', 'ct-legend');
+    legend.appendChild(el('div', 'cm-sub', 'Légende'));
+    for (let i = 0; i < LEGEND.length; i++) {
+      const row = el('div', 'ct-legend-r');
+      const sw = el('i');
+      sw.innerHTML = `<svg width="28" height="16" viewBox="0 0 28 16" aria-hidden="true">${LEGEND[i]!.svg}</svg>`;
+      row.append(sw, el('span', undefined, LEGEND[i]!.label));
+      legend.appendChild(row);
+    }
+    this.layersBox.appendChild(legend);
     const layersBtn = button('', () => this.layersBox.classList.toggle('is-on'), { icon: 'layers', className: 'is-icon', title: 'Couches de la carte', id: 'tac-layers' });
     this.quickBox = el('div', 'ct-quick');
     this.scale = new ScaleBar(mapwrap);
@@ -218,7 +260,7 @@ export class TacticalScreen implements ScreenInstance {
     mapControls(mapwrap, this.map, core.maps, [layersBtn]);
     // clavier seul : les touches de la carte, en bas (masquées au doigt)
     this.keysLegend = el('div', 'ct-keys', TACTICAL_KEYS_LEGEND);
-    mapwrap.append(this.hint, tools, this.layersBox, this.quickBox, this.keysLegend);
+    mapwrap.append(this.hint, this.kettle, tools, this.layersBox, this.quickBox, this.keysLegend);
 
     // ── panneau de gauche ──
     this.units = new UnitsPanel(core, st, this.map, this.tmap, body);
@@ -250,6 +292,12 @@ export class TacticalScreen implements ScreenInstance {
     }
     const panes = el('div', 'ct-panes');
     this.orders = new OrdersPanel(core, st, this.tmap, panes);
+    this.orders.nasse = {
+      target: () => this.targetCrowd(),
+      propose: () => this.proposeNasse(),
+      accept: () => this.acceptNasse(),
+      cancel: () => this.cancelHint(),
+    };
     this.incidents = new IncidentsPanel(core, st, this.map, this.tmap, panes);
     this.traffic = new TrafficPanel(core, st, this.map, this.tmap, panes);
     this.journal = new RadioLogView(core, panes);
@@ -292,7 +340,7 @@ export class TacticalScreen implements ScreenInstance {
       if (this.quick || ctx.input.device !== 'kbm') return;
       // un ordre en préparation, une fenêtre ou un outil ouvert : Échap les annule d'abord (back(), non intercepté) ;
       // le focus revient à la carte, si bien que l'Échap suivant ferme l'écran
-      if (this.state.mode.kind !== 'idle' || this.state.tool === 'box' || this.pop.active || this.layersBox.classList.contains('is-on')) {
+      if (this.state.mode.kind !== 'idle' || this.state.tool === 'box' || this.pop.active || this.layersBox.classList.contains('is-on') || this.core.nasse) {
         this.focusMap();
         return;
       }
@@ -419,8 +467,10 @@ export class TacticalScreen implements ScreenInstance {
       verbs.push(v);
       // « me suivre » : intitulé complet (« À pied » seul ne dirait pas qui l'unité suit)
       const follow = v.type === 'suivre_pied' ? 'à pied' : v.type === 'avec_moi' ? 'en colonne (véh.)' : '';
+      // « Barrer la rue » : personne ne passe, dans les deux sens
+      const sub = follow !== '' ? follow : v.type === 'couper_circulation' ? 'la rue' : undefined;
       items.push({
-        id: v.type, label: follow !== '' ? 'Me suivre' : v.short, sub: follow !== '' ? follow : undefined, force: v.coercive,
+        id: v.type, label: follow !== '' ? 'Me suivre' : v.short, sub, force: v.coercive,
         disabled: v.force > roe.authorizedForce && !roe.underAttack, key: wheelKeyLabel(i),
       });
     }
@@ -504,6 +554,16 @@ export class TacticalScreen implements ScreenInstance {
       this.map.flyTo(u.x, u.z);
       return;
     }
+    if (e.code === 'KeyN') {
+      e.preventDefault();
+      this.proposeNasse();
+      return;
+    }
+    if (e.code === 'KeyF' && this.kettleShown) {
+      e.preventDefault();
+      this.filterKettle();
+      return;
+    }
     if (e.code === 'KeyL') {
       e.preventDefault();
       st.setTab('ordres');
@@ -526,6 +586,91 @@ export class TacticalScreen implements ScreenInstance {
     this.openQuick(x, y);
   }
 
+  // ───────────────────────────── nasse ─────────────────────────────
+
+  /** Point désigné au clavier (curseur) ou centre de la vue, dans le monde. */
+  private designated(out: { x: number; z: number }): { x: number; z: number } {
+    const v = this.map.view;
+    const x = this.map.cursorOn ? this.map.cursorX : v.width * 0.5;
+    const y = this.map.cursorOn ? this.map.cursorY : v.height * 0.5;
+    this.map.worldAt(x, y, out);
+    return out;
+  }
+
+  /** Foule visée par « Fermer la nasse » et par le résumé des issues : celle touchée, sinon la plus proche du curseur. */
+  targetCrowd(): SceneCrowdExits | null {
+    const p = this.designated(this.w);
+    return resolveCrowd(this.core.maps.scene.crowdExits, this.state.focusCrowd, p.x, p.z);
+  }
+
+  /** « Fermer la nasse » (N, bouton de l'onglet « Ordres ») : proposition montrée sur la carte, à valider. */
+  proposeNasse(): void {
+    const core = this.core;
+    if (core.scope().level === 'lecture') return;
+    if (core.maps.scene.crowdExits.length === 0) {
+      core.ctx.ui.notify('Aucune issue connue autour des foules : le service des barrages ne répond pas.', 'warn', 4);
+      return;
+    }
+    const scene = core.maps.scene;
+    const sections = keyboardSections(scene.units, (id) => core.canCommand(id));
+    const r = proposeNasse(core, this.targetCrowd(), this.tmap.selectedUnits(), sections);
+    const keys = core.ctx.input.device === 'kbm' && !coarsePointer() ? ' Entrée ou P : valider · Échap : annuler.' : '';
+    core.ctx.ui.notify(r.text + (r.pending ? keys : ''), r.pending ? 'info' : 'warn', r.pending ? 6 : 5);
+    if (!r.pending) core.ctx.audio.play('ui_alerte');
+    this.state.touch();
+  }
+
+  acceptNasse(): void {
+    const core = this.core;
+    if (!core.nasse) return;
+    const r = acceptNasse(core);
+    core.ctx.ui.notify(r.text, r.ok ? 'ok' : 'warn', 5);
+    this.state.touch();
+  }
+
+  /** Bouton « Annuler » du bandeau de consigne : la proposition de nasse, sinon l'outil en cours. */
+  private cancelHint(): void {
+    if (this.core.nasse) this.core.nasse = null;
+    else this.state.setMode(IDLE);
+    this.state.touch();
+  }
+
+  /** Nasse fermée : l'unité qui tient l'issue la plus large passe en barrage filtrant (ordre « filtrer »). */
+  private filterKettle(): void {
+    const k = this.kettleShown;
+    if (!k || this.core.scope().level === 'lecture') return;
+    const r = openFilteredExit(this.core, k);
+    this.core.ctx.ui.notify(r.text, r.ok ? 'ok' : 'warn', 5);
+    if (!r.ok) this.core.ctx.audio.play('ui_alerte');
+    this.state.touch();
+  }
+
+  /** Bandeau de la nasse fermée la plus proche du centre de la vue (« (+1) » s'il y en a d'autres). */
+  private refreshKettle(): void {
+    const list = this.core.maps.scene.crowdExits;
+    const v = this.map.view;
+    let best: SceneCrowdExits | null = null;
+    let bd = Infinity;
+    let n = 0;
+    for (let i = 0; i < list.length; i++) {
+      const c = list[i]!;
+      if (!c.closed) continue;
+      n++;
+      const d = Math.hypot(c.x - v.cx, c.z - v.cz);
+      if (d < bd) { bd = d; best = c; }
+    }
+    this.kettleShown = best;
+    setClass(this.kettle, 'is-off', !best);
+    if (!best) return;
+    setText(this.kettleText, kettleBanner({ place: best.place, inside: best.people }) + (n > 1 ? ` (+${n - 1})` : ''));
+    const canAct = this.core.scope().level !== 'lecture';
+    this.kettleBtn.style.display = canAct ? '' : 'none';
+    const filtered = best.exits.some((e) => e.mode === 'filtrant');
+    const lbl = this.kettleBtn.querySelector('.cm-btn-t');
+    if (lbl) setText(lbl as HTMLElement, filtered ? 'Issue filtrée ouverte' : 'Ouvrir une issue filtrée');
+    this.kettleBtn.disabled = filtered;
+  }
+
   // ───────────────────────────── rafraîchissement ─────────────────────────────
 
   private refreshHint(): void {
@@ -535,7 +680,11 @@ export class TacticalScreen implements ScreenInstance {
     let title = '';
     let text = '';
     let rule = '';
-    if (mode.kind === 'order') {
+    const nasse = this.core.nasse;
+    if (nasse && mode.kind === 'idle') {
+      title = 'Fermer la nasse';
+      text = nasse.text;
+    } else if (mode.kind === 'order') {
       title = mode.verb.short;
       text = mode.verb.hint;
       rule = mode.verb.rule;
@@ -555,10 +704,13 @@ export class TacticalScreen implements ScreenInstance {
     const on = title !== '';
     setClass(this.hint, 'is-off', !on);
     if (!on) return;
-    setClass(this.hint, 'is-mode', mode.kind !== 'idle');
+    const pending = !!nasse && mode.kind === 'idle';
+    setClass(this.hint, 'is-mode', mode.kind !== 'idle' || pending);
     setText(this.hintTitle, title);
     // au clavier seul, la désignation se fait au curseur (les consignes des ordres parlent de clic et de glisser)
-    if (mode.kind !== 'idle' && this.core.ctx.input.device === 'kbm' && !coarsePointer()) {
+    if (pending && this.core.ctx.input.device === 'kbm' && !coarsePointer()) {
+      text += ' Clavier\u00a0: Entrée ou P pour valider, Échap pour annuler.';
+    } else if (mode.kind !== 'idle' && this.core.ctx.input.device === 'kbm' && !coarsePointer()) {
       text += mode.kind === 'close_area'
         ? ' Clavier\u00a0: flèches pour placer le centre, Entrée maintenue et flèches pour le rayon.'
         : ' Clavier\u00a0: flèches pour viser, Entrée pour désigner (Entrée maintenue et flèches pour tracer)\u00a0; Échap annule.';
@@ -568,7 +720,8 @@ export class TacticalScreen implements ScreenInstance {
     this.hintRule.style.display = rule !== '' ? '' : 'none';
     const lbl = this.hintCancel.querySelector('.cm-btn-t');
     if (lbl) setText(lbl as HTMLElement, mode.kind === 'close_road' ? 'Terminer' : 'Annuler');
-    this.hintCancel.style.display = mode.kind !== 'idle' ? '' : 'none';
+    this.hintCancel.style.display = mode.kind !== 'idle' || pending ? '' : 'none';
+    this.hintOk.style.display = pending ? '' : 'none';
     void level;
   }
 
@@ -619,6 +772,7 @@ export class TacticalScreen implements ScreenInstance {
       else if (st.tab === 'circulation') this.traffic.refresh();
       else if (st.tab === 'journal') this.journal.refresh();
       this.refreshHint();
+      this.refreshKettle();
       this.refreshDrone();
       // ordre (ou appel des secours) choisi au clavier dans la palette : le focus passe à la carte pour désigner le point
       const kind = st.mode.kind;
@@ -716,6 +870,11 @@ export class TacticalScreen implements ScreenInstance {
     }
     if (this.tmap.drag) {
       this.map.gestures.cancelAll();
+      return true;
+    }
+    if (this.core.nasse && this.state.mode.kind === 'idle') {
+      this.core.nasse = null;
+      this.state.touch();
       return true;
     }
     if (this.state.mode.kind !== 'idle' || this.state.tool === 'box') {

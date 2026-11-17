@@ -8,7 +8,7 @@
  * Ce fichier n'est modifié que par l'intégrateur.
  * ===================================================================================== */
 
-import type { EntityId, EntityKind, InputState, Button, ScreenId } from './contracts';
+import type { EntityId, EntityKind, InputState, Button, Person, ScreenId, Vec2 } from './contracts';
 
 /** Clés des services étendus. */
 export const EXT = {
@@ -24,6 +24,8 @@ export const EXT = {
   objectives: 'ui.objectives',
   /** Boîte à outils d'interface (UiKit) — fourni par le module d'interface. */
   uiKit: 'ui.kit',
+  /** Cordons tenus par les lignes de barrage (CordonsApi) — fourni par le module de police, lu par la locomotion. */
+  cordons: 'police.cordons',
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────────────
@@ -101,14 +103,35 @@ export interface RoadClosure {
 export interface TrafficControlApi {
   readonly closures: readonly RoadClosure[];
   isClosed(edgeId: number): boolean;
-  /** Ferme une rue à la circulation (au point le plus proche de x, z). */
-  closeRoad(x: number, z: number, byId: EntityId, squadId?: number): RoadClosure | null;
+  /**
+   * Ferme une rue à la circulation (au point le plus proche de x, z). `held` : la rue est barrée par la ligne de
+   * l'unité `squadId` elle-même (ni barrières posées, ni ordre « couper la circulation » donné à l'unité).
+   */
+  closeRoad(x: number, z: number, byId: EntityId, squadId?: number, held?: boolean): RoadClosure | null;
   /** Ferme toutes les rues entrant dans un périmètre. */
   closeArea(x: number, z: number, radius: number, byId: EntityId): RoadClosure[];
   open(closureId: number): void;
   openAll(): void;
   /** Nombre de véhicules civils en circulation et à l'arrêt dans un rayon (pour l'interface). */
   countNear(x: number, z: number, radius: number): { moving: number; stopped: number };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────
+// Cordons : une ligne de barrage tenue ne se franchit pas (ni entre deux agents, ni le long d'un mur)
+// ─────────────────────────────────────────────────────────────────────────────────────
+
+export interface CordonsApi {
+  /** Nombre de tronçons tenus à cet instant (0 : rien à tester). */
+  readonly count: number;
+  /**
+   * Retient la personne `p` (position actuelle p.x, p.z ; position voulue `pos`, rayon `r`) du côté du cordon où
+   * elle se trouve ; true si `pos` a été corrigée. Forces de l'ordre, secours et joueur passent (la ligne s'ouvre).
+   */
+  resolve(p: Person, pos: Vec2, r: number): boolean;
+  /** Le segment (a → b) franchit-il un cordon tenu ? (itinéraires à pied : une rue barrée se contourne) */
+  crosses(ax: number, az: number, bx: number, bz: number): boolean;
+  /** Tronçons tenus, quatre nombres par tronçon [ax, az, bx, bz] (les `count` premiers). */
+  readonly segments: ArrayLike<number>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────

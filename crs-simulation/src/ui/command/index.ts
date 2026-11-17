@@ -16,6 +16,7 @@ import { SystemOrder } from '@/core/contracts';
 import { EXT } from '@/core/extensions';
 import type { UiKit } from '@/core/extensions';
 import { MAPS_SERVICE } from '../maps/api';
+import { barragesApi, kettleBanner } from '../maps/barrages';
 import { MapsRuntime } from '../maps/runtime';
 import { COMMAND_SERVICE } from './api';
 import { CommandCore } from './core';
@@ -34,6 +35,8 @@ export const COMMAND_SYSTEM_ID = 'ui:command';
 
 /** Charge utile des événements 'police:order_refused' et 'police:order_done'. */
 interface OrderProblem { squadId: number; type: string; ok?: boolean; reason?: string }
+/** Charge utile de l'événement 'police:kettle' (service 'police.barrages'). */
+interface KettleEvent { id: number; closed: boolean; inside: number; x: number; z: number }
 export const UNIT_WIDGET_ID = 'command.unit';
 export const INCIDENT_WIDGET_ID = 'command.incident';
 export const QUICK_WIDGET_ID = 'command.quick';
@@ -76,8 +79,11 @@ export class CommandSystem implements GameSystem {
         // ordres repris au débarquement : propres à la session (les identifiants d'unités sont réattribués)
         core.afterConvoy.clear();
         core.orderForce = 4;
+        core.nasse = null;
         this.ordersDirty = true;
       }),
+      // nasse fermée (service 'police.barrages') : le commandement en est averti même carte fermée
+      ctx.events.onAny('police:kettle', (e) => this.kettleClosed(e as KettleEvent)),
       // un ordre du joueur refusé ou abandonné par l'unité : le motif s'affiche (sinon il croit qu'on l'ignore)
       ctx.events.onAny('police:order_refused', (e) => this.orderProblem(e as OrderProblem, true)),
       ctx.events.onAny('police:order_done', (e) => this.orderProblem(e as OrderProblem, false)),
@@ -130,6 +136,23 @@ export class CommandSystem implements GameSystem {
     } catch (err) {
       console.error('[commandement] bouton « Ordres » de l’écran tactile : mise à jour impossible', err);
     }
+  }
+
+  /** Nasse fermée : bandeau « NASSE FERMÉE — lieu — environ N personnes » pour ceux qui voient le dispositif. */
+  private kettleClosed(e: KettleEvent): void {
+    const ctx = this.ctx;
+    const core = this.core;
+    if (!ctx || !core || !e || !e.closed || !Number.isFinite(e.x) || !Number.isFinite(e.z)) return;
+    if (!core.maps.scene.vis.police) return;
+    const api = barragesApi((name) => ctx.service(name));
+    const k = api?.kettles.find((q) => q.id === e.id);
+    let place = k?.place ?? '';
+    if (place === '') {
+      const s = ctx.world.sectorName(e.x, e.z);
+      place = s && s !== 'secteur inconnu' ? s : '';
+    }
+    const filter = core.scope().level !== 'lecture' ? ' Carte tactique : F pour ouvrir une issue filtrée.' : '';
+    ctx.ui.notify(`${kettleBanner({ place, inside: e.inside })}.${filter}`, 'warn', 7);
   }
 
   private orderProblem(e: OrderProblem, refused: boolean): void {

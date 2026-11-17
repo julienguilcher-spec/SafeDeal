@@ -4,7 +4,7 @@
  * étendus (tous facultatifs). Partagé par la carte tactique, la roue d'ordres, la radio et le HUD.
  * ===================================================================================== */
 
-import type { ForceLevel, GameContext, OrderType, Person, Squad } from '@/core/contracts';
+import type { ForceLevel, GameContext, OrderType, Person, RoadSample, Squad } from '@/core/contracts';
 import { EXT } from '@/core/extensions';
 import type { IncidentsApi, MetroApi, RescueApi, TrafficControlApi, UiKit } from '@/core/extensions';
 import type { MapsRuntime } from '../maps/runtime';
@@ -15,6 +15,7 @@ import type { OrderGeom, OrderVerb } from './orders';
 import { orderPhrase } from './phrases';
 import { computeScope } from './scope';
 import type { FollowApi } from '@/gameplay/session/follow';
+import type { NasseProposal } from './nasse';
 
 const ISSUED_MAX = 50;
 /** Distance (m) au-delà de laquelle un ordre de mouvement se fait en véhicules ; ordres concernés. */
@@ -35,6 +36,11 @@ export class CommandCore implements CommandApi {
   readonly issued: IssuedOrder[] = [];
   /** Plafond de force appliqué aux ordres du joueur (borné par la force autorisée au moment de l'ordre). */
   orderForce: ForceLevel = 4;
+  /**
+   * Proposition « Fermer la nasse » en attente (carte tactique) : montrée sur la carte, exécutée par Entrée sur la carte
+   * ou par P (comme une proposition de l'adjoint), écartée par Échap ou Maj + P. Propre à la session.
+   */
+  nasse: NasseProposal | null = null;
   private scope_: CommandScope | null = null;
   private scopeAt = -1e9;
 
@@ -181,7 +187,7 @@ export class CommandCore implements CommandApi {
         ctx.radio.say({
           channel: 'commandement', from, priority: verb.coercive ? 2 : 1, personId: playerId,
           text: orderPhrase({
-            type: t, unit: s.name, from, sector: g ? ctx.world.sectorName(o.x, o.z) : '', heading: o.heading, width: o.width,
+            type: t, unit: s.name, from, sector: g ? this.placeName(t, o.x, o.z) : '', heading: o.heading, width: o.width,
             distance: dist, target: targetName,
           }),
         });
@@ -192,6 +198,19 @@ export class CommandCore implements CommandApi {
     if (chk.warning !== '') ctx.ui.notify(chk.warning, 'warn', 5);
     ctx.audio.play('radio_bip');
     return { ok: true, reason: '', count };
+  }
+
+  private readonly road: RoadSample = {
+    edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '', roadClass: 'residential', oneway: false,
+  };
+
+  /** Lieu dit à la radio : la rue elle-même pour un barrage (« Barrez la rue, rue de Rivoli »), sinon le secteur. */
+  private placeName(type: OrderType, x: number, z: number): string {
+    const world = this.ctx.world;
+    if ((type === 'couper_circulation' || type === 'filtrer') && world.edgeCount > 0 && world.nearestRoad(x, z, this.road, 40) && this.road.name) {
+      return this.road.name;
+    }
+    return world.sectorName(x, z);
   }
 
   /** Ordre donné : tracé dans `issued`. */

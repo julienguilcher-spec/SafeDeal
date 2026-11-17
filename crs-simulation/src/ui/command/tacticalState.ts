@@ -30,6 +30,8 @@ export class TacticalState {
   focusIncident = 0;
   focusStation = 0;
   focusClosure = 0;
+  /** Foule touchée sur la carte (clé de SceneCrowdExits : 'f' + foyer…), visée par « Fermer la nasse » ; '' : aucune. */
+  focusCrowd = '';
   /** Unité survolée (carte ou liste) et unité cible d'un dépôt d'incident. */
   hoverKey = 0;
   dropKey = 0;

@@ -129,11 +129,11 @@ export function gather(k: Kernel, u: Unit): number {
   return formables(u, k.agentsTmp);
 }
 
-export function formLine(k: Kernel, u: Unit, x: number, z: number, h: number, width: number, doorW = 0): FormGroup {
+export function formLine(k: Kernel, u: Unit, x: number, z: number, h: number, width: number, doorW = 0, spacingMax = T.SPACING_MAX): FormGroup {
   const n = gather(k, u);
   clearSlots(u);
   const g = mainGroup(u);
-  buildLine(k, g, k.agentsTmp, n, x, z, h, width, doorW);
+  buildLine(k, g, k.agentsTmp, n, x, z, h, width, doorW, spacingMax);
   adopt(g, k.agentsTmp, n);
   finishBuild(k, g);
   return g;
@@ -382,7 +382,13 @@ export function reform(k: Kernel, u: Unit): void {
   const n = gather(k, u);
   clearSlots(u);
   const agents = k.agentsTmp;
-  if (kind === F_LINE) buildLine(k, g, agents, n, g.ax, g.az, g.ah, g.width > 0 ? g.width : 0, 0);
+  if (kind === F_LINE) {
+    // rue barrée : toujours de façade à façade, coude à coude ; barrage filtrant : la porte est gardée
+    const m = u.man;
+    const door = m.barrage && u.order && u.order.type === 'filtrer' ? T.FILTER_DOOR : 0;
+    if (m.barrage) buildLine(k, g, agents, n, g.ax, g.az, g.ah, m.bWalls ? 0 : g.width, door, T.BARRAGE_SPACING);
+    else buildLine(k, g, agents, n, g.ax, g.az, g.ah, g.width > 0 ? g.width : 0, 0);
+  }
   else if (kind === F_TORTUE) buildTortue(k, g, agents, n, g.ax, g.az, g.ah);
   else if (kind === F_SCREEN) buildScreen(k, g, agents, n, g.ax, g.az, g.ah, g.radius);
   else if (kind === F_BOX) buildBox(k, g, agents, n, g.ax, g.az, g.ah, g.radius, Math.max(0.3, g.width / 2 - T.ESCORT_SIDE));

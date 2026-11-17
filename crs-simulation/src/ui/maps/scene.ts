@@ -13,6 +13,8 @@ import type {
 } from '@/core/extensions';
 import { pointOnPolyline } from '@/core/math';
 import type { MapVisibility } from './api';
+import { barragesApi } from './barrages';
+import type { SceneBarrage, SceneCrowdExits, SceneExit } from './barrages';
 import { aggregateDensity, createDensityGrid, densityColor } from './density';
 import type { DensityGrid, DensityPoint } from './density';
 import { UnitModel } from './units';
@@ -87,6 +89,16 @@ interface FoyersLike {
 const UNITS_PERIOD = 0.2;
 const CROWD_PERIOD = 0.5;
 const HAZARD_PERIOD = 0.5;
+/** Issues autour des foules : interrogées deux fois par seconde (calcul de graphe côté simulation). */
+const EXITS_PERIOD = 0.5;
+/** Rayon de recherche des issues autour d'un cortège (m) ; marge d'appartenance d'une foule à une nasse (m). */
+const MARCH_EXIT_RADIUS = 90;
+const KETTLE_MARGIN = 20;
+
+/** Rayon de recherche des issues autour d'un foyer (m) : croît avec l'effectif. */
+export function foyerExitRadius(people: number): number {
+  return Math.max(35, Math.min(120, 25 + Math.sqrt(Math.max(0, people)) * 2.5));
+}
 /** Côté de cellule de la carte de densité (m) et taille maximale de la grille. */
 export const DENSITY_CELL = 5;
 const DENSITY_MAX = 192;
@@ -161,6 +173,13 @@ export class MapScene {
   /** Manifestations déclarées supplémentaires (en cours) : parcours, tête, effectif, phase. */
   manifs: SceneManif[] = [];
   closures: readonly RoadClosure[] = [];
+  /**
+   * Barrages de rue tenus par la police (service 'police.barrages') : tous pour les rôles de police, ceux qu'on voit
+   * autour de soi pour les autres. Vide sans le service.
+   */
+  barrages: SceneBarrage[] = [];
+  /** Issues autour de chaque foule (nasses, foyers, cortèges) : commandement seulement. Vide sans le service. */
+  crowdExits: SceneCrowdExits[] = [];
   stations: MetroStation[] = [];
   calls: RescueCall[] = [];
   objectives: Objective[] = [];
@@ -177,6 +196,7 @@ export class MapScene {
   private tUnits = -1;
   private tCrowd = -1;
   private tHazard = -1;
+  private tExits = -1;
   private readonly crowdPts: DensityPoint[] = [];
   private densityData: ImageData | null = null;
   private gasData: ImageData | null = null;
@@ -224,6 +244,7 @@ export class MapScene {
     this.tUnits = -1;
     this.tCrowd = -1;
     this.tHazard = -1;
+    this.tExits = -1;
     this.gasRev = -1;
   }
 
@@ -242,6 +263,10 @@ export class MapScene {
     if (this.tHazard < 0 || t - this.tHazard >= HAZARD_PERIOD) {
       this.tHazard = t;
       this.refreshHazards();
+    }
+    if (this.tExits < 0 || t - this.tExits >= EXITS_PERIOD) {
+      this.tExits = t;
+      this.refreshExits();
     }
   }
 
@@ -337,6 +362,7 @@ export class MapScene {
 
     const traffic = ctx.service<TrafficControlApi>(EXT.traffic);
     this.closures = traffic && vis.closures ? traffic.closures : EMPTY_CLOSURES;
+    this.refreshBarrages();
 
     const stations = this.stations;
     stations.length = 0;
@@ -377,6 +403,72 @@ export class MapScene {
     const env = ctx.env.state;
     this.windX = env.windX;
     this.windZ = env.windZ;
+  }
+
+  /** Barrages de rue (copie : le service peut réutiliser ses objets) avec l'indicatif de l'unité qui les tient. */
+  private refreshBarrages(): void {
+    const out = this.barrages;
+    out.length = 0;
+    const api = barragesApi((name) => this.ctx.service(name));
+    if (!api) return;
+    const vis = this.vis;
+    const r2 = vis.nearRadius * vis.nearRadius;
+    for (let i = 0; i < api.list.length; i++) {
+      const b = api.list[i]!;
+      if (!Number.isFinite(b.x) || !Number.isFinite(b.z)) continue;
+      if (!vis.police && (!this.hasPlayer || (b.x - this.px) * (b.x - this.px) + (b.z - this.pz) * (b.z - this.pz) > r2)) continue;
+      const sq = b.squadId > 0 ? this.ctx.squads.get(b.squadId) : undefined;
+      out.push({
+        squadId: b.squadId, x: b.x, z: b.z, heading: Number.isFinite(b.heading) ? b.heading : 0,
+        width: Number.isFinite(b.width) && b.width > 0 ? b.width : 0, covered: b.covered, state: b.state, street: b.street ?? '',
+        edgeId: b.edgeId, mode: b.mode, callsign: sq && vis.police ? sq.name : '',
+      });
+    }
+  }
+
+  /**
+   * Issues autour des foules (commandement) : celles de chaque nasse détectée par la simulation, puis celles autour
+   * des foyers, des cortèges et de la tête du cortège principal qui ne sont pas déjà dans une nasse.
+   */
+  private refreshExits(): void {
+    const out = this.crowdExits;
+    out.length = 0;
+    if (!this.vis.police) return;
+    const api = barragesApi((name) => this.ctx.service(name));
+    if (!api) return;
+    const kettles = api.kettles;
+    for (let i = 0; i < kettles.length; i++) {
+      const k = kettles[i]!;
+      out.push({
+        key: 'k' + k.id, place: k.place ?? '', x: k.x, z: k.z, radius: k.radius, people: k.inside, exits: copyExits(k.exits),
+        kettleId: k.id, closed: k.closed,
+      });
+    }
+    const inKettle = (x: number, z: number): boolean => {
+      for (let i = 0; i < kettles.length; i++) {
+        const k = kettles[i]!;
+        if (Math.hypot(x - k.x, z - k.z) <= k.radius + KETTLE_MARGIN) return true;
+      }
+      return false;
+    };
+    const around = (key: string, place: string, x: number, z: number, r: number, people: number): void => {
+      if (!Number.isFinite(x) || !Number.isFinite(z) || inKettle(x, z)) return;
+      let exits: readonly SceneExit[] = [];
+      try { exits = api.exitsAround(x, z, r); } catch { exits = []; }
+      out.push({ key, place, x, z, radius: r, people, exits: copyExits(exits), kettleId: 0, closed: false });
+    };
+    for (let i = 0; i < this.foyers.length; i++) {
+      const f = this.foyers[i]!;
+      around('f' + f.id, f.name, f.x, f.z, foyerExitRadius(f.people), f.people);
+    }
+    for (let i = 0; i < this.manifs.length; i++) {
+      const m = this.manifs[i]!;
+      around('m' + m.id, m.label, m.x, m.z, MARCH_EXIT_RADIUS, m.people);
+    }
+    if (this.hasHead) {
+      const sector = this.ctx.world.sectorName(this.headX, this.headZ);
+      around('c', sector && sector !== 'secteur inconnu' ? sector : 'tête du cortège', this.headX, this.headZ, MARCH_EXIT_RADIUS, this.crowdCount);
+    }
   }
 
   private readonly foyerPool: SceneFoyer[] = [];
@@ -584,4 +676,17 @@ export class MapScene {
 }
 
 const EMPTY_CLOSURES: readonly RoadClosure[] = Object.freeze([]);
+
+function copyExits(list: readonly SceneExit[]): SceneExit[] {
+  const out: SceneExit[] = [];
+  for (let i = 0; i < list.length; i++) {
+    const e = list[i]!;
+    if (!Number.isFinite(e.x) || !Number.isFinite(e.z)) continue;
+    out.push({
+      x: e.x, z: e.z, heading: Number.isFinite(e.heading) ? e.heading : 0, width: Number.isFinite(e.width) ? e.width : 0,
+      street: e.street ?? '', edgeId: e.edgeId, held: !!e.held, squadId: e.squadId | 0, mode: e.mode,
+    });
+  }
+  return out;
+}
 const EMPTY_ROUTE: readonly number[] = Object.freeze([]);

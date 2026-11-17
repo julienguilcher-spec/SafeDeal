@@ -5,9 +5,12 @@
  * ===================================================================================== */
 
 import type { Person, Vec2 } from '@/core/contracts';
+import { EXT } from '@/core/extensions';
+import type { CordonsApi } from '@/core/extensions';
 import type { CrowdExit } from './api';
 import type { CrowdBrain } from './brain';
 import type { CrowdCore } from './core';
+import { footAround, pathCrossesCordon } from './detour';
 import * as T from './tuning';
 
 export class Nav {
@@ -42,8 +45,23 @@ export class Nav {
   /** Itinéraire de A à B, sans le point de départ ; null si la ligne droite suffit ou s'il n'y a pas de chemin. */
   compute(ax: number, az: number, bx: number, bz: number): number[] | null {
     const s = this.scratch;
+    const ctx = this.core.ctx;
     this.computed++;
-    if (!this.core.ctx.world.findPath(ax, az, bx, bz, 'foot', s) || s.length < 6) return null;
+    let ok = ctx.world.findPath(ax, az, bx, bz, 'foot', s);
+    // rue barrée par une ligne de police : on la contourne par les autres rues ; sans autre chemin, la ligne
+    // droite (la personne bute sur le barrage et s'y arrête : nassée, elle le sait par la nasse annoncée)
+    const cordons = ctx.service<CordonsApi>(EXT.cordons);
+    if (cordons && cordons.count > 0) {
+      if (!ok || s.length < 4) {
+        s.length = 0;
+        s.push(ax, az, bx, bz);
+      }
+      if (pathCrossesCordon(cordons, s)) {
+        if (!footAround(ctx, ax, az, bx, bz, cordons, s)) return null;
+        ok = true;
+      }
+    }
+    if (!ok || s.length < 6) return null;
     const out: number[] = [];
     for (let i = 2; i < s.length; i += 2) {
       const x = s[i]!;

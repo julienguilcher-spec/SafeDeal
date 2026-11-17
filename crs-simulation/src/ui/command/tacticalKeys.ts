@@ -6,7 +6,9 @@
  *   1 … 9          sélectionne la section (ou le groupe) n de mon dispositif ; Maj : l'ajoute à la sélection ;
  *   U / Maj + U    unité suivante / précédente sous mes ordres (sélection seule, vue centrée) ;
  *   E              ordre rapide (roue) au curseur pour la sélection ;
- *   L              liste des ordres (palette de l'onglet « Ordres ») : flèches puis Entrée ; Échap revient à la carte.
+ *   L              liste des ordres (palette de l'onglet « Ordres ») : flèches puis Entrée ; Échap revient à la carte ;
+ *   N              « Fermer la nasse » autour de la foule visée : proposition montrée sur la carte, Entrée (ou P) la valide ;
+ *   F              nasse fermée : ouvrir une issue filtrée (ordre « filtrer » à l'unité qui tient l'issue la plus large).
  * ===================================================================================== */
 
 /** Ce que la logique lit d'une unité de la carte (sous-ensemble de MapUnit). */
@@ -18,7 +20,7 @@ export interface KeyUnit {
 
 /** Légende affichée sur la carte tactique au clavier. */
 export const TACTICAL_KEYS_LEGEND =
-  'Clavier : flèches = curseur · Entrée = sélectionner / désigner · 1–9 = section · U = unité suivante · E = ordre rapide · L = liste des ordres · Échap = retour';
+  'Clavier : flèches = curseur · Entrée = sélectionner / désigner · 1–9 = section · U = unité suivante · E = ordre rapide · L = liste des ordres · N = fermer la nasse · Échap = retour';
 
 /** Unités que le joueur peut commander, dans l'ordre de l'arborescence. */
 export function commandableUnits<U extends KeyUnit>(units: readonly U[], canCommand: (squadId: number) => boolean): U[] {

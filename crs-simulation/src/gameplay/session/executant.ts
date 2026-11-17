@@ -119,10 +119,14 @@ export function plainOrder(type: string, o: PlainOrderOptions): PlainOrder {
       return { title: 'Tortue : à l’abri', detail: 'Serrez-vous contre vos collègues, bouclier au-dessus de la tête, attendez l’ordre.', radio: 'tortue, serrez les boucliers', target: hold };
     case 'proteger':
       return { title: `Protéger le site${at}`, detail: 'Tenez le périmètre avec le groupe : personne n’entre.', radio: `on protège le site${at}, personne n'entre`, target: hold };
+    // la rue est barrée d'une façade à l'autre : piétons et véhicules, personne ne passe, dans les deux sens
     case 'couper_circulation':
-      return { title: `Couper la circulation${at}`, detail: 'Barrez la rue avec le groupe, faites faire demi-tour aux véhicules.', radio: `on coupe la circulation${at}`, target: hold };
+      return { title: `Barrage${o.place ? ` — ${o.place}` : ''} : personne ne passe, dans les deux sens`,
+        detail: `${cap(inLine(o.poste))}. La rue est barrée d’une façade à l’autre : ni piétons ni véhicules, ni dans un sens ni dans l’autre.`,
+        radio: `on barre la rue${at}, personne ne passe`, target: hold };
     case 'filtrer':
-      return { title: `Filtrer le passage${at}`, detail: 'Laissez passer les piétons un par un, sans ouvrir la ligne.', radio: `on filtre le passage${at}`, target: hold };
+      return { title: `Barrage filtrant${o.place ? ` — ${o.place}` : ''} : une porte, sortie une à une`,
+        detail: 'Laissez sortir les personnes une à une par la porte, sans ouvrir la ligne.', radio: `on filtre le passage${at}`, target: hold };
     case 'encercler':
       return { title: `Encerclement${at}`, detail: 'Fermez le cercle avec le groupe : personne ne sort.', radio: `on encercle${at}, personne ne sort`, target: hold };
     case 'disperser_gaz':

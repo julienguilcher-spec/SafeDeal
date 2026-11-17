@@ -18,6 +18,7 @@ import { isPoliceRole } from '../maps/visibility';
 import type { DroneFeedApi } from '../drone/api';
 import { DRONE_FEED_SERVICE } from '../drone/api';
 import type { CommandCore } from './core';
+import { acceptNasse } from './nasse';
 import { radioFrame, rescueRequest } from './phrases';
 import { ensureCommandStyle } from './style';
 
@@ -92,7 +93,14 @@ export class QuickActionsHud implements HudWidget {
       if (e.code !== PROPOSAL_KEY || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-      if (this.propId === 0 || this.core.ctx.session.phase !== 'playing') return;
+      if (this.core.ctx.session.phase !== 'playing') return;
+      // « Fermer la nasse » préparée sur la carte tactique : P la valide, Maj + P l'écarte (avant celles de l'adjoint)
+      if (this.core.nasse) {
+        e.preventDefault();
+        this.answerNasse(!e.shiftKey);
+        return;
+      }
+      if (this.propId === 0) return;
       e.preventDefault();
       this.answer(!e.shiftKey);
     };
@@ -131,8 +139,37 @@ export class QuickActionsHud implements HudWidget {
     host.appendChild(this.root);
   }
 
+  /** Proposition « Fermer la nasse » : P exécute les ordres « Barrer la rue », Maj + P l'écarte. */
+  private answerNasse(yes: boolean): void {
+    const core = this.core;
+    if (!core.nasse) return;
+    if (yes) {
+      const r = acceptNasse(core);
+      core.ctx.ui.notify(r.text, r.ok ? 'ok' : 'warn', 5);
+    } else {
+      core.nasse = null;
+      core.ctx.ui.notify('Fermeture de la nasse écartée.', 'info', 3);
+    }
+    this.propId = 0;
+    setClass(this.prop, 'is-off', true);
+    this.last = -1;
+  }
+
   /** Proposition affichée : la plus urgente déjà dite à la radio, exécutable. */
   private refreshProposal(): void {
+    // « Fermer la nasse » en attente : elle passe avant les propositions de l'adjoint (même touche P)
+    const nasse = this.commander ? this.core.nasse : null;
+    if (nasse) {
+      this.propId = -1;
+      this.propTitle.textContent = 'FERMER LA NASSE — À VALIDER';
+      this.propText.textContent = nasse.text;
+      setClass(this.prop, 'is-off', false);
+      return;
+    }
+    if (this.propId === -1) {
+      this.propId = 0;
+      this.propTitle.textContent = 'PROPOSITION DE L’ADJOINT';
+    }
     const cmd = this.core.ctx.service<{ proposals: readonly ProposalLike[] }>('police.command');
     let best: ProposalLike | null = null;
     if (cmd && this.commander) {
@@ -154,6 +191,10 @@ export class QuickActionsHud implements HudWidget {
   }
 
   private answer(yes: boolean): void {
+    if (this.core.nasse) {
+      this.answerNasse(yes);
+      return;
+    }
     const cmd = this.core.ctx.service<{ accept(id: number): boolean; dismiss(id: number): void }>('police.command');
     const id = this.propId;
     if (!cmd || id === 0) return;

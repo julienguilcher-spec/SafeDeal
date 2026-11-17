@@ -317,7 +317,9 @@ export class MissionBriefSystem implements GameSystem {
     const o = group.order;
     const slot = ctx.service<SlotLike>('police.slot')?.slotOf(me.id) ?? null;
     const v = group.vehicleId !== 0 ? ctx.vehicles.get(group.vehicleId) : undefined;
-    const place = o.x === 0 && o.z === 0 ? '' : this.place(o.x, o.z);
+    let place = o.x === 0 && o.z === 0 ? '' : this.place(o.x, o.z);
+    // barrage : la rue que l'unité barre réellement (service 'police.barrages'), à défaut la voie la plus proche
+    if (o.type === 'couper_circulation' || o.type === 'filtrer') place = this.barrageStreet(group) || place;
     const plain = plainOrder(o.type, { place, poste: me.poste, hasPost: !!slot, vehicle: v ? this.vehicleLabel(v, group) : undefined });
     let x: number | undefined, z: number | undefined;
     if (plain.target === 'post' && slot) { x = slot.x; z = slot.z; }
@@ -661,6 +663,21 @@ export class MissionBriefSystem implements GameSystem {
       };
     }
     if (control.listen !== this.listenFn) control.listen = this.listenFn;
+  }
+
+  /** Rue barrée par le groupe du joueur ou par une unité supérieure (service 'police.barrages') ; '' si inconnue. */
+  private barrageStreet(group: Squad): string {
+    const ctx = this.ctx!;
+    const api = ctx.service<{ list?: readonly { squadId: number; street: string; state: string }[] }>('police.barrages');
+    const list = api && Array.isArray(api.list) ? api.list : null;
+    if (!list) return '';
+    let id = group.id;
+    for (let guard = 0; id !== 0 && guard < 6; guard++) {
+      const b = list.find((q) => q.squadId === id && q.state !== 'rompu');
+      if (b && typeof b.street === 'string' && b.street.trim() !== '') return b.street.trim();
+      id = ctx.squads.get(id)?.parentId ?? 0;
+    }
+    return '';
   }
 
   /** Nom parlé d'un lieu : voie nommée la plus proche, sinon le secteur. */

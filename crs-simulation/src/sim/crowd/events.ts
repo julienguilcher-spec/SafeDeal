@@ -134,6 +134,27 @@ export function bindEvents(core: CrowdCore): void {
       for (const k of items) if (k.id === -1) k.t = core.now;
     }
   });
+  // nasse détectée par la police (toutes les issues tenues : barrages, rues fermées, encerclement) : la foule le sait
+  ev.onAny('police:kettle', (payload) => {
+    if (!core.active) return;
+    const e = payload as { id?: number; closed?: boolean; x?: number; z?: number; radius?: number };
+    if (typeof e.id !== 'number') return;
+    const id = -1000 - e.id;
+    const items = core.sense.kettles.items;
+    if (e.closed === true && typeof e.x === 'number' && typeof e.z === 'number') {
+      for (const k of items) {
+        if (k.id !== id) continue;
+        k.x = e.x;
+        k.z = e.z;
+        k.t = Infinity;
+        if (typeof e.radius === 'number') k.a = e.radius;
+        return;
+      }
+      core.sense.kettles.add(e.x, e.z, Infinity, id, typeof e.radius === 'number' ? e.radius : 40);
+    } else {
+      for (const k of items) if (k.id === id) k.t = core.now;
+    }
+  });
   ev.on('order:issued', (e) => {
     if (!core.active) return;
     const squad = ctx.squads.get(e.squadId);

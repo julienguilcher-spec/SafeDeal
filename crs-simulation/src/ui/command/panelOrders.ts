@@ -5,6 +5,7 @@
 
 import type { ForceLevel, SommationStage } from '@/core/contracts';
 import { button, el, setClass, setText } from '../maps/icons';
+import { coarsePointer } from '../maps/style';
 import type { CommandCore } from './core';
 import { FORCE_LABELS, ORDER_GROUP_LABELS, ORDER_VERBS } from './orders';
 import type { OrderGroup, OrderVerb } from './orders';
@@ -12,6 +13,16 @@ import { forceRequest } from './phrases';
 import type { TacticalMap } from './tacticalMap';
 import { IDLE } from './tacticalState';
 import type { TacticalState } from './tacticalState';
+import { exitsSummary } from '../maps/barrages';
+import type { SceneCrowdExits } from '../maps/barrages';
+
+/** Ce que l'onglet « Ordres » demande à l'écran pour la nasse (foule visée, proposition). */
+export interface NasseHooks {
+  target(): SceneCrowdExits | null;
+  propose(): void;
+  accept(): void;
+  cancel(): void;
+}
 
 const STAGE_LABELS: readonly string[] = [
   'Aucune sommation', 'Annonce faite\u00a0: «\u00a0Obéissance à la loi\u00a0»', 'Première sommation faite', 'Dernière sommation faite',
@@ -38,6 +49,15 @@ export class OrdersPanel {
   private readonly samuBtn: HTMLButtonElement;
   private readonly rescueNote: HTMLElement;
   private readonly readonlyNote: HTMLElement;
+  private readonly sNasse: HTMLDivElement;
+  private readonly nasseTitle: HTMLElement;
+  private readonly nasseSummary: HTMLElement;
+  private readonly nasseProp: HTMLElement;
+  private readonly nasseBtn: HTMLButtonElement;
+  private readonly nasseOk: HTMLButtonElement;
+  private readonly nasseCancel: HTMLButtonElement;
+  /** Branché par l'écran (foule visée au curseur) ; sans lui, la section reste masquée. */
+  nasse: NasseHooks | null = null;
 
   constructor(private readonly core: CommandCore, private readonly state: TacticalState, private readonly tmap: TacticalMap, host: HTMLElement) {
     this.root = el('div', 'ct-pane ct-scroll');
@@ -110,7 +130,24 @@ export class OrdersPanel {
     this.rescueNote = el('div', 'ct-note', 'Puis cliquez sur la carte (au clavier\u00a0: flèches puis Entrée)\u00a0: sur un feu ou un blessé, l’équipe va directement l’éteindre ou le prendre en charge\u00a0; ailleurs, elle se rend au point désigné.');
     this.sRescue.append(rh, rrow, this.rescueNote);
 
-    this.root.append(sLegal, sForce, sVerbs, this.sRescue);
+    // nasse : issues autour de la foule visée, aide « Fermer la nasse »
+    this.sNasse = el('div', 'ct-sec');
+    this.sNasse.dataset.id = 'tac-nasse';
+    const nh = el('div', 'ct-sec-h');
+    this.nasseTitle = el('div', 'cm-sub', 'Nasse');
+    nh.appendChild(this.nasseTitle);
+    this.nasseSummary = el('div', 'ct-note ct-issues');
+    this.nasseSummary.setAttribute('aria-live', 'polite');
+    this.nasseProp = el('div', 'ct-note is-warn');
+    const nrow = el('div', 'ct-verbs');
+    this.nasseBtn = button('Fermer la nasse', () => this.nasse?.propose(), { icon: 'barrier', className: 'ct-verb', id: 'tac-nasse-propose', title: 'Fermer la nasse (N)' });
+    if (!coarsePointer()) this.nasseBtn.appendChild(el('span', 'cm-kbd', 'N'));
+    this.nasseOk = button('Valider', () => this.nasse?.accept(), { icon: 'check', className: 'ct-verb is-primary', id: 'tac-nasse-accept', title: 'Valider (Entrée sur la carte, ou P)' });
+    this.nasseCancel = button('Annuler', () => this.nasse?.cancel(), { icon: 'close', className: 'ct-verb', id: 'tac-nasse-cancel', title: 'Annuler (Échap)' });
+    nrow.append(this.nasseBtn, this.nasseOk, this.nasseCancel);
+    this.sNasse.append(nh, this.nasseSummary, this.nasseProp, nrow);
+
+    this.root.append(sLegal, sForce, sVerbs, this.sNasse, this.sRescue);
     host.appendChild(this.root);
   }
 
@@ -232,7 +269,29 @@ export class OrdersPanel {
     else st.setMode({ kind: 'order', verb });
   }
 
+  /** Section « Nasse » : résumé des issues de la foule visée, proposition en attente. */
+  private refreshNasse(): void {
+    const core = this.core;
+    const hooks = this.nasse;
+    const crowd = hooks ? hooks.target() : null;
+    const pending = core.nasse;
+    const show = !!hooks && core.maps.scene.vis.police && (crowd !== null || pending !== null);
+    this.sNasse.style.display = show ? '' : 'none';
+    if (!show) return;
+    const readOnly = core.scope().level === 'lecture';
+    setText(this.nasseTitle, crowd ? `Nasse — ${crowd.place !== '' ? crowd.place : 'foule visée'}` : 'Nasse');
+    setText(this.nasseSummary, crowd ? exitsSummary(crowd.exits) : '');
+    setClass(this.nasseSummary, 'is-warn', !!crowd && crowd.closed);
+    setText(this.nasseProp, pending ? pending.text : '');
+    this.nasseProp.style.display = pending ? '' : 'none';
+    this.nasseBtn.style.display = readOnly || pending ? 'none' : '';
+    this.nasseBtn.disabled = !crowd;
+    this.nasseOk.style.display = pending && !readOnly ? '' : 'none';
+    this.nasseCancel.style.display = pending && !readOnly ? '' : 'none';
+  }
+
   refresh(): void {
+    this.refreshNasse();
     const core = this.core;
     const roe = core.ctx.law.roe;
     const sc = core.scope();

@@ -7,7 +7,7 @@ import { drawBarrageLine, drawNasse, drawOrderArrow, drawTargetMark } from '../m
 import type { MapTransform } from '../maps/transform';
 import type { MapUnit } from '../maps/units';
 import type { CommandCore } from './core';
-import { MIN_LINE, areaToOrder, lineToOrder } from './orders';
+import { BARRER_HINT, MIN_LINE, areaToOrder, lineToOrder } from './orders';
 import type { OrderGeom, OrderVerb } from './orders';
 import type { TacticalState } from './tacticalState';
 
@@ -115,8 +115,32 @@ export function drawTacticalPreview(
     }
     return;
   }
+  // proposition « Fermer la nasse » en attente : chaque unité, en pointillés, vers l'issue qu'elle barrera
+  const nasse = core.nasse;
+  if (nasse) {
+    for (let i = 0; i < nasse.lines.length; i++) {
+      const l = nasse.lines[i]!;
+      view.worldToScreen(l.ux, l.uz, SP);
+      const ux = SP.x, uy = SP.y;
+      view.worldToScreen(l.x, l.z, SP);
+      drawOrderArrow(g, ux, uy, SP.x, SP.y, 'rgba(255,214,10,.9)', true);
+      drawBarrageLine(g, view, l.x, l.z, l.heading, Math.max(6, l.width), '#ffd60a', true, 3.5);
+      text(g, `${l.unit} → ${l.street}`, SP.x, SP.y - 18, '#ffe680');
+    }
+  }
   if (tm.hoverX < 0) return;
-  if (mode.kind === 'order' && mode.verb.gesture !== 'immediate') {
+  if (mode.kind === 'order' && (mode.verb.type === 'couper_circulation' || mode.verb.type === 'filtrer') && tm.hoverRoad) {
+    // « Barrer la rue » : la rue visée, barrée d'une façade à l'autre
+    const r = tm.hoverRoad;
+    for (let i = 0; i < units.length; i++) {
+      view.worldToScreen(units[i]!.x, units[i]!.z, SP);
+      drawOrderArrow(g, SP.x, SP.y, tm.hoverX, tm.hoverY, 'rgba(255,214,10,.75)', true);
+    }
+    // la barre suit la perpendiculaire à la rue : cap de la formation = axe de la rue
+    drawBarrageLine(g, view, r.x, r.z, r.heading, Math.max(6, r.width), mode.verb.type === 'filtrer' ? '#34c759' : '#ff3b30', false, 4);
+    view.worldToScreen(r.x, r.z, SP);
+    text(g, `${r.name || 'Voie sans nom'} — ${mode.verb.type === 'filtrer' ? 'une porte, sortie une à une' : BARRER_HINT.toLowerCase()}`, SP.x, SP.y - 20, '#ffffff');
+  } else if (mode.kind === 'order' && mode.verb.gesture !== 'immediate') {
     for (let i = 0; i < units.length; i++) {
       view.worldToScreen(units[i]!.x, units[i]!.z, SP);
       drawOrderArrow(g, SP.x, SP.y, tm.hoverX, tm.hoverY, 'rgba(255,214,10,.75)', true);

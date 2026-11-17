@@ -220,10 +220,13 @@ function spreadRank(list: Agent[], g: FormGroup, w: number, lf: number, rank: nu
 
 /**
  * Ligne de barrage. `width` ≤ 0 : largeur réelle de la rue (façade à façade) si le point est dans une rue,
- * sinon le front que l'effectif tient coude à coude. Retourne l'intervalle du premier rang.
+ * sinon le front que l'effectif tient coude à coude. `spacingMax` : intervalle maximal du premier rang (rue
+ * barrée : coude à coude, personne ne passe entre deux agents ; au-delà, la ligne tient le milieu de la rue).
+ * Retourne l'intervalle du premier rang.
  */
 export function buildLine(
   k: Kernel, g: FormGroup, agents: readonly Agent[], n: number, x: number, z: number, h: number, width: number, doorW = 0,
+  spacingMax = T.SPACING_MAX,
 ): number {
   const rx = -Math.cos(h);
   const rz = Math.sin(h);
@@ -268,23 +271,30 @@ export function buildLine(
   if (shift !== 0) for (let i = 0; i < n; i++) agents[i].lat -= shift;
 
   // ── effectif du premier rang : des agents du second rang montent si le front est trop large ──
-  if (cFront.length > 0 && w / cFront.length > T.SPACING_PROMOTE && cSecond.length > 0) {
+  const promote = spacingMax < T.SPACING_PROMOTE ? spacingMax : T.SPACING_PROMOTE;
+  if (cFront.length > 0 && w / cFront.length > promote && cSecond.length > 0) {
     cSecond.sort(byPromote);
-    while (cSecond.length > 0 && w / cFront.length > T.SPACING_PROMOTE) {
-      const a = cSecond[0];
+    let i = 0;
+    while (i < cSecond.length && w / cFront.length > promote) {
+      const a = cSecond[i];
       // les chefs de groupe ne montent en ligne qu'en dernier recours
-      if (promoteRank(a) >= 8 && w / cFront.length <= T.SPACING_MAX) break;
+      if (promoteRank(a) >= 8 && w / cFront.length <= spacingMax) break;
+      // rue barrée : le tireur LBD reste au second rang, il tire au-dessus de la ligne, pas depuis elle
+      if (spacingMax < T.SPACING_PROMOTE && a.p.poste === 'lbd') {
+        i++;
+        continue;
+      }
       a.cls = CLS_FRONT;
       cFront.push(a);
-      cSecond.shift();
+      cSecond.splice(i, 1);
     }
   }
   resetGroup(g, F_LINE, x, z, h);
   const nf = cFront.length;
   let s = nf > 0 ? w / nf : target;
   let fw = w;
-  if (s > T.SPACING_MAX) {
-    s = T.SPACING_MAX;
+  if (s > spacingMax) {
+    s = spacingMax;
     fw = s * nf;
   }
   let second = T.RANK2_BACK;

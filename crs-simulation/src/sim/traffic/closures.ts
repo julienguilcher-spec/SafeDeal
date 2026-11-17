@@ -128,8 +128,8 @@ export class Closures implements TrafficControlApi {
     return edgeId >= 0 && edgeId < this.closedEdges.length && this.closedEdges[edgeId] !== 0;
   }
 
-  closeRoad(x: number, z: number, byId: EntityId, squadId = 0): RoadClosure | null {
-    const rec = this.closeAt(x, z, byId, squadId, false);
+  closeRoad(x: number, z: number, byId: EntityId, squadId = 0, held = false): RoadClosure | null {
+    const rec = this.closeAt(x, z, byId, squadId, false, held);
     return rec ? rec.closure : null;
   }
 
@@ -233,7 +233,11 @@ export class Closures implements TrafficControlApi {
     return out;
   }
 
-  private closeAt(x: number, z: number, byId: EntityId, squadId: number, instant: boolean): ClosureRec | null {
+  /**
+   * `held` : la rue est barrée par la ligne de l'unité `squadId` elle-même (rue barrée par une troupe) — ni barrières
+   * à poser, ni ordre « couper la circulation » à lui donner (elle tient déjà la rue, et cet ordre remplacerait le sien).
+   */
+  private closeAt(x: number, z: number, byId: EntityId, squadId: number, instant: boolean, held = false): ClosureRec | null {
     const c = this.cache;
     if (!c.ready || !Number.isFinite(x) || !Number.isFinite(z)) return null;
     const hit = this.hit;
@@ -242,7 +246,7 @@ export class Closures implements TrafficControlApi {
     if (known) {
       if (squadId !== 0 && known.closure.squadId !== squadId) {
         known.closure.squadId = squadId;
-        this.order(known, byId);
+        if (!held) this.order(known, byId);
       }
       return known;
     }
@@ -289,11 +293,11 @@ export class Closures implements TrafficControlApi {
     rec.width = Math.max(3, c.edgeWidth[at]!);
     rec.lane = (c.edgeFlags[at]! & E_ONEWAY) !== 0 ? 0 : Math.min(rec.width * 0.25, 3.2);
     rec.byId = byId;
-    rec.total = Math.max(2, Math.ceil((rec.width - 0.2) / BARRIER_LENGTH));
+    rec.total = held ? 0 : Math.max(2, Math.ceil((rec.width - 0.2) / BARRIER_LENGTH));
     const pitch = rec.width / rec.total;
     for (let i = 0; i < rec.total; i++) rec.lat.push((i - (rec.total - 1) * 0.5) * pitch);
     const t = this.tuning;
-    if (instant || t.barrierTime <= 0) {
+    if (instant || held || t.barrierTime <= 0) {
       while (rec.placed < rec.total) this.placeBarrier(rec);
       rec.barred = true;
     } else {
@@ -308,7 +312,7 @@ export class Closures implements TrafficControlApi {
       this.ctx.events.emitAny(BARRED_EVENT, this.event(rec));
       if (!instant) this.report(rec);
     }
-    if (squadId !== 0) this.order(rec, byId);
+    if (squadId !== 0 && !held) this.order(rec, byId);
     return rec;
   }
 
