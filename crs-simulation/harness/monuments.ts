@@ -201,7 +201,12 @@ const sysCam = { x: 0, y: 1.7, z: 60 };
 let sysFrame: ((dt: number) => void) | null = null;
 
 function startSystemDemo(): void {
-  const defs = listMonuments();
+  // Sept monuments de référence, toujours les mêmes et dans cet ordre : le scénario de tests/e2e/monuments.mjs vise des
+  // emplacements précis (l'Arc au 1er, les fontaines au 4e, la Tour au 7e). Le catalogue complet (une quarantaine de
+  // monuments) décalait tout et le scénario n'atteignait plus jamais ses conditions.
+  const DEMO: readonly string[] = ['arc_triomphe', 'colonne_juillet', 'colonne_vendome', 'fontaines_concorde', 'obelisque_concorde', 'statue_republique', 'tour_eiffel'];
+  const all = listMonuments();
+  const defs = DEMO.map((k) => all.find((d) => d.key === k)).filter((d): d is NonNullable<typeof d> => d !== undefined);
   const landmarks: LandmarkInfo[] = [];
   // les monuments alignés tous les 450 m ; les fontaines posées deux fois, comme place de la Concorde
   let x = 0;
