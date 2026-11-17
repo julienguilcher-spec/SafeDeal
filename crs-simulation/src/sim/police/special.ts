@@ -14,7 +14,7 @@ import type { EntityId, SquadOrder, Vehicle } from '@/core/contracts';
 import { EXT } from '@/core/extensions';
 import type { MetroApi, TrafficControlApi } from '@/core/extensions';
 import { angleDiff, cardinalFr, wrapAngle } from '@/core/math';
-import type { Unit } from './brain';
+import type { Agent, Unit } from './brain';
 import { F_NONE, agentOf, unitOf } from './brain';
 import type { Kernel } from './kernel';
 import {
@@ -207,6 +207,96 @@ function usable(v: Vehicle | undefined): v is Vehicle {
   return !!v && v.faction === 'police' && !v.def.flying && (v.state === 'ok' || v.state === 'damaged');
 }
 
+/** Véhicules de troupe de police où un agent sans place peut monter (fourgons, car, VL de commandement). */
+const TROOP_SEATS: ReadonlySet<string> = new Set(['fourgon_crs', 'car_crs', 'vl_commandement']);
+/** Rayon de recherche d'une place dans un autre véhicule de la colonne (m). */
+const RESEAT_RADIUS = 120;
+const nearby: Vehicle[] = [];
+
+/**
+ * Places passager encore libres pour un agent sans place : libres, moins celles déjà promises à un agent de l'unité
+ * qui n'est pas encore monté. Fourgon cellulaire : ses deux places avant seulement (les cellules sont aux interpellés).
+ */
+function seatsLeft(u: Unit, v: Vehicle, self: Agent): number {
+  let n = 0;
+  const cell = v.kind === 'fourgon_cellulaire';
+  for (let i = 0; i < v.seats.length && (!cell || i < 2); i++) if (v.seats[i] === 0 && v.def.seats[i] && v.def.seats[i].role !== 'driver') n++;
+  for (let i = 0; i < u.agents.length; i++) {
+    const b = u.agents[i];
+    if (b !== self && b.boardId === v.id && b.p.vehicleId === 0) n--;
+  }
+  return n;
+}
+
+/**
+ * Place pour un agent resté sans siège (le joueur a pris la sienne, son conducteur lui a cédé le volant…) : un véhicule
+ * de sa branche, puis de l'unité, puis n'importe quel véhicule de troupe de police de la colonne alentour (le fourgon
+ * d'un autre groupe, le VL), et en dernier recours les places avant du fourgon cellulaire. 0 si aucune.
+ */
+function seatFor(k: Kernel, u: Unit, a: Agent): EntityId {
+  const ctx = k.ctx;
+  const p = a.p;
+  for (let x: Unit | null = a.home; x; x = x.parent) {
+    const v = x.squad.vehicleId !== 0 ? ctx.vehicles.get(x.squad.vehicleId) : undefined;
+    if (!usable(v) || v.kind === 'fourgon_cellulaire') continue;
+    if (p.poste === 'conducteur' && driverSeatFree(v)) return v.id;
+    if (seatsLeft(u, v, a) > 0) return v.id;
+  }
+  // puis le véhicule de l'unité le plus proche où il reste une place
+  fleet.length = 0;
+  fleetOf(k, u, fleet);
+  let near: EntityId = 0;
+  let nearD = Infinity;
+  for (let i = 0; i < fleet.length; i++) {
+    const v = ctx.vehicles.get(fleet[i]);
+    if (!usable(v) || v.kind === 'fourgon_cellulaire' || seatsLeft(u, v, a) <= 0) continue;
+    const d = Math.hypot(v.x - p.x, v.z - p.z) + (v.seats[0] === 0 ? 1000 : 0);
+    if (d < nearD) {
+      nearD = d;
+      near = v.id;
+    }
+  }
+  if (near !== 0) return near;
+  // véhicules de la colonne alentour : d'abord ceux de la compagnie, et ceux qui ont un conducteur (un véhicule sans
+  // conducteur ne part pas)
+  let top = u;
+  while (top.parent) top = top.parent;
+  fleet.length = 0;
+  if (top !== u) fleetOf(k, top, fleet);
+  const n = ctx.vehicles.queryRadius(p.x, p.z, RESEAT_RADIUS, nearby);
+  let best: Vehicle | null = null;
+  let bestKey = Infinity;
+  for (let i = 0; i < n; i++) {
+    const v = nearby[i];
+    if (!usable(v) || (!TROOP_SEATS.has(v.kind) && v.kind !== 'fourgon_cellulaire') || seatsLeft(u, v, a) <= 0) continue;
+    const key = (v.kind === 'fourgon_cellulaire' ? 4000 : 0) + (v.seats[0] === 0 ? 2000 : 0) + (top !== u && fleet.indexOf(v.id) < 0 ? 1000 : 0)
+      + Math.hypot(v.x - p.x, v.z - p.z);
+    if (key < bestKey) {
+      bestKey = key;
+      best = v;
+    }
+  }
+  return best ? best.id : 0;
+}
+
+/** Les agents valides restés à pied sans place désignée en reçoivent une (retourne le nombre d'agents en chemin). */
+function reseat(k: Kernel, u: Unit): number {
+  let walking = 0;
+  for (let i = 0; i < u.agents.length; i++) {
+    const a = u.agents[i];
+    const p = a.p;
+    if (p.vehicleId !== 0 || p.isPlayer || a.boardId !== 0 || (!a.able && !a.crew) || p.custody !== 'free' || p.posture === 'down') continue;
+    const id = seatFor(k, u, a);
+    if (id === 0) continue;
+    a.boardId = id;
+    a.boardAt = k.now;
+    a.hasSlot = false;
+    a.pathN = 0;
+    walking++;
+  }
+  return walking;
+}
+
 export function startEmbark(k: Kernel, u: Unit, o: SquadOrder): void {
   const ctx = k.ctx;
   const m = u.man;
@@ -291,6 +381,12 @@ export function progressBoarding(k: Kernel, u: Unit): void {
   const m = u.man;
   const agents = u.agents;
   if (u.order!.type === 'embarquer') {
+    // agent resté sans place (le joueur a pris la sienne, ou son conducteur lui a cédé le volant) : il monte ailleurs —
+    // avant tout bilan pendant l'embarquement, puis une fois par seconde (le joueur monte quand l'unité est déjà à bord)
+    if (m.step === 0 || k.now >= m.nextExitAt) {
+      m.nextExitAt = k.now + 1;
+      reseat(k, u);
+    }
     if (m.step !== 0) return;
     let waiting = 0;
     let aboard = 0;
@@ -302,12 +398,15 @@ export function progressBoarding(k: Kernel, u: Unit): void {
       else if (a.able && !a.p.isPlayer) left++;
     }
     if (waiting > 0 && k.now - m.stepT < 90) return;
-    for (let i = 0; i < agents.length; i++) agents[i].boardId = 0;
+    for (let i = 0; i < agents.length; i++) if (agents[i].p.vehicleId !== 0) agents[i].boardId = 0;
     setStep(k, u, 1);
     setPhase(k, u, 'embarque');
     u.reported = true;
-    report(k, u, 'Embarqué, ' + spell(aboard) + ' à bord' + (left + waiting > 0 ? ', ' + spell(left + waiting) + ' sans place restent à pied' : ''));
-    done(k, u, 'embarquer', left + waiting === 0, left + waiting === 0 ? '' : 'Places insuffisantes.');
+    // un agent sans place (véhicules détruits) reste à pied : l'unité part avec ceux qui sont à bord, l'ordre n'est pas
+    // abandonné ; échec seulement si personne n'a pu monter
+    const afoot = left + waiting;
+    report(k, u, 'Embarqué, ' + spell(aboard) + ' à bord' + (afoot === 1 ? ', un agent reste à pied' : afoot > 1 ? ', ' + spell(afoot) + ' agents restent à pied' : ''));
+    done(k, u, 'embarquer', afoot === 0 || aboard > 0, afoot === 0 || aboard > 0 ? '' : 'Places insuffisantes.');
     return;
   }
   // débarquement : un agent par véhicule toutes les 0,6 s, puis mise en ligne

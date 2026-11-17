@@ -112,7 +112,8 @@ export class FollowLeaderSystem implements GameSystem {
   private nextThink = 0;
   private nextJoin = 0;
   /** Unités « en colonne » (ordre du joueur) : instant de l'ordre, compte rendu « prête à vous suivre » fait. */
-  private readonly motor = new Map<number, { since: number; ready: boolean }>();
+  private readonly motor = new Map<number, { since: number; ready: boolean; boarded: boolean }>();
+  private unsub: (() => void) | null = null;
   /** Unités qui descendent de leurs véhicules pour suivre le joueur à pied (instant de l'ordre). */
   private readonly dismount = new Map<number, number>();
   /** Unités qui ont reçu « Me suivre à pied » : elles ne montent pas dans leur fourgon quand le joueur prend le volant. */
@@ -137,6 +138,18 @@ export class FollowLeaderSystem implements GameSystem {
 
   init(ctx: GameContext): void {
     this.ctx = ctx;
+    // fin de l'embarquement de l'unité (police) : ceux qui ont une place sont à bord, un agent resté sans place
+    // (véhicules détruits) ne retient pas la colonne
+    this.unsub = ctx.events.onAny('police:order_done', (payload) => {
+      const e = payload as { squadId: number; type: string };
+      const st = e && e.type === 'embarquer' ? this.motor.get(e.squadId) : undefined;
+      if (st) st.boarded = true;
+    });
+  }
+
+  dispose(): void {
+    if (this.unsub) this.unsub();
+    this.unsub = null;
   }
 
   reset(): void {
@@ -499,7 +512,7 @@ export class FollowLeaderSystem implements GameSystem {
     for (const id of [...this.dismount.keys()]) if (this.isUnder(id, squadId)) this.dismount.delete(id);
     for (const id of [...this.afoot]) if (this.isUnder(id, squadId)) this.afoot.delete(id);
     for (const id of [...this.detached]) if (this.isUnder(id, squadId)) this.detached.delete(id);
-    this.motor.set(squadId, { since: ctx.clock.now, ready: false });
+    this.motor.set(squadId, { since: ctx.clock.now, ready: false, boarded: false });
     // ordre déjà donné (colonne lancée de loin par police.command) : on ne relance pas l'embarquement
     if (s.order.type !== 'embarquer') ctx.squads.issue(squadId, { type: 'embarquer', issuedBy: me.id });
     // le joueur conduit déjà : l'unité prend place dans sa colonne à la prochaine revue
@@ -578,12 +591,14 @@ export class FollowLeaderSystem implements GameSystem {
       }
       if (st.ready || this.convoying(sid)) continue;
       const crew = this.crewCount(sid);
-      if (crew.onFoot > 0 && now - st.since < MOTOR_READY_MAX) continue;
+      // embarquement terminé (tous ceux qui ont une place sont à bord) : pas d'attente pour un agent resté sans place
+      if (crew.onFoot > 0 && !st.boarded && now - st.since < MOTOR_READY_MAX) continue;
       st.ready = true;
       const to = ctx.squads.get(me.squadId)?.name ?? me.name;
+      const afoot = crew.onFoot === 1 ? ', un agent reste à pied' : crew.onFoot > 1 ? `, ${crew.onFoot} agents restent à pied` : '';
       ctx.radio.say({
         channel: 'commandement', from: s.name, priority: 1, personId: s.leaderId,
-        text: `${to.toUpperCase()} ICI ${s.name.toUpperCase()}. En colonne, prête à vous suivre${crew.onFoot > 0 ? ', ' + crew.onFoot + ' sans place à pied' : ''}. TERMINÉ.`,
+        text: `${to.toUpperCase()} ICI ${s.name.toUpperCase()}. En colonne, prête à vous suivre${afoot}. TERMINÉ.`,
       });
     }
     // « à pied » levé par un autre ordre
@@ -619,7 +634,11 @@ export class FollowLeaderSystem implements GameSystem {
         if (this.convoying(sid)) continue;
         // on ne part pas en laissant des équipiers sur le trottoir (sauf délai d'embarquement écoulé)
         if (!st.ready) continue;
-        for (const v of this.fleetOf(sid)) if (v !== lead && v.seats[0] !== 0 && want.indexOf(v) < 0) want.push(v);
+        for (const v of this.fleetOf(sid)) {
+          if (v === lead || want.indexOf(v) >= 0) continue;
+          if (v.seats[0] === 0) this.manDriver(v);
+          if (v.seats[0] !== 0) want.push(v);
+        }
       }
     }
     // véhicules qui ne sont plus de la colonne : ils s'arrêtent (joueur descendu, ordre levé)
@@ -707,6 +726,29 @@ export class FollowLeaderSystem implements GameSystem {
     return true;
   }
 
+  /**
+   * Véhicule de la colonne sans conducteur (unité créée sans chauffeurs : section ou groupe du joueur en patrouille, ou
+   * chauffeur descendu) : un équipier à bord prend le volant — le conducteur s'il y en a un, sinon un gardien qui ne
+   * commande pas. Sans cela le fourgon restait garé et ne suivait pas le joueur.
+   */
+  private manDriver(v: Vehicle): void {
+    const ctx = this.ctx!;
+    if (v.def.flying || v.state === 'wrecked' || v.state === 'burnt' || Math.abs(v.speed) > 0.5) return;
+    let seat = -1;
+    for (let i = 0; i < v.def.seats.length; i++) if (v.def.seats[i]!.role === 'driver') { seat = i; break; }
+    if (seat < 0 || v.seats[seat] !== 0) return;
+    let pick: Person | null = null;
+    let best = Infinity;
+    for (let i = 0; i < v.seats.length; i++) {
+      const p = v.seats[i] !== 0 ? ctx.people.get(v.seats[i]!) : undefined;
+      if (!p || p.isPlayer || p.faction !== 'police' || p.custody !== 'free') continue;
+      const sq = p.squadId !== 0 ? ctx.squads.get(p.squadId) : undefined;
+      const rank = p.poste === 'conducteur' ? 0 : sq && sq.leaderId === p.id ? 3 : p.poste === 'chef_groupe' || p.poste === 'chef_section' || p.poste === 'commandant_unite' ? 2 : 1;
+      if (rank < best) { best = rank; pick = p; }
+    }
+    if (pick) ctx.vehicles.enter(pick, v, seat);
+  }
+
   private hasDriver(v: Vehicle): boolean {
     for (const a of this.assign.values()) if (a.vehicleId === v.id && a.role === 'driver') return true;
     return v.seats[0] !== 0;
@@ -751,6 +793,7 @@ export class FollowLeaderSystem implements GameSystem {
     let prev: EntityId = lead.id;
     for (const id of this.column) {
       const v = ctx.vehicles.get(id);
+      if (v && v.seats[0] === 0 && this.escorts.some((sid) => ctx.squads.get(sid)?.vehicleId === v.id)) this.manDriver(v);
       if (!v || v.seats[0] === 0) continue;
       // tout le monde est-il à bord ? (on ne part pas en laissant un équipier sur le trottoir)
       let waiting = false;
