@@ -810,7 +810,8 @@ async function plan() {
   check(await page.evaluate(() => window.__cmd.tactical().map.cursorOn && document.querySelector('.cm-cursor').classList.contains('is-on')), 'flèches : le curseur de la carte apparaît et se déplace');
   await page.keyboard.press('KeyE');
   await frames(page, 4);
-  check(await page.evaluate(() => document.querySelectorAll('.ct-quick .cw-key').length === 10), 'E : ordre rapide au curseur, touches affichées');
+  // (une touche par secteur, quel que soit le nombre d'ordres rapides)
+  check(await page.evaluate(() => { const k = document.querySelectorAll('.ct-quick .cw-key').length; return k >= 10 && k === document.querySelectorAll('.ct-quick .cw-wedge').length; }), 'E : ordre rapide au curseur, touches affichées');
   await page.keyboard.press('Digit7');
   await frames(page, 6);
   check(await page.evaluate(() => document.querySelector('.ct-quick .cw-wheel') === null), 'chiffre 7 : la roue d\'ordre rapide se ferme');
