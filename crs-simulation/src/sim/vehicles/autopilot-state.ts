@@ -41,6 +41,10 @@ export class ApState {
   leadSpeed = 0;
   leadAccel = 0;
   convoy = false;
+  /** Garé, il attend que son meneur arrêté à côté ou derrière lui soit passé devant ou parti (voir Autopilot.holdBehind). */
+  held = false;
+  /** Trace du meneur (x, z…) relevée pendant cette attente, à rejoindre quand elle prend fin. */
+  readonly trace: number[] = [];
   /** Véhicule qui me suit dans la colonne (0 si aucun). */
   behindId: EntityId = 0;
   /** Temps passé à l'arrêt à attendre le suivant qui a décroché (s). */
@@ -95,6 +99,8 @@ export class ApState {
   avoidWaitT = 0;
   /** Nouvel itinéraire après des blocages répétés (compteur). */
   replans = 0;
+  /** Reculs pour prendre l'angle, nez contre un véhicule arrêté (sortie d'un stationnement en bloc ; compteur). */
+  nudges = 0;
   // ── demi-tour ──
   /** 0 aucun, 1 marche avant braquée, 2 marche arrière contre-braquée. */
   uturn = 0;
@@ -154,6 +160,8 @@ export class ApState {
     this.leadSpeed = 0;
     this.leadAccel = 0;
     this.convoy = false;
+    this.held = false;
+    this.trace.length = 0;
     this.behindId = 0;
     this.lagWaitT = 0;
     this.parkPhase = 0;
@@ -182,6 +190,7 @@ export class ApState {
     this.avoidBackT = 0;
     this.avoidWaitT = 0;
     this.replans = 0;
+    this.nudges = 0;
     this.uturn = 0;
     this.uturnMoves = 0;
     this.laneT = 0;

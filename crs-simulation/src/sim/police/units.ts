@@ -194,6 +194,30 @@ function parkTaken(b: Build, x: number, z: number): boolean {
 
 const spot = { x: 0, z: 0, heading: 0 };
 
+/**
+ * Fourgon cellulaire (sans équipage : il reste au stationnement quand la compagnie part), garé dans le bloc en tête de
+ * file : il est rangé à côté du premier rang (celui du VL), sur une troisième file — une fois les véhicules tournés nez
+ * vers la sortie (session/setup.ts, faceExit), c'est le dernier rang du bloc, où il ne barre la sortie à personne. En
+ * tête de file, il enfermait le fourgon garé derrière lui (aucune place pour reculer) : celui-ci le poussait en sortant,
+ * ou restait bloqué, et la colonne avec lui. Pas de place libre là : il reste où il est.
+ */
+function parkCellAtRear(k: Kernel, b: Build, cell: Vehicle): void {
+  const lead = b.handle.vehicles[0];
+  if (!lead || lead === cell || Math.hypot(cell.x - lead.x, cell.z - lead.z) > 40) return;
+  const fx = Math.sin(b.heading);
+  const fz = Math.cos(b.heading);
+  const x = b.x - fx * 24 - fz * 3 * 1.8;
+  const z = b.z - fz * 24 + fx * 3 * 1.8;
+  // (le cellulaire lui-même n'est pas un obstacle à sa nouvelle place)
+  const ox = cell.x, oz = cell.z;
+  cell.x = 1e6;
+  cell.z = 1e6;
+  const free = parkClear(k, x, z, b.heading) && Math.hypot(x - lead.x, z - lead.z) < 8;
+  cell.x = free ? x : ox;
+  cell.z = free ? z : oz;
+  if (free) cell.heading = b.heading;
+}
+
 function spawnVehicle(k: Kernel, b: Build, kind: VehicleKind, squad: Squad | null, color?: number): Vehicle | null {
   if (!parkSpot(k, b, b.handle.vehicles.length, spot)) return null;
   const v = k.ctx.vehicles.spawn(kind, spot.x, spot.z, spot.heading, { faction: 'police', color });
@@ -325,6 +349,7 @@ export function createCompany(k: Kernel, options: CompanyOptions = {}): UnitHand
   for (let s = 1; s <= sections; s++) buildSection(k, b, callsign + ' ' + s, s, company, slots, vehicles, 'section');
   if (vehicles) {
     const cell = spawnVehicle(k, b, 'fourgon_cellulaire', null);
+    if (cell) parkCellAtRear(k, b, cell);
     syncTree(k, true);
     const u = unitOf(company);
     if (cell && u) u.extraVehicles.push(cell.id);

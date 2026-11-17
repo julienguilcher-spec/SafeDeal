@@ -30,11 +30,24 @@ import type { PathPoint } from './autopilot-state';
 import { IDLE_STATUS } from './runtime';
 import type { VehicleKernel, VehicleRt } from './runtime';
 
+/** Pénalité (m) d'un point de la trace du meneur situé dans le dos du suivant, quand il choisit où la rejoindre. */
+const TRAIL_BEHIND = 25;
+/** Points de la trace examinés (du moins coûteux au plus coûteux) pour en trouver un que l'on voit d'ici. */
+const TRAIL_SIGHT_TRIES = 40;
+/** Suivant garé : meneur à côté ou derrière lui en deçà duquel il attend ; meneur arrêté, garé en bloc ; « bloc » (m). */
+const HOLD_NEAR = 42;
+const HOLD_FAR = 90;
+const HOLD_PACKED = 8.5;
+/** Points gardés de la trace du meneur pendant l'attente. */
+const HOLD_TRACE_MAX = 600;
+
 export class Autopilot implements AutopilotApi {
   private readonly driver: ApDriver;
   private readonly scratch: number[] = [];
   private readonly keepBuf: number[] = [];
   private readonly footBuf: number[] = [];
+  private readonly joinOrder: number[] = [];
+  private readonly joinCost: number[] = [];
   private readonly hit: RayHit = makeRayHit();
   /** Nouvel itinéraire après un demi-tour impossible : le demi-tour sur place est exclu. */
   private forceAround = false;
@@ -384,7 +397,12 @@ export class Autopilot implements AutopilotApi {
     return true;
   }
 
-  follow(v: Vehicle, leaderId: EntityId, distance = 6): boolean {
+  /**
+   * `trail` (facultatif) : trace du meneur (x, z, x, z…, la plus récente en dernier) — le suivant la rejoint au plus près
+   * (de préférence devant lui) et la parcourt, au lieu d'aller tout droit vers le meneur ou de chercher son propre
+   * itinéraire par les rues : il passe là où le meneur est passé (sortie d'un stationnement en bloc, d'une place).
+   */
+  follow(v: Vehicle, leaderId: EntityId, distance = 6, trail?: readonly number[]): boolean {
     if (!this.usable(v) || leaderId === v.id) return false;
     const ctx = this.k.ctx;
     if (!ctx.vehicles.get(leaderId) && !ctx.people.get(leaderId)) return false;
@@ -394,8 +412,71 @@ export class Autopilot implements AutopilotApi {
     ap.leaderId = leaderId;
     ap.followDist = distance > 0.5 ? distance : 0.5;
     ap.setPath(this.scratch, 0);
+    if (trail && trail.length >= 2) {
+      this.joinTrail(rt, ap, trail);
+      for (let i = 0; i < trail.length; i++) ap.trace.push(trail[i]!);
+    }
     this.engage(rt, ap, 'follow');
     return true;
+  }
+
+  /**
+   * Itinéraire du suivant : de sa position au point de la trace le plus proche (devant lui de préférence) — tout droit
+   * s'il le voit, sinon par les rues —, puis la trace.
+   */
+  private joinTrail(rt: VehicleRt, ap: ApState, trail: readonly number[]): void {
+    const v = rt.v;
+    const n = trail.length >> 1;
+    const hx = Math.sin(v.heading);
+    const hz = Math.cos(v.heading);
+    // coût de chaque point : distance, plus une pénalité s'il est dans mon dos (un demi-tour) ; on retient le moins
+    // coûteux que l'on voit d'ici (tout droit) parmi les meilleurs, sinon le moins coûteux, rejoint par les rues
+    const order = this.joinOrder;
+    const cost = this.joinCost;
+    order.length = 0;
+    cost.length = 0;
+    for (let i = 0; i < n; i++) {
+      const dx = trail[i * 2]! - v.x;
+      const dz = trail[i * 2 + 1]! - v.z;
+      cost.push(Math.sqrt(dx * dx + dz * dz) + (dx * hx + dz * hz < 0 ? TRAIL_BEHIND : 0));
+      order.push(i);
+    }
+    if (n === 0) return;
+    order.sort((a, b) => cost[a]! - cost[b]!);
+    let best = order[0]!;
+    const world = this.k.ctx.world;
+    for (let k = 0; k < order.length && k < TRAIL_SIGHT_TRIES; k++) {
+      const i = order[k]!;
+      if (world.lineOfSight(v.x, v.z, trail[i * 2]!, trail[i * 2 + 1]!)) {
+        best = i;
+        break;
+      }
+    }
+    const bx = trail[best * 2]!;
+    const bz = trail[best * 2 + 1]!;
+    const buf = this.scratch;
+    let far = false;
+    if ((bx - v.x) * (bx - v.x) + (bz - v.z) * (bz - v.z) > 15 * 15 && !this.k.ctx.world.lineOfSight(v.x, v.z, bx, bz) && this.plan(rt, ap, bx, bz)) {
+      far = true;
+      buf.length = 0;
+      for (let i = 0; i < ap.n * 2; i++) buf.push(ap.path[i]!);
+    } else {
+      buf.length = 0;
+      buf.push(v.x, v.z);
+    }
+    for (let i = best; i < n; i++) {
+      const x = trail[i * 2]!;
+      const z = trail[i * 2 + 1]!;
+      const px = buf[buf.length - 2]!;
+      const pz = buf[buf.length - 1]!;
+      if ((x - px) * (x - px) + (z - pz) * (z - pz) < 0.25) continue;
+      buf.push(x, z);
+    }
+    if (buf.length < 4) return;
+    const axis = far ? ap.axisUntil : 0;
+    ap.setPath(buf, buf.length >> 1);
+    // (la trace est celle du meneur, déjà sur sa voie : pas de décalage de voie en plus, sauf sur l'itinéraire qui y mène)
+    ap.axisUntil = far ? Math.min(axis, ap.total) : 0;
   }
 
   convoy(list: readonly Vehicle[], x: number, z: number, options?: ConvoyOptions): boolean {
@@ -583,6 +664,11 @@ export class Autopilot implements AutopilotApi {
       return;
     }
     if (ap.mode === 'follow' && !this.trackLeader(rt, ap)) return;
+    if (ap.mode === 'follow' && this.holdBehind(rt, ap)) {
+      this.hold(v);
+      this.driver.setStatus(rt, ap, 'attente', '');
+      return;
+    }
     if (ap.n < 2) {
       this.hold(v);
       return;
@@ -600,6 +686,65 @@ export class Autopilot implements AutopilotApi {
     c.brake = Math.abs(v.speed) > 0.3 ? 0.6 : 1;
     c.steer = 0;
     c.horn = false;
+  }
+
+  /**
+   * Suivant encore garé dont le meneur (un véhicule) n'est pas passé devant lui : à côté ou derrière lui, à moins de
+   * HOLD_NEAR m — ou, garé en bloc (des véhicules arrêtés tout autour), arrêté à moins de HOLD_FAR m —, il attend sur
+   * place, moteur tournant : le rejoindre tout de suite lui ferait faire demi-tour au milieu des véhicules garés (la
+   * colonne s'emmêlait au départ). Pendant ce temps, la trace du meneur continue d'être relevée ; quand il est passé
+   * devant ou parti, le suivant rejoint cette trace au plus près (devant lui de préférence) et la parcourt.
+   */
+  private holdBehind(rt: VehicleRt, ap: ApState): boolean {
+    const v = rt.v;
+    const lv = this.k.ctx.vehicles.get(ap.leaderId);
+    if (!lv || (!ap.held && (Math.abs(v.speed) > 0.5 || ap.uturn !== 0 || ap.avoidBack > 0 || ap.s > 1))) {
+      ap.held = false;
+      return false;
+    }
+    const dx = lv.x - v.x;
+    const dz = lv.z - v.z;
+    const d = Math.sqrt(dx * dx + dz * dz);
+    const ahead = dx * Math.sin(v.heading) + dz * Math.cos(v.heading);
+    let hold = false;
+    // (à côté de moi et qui démarre dans mon sens : il sort du rang devant moi, je prends sa suite sans attendre)
+    const pulling = ahead > -rt.halfL && lv.speed > 0.5 && Math.cos(lv.heading - v.heading) > 0.7;
+    if (ahead < rt.halfL + 1 && !pulling) {
+      if (d <= HOLD_NEAR) hold = true;
+      else if (d <= HOLD_FAR && Math.abs(lv.speed) <= 1 && this.packedAround(rt, lv.id)) hold = true;
+    }
+    const tr = ap.trace;
+    if (hold) {
+      ap.held = true;
+      // trace du meneur (celle qu'on m'a donnée, prolongée de ses positions depuis)
+      const n = tr.length;
+      if (n < 2 || (tr[n - 2]! - lv.x) * (tr[n - 2]! - lv.x) + (tr[n - 1]! - lv.z) * (tr[n - 1]! - lv.z) > 2.25) {
+        tr.push(lv.x, lv.z);
+        if (tr.length > HOLD_TRACE_MAX * 2) tr.splice(0, 2);
+      }
+      return true;
+    }
+    if (ap.held) {
+      ap.held = false;
+      // le meneur est passé devant ou parti : on rejoint sa trace au meilleur endroit, et on la suit
+      if (tr.length >= 2) this.joinTrail(rt, ap, tr.slice());
+    }
+    tr.length = 0;
+    return false;
+  }
+
+  /** Un autre véhicule (hors `but`) arrêté à moins de HOLD_PACKED m : garé en bloc. */
+  private packedAround(rt: VehicleRt, but: EntityId): boolean {
+    const v = rt.v;
+    const rts = this.k.rts;
+    for (let i = 0; i < rts.length; i++) {
+      const o = rts[i]!.v;
+      if (o === v || o.id === but || o.def.flying || o.dormant || Math.abs(o.speed) > 0.5) continue;
+      const dx = o.x - v.x;
+      const dz = o.z - v.z;
+      if (dx * dx + dz * dz < HOLD_PACKED * HOLD_PACKED) return true;
+    }
+    return false;
   }
 
   /** Tient l'itinéraire à jour derrière le meneur. false si le suivi s'arrête (meneur disparu). */

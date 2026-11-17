@@ -33,6 +33,8 @@ const AVOID_GIVE_UP = 45;
 /** Attente derrière un véhicule arrêté avant de le contourner (s) : en intervention urgente, en conduite normale. */
 const AVOID_WAIT_URGENT = 1.5;
 const AVOID_WAIT = 4;
+/** Suivant arrêté par une personne immobile sur la trace de son meneur : attente avant de la contourner au pas (s). */
+const FOLLOW_PEOPLE_DODGE = 5;
 
 /** Emprise d'un obstacle dans le repère de l'itinéraire (abscisses le long, écarts à droite de l'axe). */
 interface Extent { sMin: number; sMax: number; latMin: number; latMax: number }
@@ -167,6 +169,8 @@ export class ApDriver {
     const finalLeg = ap.mode === 'park' && ap.seg >= ap.finalFrom;
     let remaining: number;
     let steerRight: number;
+    /** Écart (rad) entre mon cap et la direction de l'itinéraire devant moi. */
+    let pathTurn = 0;
 
     if (finalLeg) {
       // ── alignement final sur l'axe de la place (commande de type Stanley, à l'essieu avant) ──
@@ -192,6 +196,7 @@ export class ApDriver {
       ap.sample(sT, pt);
       // l'itinéraire repart dans mon dos : demi-tour en plusieurs temps plutôt qu'une grande boucle hors chaussée
       const turnErr = angleDiff(v.heading, Math.atan2(pt.dx, pt.dz));
+      pathTurn = turnErr;
       // (en colonne, un suivant garé à contresens fait demi-tour à l'arrêt, si son meneur n'est pas tout près)
       const followTurn = ap.mode === 'follow' && au < 0.6 && ap.total - ap.s > 12 && this.leaderAway(rt, ap, 10);
       // (ou, arrêté nez contre un obstacle fixe alors que l'itinéraire part franchement de côté : on manœuvre en
@@ -362,6 +367,9 @@ export class ApDriver {
       ap.obsDist -= (u - ap.obsSpeed) * dt; // entre deux relevés, l'écart évolue à la vitesse relative
     }
     this.overtake(rt, ap, au, dt);
+    // garé en bloc, nez contre le véhicule de devant, alors que l'itinéraire part de côté : on recule de quoi braquer
+    // (sans quoi on attendait indéfiniment derrière un véhicule qui, lui, ne partira pas)
+    if (ap.avoidBack <= 0 && au < 0.3 && ap.mode !== 'park' && (pathTurn > 0.6 || pathTurn < -0.6)) this.nudgeOut(rt, ap);
     if (ap.avoidBack > 0) {
       this.backOff(rt, ap, dt);
       return;
@@ -521,7 +529,9 @@ export class ApDriver {
         this.setStatus(rt, ap, 'manoeuvre', '');
         return;
       }
-      this.setStatus(rt, ap, (stopped && fixed && ap.blockedFor > 3) || ap.stuckAcc > 3 ? 'bloque' : 'attente', reason);
+      // (suivant arrêté derrière son propre meneur : il attend sa place dans la colonne, il n'est pas bloqué)
+      const queued = ap.mode === 'follow' && ap.obsReason === 'vehicule' && ap.obsId === ap.leaderId && ap.stuckAcc <= 3;
+      this.setStatus(rt, ap, queued ? 'attente' : (stopped && fixed && ap.blockedFor > 3) || ap.stuckAcc > 3 ? 'bloque' : 'attente', queued ? '' : reason);
       // des personnes ne s'écartent pas : coup de klaxon
       ap.hornT -= dt;
       cmd.horn = false;
@@ -642,7 +652,10 @@ export class ApDriver {
     if (ap.obsDist > trigger) return false;
     let vehId = 0;
     let propId = 0;
-    if (ap.obsReason === 'mur') {
+    // (suivant arrêté depuis un moment par une personne immobile sur la trace de son meneur — agent en formation, à pied,
+    // là où le meneur s'est faufilé — : on la contourne au pas comme un obstacle fixe, si un couloir libre le permet)
+    const standing = ap.obsReason === 'personne' && ap.mode === 'follow' && !ap.convoy && ap.blockedFor > FOLLOW_PEOPLE_DODGE && au < 0.3;
+    if (ap.obsReason === 'mur' || standing) {
       // chaussée barrée devant par un mur ou du mobilier fixe (la rue se resserre, l'axe de la carte longe une façade) :
       // on cherche un couloir libre à côté, le plus près possible de sa voie
       if (au > 3) return false;
@@ -766,6 +779,18 @@ export class ApDriver {
     }
     ap.status.targetSpeed = -1.2;
     this.setStatus(rt, ap, 'manoeuvre', '');
+  }
+
+  /** Nez contre un véhicule arrêté (pas mon meneur) depuis 2 s, à moins de 1,5 m : marche arrière de 3 m (quatre fois au plus). */
+  private nudgeOut(rt: VehicleRt, ap: ApState): void {
+    if (ap.obsReason !== 'vehicule' || ap.obsDist > 1.5 || ap.blockedFor < 2 || ap.nudges >= 4 || ap.uturn !== 0) return;
+    if (ap.obsId === 0 || ap.obsId === ap.leaderId) return;
+    const o = this.k.ctx.vehicles.get(ap.obsId);
+    if (!o || Math.abs(o.speed) > 0.3) return;
+    ap.nudges++;
+    ap.avoidBack = 3;
+    ap.avoidBackT = 0;
+    ap.scanT = 0;
   }
 
   /** Le véhicule `id` est-il mon meneur, l'un des meneurs de ma colonne, ou celui qui me suit ? */
@@ -1104,7 +1129,9 @@ export class ApDriver {
     const reach = rt.halfL + 0.8;
     const ex = v.x + Math.sin(v.heading) * reach * dir;
     const ez = v.z + Math.cos(v.heading) * reach * dir;
-    const blocked = ap.obsDist < 1.1 || !this.drivable(ex, ez) || ap.phaseT > (forward ? 7 : 5);
+    // (déjà sur le trottoir — sorti de la chaussée à un angle de place : le trottoir compte, sinon aucune reprise
+    // n'était possible et le véhicule restait là à « manœuvrer » sans bouger, toute sa colonne derrière lui)
+    const blocked = ap.obsDist < 1.1 || !this.drivable(ex, ez, !this.drivable(v.x, v.z)) || ap.phaseT > (forward ? 7 : 5);
     if (blocked && ap.phaseT > 0.6) {
       ap.uturn = forward ? 2 : 1;
       ap.uturnMoves++;

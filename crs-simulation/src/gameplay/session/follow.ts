@@ -28,7 +28,7 @@ import type { EntityId, GameContext, GameSystem, Person, Squad, Vehicle } from '
 import { SystemOrder } from '@/core/contracts';
 
 interface Autopilot {
-  follow(v: Vehicle, leaderId: EntityId, distance?: number): boolean;
+  follow(v: Vehicle, leaderId: EntityId, distance?: number, trail?: readonly number[]): boolean;
   stop(v: Vehicle): void;
   status?(v: Vehicle): Readonly<{ mode: string; leaderId: EntityId }>;
 }
@@ -78,6 +78,12 @@ const FIRST_ENGAGE = 42;
 /** Véhicule « juste devant » : à moins de tant de mètres devant le pare-chocs, dans l'axe (m). */
 const BOXED_AHEAD = 10;
 const BOXED_SIDE = 2.4;
+/** Traces : un point tous les tant de mètres, points retirés à la marche arrière (m), nombre de points gardés. */
+const TRAIL_STEP = 2;
+const TRAIL_UNDO = 7;
+const TRAIL_MAX = 600;
+/** Distance parcourue par le meneur depuis sa place à partir de laquelle on ordonne la sortie du stationnement (m). */
+const DEPART_MOVE = 20;
 /** Rayon dans lequel les fourgons d'une unité accompagnatrice peuvent rejoindre la colonne (m). */
 const COMPANY_RADIUS = 160;
 /** Revue périodique des unités « en colonne » qui rejoignent la colonne du joueur qui conduit (s). */
@@ -122,6 +128,14 @@ export class FollowLeaderSystem implements GameSystem {
   private readonly detached = new Set<number>();
   /** Colonne derrière le véhicule où le joueur est passager (il ne conduit pas) : véhicules dans l'ordre. */
   private ride: EntityId[] = [];
+  /**
+   * Traces (x, z…) du véhicule du joueur et de ceux de la colonne depuis le départ : un véhicule qui prend la suite du
+   * précédent rejoint sa trace et passe là où il est passé (sortie du bloc garé), au lieu de couper au plus court à
+   * travers les véhicules garés ou de chercher son propre chemin par les rues.
+   */
+  private readonly trails = new Map<EntityId, number[]>();
+  /** La sortie du stationnement a été ordonnée (une fois par départ, voir exitOrder). */
+  private exitSorted = false;
 
   provide(ctx: GameContext): void {
     const api: FollowApi = {
@@ -167,6 +181,40 @@ export class FollowLeaderSystem implements GameSystem {
     this.afoot.clear();
     this.detached.clear();
     this.ride = [];
+    this.trails.clear();
+    this.exitSorted = false;
+  }
+
+  /**
+   * Relève les traces du meneur et des véhicules de la colonne (un point tous les TRAIL_STEP m, en marche avant). En
+   * marche arrière (demi-tour en plusieurs temps), les derniers points sont retirés : la trace ne fait pas d'aller-retour.
+   */
+  private recordTrails(lead: Vehicle | null): void {
+    const ctx = this.ctx!;
+    const ids = lead ? [lead.id, ...this.column, ...this.ride] : [];
+    if (ids.length <= 1) {
+      this.trails.clear();
+      this.exitSorted = false;
+      return;
+    }
+    for (const id of this.trails.keys()) if (ids.indexOf(id) < 0) this.trails.delete(id);
+    for (const id of ids) {
+      const v = ctx.vehicles.get(id);
+      if (!v) continue;
+      let tr = this.trails.get(id);
+      if (!tr) {
+        tr = [v.x, v.z];
+        this.trails.set(id, tr);
+        continue;
+      }
+      if (v.speed < -0.2) {
+        while (tr.length > 2 && Math.hypot(tr[tr.length - 2]! - v.x, tr[tr.length - 1]! - v.z) < TRAIL_UNDO) tr.length -= 2;
+        continue;
+      }
+      if (Math.hypot(tr[tr.length - 2]! - v.x, tr[tr.length - 1]! - v.z) < TRAIL_STEP) continue;
+      tr.push(v.x, v.z);
+      if (tr.length > TRAIL_MAX * 2) tr.splice(0, 2);
+    }
   }
 
   /** Unités qui suivent le joueur : celles qu'il commande, et la sienne quand il conduit le véhicule de son groupe. */
@@ -196,6 +244,7 @@ export class FollowLeaderSystem implements GameSystem {
       this.ride = [];
       this.startConvoy(me, driving);
     } else if (!isDriver && this.mounted !== 0) this.endConvoy();
+    this.recordTrails(me.vehicleId !== 0 && driving && !driving.def.flying ? driving : null);
 
     // marche vers les véhicules (à chaque pas : l'IA de police réécrit les commandes avant nous)
     if (this.mounted !== 0) this.walkToSeats(me, now);
@@ -471,6 +520,86 @@ export class FollowLeaderSystem implements GameSystem {
   }
 
   /**
+   * Ordre de sortie du stationnement, une fois le meneur parti (à DEPART_MOVE m de sa place) : comme la colonne de début
+   * de journée (police/command/convoy.ts, orderForDeparture), on part dans l'ordre PHYSIQUE — d'abord le véhicule encore
+   * garé le plus avancé vers la sortie (la trace du meneur, à une quarantaine de mètres du bloc) parmi ceux dont la sortie
+   * est libre (aucun véhicule garé juste devant lui), puis de même parmi ceux qui restent. Les véhicules déjà en route
+   * gardent leur place en tête. Sans cela, le premier de la liste (le plus avancé dans l'axe du bloc, parfois à l'autre
+   * bout, ou enfermé) partait en premier et tous les autres l'attendaient.
+   */
+  private exitOrder(ids: EntityId[], lead: Vehicle): void {
+    const ctx = this.ctx!;
+    const trail = this.trails.get(lead.id);
+    if (!trail || trail.length < 4) return;
+    const parked: Vehicle[] = [];
+    const rolling: EntityId[] = [];
+    for (const id of ids) {
+      const v = ctx.vehicles.get(id);
+      const t0 = this.trails.get(id);
+      if (v && Math.abs(v.speed) < 0.5 && (!t0 || Math.hypot(v.x - t0[0]!, v.z - t0[1]!) < 3)) parked.push(v);
+      else rolling.push(id);
+    }
+    if (parked.length < 2) return;
+    let cx = 0;
+    let cz = 0;
+    for (const v of parked) { cx += v.x; cz += v.z; }
+    cx /= parked.length;
+    cz /= parked.length;
+    // direction de la sortie : point de la trace du meneur à une quarantaine de mètres du bloc
+    let ex = trail[trail.length - 2]! - cx;
+    let ez = trail[trail.length - 1]! - cz;
+    for (let i = 0; i < trail.length; i += 2) {
+      if (Math.hypot(trail[i]! - cx, trail[i + 1]! - cz) > 40) {
+        ex = trail[i]! - cx;
+        ez = trail[i + 1]! - cz;
+        break;
+      }
+    }
+    const l = Math.hypot(ex, ez);
+    if (l < 1) return;
+    const fx = ex / l;
+    const fz = ez / l;
+    const out: EntityId[] = [];
+    const rest = parked.slice();
+    while (rest.length > 0) {
+      let pick = -1;
+      let best = -Infinity;
+      for (let i = 0; i < rest.length; i++) {
+        const v = rest[i]!;
+        const k = (v.x - cx) * fx + (v.z - cz) * fz - (this.boxedIn(v, rest) ? 1e4 : 0);
+        if (k > best) { best = k; pick = i; }
+      }
+      out.push(rest.splice(pick, 1)[0]!.id);
+    }
+    ids.length = 0;
+    ids.push(...rolling, ...out);
+  }
+
+  /** Un véhicule de `others` est-il garé juste devant celui-ci, dans son axe (sortie barrée) ? */
+  private boxedIn(v: Vehicle, others: readonly Vehicle[]): boolean {
+    const fx = Math.sin(v.heading);
+    const fz = Math.cos(v.heading);
+    for (const o of others) {
+      if (o === v) continue;
+      const dx = o.x - v.x;
+      const dz = o.z - v.z;
+      const ahead = dx * fx + dz * fz - (v.def.length + o.def.length) * 0.5;
+      if (ahead < -0.5 || ahead > BOXED_AHEAD) continue;
+      if (Math.abs(-dx * fz + dz * fx) < BOXED_SIDE + o.def.width * 0.5) return true;
+    }
+    return false;
+  }
+
+  /** Le meneur est-il parti de sa place (DEPART_MOVE m) ? On ordonne alors une fois la sortie du stationnement. */
+  private sortExit(ids: EntityId[], lead: Vehicle): void {
+    if (this.exitSorted) return;
+    const trail = this.trails.get(lead.id);
+    if (!trail || Math.hypot(lead.x - trail[0]!, lead.z - trail[1]!) < DEPART_MOVE) return;
+    this.exitSorted = true;
+    this.exitOrder(ids, lead);
+  }
+
+  /**
    * Le véhicule peut-il prendre (ou garder) la suite de `prev` ? Le premier, s'il est garé en bloc (un véhicule juste
    * devant lui), attend que le meneur se soit dégagé : il le rejoindra par les rues.
    */
@@ -657,6 +786,7 @@ export class FollowLeaderSystem implements GameSystem {
     const fresh = want.filter((v) => next.indexOf(v.id) < 0).map((v) => v.id);
     this.departureOrder(fresh, lead);
     next.push(...fresh);
+    this.sortExit(next, lead);
     this.ride = next;
     const ext = ctx.service<VehiclesExt>('vehicles.ext');
     let prev: EntityId = lead.id;
@@ -665,7 +795,7 @@ export class FollowLeaderSystem implements GameSystem {
       if (!v) continue;
       if (pilot) {
         const st = pilot.status ? pilot.status(v) : null;
-        if (this.mayFollow(v, prev, lead, st) && (!st || st.mode !== 'follow' || st.leaderId !== prev)) pilot.follow(v, prev, COLUMN_GAP);
+        if (this.mayFollow(v, prev, lead, st) && (!st || st.mode !== 'follow' || st.leaderId !== prev)) pilot.follow(v, prev, COLUMN_GAP, this.trails.get(prev));
       }
       this.mirrorLights(v, lead, ext);
       prev = v.id;
@@ -790,6 +920,7 @@ export class FollowLeaderSystem implements GameSystem {
     const ctx = this.ctx!;
     const pilot = ctx.service<Autopilot>('vehicles.autopilot');
     const ext = ctx.service<VehiclesExt>('vehicles.ext');
+    this.sortExit(this.column, lead);
     let prev: EntityId = lead.id;
     for (const id of this.column) {
       const v = ctx.vehicles.get(id);
@@ -809,7 +940,7 @@ export class FollowLeaderSystem implements GameSystem {
       if (pilot) {
         const st = pilot.status ? pilot.status(v) : null;
         // (garé en bloc, il attend que le meneur se dégage : feux et sirène déjà comme lui)
-        if (this.mayFollow(v, prev, lead, st) && (!st || st.mode !== 'follow' || st.leaderId !== prev)) pilot.follow(v, prev, COLUMN_GAP);
+        if (this.mayFollow(v, prev, lead, st) && (!st || st.mode !== 'follow' || st.leaderId !== prev)) pilot.follow(v, prev, COLUMN_GAP, this.trails.get(prev));
       }
       this.mirrorLights(v, lead, ext);
       prev = v.id;
