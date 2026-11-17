@@ -355,7 +355,11 @@ export class BravmUnit extends SpecialUnit {
     const stopped = Math.abs(lead.speed) < 0.4;
     if ((st.state === 'arrive' || st.mode === 'idle' || d < 6) && stopped) {
       this.arrived();
-    } else if (st.state === 'echec' || (st.state === 'bloque' && st.blockedFor > 12) || (st.state === 'attente' && st.blockedFor > 40) || this.sinceStage() > this.rideMax) {
+    } else if (st.state === 'echec' || (st.state === 'bloque' && st.blockedFor > 12) || (st.state === 'attente' && st.blockedFor > 40)
+      // délai de route dépassé : pied à terre si la tête n'avance plus, mais pas en plein mouvement (motos ralenties
+      // derrière la colonne de la compagnie partie de la même caserne : elles arrivent en retard, mais elles arrivent ;
+      // arrêtées net à 200 m du point, elles n'y étaient jamais) — au double du délai, dans tous les cas
+      || (this.sinceStage() > this.rideMax && (stopped || this.sinceStage() > this.rideMax * 2))) {
       // route coupée ou foule en travers : on termine à pied, sans forcer le passage
       this.stopMotos();
       this.arrived();

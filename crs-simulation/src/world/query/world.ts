@@ -296,6 +296,11 @@ export class WorldQueryImpl implements WorldQueryExt, TileHost {
     return new Promise<void>((resolve) => setTimeout(resolve, 0));
   }
 
+  /** Sans rendu (tests, outils) : tuiles chargées sur-le-champ quand la source le permet (déroulement reproductible). */
+  syncLoads(): boolean {
+    return this.headless;
+  }
+
   addDecodeTime(ms: number): void {
     this.decodeMs += ms;
   }

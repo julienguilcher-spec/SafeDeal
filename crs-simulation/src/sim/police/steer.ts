@@ -14,7 +14,7 @@
  * ===================================================================================== */
 
 import type { Person } from '@/core/contracts';
-import { segmentVsObb } from '@/core/math';
+import { distSqPointObb, segmentVsObb } from '@/core/math';
 import type { SegmentCast } from '@/core/math';
 import type { Agent } from './brain';
 import { ACT_AIM, F_COLUMN } from './brain';
@@ -230,8 +230,8 @@ export function navigate(k: Kernel, a: Agent, tx: number, tz: number, interval: 
     const last = a.path.length;
     const ex = a.path[last - 2] - tx;
     const ez = a.path[last - 1] - tz;
-    // un point de passage unique (contournement d'un véhicule) est suivi jusqu'au bout
-    const detour = a.pathN === 4 && last === 6;
+    // un contournement de véhicule (un ou deux coins, puis le but) est suivi jusqu'au bout
+    const detour = (a.pathN === 4 && last === 6) || (a.pathN === 6 && last === 8);
     if (ex * ex + ez * ez > 36 || (!detour && d2 < 900 && world.lineOfSight(p.x, p.z, tx, tz))) a.pathN = 0;
   } else if (d2 > 25 && k.now - a.pathAt >= T.REPATH_INTERVAL && !world.lineOfSight(p.x, p.z, tx, tz)) {
     a.pathAt = k.now;
@@ -339,7 +339,10 @@ const cast: SegmentCast = { t: 0, nx: 0, nz: 0 };
 
 /**
  * Contournement d'une boîte orientée (véhicule, mobilier) : parmi ses quatre coins (avec une marge), celui
- * que l'agent voit et qui donne le trajet le plus court vers le but devient un point de passage.
+ * que l'agent voit et qui donne le trajet le plus court vers le but devient un point de passage. Si le but n'est pas
+ * en vue de ce coin (il est de l'autre côté de la boîte, le long de son flanc), le coin voisin s'ajoute : sans lui,
+ * l'agent arrivé au coin repartait droit vers le but, butait de nouveau contre la caisse, revenait au même coin… et
+ * n'embarquait jamais (équipier du fourgon garé dans l'autre file du bloc).
  */
 function cornerDetour(k: Kernel, a: Agent, cx: number, cz: number, halfX: number, halfZ: number, heading: number, tx: number, tz: number): void {
   const p = a.p;
@@ -350,22 +353,49 @@ function cornerDetour(k: Kernel, a: Agent, cx: number, cz: number, halfX: number
   const world = k.ctx.world;
   const mx = halfX + 0.75;
   const mz = halfZ + 0.75;
+  // marge de 0,3 m autour de la boîte pour juger qu'un coin est caché ; moins si l'agent est déjà plaqué contre elle :
+  // dans cette marge, chaque trajet vers un coin « entrait » dans la boîte dès le départ, tous les coins étaient écartés
+  // et l'agent poussait la caisse sans fin (équipage coincé contre le fourgon voisin, à 5 m de sa portière)
+  const gap = Math.sqrt(distSqPointObb(p.x, p.z, cx, cz, halfX, halfZ, heading));
+  const pad = gap < 0.35 ? Math.max(0, gap - 0.05) : 0.3;
+  // (le but lui-même dans la marge de la boîte : on ne juge que la caisse)
+  const tgap = Math.sqrt(distSqPointObb(tx, tz, cx, cz, halfX, halfZ, heading));
+  const tpad = tgap < 0.35 ? Math.max(0, tgap - 0.05) : 0.3;
   let best = Infinity;
   let bx = 0;
   let bz = 0;
+  let b2 = -1;
   for (let i = 0; i < 4; i++) {
-    const sx = i & 1 ? 1 : -1;
-    const sz = i & 2 ? 1 : -1;
-    const x = cx + rx * mx * sx + fx * mz * sz;
-    const z = cz + rz * mx * sx + fz * mz * sz;
+    const x = cornerX(cx, rx, fx, mx, mz, i);
+    const z = cornerZ(cz, rz, fz, mx, mz, i);
     // coin caché par la boîte elle-même, ou pris dans le décor : écarté
-    if (segmentVsObb(p.x, p.z, x, z, cx, cz, halfX + 0.3, halfZ + 0.3, heading, cast) && cast.t < 0.97) continue;
+    if (segmentVsObb(p.x, p.z, x, z, cx, cz, halfX + pad, halfZ + pad, heading, cast) && cast.t < 0.97) continue;
     if (!world.isFree(x, z, 0.3)) continue;
-    const cost = Math.hypot(x - p.x, z - p.z) + Math.hypot(tx - x, tz - z);
-    if (cost < best) {
-      best = cost;
-      bx = x;
-      bz = z;
+    const near = Math.hypot(x - p.x, z - p.z);
+    if (!(segmentVsObb(x, z, tx, tz, cx, cz, halfX + tpad, halfZ + tpad, heading, cast) && cast.t < 0.97)) {
+      const cost = near + Math.hypot(tx - x, tz - z);
+      if (cost < best) {
+        best = cost;
+        bx = x;
+        bz = z;
+        b2 = -1;
+      }
+      continue;
+    }
+    // but caché depuis ce coin : on longe le flanc jusqu'au coin voisin (même bout, ou même flanc)
+    for (let s = 1; s <= 2; s++) {
+      const j = i ^ s;
+      const x2 = cornerX(cx, rx, fx, mx, mz, j);
+      const z2 = cornerZ(cz, rz, fz, mx, mz, j);
+      if (!world.isFree(x2, z2, 0.3)) continue;
+      if (segmentVsObb(x2, z2, tx, tz, cx, cz, halfX + tpad, halfZ + tpad, heading, cast) && cast.t < 0.97) continue;
+      const cost = near + Math.hypot(x2 - x, z2 - z) + Math.hypot(tx - x2, tz - z2);
+      if (cost < best) {
+        best = cost;
+        bx = x;
+        bz = z;
+        b2 = j;
+      }
     }
   }
   if (best === Infinity) return;
@@ -374,11 +404,29 @@ function cornerDetour(k: Kernel, a: Agent, cx: number, cz: number, halfX: number
   path[1] = p.z;
   path[2] = bx;
   path[3] = bz;
-  path[4] = tx;
-  path[5] = tz;
-  path.length = 6;
-  a.pathN = 4;
+  if (b2 < 0) {
+    path[4] = tx;
+    path[5] = tz;
+    path.length = 6;
+    a.pathN = 4;
+  } else {
+    path[4] = cornerX(cx, rx, fx, mx, mz, b2);
+    path[5] = cornerZ(cz, rz, fz, mx, mz, b2);
+    path[6] = tx;
+    path[7] = tz;
+    path.length = 8;
+    a.pathN = 6;
+  }
   a.pathI = 2;
+}
+
+/** Coin n° i (0 à 3) d'une boîte orientée agrandie de la marge (mx, mz). */
+function cornerX(cx: number, rx: number, fx: number, mx: number, mz: number, i: number): number {
+  return cx + rx * mx * (i & 1 ? 1 : -1) + fx * mz * (i & 2 ? 1 : -1);
+}
+
+function cornerZ(cz: number, rz: number, fz: number, mx: number, mz: number, i: number): number {
+  return cz + rz * mx * (i & 1 ? 1 : -1) + fz * mz * (i & 2 ? 1 : -1);
 }
 
 /** Distance entre deux personnes. */

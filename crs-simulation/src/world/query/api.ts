@@ -43,6 +43,13 @@ export interface MapSource {
   manifest(): Promise<unknown>;
   /** Une tuile annoncée par le manifeste. */
   tile(entry: ManifestTile): Promise<RawTile>;
+  /**
+   * Lecture SYNCHRONE d'une tuile (facultative : source sur disque, sous Node). Sans rendu (headless), le magasin de
+   * tuiles s'en sert pour charger chaque tuile au moment même où elle est demandée : ce qui est chargé à un pas de
+   * simulation donné ne dépend plus de la vitesse du disque ni de la charge de la machine (même graine → même
+   * déroulement). Le navigateur garde la lecture asynchrone, étalée entre les images.
+   */
+  tileSync?(entry: ManifestTile): RawTile;
   roadGraph(manifest: Manifest): Promise<RawRoadGraph>;
   places(manifest: Manifest): Promise<RawPlaces>;
   landmarks(manifest: Manifest): Promise<RawLandmarks>;

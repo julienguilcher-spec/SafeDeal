@@ -181,12 +181,14 @@ describe('patrouilles de police dans Paris', () => {
     expect(d1).toBeLessThan(70);
     expect(sirens).toBe(true);
     expect(maxSpeed).toBeGreaterThan(30 / 3.6);
+    // elle reste sur place
+    t.step(30);
+    // (compte rendu d'arrivée lu après ces 30 s : il part dès l'arrivée, mais attend que le canal se libère — une
+    // émission en cours le retarde de quelques secondes, et le lire à la seconde même de l'arrivée dépendait du hasard)
     const said = ctx.radio.log.filter((m) => m.from === p.name).map((m) => m.text);
     console.log(said.join('\n'));
     expect(said.some((s) => /faisons mouvement/.test(s))).toBe(true);
     expect(said.some((s) => /Sur place/.test(s))).toBe(true);
-    // elle reste sur place
-    t.step(30);
     expect(p.state).toBe('sur_place');
     expect(Math.hypot(v.x - target.x, v.z - target.z)).toBeLessThan(70);
     // carte : en état « Sur place »

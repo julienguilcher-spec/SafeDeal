@@ -56,6 +56,12 @@ export interface TileHost {
   tileUnloaded(entry: TileEntry): void;
   /** Cède la main entre deux étapes lourdes (navigateur) ; immédiat en mode headless. */
   pause(): Promise<void>;
+  /**
+   * Chargement synchrone voulu (headless) : si la source sait lire une tuile sans attendre (MapSource.tileSync), chaque
+   * tuile demandée est chargée sur-le-champ, dans l'ordre des demandes (les plus proches d'abord). Rien ne dépend alors
+   * de l'horloge ni de la vitesse du disque : même graine → même déroulement.
+   */
+  syncLoads?(): boolean;
   addDecodeTime(ms: number): void;
 }
 
@@ -219,18 +225,12 @@ export class TileStore {
 
   /** Lance des lectures tant qu'il reste de la place, les tuiles les plus proches d'abord. */
   private pump(): void {
+    if (this.source.tileSync !== undefined && this.host.syncLoads !== undefined && this.host.syncLoads()) {
+      this.pumpSync();
+      return;
+    }
     while (this.active < MAX_PARALLEL && this.queue.length > 0) {
-      let best = 0;
-      if (Number.isFinite(this.focusX)) {
-        let bestD = Infinity;
-        for (let i = 0; i < this.queue.length; i++) {
-          const d = this.distance(this.queue[i], this.focusX, this.focusZ);
-          if (d < bestD) {
-            bestD = d;
-            best = i;
-          }
-        }
-      }
+      const best = this.nextIndex();
       const e = this.queue[best];
       this.queue.splice(best, 1);
       e.state = 'loading';
@@ -238,6 +238,90 @@ export class TileStore {
       this.active++;
       void this.load(e, this.epoch);
     }
+  }
+
+  /** Indice dans la file de la tuile à lire d'abord (la plus proche du centre d'intérêt ; à défaut, la plus ancienne). */
+  private nextIndex(): number {
+    let best = 0;
+    if (Number.isFinite(this.focusX)) {
+      let bestD = Infinity;
+      for (let i = 0; i < this.queue.length; i++) {
+        const d = this.distance(this.queue[i], this.focusX, this.focusZ);
+        if (d < bestD) {
+          bestD = d;
+          best = i;
+        }
+      }
+    }
+    return best;
+  }
+
+  /** Vrai pendant un chargement synchrone : une demande faite par un abonné de world:tile_loaded rejoint la boucle en cours. */
+  private pumping = false;
+
+  /** Chargement synchrone de toute la file (headless), les plus proches d'abord. */
+  private pumpSync(): void {
+    if (this.pumping) return;
+    this.pumping = true;
+    try {
+      while (this.queue.length > 0) {
+        const best = this.nextIndex();
+        const e = this.queue[best];
+        this.queue.splice(best, 1);
+        e.state = 'loading';
+        e.attempts++;
+        this.loadSync(e, this.epoch);
+      }
+    } finally {
+      this.pumping = false;
+    }
+  }
+
+  /** Même chose que load(), sans attente (source synchrone). */
+  private loadSync(e: TileEntry, epoch: number): void {
+    let ok = false;
+    this.active++;
+    try {
+      const t0 = clock();
+      const tile = decodeTile(this.source.tileSync!(e.info));
+      if (tile.tx !== e.tx || tile.tz !== e.tz) throw new Error(`le fichier contient la tuile ${tile.tx}_${tile.tz}`);
+      const shops: MapShopInfo[] = [];
+      for (let i = 0; i < tile.shops.length; i++) {
+        const s = tile.shops[i];
+        shops.push({ index: i, x: s.x, z: s.z, heading: s.heading, width: s.width, category: s.category });
+      }
+      const furniture: MapFurnitureInfo[] = [];
+      for (let i = 0; i < tile.furniture.length; i++) {
+        const f = tile.furniture[i];
+        furniture.push({ index: i, kind: f.kind, x: f.x, z: f.z, heading: f.heading });
+      }
+      this.host.addDecodeTime(clock() - t0);
+      e.tile = tile;
+      e.shops = shops;
+      e.furniture = furniture;
+      this.host.tileDecoded(e);
+      ok = true;
+    } catch (err) {
+      if (epoch === this.epoch) console.error(`[world] tuile ${e.key} illisible (${this.source.label})`, err);
+    }
+    if (epoch !== this.epoch) return; // tout a été déchargé entre-temps (unloadAll remet les compteurs à zéro)
+    this.active--;
+    this.loadingCount--;
+    if (ok) {
+      e.state = 'loaded';
+      this.loaded.push(e.key);
+      try {
+        this.host.tileLoaded(e);
+      } catch (err) {
+        console.error(`[world] un abonné de world:tile_loaded a échoué (tuile ${e.key})`, err);
+      }
+    } else {
+      e.state = 'failed';
+      e.tile = null;
+      e.bucket = null;
+      this.failedCount++;
+    }
+    this.finish(e);
   }
 
   private async load(e: TileEntry, epoch: number): Promise<void> {

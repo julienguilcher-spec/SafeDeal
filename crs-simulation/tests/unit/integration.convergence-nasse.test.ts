@@ -75,12 +75,15 @@ describe('cortèges détournés, convergence, nasse et évacuation filtrée', ()
     expect(scene.manifs.length).toBe(2);
     expect(scene.manifs.every((m) => m.detours > 0 && m.route.length >= 4)).toBe(true);
     expect(scene.closures.length).toBeGreaterThan(10);
-    // les deux cortèges rassemblés sur la place
-    t.step(60);
+    // les deux cortèges rassemblés sur la place. (La queue d'un cortège arrive une à deux minutes après sa tête : avec
+    // les immeubles du quartier chargés — comme en jeu — celle du cortège B, qui vient par le pont d'Arcole, met 60 à
+    // 90 s. On attend donc qu'elle soit arrivée, trois minutes au plus, au lieu d'un délai fixe de 60 s.)
     const members = (): Person[] => core.members.filter((p) => {
       const v = api.manifOf(p.id);
       return v !== null && p.custody === 'free' && (core.brain(p)!.flags & CROWD_FLAG.LEAVING) === 0;
     });
+    const gathered = (m: ManifView): boolean => members().filter((p) => api.manifOf(p.id) === m && Math.hypot(p.x - S.x, p.z - S.z) < 70).length >= m.people * 0.75;
+    for (let w = 0; w < 18 && !(gathered(a) && gathered(b)); w++) t.step(10);
     const onSquare = members().filter((p) => Math.hypot(p.x - S.x, p.z - S.z) < 70);
     console.log(`[convergence] sur la place : ${onSquare.length} (cortège A ${onSquare.filter((p) => api.manifOf(p.id) === a).length}, B ${onSquare.filter((p) => api.manifOf(p.id) === b).length})`);
     expect(onSquare.filter((p) => api.manifOf(p.id) === a).length).toBeGreaterThan(40);

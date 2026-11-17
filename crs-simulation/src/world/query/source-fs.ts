@@ -25,7 +25,26 @@ function loadFs(): Promise<FsPromises> {
   return fsPromise;
 }
 
-interface NodeProcess { cwd?: () => string; versions?: { node?: string } }
+interface NodeProcess {
+  cwd?: () => string;
+  versions?: { node?: string };
+  getBuiltinModule?: (id: string) => unknown;
+}
+
+interface FsSync {
+  readFileSync(path: string, encoding: 'utf8'): string;
+}
+
+let fsSync: FsSync | null | undefined;
+
+/** node:fs synchrone, sans import statique (rien n'entre dans le chemin du navigateur) ; null s'il est inaccessible. */
+function syncFs(): FsSync | null {
+  if (fsSync !== undefined) return fsSync;
+  const proc = (globalThis as { process?: NodeProcess }).process;
+  const mod = proc !== undefined && typeof proc.getBuiltinModule === 'function' ? (proc.getBuiltinModule('node:fs') as FsSync | undefined) : undefined;
+  fsSync = mod !== undefined && typeof mod.readFileSync === 'function' ? mod : null;
+  return fsSync;
+}
 
 /** Dossier par défaut des données de Paris sous Node : <dossier courant>/public/data/paris. */
 export function defaultParisDir(): string {
@@ -38,9 +57,14 @@ export class FsMapSource implements MapSource {
   readonly label: string;
   private readonly dir: string;
 
+  /** Lecture synchrone d'une tuile (voir MapSource.tileSync) ; absente si node:fs synchrone est inaccessible. */
+  readonly tileSync?: (entry: ManifestTile) => RawTile;
+
   constructor(dir: string = defaultParisDir()) {
     this.dir = dir.replace(/\\/g, '/').replace(/\/$/, '');
     this.label = `fichiers ${this.dir}`;
+    const fs = syncFs();
+    if (fs !== null) this.tileSync = (entry: ManifestTile): RawTile => JSON.parse(fs.readFileSync(`${this.dir}/${entry.file}`, 'utf8')) as RawTile;
   }
 
   private async read<T>(path: string): Promise<T> {

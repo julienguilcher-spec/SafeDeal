@@ -49,7 +49,11 @@ describe('journée de service', () => {
     let routeAt = -1;
     for (let i = 0; i < 60 && j.stage === 'embarquement'; i++) t.step(5);
     routeAt = ctx.clock.now;
-    console.log(`colonne partie (${j.stage}) ; destination ${j.destination?.name} ; sirène ${van.siren}`);
+    // personne n'est resté à pied à la caserne (fourgons garés hors des cours fermées du Palais, accessibles à pied)
+    const afoot = ctx.people.list.filter((p) => p.faction === 'police' && !p.isPlayer && p.vehicleId === 0 && p.custody === 'free' && p.posture !== 'down'
+      && Math.hypot(p.x - SERVICE_BASE.x, p.z - SERVICE_BASE.z) < 250);
+    console.log(`colonne partie (${j.stage}) ; destination ${j.destination?.name} ; sirène ${van.siren} ; agents restés à pied à la caserne : ${afoot.length} (${afoot.map((p) => p.poste).join(',')})`);
+    expect(afoot.map((p) => p.poste)).toEqual([]);
     expect(j.stage).toBe('route');
     expect(van.seats[0]).not.toBe(me.id); // c'est l'IA qui conduit
     for (let i = 0; i < 120 && j.stage === 'route'; i++) t.step(5);

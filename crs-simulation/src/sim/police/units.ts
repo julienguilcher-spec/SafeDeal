@@ -14,7 +14,7 @@
  * une Squad du magasin ctx.squads, rattachée à son échelon supérieur (parentId).
  * ===================================================================================== */
 
-import type { EntityId, Person, Prop, RoadSample, Squad, SquadKind, Vehicle, VehicleKind } from '@/core/contracts';
+import type { EntityId, Person, Prop, RayHit, RoadSample, Squad, SquadKind, Vehicle, VehicleKind } from '@/core/contracts';
 import type { SpawnHelperApi, UnitSlot } from '@/sim/roles/archetypes/api';
 import type {
   BravmOptions, CompanyOptions, CrewKind, CrewOptions, GroupOptions, GroupType, PelotonOptions, RosterSlot, SectionOptions,
@@ -35,6 +35,8 @@ interface Build {
   x: number;
   z: number;
   heading: number;
+  /** Premier véhicule de l'unité rangé sur la chaussée (filet de parkSpot) : tête de la file des suivants. */
+  road: { x: number; z: number; heading: number } | null;
 }
 
 function origin(k: Kernel, o: UnitPlacement | undefined): { x: number; z: number; heading: number } {
@@ -53,7 +55,7 @@ function begin(k: Kernel, squad: Squad, o: UnitPlacement | undefined, seed: numb
     index: 0,
     seed: seed !== undefined ? seed : k.rng.int(1, 1 << 30),
     company: company !== undefined ? company : 70 + (k.callsigns % 10),
-    x: at.x, z: at.z, heading: at.heading,
+    x: at.x, z: at.z, heading: at.heading, road: null,
   };
 }
 
@@ -113,7 +115,8 @@ function parkSpot(k: Kernel, b: Build, n: number, out: { x: number; z: number; h
     const back = 24 + row * 7.6;
     const x = b.x - fx * back + rx * file * 1.8;
     const z = b.z - fz * back + rz * file * 1.8;
-    if (world.isFree(x, z, 1.3) && world.isFree(x + fx * 2.4, z + fz * 2.4, 1.2) && world.isFree(x - fx * 2.4, z - fz * 2.4, 1.2) && !parkTaken(b, x, z)) {
+    if (world.isFree(x, z, 1.3) && world.isFree(x + fx * 2.4, z + fz * 2.4, 1.2) && world.isFree(x - fx * 2.4, z - fz * 2.4, 1.2) && !parkTaken(b, x, z)
+      && parkReach(k, b, x, z)) {
       out.x = x;
       out.z = z;
       return true;
@@ -121,14 +124,54 @@ function parkSpot(k: Kernel, b: Build, n: number, out: { x: number; z: number; h
   }
   // Emplacement habituel pris (façade, grille, arbre juste derrière l'unité) : sans filet, l'unité commençait SANS son
   // véhicule — donc à pied pour toute la partie. On cherche plus loin derrière et sur les côtés, puis sur la chaussée
-  // la plus proche, dans l'axe de la voie.
+  // la plus proche, dans l'axe de la voie. Seulement là où les équipages le rejoignent à pied par un chemin sensé : à la
+  // caserne de la Cité, les rangs de 24 à 84 m tombaient dans les cours fermées du Palais, de l'autre côté du mur — les
+  // équipages, arrêtés contre ce mur, n'embarquaient jamais (et le fourgon n'en serait pas sorti). En tout dernier
+  // recours seulement (aucune place accessible), l'ancienne recherche, sans cette condition.
+  return parkAround(k, b, out, true) || parkAround(k, b, out, false);
+}
+
+/**
+ * Recherche de repli de parkSpot : rangs derrière l'unité puis chaussées alentour ; `reach` : accès à pied exigé ;
+ * `accept` : condition supplémentaire sur la place (x, z, cap).
+ */
+function parkAround(k: Kernel, b: Build, out: { x: number; z: number; heading: number }, reach: boolean,
+  accept?: (x: number, z: number, h: number) => boolean): boolean {
+  const fx = Math.sin(b.heading);
+  const fz = Math.cos(b.heading);
+  const rx = -fz;
+  const rz = fx;
+  const world = k.ctx.world;
+  out.heading = b.heading;
   for (let back = 24; back <= 84; back += 7.6) {
     for (const file of PARK_FILES) {
       const x = b.x - fx * back + rx * file * 1.8;
       const z = b.z - fz * back + rz * file * 1.8;
-      if (!parkClear(k, x, z, b.heading)) continue;
+      if (!parkClear(k, x, z, b.heading) || (reach && !parkReach(k, b, x, z)) || (accept && !accept(x, z, b.heading))) continue;
       out.x = x;
       out.z = z;
+      return true;
+    }
+  }
+  // un véhicule de l'unité est déjà rangé sur la chaussée : les suivants se garent en file derrière lui (le long du
+  // trottoir, 7,6 m par rang), pas épars sur la voie. Garés au hasard des anneaux, certains se retrouvaient sur
+  // l'itinéraire de sortie des autres, au milieu du boulevard : le VL de tête, une fois tourné vers la sortie, butait
+  // contre un fourgon garé devant lui.
+  const head = b.road;
+  if (head) {
+    const h = head.heading;
+    const hx = Math.sin(h), hz = Math.cos(h);
+    for (let j = 1; j < 2 * PARK_ROAD_RANKS; j++) {
+      // une seule file le long du trottoir d'abord (chacun peut en sortir, demi-tour compris, par la voie restée
+      // libre) ; une deuxième, vers l'axe, si la première est barrée
+      const lane = j < PARK_ROAD_RANKS ? 0 : 1;
+      const along = (lane === 0 ? j : j - PARK_ROAD_RANKS) * 7.6;
+      const x = head.x + hx * along - Math.cos(h) * lane * 3.6;
+      const z = head.z + hz * along + Math.sin(h) * lane * 3.6;
+      if (!parkClear(k, x, z, h) || (reach && !parkReach(k, b, x, z)) || (accept && !accept(x, z, h))) continue;
+      out.x = x;
+      out.z = z;
+      out.heading = h;
       return true;
     }
   }
@@ -143,7 +186,8 @@ function parkSpot(k: Kernel, b: Build, n: number, out: { x: number; z: number; h
       for (const f of PARK_OFFSETS) {
         const x = parkRoad.x + Math.cos(h) * edge * f;
         const z = parkRoad.z - Math.sin(h) * edge * f;
-        if (!parkClear(k, x, z, h)) continue;
+        if (!parkClear(k, x, z, h) || (reach && (Math.hypot(x - b.x, z - b.z) < PARK_ROAD_MIN || !parkReach(k, b, x, z)))
+          || (accept && !accept(x, z, h))) continue;
         out.x = x;
         out.z = z;
         out.heading = h;
@@ -155,7 +199,38 @@ function parkSpot(k: Kernel, b: Build, n: number, out: { x: number; z: number; h
 }
 
 const PARK_FILES: readonly number[] = [-1, 1, 0, -3, 3, -5, 5];
+const parkHit = { hit: false, t: 0, x: 0, z: 0, nx: 0, nz: 0, kind: 'none', id: 0, height: 0 } as RayHit;
+const parkPath: number[] = [];
+/** Détour à pied admis jusqu'au véhicule : au plus deux fois la distance à vol d'oiseau, plus une marge (m). */
+const PARK_DETOUR = 2;
+const PARK_DETOUR_SLACK = 10;
+
+/**
+ * Les équipages, rangés au point de mise en place, rejoignent-ils à pied ce véhicule par un chemin sensé ? Ligne droite
+ * libre de tout mur, ou itinéraire piéton dont chaque tronçon est dégagé (les tronçons d'extrémité d'un itinéraire
+ * partent en ligne droite vers le point demandé, à travers un mur s'il le faut : on les vérifie) et pas plus de deux
+ * fois plus long que la ligne droite (pas un tour de pâté de maisons de 370 m pour un fourgon garé à 60 m).
+ */
+function parkReach(k: Kernel, b: Build, x: number, z: number): boolean {
+  const world = k.ctx.world;
+  if (!world.raycast(b.x, b.z, x, z, parkHit)) return true;
+  const path = parkPath;
+  path.length = 0;
+  if (!world.findPath(b.x, b.z, x, z, 'foot', path) || path.length < 4) return false;
+  let len = 0;
+  for (let i = 2; i + 1 < path.length; i += 2) {
+    if (world.raycast(path[i - 2]!, path[i - 1]!, path[i]!, path[i + 1]!, parkHit)) return false;
+    len += Math.hypot(path[i]! - path[i - 2]!, path[i + 1]! - path[i - 1]!);
+  }
+  return len <= Math.hypot(x - b.x, z - b.z) * PARK_DETOUR + PARK_DETOUR_SLACK;
+}
 const PARK_OFFSETS: readonly number[] = [1, 0.5, 0];
+/** Écart latéral minimal entre l'axe d'un véhicule garé et le flanc de son voisin : sa demi-largeur et une portière (m). */
+const PARK_SIDE = 1.1 + 1.3;
+/** Sur la chaussée, distance minimale au point de mise en place : les véhicules ne se garent pas dans les rangs (m). */
+const PARK_ROAD_MIN = 10;
+/** Rangs d'une file garée sur la chaussée. */
+const PARK_ROAD_RANKS = 10;
 const parkRoad = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '' } as RoadSample;
 const parkProps: Prop[] = [];
 
@@ -175,12 +250,15 @@ function parkClear(k: Kernel, x: number, z: number, h: number): boolean {
     const dx = o.x - x, dz = o.z - z;
     const reach = 3.4 + o.def.length * 0.5;
     if (dx * dx + dz * dz >= reach * reach) continue;
-    // rangé dans le même axe : côte à côte ou l'un derrière l'autre, à une portière près ; sinon, hors de son cercle
+    // rangé dans le même axe : côte à côte ou l'un derrière l'autre, à une portière près ; sinon, hors de son cercle.
+    // (côte à côte : demi-largeur de l'autre, plus la sienne, plus une portière ouverte — sans la sienne, deux fourgons
+    // rangés sur la chaussée se touchaient presque, et l'équipage du fourgon du milieu, pris entre deux caisses à 0,3 m,
+    // n'atteignait jamais sa portière)
     const parallel = Math.abs(Math.sin(o.heading - h)) < 0.35;
     if (!parallel) return false;
     const along = Math.abs(dx * fx + dz * fz);
     const lat = Math.abs(dx * fz - dz * fx);
-    if (along < 2.9 + o.def.length * 0.5 && lat < 1.3 + o.def.width * 0.5) return false;
+    if (along < 2.9 + o.def.length * 0.5 && lat < PARK_SIDE + o.def.width * 0.5) return false;
   }
   return ctx.props.queryRadius(x, z, 3.2, parkProps, (q) => q.blocksMove) === 0;
 }
@@ -215,11 +293,41 @@ function parkCellAtRear(k: Kernel, b: Build, cell: Vehicle): void {
   const free = parkClear(k, x, z, b.heading) && Math.hypot(x - lead.x, z - lead.z) < 8;
   cell.x = free ? x : ox;
   cell.z = free ? z : oz;
-  if (free) cell.heading = b.heading;
+  if (free) {
+    cell.heading = b.heading;
+    return;
+  }
+  // bloc rangé sur la chaussée (mur derrière l'unité, à la caserne de la Cité) : il y a été garé au plus près, devant
+  // les fourgons une fois tournés vers la sortie. On lui cherche une place d'où il n'est devant aucun d'eux.
+  if (cellAtRear(b, cell, ox, oz, cell.heading)) return;
+  cell.x = 1e6;
+  cell.z = 1e6;
+  const moved = parkAround(k, b, spot, true, (px, pz, h) => cellAtRear(b, cell, px, pz, h));
+  cell.x = moved ? spot.x : ox;
+  cell.z = moved ? spot.z : oz;
+  if (moved) cell.heading = spot.heading;
+}
+
+/**
+ * Le cellulaire garé en (x, z) au cap `h` (cap avant le demi-tour de faceExit) est-il au dernier rang : aucun véhicule
+ * de l'unité, à moins de 30 m, garé de l'autre côté de lui par rapport à la sortie ?
+ */
+function cellAtRear(b: Build, cell: Vehicle, x: number, z: number, h: number): boolean {
+  const fx = Math.sin(h);
+  const fz = Math.cos(h);
+  const list = b.handle.vehicles;
+  for (let i = 0; i < list.length; i++) {
+    const v = list[i]!;
+    if (v === cell) continue;
+    const dx = v.x - x, dz = v.z - z;
+    if (dx * dx + dz * dz < 30 * 30 && dx * fx + dz * fz > 0.5) return false;
+  }
+  return true;
 }
 
 function spawnVehicle(k: Kernel, b: Build, kind: VehicleKind, squad: Squad | null, color?: number): Vehicle | null {
   if (!parkSpot(k, b, b.handle.vehicles.length, spot)) return null;
+  if (!b.road && spot.heading !== b.heading) b.road = { x: spot.x, z: spot.z, heading: spot.heading };
   const v = k.ctx.vehicles.spawn(kind, spot.x, spot.z, spot.heading, { faction: 'police', color });
   b.handle.vehicles.push(v);
   if (squad) squad.vehicleId = v.id;

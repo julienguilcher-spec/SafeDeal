@@ -7,7 +7,7 @@
 
 import type { Person, Vehicle } from '@/core/contracts';
 import { ARREST_EVENT } from './api';
-import type { Op, Unit } from './brain';
+import type { Agent, Op, Unit } from './brain';
 import { F_NONE, OP_ARREST, ROLE_LEAD, ROLE_SECOND, createOp } from './brain';
 import type { Kernel } from './kernel';
 import { report } from './mcore';
@@ -20,6 +20,8 @@ import * as T from './tuning';
 
 // ───────────────────────────── interpellation ─────────────────────────────
 
+const catcherOrHelper = (a: Agent): boolean => isCatcher(a) || isHelper(a);
+
 /** Lance l'interpellation d'une personne par le binôme le plus proche. null si personne n'est disponible. */
 export function createArrest(k: Kernel, root: Unit, owner: Unit, target: Person, ordered: boolean): Op | null {
   const within = ordered ? owner : null;
@@ -29,6 +31,13 @@ export function createArrest(k: Kernel, root: Unit, owner: Unit, target: Person,
   let lead = nearest(root, within, target.x, target.z, catcher, null);
   if (!lead) lead = nearest(root, within, target.x, target.z, helper, null);
   if (!lead && ordered) lead = nearest(root, within, target.x, target.z, offLine(root, anyTrooper), null);
+  if (!lead && ordered && root.man.barrage) {
+    // Ordre d'interpeller et personne hors du premier rang (rue large : toute la section tient la ligne, y compris le
+    // binôme d'interpellation ; ou les agents du second rang gardent déjà des interpellés) : l'ordre n'est pas refusé
+    // pour autant — l'agent du rang le plus proche sort par la porte (lineDoor), le rang se referme derrière lui.
+    // (Sinon, à une sortie filtrée, chaque auteur retenu à la porte était relâché : « Aucun binôme disponible ».)
+    lead = nearest(root, within, target.x, target.z, catcherOrHelper, null) ?? nearest(root, within, target.x, target.z, anyTrooper, null);
+  }
   if (!lead) return null;
   const op = createOp(OP_ARREST, root, owner, k.now);
   op.ordered = ordered;
@@ -151,8 +160,13 @@ function stepArrest(k: Kernel, op: Op): void {
         dx /= d;
         dz /= d;
       }
-      // le premier va au contact, le second sur le flanc, les boucliers de part et d'autre
-      setGoal(lead, target.x - dx * 0.8, target.z - dz * 0.8);
+      // le premier va au contact, le second sur le flanc, les boucliers de part et d'autre. Individu qui s'éloigne
+      // (il fuit, ou sort d'une nasse) : le premier vise là où il sera dans un instant, pas 0,8 m derrière lui — sinon,
+      // freinant à l'approche de son but, il restait à 1,7 m dans le dos d'un fuyard aussi rapide que lui sans jamais
+      // l'atteindre (« Individu hors d'atteinte »).
+      const away = target.vx * dx + target.vz * dz;
+      if (away > 0.5 && d < 12) setGoal(lead, target.x + target.vx * 0.8, target.z + target.vz * 0.8);
+      else setGoal(lead, target.x - dx * 0.8, target.z - dz * 0.8);
       setGoal(second, target.x - dx * 0.5 - dz * 0.9, target.z - dz * 0.5 + dx * 0.9);
       setGoal(op.cover1, p.x - dz * 1.5 + dx * 0.6, p.z + dx * 1.5 + dz * 0.6);
       setGoal(op.cover2, p.x + dz * 1.5 + dx * 0.6, p.z - dx * 1.5 + dz * 0.6);
