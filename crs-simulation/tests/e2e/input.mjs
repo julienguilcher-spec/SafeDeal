@@ -825,18 +825,41 @@ await frames(mp);
 s = await snap(mp);
 check(s.brake === 1 && s.moveY === -1 && s.throttle === 0, `pédale de frein (${s.brake}, moveY ${s.moveY})`);
 await fingerUp(1);
-for (const [key, button] of [['siren', 'siren'], ['beacons', 'beacons'], ['horn', 'horn'], ['handbrake', 'handbrake'], ['exit', 'interact'], ['headlights', 'headlights'], ['fire', 'primary']]) {
+const pressVehicleButton = async (key, button, label) => {
   const c = await centerOf(key);
   await resetCounts(mp);
   await fingerDown(5, c.x, c.y);
   await frames(mp, 3);
   s = await snap(mp);
-  check(s.down.includes(button), `véhicule : bouton ${key} → ${button}`);
+  check(s.down.includes(button), `${label} : bouton ${key} → ${button}`);
   await fingerUp(5);
   await frames(mp, 5);
   s = await snap(mp);
-  once(s, button, `véhicule : bouton ${key}`);
+  once(s, button, `${label} : bouton ${key}`);
+};
+for (const [key, button] of [['siren', 'siren'], ['beacons', 'beacons'], ['horn', 'horn'], ['handbrake', 'handbrake'], ['exit', 'interact'], ['headlights', 'headlights']]) {
+  await pressVehicleButton(key, button, 'véhicule');
 }
+// le bouton « Action » (tir) n'existe qu'à une place armée : absent au volant d'un véhicule sans arme…
+check(await mp.evaluate(() => window.__inputTest.rect('fire')) === null, 'véhicule sans arme : pas de bouton « Action » (il ne ferait rien)');
+// … présent au volant d'un engin armé (canon à eau, Centaure) : on remonte à bord d'un engin à tourelle
+await mp.evaluate(() => { window.__inputTest.controls.inVehicle = false; });
+await frames(mp, 5);
+await mp.evaluate(() => {
+  const t = window.__inputTest;
+  t.controls.inVehicle = true;
+  t.ctx.player.vehicle().def.turrets = [{ kind: 'canon_eau' }];
+});
+await frames(mp, 5);
+await pressVehicleButton('fire', 'primary', 'engin armé');
+await mp.evaluate(() => { window.__inputTest.controls.inVehicle = false; });
+await frames(mp, 5);
+await mp.evaluate(() => {
+  const t = window.__inputTest;
+  t.controls.inVehicle = true;
+  delete t.ctx.player.vehicle().def.turrets;
+});
+await frames(mp, 5);
 check(await mp.evaluate(() => window.__inputTest.labels.labelFor('interact')) === 'Sortir', 'libellé tactile de « Interagir » en véhicule : Sortir');
 
 // ── disposition drone ──

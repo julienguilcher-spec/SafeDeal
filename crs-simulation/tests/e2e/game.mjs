@@ -391,13 +391,16 @@ async function bureau(server) {
     const ts2 = await page.evaluate(() => window.__CRS.ctx.clock.timeScale);
     check(ts0 === 1 && ts1 === 4 && ts2 === 1, 'la touche d’avance rapide bascule la vitesse de la simulation', `×${ts0} → ×${ts1} → ×${ts2}`);
 
-    // ── roue d'ordres pour un simple CRS : un message, pas un silence ──
+    // ── roue d'ordres pour un simple CRS : la roue réduite aux deux ordres « Me suivre » (à pied, en colonne) ──
     await page.keyboard.down('KeyF');
     await frames(page, 2);
     await page.keyboard.up('KeyF');
     await frames(page, 3);
-    check((await page.evaluate(() => window.__CRS.ctx.service('ui.debug').notices())).some((t) => /recevez les ordres/.test(t)), 'touche des ordres pour un équipier : « Vous recevez les ordres »');
-    check((await state(page)).screen === null, '… et aucun écran ne reste ouvert');
+    const followWheel = await page.evaluate(() => Array.from(document.querySelectorAll('[data-id="order-wheel"] .cw-label')).map((e) => e.textContent));
+    check(followWheel.length === 2 && followWheel.every((t) => /Me suivre/.test(t ?? '')), 'touche des ordres pour un équipier : la roue réduite « Me suivre » (à pied, en colonne)', followWheel.join(' | '));
+    await page.keyboard.press('Escape');
+    await frames(page, 3);
+    check((await state(page)).screen === null, '… et Échap la referme : aucun écran ne reste ouvert', String((await state(page)).screen));
 
     // ── les unités manœuvrent : le commandant IA déploie la compagnie (ordres, comptes rendus radio) ──
     const unitsBefore = await page.evaluate(() => {

@@ -613,6 +613,10 @@ async function roles() {
     check(labels.length === 2 && labels.every((t) => /Me suivre/.test(t)), `roue d'ordres d'un CRS : les deux ordres « me suivre » seulement (${JSON.stringify(labels)})`);
     const wheelNt = await notices(page);
     check(!wheelNt.some((t) => /recevez les ordres/.test(t)), `roue d'ordres d'un CRS : plus de « vous recevez les ordres » (${JSON.stringify(wheelNt.slice(-3))})`);
+    // appui LONG (plus d'un quart de seconde et de quatre images) : relâché trop tôt, c'est un appui bref et la
+    // roue reste affichée — le scénario dépendait alors de la vitesse de la machine
+    await settle(page, 400);
+    await frames(page, 6);
     await page.keyboard.up('KeyF');
     check(await untilStack(page, 'roue_ordres', false), 'la roue se referme au relâchement');
     await browser.close();
