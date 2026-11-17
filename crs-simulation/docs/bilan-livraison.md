@@ -47,7 +47,15 @@ imparfait, et où trouver les propositions d'améliorations.
 - **Clavier** : une touche tapée dans la roue d'ordres agissait encore dans le jeu après sa fermeture (un chiffre changeait l'objet en main) ; la carte tactique ne répondait pas aux flèches.
 - **Téléphone** : textes radio trop gros et empilés ; le menu de pause débordait de l'écran en paysage ; les raccourcis recouvraient la mini-carte.
 
+- **Rue tenue par une unité** : on passait entre les agents et le long des murs ; « Avancer » sur une rue finissait en colonne ; « Encercler » laissait ouverts les côtés sans rue (esplanade) ; une interpellation ou un secours sortait des agents du premier rang et ouvrait des trous de 2 à 3 m dans la ligne.
+- **Circulation** : des voitures restaient dans une rue fermée et roulaient vers le barrage ; la circulation continuait d'apparaître à l'intérieur d'un périmètre fermé.
+- **Évacuation filtrée** : une interpellation faite dans la file d'attente, avant le contrôle, n'était pas comptée.
+
 ## Nouveautés
+
+- **Rue barrée** : une unité envoyée sur une rue la barre d'un mur à l'autre ; plus personne ne passe, dans aucun sens (sauf police, secours et joueur). Option « Passants : bloqués / laissés passer » (touche B sur la carte tactique). Unité trop petite : compte rendu « largeur insuffisante » et renfort proposé.
+- **Nasse automatique** : détectée quand toutes les issues autour d'une foule sont tenues (« Nasse fermée, environ N personnes ») ; carte tactique avec barrages, issues ouvertes, bandeau, aide « Fermer la nasse », issue filtrée (F).
+- **Rue fermée vidée** : les voitures civiles restées au-delà de la barrière sont retirées (hors de la vue du joueur, ou après un demi-tour).
 
 - **Dégager un véhicule** : deux-tons, « Faire circuler ce véhicule » à pied, ordre « Dégager l'obstacle (Centaure) » (proposé par l'adjoint, ou demandé par radio).
 - **Ordres « Me suivre à pied » et « Me suivre en colonne (véhicules) »**, à la place de « Avec moi » ; la formation à pied « Colonne » s'appelle « En file (à pied) ».
@@ -73,7 +81,8 @@ imparfait, et où trouver les propositions d'améliorations.
 - Concorde : le point de départ de certains véhicules est en dehors du réseau de rues.
 - La demande de ravitaillement en cours n'est pas sauvegardée d'une partie à l'autre.
 - Groupes radicaux : quand le cortège s'est détourné devant un barrage, un de leurs points de fuite peut se trouver de l'autre côté de ce barrage.
-- Nasse : les côtés d'une place sans rue (trottoir, esplanade) ne sont pas tenus ; des personnes peuvent sortir par là (un auteur de faits qui sort ainsi est tout de même recherché).
+- Barrage : l'unité ne gare pas ses véhicules en travers pour compléter une ligne trop courte ; la relève d'un barrage par une autre unité rouvre la rue (la ligne tient, mais la rue n'est plus fermée à la circulation et l'option « passants » est perdue).
+- Barrage avec passants admis : deux passants qui se croisent dans le même intervalle peuvent se gêner.
 - Certains tests de trajet donnent un résultat différent selon la charge de la machine (chargement de la carte) ; à rendre déterministe.
 - Les couloirs de bus ne sont pas traités à part ; la forme de Paris (tunnels, largeurs de voies) reste à reprendre.
 

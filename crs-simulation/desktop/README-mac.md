@@ -49,6 +49,14 @@ choisissent une section (**Maj** pour en ajouter une), **U** passe à l'unité s
 **Faire suivre une unité.** Deux ordres : « Me suivre à pied » (l'unité vous suit en formation, elle court quand vous
 courez) et « Me suivre en colonne (véhicules) » (elle remonte dans ses fourgons et suit votre véhicule).
 
+**Barrer une rue, nasser.** Envoyez une unité sur une rue (ordre « Barrer la rue », ou simplement « Avancer » ou
+« Tenir » sur la rue) : elle se déploie d'un mur à l'autre et plus personne ne passe, dans aucun sens — sauf la police,
+les secours et vous. Sur la carte tactique, la touche **B** choisit « Passants : bloqués » ou « Passants : laissés
+passer » (les manifestants et les véhicules restent bloqués dans les deux cas). Quand toutes les issues autour d'une
+foule sont tenues, la radio annonce « Nasse fermée » ; la carte montre les issues encore ouvertes, l'aide « Fermer la
+nasse » propose d'y envoyer vos unités libres, et **F** ouvre une issue filtrée pour évacuer. Une rue fermée à la
+circulation est vidée de ses voitures : elles s'arrêtent à la barrière.
+
 **Un véhicule vous bloque.** En véhicule, le deux-tons (**R**) le fait dégager, autobus compris. À pied, approchez-vous
 et appuyez sur **E** : « Faire circuler ce véhicule ». S'il n'a pas de conducteur, donnez l'ordre « Dégager l'obstacle
 (Centaure) » — l'adjoint vous le propose (**P**) après dix secondes de blocage — ou demandez le Centaure par la radio
