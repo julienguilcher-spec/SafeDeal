@@ -11,7 +11,7 @@ import type { SeatRole } from '@/core/contracts';
 import type { HudSlot, HudWidget } from '@/core/extensions';
 import type { InputTouchApi } from '@/input/api';
 import { h } from '../core/dom';
-import { isCompact, leftZoneCenter, touchScale } from './layout';
+import { isCompact, leftZoneCenter, subtitlePlacement, touchScale } from './layout';
 import { hudProfile } from './model';
 import type { HudEnv, HudPart, HudState, TouchMode } from './types';
 
@@ -292,26 +292,35 @@ export class Hud {
     }
     if (this.messages.subtitleCount() > 0) {
       const r = this.slots.bottom.getBoundingClientRect();
-      const top = r.height > 0 ? r.top : s.height - 20;
-      const bottom = Math.round(s.height - top + 8);
-      if (Math.abs(bottom - this.subBottom) > 1) {
-        this.subBottom = bottom;
-        this.styleRoot.style.setProperty('--ui-sub-bottom', bottom + 'px');
-      }
-      // la zone de gauche (proposition de l'adjoint et ses boutons « Accepter » / « Plus tard ») descend à la hauteur
-      // des sous-titres : ils passent à sa droite au lieu de cacher les boutons
-      let edge = -1;
+      // la zone de gauche (« À pied » / « En colonne », proposition de l'adjoint et ses boutons) descend à la hauteur des
+      // sous-titres : ils passent à sa droite, ou au-dessus d'elle quand la place manque (voir subtitlePlacement)
       const zone = this.slots.left;
-      if (zone.childElementCount > 0) {
-        const z = zone.getBoundingClientRect();
-        const bandBottom = s.height - bottom;
-        if (z.height > 0 && z.bottom > bandBottom - 64 && z.top < bandBottom && z.right < s.width * 0.75) edge = Math.round(z.right + 8);
+      const [baseLeft, baseRight] = this.subSides();
+      const place = subtitlePlacement(
+        s.width, s.height, baseLeft, baseRight, r.height > 0 ? r.top : s.height - 20,
+        zone.childElementCount > 0 ? zone.getBoundingClientRect() : null, this.slots['top-left'].getBoundingClientRect(),
+      );
+      if (Math.abs(place.bottom - this.subBottom) > 1) {
+        this.subBottom = place.bottom;
+        this.styleRoot.style.setProperty('--ui-sub-bottom', place.bottom + 'px');
       }
-      if (Math.abs(edge - this.subLeft) > 1) {
-        this.subLeft = edge;
+      if (Math.abs(place.edge - this.subLeft) > 1) {
+        this.subLeft = place.edge;
         this.applySubBand();
       }
     }
+  }
+
+  /** Bords gauche et droit (px) de la bande normale des sous-titres : entre les commandes tactiles, ou centrée. */
+  private subSides(): [number, number] {
+    const s = this.state;
+    if (s.touch === 'none') {
+      const half = Math.min(360, s.width * 0.37);
+      return [s.width / 2 - half, s.width / 2 + half];
+    }
+    const scale = touchScale(s.width, s.height);
+    const [l, r] = TOUCH_SIDES[s.touch];
+    return [l * scale, s.width - r * scale];
   }
 
   /**
@@ -326,18 +335,9 @@ export class Hud {
       st.removeProperty('--ui-sub-shift');
       return;
     }
-    const scale = touchScale(s.width, s.height);
-    let left: number;
-    let right: number;
-    if (s.touch === 'none') {
-      const half = Math.min(360, s.width * 0.37);
-      left = s.width / 2 - half;
-      right = s.width / 2 + half;
-    } else {
-      const [l, r] = TOUCH_SIDES[s.touch];
-      left = l * scale;
-      right = s.width - r * scale;
-    }
+    const sides = this.subSides();
+    let left = sides[0];
+    const right = sides[1];
     if (this.subLeft >= 0) left = Math.min(Math.max(left, this.subLeft), right - 160);
     st.setProperty('--ui-sub-max', Math.round(right - left) + 'px');
     st.setProperty('--ui-sub-shift', Math.round((left + right) / 2 - s.width / 2) + 'px');

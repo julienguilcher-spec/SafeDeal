@@ -59,3 +59,37 @@ export function leftZoneCenter(zone: ScreenBox, above: ScreenBox, floor: number,
   }
   return moved ? Math.round(center) : null;
 }
+
+/** Largeur en deçà de laquelle un sous-titre n'est plus lisible (px) : il passe alors au-dessus de la zone de gauche. */
+export const SUBTITLE_MIN_WIDTH = 200;
+/** Hauteur de la bande réservée aux sous-titres (px) : deux lignes et leurs marges. */
+const SUBTITLE_BAND = 64;
+
+/**
+ * Placement des sous-titres par rapport à la zone de gauche (« Secours », « À pied », « En colonne », proposition de
+ * l'adjoint) : distance au bas de l'écran (`bottom`) et bord gauche de la bande (`edge`, −1 = bande normale).
+ * - la zone n'est pas à leur hauteur : bande normale, juste au-dessus de la zone du bas ;
+ * - elle l'est et il reste la place d'un sous-titre lisible à sa droite (`baseRight` = début des commandes de droite) :
+ *   ils passent à sa droite ;
+ * - sinon (téléphone en véhicule : les boutons « À pied » / « En colonne » vont presque jusqu'aux pédales) : ils
+ *   passent AU-DESSUS de la zone, à droite de la zone du haut à gauche (mini-carte) si elle est à cette hauteur —
+ *   resserrés dans 160 px, ils recouvraient « En colonne » et « Plus tard ».
+ * `bottomTop` : haut de la zone du bas (px depuis le haut de l'écran).
+ */
+export function subtitlePlacement(
+  screenWidth: number, screenHeight: number, baseLeft: number, baseRight: number, bottomTop: number,
+  zone: ScreenBox | null, above: ScreenBox | null,
+): { bottom: number; edge: number } {
+  let bottom = Math.round(screenHeight - bottomTop + 8);
+  let edge = -1;
+  const beside = (b: ScreenBox, bandBottom: number): boolean =>
+    b.height > 0 && b.bottom > bandBottom - SUBTITLE_BAND && b.top < bandBottom && b.right < screenWidth * 0.75;
+  if (zone && beside(zone, screenHeight - bottom)) {
+    edge = Math.round(zone.right + 8);
+    if (baseRight - Math.max(baseLeft, edge) < SUBTITLE_MIN_WIDTH && zone.top > screenHeight * 0.3) {
+      bottom = Math.round(screenHeight - zone.top + 8);
+      edge = above && beside(above, screenHeight - bottom) ? Math.round(above.right + 8) : -1;
+    }
+  }
+  return { bottom, edge };
+}
