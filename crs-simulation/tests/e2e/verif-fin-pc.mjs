@@ -70,7 +70,9 @@ try {
   console.log('  recensement : ' + J(cs));
   const sum = await page.evaluate(() => window.__CRS.ctx.service('session.setup').summary);
   report.summary = sum;
-  C.check(/concorde/i.test(cs.sector), 'le joueur est place de la Concorde', cs.sector);
+  // (la mission part de la base de l'unité — caserne ou commissariat — puis la colonne rejoint le lieu : le joueur
+  // n'est plus posé sur la place au départ)
+  C.check(/concorde/i.test(String(cs.place)), 'la mission est place de la Concorde', `lieu « ${cs.place} » ; départ du joueur : ${cs.sector}`);
   const m = cs.extra && cs.extra.moyens ? cs.extra.moyens : {};
   C.check(m.sections === 2 && m.fourgons === 5 && m.canon_eau === 0 && m.bravm === 0 && m.drone === 0 && m.centaure === 1, 'les moyens réglés arrivent dans la configuration de session', J(m));
   const sections = cs.squads.section ?? 0;
@@ -120,9 +122,9 @@ try {
   await step(page, 8);
   const a1 = await state(page); const st1 = await stamina();
   const vWalk = Math.hypot(a1.x - a0.x, a1.z - a0.z) / (a1.t - a0.t);
-  C.check(vWalk > 0.9 && vWalk < 1.8, 'MARCHE : la touche d’avance fait marcher', `${R(vWalk)} m/s`);
-  C.check(st1 >= st0 - 0.5, 'MARCHE : le souffle ne s’use pas en marchant', `${R(st0, 0)} → ${R(st1, 0)}`);
-  // 90 s de marche continue : le souffle tient-il ? (le défaut d'origine : vidé en 78 s)
+  // (demande du joueur : tenir la touche d'avance = petite foulée puis course ; la marche est un appui bref)
+  C.check(vWalk > 2.2 && vWalk < 5.4, 'AVANCE TENUE : petite foulée puis course', `${R(vWalk)} m/s en moyenne sur 8 s ; souffle ${R(st0, 0)} → ${R(st1, 0)}`);
+  // 90 s d'avance tenue : l'allure s'adapte au souffle (course, puis petite foulée, marche si essoufflé) sans s'arrêter
   await page.keyboard.up('KeyW');
   await page.evaluate(() => { const c = window.__CRS.ctx; c.player.state.camYaw += Math.PI; });
   await page.keyboard.down('KeyW');
@@ -132,7 +134,13 @@ try {
     if (i % 2 === 1) await page.evaluate(() => { window.__CRS.ctx.player.state.camYaw += Math.PI; });
     const now = await state(page); walked += Math.hypot(now.x - last.x, now.z - last.z); last = now; minSt = Math.min(minSt, await stamina());
   }
-  C.check(minSt > 80, 'MARCHE : 90 s de marche continue sans vider le souffle', `souffle minimal ${R(minSt, 0)}, ${R(walked, 0)} m parcourus`);
+  C.check(walked > 150, 'AVANCE TENUE : 90 s sans s’arrêter, l’allure suit le souffle', `${R(walked, 0)} m parcourus, souffle minimal ${R(minSt, 0)}`);
+  // souffle rendu pour les contrôles d'allure qui suivent (ils ne dépendent pas des 90 s précédentes)
+  await page.keyboard.up('KeyW');
+  await page.evaluate(() => { window.__CRS.ctx.player.person().stamina = 100; });
+  await step(page, 6);
+  await page.evaluate(() => { window.__CRS.ctx.player.person().stamina = 100; });
+  await page.keyboard.down('KeyW');
   await hold(page, 'KeyZ');
   await step(page, 1);
   let vJog = 0; for (let i = 0; i < 4; i++) { await step(page, 1); vJog = Math.max(vJog, (await state(page)).speed); }
