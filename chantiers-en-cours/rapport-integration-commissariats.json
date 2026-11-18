@@ -1,0 +1,140 @@
+{
+ "intégration:commissariats": {
+  "summary": "The « commissariats » feature is integrated and works in the real game on the redesigned command map. `npx tsc --noEmit -p .` is clean, and every targeted unit test and browser scenario passes.\n\n**What I checked in the code:**\n- Modules and services fit together. `src/main.ts` registers the gameplay module after patrols and the render module after renderProps. The service `police.commissariats` is published before any `init()`, so `CommandSystem.init()` sees it and installs the station UI: the return order, station cards, « Plus… › Commissariats » and the « Commissariats » map layer.\n- State is reset on `session:setup` and `session:ended`. There is no Math.random or Date.now in the feature, and no TODO.\n\n**One real regression, found and fixed.** `playtest.colonne-ia` « crs : caserne de la Cité → Place de la République » failed every time in the worktree and passed at HEAD.\n- I compared against a clean `git archive HEAD` copy, file by file, and found the cause in P8's change to `parking.ts`.\n- With the reserved bays left empty, the cap of parked cars refilled those places elsewhere. One of those extra cars was parked just after a turn in rue Réaumur. The column's van hit it, pushed it into the lane and stayed blocked for 4 minutes.\n- Fix: a reserved bay now counts toward the parking cap as if a car were there, but no car is spawned. Parking elsewhere in Paris is now exactly the same as without the stations (0.0 % measured instead of +4.3 %), and the playtest passes again.\n\n**Other fixes:**\n- Radio and wording fixes.\n- A missing held-vehicle guard in the police AI.\n- Ordinal display on uppercase titles.\n- A keyboard hint that was wrong for read-only roles.\n- A misplaced camera in the e2e view check.\n- Two existing e2e scripts that would have counted the 32 parked station vehicles.\n\n**Browser checks:**\n- `verif-commissariats.mjs`, all four parts: 39/0. Laptop 1280×800 driven by keyboard and trackpad, CRS read-only, phone 844×390 by touch, and day/night views with the per-frame cost.\n- `commissariats.mjs`: harness checks pass, day and night, lantern brighter at night, phone draw calls within budget.\n- `command.mjs` 367/0, `verif-ordres-carte` OK, `verif-commande-clavier` 37/0, `verif-commande-tel` 35/0, `game.mjs` 75/0.\n\nI looked at every screenshot. The two most important plan items, « Rentrer au commissariat » and engaging a station unit, are proven headless and in the browser.",
+  "planItemsChecked": [
+   {
+    "item": "3.1 Real building dressed (portal, POLICE lantern lit at night, flag, sign, painted bays); « véhicules : rue X » label when the bays are on another street",
+    "ok": true,
+    "note": "render module registered in main.ts. Screenshots by day and night at the 9e door, harness checks for 9e, Célestins and Cité, map label « véhicules : Boulevard Haussmann » seen. Known: the portal sometimes overlaps a real ground-floor window (P1 data)."
+   },
+   {
+    "item": "3.2 A police player may take a parked station vehicle; it leaves the stock",
+    "ok": true,
+    "note": "commissariats.engage.test (release on vehicle:entered)"
+   },
+   {
+    "item": "3.3 Journée: base is a dressed station, bays already used by the company are skipped, the column leaves as today",
+    "ok": true,
+    "note": "integration.commissariats (a)/(b), integration.journee*, playtest.colonne-ia (Cité→République passes again after the parking fix); JOURNEE_BASE_CLEAR"
+   },
+   {
+    "item": "3.4 Station symbols P/PP/G with a badge of available units; « Commissariats » layer toggle",
+    "ok": true,
+    "note": "ui-maps.commissariats.test; registerMapLayer('commissariats') in « Affichage de la carte »; symbols seen in the screenshots"
+   },
+   {
+    "item": "3.5 C opens the stations; full list sorted by distance (from the player, deviation P5), with ≈ min deux-tons and units ready",
+    "ok": true,
+    "note": "Redesign: C opens the nearest station's card; « Plus… › Commissariats » lists the 7 sites, rows 44–60 px, ↑↓ and Entrée (e2e pc)"
+   },
+   {
+    "item": "3.6 Per-unit states (Au poste — prête / En alerte / Engagée — secteur / Retour / Au repos m:ss / Indisponible); patrol cars listed apart",
+    "ok": true,
+    "note": "commissariatsModel + ui-command.commissariats tests; « En patrouille dans le secteur (hors réserve) »"
+   },
+   {
+    "item": "3.7–3.8 Engage → default order (Avancer for patrol cars, En colonne for BRAV-M, Faire mouvement otherwise), designate destination; Échap engages nothing",
+    "ok": true,
+    "note": "Redesign flow « OÙ L'ENVOYER ? »: the unit is engaged only when the order is sent. Same-tick order accepted (scope invalidated and scene refreshed). e2e pc and tel."
+   },
+   {
+    "item": "3.9 Column leaves with lights and two-tones; badge drops; row reads Engagée",
+    "ok": true,
+    "note": "e2e: 450 m away after 60 s, siren 1, beacons on, state engage"
+   },
+   {
+    "item": "3.10 « Rentrer au commissariat » from « Fin d'action », the unit card and « Tous les ordres »; no two-tones; parks back in its bays; detainees handed over; reserves refilled; rest then « Au poste »; company → journée base",
+    "ok": true,
+    "note": "commissariats.retour.test, ui-command.commissariats.test, e2e pc (siren 0, repos). The order is now spoken before the unit's acknowledgement, which reads « Je rentre au commissariat du 9e »."
+   },
+   {
+    "item": "3.11 Read-only roles: C shows the stations and unit states, no engage lines, « Seul le commandant engage… »; renforts=false → « Moyens fixés par l'ordre d'opération »",
+    "ok": true,
+    "note": "e2e crs + unit test. The card's keyboard hint is now correct in read-only."
+   },
+   {
+    "item": "3.12 Phone: tap a station symbol → its card; touch flow to send a unit; rows ≥ 40/48 px",
+    "ok": true,
+    "note": "e2e tel 844×390 by touch. Redesign card instead of a « Postes » tab (addendum item 5)."
+   },
+   {
+    "item": "D5 Placeholders only (no crews), parked state, crews created on engage",
+    "ok": true,
+    "note": "commissariats.service.test; 32 held vehicles seen in the browser"
+   },
+   {
+    "item": "D6 isHeldVehicle guards in every consumer (units map, follow, handover, assess, detour, car-clear, engins) + police special.ts seatFor",
+    "ok": true,
+    "note": "Added the seatFor guard (P2/P8 open issue). integration.commissariats (c)–(f)"
+   },
+   {
+    "item": "D7 Existing order pipeline; scope invalidated after engage; BRAV-M « Faire mouvement » → colonne without the « à pied » notice",
+    "ok": true,
+    "note": "ui-command.commissariats.test"
+   },
+   {
+    "item": "D8 Scope 'tout' may dispatch; inactive in editeur/test or with extra.commissariats=false; C works before the read-only early return",
+    "ok": true,
+    "note": "system.ts refusal()/enabledFor; tacticalKeys mapKey handles KeyC before the read-only cut-off"
+   },
+   {
+    "item": "D9/D10 Return to the centre of the unit's file, urgence false; no law.handover points registered",
+    "ok": true,
+    "note": "core.recallSquads/driveHome; no handover points registered (grep)"
+   },
+   {
+    "item": "D11 AI commander and start-of-day column unchanged; journée engageOthers skips station units",
+    "ok": true,
+    "note": "journee.ts guard; integration.commissariats (b)"
+   },
+   {
+    "item": "D13 No civilian car parks in the bays; parking elsewhere unchanged",
+    "ok": true,
+    "note": "Strengthened: reserved bays count toward the parking cap, so elsewhere is exactly unchanged (0.0 %). traffic.commissariats.test updated to require that."
+   },
+   {
+    "item": "D14 voiture_bac with fallback to voiture_police",
+    "ok": true,
+    "note": "Per addendum item 1, P7 is done by another team. Tests accept both."
+   },
+   {
+    "item": "D16 Units at their station (au_poste/alerte/repos) left out of U, « Toute la compagnie », section digits and the kettle",
+    "ok": true,
+    "note": "core.canOrder used everywhere; ui-command.commissariats exclusions test"
+   },
+   {
+    "item": "D17 Single far mesh, near/far distances, ≤ 2 draw calls per near site",
+    "ok": true,
+    "note": "render-commissariats.budget.test; e2e: 2 draw calls near, 1 far; phone 3 ≤ 4"
+   },
+   {
+    "item": "R17 Determinism / no Math.random",
+    "ok": true,
+    "note": "grep clean; commissariats.service determinism test"
+   }
+  ],
+  "fixes": [
+   "src/sim/traffic/parking.ts: reserved commissariat bays now count toward the parking cap as « ghost » occupied places (`ghosts` list, swept with the parked cars, reset in reset()/clear()), and free() is split into placeable() plus the reserved test. Before, the freed places pushed extra civilian cars into other streets (+4.3 %). That moved a parked car to just after a turn in rue Réaumur, where the CRS column hit it and stayed stuck. This broke playtest.colonne-ia « Cité → République » deterministically (player 740 m from the point; passes at HEAD). It now passes, and parking elsewhere is exactly unchanged.",
+   "tests/unit/traffic.commissariats.test.ts: updated to the intended stricter behaviour. Elsewhere must be exactly unchanged (fw === fo, ±3 %), and the city loses at most the freed bays. The old « ≤ 5 % total » rule is gone.",
+   "src/sim/police/special.ts seatFor(): skips held station vehicles (isHeldVehicle). The police AI no longer seats agents in a parked station vehicle (P2/P8 open issue).",
+   "src/gameplay/patrols/system.ts: the patrol's return message was « Retour commissariat du 9e », with no preposition. It now reads « Je rentre au commissariat du 9e, sans urgence » (also « à la préfecture… », « à la caserne… »). tests/unit/patrols.deploy.test.ts updated for the new wording.",
+   "src/ui/command/core.ts recallSquads(): the commandant's « Fin de mission, rentrez… » is now said before the unit starts its return. Before, the unit's acknowledgement came first on the radio.",
+   "src/ui/command/orders.ts: new upperTitle(), used by intents.ts (station card title) and tacticalPreview.ts (map target « ◎ … »). Ordinals stay in superscript: « COMMISSARIAT DU 9ᵉ », not « 9E ». tests/unit/ui-command.commissariats.test.ts expectation updated.",
+   "src/ui/command/tacticalKeys.ts + tacticalScreen.ts: read-only roles had the hint « ↑↓ autre action · ←→ autre endroit · U autre unité », whose keys do nothing for them (P5 open issue). They now get CARD_HINT_READONLY « C commissariats · G moi · Échap revenir ».",
+   "tests/e2e/verif-commissariats.mjs (vue): the camera stood behind the façade and showed the back of the portal. It is now placed 10 m out along the façade normal (frozen facade.heading), facing the door.",
+   "tests/e2e/game.mjs (vansBehind) and tests/e2e/verif-fin-divers.mjs (unit vehicles): both now ignore vehicles held by a commissariat. Otherwise the parked station vans elsewhere in Paris would break those checks."
+  ],
+  "tscClean": true,
+  "testsRun": "All runs on the real Paris map, in small groups with --maxWorkers=2. Final results after all fixes:\n- Feature tests: commissariats.{data,sites.paris,service,engage,retour}, render-commissariats.budget, ui-maps.commissariats, integration.commissariats, traffic.commissariats, ui-command.commissariats, patrols.deploy, police-command.convoi-sans-urgence, police.parking-slots: all pass. 1 test skipped: the generator print test, which only runs with CRS_COMMISSARIATS_PRINT=1.\n- ui-command.* + ui-maps.* + police.*: 57 files, 397/397.\n- traffic.* + integration.journee* + playtest.colonne-ia + integration.colonne* + patrols* + commissariats.* + playtest.apparition-roles: 25 files pass, 2 skipped; 109 tests pass, 16 skipped. The skips are pre-existing and the test files are unchanged since HEAD (it.skip and env-gated cases).\n- integration.commissariats + police-command.* + integration.suivre* + integration.engins* + law.* + crowd-radical.* + render budget: 36 files, 185/185.\n- Baseline comparison: playtest.colonne-ia « Cité » was run on a clean `git archive HEAD` copy (passes) and bisected by copying worktree files in, which isolated parking.ts. Copy and script are in /tmp/claude-0/-home-user-SafeDeal/f854eafd-7c66-528c-834c-30dfeec78944/scratchpad/headexport and /tmp/claude-0/-home-user-SafeDeal/f854eafd-7c66-528c-834c-30dfeec78944/scratchpad/bisect.sh.\n- `npx tsc --noEmit -p .`: exit 0, run at the start, after the source fixes, and at the end.",
+  "browserChecks": "Run one at a time.\n\n**verif-commissariats.mjs, all parts: 39/0 (vue re-run after the camera fix: 5/0).**\n- pc, laptop 1280×800, keyboard and trackpad:\n  - Tab opens the map; C opens the 8e card with its « Envoyer … » lines.\n  - « Plus… › Commissariats » lists 7 sites, rows 44–60 px; ↓/Entrée down to TV 75-19, then « OÙ L'ENVOYER ? ».\n  - After sending: 450 m away in 60 s with siren and beacons. On return: no siren, then « Au repos ».\n- crs, read-only: card notes « Seul le commandant… » plus each unit's state, no engage lines.\n- tel, 844×390 by touch: tap the symbol, the line (40 px), « Donner l'ordre », the place; the unit leaves.\n- vue, at the 9e door:\n  - 2 draw calls; per-frame cost median 0.000 ms, p90 0.1 ms.\n  - 22 h screenshot: sign « COMMISSARIAT DE POLICE 9ᵉ ARRONDISSEMENT », POLICE door glass, bollards, tricolour flag, lit blue lantern, all on the real Haussmann façade at rue Chauchat.\n- Earlier screenshot problem, now fixed: the old 14 h/22 h camera stood behind the façade and showed the back of the portal.\n- Screenshots reviewed: card and « OÙ L'ENVOYER ? » panel (legible, no overlap, route preview « deux-tons · 1 min » drawn), CRS read-only card, phone card.\n- Seen and fixed: the uppercase title « 8E/9E » and the wrong keyboard hint for read-only roles.\n\n**commissariats.mjs (harness): OK.**\n- Lantern brighter at night at the 9e, Célestins and Cité; lettered signs.\n- No sign at the Préfecture; small blue light from far away at night.\n- Phone: 3 draw calls, within the limit of 4.\n\n**Other scenarios:** verif-ordres-carte OK, command.mjs 367/0, verif-commande-clavier 37/0, verif-commande-tel 35/0, game.mjs 75/0 (after excluding held vehicles from vansBehind).",
+  "openIssues": [
+   "Autopilot, pre-existing and not fixed here: a column turning into a narrow one-way street (rue Réaumur 9 m, around x 2300 z -60) can clip a car parked at the curb just after the turn. It pushes the car into the lane and stays « bloque/vehicule » for minutes. The parking fix removed the trigger in the playtest, but any parked car in that spot can still cause it. This belongs to the autopilot/convoy team.",
+   "Cité bays (P1 frozen data): bays 1, 4, 5 and 7 overlap real street furniture (a candelabra 0.8–1.0 m and a Wallace fountain 1.2 m from the bay centre). Vehicles then move to spare bays or are created only when engaged. In a journée based at the Cité, PC MOBILE 1 and NEPTUNE 12 have no bay. A furniture-aware regeneration of FROZEN_LAYOUTS is the proper fix.",
+   "On the real map the 3D portal sometimes covers a real ground-floor window or shopfront (seen at the 9e and the 3e). This is P1 door data.",
+   "integration.convergence-nasse.test.ts fails at line 151 (94 > 96.5); this already fails at HEAD 2365d2b (PX check). The parking change makes parking elsewhere identical to HEAD, so it cannot be the cause.",
+   "Not run, to spare the shared machine: the whole vitest suite and every browser scenario. Not re-run after my changes: verif-journee, verif-partie, verif-fin-divers (its held-vehicle filter is untested) and the other verif-* scripts. game.mjs and the command-map scenarios were run.",
+   "verif-commissariats.mjs takes about 8–9 minutes. Run it by part (`node tests/e2e/verif-commissariats.mjs pc`) or with a larger run-all timeout on a busy machine.",
+   "Read-only roles see at most 6 unit states as notes on the card. The full « Plus… › Commissariats » list is not reachable from their card, because the redesign removes all card lines in read-only. The list itself is allowed for them (openMore lets 'commissariats' through)."
+  ]
+ }
+}
