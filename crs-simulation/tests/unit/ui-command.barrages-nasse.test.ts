@@ -6,8 +6,7 @@ import type { CommandCore } from '@/ui/command';
 import { acceptNasse, assignExits, buildNasseProposal, isFreeUnit, nasseProposalText, openFilteredExit, proposeNasse, resolveCrowd } from '@/ui/command/nasse';
 import { BARRER_HINT, ORDER_VERBS, verbOf } from '@/ui/command/orders';
 import { orderPhrase } from '@/ui/command/phrases';
-import { QUICK_VERBS } from '@/ui/command/tacticalScreen';
-import { TACTICAL_KEYS_LEGEND } from '@/ui/command/tacticalKeys';
+import { mapKey } from '@/ui/command/tacticalKeys';
 import { createSystems as mapsSystems, MAPS_SERVICE } from '@/ui/maps';
 import type { MapsRuntime } from '@/ui/maps';
 import {
@@ -16,6 +15,23 @@ import {
 import type { BarrageView, BarragesApi, ExitView, KettleView } from '@/ui/maps/barrages';
 import { closureCoveredByBarrage } from '@/ui/maps/overlay';
 import { plainOrder } from '@/gameplay/session/executant';
+import { createSystems as worldQuery } from '@/world/query';
+import { createSystems as roles } from '@/sim/roles';
+import { createSystems as people } from '@/sim/people';
+import { createSystems as vehicles } from '@/sim/vehicles';
+import { createSystems as traffic } from '@/sim/traffic';
+import { createSystems as crowd } from '@/sim/crowd';
+import { createSystems as police } from '@/sim/police';
+import { createSystems as items } from '@/sim/items';
+import { createSystems as props } from '@/sim/props';
+import { createSystems as hazards } from '@/sim/hazards';
+import { createSystems as law } from '@/gameplay/law';
+import { createSystems as radio } from '@/gameplay/radio';
+import { createSystems as session } from '@/gameplay/session';
+import { defaultWho, proposeWho, whoEnvFromCore } from '@/ui/command/bestUnit';
+import { buildCard, intentCandidates } from '@/ui/command/intents';
+import { previewOf, sentenceOf } from '@/ui/command/preview';
+import { cardEnvFromCore, crowdRepere, mainCrowd } from '@/ui/command/reperes';
 
 const exit = (street: string, held: boolean, x = 0, z = 0, extra: Partial<ExitView> = {}): ExitView => ({
   x, z, heading: 0, width: 12, street, edgeId: 1, held, squadId: 0, mode: held ? 'ferme' : 'ouvert', ...extra,
@@ -141,9 +157,9 @@ describe('ordre « Barrer la rue » (couper_circulation)', () => {
     expect(BARRER_HINT).toBe('Plus personne ne passe, dans les deux sens');
     expect(v!.gesture).toBe('point');
     expect(ORDER_VERBS.some((q) => q.type === 'filtrer')).toBe(true);
-    expect(QUICK_VERBS).toContain('couper_circulation');
-    expect(QUICK_VERBS.length).toBeLessThanOrEqual(12);
-    expect(TACTICAL_KEYS_LEGEND).toContain('N = fermer la nasse');
+    // carte de commandement : B « Bloquer une rue » (fiche d'une rue : « Barrer la rue »), N « Encercler (nasse) »
+    expect(mapKey('KeyB', false, { level: 'tout', card: false })).toEqual({ kind: 'intent', id: 'bloquer' });
+    expect(mapKey('KeyN', false, { level: 'tout', card: false })).toEqual({ kind: 'intent', id: 'encercler' });
   });
 
   it('phrase radio : la rue est barrée dans les deux sens', () => {
@@ -340,4 +356,57 @@ describe('« Barrer la rue » et « Fermer la nasse » donnent de vrais ordres',
     expect(p.lines).toEqual([]);
     expect(p.text).toBe('Fermer la nasse — carrefour Test : aucune unité libre. 2 issues restent ouvertes.');
   });
+});
+
+// ───────────────────────────── fiches de la carte de commandement (vraie partie) ─────────────────────────────
+
+describe('fiches « rue » et « foule » de la carte de commandement (place de la Concorde, commandant)', () => {
+  it('rue : lignes 1 et 2 = barrer (targetId 0 / −2) ; foule : ligne 1 « Encercler (nasse) », une unité par rue ; nasse fermée : sortie filtrée', async () => {
+    const MODULES = [worldQuery, roles, people, vehicles, traffic, crowd, police, items, props, hazards, law, radio, session, mapsSystems, commandSystems];
+    const MEANS = { sections: 3, fourgons: 9, centaure: 1, canon_eau: 1, bravm: 1, drone: 0, pompiers: 0, samu: 0, secours_sur_appel: true };
+    const t = createTestContext({ seed: 21, strict: false, modules: MODULES });
+    await t.start({
+      mode: 'libre', role: 'commandant', rank: 'commandant', place: 'Place de la Concorde', x: -10, z: 15, crowdSize: 300, tension: 0.4,
+      volatility: 0.3, duration: 'standard', extra: { moyens: MEANS, variante: 'terrain' },
+    } as never);
+    t.step(3);
+    const core = t.ctx.service<CommandCore>(COMMAND_SERVICE)!;
+    const env = cardEnvFromCore(core);
+    // rue d'issue de la foule (B) : six lignes au plus, « Barrer la rue » puis « passants admis »
+    const street = intentCandidates('bloquer', env, env.player!)[0]!;
+    expect(street.kind).toBe('rue');
+    const sc = buildCard(street, env, 'bloquer');
+    expect(sc.lines.length).toBeLessThanOrEqual(6);
+    expect(sc.defaultLine).toBe(0);
+    expect(sc.lines[0]!.label).toBe('Barrer la rue');
+    expect(sc.lines[0]!.action).toEqual({ kind: 'verb', type: 'couper_circulation', geom: 'street', targetId: 0 });
+    expect(sc.lines[1]!.label).toBe('Barrer la rue, passants admis');
+    expect(sc.lines[1]!.action).toEqual({ kind: 'verb', type: 'couper_circulation', geom: 'street', targetId: -2 });
+    // foule (N) : ligne 1 « Encercler (nasse) », Qui = les unités choisies par le jeu, chacune vers une autre rue
+    const main = mainCrowd(env)!;
+    const cr = crowdRepere(main);
+    const fc = buildCard(cr, env, 'encercler');
+    expect(fc.lines.length).toBeLessThanOrEqual(6);
+    expect(fc.others.length).toBeGreaterThan(0);
+    expect(fc.defaultLine).toBe(0);
+    expect(fc.lines[0]!.label).toBe('Encercler (nasse)');
+    expect(fc.lines[0]!.action.kind).toBe('nasse');
+    const who = defaultWho(proposeWho(fc.lines[0]!, cr, whoEnvFromCore(core, env, [])))!;
+    expect(who.label).toMatch(/unités? choisies? par le jeu/);
+    const sections = who.squadIds.map((id) => env.units.find((u) => u.squadId === id)!.symbol);
+    expect(sections).not.toContain('compagnie');
+    const pv = previewOf(fc.lines[0]!, who, cr, env);
+    expect(pv.kind).toBe('nasse');
+    expect(pv.segments.length).toBe(who.squadIds.length);
+    expect(new Set(pv.segments.map((g) => `${Math.round(g.bx)},${Math.round(g.bz)}`)).size).toBe(pv.segments.length);
+    expect(sentenceOf(fc.lines[0]!, who, cr).what).toMatch(/^Ce qui va se passer/);
+    // la même foule dans une nasse fermée : ligne 1 « Ouvrir une sortie filtrée »
+    const closed = { ...env, crowds: env.crowds.map((c) => (c.key === main.key ? { ...c, closed: true } : c)) };
+    const kr = crowdRepere(closed.crowds.find((c) => c.key === main.key)!);
+    expect(kr.kind).toBe('nasse');
+    const kc = buildCard(kr, closed, 'encercler');
+    expect(kc.lines[0]!.label).toBe('Ouvrir une sortie filtrée');
+    expect(kc.lines[0]!.action.kind).toBe('filteredExit');
+    expect(kc.defaultLine).toBe(0);
+  }, 300000);
 });

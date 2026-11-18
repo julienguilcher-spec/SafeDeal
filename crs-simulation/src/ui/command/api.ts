@@ -2,7 +2,7 @@
  * COMMANDEMENT — types publics du module src/ui/command.
  *
  * Écrans enregistrés auprès de UiKit :
- *   'carte_tactique'  carte tactique de commandement (non bloquante pour la simulation) ;
+ *   'carte_tactique'  carte de commandement (non bloquante pour la simulation) ;
  *                     ctx.ui.open('carte_tactique', { x?, z?, mpp?, incidentId?, squadId?, tab? })
  *   'roue_ordres'     roue d'ordres rapide en vue de jeu (touche « Ordres » maintenue ou brève)
  *   'radio'           panneau radio : journal et messages rapides
@@ -14,19 +14,29 @@ import type { ForceLevel, OrderType } from '@/core/contracts';
 
 export const COMMAND_SERVICE = 'ui.command';
 
-export type TacticalTab = 'ordres' | 'incidents' | 'circulation' | 'journal';
+/**
+ * Section de « Plus… » (carte de commandement) : l'ancien onglet de droite. Nom conservé pour les modules et les tests
+ * qui ouvrent la carte sur une liste (« incidents », « circulation »…) ; 'commissariats' : la liste des postes (P5).
+ */
+export type TacticalTab = 'ordres' | 'incidents' | 'circulation' | 'journal' | 'commissariats';
 
 /** Données d'ouverture de l'écran 'carte_tactique'. */
 export interface TacticalOpenData {
   x?: number;
   z?: number;
   mpp?: number;
-  /** Incident à mettre en avant (onglet « Incidents » ouvert). */
+  /** Incident à mettre en avant : sa fiche s'ouvre. */
   incidentId?: number;
-  /** Unité à sélectionner d'emblée. */
+  /** Unité à mettre en avant : sa fiche s'ouvre. */
   squadId?: number;
+  /** Section de « Plus… » à ouvrir d'emblée (« Tous les incidents et secours », « Circulation et métro »…). */
   tab?: TacticalTab;
 }
+
+/** États de l'écran de la carte de commandement (tacticalState.ts), pour les modules qui s'y branchent. */
+export type {
+  CardState, PendingWhere, SentState, TacticalInput, TacticalSheet, TacticalStateView,
+} from './tacticalState';
 
 /** Étendue du commandement du joueur. */
 export type CommandLevel = 'tout' | 'unite' | 'lecture';

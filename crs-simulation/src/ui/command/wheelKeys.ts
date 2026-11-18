@@ -1,12 +1,14 @@
 /* =====================================================================================
  * Roues d'ordres au clavier (sans souris : Mac portable) — logique pure, sans DOM.
  *
- *   1 … 9 puis 0 : secteurs 1 à 10, dans le sens horaire à partir du haut ; « ) » et « - » (touches physiques à
- *                  droite du 0, codes Minus et Equal) : secteurs 11 et 12 ;
+ *   1 … 8        : secteurs numérotés de la roue d'ordres (sens horaire à partir du haut) ; le numéro d'un secteur
+ *                  est le même pour tous les rôles (« F puis 1 » = « Suivez-moi à pied » pour le commandant comme
+ *                  pour le CRS, dont la roue réduite n'a que les secteurs 1, 2 et 7) ; couronne intérieure
+ *                  (« Secours ici », « Plus… ») : 1 … n ; pavé numérique compris ;
  *   flèches      : le surlignage se déplace vers le secteur voisin qui va dans la direction demandée (sans
  *                  surlignage, la flèche désigne le secteur placé dans cette direction) ;
- *   Entrée       : valide le secteur surligné ; Échap ou ⌫ : referme la roue (retour arrière du socle).
- * Sert à la roue d'ordres en vue de jeu et à l'ordre rapide de la carte tactique.
+ *   Entrée       : valide le secteur surligné ; Échap ou ⌫ : couronne intérieure → roue, roue → fermée.
+ * `wheelKeyIndex` (touche → rang, 1…9, 0, puis « ) » et « - ») reste la règle des menus radiaux sans numéros propres.
  * ===================================================================================== */
 
 export type WheelDir = 'up' | 'down' | 'left' | 'right';
@@ -25,6 +27,26 @@ export function wheelKeyIndex(code: string, count: number): number {
   if (c.startsWith('Numpad') && c.length === 7 && c[6]! >= '0' && c[6]! <= '9') c = 'Digit' + c[6];
   const i = WHEEL_KEY_CODES.indexOf(c);
   return i >= 0 && i < count ? i : -1;
+}
+
+/** Chiffre porté par une touche (Digit0…9, Numpad0…9 : codes physiques, sans Maj en AZERTY) ; -1 sinon. */
+export function keyDigit(code: string): number {
+  const m = /^(?:Digit|Numpad)([0-9])$/.exec(code);
+  return m ? Number(m[1]) : -1;
+}
+
+/** Touche que la roue d'ordres prend pour elle (chiffres, pavé numérique, « ) » et « - ») : jamais transmise au jeu. */
+export function isWheelKeyCode(code: string): boolean {
+  return keyDigit(code) >= 0 || code === 'Minus' || code === 'Equal';
+}
+
+/**
+ * Secteur d'une roue numérotée : `keys[i]` est le numéro (1…9) du secteur i, celui qui est imprimé dessus. -1 si la
+ * touche ne correspond à aucun secteur (la roue réduite du CRS n'a que 1, 2 et 7 : 3 ne choisit rien).
+ */
+export function wheelSectorIndex(code: string, keys: readonly number[]): number {
+  const d = keyDigit(code);
+  return d > 0 ? keys.indexOf(d) : -1;
 }
 
 /** Libellé de repli de la touche d'un secteur (avant que la disposition du clavier soit connue). */

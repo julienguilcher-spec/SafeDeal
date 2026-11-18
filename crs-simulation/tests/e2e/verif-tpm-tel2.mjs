@@ -1,5 +1,5 @@
 // Testeur indépendant — TACTILE, seconde passe (compléments) : bande d'onglets au doigt, mini-plan, paramètres,
-// lancer de grenade au bouton « Action », saut, masque, roue d'ordres, tiroirs de la carte tactique, doigt annulé,
+// lancer de grenade au bouton « Action », saut, masque, roue d'ordres, feuilles de la carte de commandement, doigt annulé,
 // compte rendu et retour à l'accueil.  Usage : node tests/e2e/verif-tpm-tel2.mjs [--size=844x390] [--role=crs|chef_groupe] [--dpr=1]
 import { startServer, openPage, waitFor, ouvrirEditeur, frames, step, state, snap, J, R, makeChecker, fingers, rects } from './verif-tpm-lib.mjs';
 
@@ -212,26 +212,33 @@ try {
     C.check(Math.hypot(s1.x - s0.x, s1.z - s0.z) > 2, 'joystick : déplacement avant l’annulation', `${Math.hypot(s1.x - s0.x, s1.z - s0.z).toFixed(1)} m`);
     C.check(Math.hypot(s3.x - s2.x, s3.z - s2.z) < 0.2, 'toucher annulé par le système (touchcancel) : le personnage s’arrête', `${Math.hypot(s3.x - s2.x, s3.z - s2.z).toFixed(2)} m en 1 s`);
   });
-  await safe('carte tactique : tiroirs', async () => {
+  await safe('carte de commandement : feuilles', async () => {
     const r = await ctl('tactical');
     await F.tap(...center(r)); await frames(page, 5); await page.waitForTimeout(500);
     let b = await topButtons();
-    for (const name of ['Ordres', 'Circulation', 'Journal']) {
-      const t = b.find((q) => q.text === name || q.id === `tac-tab-${name.toLowerCase()}`);
-      if (!t) { C.note(`carte tactique : onglet « ${name} » introuvable`); continue; }
+    // « Suivi » (bandeau), « Plus… » (barre du bas) puis ses sections ; une lecture seule n'en a pas
+    for (const [id, name] of [['tac-suivi', 'Suivi'], ['tac-more', 'Plus…'], ['tab-circulation', 'Circulation'], ['tab-journal', 'Journal radio']]) {
+      const t = b.find((q) => q.id === id);
+      if (!t) { C.note(`carte de commandement : « ${name} » absent pour ce poste`); continue; }
       await F.tap(t.x, t.y); await frames(page, 5); await page.waitForTimeout(400);
-      await snap(page, `${tag}-tactique-${name.toLowerCase()}`);
+      await snap(page, `${tag}-tactique-${id}`);
       b = await topButtons();
       const out = b.filter((q) => q.out);
-      C.check(out.length === 0, `carte tactique, volet « ${name} » : aucun bouton hors écran`, out.slice(0, 8).map((q) => `${q.id || q.text}`).join(', '));
+      C.check(out.length === 0, `carte de commandement, « ${name} » : aucun bouton hors écran`, out.slice(0, 8).map((q) => `${q.id || q.text}`).join(', '));
       const small = b.filter((q) => !q.out && Math.min(q.w, q.h) < 36);
-      C.check(small.length === 0, `carte tactique, volet « ${name} » : boutons d’au moins 36 px`, small.slice(0, 8).map((q) => `${q.id || q.text} ${q.w}×${q.h}`).join(', '));
+      C.check(small.length === 0, `carte de commandement, « ${name} » : boutons d’au moins 36 px`, small.slice(0, 8).map((q) => `${q.id || q.text} ${q.w}×${q.h}`).join(', '));
+      // « Suivi » se referme avant « Plus… » (une feuille à la fois, la barre du bas revient)
+      if (id === 'tac-suivi') {
+        const again = b.find((q) => q.id === 'tac-suivi');
+        if (again) { await F.tap(again.x, again.y); await frames(page, 5); await page.waitForTimeout(300); }
+        b = await topButtons();
+      }
     }
     const cl = b.find((q) => q.id === 'tac-close' || /^Fermer/.test(q.text));
     if (cl) await F.tap(cl.x, cl.y);
     await frames(page, 4);
     const s = await state(page);
-    C.check(s.screen === null, 'carte tactique refermée au doigt', String(s.screen));
+    C.check(s.screen === null, 'carte de commandement refermée au doigt', String(s.screen));
     if (s.screen !== null) { await page.evaluate(() => { const u = window.__CRS.ctx.ui; let n = 0; while (u.current && n++ < 4) u.close(); }); await frames(page, 3); }
   });
   await safe('compte rendu', async () => {

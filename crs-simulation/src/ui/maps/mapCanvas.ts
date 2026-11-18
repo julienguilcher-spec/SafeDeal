@@ -1,7 +1,9 @@
 /* =====================================================================================
  * Carte interactive plein cadre (plan de Paris, carte tactique) : un canevas, le fond en cache,
  * les couches par-dessus, et les trois façons de la manier — souris (glisser, molette), doigt
- * (glisser, pincer) et manette (curseur au stick gauche, vue au stick droit, gâchettes pour le zoom).
+ * (glisser, pincer), pavé tactile (deux doigts : déplacer ; pincer : zoomer), clavier (curseur aux flèches, ou à
+ * Maj + flèches seulement sur la carte de commandement : `keyCursor`) et manette (curseur au stick gauche, vue au
+ * stick droit, gâchettes pour le zoom).
  * Le canevas n'est redessiné que s'il le faut : vue modifiée, interaction, ou échéance périodique.
  * ===================================================================================== */
 
@@ -12,8 +14,8 @@ import { PointerGestures } from './gestures';
 import type { GestureHandlers, PointerInfo, PointerKind } from './gestures';
 import { ALL_LAYERS, drawOverlay } from './overlay';
 import type { OverlayOptions } from './overlay';
-import { cursorAxes, cursorWakes, stepCursor } from './cursor';
-import type { CursorAxes, CursorStep } from './cursor';
+import { CURSOR_EDGE, cursorAcceptsButton, cursorAxes, cursorWakes, stepCursor } from './cursor';
+import type { CursorAxes, CursorStep, KeyCursorMode } from './cursor';
 import type { MapsRuntime } from './runtime';
 import { MapTransform, NORTH_UP } from './transform';
 
@@ -27,8 +29,13 @@ export interface MapCanvasHandlers {
   onDoubleTap?(x: number, y: number, info: PointerInfo): boolean;
   /** Renvoyer `false` si l'appui long n'a rien fait : le geste continue (glisser, relâcher). */
   onLongPress?(x: number, y: number, info: PointerInfo): boolean | void;
-  /** Survol (souris sans bouton, ou curseur de la manette). */
-  onHover?(x: number, y: number): void;
+  /**
+   * Survol : `source` 'pointer' = souris ou pavé tactile sans bouton ; 'cursor' = curseur du clavier (Maj + flèches) ou
+   * de la manette.
+   */
+  onHover?(x: number, y: number, source: 'pointer' | 'cursor'): void;
+  /** Juste avant chaque dessin des couches (options du calque à jour pour cette image). */
+  beforeDraw?(): void;
   /** Dessins de l'outil courant, par-dessus les couches (aperçus de tracé, cadre de sélection). */
   drawExtras?(g: CanvasRenderingContext2D, view: MapTransform): void;
   onViewChange?(): void;
@@ -61,6 +68,11 @@ export class MapCanvas {
   cursorOn = false;
   /** Nombre de dessins effectués (diagnostic, tests). */
   draws = 0;
+  /**
+   * Flèches du clavier : 'free' (plan de Paris : flèches = curseur, Entrée = bouton du curseur) ou 'shiftOnly' (carte de
+   * commandement : flèches seules à l'écran, Maj + flèches = curseur, Entrée et le A de la manette jamais lus ici).
+   */
+  keyCursor: KeyCursorMode = 'free';
 
   private readonly g: CanvasRenderingContext2D | null;
   private readonly cursorEl: HTMLDivElement;
@@ -79,6 +91,14 @@ export class MapCanvas {
   private readonly tmp: Vec2 = { x: 0, z: 0 };
   private readonly axes: CursorAxes = { x: 0, y: 0, speed: 0 };
   private readonly stepOut: CursorStep = { x: 0, y: 0, panX: 0, panY: 0 };
+  /** Maj tenue (gauche ou droite) : lue sur les événements clavier eux-mêmes, la touche « courir » ne voit que Maj gauche. */
+  private shiftHeld = false;
+  private readonly onKey = (e: KeyboardEvent): void => {
+    this.shiftHeld = e.shiftKey;
+  };
+  private readonly onBlur = (): void => {
+    this.shiftHeld = false;
+  };
 
   constructor(private readonly runtime: MapsRuntime, host: HTMLElement, options: MapCanvasOptions = {}) {
     this.interval = options.interval ?? 0.1;
@@ -120,6 +140,8 @@ export class MapCanvas {
         self.fly = null;
         self.view.panByPixels(dx, dy);
         self.viewChanged();
+        // le curseur reste au même endroit de l'écran : ce qu'il désigne a changé
+        if (self.cursorOn && !self.padDown) self.handlers.onHover?.(self.cursorX, self.cursorY, 'cursor');
       },
       onZoom: (x, y, f) => self.zoomAt(x, y, f),
     };
@@ -197,7 +219,7 @@ export class MapCanvas {
         this.gestures.move(e.pointerId, x, y);
       } else if (e.pointerType === 'mouse') {
         this.hideCursor();
-        this.handlers.onHover?.(x, y);
+        this.handlers.onHover?.(x, y, 'pointer');
       }
     });
     c.addEventListener('pointerenter', () => {
@@ -216,11 +238,14 @@ export class MapCanvas {
     });
     c.addEventListener('wheel', (e) => {
       const r = c.getBoundingClientRect();
-      const dy = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY;
-      this.gestures.wheel(e.clientX - r.left, e.clientY - r.top, dy);
+      // pavé tactile du Mac : deux doigts = déplacer, pincer (ctrlKey) = zoomer ; molette de souris : zoomer
+      this.gestures.wheel(e.clientX - r.left, e.clientY - r.top, e.deltaX, e.deltaY, e.ctrlKey, e.deltaMode);
       e.preventDefault();
     }, { passive: false });
     c.addEventListener('contextmenu', (e) => e.preventDefault());
+    window.addEventListener('keydown', this.onKey, true);
+    window.addEventListener('keyup', this.onKey, true);
+    window.addEventListener('blur', this.onBlur);
   }
 
   private hideCursor(): void {
@@ -229,23 +254,68 @@ export class MapCanvas {
     this.cursorEl.classList.remove('is-on');
   }
 
+  private showCursor(): void {
+    if (this.cursorOn) return;
+    this.cursorOn = true;
+    this.cursorEl.classList.add('is-on');
+  }
+
+  private placeCursorEl(): void {
+    const tr = `translate3d(${this.cursorX.toFixed(1)}px,${this.cursorY.toFixed(1)}px,0)`;
+    if (tr !== this.cursorTransform) {
+      this.cursorTransform = tr;
+      this.cursorEl.style.transform = tr;
+    }
+  }
+
+  /**
+   * Pose le curseur (réticule) sur un point de la carte, en pixels — la visée de la carte de commandement. Hors de la
+   * vue (à moins de CURSOR_EDGE du bord), la carte se déplace pour l'y ramener. Ne déclenche aucun survol : c'est
+   * l'écran qui a choisi le point.
+   */
+  setCursor(sx: number, sy: number): void {
+    const v = this.view;
+    if (!Number.isFinite(sx) || !Number.isFinite(sy)) return;
+    const w = Math.max(1, v.width);
+    const h = Math.max(1, v.height);
+    let panX = 0, panY = 0;
+    const edge = Math.min(CURSOR_EDGE, w * 0.25, h * 0.25);
+    if (sx < edge) panX = w * 0.5 - sx;
+    else if (sx > w - edge) panX = w * 0.5 - sx;
+    if (sy < edge) panY = h * 0.5 - sy;
+    else if (sy > h - edge) panY = h * 0.5 - sy;
+    if (panX !== 0 || panY !== 0) {
+      this.fly = null;
+      v.panByPixels(panX, panY);
+      this.viewChanged();
+    }
+    this.cursorX = sx + panX;
+    this.cursorY = sy + panY;
+    this.showCursor();
+    this.placeCursorEl();
+    this.dirty = true;
+  }
+
   /**
    * Manette : stick gauche = curseur (la vue suit quand il touche un bord), stick droit = vue,
    * gâchettes et touches de zoom = zoom, « Valider » = bouton du curseur (toucher, glisser, appui long).
    * Clavier seul (Mac portable sans souris), carte focalisée : flèches = curseur (Maj : plus vite),
    * Entrée = bouton du curseur, + / − = zoom (cursor.ts).
+   * `keyCursor` 'shiftOnly' (carte de commandement) : le curseur ne bouge au clavier que Maj tenue, et ni Entrée ni le
+   * A de la manette ne sont le bouton du curseur (l'écran les lit lui-même).
    */
   updatePad(dt: number, input: InputState): void {
     const v = this.view;
+    const mode = this.keyCursor;
     const pad = input.device === 'gamepad';
     // au clavier, les flèches ne pilotent le curseur que si la carte a le focus (sinon elles naviguent entre les boutons)
     const keys = input.device === 'kbm' && typeof document !== 'undefined' && document.activeElement === this.canvas;
-    const axes = pad || keys ? cursorAxes(input, CURSOR_SPEED, this.axes) : NO_AXES;
+    const shift = this.shiftHeld || input.down('sprint');
+    const axes = pad || keys ? cursorAxes(input, CURSOR_SPEED, this.axes, mode, shift) : NO_AXES;
     const mx = axes.x;
     const my = axes.y;
-    if ((pad || keys) && !this.cursorOn && cursorWakes(input, axes)) {
-      this.cursorOn = true;
-      this.cursorEl.classList.add('is-on');
+    if ((pad || keys) && !this.cursorOn && cursorWakes(input, axes, mode)) {
+      this.showCursor();
       if (this.cursorX <= 0 || this.cursorY <= 0 || this.cursorX > v.width || this.cursorY > v.height) {
         this.cursorX = v.width * 0.5;
         this.cursorY = v.height * 0.5;
@@ -262,13 +332,13 @@ export class MapCanvas {
       this.cursorX = x;
       this.cursorY = y;
       if (this.padDown) this.gestures.move(PAD_ID, x, y);
-      else this.handlers.onHover?.(x, y);
+      else this.handlers.onHover?.(x, y, 'cursor');
       this.dirty = true;
     }
     if (pad && (input.lookX !== 0 || input.lookY !== 0)) {
       v.panByPixels(-input.lookX * LOOK_PAN, input.lookY * LOOK_PAN);
       this.viewChanged();
-      if (this.cursorOn && !this.padDown) this.handlers.onHover?.(this.cursorX, this.cursorY);
+      if (this.cursorOn && !this.padDown) this.handlers.onHover?.(this.cursorX, this.cursorY, 'cursor');
     }
     let zoom = 0;
     if (pad) zoom += input.throttle - input.brake;
@@ -279,8 +349,15 @@ export class MapCanvas {
       const ay = this.cursorOn ? this.cursorY : v.height * 0.5;
       this.zoomAt(ax, ay, Math.exp(zoom * 1.7 * dt));
     }
-    // clavier : Entrée n'agit sur le curseur que carte focalisée (sinon elle valide le bouton focalisé)
-    if (this.cursorOn && (pad || keys || this.padDown)) {
+    if (!cursorAcceptsButton(mode)) {
+      // le bouton du curseur appartient à l'écran : un appui commencé avant le changement de mode est annulé
+      if (this.padDown) {
+        this.padDown = false;
+        this.gestures.cancel(PAD_ID);
+        this.dirty = true;
+      }
+    } else if (this.cursorOn && (pad || keys || this.padDown)) {
+      // clavier : Entrée n'agit sur le curseur que carte focalisée (sinon elle valide le bouton focalisé)
       if (input.pressed('ui_accept') && !this.padDown) {
         this.padDown = true;
         this.gestures.down(PAD_ID, this.cursorX, this.cursorY, this.runtime.time, { button: 0, shift: false, ctrl: false, kind: 'pad' });
@@ -290,12 +367,8 @@ export class MapCanvas {
         this.gestures.up(PAD_ID, this.cursorX, this.cursorY, this.runtime.time);
         this.dirty = true;
       }
-      const tr = `translate3d(${this.cursorX.toFixed(1)}px,${this.cursorY.toFixed(1)}px,0)`;
-      if (tr !== this.cursorTransform) {
-        this.cursorTransform = tr;
-        this.cursorEl.style.transform = tr;
-      }
     }
+    if (this.cursorOn) this.placeCursorEl();
   }
 
   // ───────────────────────────── dessin ─────────────────────────────
@@ -354,6 +427,7 @@ export class MapCanvas {
     o.gpsRoute = this.runtime.gps.route;
     o.gpsTarget = this.runtime.gps.target;
     try {
+      this.handlers.beforeDraw?.();
       drawOverlay(g, v, this.runtime.scene, o);
       this.handlers.drawExtras?.(g, v);
     } catch (err) {
@@ -366,6 +440,9 @@ export class MapCanvas {
     this.disposed = true;
     this.gestures.cancelAll();
     this.observer?.disconnect();
+    window.removeEventListener('keydown', this.onKey, true);
+    window.removeEventListener('keyup', this.onKey, true);
+    window.removeEventListener('blur', this.onBlur);
     this.el.remove();
   }
 

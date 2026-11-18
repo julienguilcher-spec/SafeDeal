@@ -190,8 +190,9 @@ export function legalState(roe: RoeState): LegalState {
 }
 
 /** Moyen le plus fort permis à chaque niveau de la gradation (contracts.ts, ForceLevel) — libellés courts pour le HUD. */
+// mêmes mots que la pastille « ⚖ … · Force : mains nues » de la carte de commandement (§7.1), jamais de chiffre
 const FORCE_LABELS: readonly string[] = [
-  'Aucune force', 'Présence, contact', 'Bâton, gazeuse', 'Lacrymogène', 'Lanceurs, LBD', 'Arme de service',
+  'Aucune force', 'Mains nues', 'Bâton et gazeuse', 'Gaz', 'Grenades', 'Arme à feu',
 ];
 
 export function forceLabel(level: number): string {

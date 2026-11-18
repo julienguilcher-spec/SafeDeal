@@ -151,7 +151,8 @@ export class DroneFeedSystem implements GameSystem, DroneFeedApi {
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
       const phase = ctx.session.phase;
       if (phase !== 'playing' || !isPoliceRole(ctx.player.state.role)) return;
-      if (!OVER_SCREENS.has(ctx.ui.current)) return;
+      // carte de commandement : O y ouvre « Plus… » (le retour vidéo passe par le bouton « Vue drone » du bandeau)
+      if (!OVER_SCREENS.has(ctx.ui.current) || ctx.ui.current === 'carte_tactique') return;
       this.onFeedKey(e.shiftKey, e.altKey);
       // Alt + O tape « œ » sur Mac : pas de caractère parasite
       if (e.altKey || e.shiftKey) e.preventDefault();
@@ -591,8 +592,9 @@ export class DroneFeedSystem implements GameSystem, DroneFeedApi {
       y = (H - size.height) / 2;
     } else if (ctx.ui.current === 'carte_tactique') {
       const m = rectOf('[data-id="tac-map"]');
+      // coin haut droit de la carte : ni « Rechercher un lieu » ni les sous-titres radio (en haut à gauche) dessous
       if (m) {
-        x = m.left + 58;
+        x = m.right - size.width - 10;
         y = m.top + 10;
       }
     } else if (compactScreen(W, H) || this.touchHud()) {

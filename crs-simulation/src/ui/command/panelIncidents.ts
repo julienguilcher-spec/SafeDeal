@@ -1,7 +1,9 @@
 /* =====================================================================================
- * Carte tactique — onglet « Incidents » : appel des secours et suivi de leur arrivée, liste des
- * incidents triée par urgence, délégation par menu (unité, canon à eau, Centaure, BRAV-M, pompiers,
- * SAMU) ou par glisser-déposer d'une ligne sur une unité (carte ou arborescence).
+ * Carte de commandement — « Plus… › Tous les incidents et secours » : manifestations en cours, appel des secours et
+ * suivi de leur arrivée, liste des incidents triée par urgence, délégation par menu (unité, canon à eau, Centaure,
+ * BRAV-M, pompiers, SAMU) ou par glisser-déposer d'une ligne sur une unité de la carte (geste expert). Le contenu est
+ * celui de l'ancien onglet « Incidents » ; il est monté par « Plus… » (panelMore.ts). Ses boutons ont tabindex −1 : la
+ * carte garde le focus du clavier (§2.0), les flèches et les chiffres de l'écran les parcourent.
  * ===================================================================================== */
 
 import type { Incident, IncidentMeans, RescueCall, RescueKind } from '@/core/extensions';
@@ -51,6 +53,21 @@ const MEANS_SYMBOL: Partial<Record<IncidentMeans, UnitSymbol>> = {
 
 interface Row { id: number; root: HTMLDivElement; sub: HTMLElement; sev: HTMLElement }
 
+export interface IncidentsPanelOptions {
+  /**
+   * Un geste sur la carte est attendu (« Appeler les pompiers » : désigner le lieu) : la feuille qui couvre la carte
+   * doit se refermer (téléphone).
+   */
+  onArmMap?(): void;
+}
+
+/** Boutons d'un panneau hors du parcours du focus (la carte garde le focus du clavier). */
+function untab(root: HTMLElement): void {
+  root.querySelectorAll('button').forEach((b) => {
+    if (b.tabIndex !== -1) b.tabIndex = -1;
+  });
+}
+
 export class IncidentsPanel {
   readonly root: HTMLDivElement;
   /** Nombre d'incidents non traités (pastille de l'onglet). */
@@ -75,7 +92,7 @@ export class IncidentsPanel {
 
   constructor(
     private readonly core: CommandCore, private readonly state: TacticalState, private readonly map: MapCanvas,
-    private readonly tmap: TacticalMap, host: HTMLElement,
+    private readonly tmap: TacticalMap, host: HTMLElement, private readonly opts: IncidentsPanelOptions = {},
   ) {
     this.root = el('div', 'ct-pane ct-scroll');
     this.root.dataset.id = 'tac-incidents';
@@ -98,6 +115,7 @@ export class IncidentsPanel {
     this.callsBox.append(h, row, this.callsList);
     this.listBox = el('div');
     this.root.append(this.manifsBox, this.callsBox, this.listBox);
+    untab(this.root);
     host.appendChild(this.root);
     this.ghost = el('div', 'ct-ghost');
     document.body.appendChild(this.ghost);
@@ -106,7 +124,11 @@ export class IncidentsPanel {
   private startCall(kind: RescueKind): void {
     const st = this.state;
     if (st.mode.kind === 'rescue' && st.mode.rescue === kind) st.setMode({ kind: 'idle' });
-    else st.setMode({ kind: 'rescue', rescue: kind, incidentId: 0 });
+    else {
+      st.setMode({ kind: 'rescue', rescue: kind, incidentId: 0 });
+      this.core.ctx.ui.notify(`${kind === 'pompiers' ? 'Pompiers' : 'SAMU'}\u00a0: cliquez ou touchez le lieu sur la carte (au clavier\u00a0: intention Secours, touche S).`, 'info', 4);
+      this.opts.onArmMap?.();
+    }
   }
 
   // ───────────────────────────── délégation ─────────────────────────────
@@ -275,6 +297,7 @@ export class IncidentsPanel {
       box.appendChild(root);
       this.rows.push({ id: inc.id, root, sub, sev });
     }
+    untab(box);
   }
 
   private bindDrag(row: HTMLElement, inc: Incident): void {
@@ -381,6 +404,7 @@ export class IncidentsPanel {
         }
         this.callsList.appendChild(row);
       }
+      untab(this.callsList);
     }
     for (let i = 0; i < calls.length; i++) {
       const c = calls[i]!;
@@ -440,6 +464,7 @@ export class IncidentsPanel {
         row.addEventListener('click', () => this.map.flyTo(pos.x, pos.z));
         this.manifsList.appendChild(row);
       }
+      untab(this.manifsList);
     }
     for (let i = 0; i < rows.length; i++) {
       const row = this.manifsList.children[i] as (HTMLElement & { pos?: { x: number; z: number } }) | undefined;

@@ -76,14 +76,20 @@ export class LabelPlacer {
   }
 }
 
-/** Largeur d'un texte par pixel de corps, mesurée une fois par (graisse, texte). */
+/**
+ * Largeur d'un texte par pixel de corps, mesurée une fois par (graisse, texte). La mesure se fait en corps 100 : la
+ * police du contexte est rendue telle qu'elle était, sinon le texte suivant serait écrit en corps 100 (les noms de
+ * lieux géants à la première ouverture de la carte, quand aucune largeur n'était encore en cache).
+ */
 const WIDTH_CACHE = new Map<string, number>();
 function textWidth(g: CanvasRenderingContext2D, text: string, weight: number, size: number): number {
   const key = weight + '|' + text;
   let unit = WIDTH_CACHE.get(key);
   if (unit === undefined) {
+    const font = g.font;
     g.font = `${weight} 100px ${FONT_STACK}`;
     unit = g.measureText(text).width / 100;
+    g.font = font;
     if (WIDTH_CACHE.size > 6000) WIDTH_CACHE.clear();
     WIDTH_CACHE.set(key, unit);
   }
@@ -227,11 +233,11 @@ export function drawPlaceLabels(
   const marks = world.landmarks;
   if (mppCss <= 7) {
     const size = 10.5 * pr;
-    g.font = `600 ${size}px ${FONT_STACK}`;
+    const font = `600 ${size}px ${FONT_STACK}`;
     for (let i = 0; i < marks.length; i++) {
       const m = marks[i]!;
       if (m.x < minX || m.x > maxX || m.z < minZ || m.z > maxZ) continue;
-      placeText(g, placer, m.name, m.x * inv + offX, m.z * inv + offY, 600, size, '#e8d7a0', pr, rotation, false);
+      placeText(g, placer, m.name, m.x * inv + offX, m.z * inv + offY, 600, size, font, '#e8d7a0', pr, rotation, false);
     }
   }
 
@@ -240,19 +246,20 @@ export function drawPlaceLabels(
     const style = PLACE_STYLES[kind]!;
     if (mppCss > style.maxMpp) continue;
     const size = style.size * pr;
-    g.font = `${style.italic ? 'italic ' : ''}${style.weight} ${size}px ${FONT_STACK}`;
+    const font = `${style.italic ? 'italic ' : ''}${style.weight} ${size}px ${FONT_STACK}`;
     for (let i = 0; i < places.length; i++) {
       const p = places[i]!;
       if (p.kind !== kind || fractions[i]! > share) continue;
       if (p.x < minX || p.x > maxX || p.z < minZ || p.z > maxZ) continue;
-      placeText(g, placer, shortPlaceName(p.name), p.x * inv + offX, p.z * inv + offY, style.weight, size, style.color, pr, rotation, style.marker === true);
+      placeText(g, placer, shortPlaceName(p.name), p.x * inv + offX, p.z * inv + offY, style.weight, size, font, style.color, pr, rotation, style.marker === true);
     }
   }
 }
 
+/** Écrit un nom de lieu en pixels de l'écran (`size` déjà multiplié par la densité de pixels), police `font`. */
 function placeText(
   g: CanvasRenderingContext2D, placer: LabelPlacer, name: string, sx: number, sy: number, weight: number, size: number,
-  color: string, pr: number, rotation: number, marker: boolean,
+  font: string, color: string, pr: number, rotation: number, marker: boolean,
 ): void {
   if (name === '') return;
   const w = textWidth(g, name, weight, size);
@@ -266,6 +273,7 @@ function placeText(
   g.save();
   g.translate(sx, sy);
   if (rotation !== 0) g.rotate(-rotation);
+  g.font = font;
   if (marker) {
     g.fillStyle = color;
     g.beginPath();

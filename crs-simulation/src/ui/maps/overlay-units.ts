@@ -23,6 +23,12 @@ export interface UnitLayerOptions {
   size: number;
   /** Unités en simples pions, sans cadre ni texte (plan de ville). */
   dots?: boolean;
+  /**
+   * Unités mises en avant (clés) : Qui de l'aperçu d'un ordre, groupe du joueur sur la carte en lecture seule. Les
+   * autres sont estompées à `emphasisAlpha` (0,6 par défaut). null ou vide : aucune mise en avant.
+   */
+  emphasis?: ReadonlySet<number> | null;
+  emphasisAlpha?: number;
 }
 
 /** Unités à dessiner pour une échelle donnée, avec l'étendue de leur sous-arbre dans scene.units. */
@@ -144,6 +150,15 @@ const SYM: SymbolOptions = {
 
 const SHOWN = createShown();
 
+/** L'unité montrée (ou l'une des unités fondues dans son symbole, ou l'une de ses supérieures) est mise en avant. */
+function emphasised(scene: MapScene, shown: ShownUnits, i: number, set: ReadonlySet<number>): boolean {
+  const u = shown.units[i]!;
+  if (isSelected(scene, u, set)) return true;
+  const all = scene.units;
+  for (let k = shown.start[i]! + 1; k < shown.end[i]!; k++) if (set.has(all[k]!.key)) return true;
+  return false;
+}
+
 /** Véhicule de service hors unité : petit rectangle orienté, à l'échelle quand on zoome. */
 function drawVehicleMark(g: CanvasRenderingContext2D, x: number, y: number, angle: number, mpp: number, rescue: boolean, hot: boolean): void {
   const len = Math.max(9, 6 / mpp);
@@ -197,6 +212,8 @@ export function drawUnits(g: CanvasRenderingContext2D, t: MapTransform, scene: M
       }
       if ((pass === 1) !== selected) continue;
       if (!t.contains(u.x, u.z, 40)) continue;
+      const emph = o.emphasis;
+      g.globalAlpha = emph && emph.size > 0 && !emphasised(scene, shown, i, emph) ? (o.emphasisAlpha ?? 0.6) : 1;
       t.worldToScreen(u.x, u.z, SP);
       if (o.compact || o.dots) {
         if (u.squadId === 0 && u.symbol === 'vehicule') drawVehicleMark(g, SP.x, SP.y, t.headingToScreenAngle(u.heading), t.mpp * 1.6, false, false);
@@ -223,6 +240,7 @@ export function drawUnits(g: CanvasRenderingContext2D, t: MapTransform, scene: M
       drawUnitSymbol(g, u.symbol, SP.x, SP.y, SYM);
     }
   }
+  g.globalAlpha = 1;
 }
 
 // ───────────────────────────── ordres en cours ─────────────────────────────
@@ -244,13 +262,43 @@ const ORDER_COLORS: Readonly<Record<string, string>> = {
 };
 const ORDER_DEFAULT_COLOR = '#58a6ff';
 
-/** Libellés très courts affichés près du tracé d'un ordre. */
+/**
+ * Étiquette d'un ordre sur la carte, en clair (les mêmes mots que la fiche, la pastille d'unité et « Mes unités » :
+ * colonne `tag` du catalogue des ordres, src/ui/command/orders.ts, que la couche des cartes n'importe pas). Un test
+ * vérifie que les deux listes restent identiques.
+ */
 export const ORDER_TAGS: Readonly<Record<string, string>> = {
-  tenir: 'TENIR', ligne: 'LIGNE', colonne: 'COLONNE', tortue: 'TORTUE', avancer: 'EN AVANT', bond_offensif: 'BOND',
-  charge: 'CHARGE', refoulement: 'REFOULEMENT', repli: 'REPLI', encercler: 'NASSE', disperser_gaz: 'GAZ',
-  interpeller: 'INTERPELLER', proteger: 'PROTÉGER', embarquer: 'EMBARQUER', debarquer: 'DÉBARQUER',
-  degager_barricade: 'DÉGAGER', escorter: 'ESCORTER', cesser: 'CESSER', suivre: 'SUIVRE', libre: 'LIBRE',
+  tenir: 'TIENT', ligne: 'EN LIGNE', colonne: 'VA À PIED', couper_circulation: 'BARRE', filtrer: 'FILTRE', tortue: 'TORTUE',
+  avancer: 'AVANCE', bond_offensif: 'BOND', charge: 'CHARGE', refoulement: 'REPOUSSE', suivre_pied: 'ME SUIT À PIED',
+  avec_moi: 'ME SUIT EN VÉHICULE', faire_mouvement: 'VA EN VÉHICULE', repli: 'SE REPLIE', encercler: 'ENCERCLE',
+  disperser_gaz: 'GAZ', interpeller: 'INTERPELLE', degager_barricade: 'DÉGAGE', degager_obstacle: 'POUSSE UN VÉHICULE',
+  proteger: 'PROTÈGE', escorter: 'ESCORTE', suivre: 'SUIT', embarquer: 'MONTE', debarquer: 'DESCEND', cesser: 'ARRÊTE',
+  libre: 'SANS ORDRE', retour_poste: 'RENTRE',
 };
+
+/** Les mêmes au pluriel, pour une étiquette partagée par plusieurs unités (« 1A 1B 1C · BARRENT · ~2 min »). */
+export const ORDER_TAGS_PLURAL: Readonly<Record<string, string>> = {
+  tenir: 'TIENNENT', ligne: 'EN LIGNE', colonne: 'VONT À PIED', couper_circulation: 'BARRENT', filtrer: 'FILTRENT',
+  tortue: 'TORTUE', avancer: 'AVANCENT', bond_offensif: 'BOND', charge: 'CHARGENT', refoulement: 'REPOUSSENT',
+  suivre_pied: 'ME SUIVENT À PIED', avec_moi: 'ME SUIVENT EN VÉHICULE', faire_mouvement: 'VONT EN VÉHICULE',
+  repli: 'SE REPLIENT', encercler: 'ENCERCLENT', disperser_gaz: 'GAZ', interpeller: 'INTERPELLENT',
+  degager_barricade: 'DÉGAGENT', degager_obstacle: 'POUSSENT UN VÉHICULE', proteger: 'PROTÈGENT', escorter: 'ESCORTENT',
+  suivre: 'SUIVENT', embarquer: 'MONTENT', debarquer: 'DESCENDENT', cesser: 'ARRÊTENT', libre: 'SANS ORDRE',
+  retour_poste: 'RENTRENT',
+};
+
+/** « Barrer la rue, passants admis » (SquadOrder.targetId = −2, BARRAGE_LET_PASSERSBY de orders.ts). */
+const LET_PASSERSBY = -2;
+
+/**
+ * Étiquette d'un ordre en cours (« BARRE », « BARRE (PASSANTS) », « EN LIGNE »), au pluriel pour plusieurs unités.
+ * Ordre inconnu : '' — jamais le type brut en majuscules (« COUPER_CIRCULATION »).
+ */
+export function orderTag(type: string, targetId = 0, plural = false): string {
+  const base = (plural ? ORDER_TAGS_PLURAL[type] : ORDER_TAGS[type]) ?? '';
+  if (base !== '' && type === 'couper_circulation' && targetId === LET_PASSERSBY) return `${base} (PASSANTS)`;
+  return base;
+}
 
 /** Tolérance d'arrivée d'une unité sur le point de son ordre (m). */
 export function arrivalRadius(width: number): number {
@@ -259,8 +307,10 @@ export function arrivalRadius(width: number): number {
 
 const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
 
+const TAG_FONT = `700 9.5px ${FONT}`;
+
 function tag(g: CanvasRenderingContext2D, text: string, x: number, y: number, color: string): void {
-  g.font = `700 9.5px ${FONT}`;
+  g.font = TAG_FONT;
   g.textAlign = 'center';
   g.textBaseline = 'middle';
   g.lineWidth = 3;
@@ -457,11 +507,101 @@ export function drawTargetMark(g: CanvasRenderingContext2D, x: number, y: number
   }
 }
 
+// ───────────────────────────── étiquettes des ordres ─────────────────────────────
+
+/** Étiquette d'ordre d'une unité, avant regroupement et placement. */
+export interface OrderLabelItem {
+  /** Code court de l'unité (« 2A »), '' s'il n'y en a pas. */
+  code: string;
+  type: string;
+  targetId: number;
+  /** Ancrage à l'écran (px) : centre de l'étiquette sans décalage. */
+  x: number;
+  y: number;
+  arrived: boolean;
+  /** Reste à parcourir (m) et délai estimé (s), en route. */
+  dist: number;
+  eta: number;
+  color: string;
+}
+
+/** Étiquette retenue : texte, centre et boîte (px), unités qu'elle nomme. */
+export interface PlacedLabel {
+  text: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  color: string;
+  codes: string[];
+}
+
+/** Deux ancrages plus proches que cela (px), même ordre, même état : une seule étiquette pour toutes ces unités. */
+export const LABEL_MERGE_PX = 36;
+/** Hauteur d'une étiquette (px) et décalages essayés tour à tour pour éviter un chevauchement. */
+export const LABEL_HEIGHT = 13;
+export const LABEL_OFFSETS: readonly number[] = [0, -16, 16, -32];
+
+function followText(arrived: boolean, dist: number, eta: number, withDist: boolean): string {
+  if (arrived) return 'EN PLACE';
+  return withDist ? `${formatMeters(dist)} · ~${etaLabel(eta)}` : `~${etaLabel(eta)}`;
+}
+
+/**
+ * Regroupe les étiquettes des unités qui ont le même ordre au même endroit (« 1A 1B 1C · BARRENT · ~2 min »), puis
+ * place chaque étiquette au premier décalage vertical libre (0, −16, +16, −32 px) ; une étiquette sans place n'est pas
+ * dessinée — celles des unités arrivées d'abord. Logique pure : `measure` donne la largeur d'un texte en px.
+ */
+export function layoutOrderLabels(items: readonly OrderLabelItem[], measure: (text: string) => number): PlacedLabel[] {
+  // regroupement (dans l'ordre reçu)
+  const groups: { items: OrderLabelItem[]; x: number; y: number }[] = [];
+  for (const it of items) {
+    let g = groups.find((q) => {
+      const a = q.items[0]!;
+      return a.type === it.type && a.targetId === it.targetId && a.arrived === it.arrived && Math.hypot(q.x - it.x, q.y - it.y) <= LABEL_MERGE_PX;
+    });
+    if (!g) {
+      g = { items: [], x: it.x, y: it.y };
+      groups.push(g);
+    }
+    g.items.push(it);
+    const n = g.items.length;
+    g.x = g.items.reduce((sum, q) => sum + q.x, 0) / n;
+    g.y = Math.min(g.y, it.y);
+  }
+  // les unités en route d'abord : à l'arrivée, l'étiquette est moins utile et cède la place
+  groups.sort((a, b) => Number(a.items[0]!.arrived) - Number(b.items[0]!.arrived));
+  const out: PlacedLabel[] = [];
+  for (const g of groups) {
+    const first = g.items[0]!;
+    const plural = g.items.length > 1;
+    const codes = g.items.map((q) => q.code).filter((c) => c !== '');
+    const eta = Math.max(...g.items.map((q) => q.eta));
+    const dist = Math.max(...g.items.map((q) => q.dist));
+    const parts = [codes.join(' '), orderTag(first.type, first.targetId, plural), followText(first.arrived, dist, eta, !plural)].filter((p) => p !== '');
+    const text = parts.join(' · ');
+    const w = measure(text) + 6;
+    const h = LABEL_HEIGHT;
+    for (const off of LABEL_OFFSETS) {
+      const y = g.y + off;
+      const free = out.every((b) => Math.abs(b.x - g.x) * 2 >= b.w + w || Math.abs(b.y - y) * 2 >= b.h + h);
+      if (free) {
+        out.push({ text, x: g.x, y, w, h, color: first.color, codes });
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+const LABELS: OrderLabelItem[] = [];
+
 /** Tracés des ordres en cours : flèche jusqu'à l'arrivée, puis ligne ou zone tenue en trait fin. */
 export function drawOrders(g: CanvasRenderingContext2D, t: MapTransform, scene: MapScene, o: UnitLayerOptions): void {
   const units = scene.units;
   // l'étiquette d'un ordre n'est écrite que pour une unité qui a son propre symbole à cette échelle
   const shown = visibleUnits(scene, t.mpp, o.compact, SHOWN).units;
+  LABELS.length = 0;
   for (let i = 0; i < units.length; i++) {
     const u = units[i]!;
     const ord = u.order;
@@ -502,11 +642,85 @@ export function drawOrders(g: CanvasRenderingContext2D, t: MapTransform, scene: 
     if (!o.compact && (!arrived || selected) && (shown.indexOf(u) >= 0 || !arrived)) {
       // suivi : distance restante et temps estimé en route ; « EN PLACE » à l'arrivée
       const len = route ? route.length : u.orderDist;
-      const follow = arrived ? ' · EN PLACE' : ` · ${formatMeters(len)} · ~${etaLabel(len / (u.embarked ? 8 : 1.8))}`;
-      const label = `${u.code !== '' ? u.code + ' · ' : ''}${ORDER_TAGS[ord.type] ?? String(ord.type).toUpperCase()}${follow}`;
       const off = shape === 'circle' ? -(Math.max(8, (ord.width * 0.5) / t.mpp) + 12) : -14;
-      tag(g, label, tx, ty + off, color);
+      LABELS.push({
+        code: u.code, type: String(ord.type), targetId: ord.targetId, x: tx, y: ty + off, arrived, dist: len,
+        eta: len / (u.embarked ? 8 : 1.8), color,
+      });
     }
     g.globalAlpha = 1;
   }
+  if (LABELS.length === 0) return;
+  g.font = TAG_FONT;
+  const placed = layoutOrderLabels(LABELS, (text) => g.measureText(text).width);
+  for (const p of placed) tag(g, p.text, p.x, p.y, p.color);
+}
+
+// ───────────────────────────── carte de l'exécutant ─────────────────────────────
+
+/** Carte en lecture seule (CRS, gardien…) : son groupe, et où l'ordre reçu l'envoie. */
+export interface ExecutantFrame {
+  /** Unité du joueur (clé = identifiant d'unité). */
+  squadId: number;
+  /** Destination de l'ordre reçu (« ICI — Avenue de la République ») ; null sans ordre. */
+  dest: { x: number; z: number; label: string } | null;
+}
+
+const EXEC_COLOR = '#ffd60a';
+
+/**
+ * Trajet du groupe du joueur en jaune épais (par les rues quand il est calculé, sinon en ligne droite) et destination
+ * cerclée « ICI — <lieu> ». Les autres unités sont estompées par `emphasis` (posé par l'écran).
+ */
+export function drawExecutantFrame(g: CanvasRenderingContext2D, t: MapTransform, scene: MapScene, f: ExecutantFrame, time: number): void {
+  const dest = f.dest;
+  if (!dest) return;
+  const u = scene.unitModel.get(f.squadId);
+  const route = scene.routes.get(f.squadId);
+  g.lineCap = 'round';
+  g.lineJoin = 'round';
+  g.setLineDash([]);
+  for (let pass = 0; pass < 2; pass++) {
+    g.lineWidth = pass === 0 ? 9 : 5;
+    g.strokeStyle = pass === 0 ? 'rgba(8,14,26,.75)' : EXEC_COLOR;
+    g.beginPath();
+    if (route && route.path.length >= 4) {
+      for (let i = 0; i + 1 < route.path.length; i += 2) {
+        t.worldToScreen(route.path[i]!, route.path[i + 1]!, SQ);
+        if (i === 0) g.moveTo(SQ.x, SQ.y);
+        else g.lineTo(SQ.x, SQ.y);
+      }
+    } else {
+      const fx = u ? u.x : scene.hasPlayer ? scene.px : dest.x;
+      const fz = u ? u.z : scene.hasPlayer ? scene.pz : dest.z;
+      t.worldToScreen(fx, fz, SQ);
+      g.moveTo(SQ.x, SQ.y);
+    }
+    t.worldToScreen(dest.x, dest.z, SQ);
+    g.lineTo(SQ.x, SQ.y);
+    g.stroke();
+  }
+  t.worldToScreen(dest.x, dest.z, SP);
+  // anneau qui pulse sur la destination
+  const k = (time * 0.9) % 1;
+  g.strokeStyle = EXEC_COLOR;
+  g.globalAlpha = 1 - k;
+  g.lineWidth = 2.5;
+  g.beginPath();
+  g.arc(SP.x, SP.y, 12 + k * 16, 0, Math.PI * 2);
+  g.stroke();
+  g.globalAlpha = 1;
+  g.lineWidth = 3;
+  g.beginPath();
+  g.arc(SP.x, SP.y, 11, 0, Math.PI * 2);
+  g.stroke();
+  g.font = `800 12px ${FONT}`;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.lineWidth = 3.5;
+  g.strokeStyle = UNIT_COLORS.halo;
+  const text = dest.label !== '' ? `ICI — ${dest.label}` : 'ICI';
+  g.strokeText(text, SP.x, SP.y - 26);
+  g.fillStyle = '#ffe680';
+  g.fillText(text, SP.x, SP.y - 26);
 }

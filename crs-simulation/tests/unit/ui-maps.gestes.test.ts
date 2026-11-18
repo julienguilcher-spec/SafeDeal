@@ -159,8 +159,9 @@ describe('cartes — gestes', () => {
 
   it('molette : vers le haut rapproche, vers le bas éloigne', () => {
     const s = setup();
-    s.g.wheel(0, 0, -100);
-    s.g.wheel(0, 0, 100);
+    // crans de molette de souris (pixels entiers, sans composante horizontale)
+    s.g.wheel(0, 0, 0, -100, false, 0);
+    s.g.wheel(0, 0, 0, 100, false, 0);
     expect(s.zoom[0]).toBeGreaterThan(1);
     expect(s.zoom[1]).toBeLessThan(1);
     expect(s.zoom[0]! * s.zoom[1]!).toBeCloseTo(1, 9);

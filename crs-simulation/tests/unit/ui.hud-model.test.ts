@@ -73,9 +73,11 @@ describe('hud/cadre légal', () => {
 
   it('libellés de force et rappel du droit pour les civils', () => {
     expect(forceLabel(0)).toBe('Aucune force');
-    expect(forceLabel(3)).toBe('Lacrymogène');
-    expect(forceLabel(5)).toBe('Arme de service');
-    expect(forceLabel(9)).toBe('Arme de service');
+    // mêmes mots que la pastille de la carte de commandement (§7.1), jamais un chiffre
+    expect(forceLabel(1)).toBe('Mains nues');
+    expect(forceLabel(3)).toBe('Gaz');
+    expect(forceLabel(5)).toBe('Arme à feu');
+    expect(forceLabel(9)).toBe('Arme à feu');
     expect(legalReminder(roe())).toBe('');
     expect(legalReminder(roe({ sommation: 2 }))).toContain('Première sommation');
     expect(legalReminder(roe({ sommation: 3 }))).toBe('Dernière sommation entendue : rester est un délit');

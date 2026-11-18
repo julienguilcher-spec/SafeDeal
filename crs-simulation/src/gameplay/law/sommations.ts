@@ -385,11 +385,12 @@ export class Sommations {
     }
     if (lvl > LEVEL_ARMS) {
       lvl = LEVEL_ARMS;
-      k.notify(by, "L'arme de service ne s'autorise pas : elle relève de la seule légitime défense. Niveau ramené à 4.", 'warn', 6);
+      k.notify(by, "L'arme de service ne s'autorise pas : elle relève de la seule légitime défense. Autorisation ramenée aux " + LEVEL_NAMES[LEVEL_ARMS - 1] + '.', 'warn', 6);
     }
     this.setOrdered(lvl as ForceLevel, byId, false);
     if (lvl > k.roe.lawfulForce) {
-      k.notify(by, 'Niveau ' + lvl + ' (' + LEVEL_NAMES[lvl] + ') enregistré : il ne prendra effet qu\'une fois le cadre légal réuni (sommations ou violences contre les forces).', 'info', 6);
+      // en mots, jamais en chiffre (« Niveau 3 » ne dit rien au joueur) : « Autorisation enregistrée (lacrymogènes…) »
+      k.notify(by, 'Autorisation enregistrée (' + LEVEL_NAMES[lvl] + ') : elle ne prendra effet qu\'une fois le cadre légal réuni (sommations ou violences contre les forces).', 'info', 6);
     }
   }
 

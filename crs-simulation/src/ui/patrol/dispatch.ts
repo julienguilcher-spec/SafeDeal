@@ -75,6 +75,11 @@ border:1px solid rgba(255,196,64,.6);color:#f2f5fa;font:600 12.5px/1.2 system-ui
 .ui-hud:not([data-touch="none"]) .pd-row .cm-btn{min-height:40px;padding:4px 10px;font-size:12px}
 .ui-hud:not([data-touch="none"]) .pd-pill{min-height:40px}
 @media (pointer:coarse){.pd-key{display:none}.pd-row .cm-btn,.pd-pill{min-height:44px}}
+/* écran tactile, carte d'appel dépliée (en haut au centre) : les pastilles « Suivez-moi » / « Secours ici » du bloc
+   « ORDRES » (sous la mini-carte, à la même hauteur) passaient sous le bas de la carte et prenaient le toucher de
+   « Renforts » ; les sous-titres montaient sur ses boutons. Elles s'effacent le temps de la carte (20 s au plus, puis
+   pastille « Appel en cours ») : la roue « Ordres » garde les mêmes ordres, et la carte a ses renforts pompiers / SAMU. */
+.ui-hud[data-pd-open="1"]:not([data-touch="none"]) [data-id="hud-orders"]{display:none!important}
 /* écran radio : section « Appel en cours » */
 .cr-call{flex:none;display:flex;flex-direction:column;gap:5px;padding:9px 12px 10px;border-bottom:1px solid var(--cm-line);background:rgba(60,44,8,.35);
 max-height:52%;overflow-y:auto}
@@ -531,6 +536,7 @@ export class PatrolDispatchHud implements HudWidget {
     }
     if (!shown) {
       this.key = '';
+      this.markOpen(false);
       return;
     }
     const key = `${this.panel.callId}:${this.panel.shown}`;
@@ -542,6 +548,7 @@ export class PatrolDispatchHud implements HudWidget {
     if (!this.collapsed && nowMs() - this.since >= COLLAPSE_AFTER * 1000) this.collapsed = true;
     setClass(this.panel.root, 'pd-off', this.collapsed);
     setClass(this.pill, 'pd-off', !this.collapsed);
+    this.markOpen(!this.collapsed);
     if (this.collapsed) {
       const state = this.panel.shown;
       this.pill.dataset.state = state;
@@ -554,8 +561,20 @@ export class PatrolDispatchHud implements HudWidget {
     }
   }
 
+  /**
+   * Carte dépliée : attribut data-pd-open du HUD, lu par la feuille de style (sur écran tactile, les pastilles du bloc
+   * « ORDRES » s'effacent le temps de la carte, voir ensurePatrolStyle).
+   */
+  private markOpen(open: boolean): void {
+    const hud = this.leftHost.closest('.ui-hud') as HTMLElement | null;
+    if (!hud || hud.hasAttribute('data-pd-open') === open) return;
+    if (open) hud.setAttribute('data-pd-open', '1');
+    else hud.removeAttribute('data-pd-open');
+  }
+
   dispose(): void {
     if (typeof window !== 'undefined') window.removeEventListener('keydown', this.onKey);
+    this.markOpen(false);
     this.root.remove();
     if (this.topHost) this.topHost.remove();
     this.topHost = null;

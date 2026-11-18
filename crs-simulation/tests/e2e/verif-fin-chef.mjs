@@ -1,12 +1,13 @@
 // Testeur indépendant — CONTRÔLE FINAL, chef de groupe place de la Concorde :
 //   A. les collègues bougent-ils d'eux-mêmes (commandant IA) ? où part le groupe du joueur ?
-//   B. ordre donné PAR L'INTERFACE (roue d'ordres : touche F puis clic sur « En avant ») : est-il exécuté, en combien de temps,
-//      joueur immobile puis joueur qui marche ?
-//   C. ordre donné par la CARTE TACTIQUE (unité → verbe → clic sur la carte) ;
-//   D. manette : Select → plan → carte tactique → jeu ;
+//   B. ordre donné PAR L'INTERFACE (roue d'ordres : touche F puis clic sur « Avancer jusqu'ici ») : est-il exécuté, en combien
+//      de temps, joueur immobile puis joueur qui marche ?
+//   C. ordre donné par la CARTE DE COMMANDEMENT (« Mes unités » → fiche du groupe → « L'envoyer ailleurs… » → clic sur la
+//      carte → « Tenir une ligne ici ») ;
+//   D. manette : Select → plan → carte de commandement → jeu ;
 //   E. fourgon : nez vers la sortie, rouler tout droit ; puis renverser VOLONTAIREMENT un collègue : faute relevée et annoncée ?
 // Usage : node tests/e2e/verif-fin-chef.mjs [--only=ABCDE] [--seed=11]
-import { startServer, openPage, waitFor, frames, step, state, snap, hold, notices, sysErrors, census, makeChecker, args, J, R, installPad, PAD, padButton } from './verif-fin-lib.mjs';
+import { startServer, openPage, waitFor, frames, step, state, snap, hold, notices, sysErrors, census, makeChecker, args, J, R, installPad, PAD, padButton, tactical, clickSel, clickCardLine, verbFirst, freeMapSpot } from './verif-fin-lib.mjs';
 
 const tag = 'verif-fin-chef';
 const C = makeChecker(tag);
@@ -53,7 +54,7 @@ try {
   }
 
   if (parts.includes('B')) {
-    // ── B. ordre par la roue : regard devant soi, appui bref sur F, clic sur « En avant » ──
+    // ── B. ordre par la roue : regard devant soi, appui bref sur F, clic sur « Avancer jusqu'ici » (secteur 3) ──
     await page.evaluate(() => { const c = window.__CRS.ctx; const s = c.service('session.setup').summary; c.player.state.camYaw = s.heading; c.player.state.camPitch = -0.12; });
     await step(page, 0.3); await frames(page, 2);
     await page.keyboard.press('KeyF');
@@ -66,14 +67,15 @@ try {
     if (wheelOpen) {
       const labels = await page.evaluate(() => [...document.querySelectorAll('[data-id="order-wheel"] text, [data-id="order-wheel"] .cw-label')].map((e) => (e.textContent || '').trim()).filter(Boolean).slice(0, 24));
       C.note('secteurs : ' + labels.join(' · '));
-      await page.locator('[data-id="order-wheel"] .cw-wedge[data-index="0"]').click({ force: true });
+      C.check(await page.evaluate(() => document.querySelectorAll('[data-id="order-wheel"] .cw-wedge').length === 8), 'ROUE : huit secteurs pour le chef de groupe', labels.join(' · '));
+      await page.locator('[data-id="order-wheel"] .cw-wedge[data-index="2"]').click({ force: true });
       await frames(page, 3);
     }
     const o = await mates();
     const myId = await page.evaluate(() => window.__CRS.ctx.player.person().id);
     report.ordreRoue = { order: o.order, by: o.by, me: myId, dx: o.ox - o.me.x, dz: o.oz - o.me.z };
     const dTarget = Math.hypot(o.ox - o.me.x, o.oz - o.me.z);
-    C.check(o.order === 'avancer' && o.by === myId, 'ROUE : l’ordre « En avant » est enregistré au nom du joueur', `ordre « ${o.order} » par ${o.by}, point à ${R(dTarget, 0)} m ; notifications : ${(await notices(page)).join(' | ').slice(0, 160)}`);
+    C.check(o.order === 'avancer' && o.by === myId, 'ROUE : l’ordre « Avancer jusqu’ici » est enregistré au nom du joueur', `ordre « ${o.order} » par ${o.by}, point à ${R(dTarget, 0)} m ; notifications : ${(await notices(page)).join(' | ').slice(0, 160)}`);
     const toTarget = () => page.evaluate(() => { const c = window.__CRS.ctx; const me = c.player.person(); const sq = c.squads.get(me.squadId); return { order: sq.order.type, by: sq.order.issuedBy, d: sq.members.map((id) => c.people.get(id)).filter((p) => p && !p.isPlayer && p.vehicleId === 0).map((p) => Math.hypot(p.x - sq.order.x, p.z - sq.order.z)), me: Math.hypot(me.x - sq.order.x, me.z - sq.order.z) }; });
     const t0 = await toTarget();
     // joueur immobile, 60 s
@@ -101,55 +103,62 @@ try {
   }
 
   if (parts.includes('C')) {
-    // ── C. carte tactique : unité → « ligne » → clic sur la carte ──
+    // ── C. carte de commandement : « Mes unités » → fiche du groupe → « L'envoyer ailleurs… » → lieu → « Tenir une ligne ici » ──
     await hold(page, 'Tab');
     await page.waitForTimeout(700); await frames(page, 3);
     let s = await state(page);
-    C.check(s.screen === 'carte_tactique', 'TACTIQUE : Tab ouvre la carte tactique', String(s.screen));
+    C.check(s.screen === 'carte_tactique', 'TACTIQUE : Tab ouvre la carte de commandement', String(s.screen));
     await snap(page, tag + '-06-tactique');
-    const ui = await page.evaluate(() => ({ units: [...document.querySelectorAll('[data-id^="unit-"]')].map((e) => ({ id: e.dataset.id, t: (e.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 40) })), verbs: [...document.querySelectorAll('[data-id^="verb-"]')].map((e) => ({ id: e.dataset.id, off: e.disabled, vis: e.getBoundingClientRect().width > 0 })), tabs: [...document.querySelectorAll('[data-id="tactical"] [data-id^="tab-"]')].map((e) => e.dataset.id) }));
+    const ui = await page.evaluate(() => ({
+      units: [...document.querySelectorAll('[data-id^="follow-u-"]')].map((e) => ({ id: e.dataset.id, t: (e.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 40) })),
+      intents: [...document.querySelectorAll('[data-id^="intent-"]')].filter((e) => e.getBoundingClientRect().width > 0).map((e) => e.dataset.id),
+    }));
     report.tactique = ui;
-    C.note(`carte tactique : ${ui.units.length} unité(s) listée(s) (${ui.units.slice(0, 4).map((u) => u.t).join(' | ')}), ${ui.verbs.filter((v) => !v.off).length} verbes actifs sur ${ui.verbs.length}, onglets ${ui.tabs.join(', ')}`);
+    C.note(`carte de commandement : ${ui.units.length} rangée(s) dans « Mes unités » (${ui.units.slice(0, 4).map((u) => u.t).join(' | ')}), intentions ${ui.intents.join(', ')}`);
     try {
       const before = await mates();
-      // l'unité du joueur (chef de groupe : la seule sous ses ordres — la première ligne de la liste est la compagnie)
+      // l'unité du joueur (chef de groupe : la seule sous ses ordres)
       const own = await page.evaluate(() => window.__CRS.ctx.player.person().squadId);
-      const row = page.locator(`[data-id="unit-${own}"]`);
-      if (await row.count()) { await row.first().click({ timeout: 15000 }); await frames(page, 2); }
-      else if (ui.units.length) { await page.locator('[data-id^="unit-"]').first().click(); await frames(page, 2); }
-      const tabOrders = page.locator('[data-id="tactical"] [data-id="tab-ordres"], [data-id="tactical"] [data-id="tab-orders"]');
-      if (await tabOrders.count()) { await tabOrders.first().click(); await frames(page, 2); }
-      const verb = page.locator('[data-id="verb-ligne"]');
-      // (rendu logiciel : une image peut durer une demi-seconde, et le clic attend deux images stables)
-      await verb.first().scrollIntoViewIfNeeded({ timeout: 15000 });
-      await verb.first().click({ timeout: 15000 });
-      await frames(page, 2);
+      if (!(await clickSel(page, `[data-id="follow-u-${own}"]`))) throw new Error(`rangée de son groupe absente (${ui.units.map((u) => u.id).join(', ')})`);
+      const card = await tactical(page);
+      C.check(!!card && card.kind === 'unite', 'TACTIQUE : la rangée de son groupe ouvre sa fiche', J(card && { kind: card.kind, lines: card.lines }));
+      if (!(await clickCardLine(page, /^L.envoyer ailleurs/))) throw new Error('« L’envoyer ailleurs… » absente de la fiche');
       const box = await page.locator('[data-id="tac-map"]').boundingBox();
-      const px = box.x + box.width * 0.5 + 40, py = box.y + box.height * 0.5 - 30;
-      await page.mouse.move(px, py);
-      await page.mouse.down(); await frames(page, 2); await page.mouse.move(px + 50, py + 10, { steps: 4 }); await frames(page, 2); await page.mouse.up();
+      // (loin de toute unité : un clic sur une unité ouvrirait sa fiche à la place de celle du lieu)
+      const spot = await freeMapSpot(page, [[0.53, 0.46], [0.3, 0.3], [0.7, 0.3], [0.3, 0.7], [0.7, 0.7], [0.5, 0.2], [0.5, 0.8]]);
+      const px = spot ? spot.x : box.x + box.width * 0.5 + 40, py = spot ? spot.y : box.y + box.height * 0.5 - 30;
+      await page.mouse.click(px, py);
+      await frames(page, 3);
+      const place = await tactical(page);
+      C.note(`lieu désigné : ${place && place.visee} (${place && place.kind}) — lignes : ${place ? place.lines.join(' | ') : ''}`);
+      let line = await clickCardLine(page, /^(Tenir une ligne ici|Contenir\s*: ligne face à la foule)$/);
+      if (!line && (await verbFirst(page, 'ligne'))) line = (await clickSel(page, '[data-id="card-send"]')) ? 'ligne (Tous les ordres)' : '';
       await frames(page, 3);
       await snap(page, tag + '-07-tactique-ordre');
-      // validation éventuelle
-      // (visibles seulement : la carte porte aussi des boutons masqués, comme « Valider » du bandeau de nasse)
-      const confirm = page.locator('[data-id="tactical"] button:visible').filter({ hasText: /Valider|Confirmer|Donner|Ordonner|Envoyer/ });
-      if (await confirm.count()) { await confirm.first().click(); await frames(page, 3); }
       const after = await mates();
-      report.ordreTactique = { before: before.order, after: after.order, by: after.by, moved: Math.hypot(after.ox - before.ox, after.oz - before.oz) };
-      C.check(after.order === 'ligne', 'TACTIQUE : l’ordre « En ligne » posé sur la carte est enregistré', `ordre « ${before.order} » → « ${after.order} », point déplacé de ${R(Math.hypot(after.ox - before.ox, after.oz - before.oz), 0)} m ; notifications : ${(await notices(page)).join(' | ').slice(0, 160)}`);
+      report.ordreTactique = { before: before.order, after: after.order, by: after.by, line, moved: Math.hypot(after.ox - before.ox, after.oz - before.oz) };
+      C.check(after.order === 'ligne', 'TACTIQUE : l’ordre « Tenir une ligne ici » donné par la fiche est enregistré', `« ${line} » : ordre « ${before.order} » → « ${after.order} », point déplacé de ${R(Math.hypot(after.ox - before.ox, after.oz - before.oz), 0)} m ; notifications : ${(await notices(page)).join(' | ').slice(0, 160)}`);
     } catch (err) {
       C.check(false, 'TACTIQUE : donner un ordre par la carte', String(err).slice(0, 1200));
     }
     await hold(page, 'Tab');
     await frames(page, 3);
     s = await state(page);
-    if (s.screen !== null) { await hold(page, 'Escape'); await frames(page, 3); s = await state(page); }
+    for (let i = 0; i < 3 && s.screen !== null; i++) { await hold(page, 'Escape'); await frames(page, 3); s = await state(page); }
     C.check(s.screen === null && s.phase === 'playing', 'TACTIQUE : la carte se referme, le jeu reprend', `${s.screen} / ${s.phase}`);
     if (report.ordreTactique && report.ordreTactique.after === 'ligne') {
-      const tgt = await mates();
       await step(page, 45);
-      const aft = await page.evaluate(() => { const c = window.__CRS.ctx; const me = c.player.person(); const sq = c.squads.get(me.squadId); return sq.members.map((id) => c.people.get(id)).filter((p) => p && !p.isPlayer && p.vehicleId === 0).map((p) => Math.hypot(p.x - sq.order.x, p.z - sq.order.z)); });
-      C.check(aft.every((d) => d < 8), 'TACTIQUE : 45 s plus tard les équipiers sont en ligne sur le point', aft.map((d) => R(d, 1)).join(', ') + ' m');
+      // (la ligne est tracée d'une façade à l'autre : chaque équipier est sur le segment, pas forcément au centre)
+      const aft = await page.evaluate(() => {
+        const c = window.__CRS.ctx; const me = c.player.person(); const sq = c.squads.get(me.squadId); const o = sq.order;
+        return sq.members.map((id) => c.people.get(id)).filter((p) => p && !p.isPlayer && p.vehicleId === 0).map((p) => {
+          const dx = p.x - o.x, dz = p.z - o.z;
+          const along = dx * Math.cos(o.heading) - dz * Math.sin(o.heading);
+          const depth = dx * Math.sin(o.heading) + dz * Math.cos(o.heading);
+          return { out: Math.max(0, Math.abs(along) - (o.width || 0) / 2), depth: Math.abs(depth) };
+        });
+      });
+      C.check(aft.every((d) => d.out < 3 && d.depth < 5), 'TACTIQUE : 45 s plus tard les équipiers sont en ligne sur le point', aft.map((d) => `${R(d.out, 1)}/${R(d.depth, 1)}`).join(', ') + ' m (hors du segment / en profondeur)');
       await page.evaluate(() => { const c = window.__CRS.ctx; const me = c.player.person(); const sq = c.squads.get(me.squadId); c.player.state.camYaw = Math.atan2(sq.order.x - me.x, sq.order.z - me.z); c.player.state.camPitch = -0.1; });
       await step(page, 0.3);
       await snap(page, tag + '-08-ligne');
@@ -168,7 +177,7 @@ try {
     if (s2 === 'carte_tactique') await snap(page, tag + '-09-manette-tactique');
     await pad(PAD.SELECT); await page.waitForTimeout(300);
     const s3 = await state(page);
-    C.check(s1 === 'carte' && s2 === 'carte_tactique' && s3.screen === null && s3.phase === 'playing', 'MANETTE : Select → plan → carte tactique → jeu', `${s1} → ${s2} → ${s3.screen} (${s3.phase})`);
+    C.check(s1 === 'carte' && s2 === 'carte_tactique' && s3.screen === null && s3.phase === 'playing', 'MANETTE : Select → plan → carte de commandement → jeu', `${s1} → ${s2} → ${s3.screen} (${s3.phase})`);
     await page.evaluate(() => { window.__pad.connected = false; Object.defineProperty(navigator, 'getGamepads', { value: () => [null, null, null, null], configurable: true }); window.dispatchEvent(new Event('gamepaddisconnected')); });
     await frames(page, 3);
     if ((await state(page)).screen === 'pause') { await page.locator('[data-id="pause-reprendre"]').click(); await frames(page, 3); }

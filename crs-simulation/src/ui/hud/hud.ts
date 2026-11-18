@@ -299,6 +299,7 @@ export class Hud {
       const place = subtitlePlacement(
         s.width, s.height, baseLeft, baseRight, r.height > 0 ? r.top : s.height - 20,
         zone.childElementCount > 0 ? zone.getBoundingClientRect() : null, this.slots['top-left'].getBoundingClientRect(),
+        this.slots.top.getBoundingClientRect(),
       );
       if (Math.abs(place.bottom - this.subBottom) > 1) {
         this.subBottom = place.bottom;

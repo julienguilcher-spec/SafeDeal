@@ -81,8 +81,27 @@ try {
   await page.locator('[data-id="quick-map"]').click();
   await sleep(2500);
   const tac = await feedState();
-  check(tac.ui === 'carte_tactique' && tac.shown, 'la fenêtre reste visible par-dessus la carte tactique', JSON.stringify(tac.rect));
-  check(await page.locator('[data-id="tac-drone"]').isVisible(), 'bouton « Vue drone » dans le bandeau de la carte tactique');
+  check(tac.ui === 'carte_tactique' && tac.shown, 'la fenêtre reste visible par-dessus la carte de commandement', JSON.stringify(tac.rect));
+  check(await page.locator('[data-id="tac-drone"]').isVisible(), 'bouton « Vue drone » dans le bandeau de la carte de commandement');
+  // coin haut droit de la carte : « Rechercher un lieu » et les sous-titres radio (en haut à gauche) restent dégagés
+  const place = await page.evaluate(() => {
+    const r = (q) => { const e = document.querySelector(q); if (!e) return null; const b = e.getBoundingClientRect(); return b.width > 0 ? { l: b.left, t: b.top, r: b.right, b: b.bottom } : null; };
+    const feed = [...document.querySelectorAll('[data-id="drone-feed"], .drone-feed, [data-id^="drone-feed"]')].map((e) => e.getBoundingClientRect()).find((b) => b.width > 120);
+    return { map: r('[data-id="tac-map"]'), search: r('[data-id="tac-search"]'), feed: feed ? { l: feed.left, t: feed.top, r: feed.right, b: feed.bottom } : null };
+  });
+  const hit = (a, b) => !!a && !!b && a.l < b.r && a.r > b.l && a.t < b.b && a.b > b.t;
+  const f = tac.rect ? { l: tac.rect.x, t: tac.rect.y, r: tac.rect.x + tac.rect.w, b: tac.rect.y + tac.rect.h } : place.feed;
+  check(!!f && !!place.map && Math.abs(f.r - (place.map.r - 10)) <= 12 && Math.abs(f.t - (place.map.t + 10)) <= 12, 'fenêtre du drone au coin haut droit de la carte', JSON.stringify({ feed: f, map: place.map }));
+  check(!hit(f, place.search), 'la fenêtre du drone ne couvre pas « Rechercher un lieu »', JSON.stringify({ feed: f, search: place.search }));
+  // O, carte ouverte : « Plus… » s'ouvre, le retour vidéo ne bascule pas
+  const before = await feedState();
+  await page.keyboard.press('KeyO');
+  await sleep(800);
+  const afterO = await feedState();
+  const more = await page.evaluate(() => { const t = window.__CRS.game.systems.find((x) => x.id === 'ui:command').tactical; return t ? t.state.sheet : null; });
+  check(afterO.open === before.open && more === 'more', 'O sur la carte : « Plus… » s’ouvre, la fenêtre du drone ne bascule pas', JSON.stringify({ avant: before.open, après: afterO.open, feuille: more }));
+  await page.keyboard.press('Escape');
+  await sleep(500);
   await shot(page, 'drone-video-3-carte');
   await page.locator('[data-id="tac-close"]').click();
   await sleep(800);

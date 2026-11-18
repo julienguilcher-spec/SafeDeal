@@ -15,16 +15,26 @@ import { createSystems as police } from '@/sim/police';
 import { createSystems as law } from '@/gameplay/law';
 import { createSystems as radio } from '@/gameplay/radio';
 import { createSystems as session } from '@/gameplay/session';
+import { createSystems as rescueSim } from '@/sim/roles/rescue';
 import { createSystems as command, ordersButtonVisible } from '@/ui/command';
 import type { CommandCore } from '@/ui/command';
 import { FOLLOW_WHEEL, WHEEL, wheelOrders } from '@/ui/command/orderWheel';
-import { followButtonsShown } from '@/ui/command/quickActions';
+import type { WheelSector } from '@/ui/command/orderWheel';
+import { followButtonsShown, requestRescueAtPlayer } from '@/ui/command/quickActions';
+import { buildCard } from '@/ui/command/intents';
+import { cardEnvFromCore, collectReperes } from '@/ui/command/reperes';
 import { sanitizePatrolSetup, vacationSessionConfig } from '@/gameplay/patrols/model';
 
 const SIM = [world, roles, people, vehicles, police, law, radio, session, command];
 
-async function start(role: string, poste?: string) {
-  const t = createTestContext({ seed: 21, strict: false, modules: SIM });
+/** Ce que fait la touche n (« F puis n ») dans la roue de ce niveau de commandement ; '' si rien. */
+function sectorOf(level: string, n: number): string {
+  const w: WheelSector | undefined = wheelOrders(level).find((s) => s.key === n);
+  return w ? w.type : '';
+}
+
+async function start(role: string, poste?: string, modules = SIM) {
+  const t = createTestContext({ seed: 21, strict: false, modules });
   await t.start({ mode: 'libre', role, rank: role === 'commandant' ? 'commandant' : undefined, place: 'Place de la Concorde', x: -10, z: 15, crowdSize: 0, tension: 0.1, volatility: 0.1, duration: 'standard', extra: poste ? { poste } : {} } as never);
   t.step(3);
   return { t, ctx: t.ctx, core: t.ctx.service<CommandCore>('ui.command')!, me: t.ctx.player.person()! };
@@ -39,11 +49,16 @@ const EXECUTANTS: [string, string | undefined][] = [
 ];
 
 describe('ordres « me suivre » : tout policier', () => {
-  it('roue réduite : les deux ordres seulement, l’un à côté de l’autre, touches 1 et 2', () => {
-    expect(FOLLOW_WHEEL.map((w) => w.type)).toEqual(['suivre_pied', 'avec_moi']);
+  it('roue réduite : « Suivez-moi » à pied, en véhicules, et « Secours ici », avec les numéros de la roue complète (1, 2, 7)', () => {
+    expect(FOLLOW_WHEEL.map((w) => w.type)).toEqual(['suivre_pied', 'avec_moi', 'secours']);
+    expect(FOLLOW_WHEEL.map((w) => w.key)).toEqual([1, 2, 7]);
     expect(wheelOrders('lecture')).toBe(FOLLOW_WHEEL);
     expect(wheelOrders('unite')).toBe(WHEEL);
     expect(wheelOrders('tout')).toBe(WHEEL);
+    // F puis 1 / F puis 2 / F puis 7 : le même ordre pour tout le monde
+    for (const level of ['lecture', 'unite', 'section', 'tout']) {
+      expect([sectorOf(level, 1), sectorOf(level, 2), sectorOf(level, 7)], level).toEqual(['suivre_pied', 'avec_moi', 'secours']);
+    }
   });
 
   for (const [role, poste] of EXECUTANTS) {
@@ -55,6 +70,7 @@ describe('ordres « me suivre » : tout policier', () => {
       expect(unit!.id).toBe(me.squadId);
       expect(ordersButtonVisible(core)).toBe(true);
       expect(followButtonsShown(core)).toBe(true);
+      expect([sectorOf(core.scope().level, 1), sectorOf(core.scope().level, 2)]).toEqual(['suivre_pied', 'avec_moi']);
       // un autre ordre reste refusé (lecture seule)
       expect(core.issue('tenir', [unit!], null).ok).toBe(false);
 
@@ -80,14 +96,44 @@ describe('ordres « me suivre » : tout policier', () => {
   }
 
   for (const [role, poste] of [['chef_groupe', undefined], ['commandant', undefined], ['commissaire', undefined]] as const) {
-    it(`${role} : roue complète (avec les deux ordres) et boutons « me suivre »`, async () => {
-      const { core } = await start(role, poste);
+    it(`${role} : roue complète (F puis 1 / F puis 2 comme le CRS), boutons « Suivez-moi », fiche « VOUS » de la carte`, async () => {
+      // avec le service des secours (pompiers, SAMU) du jeu : « Secours ici » y aboutit
+      const { t, ctx, core, me } = await start(role, poste, [...SIM.slice(0, -2), rescueSim, ...SIM.slice(-2)]);
       expect(core.scope().level).not.toBe('lecture');
-      expect(core.followUnit()).toBeTruthy();
+      const unit = core.followUnit();
+      expect(unit).toBeTruthy();
       expect(followButtonsShown(core)).toBe(true);
       expect(ordersButtonVisible(core)).toBe(true);
-      expect(wheelOrders(core.scope().level).map((w) => w.type)).toEqual(expect.arrayContaining(['suivre_pied', 'avec_moi']));
-      expect(core.callFollow(true).ok).toBe(true);
+      expect(wheelOrders(core.scope().level)).toBe(WHEEL);
+      expect([sectorOf(core.scope().level, 1), sectorOf(core.scope().level, 2), sectorOf(core.scope().level, 7)]).toEqual(['suivre_pied', 'avec_moi', 'secours']);
+      // la fiche « VOUS » de la carte de commandement : les deux mêmes ordres, en lignes 1 et 2
+      const env = cardEnvFromCore(core);
+      const vous = collectReperes(env).find((r) => r.kind === 'vous');
+      expect(vous).toBeTruthy();
+      const card = buildCard(vous!, env, null);
+      expect(card.lines.slice(0, 2).map((l) => l.label)).toEqual(['Suivez-moi à pied', 'Suivez-moi en véhicules']);
+      // F puis 2 : l'unité qu'il commande embarque pour le suivre en véhicules
+      const heard = ctx.radio.log.length;
+      const r = core.callFollow(true);
+      expect(r.ok, r.reason).toBe(true);
+      t.step(1);
+      const types = [unit!.order.type, ...ctx.squads.childrenOf(unit!.id).map((s) => s.order.type)];
+      console.log(`${role} : ${unit!.name} (${unit!.kind}) → ${types.join(', ')} ; fiche « ${card.title} » ; radio « ${ctx.radio.log.slice(-1)[0]?.text ?? ''} »`);
+      expect(types.some((x) => x === 'embarquer' || x === 'avec_moi' || x === 'suivre')).toBe(true);
+      // l'ordre est dit à la radio par le joueur
+      expect(ctx.radio.log.slice(heard).some((m) => m.personId === me.id)).toBe(true);
+      // F puis 7 puis 1 : les pompiers au point où se trouve le joueur, une seule fois même si on insiste
+      const before = ctx.radio.log.length;
+      expect(requestRescueAtPlayer(core, 'pompiers')).toBe(true);
+      expect(requestRescueAtPlayer(core, 'pompiers')).toBe(false);
+      const said = ctx.radio.log.slice(before).filter((m) => m.channel === 'secours');
+      expect(said.length).toBe(1);
+      const rescue = core.rescue;
+      expect(rescue, 'service des secours').toBeTruthy();
+      const call = rescue!.calls[rescue!.calls.length - 1];
+      expect(call, 'demande enregistrée par le service des secours').toBeTruthy();
+      expect(call!.kind).toBe('pompiers');
+      expect(Math.hypot(call!.x - me.x, call!.z - me.z)).toBeLessThan(5);
     }, 300000);
   }
 

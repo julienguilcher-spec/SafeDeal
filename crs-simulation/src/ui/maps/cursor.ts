@@ -3,6 +3,7 @@
  *
  * Manette : stick gauche. Clavier seul (Mac portable sans souris) : flèches (boutons « Menu : haut / bas /
  * gauche / droite »), Maj pour aller plus vite ; Entrée fait office de bouton du curseur (toucher, appui long).
+ * Carte de commandement (mode 'shiftOnly') : les flèches seules sont à l'écran, Maj + flèches bougent le curseur.
  * Quand le curseur touche un bord, la carte défile sous lui.
  * ===================================================================================== */
 
@@ -32,10 +33,22 @@ export interface CursorAxes {
 }
 
 /**
- * Direction du curseur pour cette image. Manette : stick gauche ; clavier : flèches tenues (diagonale normalisée).
- * Toute autre source (doigt, souris) : aucune.
+ * Ce que les flèches font au curseur :
+ *   'free'      flèches = curseur (Maj : plus vite), Entrée = bouton du curseur (plan de Paris, M) ;
+ *   'shiftOnly' flèches seules laissées à l'écran (la carte de commandement fait sauter la visée d'un repère à
+ *               l'autre) ; Maj + flèches = curseur libre, à vitesse normale ; Entrée n'est jamais le bouton du curseur
+ *               (l'écran la lit lui-même, une seule fois).
  */
-export function cursorAxes(input: CursorInput, padSpeed: number, out: CursorAxes): CursorAxes {
+export type KeyCursorMode = 'free' | 'shiftOnly';
+
+/**
+ * Direction du curseur pour cette image. Manette : stick gauche ; clavier : flèches tenues (diagonale normalisée).
+ * Toute autre source (doigt, souris) : aucune. `shift` : Maj tenue (par défaut, la touche « courir », Maj gauche) ;
+ * en mode 'shiftOnly' les flèches ne bougent le curseur que Maj tenue.
+ */
+export function cursorAxes(
+  input: CursorInput, padSpeed: number, out: CursorAxes, mode: KeyCursorMode = 'free', shift = input.down('sprint'),
+): CursorAxes {
   out.x = 0;
   out.y = 0;
   out.speed = 0;
@@ -44,20 +57,34 @@ export function cursorAxes(input: CursorInput, padSpeed: number, out: CursorAxes
     out.y = input.moveY;
     out.speed = padSpeed;
   } else if (input.device === 'kbm') {
+    if (mode === 'shiftOnly' && !shift) return out;
     const x = (input.down('ui_right') ? 1 : 0) - (input.down('ui_left') ? 1 : 0);
     const y = (input.down('ui_up') ? 1 : 0) - (input.down('ui_down') ? 1 : 0);
     const n = x !== 0 && y !== 0 ? Math.SQRT1_2 : 1;
     out.x = x * n;
     out.y = y * n;
-    out.speed = KEY_CURSOR_SPEED * (input.down('sprint') ? KEY_CURSOR_FAST : 1);
+    // en 'shiftOnly', Maj sert à désigner librement : la vitesse reste la vitesse normale
+    out.speed = KEY_CURSOR_SPEED * (mode === 'free' && shift ? KEY_CURSOR_FAST : 1);
   }
   return out;
 }
 
-/** Le curseur doit-il apparaître (première direction ou première validation de la manette ou du clavier) ? */
-export function cursorWakes(input: CursorInput, axes: CursorAxes): boolean {
+/**
+ * Le curseur doit-il apparaître (première direction, ou première validation de la manette ou du clavier en mode
+ * 'free') ? En 'shiftOnly', Entrée et le bouton A appartiennent à l'écran : seule une direction réveille le curseur.
+ */
+export function cursorWakes(input: CursorInput, axes: CursorAxes, mode: KeyCursorMode = 'free'): boolean {
   if (input.device !== 'gamepad' && input.device !== 'kbm') return false;
-  return axes.x !== 0 || axes.y !== 0 || input.pressed('ui_accept');
+  return axes.x !== 0 || axes.y !== 0 || (mode === 'free' && input.pressed('ui_accept'));
+}
+
+/**
+ * Entrée (clavier) ou A (manette) est-il le bouton du curseur de la carte ? Jamais en 'shiftOnly' : l'écran de la
+ * carte de commandement traite Entrée une seule fois (envoi d'un ordre), un second « toucher » au curseur ferait
+ * doublon.
+ */
+export function cursorAcceptsButton(mode: KeyCursorMode): boolean {
+  return mode === 'free';
 }
 
 export interface CursorStep {

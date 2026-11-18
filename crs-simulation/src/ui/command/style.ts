@@ -1,35 +1,154 @@
 /* =====================================================================================
- * Feuille de style du commandement : carte tactique (« ct- »), roue d'ordres (« cw- »), panneau
- * radio (« cr- »), éléments de HUD (« ch- »). S'appuie sur les jetons de .cm-root (cartes).
+ * Feuille de style du commandement : carte de commandement (« ct- » : bandeau et pastille légale, barre des
+ * intentions, colonne et feuilles du téléphone, bandeau de la lecture seule), roue d'ordres (« cw- »), panneau radio
+ * (« cr- »), éléments de HUD (« ch- »). S'appuie sur les jetons de .cm-root (cartes). La fiche (styleCard.ts, « cc- »)
+ * et les panneaux de côté (stylePanels.ts) ont leurs propres feuilles, ajoutées à la suite dans la même balise.
  * ===================================================================================== */
 
 import { ensureMapsStyle } from '../maps/style';
+import { CARD_CSS } from './styleCard';
+import { PANELS_CSS } from './stylePanels';
 
 const CSS = `
-/* ── carte tactique : structure ── */
+/* ── carte de commandement : structure (bandeau 44 px, carte + barre des intentions, colonne de 340 px) ── */
 .ct{position:absolute;inset:0;display:flex;flex-direction:column;background:var(--cm-solid);overflow:hidden}
-.ct-top{position:relative;flex:none;display:flex;align-items:center;gap:14px;height:48px;padding:0 calc(10px + var(--safe-right,0px)) 0 calc(14px + var(--safe-left,0px));
+.ct-top{position:relative;flex:none;display:flex;align-items:center;gap:12px;height:44px;padding:0 calc(10px + var(--safe-right,0px)) 0 calc(14px + var(--safe-left,0px));
 background:#0a1322;border-bottom:1px solid var(--cm-line);z-index:8}
 .ct-top::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:linear-gradient(90deg,#2b5fd9 0 33.3%,#f4f6fb 33.3% 66.6%,var(--cm-fr) 66.6%);opacity:.85}
-.ct-brand{display:flex;align-items:baseline;gap:12px;min-width:0}
-.ct-brand .cm-title{font-size:12px}
-.ct-scope{font-size:12px;color:var(--cm-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ct-status{display:flex;align-items:center;gap:14px;margin-left:auto;font-size:12px;color:var(--cm-dim);white-space:nowrap}
-.ct-status b{color:var(--cm-text);font-weight:700}
-.ct-gauge{display:inline-flex;align-items:center;gap:7px}
-.ct-gauge i{position:relative;display:block;width:74px;height:6px;border-radius:3px;background:rgba(148,168,208,.2);overflow:hidden}
+.ct-brand{display:flex;flex-direction:column;justify-content:center;min-width:0;flex:none}
+.ct-brand .cm-title{font-size:12px;white-space:nowrap}
+.ct-scope{font-size:11px;color:var(--cm-orange);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ct-scope:empty{display:none}
+.ct-status{flex:1;min-width:0;display:flex;align-items:center;font-size:12px;color:var(--cm-dim);white-space:nowrap;overflow:hidden}
+.ct-st:empty{display:none}
+.ct-st+.ct-st:not(:empty)::before{content:"·";margin:0 7px;color:var(--cm-faint)}
+.ct-gauge{display:inline-flex;align-items:center;gap:6px}
+.ct-gauge i{position:relative;display:block;width:60px;height:6px;border-radius:3px;background:rgba(148,168,208,.2);overflow:hidden}
 .ct-gauge i::after{content:"";position:absolute;inset:0;border-radius:3px;background:linear-gradient(90deg,#34c759,#ffd60a 50%,#ff3b30);transform-origin:left center;transform:scaleX(var(--v,0));transition:transform .3s}
-.ct-actions{display:flex;align-items:center;gap:8px}
-.ct-body{position:relative;flex:1;min-height:0}
-.ct-mapwrap{position:absolute;top:0;bottom:0;left:272px;right:324px}
-.ct-left,.ct-right{position:absolute;top:0;bottom:0;display:flex;flex-direction:column;background:var(--cm-panel);z-index:6}
-.ct-left{left:0;width:272px;border-right:1px solid var(--cm-line)}
-.ct-right{right:0;width:324px;border-left:1px solid var(--cm-line)}
+.ct-chip{flex:none;max-width:44%;gap:8px;border-color:var(--cm-line2);font-weight:700}
+.ct-chip .ct-chip-t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ct-chip[data-tone="warn"]{border-color:#ff9f43;color:#ffcf8a;background:rgba(255,159,67,.12)}
+.ct-chip[data-tone="ok"]{border-color:var(--cm-green);color:#8ae6a2}
+.ct-chip[data-tone="chain"]{border-color:var(--cm-sky);color:#a9d0ff;background:rgba(88,166,255,.14)}
+.ct-chip.is-on{box-shadow:inset 0 -3px 0 var(--cm-yellow)}
+.ct-chip.is-readout{cursor:default;pointer-events:none}
+.ct-actions{display:flex;align-items:center;gap:8px;flex:none}
+.ct-suivi{display:none}
+.ct-badge{min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--cm-red);color:#fff;font-style:normal;font-size:10px;font-weight:800;line-height:16px;text-align:center}
+.ct-badge:empty{display:none}
+.ct-body{position:relative;flex:1;min-height:0;display:flex}
+.ct-left2{position:relative;flex:1;min-width:0;display:flex;flex-direction:column}
+.ct-mapwrap{position:relative;flex:1;min-height:0}
+.ct-right2{position:relative;flex:none;width:340px;display:flex;flex-direction:column;background:var(--cm-panel);border-left:1px solid var(--cm-line);z-index:6}
+.ct-mount{display:none;flex:1;min-height:0;flex-direction:column;overflow:hidden}
+.ct-mount.is-on{display:flex}
+.ct-mount-sheet>*{display:none}
+.ct-mount-sheet>.is-on{display:flex;flex:1;min-height:0;flex-direction:column}
+
+/* ── barre des intentions (64 px, sous la carte) ── */
+.ct-intents{flex:none;display:flex;gap:5px;height:64px;padding:7px 8px 5px;background:#0a1322;border-top:1px solid var(--cm-line)}
+.ct-intent{appearance:none;position:relative;flex:1 1 0;min-width:0;display:flex;align-items:center;gap:8px;padding:3px 7px;border:1px solid var(--cm-line);border-radius:8px;
+background:var(--cm-panel);color:var(--cm-text);font:inherit;text-align:left;cursor:pointer}
+.ct:not(.is-compact) .ct-intent .ct-ic{display:none}
+.ct-intent:hover{background:rgba(148,168,208,.12)}
+.ct-intent:focus{outline:none}
+.ct-intent.is-on{border-color:var(--cm-yellow);box-shadow:inset 0 -3px 0 var(--cm-yellow)}
+.ct-intent .ct-ic{flex:none;width:22px;height:22px}
+.ct-intent-t{display:flex;flex-direction:column;min-width:0;line-height:1.15}
+.ct-intent-t b{font-size:12px;font-weight:700;white-space:nowrap;letter-spacing:-.01em}
+.ct-intent-t small{font-size:11px;color:var(--cm-dim);white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+.ct-intent-w{display:none;font-style:normal}
+.ct-intent .cm-kbd{position:absolute;right:-4px;top:-8px;background:#0a1322}
+.ct.is-narrow .ct-intent-t small{display:none}
+/* fenêtre étroite (980 à 1200 px) : le libellé passe sur deux lignes plutôt que d'être coupé (« Encercler (nasse) ») */
+.ct.is-narrow .ct-intent-t b{white-space:normal;overflow-wrap:normal;line-height:1.12}
+.ct.has-card .ct-intents{display:none}
+
+/* ── carte : recherche, aide, modèle, commandes ── */
+.ct-search{position:absolute;left:calc(10px + var(--safe-left,0px));top:10px;z-index:6;display:flex;flex-direction:column;gap:4px;max-width:min(340px,calc(100% - 20px))}
+.ct-search .cm-btn{background:var(--cm-panel);box-shadow:0 4px 14px rgba(0,0,0,.35);align-self:flex-start}
+.ct-search input{display:none;width:280px;max-width:100%;height:38px;padding:0 12px;border-radius:8px;border:1px solid var(--cm-yellow);background:#0c1526;color:var(--cm-text);font:inherit;font-size:14px}
+.ct-search.is-open input{display:block}
+.ct-search.is-open>.cm-btn{display:none}
+.ct-search-res{display:flex;flex-direction:column;gap:2px}
+.ct-search-res .cm-btn{justify-content:flex-start;background:var(--cm-panel);min-height:40px}
+.ct-model{position:absolute;left:50%;bottom:96px;transform:translateX(-50%);z-index:6;display:none;align-items:center;gap:12px;width:min(600px,calc(100% - 140px));padding:10px 12px 10px 14px;border-radius:10px;
+background:rgba(12,21,39,.95);border:1px solid var(--cm-yellow);font-size:13px;line-height:1.4;box-shadow:0 8px 22px rgba(0,0,0,.45)}
+.ct-model.is-on{display:flex}
+.ct-model .cm-btn{flex:none}
+.ct-help{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:9;display:none;flex-direction:column;gap:8px;width:min(560px,calc(100% - 24px));max-height:calc(100% - 24px);overflow:auto;padding:14px 16px}
+.ct-help.is-on{display:flex}
+.ct-help-model{margin:0;font-size:13.5px;line-height:1.45;color:var(--cm-text)}
+.ct-help ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:3px;font-size:12.5px;color:var(--cm-dim);line-height:1.35}
+.ct-help .cm-btn{align-self:flex-end}
+.ct-mapctl{flex-direction:column}
+.ct-me{background:var(--cm-panel);gap:6px}
+.ct-wind{left:10px;bottom:46px}
+
+/* ── lecture seule (§2.9) : bandeau de l'ordre reçu ── */
+.ct-order{display:none;flex:none;flex-direction:column;gap:2px;padding:7px 14px 8px calc(14px + var(--safe-left,0px));background:#101b30;border-bottom:1px solid var(--cm-line);font-size:12.5px;line-height:1.35}
+.ct-order b{font-size:13.5px;font-weight:800;color:var(--cm-yellow)}
+.ct-order span{color:var(--cm-dim)}
+.ct.is-readonly .ct-order{display:flex}
+.ct.is-readonly .ct-intents,.ct.is-readonly .ct-search,.ct.is-readonly [data-id="tac-slow"],.ct.is-readonly .ct-suivi,.ct.is-readonly .ct-chip .cm-kbd{display:none}
+.ct.is-readonly .ct-right2{display:none}
+.ct.is-readonly.has-card .ct-right2{display:flex}
+
+/* ── messages de l'interface pendant la carte : sous-titres radio en haut à gauche de la carte (à droite de
+   « Rechercher un lieu »), messages en bas à gauche, deux au plus, jamais sur le bandeau ── */
+.ct-open .ui-subs{left:var(--ct-sub-left,50%);top:var(--ct-sub-top,auto);bottom:auto;transform:none;align-items:flex-start;max-width:var(--ct-sub-max,50vw)}
+/* le bas de la ligne coupée ne dépasse pas dans la marge intérieure : la marge du bas est une bordure transparente
+   (le texte est coupé au bord de la marge intérieure, pas de la bordure) */
+.ct-open .ui-sub-line{text-align:left;-webkit-line-clamp:2;padding-bottom:0;border-bottom:4px solid transparent}
+.ct-open .ui-sub-line:nth-last-child(n+3){display:none}
+.ct-open .ui-toasts{left:var(--ct-toast-left,12px);top:auto;bottom:var(--ct-toast-bottom,80px);transform:none;align-items:flex-start;max-width:var(--ct-toast-max,60vw)}
+.ct-open .ui-toast:nth-last-child(n+3){display:none}
+
+/* ── téléphone (< 980 × 520) : bandeau 40 px (ses boutons font 40 px pour le doigt : à 36 px ils sortaient de l'écran
+   par le haut), barre 52 px, une feuille de 380 px à la fois ── */
+.ct.is-compact .ct-top{height:40px;gap:8px;padding-left:calc(6px + var(--safe-left,0px))}
+.ct.is-compact .ct-brand .cm-title,.ct.is-compact .ct-scope{display:none}
+.ct.is-compact .ct-actions{display:contents}
+.ct.is-compact .ct-close{order:-1}
+.ct.is-compact [data-id="tac-slow"]{order:5}
+.ct.is-compact .ct-st-crowd,.ct.is-compact .ct-gauge{display:none}
+.ct.is-compact .ct-actions .cm-btn-t{display:none}
+.ct.is-compact .ct-suivi{display:inline-flex}
+/* lecture seule (exécutant) au téléphone : ni « Suivi » ni panneau (§2.9 : ✕ et ◎ seulement) */
+.ct.is-compact.is-readonly .ct-suivi{display:none}
+.ct.is-compact .ct-suivi .cm-btn-t{display:inline}
+.ct.is-compact .ct-status{font-size:11.5px}
+.ct.is-compact .ct-chip{max-width:none}
+.ct.is-compact .ct-right2{position:absolute;right:0;top:0;bottom:0;width:min(380px,58vw);padding-right:var(--safe-right,0px);display:none;box-shadow:-8px 0 24px rgba(0,0,0,.45)}
+.ct.is-compact.has-sheet .ct-right2{display:flex}
+.ct.is-compact.has-sheet .ct-left2{margin-right:min(380px,58vw)}
+/* la feuille monte jusqu'en haut de l'écran (§2.2 : 30 + 7 × 40 + 18 + 44 px tiennent dans les 390 px) ; le bandeau
+   garde ses boutons à gauche de la feuille */
+.ct.is-compact.has-sheet .ct-right2{top:-40px;z-index:9}
+.ct.is-compact.has-sheet .ct-top{padding-right:calc(min(380px,58vw) + 6px)}
+.ct.is-compact.has-sheet .ct-intents,.ct.is-compact.has-sheet .ct-model{display:none}
+.ct.is-compact .ct-intents{height:calc(53px + var(--safe-bottom,0px));gap:2px;padding:0 calc(2px + var(--safe-right,0px)) var(--safe-bottom,0px) calc(2px + var(--safe-left,0px))}
+.ct.is-compact .ct-intent{min-width:96px;height:52px;flex-direction:column;justify-content:center;gap:1px;padding:2px 4px;text-align:center;border-radius:6px}
+.ct.is-compact .ct-intent .ct-ic{width:20px;height:20px}
+.ct.is-compact .ct-intent-t b,.ct.is-compact .ct-intent-t small{display:none}
+.ct.is-compact .ct-intent-w{display:block;font-size:13px;font-weight:700}
+.ct.is-compact .ct-intent .cm-kbd{display:none}
+.ct.is-compact .ct-mapctl [data-id="zoom-in"],.ct.is-compact .ct-mapctl [data-id="zoom-out"]{display:none}
+.ct.is-compact .ct-me .cm-btn-t{display:none}
+.ct.is-compact .ct-search .cm-btn-t{display:none}
+.ct.is-compact .ct-actions .cm-btn,.ct.is-compact .ct-search .cm-btn,.ct.is-compact .ct-me{min-width:40px}
+.ct.is-compact .ct-wind{display:none}
+.ct.is-compact .ct-model{width:calc(100% - 24px);bottom:8px;font-size:12px}
+.ct.is-compact .ct-order{padding:4px 10px;font-size:11.5px}
+.ct.is-compact .ct-order b{font-size:12px}
+
+/* ── panneaux : en-tête, zone défilante, rangée surlignée au clavier ── */
+.ct-left{display:flex;flex-direction:column;flex:1;min-height:0}
 .ct-head{flex:none;display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:38px;padding:6px 10px 6px 12px;border-bottom:1px solid var(--cm-line)}
 .ct-scroll{flex:1;min-height:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;scrollbar-width:thin;scrollbar-color:rgba(148,168,208,.35) transparent}
 .ct-scroll::-webkit-scrollbar{width:7px}
 .ct-scroll::-webkit-scrollbar-thumb{background:rgba(148,168,208,.3);border-radius:4px}
-.ct-rail{display:none}
+.ct-mount .is-hl{outline:2px solid var(--cm-yellow);outline-offset:-2px}
 
 /* ── arborescence des unités ── */
 .ct-unit{appearance:none;position:relative;display:flex;align-items:center;gap:7px;width:100%;min-height:var(--cm-tap);padding:2px 9px 2px calc(8px + var(--d,0) * 13px);
@@ -59,17 +178,7 @@ border:0;border-bottom:1px solid rgba(148,168,208,.08);background:transparent;co
 .ct-bar{position:relative;display:block;height:5px;border-radius:3px;background:rgba(148,168,208,.2);overflow:hidden;align-self:center}
 .ct-bar::after{content:"";position:absolute;inset:0;background:var(--c,var(--cm-sky));transform-origin:left center;transform:scaleX(var(--v,0))}
 
-/* ── onglets de droite ── */
-.ct-tabs{flex:none;display:flex;border-bottom:1px solid var(--cm-line)}
-.ct-tab{appearance:none;position:relative;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:46px;padding:4px 2px;border:0;background:transparent;
-color:var(--cm-dim);font:inherit;font-size:10.5px;font-weight:700;letter-spacing:.03em;cursor:pointer}
-.ct-tab:hover{color:var(--cm-text);background:rgba(148,168,208,.08)}
-.ct-tab:focus{outline:none}
-.ct-tab:focus-visible{outline:2px solid var(--cm-yellow);outline-offset:-2px}
-.ct-tab.is-on{color:#fff}
-.ct-tab.is-on::after{content:"";position:absolute;left:10px;right:10px;bottom:0;height:3px;border-radius:2px 2px 0 0;background:var(--cm-sky)}
-.ct-tab em{position:absolute;top:4px;left:calc(50% + 7px);min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--cm-red);color:#fff;font-style:normal;font-size:10px;font-weight:800;line-height:16px;text-align:center}
-.ct-tab em:empty{display:none}
+/* ── contenus des panneaux (« Plus… », « Cadre légal ») ── */
 .ct-pane{display:none;flex-direction:column;flex:1;min-height:0}
 .ct-pane.is-on{display:flex}
 .ct-sec{padding:10px 12px 12px;border-bottom:1px solid var(--cm-line);display:flex;flex-direction:column;gap:8px}
@@ -142,81 +251,21 @@ color:var(--cm-dim);font:inherit;font-size:10.5px;font-weight:700;letter-spacing
 .ct-msg p{margin:0;-webkit-user-select:text;user-select:text}
 .ct-empty{padding:18px 14px;font-size:12px;color:var(--cm-dim);line-height:1.45;text-align:center}
 
-/* ── surcouche de la carte ── */
-.ct-hint{position:absolute;left:50%;top:10px;transform:translateX(-50%);z-index:5;display:flex;align-items:center;gap:10px;width:max-content;max-width:calc(100% - 130px);padding:6px 8px 6px 12px;border-radius:8px;
-background:var(--cm-panel);border:1px solid var(--cm-line2);box-shadow:0 6px 18px rgba(0,0,0,.4);font-size:12px;line-height:1.35}
-.ct-hint{pointer-events:none}
-.ct-keys{position:absolute;left:50%;top:10px;transform:translateX(-50%);z-index:4;width:max-content;max-width:calc(100% - 130px);padding:4px 10px;border-radius:8px;background:var(--cm-panel);border:1px solid var(--cm-line);font-size:11px;line-height:1.35;color:var(--cm-dim);text-align:center;pointer-events:none}
-.cm-coarse .ct-keys{display:none}
-.ct-hint .cm-btn{pointer-events:auto}
-.ct-hint.is-off{display:none}
-.ct-hint.is-mode{border-color:var(--cm-yellow)}
-.ct-hint b{color:var(--cm-yellow);font-weight:800;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap}
-.ct-hint span{min-width:0}
-/* carte étroite : le texte garde sa largeur, les boutons passent à la ligne (sinon la consigne devenait une colonne d'un
-   mot par ligne qui couvrait la carte) */
-.ct-hint{flex-wrap:wrap;row-gap:6px;justify-content:flex-end}
-.ct-hint>span{flex:1 1 190px;min-width:min(190px,100%)}
-.ct-hint .cm-btn{flex:none}
-.ct-hint small{display:block;font-size:11px;color:#ffcf8a}
-.ct-tools{position:absolute;left:10px;top:10px;z-index:5;display:flex;flex-direction:column;gap:6px}
-.ct-tools .cm-btn{background:var(--cm-panel);box-shadow:0 4px 14px rgba(0,0,0,.35)}
-.ct-tools .cm-btn.is-on{background:#f1f5fd}
-.ct:not(.is-compact) .ct-tool-units{display:none}
-.ct.is-nounits .ct-left,.ct.is-nounits .ct-tool-units,.ct.is-nounits [data-id="tac-tool-box"]{display:none}
-.ct.is-nounits:not(.is-compact) .ct-mapwrap{left:0}
-.ct-wind{left:10px;bottom:46px}
+/* ── couches et légende de la carte (« Plus… › Affichage de la carte ») ── */
 .ct-layers{position:absolute;right:54px;bottom:10px;z-index:6;display:none;flex-direction:column;gap:2px;padding:8px;min-width:170px}
 .ct-layers.is-on{display:flex}
 .ct-layers{max-height:calc(100% - 20px);overflow-y:auto}
 .ct-legend{display:flex;flex-direction:column;gap:3px;margin-top:6px;padding-top:6px;border-top:1px solid var(--cm-line);max-width:250px}
 .ct-legend-r{display:flex;align-items:center;gap:8px;font-size:11px;line-height:1.3;color:var(--cm-dim)}
 .ct-legend-r i{flex:none;display:inline-flex}
-/* nasse fermée : bandeau rouge en bas de la carte, au-dessus des touches du clavier ; action « issue filtrée » (F) */
-.ct-kettle{position:absolute;left:50%;bottom:44px;transform:translateX(-50%);z-index:5;display:flex;align-items:center;gap:10px;width:max-content;max-width:calc(100% - 150px);padding:6px 8px 6px 12px;border-radius:8px;background:rgba(60,10,12,.94);border:2px solid #ff3b30;color:#fff;box-shadow:0 6px 18px rgba(0,0,0,.45)}
-.ct-kettle.is-off{display:none}
-.ct-kettle b{min-width:0;font-size:12.5px;font-weight:800;letter-spacing:.02em;line-height:1.3}
-.ct-kettle .cm-btn{flex:none}
 .ct-issues{color:var(--cm-text)}
 .ct-layers .cm-btn{justify-content:flex-start;border-color:transparent;background:transparent}
 .ct-layers .cm-btn::before{content:"";flex:none;width:14px;height:14px;border-radius:3px;border:1.5px solid var(--cm-line2)}
 .ct-layers .cm-btn.is-on{background:transparent;color:var(--cm-text)}
 .ct-layers .cm-btn.is-on::before{background:var(--cm-sky);border-color:var(--cm-sky);box-shadow:inset 0 0 0 2px #0c1526}
-.ct-pop{position:absolute;left:0;top:0;z-index:7;display:none;flex-direction:column;gap:7px;min-width:190px;max-width:250px;padding:9px 10px 10px;will-change:transform}
-.ct-pop.is-on{display:flex}
-.ct-pop b{font-size:12.5px}
-.ct-pop small{font-size:11px;color:var(--cm-dim);line-height:1.35}
 .ct-ghost{position:fixed;left:0;top:0;z-index:99;pointer-events:none;display:none;align-items:center;gap:7px;padding:5px 10px 5px 6px;border-radius:16px;background:#f1f5fd;color:#0b1424;font-size:12px;font-weight:700;
 box-shadow:0 8px 22px rgba(0,0,0,.5);will-change:transform;white-space:nowrap}
 .ct-ghost.is-on{display:flex}
-.ct-quick{position:absolute;left:0;top:0;z-index:9;display:none;will-change:transform}
-.ct-quick.is-on{display:block}
-.ct-quick .cw-wheel{width:270px;height:270px;margin:-135px 0 0 -135px}
-.ct-quick-opt{position:absolute;left:50%;top:calc(100% + 4px);transform:translateX(-50%);white-space:nowrap}
-.ct-passants.is-on,.ct-quick-opt.is-on{border-color:var(--cm-yellow);color:var(--cm-yellow)}
-
-/* ── disposition compacte (téléphone) : tiroirs par-dessus la carte ── */
-.ct.is-compact .ct-top{height:46px;gap:8px;padding-left:calc(10px + var(--safe-left,0px))}
-.ct.is-compact .ct-scope{display:none}
-.ct.is-compact .ct-status{gap:9px;font-size:11.5px}
-.ct.is-compact .ct-gauge i{width:44px}
-.ct.is-compact .ct-status .ct-clock-s{display:none}
-.ct.is-compact .ct-mapwrap{left:0;right:calc(60px + var(--safe-right,0px))}
-.ct.is-compact .ct-left,.ct.is-compact .ct-panes,.ct.is-compact .ct-tabs{background:#0c1526}
-.ct.is-compact .ct-left{width:min(250px,44vw);left:var(--safe-left,0px);transform:translateX(-110%);visibility:hidden;transition:transform .16s ease-out,visibility 0s linear .16s;box-shadow:8px 0 24px rgba(0,0,0,.45)}
-.ct.is-compact .ct-left.is-open{transform:none;visibility:visible;transition:transform .16s ease-out,visibility 0s}
-.ct.is-compact .ct-right{width:auto;left:auto;right:0;flex-direction:row;background:transparent;border-left:0;pointer-events:none}
-.ct.is-compact .ct-right>*{pointer-events:auto}
-.ct.is-compact .ct-tabs{order:2;flex-direction:column;width:calc(60px + var(--safe-right,0px));padding-right:var(--safe-right,0px);border-bottom:0;border-left:1px solid var(--cm-line);background:#0c1526}
-.ct.is-compact .ct-tab{flex:none;min-height:54px;font-size:9px}
-.ct.is-compact .ct-tab.is-on::after{left:0;right:auto;top:8px;bottom:8px;width:3px;height:auto;border-radius:0 2px 2px 0}
-.ct.is-compact .ct-panes{order:1;display:none;width:min(292px,50vw);flex-direction:column;background:#0c1526;border-left:1px solid var(--cm-line);box-shadow:-8px 0 24px rgba(0,0,0,.45)}
-.ct.is-compact .ct-right.is-open .ct-panes{display:flex}
-.ct.is-compact .ct-hint{left:calc(64px + var(--safe-left,0px));right:66px;top:8px;transform:none;width:auto;max-width:none;font-size:11.5px;padding:5px 6px 5px 10px;background:rgba(12,21,39,.86)}
-.ct.is-compact .ct-wind{display:none}
-.ct.is-compact .ct-kettle{left:calc(64px + var(--safe-left,0px));right:10px;bottom:calc(10px + var(--safe-bottom,0px));transform:none;width:auto;max-width:none;flex-wrap:wrap;gap:6px;padding:5px 6px 5px 10px}
-.ct.is-compact .ct-kettle b{font-size:11.5px}
-.ct-panes{display:flex;flex-direction:column;flex:1;min-height:0}
 
 /* ── roue d'ordres ── */
 .cw-screen{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px}
@@ -276,6 +325,7 @@ export function ensureCommandStyle(): void {
   injected = true;
   const style = document.createElement('style');
   style.id = 'crs-command-style';
-  style.textContent = CSS;
+  // la fiche (styleCard.ts) et les panneaux de côté (stylePanels.ts) après la structure de l'écran
+  style.textContent = CSS + CARD_CSS + PANELS_CSS;
   document.head.appendChild(style);
 }

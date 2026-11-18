@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { leftZoneCenter, subtitlePlacement, SUBTITLE_MIN_WIDTH } from '@/ui/hud/layout';
+import { leftZoneCenter, subtitlePlacement, SUBTITLE_MIN_WIDTH, SUBTITLE_NARROW_WIDTH } from '@/ui/hud/layout';
 import type { ScreenBox } from '@/ui/hud/layout';
 
 /**
@@ -81,5 +81,74 @@ describe('HUD — sous-titres et zone de gauche', () => {
     const p = subtitlePlacement(W, H, baseLeft, baseRight, bottomTop, zone, above);
     expect(p.bottom).toBe(H - bottomTop + 8);
     expect(p.edge).toBe(446);
+  });
+});
+
+/**
+ * Téléphone 844 × 390 (refonte du commandement, §6.2) : la zone de gauche n'a plus que deux pastilles sur UNE rangée
+ * — « Suivez-moi à pied » (ou « … en véhicules ») et « Secours ici » ; « Secours ici » déplié, la pastille « Suivez-moi »
+ * s'efface devant « Pompiers ici » / « SAMU ici » sur la même rangée — ; la proposition de l'adjoint et le véhicule qui
+ * bloque sont passés en bandeaux en haut au centre. La rangée tient SOUS la mini-carte, jamais dessus, et les
+ * sous-titres ne passent jamais sur elle.
+ */
+describe('HUD — pastilles du téléphone sous la mini-carte', () => {
+  const W = 844;
+  const H = 390;
+  const above = box(12, 8, 250, 188);           // état + mini-carte (+ « Radio » / « Ordres »), jusqu'à y = 196
+  const floor = 268;                            // haut de l'état physique (zone du bas)
+  const ROW = 44;                               // pastilles au doigt (pointeur grossier : 44 px)
+
+  /** Rectangle des sous-titres placés par subtitlePlacement (bande de deux lignes). */
+  function band(p: { bottom: number; edge: number }, baseLeft: number, baseRight: number): ScreenBox {
+    const bottom = H - p.bottom;
+    const left = p.edge >= 0 ? Math.max(baseLeft, p.edge) : baseLeft;
+    return { left, right: baseRight, top: bottom - 64, bottom, height: 64 };
+  }
+  const overlaps = (a: ScreenBox, b: ScreenBox): boolean => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+
+  for (const [what, width] of [['« Suivez-moi à pied » + « Secours ici »', 262], ['« Secours ici » déplié (Pompiers, SAMU)', 318]] as const) {
+    it(`${what} : sous la mini-carte, au-dessus de la zone du bas`, () => {
+      const zone = box(210, 140, width, ROW);
+      const c = leftZoneCenter(zone, above, floor, H)!;
+      expect(c).not.toBeNull();
+      expect(c - ROW / 2).toBeGreaterThanOrEqual(above.bottom);          // jamais sur la mini-carte
+      expect(c + ROW / 2).toBeLessThanOrEqual(floor - 8 + 0.5);          // jamais sur l'état physique
+      // à pied (pastilles de 210 à 472, joystick 176, boutons d'action à droite) et en véhicule : sous-titres hors de la rangée
+      const placed = box(210, c - ROW / 2, width, ROW);
+      for (const [baseLeft, baseRight, bottomTop] of [[176, W - 214, floor], [210, W - 290, 290]] as const) {
+        const p = subtitlePlacement(W, H, baseLeft, baseRight, bottomTop, placed, above);
+        expect(overlaps(band(p, baseLeft, baseRight), placed), `sous-titres ${JSON.stringify(p)}`).toBe(false);
+      }
+    });
+  }
+});
+
+/**
+ * Téléphone, commandant : la proposition de l'adjoint est un bandeau en haut au centre (x 293…551, y 103…191). Quand la
+ * rangée de pastilles ne laisse pas 200 px à sa droite, les sous-titres montaient au-dessus d'elle — sur les boutons
+ * « Oui » / « Plus tard » du bandeau (tests/e2e/out/verif-hud-ordres-tel-commandant.png). Ils restent maintenant à
+ * droite de la rangée, plus étroits ; sans bandeau (boussole et pastille d'unité seulement), la règle ne change pas.
+ */
+describe('HUD — sous-titres et bandeaux du haut', () => {
+  const W = 844;
+  const H = 390;
+  const above = box(12, 8, 250, 188);
+  const zone = box(210, 204, 262, 30);          // « Suivez-moi à pied » + « Secours ici », sous la mini-carte
+  const baseLeft = 176, baseRight = W - 214, bottomTop = 268;
+
+  it('bandeau de l’adjoint en haut au centre : les sous-titres ne le couvrent pas', () => {
+    const banner = box(293, 8, 258, 183);
+    const p = subtitlePlacement(W, H, baseLeft, baseRight, bottomTop, zone, above, banner);
+    const bandBottom = H - p.bottom;
+    expect(p.edge).toBe(zone.right + 8);
+    expect(baseRight - p.edge).toBeGreaterThanOrEqual(SUBTITLE_NARROW_WIDTH);
+    expect(bandBottom - 64).toBeGreaterThanOrEqual(banner.bottom - 1);
+  });
+
+  it('sans bandeau (boussole, pastille d’unité) : ils passent au-dessus de la rangée, comme avant', () => {
+    const top = box(293, 8, 258, 132);
+    const p = subtitlePlacement(W, H, baseLeft, baseRight, bottomTop, zone, above, top);
+    expect(H - p.bottom).toBeLessThanOrEqual(zone.top - 8);
+    expect(subtitlePlacement(W, H, baseLeft, baseRight, bottomTop, zone, above)).toEqual(p);
   });
 });

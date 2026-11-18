@@ -48,6 +48,89 @@ export async function hold(page, code, n = 2) {
   await frames(page, 1);
 }
 
+// ── carte de commandement (refonte) : état de l'écran et gestes réels au pointeur ──
+
+/** État de la carte de commandement ouverte (null si elle est fermée) : feuille, intention, visée, fiche, Qui, « ✓ ORDRE DONNÉ ». */
+export const tactical = (page) => page.evaluate(() => {
+  const sys = window.__CRS.game.systems.find((s) => s.id === 'ui:command');
+  const t = sys && sys.tactical;
+  if (!t) return null;
+  const s = t.state;
+  const card = t.card;
+  const list = card && s.card ? (s.card.othersOpen ? card.others : card.lines) : [];
+  return {
+    sheet: s.sheet, intent: s.intent, visee: s.visee && s.visee.name, kind: s.visee && s.visee.kind,
+    line: s.card ? s.card.line : -1, lineLabel: s.card && list[s.card.line] ? list[s.card.line].label : '',
+    lines: list.map((l) => l.label), who: s.who && s.who.label, sent: s.lastSent && s.lastSent.text,
+  };
+});
+
+/** Clic réel du pointeur au centre d'un élément visible (amené dans sa liste au besoin) ; false s'il est absent ou masqué. */
+export async function clickSel(page, sel) {
+  const r = await page.evaluate((q) => {
+    const e = [...document.querySelectorAll(q)].find((x) => x.getBoundingClientRect().width > 0 && getComputedStyle(x).visibility !== 'hidden');
+    if (!e) return null;
+    e.scrollIntoView({ block: 'nearest' });
+    const b = e.getBoundingClientRect();
+    return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+  }, sel);
+  if (!r) return false;
+  await page.mouse.move(r.x, r.y);
+  await frames(page, 2);
+  await page.mouse.click(r.x, r.y);
+  await frames(page, 3);
+  return true;
+}
+
+/**
+ * Clic réel sur la ligne de la fiche dont le libellé correspond à `re` (au pointeur, un clic sur une ligne envoie
+ * l'ordre ; une ligne ⚖ / 🔒 ouvre la confirmation légale). Retourne le libellé cliqué, '' si aucune ligne ne correspond.
+ */
+export async function clickCardLine(page, re) {
+  const found = await page.evaluate((src) => {
+    const rx = new RegExp(src);
+    const b = [...document.querySelectorAll('[data-id^="card-line-"]')].find((e) => rx.test(e.querySelector('.cc-lab')?.textContent || ''));
+    return b ? { id: b.dataset.id, label: b.querySelector('.cc-lab')?.textContent || '' } : null;
+  }, re.source);
+  if (!found) return '';
+  return (await clickSel(page, `[data-id="${found.id}"]`)) ? found.label : '';
+}
+
+/**
+ * « Plus… › Tous les ordres » puis l'ordre `type` : la fiche s'ouvre à la visée sur cet ordre seul, Qui proposé. Clics réels ;
+ * la barre du bas est masquée quand une fiche est ouverte : « Plus… » s'ouvre alors par sa touche (O).
+ */
+export async function verbFirst(page, type) {
+  const shown = (sel) => page.evaluate((q) => { const e = document.querySelector(q); return !!e && e.getBoundingClientRect().width > 0; }, sel);
+  if (!(await shown('[data-id="more-ordres"]'))) {
+    if (await shown('[data-id="tac-more"]')) await clickSel(page, '[data-id="tac-more"]');
+    else await hold(page, 'KeyO');
+  }
+  if (!(await clickSel(page, '[data-id="more-ordres"]'))) return false;
+  return clickSel(page, `[data-id="verb-${type}"]`);
+}
+
+/**
+ * Point de la carte de commandement (coordonnées de la page) à au moins 90 px de tout policier : un clic y désigne un
+ * lieu (rue, place, point) et non une unité, dont la fiche remplacerait celle du lieu. `prefs` : fractions [fx, fy] de la
+ * carte essayées dans l'ordre ; null si aucune ne convient.
+ */
+export const freeMapSpot = (page, prefs = [[0.5, 0.5], [0.3, 0.3], [0.7, 0.3], [0.3, 0.7], [0.7, 0.7], [0.5, 0.2], [0.5, 0.8], [0.2, 0.5], [0.8, 0.5]]) => page.evaluate((list) => {
+  const ctx = window.__CRS.ctx;
+  const t = window.__CRS.game.systems.find((s) => s.id === 'ui:command').tactical;
+  const r = t.map.canvas.getBoundingClientRect();
+  const p = { x: 0, y: 0 };
+  const units = ctx.people.list.filter((q) => q.faction === 'police').map((q) => { t.map.view.worldToScreen(q.x, q.z, p); return { x: r.left + p.x, y: r.top + p.y }; });
+  // ni une foule, ni un incident, ni une unité (la fiche serait la leur, pas celle du lieu)
+  const busy = (t.reperes || []).filter((q) => q.kind === 'foule' || q.kind === 'nasse' || q.kind === 'incident' || q.kind === 'cible')
+    .map((q) => { t.map.view.worldToScreen(q.x, q.z, p); return { x: r.left + p.x, y: r.top + p.y, rad: 70 + (q.radius || 0) / Math.max(0.05, t.map.view.mpp) }; });
+  for (const [fx, fy] of list) {
+    const x = r.left + r.width * fx, y = r.top + r.height * fy;
+    if (units.every((u) => Math.hypot(u.x - x, u.y - y) > 90) && busy.every((b) => Math.hypot(b.x - x, b.y - y) > b.rad)) return { x, y };
+  }
+  return null;
+}, prefs);
+
 export const notices = (page) => page.evaluate(() => window.__CRS.ctx.service('ui.debug').notices());
 export const sysErrors = (page) => page.evaluate(() => window.__CRS.summary().systems.filter((s) => s.errors > 0 || s.disabled).map((s) => `${s.id}:${s.errors}${s.disabled ? ' (désactivé)' : ''}`));
 

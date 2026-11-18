@@ -10,13 +10,16 @@ import type { IncidentsApi, MetroApi, RescueApi, TrafficControlApi, UiKit } from
 import type { MapsRuntime } from '../maps/runtime';
 import type { CommandApi, CommandScope, IssuedOrder } from './api';
 import { issueObstacle } from './obstacleOrder';
-import { BARRAGE_LET_PASSERSBY, verbOf } from './orders';
+import { BARRAGE_LET_PASSERSBY, forceWord, verbOf } from './orders';
 import type { OrderGeom, OrderVerb } from './orders';
 import { orderPhrase } from './phrases';
 import { computeScope } from './scope';
 import { isPoliceRole } from '../maps/visibility';
 import type { FollowApi } from '@/gameplay/session/follow';
 import type { NasseProposal } from './nasse';
+import { LegalChain } from './legalChain';
+import { cardEnvFromCore } from './reperes';
+import { coreLegalDeps } from './sendLine';
 
 const ISSUED_MAX = 50;
 /** Distance (m) au-delà de laquelle un ordre de mouvement se fait en véhicules ; ordres concernés. */
@@ -49,10 +52,22 @@ export class CommandCore implements CommandApi {
    * ou par P (comme une proposition de l'adjoint), écartée par Échap ou Maj + P. Propre à la session.
    */
   nasse: NasseProposal | null = null;
+  /**
+   * Chaîne légale confirmée en S3 (« Faire les étapes dans l'ordre ») : sommations, autorisation, délai, puis l'ordre.
+   * Avancée par CommandSystem.update, carte fermée comprise ; oubliée à chaque nouvelle session.
+   */
+  readonly legalChain: LegalChain = new LegalChain(coreLegalDeps(this, () => cardEnvFromCore(this)));
   private scope_: CommandScope | null = null;
   private scopeAt = -1e9;
 
   constructor(readonly ctx: GameContext, readonly maps: MapsRuntime, public kit: UiKit | undefined) {}
+
+  /**
+   * Engage une unité d'un commissariat (module des commissariats, qui fournit cette méthode) : elle quitte le poste et
+   * passe sous les ordres du joueur ; l'ordre de la fiche lui est donné dans le même pas (sendLine.ts). Absente : les
+   * lignes de renfort ne sont pas proposées.
+   */
+  engageFromCommissariat?(entryId: number): { ok: boolean; squadId: number; reason: string };
 
   // ───────────────────────────── services facultatifs ─────────────────────────────
 
@@ -145,7 +160,7 @@ export class CommandCore implements CommandApi {
     if (verb.force > roe.authorizedForce && !roe.underAttack) {
       return {
         ok: false, warning: '',
-        reason: `Refusé\u00a0: «\u00a0${verb.label}\u00a0» suppose une force de niveau ${verb.force}, le niveau autorisé est ${roe.authorizedForce}.`,
+        reason: `Refusé\u00a0: «\u00a0${verb.plain}\u00a0» demande\u00a0: ${forceWord(verb.force)}\u00a0; la force autorisée n’est que\u00a0: ${forceWord(roe.authorizedForce)}.`,
       };
     }
     let warning = '';

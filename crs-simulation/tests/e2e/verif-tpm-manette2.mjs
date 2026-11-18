@@ -99,7 +99,13 @@ try {
       C.check(toast.length > 0, `croix droite (${role}) sans roue : un message explique pourquoi`, toast.join(' | ') || 'aucun message');
     } else {
       await padAxes(page, [0, -0.95, null, null]); await frames(page, 4); await page.waitForTimeout(200);
-      const sel = await page.evaluate(() => [...document.querySelectorAll('.crs-ui [class*="wheel"] *, .crs-ui [class*="radial"] *')].filter((e) => /is-on|is-hot|is-sel|active/.test(String(e.className && e.className.baseVal !== undefined ? e.className.baseVal : e.className))).map((e) => (e.textContent || '').trim().slice(0, 30)).filter(Boolean).slice(0, 3));
+      // (le secteur surligné est un tracé sans texte : son nom se lit au centre de la roue, « cw-title »)
+      const sel = await page.evaluate(() => {
+        const w = document.querySelector('[data-id="order-wheel"]');
+        const hot = w ? w.querySelectorAll('.cw-wedge.is-hot').length : 0;
+        const title = w ? (w.querySelector('.cw-title')?.textContent || '').trim() : '';
+        return hot > 0 ? [title || 'secteur'] : [];
+      });
       report.wheelSel = sel;
       await snap(page, `${tag}-roue-stick-haut`);
       C.check(sel.length > 0, 'roue d’ordres : le stick gauche désigne un secteur', sel.join(' | ') || 'aucun secteur mis en évidence');

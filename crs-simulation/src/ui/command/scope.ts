@@ -70,6 +70,12 @@ export function computeScope(ctx: GameContext): CommandScope {
     canTraffic: false, canMetro: false, canDelegate: false, label,
   });
   if (!police) return readOnly(`${roleLabel(role)} — lecture seule`);
+  // équipage de patrouille (BAC, Police secours), chef de bord compris : il ne commande que les deux collègues de sa
+  // voiture, assis avec lui. Ses ordres sont « Suivez-moi à pied / en véhicules » (bloc « ORDRES », roue : permis en
+  // lecture seule, voir CommandCore.check) et les renforts passent par CENTRAL (carte d'appel). La carte de commandement
+  // lui proposait sinon d'envoyer « en véhicules, à 800 m » barrer une rue ou disperser une foule… son propre équipage,
+  // dans la voiture où il est assis : il a la carte en lecture seule, cadrée sur lui et sur l'appel.
+  if (role === 'patrouille') return readOnly(`${roleLabel(role)} — lecture seule`);
 
   if (role === 'commandant' || role === 'commissaire' || rank >= RANK_LEVEL.commandant) {
     const ids = new Set<number>();

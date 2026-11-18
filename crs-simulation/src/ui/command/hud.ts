@@ -1,6 +1,7 @@
 /* =====================================================================================
  * Éléments de HUD du commandement :
- *   « mon unité »        état résumé du groupe ou de la section du joueur et ordre en cours ;
+ *   « mon unité »        état résumé du groupe ou de la section du joueur et ordre en cours, avec les mots de la carte
+ *                        (« MISTRAL 1 ALFA · EN LIGNE », « SANS ORDRE » — jamais un type brut ni « INITIATIVE ») ;
  *   « incident confié »  pour un joueur exécutant : libellé, distance et direction de l'incident.
  * Chacun n'écrit dans le DOM que si une valeur a changé ; la flèche tourne par transformation CSS.
  * ===================================================================================== */
@@ -12,10 +13,31 @@ import { formatDistance } from '../maps/transform';
 import { isPoliceRole } from '../maps/visibility';
 import type { CommandCore } from './core';
 import { unitIconUrl } from './panelUnits';
-import { orderLabel, verbOf } from './orders';
+import type { SquadOrder } from '@/core/contracts';
+import { tagOf, verbOf } from './orders';
 import { ensureCommandStyle } from './style';
 
 const PERIOD = 0.25;
+
+/** Étiquette d'unité quand elle n'a pas d'ordre (ordre « libre », ou aucun). */
+export const NO_ORDER_TAG = 'SANS ORDRE';
+
+/**
+ * Étiquette de l'ordre en cours d'une unité, en majuscules, comme sur la carte (« EN LIGNE », « BARRE (PASSANTS) »,
+ * « SANS ORDRE ») : `tag` des ordres (orders.ts). L'unité qui suit le joueur (« Suivez-moi à pied » devient l'ordre
+ * « suivre » sur lui) : « ME SUIT À PIED ». Ordre inconnu : « ORDRE EN COURS » (jamais le type brut).
+ */
+export function unitOrderTag(o: Pick<SquadOrder, 'type' | 'targetId'> | null | undefined, playerId: number): string {
+  if (!o || o.type === 'libre') return NO_ORDER_TAG;
+  if (o.type === 'suivre' && playerId !== 0 && o.targetId === playerId) return tagOf('suivre_pied');
+  const tag = tagOf(o.type, o.targetId);
+  return tag !== '' ? tag : 'ORDRE EN COURS';
+}
+
+/** Texte complet de la pastille d'unité : « MISTRAL 1 ALFA · EN LIGNE ». */
+export function unitChipText(name: string, o: Pick<SquadOrder, 'type' | 'targetId'> | null | undefined, playerId: number): string {
+  return `${name} · ${unitOrderTag(o, playerId)}`;
+}
 
 export class UnitHud implements HudWidget {
   readonly root: HTMLDivElement;
@@ -76,7 +98,13 @@ export class UnitHud implements HudWidget {
     const o = u.order;
     const free = !o || o.type === 'libre';
     const verb = o ? verbOf(o.type) : undefined;
-    setText(this.ord, free ? 'Initiative' : orderLabel(o.type));
+    const tag = unitOrderTag(o, ctx.player.state.personId);
+    setText(this.ord, tag);
+    const full = unitChipText(u.name, o, ctx.player.state.personId);
+    if (this.root.title !== full) {
+      this.root.title = full;
+      this.root.setAttribute('aria-label', full);
+    }
     setClass(this.ord, 'is-force', verb !== undefined && verb.coercive);
     // un nouvel ordre clignote brièvement
     const key = o ? o.type + '@' + o.issuedAt : '';

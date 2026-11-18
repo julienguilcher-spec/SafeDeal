@@ -22,14 +22,16 @@ import { COMMAND_SERVICE } from './api';
 import { CommandCore } from './core';
 import { IncidentHud, UnitHud } from './hud';
 import { OrderWheelScreen, WHEEL_SCREEN } from './orderWheel';
-import { QuickActionsHud } from './quickActions';
+import { QuickActionsHud, quickBanner } from './quickActions';
 import { RADIO_SCREEN, RadioScreen } from './radioScreen';
+import { installTacticalParts } from './tacticalParts';
 import { TacticalScreen } from './tacticalScreen';
 
 export type { CommandApi, CommandLevel, CommandScope, IssuedOrder, TacticalOpenData, TacticalTab } from './api';
 export { COMMAND_SERVICE } from './api';
 export { CommandCore } from './core';
 export { TacticalScreen } from './tacticalScreen';
+export { installTacticalParts } from './tacticalParts';
 
 export const COMMAND_SYSTEM_ID = 'ui:command';
 
@@ -40,6 +42,8 @@ interface KettleEvent { id: number; closed: boolean; inside: number; x: number; 
 export const UNIT_WIDGET_ID = 'command.unit';
 export const INCIDENT_WIDGET_ID = 'command.incident';
 export const QUICK_WIDGET_ID = 'command.quick';
+/** Bandeaux du téléphone (proposition de l'adjoint, véhicule qui bloque), en haut au centre. */
+export const QUICK_BANNER_WIDGET_ID = 'command.banner';
 
 export class CommandSystem implements GameSystem {
   readonly id = COMMAND_SYSTEM_ID;
@@ -80,6 +84,7 @@ export class CommandSystem implements GameSystem {
         core.afterConvoy.clear();
         core.orderForce = 4;
         core.nasse = null;
+        core.legalChain.reset();
         this.ordersDirty = true;
       }),
       // nasse fermée (service 'police.barrages') : le commandement en est averti même carte fermée
@@ -97,6 +102,8 @@ export class CommandSystem implements GameSystem {
       if (!ctx.headless) console.warn('[commandement] boîte à outils d’interface absente : ni carte tactique ni roue d’ordres');
       return;
     }
+    // la fiche, les panneaux de côté, Qui, l'aperçu et l'envoi branchés dans la carte de commandement
+    installTacticalParts();
     kit.registerScreen('carte_tactique', (host, data) => {
       const screen = new TacticalScreen(core, host, data);
       this.tactical = screen;
@@ -112,7 +119,15 @@ export class CommandSystem implements GameSystem {
     kit.addHudWidget(UNIT_WIDGET_ID, 'top', (host) => new UnitHud(core, host));
     kit.addHudWidget(INCIDENT_WIDGET_ID, 'top', (host) => new IncidentHud(core, host));
     // carte tactique et secours en un clic, à gauche sous la mini-carte
-    kit.addHudWidget(QUICK_WIDGET_ID, 'left', (host) => new QuickActionsHud(core, host));
+    let quick: QuickActionsHud | null = null;
+    kit.addHudWidget(QUICK_WIDGET_ID, 'left', (host) => (quick = new QuickActionsHud(core, host)));
+    kit.addHudWidget(QUICK_BANNER_WIDGET_ID, 'top', (host) => quickBanner(quick, host));
+  }
+
+  /** La chaîne légale (sommations, autorisation, ordre) avance avec la simulation, carte fermée comprise. */
+  update(): void {
+    const ctx = this.ctx;
+    if (ctx && this.core) this.core.legalChain.tick(ctx.clock.now);
   }
 
   frame(): void {
@@ -152,7 +167,7 @@ export class CommandSystem implements GameSystem {
       const s = ctx.world.sectorName(e.x, e.z);
       place = s && s !== 'secteur inconnu' ? s : '';
     }
-    const filter = core.scope().level !== 'lecture' ? ' Carte tactique : F pour ouvrir une issue filtrée.' : '';
+    const filter = core.scope().level !== 'lecture' ? ' Carte de commandement : F pour ouvrir une sortie filtrée.' : '';
     ctx.ui.notify(`${kettleBanner({ place, inside: e.inside })}.${filter}`, 'warn', 7);
   }
 
@@ -175,6 +190,7 @@ export class CommandSystem implements GameSystem {
     this.unsub.length = 0;
     this.kit?.removeHudWidget(UNIT_WIDGET_ID);
     this.kit?.removeHudWidget(INCIDENT_WIDGET_ID);
+    this.kit?.removeHudWidget(QUICK_BANNER_WIDGET_ID);
     this.kit?.removeHudWidget(QUICK_WIDGET_ID);
     this.ownMaps?.dispose();
     void this.ctx;

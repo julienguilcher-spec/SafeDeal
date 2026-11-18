@@ -5,6 +5,10 @@ import { createTestContext } from '@/core/testing';
 import { COMMAND_SERVICE, createSystems as commandSystems } from '@/ui/command';
 import type { CommandCore } from '@/ui/command';
 import { verbOf } from '@/ui/command/orders';
+import { proposeWho, wholeCandidate, whoEnvFromCore } from '@/ui/command/bestUnit';
+import { buildCard } from '@/ui/command/intents';
+import { cardEnvFromCore, collectReperes, pointRepere } from '@/ui/command/reperes';
+import { mapKey } from '@/ui/command/tacticalKeys';
 import { computeScope } from '@/ui/command/scope';
 import { MAP2D_SERVICE, MAPS_SERVICE, createSystems as mapsSystems } from '@/ui/maps';
 import type { MapsRuntime } from '@/ui/maps';
@@ -109,6 +113,24 @@ describe('commandement — étendue selon le rôle et le grade', () => {
     const graded = as(s, s.chefA, 'crs');
     expect(graded.level).toBe('unite');
     expect([...graded.squadIds]).toEqual([s.groupA.id]);
+  });
+
+  it('équipage de patrouille, chef de bord brigadier-chef compris : carte en lecture seule, « Suivez-moi » permis', async () => {
+    // fusion modes × refonte : le chef de bord d'une BAC se voyait proposer d'envoyer « en véhicules » son propre
+    // équipage, assis avec lui dans la voiture, barrer une rue ou disperser une foule
+    const s = await scene();
+    const crew = s.ctx.squads.create('equipage', 'police', 'BAC 75N');
+    const chef = agent(s.ctx, crew, 300, 300, 'brigadier_chef', 'interpellation');
+    agent(s.ctx, crew, 301, 300, 'gardien', 'conducteur');
+    crew.leaderId = chef.id;
+    const sc = as(s, chef, 'patrouille');
+    expect(sc.level).toBe('lecture');
+    expect(sc.squadIds.size).toBe(0);
+    expect(sc.ownSquadId).toBe(crew.id);
+    const core = s.ctx.require<CommandCore>(COMMAND_SERVICE);
+    expect(core.followUnit()?.id).toBe(crew.id);
+    expect(core.check(verbOf('suivre_pied')!).ok).toBe(true);
+    expect(core.check(verbOf('ligne')!).ok).toBe(false);
   });
 
   it('journaliste et manifestant : lecture seule, aucune prérogative', async () => {
@@ -253,7 +275,8 @@ describe('commandement — émission des ordres (sans interface)', () => {
     core.invalidateScope();
     const refused = core.issue('disperser_gaz', [s.groupA], [{ x: 10, z: 10, heading: 0, width: 0 }]);
     expect(refused.ok).toBe(false);
-    expect(refused.reason).toMatch(/niveau 3/);
+    expect(refused.reason).toMatch(/gaz lacrymogène/);
+    expect(refused.reason).not.toMatch(/niveau \d|\d\./);
     expect(s.groupA.order.type).toBe('libre');
     expect(core.authorize(3)).toBe(true);
     expect(s.ctx.law.roe.authorizedForce).toBe(3);
@@ -294,5 +317,49 @@ describe('commandement — émission des ordres (sans interface)', () => {
     expect(res.ok).toBe(false);
     expect(res.reason).toMatch(/Lecture seule/);
     expect(s.groupA.order.type).toBe('libre');
+  });
+});
+
+describe('carte de commandement selon le rôle (fiches, Qui, touches)', () => {
+  it('simple CRS : lecture seule — aucune ligne ni « Autres ordres » sur aucun repère, aucune intention au clavier', async () => {
+    const s = await scene();
+    s.ctx.player.possess(s.gardien.id, 'crs');
+    const core = s.ctx.service<CommandCore>(COMMAND_SERVICE)!;
+    core.invalidateScope();
+    expect(core.scope().level).toBe('lecture');
+    const env = cardEnvFromCore(core);
+    expect(env.level).toBe('lecture');
+    const reperes = collectReperes(env);
+    expect(reperes.length).toBeGreaterThan(0);
+    for (const r of [...reperes, pointRepere(120, 30, env)]) {
+      const card = buildCard(r, env, null);
+      expect(card.lines, r.kind).toEqual([]);
+      expect(card.others, r.kind).toEqual([]);
+    }
+    for (const code of ['KeyE', 'KeyB', 'KeyN', 'KeyD', 'KeyI', 'KeyS', 'KeyL', 'KeyO', 'KeyU', 'KeyT', 'Enter', 'Digit1', 'Space']) {
+      expect(mapKey(code, false, { level: 'lecture', card: false }).kind, code).toBe('none');
+    }
+    // il garde : C (commissariats), G (moi), H (aide)
+    expect(mapKey('KeyG', false, { level: 'lecture', card: false }).kind).toBe('me');
+    expect(mapKey('KeyH', false, { level: 'lecture', card: false }).kind).toBe('help');
+  });
+
+  it('chef de groupe : Qui ne propose que son groupe ; T = « Tout le groupe »', async () => {
+    const s = await scene();
+    s.ctx.player.possess(s.chefA.id, 'chef_groupe');
+    const core = s.ctx.service<CommandCore>(COMMAND_SERVICE)!;
+    core.invalidateScope();
+    const env = cardEnvFromCore(core);
+    const mine = env.units.filter((u) => u.mine).map((u) => u.squadId);
+    expect(mine).toEqual([s.groupA.id]);
+    const who = whoEnvFromCore(core, env, []);
+    const r = pointRepere(160, 40, env);
+    const card = buildCard(r, env, 'envoyer');
+    expect(card.lines.length).toBeGreaterThan(0);
+    for (const line of card.lines) {
+      for (const c of proposeWho(line, r, who)) for (const id of c.squadIds) expect([s.groupA.id], line.label).toContain(id);
+    }
+    expect(wholeCandidate(r, who)!.label).toBe('Tout le groupe');
+    expect(wholeCandidate(r, who)!.squadIds).toEqual([s.groupA.id]);
   });
 });

@@ -1,15 +1,20 @@
 // Test de bout en bout des cartes et du commandement (banc d'essai harness/command.html).
-//   bureau     : mini-carte, carte tactique à la souris — sélection (clic, Maj+clic, liste, cadre), ordres par
-//                geste (point, ligne de barrage, nasse), force autorisée, incidents (glisser-déposer, menu),
-//                secours, fermeture de rues, métro, temps ralenti, exécution des ordres ; vérifie que les ordres
+//   bureau     : mini-carte ; CARTE DE COMMANDEMENT à la souris / au pavé tactile — repos (S0, au plus 22 boutons),
+//                fiche d'un repère (S1), Qui (Maj + clic, liste, cadre, « Toute la compagnie »), « Tracer la ligne
+//                moi-même » en deux clics (géométrie exacte), cercle serré, gestes experts (clic droit, glisser droit),
+//                confirmation légale (S3), « Cadre légal », incidents (« Plus… », glisser-déposer, fiche), secours,
+//                fermeture de rues, métro, journal, temps ralenti, exécution des ordres ; vérifie que les ordres
 //                arrivent dans ctx.squads (type, x, z, heading, width).
-//   roles      : étendue du commandement (commissaire, chef de groupe, CRS, journaliste, manifestant).
-//   plan       : plan de Paris, recherche, repère GPS, mini-carte ; roue d'ordres et radio.
-//   manette    : curseur au stick, zoom aux gâchettes, sélection et ordre, zones de focus.
-//   tactile    : téléphone 844×390 et tablette 1180×820 — toucher, glisser, pincer, tracé de ligne ;
-//                aucun chevauchement entre le HUD et les commandes tactiles du module d'entrées.
+//   roles      : étendue du commandement (commissaire, chef de groupe, CRS en lecture seule, journaliste, manifestant).
+//   plan       : plan de Paris, recherche, repère GPS, mini-carte ; roue d'ordres (8 secteurs) et radio ; carte au clavier.
+//   manette    : correspondance du §5.1 — stick = visée libre, A = Entrée, B = Échap, X = U, Y = « Plus… », LB / RB =
+//                « À traiter », croix = sauts de la visée, gâchettes = zoom.
+//   tactile    : téléphone 844×390 et tablette 1180×820 — toucher (fiche, jamais d'ordre au premier toucher), glisser,
+//                pincer, tracé de ligne, barre du bas, une feuille à la fois ; aucun chevauchement entre le HUD et les
+//                commandes tactiles du module d'entrées.
 //   degrade    : services étendus absents, monde neutre.
 //   socle      : les mêmes écrans branchés dans le VRAI socle de l'interface (src/ui) : HUD, touches, focus.
+// Captures des états de la carte : command-S0…S6-1280x720.png et command-S0…S6-844x390.png dans tests/e2e/out.
 // Usage : node tests/e2e/command.mjs [bureau] [roles] [plan] [manette] [tactile] [degrade] [socle]   (défaut : tout)
 import { startServer, openPage, waitFor, shot, finish } from './lib.mjs';
 
@@ -26,6 +31,7 @@ const check = (cond, msg) => {
     failures.push(msg);
     console.error('  ✗ ' + msg);
   }
+  return cond;
 };
 const near = (a, b, eps, msg) => check(typeof a === 'number' && Math.abs(a - b) <= eps, `${msg} (obtenu ${typeof a === 'number' ? a.toFixed(3) : a}, attendu ${b.toFixed(3)} ± ${eps})`);
 /** Écart angulaire replié sur ]−π, π]. */
@@ -70,7 +76,7 @@ const worldAt = (page, cx, cy) => page.evaluate(([x, y]) => {
 }, [cx, cy]);
 const order = (page, squadId) => page.evaluate((id) => {
   const o = window.__cmd.ctx.squads.get(id).order;
-  return { type: o.type, x: o.x, z: o.z, heading: o.heading, width: o.width, targetId: o.targetId, maxForce: o.maxForce, issuedBy: o.issuedBy };
+  return { type: o.type, x: o.x, z: o.z, heading: o.heading, width: o.width, targetId: o.targetId, maxForce: o.maxForce, issuedBy: o.issuedBy, issuedAt: o.issuedAt };
 }, squadId);
 const ids = (page) => page.evaluate(() => {
   const s = window.__cmd.scenario;
@@ -90,6 +96,7 @@ const unit = (page, key) => page.evaluate((k) => {
 /** Glisse la souris de A à B (coordonnées client), avec capture facultative en cours de geste. */
 async function drag(page, a, b, opts = {}) {
   await page.mouse.move(a.x, a.y);
+  if (opts.shift) await page.keyboard.down('Shift');
   await page.mouse.down({ button: opts.button ?? 'left' });
   const steps = opts.steps ?? 8;
   for (let i = 1; i <= steps; i++) {
@@ -101,6 +108,7 @@ async function drag(page, a, b, opts = {}) {
     await shot(page, opts.shot);
   }
   await page.mouse.up({ button: opts.button ?? 'left' });
+  if (opts.shift) await page.keyboard.up('Shift');
   await frames(page, 2);
 }
 const click = (page, id) => page.click(`[data-id="${id}"]`);
@@ -116,9 +124,127 @@ async function key(page, code, id, present) {
   return ok;
 }
 
+// ── carte de commandement : état de l'écran, fiche, repères ──
+
+/** État de la carte de commandement : feuille, intention, visée, fiche (repère, ligne, lignes), Qui, mode, tracé. */
+const tac = (page) => page.evaluate(() => {
+  const t = window.__cmd.tactical();
+  if (!t) return null;
+  const s = t.state;
+  const card = t.card;
+  const list = card && s.card ? (s.card.othersOpen ? card.others : card.lines) : [];
+  const r = s.card ? s.card.repere : null;
+  return {
+    sheet: s.sheet, intent: s.intent, mode: s.mode.kind, tool: s.tool, tracing: !!t.tmap.tracing, listIndex: s.listIndex,
+    visee: s.visee ? { kind: s.visee.kind, name: s.visee.name, key: s.visee.key, x: s.visee.x, z: s.visee.z } : null,
+    card: r ? { kind: r.kind, key: r.key, name: r.name, squadId: r.squadId ?? 0, incidentId: r.incidentId ?? 0, x: r.x, z: r.z, line: s.card.line, others: s.card.othersOpen } : null,
+    lines: list.map((l) => l.label), lineLabel: s.card && list[s.card.line] ? list[s.card.line].label : '',
+    who: s.who ? { label: s.who.label, ids: s.who.squadIds.slice() } : null, whole: s.whole, whoIndex: s.whoIndex,
+    sent: s.lastSent ? s.lastSent.text : '', where: !!s.where,
+  };
+});
+/** Texte visible d'un élément (espaces réduits), '' s'il est absent. */
+const textOf = (page, sel) => page.evaluate((q) => (document.querySelector(q)?.innerText || '').replace(/\s+/g, ' ').trim(), sel);
+/** Boutons visibles de la carte de commandement (data-id, sinon le début du texte). */
+const visibleButtons = (page) => page.evaluate(() => [...document.querySelectorAll('[data-id="tactical"] button')].filter((b) => {
+  const r = b.getBoundingClientRect();
+  return r.width > 0 && r.height > 0 && getComputedStyle(b).visibility !== 'hidden';
+}).map((b) => b.dataset.id || b.textContent.trim().slice(0, 24)));
+/** Clic réel au centre d'un élément visible ; false s'il est absent ou masqué. */
+async function clickEl(page, sel, opts = {}) {
+  const r = await page.evaluate((q) => {
+    const e = [...document.querySelectorAll(q)].find((x) => x.getBoundingClientRect().width > 0 && getComputedStyle(x).visibility !== 'hidden');
+    if (!e) return null;
+    e.scrollIntoView({ block: 'nearest' });
+    const b = e.getBoundingClientRect();
+    return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+  }, sel);
+  if (!r) return false;
+  await page.mouse.move(r.x, r.y);
+  await frames(page, 2);
+  await page.mouse.click(r.x, r.y, opts);
+  await frames(page, 3);
+  return true;
+}
+/** data-id de la ligne de la fiche dont le libellé correspond, '' sinon. */
+const lineId = (page, re) => page.evaluate((src) => {
+  const rx = new RegExp(src);
+  const b = [...document.querySelectorAll('[data-id^="card-line-"]')].find((e) => rx.test(e.querySelector('.cc-lab')?.textContent || ''));
+  return b ? b.dataset.id : '';
+}, re.source);
+/** Clic réel sur la ligne de la fiche dont le libellé correspond (au pointeur, un clic sur une ligne l'envoie). */
+async function cardLine(page, re) {
+  const id = await lineId(page, re);
+  return id !== '' && clickEl(page, `[data-id="${id}"]`);
+}
+/** Survole la ligne (aperçu, phrase « Ce qui va se passer ») et rend le texte de la fiche. */
+async function hoverLine(page, re) {
+  const id = await lineId(page, re);
+  if (id === '') return '';
+  const r = await page.evaluate((q) => { const b = document.querySelector(`[data-id="${q}"]`).getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; }, id);
+  await page.mouse.move(r.x, r.y);
+  await frames(page, 4);
+  await settle(page, 200);
+  return textOf(page, '.ct-mount-card');
+}
+/** « Autres ordres ici… » (ligne 0) puis la ligne `re` de la liste. */
+async function otherLine(page, re) {
+  if (!(await clickEl(page, '[data-id="card-line-0"]'))) return false;
+  return cardLine(page, re);
+}
+/** Retour au repos sans fermer la carte (Échap tant qu'une fiche, une feuille ou une intention est ouverte). */
+async function rest(page) {
+  for (let i = 0; i < 6; i++) {
+    const s = await tac(page);
+    if (!s || (!s.card && s.sheet === 'none' && !s.intent && !s.tracing)) return;
+    await page.keyboard.press('Escape');
+    await frames(page, 3);
+  }
+}
+/**
+ * Point de l'écran (client) proche de (sx, sy) où le repère accroché au pointeur est d'un des genres voulus
+ * ('point' : aucun repère). `edge` : rue d'une arête précise. Le point est sur la carte visible (pas sous une feuille).
+ */
+const spot = (page, sx, sy, kinds = ['point', 'rue'], opts = {}) => page.evaluate(([x0, y0, ks, o]) => {
+  const t = window.__cmd.tactical();
+  const c = t.map.canvas;
+  const r = c.getBoundingClientRect();
+  const touch = !!o.touch;
+  for (let rad = 0; rad <= (o.max ?? 160); rad += 10) {
+    const n = rad === 0 ? 1 : 12;
+    for (let k = 0; k < n; k++) {
+      const a = (k / n) * Math.PI * 2;
+      const x = x0 + Math.cos(a) * rad, y = y0 + Math.sin(a) * rad;
+      if (x < r.left + 30 || x > r.right - 30 || y < r.top + 30 || y > r.bottom - 30) continue;
+      if (document.elementFromPoint(x, y) !== c) continue;
+      const st = t.tmap.stackAt(x - r.left, y - r.top, touch, true);
+      const kind = st.length === 0 ? 'point' : st[0].kind;
+      if (!ks.includes(kind)) continue;
+      if (o.edge !== undefined && !(st[0] && st[0].roadEdge === o.edge)) continue;
+      return { x, y, kind };
+    }
+  }
+  return null;
+}, [sx, sy, kinds, opts]);
+/** Ferme la phrase de première ouverture (« Compris ») si elle est affichée. */
+async function dismissModel(page) {
+  if (await page.evaluate(() => !!document.querySelector('.ct-model.is-on'))) await clickEl(page, '[data-id="tac-model-ok"]');
+}
+/** « Tracer la ligne moi-même » (dans « Autres ordres ici… » de la fiche ouverte) puis les deux bouts en deux clics. */
+async function traceLine(page, A, B) {
+  if (!(await otherLine(page, /^Tracer la ligne moi-même$/))) return false;
+  if (!(await page.evaluate(() => !!window.__cmd.tactical().tmap.tracing))) return false;
+  await page.mouse.click(A.x, A.y);
+  await frames(page, 3);
+  await page.mouse.click(B.x, B.y);
+  await frames(page, 3);
+  await settle(page, 200);
+  return true;
+}
+
 // ══════════════════════════════════ BUREAU : COMMANDANT ══════════════════════════════════
 async function bureau() {
-  console.log('— bureau (commandant, souris et clavier)');
+  console.log('— bureau (commandant, souris et pavé tactile, clavier)');
   const { browser, page } = await open('role=commandant&freeze=1&ai=0');
   const I = await ids(page);
 
@@ -130,6 +256,7 @@ async function bureau() {
   });
   check(s.draws > 0, 'la mini-carte a été dessinée');
   check(s.hud && /MISTRAL/.test(s.unitText) && /\d+\/\d+/.test(s.unitText), `élément « mon unité » affiché (${s.unitText})`);
+  check(!/INITIATIVE|_/.test(s.unitText), `« mon unité » en mots simples, jamais « INITIATIVE » ni un type brut (${s.unitText})`);
   await shot(page, 'command-hud-1280x720');
   // rotation du regard : la mini-carte tourne par transformation CSS, sans redessiner à chaque image
   const before = await page.evaluate(() => ({ d: window.__cmd.mapsSystem.minimap.draws, t: window.__cmd.mapsSystem.minimap.transforms }));
@@ -147,17 +274,32 @@ async function bureau() {
   check(after.d - before.d <= 8, `mini-carte : ${after.d - before.d} dessins du canevas pendant ces 30 images (≤ 8 attendu)`);
   info.push(`mini-carte : 30 images de rotation → ${after.t - before.t} écritures de transformation, ${after.d - before.d} dessins du canevas`);
 
-  // ── ouverture par la touche « carte tactique » ──
-  check(await key(page, 'Tab', 'carte_tactique', true), 'la touche Tab ouvre la carte tactique');
+  // ── ouverture par la touche « carte de commandement » ──
+  check(await key(page, 'Tab', 'carte_tactique', true), 'la touche Tab ouvre la carte de commandement');
   await settle(page, 500);
   const t0 = await page.evaluate(() => window.__cmd.ctx.clock.now);
   await settle(page, 500);
   const t1 = await page.evaluate(() => window.__cmd.ctx.clock.now);
   check(t1 > t0 + 0.2, `la simulation continue carte ouverte (${(t1 - t0).toFixed(2)} s simulées en 0,5 s)`);
   check(await page.evaluate(() => window.__cmd.ctx.ui.modal === true), 'écran modal : le personnage n\'est plus commandé');
-  await shot(page, 'command-tactique-1280x720');
+  // S0 : six intentions, « Plus… », la pastille légale en mots ; au plus 22 boutons
+  // (§2.1 : 14 commandes fixes, au plus 3 « À traiter », une rangée par section ou groupe d'unités dans « Mes unités » —
+  // 22 à la Concorde, voir verif-commande-clavier ; le banc a 4 sections et plus de moyens spéciaux)
+  const b0 = (await visibleButtons(page)).filter((id) => id !== 'tac-model-ok');
+  const fixed0 = b0.filter((id) => !id.startsWith('todo-') && !id.startsWith('follow-'));
+  const rows0 = b0.filter((id) => id.startsWith('follow-'));
+  const secs0 = await page.evaluate(() => window.__cmd.scenario.sections.length);
+  check(fixed0.length <= 14 && b0.filter((id) => id.startsWith('todo-')).length <= 3, `S0 : au plus 14 commandes fixes et 3 « À traiter » (${b0.length} : ${b0.join(' · ')})`);
+  const groups0 = new Set(I.groups.flat().map((id) => 'follow-u-' + id));
+  check(rows0.length <= secs0 + 3 && !rows0.some((id) => groups0.has(id)), `S0 : « Mes unités » plié, une rangée par section ou groupe d'unités, aucun groupe déplié (${rows0.length} rangées pour ${secs0} sections)`);
+  check(b0.filter((id) => id.startsWith('intent-')).length === 6 && b0.includes('tac-more') && b0.includes('tac-legal'), 'S0 : six intentions, « Plus… » et la pastille légale');
+  const chip = await textOf(page, '[data-id="tac-legal"]');
+  check(/Sommations \d\/3 · Force : [a-zàâçéèêëîïôûùüÿ ]+/i.test(chip) && !/Force : \d/.test(chip), `pastille légale en mots (${chip})`);
+  check(/CARTE DE COMMANDEMENT/i.test(await textOf(page, '.ct-top')), 'titre « Carte de commandement »');
+  await shot(page, 'command-S0-1280x720');
+  await dismissModel(page);
 
-  // ── sélection : clic sur un symbole, Maj + clic, liste, cadre ──
+  // ── clic sur une de mes unités : sa fiche ; Maj + clic : les unités choisies (Qui) ──
   // vue rapprochée sur la section 2 pour distinguer ses groupes
   const g2 = I.groups[1];
   await page.evaluate((key) => {
@@ -168,28 +310,38 @@ async function bureau() {
   await settle(page, 500);
   let u = await unit(page, g2[0]);
   let p = await mapPoint(page, u.x, u.z);
+  const issued0 = (await order(page, g2[0])).issuedAt;
   await page.mouse.click(p.x, p.y);
   await settle(page);
-  check(JSON.stringify(await selection(page)) === JSON.stringify([g2[0]]), `clic sur le symbole : groupe sélectionné (${await selection(page)})`);
+  let t = await tac(page);
+  check(t.card && t.card.kind === 'unite' && t.card.squadId === g2[0], `clic sur le symbole : la fiche du groupe s'ouvre (${JSON.stringify(t.card)})`);
+  check(t.lines.length <= 6 && /^L.envoyer ailleurs/.test(t.lines[0] ?? '') && t.lines.some((l) => /Tenir sa position/.test(l)), `fiche d'une unité : au plus six lignes, « L’envoyer ailleurs… » d'abord (${t.lines.join(' | ')})`);
+  check(t.sent === '' && (await order(page, g2[0])).issuedAt === issued0, 'un clic sur la carte ne donne jamais d\'ordre');
+  await rest(page);
+  await page.keyboard.down('Shift');
+  await page.mouse.click(p.x, p.y);
   u = await unit(page, g2[1]);
   p = await mapPoint(page, u.x, u.z);
-  await page.keyboard.down('Shift');
   await page.mouse.click(p.x, p.y);
   await page.keyboard.up('Shift');
   await settle(page);
-  check(JSON.stringify(await selection(page)) === JSON.stringify([g2[0], g2[1]].sort((a, b) => a - b)), `Maj + clic : deux groupes sélectionnés (${await selection(page)})`);
+  check(JSON.stringify(await selection(page)) === JSON.stringify([g2[0], g2[1]].sort((a, b) => a - b)), `Maj + clic : deux groupes choisis (${await selection(page)})`);
   await shot(page, 'command-tactique-selection-1280x720');
 
-  // ── ligne de barrage tracée pour DEUX groupes : partagée, sans croisement ──
-  await click(page, 'verb-ligne');
-  await settle(page, 200);
-  check(await page.evaluate(() => window.__cmd.tactical().state.mode.kind === 'order'), 'verbe « Ligne » armé : la carte attend le tracé');
+  // ── « Tracer la ligne moi-même » pour DEUX groupes : deux clics, ligne partagée, sans croisement ──
   const A = { x: p.x - 60, y: p.y - 170 };
   const B = { x: p.x + 150, y: p.y - 150 };
+  const sp1 = await spot(page, p.x + 40, p.y - 100);
+  check(!!sp1, 'un point libre de la carte pour ouvrir sa fiche');
+  await page.mouse.click(sp1.x, sp1.y);
+  await settle(page);
+  t = await tac(page);
+  check(t.card && (t.card.kind === 'point' || t.card.kind === 'rue') && t.who && t.who.ids.length === 2, `fiche du lieu : Qui = les deux groupes choisis (${JSON.stringify(t.who)})`);
+  await shot(page, 'command-S1-1280x720');
   const wA = await worldAt(page, A.x, A.y);
   const wB = await worldAt(page, B.x, B.y);
-  await drag(page, A, B, { shot: 'command-tactique-trace-ligne-1280x720' });
-  await settle(page);
+  check(await traceLine(page, A, B), '« Tracer la ligne moi-même » : la carte attend les deux bouts');
+  await shot(page, 'command-S4-1280x720');
   const expWidth = Math.hypot(wB.x - wA.x, wB.z - wA.z);
   const expHeading = Math.atan2(wB.z - wA.z, -(wB.x - wA.x));
   let oa = await order(page, g2[0]);
@@ -197,7 +349,7 @@ async function bureau() {
   check(oa.type === 'ligne' && ob.type === 'ligne', `ordre « ligne » reçu par les deux groupes (${oa.type}, ${ob.type})`);
   near(oa.width + ob.width, expWidth, 0.6, 'ligne partagée : la somme des largeurs vaut la longueur tracée');
   near(oa.width, expWidth / 2, 0.6, 'ligne partagée : effectifs égaux, largeurs égales');
-  angleNear(oa.heading, expHeading, 0.02, 'cap de la ligne : perpendiculaire au tracé, flanc gauche au départ');
+  angleNear(oa.heading, expHeading, 0.02, 'cap de la ligne : perpendiculaire au tracé, flanc gauche au premier clic');
   angleNear(ob.heading, expHeading, 0.02, 'cap identique pour le second groupe');
   near((oa.x + ob.x) / 2, (wA.x + wB.x) / 2, 0.6, 'centre de la ligne (x) au milieu du tracé');
   near((oa.z + ob.z) / 2, (wA.z + wB.z) / 2, 0.6, 'centre de la ligne (z) au milieu du tracé');
@@ -207,29 +359,39 @@ async function bureau() {
   const pa = (oa.x - wA.x) * rx + (oa.z - wA.z) * rz;
   const pb = (ob.x - wA.x) * rx + (ob.z - wA.z) * rz;
   near(Math.abs(pa - pb), expWidth / 2, 0.6, 'tronçons jointifs (écart des centres = demi-longueur)');
-  check(await page.evaluate(() => window.__cmd.tactical().state.mode.kind === 'idle'), 'après l\'ordre, la carte revient au mode libre');
+  t = await tac(page);
+  check(!t.tracing && t.mode === 'idle', 'après l\'ordre, la carte n\'attend plus de tracé');
+  const s4 = await textOf(page, '.ct-mount-card');
+  check(/ORDRE DONNÉ/.test(s4) && /Annuler l.ordre/.test(s4), `S4 : « ✓ ORDRE DONNÉ » et « Annuler l’ordre » dans la fiche (${s4.slice(0, 120)})`);
+  check(!(await notices(page)).some((n) => /ordre transmis/.test(n)), 'pas de message « ordre transmis » par-dessus la carte (S4 le remplace)');
   check(await page.evaluate(() => window.__cmd.command.issued.length >= 2), 'ordres tracés dans le journal de l\'interface');
   const log1 = await page.evaluate(() => window.__cmd.ctx.radio.log.slice(-2).map((m) => m.text));
-  check(log1.some((t) => /Ligne de barrage/.test(t) && /PARLEZ/.test(t)), `compte rendu radio de l'ordre (${log1[log1.length - 1]})`);
+  check(log1.some((x) => /Ligne de barrage/.test(x) && /PARLEZ/.test(x)), `compte rendu radio de l'ordre (${log1[log1.length - 1]})`);
   await shot(page, 'command-tactique-ligne-1280x720');
+  await settle(page, 2400);
+  await rest(page);
 
-  // ── sélection par la liste, puis ligne pour UNE section (centre, cap, largeur exacts) ──
+  // ── « Mes unités » → fiche d'une section → « L'envoyer ailleurs… » → ligne tracée (centre, cap, largeur exacts) ──
   await page.evaluate((key) => {
     const b = window.__cmd;
-    const u = b.maps.scene.unitModel.get(key);
-    b.tactical().map.jumpTo(u.x, u.z, 0.5);
+    const un = b.maps.scene.unitModel.get(key);
+    b.tactical().map.jumpTo(un.x, un.z, 0.5);
   }, I.sections[2]);
   await settle(page, 400);
-  await click(page, 'unit-' + I.sections[2]);
-  await settle(page);
-  check(JSON.stringify(await selection(page)) === JSON.stringify([I.sections[2]]), 'clic dans la liste : section sélectionnée');
-  await click(page, 'verb-ligne');
+  check(await clickEl(page, `[data-id="follow-u-${I.sections[2]}"]`), '« Mes unités » : la rangée de la section 3');
+  t = await tac(page);
+  check(t.card && t.card.kind === 'unite' && t.card.squadId === I.sections[2], 'clic dans « Mes unités » : la fiche de la section');
+  check(await cardLine(page, /^L.envoyer ailleurs/), '« L’envoyer ailleurs… »');
+  t = await tac(page);
+  check(t.where && t.who && JSON.stringify(t.who.ids) === JSON.stringify([I.sections[2]]), `« OÙ L’ENVOYER ? » : Qui fixé sur la section (${JSON.stringify(t.who)})`);
   u = await unit(page, I.sections[2]);
   p = await mapPoint(page, u.x, u.z);
   const C = { x: p.x + 40, y: p.y + 120 }, D = { x: p.x + 40, y: p.y + 20 };
-  const wC = await worldAt(page, C.x, C.y), wD = await worldAt(page, D.x, D.y);
-  await drag(page, C, D);
+  const sp2 = await spot(page, p.x + 110, p.y + 70);
+  await page.mouse.click(sp2.x, sp2.y);
   await settle(page);
+  const wC = await worldAt(page, C.x, C.y), wD = await worldAt(page, D.x, D.y);
+  check(await traceLine(page, C, D), 'fiche du lieu, Qui fixé : « Tracer la ligne moi-même »');
   let o = await order(page, I.sections[2]);
   check(o.type === 'ligne', `section : ordre « ligne » (${o.type})`);
   near(o.x, (wC.x + wD.x) / 2, 0.3, 'section : centre x de la ligne');
@@ -241,126 +403,210 @@ async function bureau() {
   // le banc répartit l'ordre entre les groupes : leurs largeurs se partagent celle de la section
   const kids = await Promise.all(I.groups[2].map((id) => order(page, id)));
   near(kids.reduce((a, k) => a + k.width, 0), o.width, 0.5, 'groupes de la section : largeurs réparties');
+  await settle(page, 2400);
+  await rest(page);
 
-  // ── nasse : centre posé, glissé vers l'issue ──
-  await click(page, 'verb-encercler');
-  await settle(page, 200);
-  const hint = await page.evaluate(() => document.querySelector('.ct-hint').textContent);
-  check(/issue/i.test(hint) && /faute/i.test(hint), `rappel de la règle de la nasse affiché (${hint.slice(0, 90)}…)`);
-  const N0 = { x: p.x - 130, y: p.y - 60 }, N1 = { x: p.x - 130 + 55, y: p.y - 60 - 40 };
-  const wN0 = await worldAt(page, N0.x, N0.y), wN1 = await worldAt(page, N1.x, N1.y);
-  await drag(page, N0, N1, { shot: 'command-tactique-trace-nasse-1280x720' });
+  // ── cercle serré : la règle est dite avant l'envoi ; centre au lieu, rayon par défaut, sortie à l'opposé ──
+  check(await clickEl(page, `[data-id="follow-u-${I.sections[2]}"]`) && await cardLine(page, /^L.envoyer ailleurs/), 'section 3 : « L’envoyer ailleurs… »');
+  const sp3 = await spot(page, p.x - 130, p.y - 60);
+  await page.mouse.click(sp3.x, sp3.y);
+  await settle(page);
+  check(await clickEl(page, '[data-id="card-line-0"]'), '« Autres ordres ici… »');
+  const ruleText = await hoverLine(page, /^Encercler en cercle serré/);
+  check(/issue/i.test(ruleText) || /sortie/i.test(ruleText), `règle de la nasse dite avant l'envoi (${ruleText.slice(0, 160)}…)`);
+  const wN0 = (await tac(page)).card;
+  check(await cardLine(page, /^Encercler en cercle serré/), '« Encercler en cercle serré ici »');
+  // ordre coercitif permis avant la dernière sommation (⚖) : S3 le dit, « Donner l'ordre quand même »
+  const s3e = await textOf(page, '.ct-mount-card');
+  check((await tac(page)).sheet === 'confirm' && /avant la dernière sommation/.test(s3e), `cercle serré (⚖) : S3 avant l'envoi (${s3e.slice(0, 140)})`);
+  check(await clickEl(page, '[data-id="card-confirm"]'), '« Donner l’ordre quand même »');
   await settle(page);
   o = await order(page, I.sections[2]);
   check(o.type === 'encercler', `ordre « encercler » (${o.type})`);
-  near(o.x, wN0.x, 0.3, 'nasse : centre x');
-  near(o.z, wN0.z, 0.3, 'nasse : centre z');
-  near(o.width, 2 * Math.hypot(wN1.x - wN0.x, wN1.z - wN0.z), 0.5, 'nasse : largeur = diamètre');
-  angleNear(o.heading, Math.atan2(wN1.x - wN0.x, wN1.z - wN0.z), 0.02, 'nasse : cap = direction de l\'issue');
+  near(o.x, wN0.x, 0.3, 'cercle serré : centre x (le lieu de la fiche)');
+  near(o.z, wN0.z, 0.3, 'cercle serré : centre z');
+  near(o.width, 36, 0.5, 'cercle serré : diamètre par défaut (rayon 18 m)');
+  angleNear(o.heading, Math.atan2(wN0.x - u.x, wN0.z - u.z), 0.05, 'cercle serré : sortie à l\'opposé de l\'unité');
   await settle(page, 400);
   await shot(page, 'command-tactique-nasse-1280x720');
+  await settle(page, 2000);
+  await rest(page);
 
-  // ── clic droit : « avancer » immédiat ; glisser droit : ligne directe ──
-  await click(page, 'unit-' + I.sections[3]);
+  // ── gestes experts : double clic = toute la section ; clic droit = « Avancer en formation » ; glisser droit = ligne ──
+  await page.evaluate((key) => {
+    const b = window.__cmd;
+    const un = b.maps.scene.unitModel.get(key);
+    b.tactical().map.jumpTo(un.x, un.z, 0.16);
+  }, I.sections[3]);
+  await settle(page, 400);
+  u = await unit(page, I.groups[3][0]);
+  p = await mapPoint(page, u.x, u.z);
+  await page.mouse.dblclick(p.x, p.y);
   await settle(page);
-  u = await unit(page, I.sections[3]);
+  const sel4 = await selection(page);
+  check(I.groups[3].every((g) => sel4.includes(g)), `double clic sur un groupe : toute sa section choisie (${sel4})`);
+  await rest(page);
+  await page.evaluate((keys) => window.__cmd.tactical().state.setSelection(keys), I.groups[3]);
   await page.evaluate((key) => {
     const b = window.__cmd;
     const un = b.maps.scene.unitModel.get(key);
     b.tactical().map.jumpTo(un.x, un.z, 0.5);
   }, I.sections[3]);
   await settle(page, 400);
+  u = await unit(page, I.sections[3]);
   p = await mapPoint(page, u.x, u.z);
-  const R = { x: p.x - 120, y: p.y - 40 };
-  const wR = await worldAt(page, R.x, R.y);
-  await page.mouse.click(R.x, R.y, { button: 'right' });
+  const Rp = { x: p.x - 120, y: p.y - 40 };
+  const wR = await worldAt(page, Rp.x, Rp.y);
+  await page.mouse.click(Rp.x, Rp.y, { button: 'right' });
   await settle(page);
-  o = await order(page, I.sections[3]);
-  check(o.type === 'avancer', `clic droit : ordre « avancer » (${o.type})`);
-  near(o.x, wR.x, 0.3, 'avancer : x du point désigné');
-  near(o.z, wR.z, 0.3, 'avancer : z du point désigné');
-  angleNear(o.heading, Math.atan2(wR.x - u.x, wR.z - u.z), 0.05, 'avancer : cap de l\'unité vers le point');
+  const adv = await Promise.all(I.groups[3].map((id) => order(page, id)));
+  check(adv.every((x) => x.type === 'avancer'), `clic droit : « avancer » pour les unités choisies (${adv.map((x) => x.type)})`);
+  near(adv.reduce((a, x) => a + x.x, 0) / adv.length, wR.x, 1.5, 'avancer : x du point désigné (unités côte à côte)');
+  near(adv.reduce((a, x) => a + x.z, 0) / adv.length, wR.z, 1.5, 'avancer : z du point désigné');
+  angleNear(adv[0].heading, Math.atan2(wR.x - u.x, wR.z - u.z), 0.08, 'avancer : cap de l\'unité vers le point');
   const E = { x: p.x - 90, y: p.y + 90 }, F = { x: p.x + 30, y: p.y + 90 };
   const wE = await worldAt(page, E.x, E.y), wF = await worldAt(page, F.x, F.y);
   await drag(page, E, F, { button: 'right' });
   await settle(page);
-  o = await order(page, I.sections[3]);
-  check(o.type === 'ligne', `glisser au bouton droit : ligne directe (${o.type})`);
-  near(o.width, Math.hypot(wF.x - wE.x, wF.z - wE.z), 0.3, 'ligne directe : largeur');
-  angleNear(o.heading, Math.PI, 0.03, 'tracé ouest → est : face au nord');
+  const dl = await Promise.all(I.groups[3].map((id) => order(page, id)));
+  check(dl.every((x) => x.type === 'ligne'), `glisser au bouton droit : ligne directe (${dl.map((x) => x.type)})`);
+  near(dl.reduce((a, x) => a + x.width, 0), Math.hypot(wF.x - wE.x, wF.z - wE.z), 0.5, 'ligne directe : largeur (somme des tronçons)');
+  angleNear(dl[0].heading, Math.PI, 0.03, 'tracé ouest → est : face au nord');
 
-  // ── cadre de sélection ──
+  // ── cadre de sélection (Maj + glisser) ──
   await page.evaluate(() => {
     const b = window.__cmd;
     b.tactical().state.clearSelection();
-    const u = b.maps.scene.unitModel.get(b.scenario.sections[1].id);
-    b.tactical().map.jumpTo(u.x, u.z, 0.15);
+    const un = b.maps.scene.unitModel.get(b.scenario.sections[1].id);
+    b.tactical().map.jumpTo(un.x, un.z, 0.15);
   });
   await settle(page, 500);
-  await click(page, 'tac-tool-box');
   u = await unit(page, I.sections[1]);
   p = await mapPoint(page, u.x, u.z);
-  await drag(page, { x: p.x - 110, y: p.y - 110 }, { x: p.x + 110, y: p.y + 110 }, { shot: 'command-tactique-cadre-1280x720' });
+  await drag(page, { x: p.x - 110, y: p.y - 110 }, { x: p.x + 110, y: p.y + 110 }, { shift: true, shot: 'command-tactique-cadre-1280x720' });
   await settle(page);
   const boxed = await selection(page);
-  check(I.groups[1].every((g) => boxed.includes(g)), `cadre : les trois groupes de la section 2 sont sélectionnés (${boxed})`);
+  check(I.groups[1].every((g) => boxed.includes(g)), `Maj + glisser : les trois groupes de la section 2 sont choisis (${boxed})`);
   check(await page.evaluate(() => window.__cmd.tactical().state.tool === 'main'), 'après le cadre, l\'outil revient à la main');
 
-  // ── bouton « Tout », sélection multiple à la liste, couches de la carte ──
-  await click(page, 'tac-all');
-  await settle(page, 200);
-  const allSel = await selection(page);
-  check(I.sections.every((id) => allSel.includes(id)) && allSel.includes(I.neptune) && !allSel.includes(I.groups[0][0]), `« Tout » : sections et moyens spéciaux, sans doublon avec leurs groupes (${allSel.length} unités)`);
+  // ── « Toute la compagnie » (T), liste Qui à cases (S2), couches de la carte ──
   await page.evaluate(() => window.__cmd.tactical().state.clearSelection());
-  await click(page, 'tac-multi');
-  await click(page, 'unit-' + I.groups[0][0]);
-  await click(page, 'unit-' + I.groups[0][1]);
-  await settle(page, 200);
-  check((await selection(page)).length === 2, 'sélection multiple : chaque clic dans la liste ajoute une unité');
-  await click(page, 'tac-multi');
-  await click(page, 'tac-layers');
-  await click(page, 'layer-crowd');
+  const sp4 = await spot(page, p.x + 60, p.y - 120);
+  await page.mouse.click(sp4.x, sp4.y);
+  await settle(page);
+  check(await clickEl(page, '[data-id="card-who-all"]'), 'bouton « Toute la compagnie »');
+  t = await tac(page);
+  check(t.whole && t.who && JSON.stringify(t.who.ids) === JSON.stringify([I.company]) && /compagnie/i.test(t.who.label), `« Toute la compagnie » : Qui = la compagnie elle-même (${JSON.stringify(t.who)})`);
+  await clickEl(page, '[data-id="card-who-all"]');
+  check(!(await tac(page)).whole, 'T encore : retour à la proposition du jeu');
+  check(await clickEl(page, '[data-id="card-who"]'), 'clic sur le nom de Qui : la liste');
+  t = await tac(page);
+  check(t.sheet === 'qui', `liste « Qui envoyer ? » ouverte (${t.sheet})`);
+  const rowsQ = await page.evaluate(() => document.querySelectorAll('[data-id^="who-row-"]').length);
+  check(rowsQ >= 2 && rowsQ <= 7, `liste Qui : au plus sept rangées (${rowsQ})`);
+  await shot(page, 'command-S2-1280x720');
+  await clickEl(page, '[data-id="who-tick-1"]');
+  await clickEl(page, '[data-id="who-tick-2"]');
+  check(await clickEl(page, '[data-id="who-ok"]'), 'cases cochées : « Valider »');
+  t = await tac(page);
+  check(t.sheet === 'card' && t.who && t.who.ids.length >= 2, `deux rangées cochées : Qui = leurs unités ensemble (${JSON.stringify(t.who)})`);
+  await rest(page);
+  check(await clickEl(page, '[data-id="tac-more"]') && await clickEl(page, '[data-id="more-affichage"]'), '« Plus… › Affichage de la carte »');
+  check(await clickEl(page, '[data-id="layer-crowd"]'), 'couche « Foule »');
   check(await page.evaluate(() => window.__cmd.tactical().map.overlay.layers.crowd === false), 'couches : la foule peut être masquée');
-  await click(page, 'layer-crowd');
+  await clickEl(page, '[data-id="layer-crowd"]');
   await page.keyboard.press('Escape');
   await settle(page, 200);
-  check(await page.evaluate(() => !document.querySelector('.ct-layers').classList.contains('is-on')) && (await stack(page)).includes('carte_tactique'), 'Échap referme le choix des couches sans fermer la carte');
-  await page.evaluate((keys) => window.__cmd.tactical().state.setSelection(keys), I.groups[1]);
+  t = await tac(page);
+  check(t.sheet === 'more' && (await stack(page)).includes('carte_tactique'), `Échap : retour au menu « Plus… », la carte reste ouverte (${t.sheet})`);
+  await page.keyboard.press('Escape');
   await settle(page, 200);
+  check((await tac(page)).sheet === 'none' && (await stack(page)).includes('carte_tactique'), 'Échap encore : « Plus… » se referme, la carte reste ouverte');
 
-  // ── niveau de force : ordre refusé au-dessus du niveau autorisé, puis autorisé ──
-  await click(page, 'verb-charge');
+  // ── niveau de force : « Charger » 🔒 → étapes légales (S3), rien ne part ; « Cadre légal » : autoriser ; ⚖ quand même ──
+  await page.evaluate(() => {
+    const b = window.__cmd;
+    const un = b.maps.scene.unitModel.get(b.scenario.sections[1].id);
+    b.tactical().map.jumpTo(un.x, un.z, 0.5);
+  });
+  await settle(page, 400);
+  await page.evaluate((keys) => window.__cmd.tactical().state.setSelection(keys), I.groups[1]);
+  u = await unit(page, I.sections[1]);
+  p = await mapPoint(page, u.x, u.z);
+  const sp5 = await spot(page, p.x + 60, p.y - 150);
+  await page.mouse.click(sp5.x, sp5.y);
+  await settle(page);
+  const wT = (await tac(page)).card;
+  const charge0 = await Promise.all(I.groups[1].map((id) => order(page, id)));
+  // « Plus… › Tous les ordres › Charger » : la fiche s'ouvre sur cet ordre seul (O, la barre du bas est masquée par la fiche)
+  await page.keyboard.press('KeyO');
+  await frames(page, 3);
+  check(await clickEl(page, '[data-id="more-ordres"]') && await clickEl(page, '[data-id="verb-charge"]'), '« Plus… › Tous les ordres › Charger »');
+  t = await tac(page);
+  check(/Charger/.test(t.lineLabel) && t.who && t.who.ids.length === 3, `fiche : « Charger » surlignée, Qui = les trois groupes (${t.lineLabel}, ${JSON.stringify(t.who)})`);
+  check(/🔒/.test(await textOf(page, '.ct-mount-card')), 'ligne verrouillée (🔒) tant que la force de niveau 2 n\'est pas autorisée');
+  await clickEl(page, '[data-id="card-send"]');
+  t = await tac(page);
+  const s3 = await textOf(page, '.ct-mount-card');
+  check(t.sheet === 'confirm' && /autoriser/i.test(s3) && /Faire les étapes dans l.ordre/.test(s3), `S3 : les étapes légales listées (${s3.slice(0, 200)})`);
+  await shot(page, 'command-S3-1280x720');
+  const charge1 = await Promise.all(I.groups[1].map((id) => order(page, id)));
+  check(charge1.every((x, i) => x.issuedAt === charge0[i].issuedAt), 'rien ne part avant la confirmation des étapes');
+  await page.keyboard.press('Escape');
   await settle(page, 200);
-  let nt = await notices(page);
-  check(nt.some((t) => /Refusé/.test(t) && /niveau 2/.test(t)), `« Charge » refusée tant que la force de niveau 2 n'est pas autorisée (${nt[nt.length - 1]})`);
-  check(await page.evaluate(() => window.__cmd.tactical().state.mode.kind === 'idle'), 'aucun geste armé après un refus');
-  await click(page, 'tac-force-2');
+  check((await tac(page)).sheet === 'card', 'Échap : retour à la fiche');
+  check(await clickEl(page, '[data-id="tac-legal"]'), 'pastille légale : « Cadre légal »');
+  const legal = await textOf(page, '[data-id="tac-legal-panel"]');
+  check(/CADRE LÉGAL/i.test(legal) && /La loi permet/.test(legal) && !/niveau \d/i.test(legal), `« Cadre légal » en mots (${legal.slice(0, 120)})`);
+  check(await page.evaluate(() => { const b = document.querySelector('[data-id="legal-sommation"]'); return !!b && b.getBoundingClientRect().width > 0; }), 'commandant de la force publique (écharpe) : « Faire la sommation suivante seulement » proposé');
+  check(await clickEl(page, '[data-id="legal-force-2"]'), '« Autoriser : bâton et gazeuse »');
   await settle(page, 200);
   check(await page.evaluate(() => window.__cmd.ctx.law.roe.authorizedForce === 2), 'le commandant fixe la force autorisée au niveau 2 (ctx.law.authorize)');
   const forceLog = await page.evaluate(() => window.__cmd.ctx.radio.log.slice(-1)[0].text);
-  check(/autorisé/.test(forceLog), `autorisation annoncée à la radio (${forceLog})`);
-  await click(page, 'verb-charge');
+  check(/autoris/i.test(forceLog), `autorisation annoncée à la radio (${forceLog})`);
+  await page.keyboard.press('Escape');
   await settle(page, 200);
-  const T = { x: p.x + 60, y: p.y - 150 };
-  const wT = await worldAt(page, T.x, T.y);
-  await page.mouse.click(T.x, T.y);
+  // (le pointeur resté où était « Autoriser » survolerait une ligne de la fiche revenue : on l'écarte de la colonne)
+  await page.mouse.move(20, 400);
+  await frames(page, 3);
+  t = await tac(page);
+  check(t.sheet === 'card' && /Charger/.test(t.lineLabel), `« Cadre légal » refermé : la fiche revient, « Charger » surlignée (${t.sheet} : ${t.lineLabel} / ${t.lines.join(' | ')})`);
+  check(!/🔒/.test(await textOf(page, '.ct-mount-card')) && /⚖/.test(await textOf(page, '.ct-mount-card')), '« Charger » permise, avant la dernière sommation (⚖)');
+  await clickEl(page, '[data-id="card-send"]');
+  const s3b = await textOf(page, '.ct-mount-card');
+  check((await tac(page)).sheet === 'confirm' && /avant la dernière sommation/.test(s3b), `S3 : « L’ordre part avant la dernière sommation : vous en répondrez. » (${s3b.slice(0, 160)})`);
+  check(await clickEl(page, '[data-id="card-confirm"]'), '« Donner l’ordre quand même »');
   await settle(page);
   const charged = await Promise.all(I.groups[1].map((id) => order(page, id)));
   check(charged.every((c) => c.type === 'charge' && c.maxForce === 2), `charge ordonnée aux trois groupes, force 2 (${charged.map((c) => c.type + '/' + c.maxForce)})`);
-  if (process.env.DEBUG_CMD) console.log('charge', JSON.stringify({ wT, charged, sec: await order(page, I.sections[1]), sel: await selection(page) }));
-  near(charged.reduce((a, c) => a + c.x, 0) / 3, wT.x, 1.5, 'charge : les trois points sont répartis autour du point désigné (x)');
+  near(charged.reduce((a, c) => a + c.x, 0) / 3, wT.x, 1.5, 'charge : les trois points sont répartis autour du lieu (x)');
   near(charged.reduce((a, c) => a + c.z, 0) / 3, wT.z, 1.5, 'charge : idem (z)');
-  nt = await notices(page);
-  check(nt.some((t) => /avant la dernière sommation/.test(t)), 'avertissement : emploi de la force avant la dernière sommation');
-  check(await page.evaluate(() => document.querySelector('[data-id="tac-sommation"]').style.display !== 'none'), 'commandant de la force publique (écharpe) : bouton « Sommation suivante » proposé');
+  await settle(page, 2400);
+  await rest(page);
 
-  // ── ordre immédiat ──
-  await click(page, 'verb-tenir');
+  // ── ordre immédiat : « Tenir sa position » (fiche de l'unité) ──
+  u = await unit(page, I.groups[1][0]);
+  await page.evaluate((key) => { const b = window.__cmd; const un = b.maps.scene.unitModel.get(key); b.tactical().map.jumpTo(un.x, un.z, 0.16); }, I.sections[1]);
+  await settle(page, 400);
+  u = await unit(page, I.groups[1][0]);
+  p = await mapPoint(page, u.x, u.z);
+  await page.mouse.click(p.x, p.y);
+  await settle(page);
+  check(await cardLine(page, /^Tenir sa position$/), 'fiche du groupe : « Tenir sa position »');
+  await settle(page);
+  check((await order(page, I.groups[1][0])).type === 'tenir', 'ordre immédiat « tenir » transmis');
+  // « Annuler l'ordre » (X, 5 s) : « cesser » aux mêmes unités
+  await page.keyboard.press('KeyX');
   await settle(page, 200);
-  check((await order(page, I.groups[1][0])).type === 'tenir', 'ordre immédiat « Tenir » transmis');
+  check((await order(page, I.groups[1][0])).type === 'cesser', `X : « Annuler l’ordre » = « cesser » à la même unité (${(await order(page, I.groups[1][0])).type})`);
+  await settle(page, 2400);
+  await rest(page);
 
-  // ── incidents : liste triée, glisser-déposer sur une unité, délégation par menu ──
-  await click(page, 'tab-incidents');
+  // ── incidents : « À traiter », « Plus… › Tous les incidents », glisser-déposer, délégation, fiche d'un incident ──
+  const todo = await page.evaluate(() => [...document.querySelectorAll('[data-id^="todo-"]')].filter((b) => b.getBoundingClientRect().width > 0).map((b) => b.innerText.replace(/\s+/g, ' ')));
+  check(todo.length >= 1 && todo.length <= 3, `« À traiter » : au plus trois rangées (${todo.length} : ${todo.join(' | ')})`);
+  check(/feu/i.test(todo[0] ?? '') && /v[ée]hicule/i.test(todo[0] ?? ''), `le plus urgent en tête de « À traiter » (${todo[0]})`);
+  check(await clickEl(page, '[data-id="tac-more"]') && await clickEl(page, '[data-id="tab-incidents"]'), '« Plus… › Tous les incidents et secours »');
   await settle(page, 400);
   const incs = await page.evaluate(() => {
     const rows = Array.from(document.querySelectorAll('.ct-inc')).map((r) => Number(r.dataset.incident));
@@ -370,19 +616,20 @@ async function bureau() {
   check(incs.length === 6, `six incidents listés (${incs.length})`);
   check(incs.every((x, i) => i === 0 || incs[i - 1].urgency >= x.urgency), `liste triée par urgence décroissante (${incs.map((x) => x.urgency).join(',')})`);
   check(incs[0].kind === 'feu_vehicule', `le plus urgent en tête (${incs[0].kind})`);
-  check(await page.evaluate(() => document.querySelector('.ct-tab em').textContent === '6'), 'pastille de l\'onglet : 6 incidents non traités');
   // glisser le feu de poubelles sur le groupe 2 ALFA (vue recadrée pour voir les deux)
   const feu = incs.find((x) => x.kind === 'feu_poubelle');
-  await page.evaluate(([id, key]) => {
+  await page.evaluate(([id, k]) => {
     const b = window.__cmd;
     const inc = b.scenario.incidents.get(id);
-    const u = b.maps.scene.unitModel.get(key);
+    const un = b.maps.scene.unitModel.get(k);
     b.tactical().state.clearSelection();
-    b.tactical().map.jumpTo((inc.x + u.x) / 2, (inc.z + u.z) / 2, 0.2);
+    b.tactical().map.jumpTo((inc.x + un.x) / 2, (inc.z + un.z) / 2, 0.2);
   }, [feu.id, I.groups[1][0]]);
   await settle(page, 500);
   const row = await page.evaluate((id) => {
-    const r = document.querySelector(`[data-id="incident-${id}"]`).getBoundingClientRect();
+    const e = document.querySelector(`[data-id="incident-${id}"]`);
+    e.scrollIntoView({ block: 'nearest' });
+    const r = e.getBoundingClientRect();
     return { x: r.left + 60, y: r.top + r.height / 2 };
   }, feu.id);
   u = await unit(page, I.groups[1][0]);
@@ -393,10 +640,10 @@ async function bureau() {
   check(inc.state === 'assigne' && inc.squadId === I.groups[1][0] && inc.means === 'unite', `incident déposé sur 2 ALFA : confié (${JSON.stringify(inc)})`);
   // glisser le marqueur d'un incident (sur la carte) vers une unité
   const blesse = incs.find((x) => x.kind === 'blesse');
-  await page.evaluate(([id, key]) => {
+  await page.evaluate(([id, k]) => {
     const b = window.__cmd;
     const i = b.scenario.incidents.get(id);
-    const un = b.maps.scene.unitModel.get(key);
+    const un = b.maps.scene.unitModel.get(k);
     b.tactical().map.jumpTo((i.x + un.x) / 2, (i.z + un.z) / 2, 0.2);
   }, [blesse.id, I.groups[2][1]]);
   await settle(page, 500);
@@ -408,9 +655,12 @@ async function bureau() {
   inc = await page.evaluate((id) => { const i = window.__cmd.scenario.incidents.get(id); return { state: i.state, squadId: i.squadId }; }, blesse.id);
   check(inc.state === 'assigne' && inc.squadId === I.groups[2][1], `marqueur d'incident glissé sur une unité : confié (${JSON.stringify(inc)})`);
   // délégation par menu : le véhicule en feu au canon à eau
-  await click(page, 'incident-' + incs[0].id);
+  if (!(await page.evaluate(() => window.__cmd.tactical().state.sheet === 'more'))) await clickEl(page, '[data-id="tac-more"]');
+  await clickEl(page, '[data-id="tab-incidents"]');
   await settle(page, 300);
-  await click(page, `delegate-${incs[0].id}-canon_eau`);
+  await clickEl(page, `[data-id="incident-${incs[0].id}"]`);
+  await settle(page, 300);
+  await clickEl(page, `[data-id="delegate-${incs[0].id}-canon_eau"]`);
   await settle(page, 300);
   inc = await page.evaluate((id) => { const i = window.__cmd.scenario.incidents.get(id); return { state: i.state, means: i.means, squadId: i.squadId }; }, incs[0].id);
   check(inc.means === 'canon_eau' && inc.squadId === I.neptune, `véhicule en feu confié au canon à eau (${JSON.stringify(inc)})`);
@@ -418,121 +668,147 @@ async function bureau() {
   const bad = await page.evaluate(([id, sq]) => window.__cmd.scenario.incidents.assign(id, 'centaure', sq), [incs[0].id, I.centaure]);
   check(bad === false, 'réalisme des moyens : le Centaure ne peut pas être chargé d\'un feu');
   await shot(page, 'command-tactique-incidents-1280x720');
+  await rest(page);
 
-  // ── secours : appel en un point, suivi de l'arrivée ──
-  await click(page, 'tac-call-pompiers');
-  await settle(page, 200);
+  // ── secours : clic près du véhicule en feu → sa fiche → « Envoyer les pompiers » ; suivi de l'arrivée ──
+  await page.evaluate((id) => { const b = window.__cmd; const i = b.scenario.incidents.get(id); b.tactical().map.jumpTo(i.x, i.z, 0.4); }, incs[0].id);
+  await settle(page, 400);
   const hp = await mapPoint(page, incs[0].x, incs[0].z);
   await page.mouse.click(hp.x + 18, hp.y + 10);
   await settle(page, 400);
-  let calls = await page.evaluate(() => window.__cmd.scenario.rescue.calls.map((c) => ({ kind: c.kind, state: c.state, eta: c.eta, x: c.x, z: c.z })));
-  check(calls.length === 1 && calls[0].kind === 'pompiers' && calls[0].eta > 30, `pompiers appelés en un point (${JSON.stringify(calls)})`);
-  const wCall = await worldAt(page, hp.x + 18, hp.y + 10);
-  // le point d'appel s'accroche à l'incident le plus proche (moins de 30 m) : c'est là que les secours interviennent
-  if (Math.abs(calls[0].x - wCall.x) > 0.3) near(calls[0].x, incs[0].x, 0.5, 'point d\'intervention des secours (x, accroché à l\'incident)');
-  else near(calls[0].x, wCall.x, 0.3, 'point d\'intervention des secours (x)');
-  check(await page.evaluate(() => /Pompiers/.test(document.querySelector('.ct-call').textContent) && /\d:\d\d/.test(document.querySelector('.ct-call').textContent)), 'suivi de l\'arrivée affiché (état et délai)');
+  t = await tac(page);
+  check(t.card && t.card.kind === 'incident' && t.card.incidentId === incs[0].id, `clic près du feu : la fiche de l'incident (accroche 40 px) (${JSON.stringify(t.card)})`);
+  check(t.lines.some((l) => /^Retirer l.affectation$/.test(l)), `incident confié : « Retirer l’affectation » proposé (${t.lines.join(' | ')})`);
+  check(/confié/i.test(await textOf(page, '.ct-mount-card')), 'en-tête : à qui l\'incident est confié');
+  check(await cardLine(page, /^Envoyer les pompiers/), '« Envoyer les pompiers »');
+  await settle(page, 400);
+  let calls = await page.evaluate(() => window.__cmd.scenario.rescue.calls.map((c) => ({ kind: c.kind, state: c.state, eta: c.eta, x: c.x, z: c.z, incidentId: c.incidentId })));
+  check(calls.length === 1 && calls[0].kind === 'pompiers' && calls[0].eta > 30, `pompiers appelés (${JSON.stringify(calls)})`);
+  // l'appel est lié à l'incident : c'est là que les secours interviennent
+  check(calls[0] && calls[0].incidentId === incs[0].id, 'l\'appel est lié au feu');
+  near(calls[0].x, incs[0].x, 0.5, 'point d\'intervention des secours (x, à l\'incident)');
+  await rest(page);
+  await clickEl(page, '[data-id="tac-more"]');
+  await clickEl(page, '[data-id="tab-incidents"]');
+  await settle(page, 300);
+  check(await page.evaluate(() => { const c = document.querySelector('.ct-call'); return !!c && /Pompiers/.test(c.textContent) && /\d:\d\d/.test(c.textContent); }), 'suivi de l\'arrivée affiché (état et délai)');
   await page.evaluate(() => window.__cmd.game.step(12));
   await settle(page, 500);
   calls = await page.evaluate(() => window.__cmd.scenario.rescue.calls.map((c) => ({ state: c.state, eta: c.eta })));
   check(calls[0].state === 'en_route' && calls[0].eta < 70, `les secours sont en route, le délai décroît (${JSON.stringify(calls[0])})`);
   await shot(page, 'command-tactique-secours-1280x720');
+  await rest(page);
 
-  // ── circulation : fermer une rue, un périmètre, rouvrir ──
-  await click(page, 'tab-circulation');
-  await settle(page, 300);
+  // ── circulation : fermer une rue (fiche de la rue), rouvrir (« Plus… › Circulation »), fermer un quartier ──
   const before2 = await page.evaluate(() => window.__cmd.scenario.traffic.closures.length);
-  await click(page, 'tac-close-road');
-  await settle(page, 200);
   // on vise le milieu d'une rue voisine de la section 3
-  const road = await page.evaluate((key) => {
+  const road = await page.evaluate((k) => {
     const b = window.__cmd;
-    const un = b.maps.scene.unitModel.get(key);
+    const un = b.maps.scene.unitModel.get(k);
     b.tactical().map.jumpTo(un.x, un.z, 0.6);
-    const s = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '', roadClass: 'residential', oneway: false };
-    b.ctx.world.nearestRoad(un.x + 70, un.z + 40, s, 120);
-    return s;
+    const sm = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '', roadClass: 'residential', oneway: false };
+    b.ctx.world.nearestRoad(un.x + 70, un.z + 40, sm, 120);
+    return sm;
   }, I.sections[2]);
   await settle(page, 500);
   p = await mapPoint(page, road.x, road.z);
-  await page.mouse.move(p.x, p.y);
+  const onRoad = await spot(page, p.x, p.y, ['rue'], { max: 60, edge: road.edgeId });
+  check(!!onRoad, `la rue est désignable au pointeur (${road.name || 'voie'})`);
+  await page.mouse.move(onRoad.x, onRoad.y);
   await frames(page, 4);
   await shot(page, 'command-tactique-fermeture-apercu-1280x720');
-  await page.mouse.click(p.x, p.y);
+  await page.mouse.click(onRoad.x, onRoad.y);
+  await settle(page, 400);
+  t = await tac(page);
+  check(t.card && t.card.kind === 'rue' && t.lines[0] === 'Barrer la rue' && t.lines[1] === 'Barrer la rue, passants admis', `fiche de la rue : « Barrer la rue », « … passants admis » (${t.lines.join(' | ')})`);
+  check(await cardLine(page, /^Fermer aux voitures \(barrières\)$/), '« Fermer aux voitures (barrières) »');
   await settle(page, 400);
   let cl = await page.evaluate(() => window.__cmd.scenario.traffic.closures.map((c) => ({ id: c.id, edgeId: c.edgeId })));
-  check(cl.length === before2 + 1 && cl[cl.length - 1].edgeId === road.edgeId, `rue fermée par un clic (${road.name || 'voie'} : arête ${road.edgeId})`);
-  check(await page.evaluate(() => window.__cmd.tactical().state.mode.kind === 'close_road'), 'l\'outil reste armé pour fermer plusieurs rues');
+  check(cl.length === before2 + 1 && cl[cl.length - 1].edgeId === road.edgeId, `rue fermée par la fiche (${road.name || 'voie'} : arête ${road.edgeId})`);
   await shot(page, 'command-tactique-fermeture-1280x720');
-  await page.keyboard.press('Escape');
-  await settle(page, 300);
-  check(await page.evaluate(() => window.__cmd.tactical().state.mode.kind === 'idle') && (await stack(page)).includes('carte_tactique'), 'Échap annule l\'outil sans fermer la carte');
-  await click(page, 'reopen-' + cl[cl.length - 1].id);
+  await settle(page, 2400);
+  await rest(page);
+  check(await clickEl(page, '[data-id="tac-more"]') && await clickEl(page, '[data-id="tab-circulation"]'), '« Plus… › Circulation et métro »');
+  check(await clickEl(page, `[data-id="reopen-${cl[cl.length - 1].id}"]`), '« Rouvrir »');
   await settle(page, 300);
   check(await page.evaluate(() => window.__cmd.scenario.traffic.closures.length) === before2, 'rue rouverte depuis la liste');
-  await click(page, 'tac-close-area');
-  await settle(page, 200);
-  const ctr = { x: p.x - 40, y: p.y + 30 };
-  await drag(page, ctr, { x: ctr.x + 170, y: ctr.y }, { shot: 'command-tactique-perimetre-1280x720' });
+  check(await clickEl(page, '[data-id="tac-close-area-100"]'), '« Fermer un quartier aux voitures : 100 m »');
   await settle(page, 400);
   const afterArea = await page.evaluate(() => window.__cmd.scenario.traffic.closures.length);
-  check(afterArea >= before2 + 2, `périmètre tracé : ${afterArea - before2} accès fermés`);
+  check(afterArea >= before2 + 2, `quartier fermé : ${afterArea - before2} accès fermés`);
+  await shot(page, 'command-tactique-perimetre-1280x720');
+  await rest(page);
 
-  // ── métro : bulle d'une station sur la carte, fermeture, filtrage par l'unité sélectionnée ──
+  // ── métro : fiche de la station sur la carte, fermeture, réouverture, filtrage par Qui ──
   const station = await page.evaluate(() => {
     const b = window.__cmd;
-    const s = b.scenario.metro.stations[0];
-    b.tactical().map.jumpTo(s.x, s.z, 0.7);
-    return { id: s.id, name: s.name, x: s.x, z: s.z };
+    const st0 = b.scenario.metro.stations[0];
+    b.tactical().map.jumpTo(st0.x, st0.z, 0.7);
+    return { id: st0.id, name: st0.name, x: st0.x, z: st0.z };
   });
   await settle(page, 500);
   p = await mapPoint(page, station.x, station.z);
   await page.mouse.click(p.x, p.y);
   await settle(page, 300);
-  check(await page.evaluate(() => document.querySelector('.ct-pop').classList.contains('is-on')), `bulle de la station ${station.name} ouverte au clic`);
+  t = await tac(page);
+  check(t.card && t.card.kind === 'metro', `fiche de la station ${station.name} ouverte au clic (${t.card && t.card.kind})`);
   await shot(page, 'command-tactique-metro-1280x720');
-  await click(page, 'pop-metro-open');
+  check(await cardLine(page, /^Fermer la station$/), '« Fermer la station »');
   await settle(page, 300);
   check(await page.evaluate((id) => window.__cmd.scenario.metro.get(id).open === false, station.id), 'station fermée (MetroApi.setOpen)');
-  await click(page, 'pop-metro-open');
+  // « ✓ ORDRE DONNÉ » (2 s) puis la fiche se referme ; la station touchée de nouveau propose « Rouvrir la station »
+  await settle(page, 2600);
+  await page.mouse.click(p.x, p.y);
+  await settle(page, 300);
+  check(await cardLine(page, /^Rouvrir la station$/), 'la fiche propose ensuite « Rouvrir la station »');
   await settle(page, 300);
   check(await page.evaluate((id) => window.__cmd.scenario.metro.get(id).open === true, station.id), 'station rouverte');
-  await page.evaluate((key) => window.__cmd.tactical().state.setSelection([key]), I.groups[0][2]);
+  await settle(page, 2600);
+  await page.mouse.click(p.x, p.y);
   await settle(page, 300);
-  await click(page, `metro-${station.id}-filter`);
+  check(await cardLine(page, /^Filtrer la sortie$/), '« Filtrer la sortie »');
   await settle(page, 300);
-  check(await page.evaluate((id) => window.__cmd.scenario.metro.get(id).filtered === true, station.id), 'sortie filtrée par l\'unité sélectionnée (MetroApi.setFiltered)');
+  check(await page.evaluate((id) => window.__cmd.scenario.metro.get(id).filtered === true, station.id), 'sortie filtrée par l\'unité proposée (MetroApi.setFiltered)');
+  await settle(page, 2400);
+  await rest(page);
 
-  // ── journal ──
-  await click(page, 'tab-journal');
+  // ── journal (J) ──
+  await page.keyboard.press('KeyJ');
   await settle(page, 400);
   const msgs = await page.evaluate(() => document.querySelectorAll('.ct-msg').length);
-  check(msgs >= 8, `journal radio : ${msgs} messages horodatés`);
+  check(msgs >= 8, `journal radio (J) : ${msgs} messages horodatés`);
   await shot(page, 'command-tactique-journal-1280x720');
+  await rest(page);
+
+  // ── « Mes unités » (S5) : ce que fait chaque unité, en mots simples ──
+  const units = await textOf(page, '[data-id="tac-units"]');
+  check(units.length > 0 && !/[A-Z]{3,}_[A-Z_]+|INITIATIVE/.test(units), `« Mes unités » sans type brut ni « INITIATIVE » (${units.slice(0, 160)})`);
+  await shot(page, 'command-S5-1280x720');
 
   // ── temps ralenti ──
   await click(page, 'tac-slow');
   check(await page.evaluate(() => window.__cmd.ctx.clock.timeScale === 0.25), 'temps ralenti : horloge à 0,25');
-  check(await key(page, 'Tab', 'carte_tactique', false), 'Tab referme la carte tactique');
+  check(await key(page, 'Tab', 'carte_tactique', false), 'Tab referme la carte de commandement');
   check(await page.evaluate(() => window.__cmd.ctx.clock.timeScale === 1), 'horloge rétablie à la fermeture');
 
   // ── exécution : l'ordre reste affiché jusqu'à l'arrivée, puis compte rendu ──
   await page.evaluate(() => { window.__cmd.scenario.aiEnabled = true; });
   await key(page, 'Tab', 'carte_tactique', true);
   await settle(page, 500);
-  check(await page.evaluate((key) => window.__cmd.tactical().state.selection.has(key), I.groups[0][2]), 'réouverture : la sélection est retrouvée');
-  await page.evaluate((key) => {
+  await page.evaluate((k) => {
     const b = window.__cmd;
-    const un = b.maps.scene.unitModel.get(key);
-    b.tactical().state.setSelection([key]);
+    const un = b.maps.scene.unitModel.get(k);
+    b.tactical().state.setSelection([k]);
     b.tactical().map.jumpTo(un.x, un.z, 0.4);
   }, I.sections[3]);
   await settle(page, 400);
   u = await unit(page, I.sections[3]);
   p = await mapPoint(page, u.x, u.z);
-  await click(page, 'tab-ordres');
-  await click(page, 'verb-avancer');
-  await page.mouse.click(p.x + 150, p.y + 60);
+  const sp6 = await spot(page, p.x + 150, p.y + 60);
+  await page.mouse.click(sp6.x, sp6.y);
+  await settle(page, 300);
+  // ligne 2 de la fiche d'un point ; dans « Autres ordres ici… » pour une rue
+  check(await cardLine(page, /^Avancer en formation jusqu.ici$/) || await otherLine(page, /^Avancer en formation jusqu.ici$/), '« Avancer en formation jusqu’ici »');
   await settle(page, 600);
   const far = await unit(page, I.groups[3][0]);
   check(far.orderDist > 20, `ordre en cours : le groupe est encore à ${far.orderDist.toFixed(0)} m de son point`);
@@ -544,26 +820,36 @@ async function bureau() {
   const reports = await page.evaluate(() => window.__cmd.ctx.radio.log.filter((m) => /en place/.test(m.text)).length);
   check(reports >= 1, `compte rendu d'exécution au journal (${reports})`);
   const perf = await page.evaluate(() => ({ ...window.__cmd.perf(), draws: window.__cmd.tactical().map.draws, base: window.__cmd.tactical().map.base.renders }));
-  info.push(`carte tactique 1280×720 : interface ${perf['ui:banc'].toFixed(2)} ms par image en moyenne (écran compris), ${perf.base} dessins complets du fond pour ${perf.draws} dessins de la carte`);
+  info.push(`carte de commandement 1280×720 : interface ${perf['ui:banc'].toFixed(2)} ms par image en moyenne (écran compris), ${perf.base} dessins complets du fond pour ${perf.draws} dessins de la carte`);
   await browser.close();
 }
 
 // ══════════════════════════════════ RÔLES ══════════════════════════════════
 async function roles() {
   console.log('— rôles et étendue du commandement');
-  // commissaire : autorité habilitée, sommations
+  // commissaire : autorité habilitée, sommations (« Cadre légal », L)
   {
     const { browser, page } = await open('role=commissaire&freeze=1&ai=0&open=carte_tactique');
     await settle(page, 500);
     const sc = await page.evaluate(() => { const s = window.__cmd.command.scope(); return { level: s.level, canSommation: s.canSommation, canAuthorize: s.canAuthorize, n: s.squadIds.size }; });
     check(sc.level === 'tout' && sc.canSommation && sc.canAuthorize, `commissaire : tout le dispositif, sommations et autorisation (${JSON.stringify(sc)})`);
+    await page.keyboard.press('KeyL');
+    await frames(page, 3);
+    check((await tac(page)).sheet === 'legal', 'L : « Cadre légal »');
     for (let i = 1; i <= 3; i++) {
-      await click(page, 'tac-sommation');
+      await clickEl(page, '[data-id="legal-sommation"]');
       await settle(page, 250);
-      check(await page.evaluate((n) => window.__cmd.ctx.law.roe.sommation === n, i), `sommation suivante : étape ${i}`);
+      check(await page.evaluate((n) => window.__cmd.ctx.law.roe.sommation === n, i), `« Faire la sommation suivante seulement » : étape ${i}`);
     }
-    check(await page.evaluate(() => document.querySelector('[data-id="tac-sommation"]').disabled === true), 'bouton désactivé après la dernière sommation');
+    const last = await page.evaluate(() => {
+      const one = document.querySelector('[data-id="legal-sommation"]');
+      const all = document.querySelector('[data-id="legal-sommations"]');
+      return { one: !!one && one.getBoundingClientRect().width > 0 && !one.disabled, all: all ? all.innerText.replace(/\s+/g, ' ') : '' };
+    });
+    check(!last.one && /Sommations faites/.test(last.all), `après la dernière sommation : plus de sommation à faire, « Sommations faites » (${JSON.stringify(last)})`);
     check(await page.evaluate(() => window.__cmd.ctx.law.roe.lawfulForce === 3), 'force licite passée au niveau 3 après la dernière sommation');
+    const chip = await textOf(page, '[data-id="tac-legal"]');
+    check(/Sommations faites|Sommations 3\/3/.test(chip) && !/Force : \d/.test(chip), `pastille légale à jour, en mots (${chip})`);
     await shot(page, 'command-tactique-commissaire-1280x720');
     await browser.close();
   }
@@ -571,48 +857,97 @@ async function roles() {
   {
     const { browser, page } = await open('role=chef_groupe&freeze=1&ai=0&open=carte_tactique');
     await settle(page, 500);
+    await dismissModel(page);
     const I = await ids(page);
     const sc = await page.evaluate(() => { const s = window.__cmd.command.scope(); return { level: s.level, ids: Array.from(s.squadIds), own: s.ownSquadId, canAuthorize: s.canAuthorize, canMetro: s.canMetro }; });
     check(sc.level === 'unite' && sc.ids.length === 1 && sc.ids[0] === I.groups[1][0] && !sc.canAuthorize && !sc.canMetro, `chef de groupe : son groupe seulement (${JSON.stringify(sc)})`);
-    // une autre unité sélectionnée ne reçoit pas d'ordre
+    // une autre unité : sa fiche n'a aucun ordre pour elle (« pas sous vos ordres »)
     const other = I.groups[0][0];
     const prev = await order(page, other);
-    await page.evaluate((key) => window.__cmd.tactical().state.setSelection([key]), other);
-    await settle(page, 300);
-    await click(page, 'verb-tenir');
-    await settle(page, 200);
-    check((await order(page, other)).type === prev.type, 'ordre refusé pour une unité hors de son commandement');
-    await page.evaluate((key) => window.__cmd.tactical().state.setSelection([key]), I.groups[1][0]);
-    await settle(page, 300);
-    await click(page, 'verb-tenir');
-    await settle(page, 200);
+    await page.evaluate((k) => { const b = window.__cmd; const un = b.maps.scene.unitModel.get(k); b.tactical().map.jumpTo(un.x, un.z, 0.16); }, other);
+    await settle(page, 400);
+    let u = await unit(page, other);
+    let p = await mapPoint(page, u.x, u.z);
+    await page.mouse.click(p.x, p.y);
+    await settle(page);
+    let t = await tac(page);
+    check(t.card && t.card.kind === 'cible' && !t.lines.some((l) => /Tenir sa position|L.envoyer ailleurs/.test(l)), `une unité hors de son commandement : fiche « pas sous vos ordres », sans ordre pour elle (${t.card && t.card.kind} : ${t.lines.join(' | ')})`);
+    check((await order(page, other)).issuedAt === prev.issuedAt, 'aucun ordre pour une unité hors de son commandement');
+    await rest(page);
+    // son propre groupe : « Tenir sa position »
+    await page.evaluate((k) => { const b = window.__cmd; const un = b.maps.scene.unitModel.get(k); b.tactical().map.jumpTo(un.x, un.z, 0.16); }, I.groups[1][0]);
+    await settle(page, 400);
+    u = await unit(page, I.groups[1][0]);
+    p = await mapPoint(page, u.x, u.z);
+    await page.mouse.click(p.x, p.y);
+    await settle(page);
+    check(await cardLine(page, /^Tenir sa position$/), 'fiche de son groupe : « Tenir sa position »');
+    await settle(page);
     check((await order(page, I.groups[1][0])).type === 'tenir', 'ordre transmis à son propre groupe');
-    check(await page.evaluate(() => getComputedStyle(document.querySelector('[data-id="tac-ask-force"]')).display !== 'none'), 'bouton « Demander l\'autorisation » proposé au chef de groupe');
-    check(await page.evaluate(() => document.querySelector('[data-id="tac-sommation"]').style.display === 'none'), 'pas de bouton « Sommation » pour un chef de groupe (non habilité)');
+    await settle(page, 2400);
+    await rest(page);
+    // le T de la fiche s'appelle « Tout le groupe »
+    const sp = await spot(page, p.x + 80, p.y - 60);
+    await page.mouse.click(sp.x, sp.y);
+    await settle(page);
+    const whole = await textOf(page, '[data-id="card-who-all"]');
+    check(whole === '' || /Tout le groupe/.test(whole), `bouton T : « Tout le groupe » pour un chef de groupe (${whole || 'absent : Qui est déjà son groupe'})`);
+    await rest(page);
+    // « Cadre légal » : ses ordres plafonnés, « Demander plus de force (radio) », pas de sommation
+    await page.keyboard.press('KeyL');
+    await frames(page, 3);
+    const legal = await page.evaluate(() => ({
+      request: !!document.querySelector('[data-id="legal-request"]') && document.querySelector('[data-id="legal-request"]').getBoundingClientRect().width > 0,
+      sommation: !!document.querySelector('[data-id="legal-sommation"], [data-id="legal-sommations"]'),
+      text: (document.querySelector('[data-id="tac-legal-panel"]')?.innerText || '').replace(/\s+/g, ' '),
+    }));
+    check(legal.request && /Demander plus de force/.test(legal.text), '« Demander plus de force (radio) » proposé au chef de groupe');
+    check(!legal.sommation && /réservées au commissaire/.test(legal.text), 'pas de sommation pour un chef de groupe (non habilité)');
+    check(/Mes ordres jusqu.à/.test(legal.text), `ses ordres plafonnés : « Mes ordres jusqu’à … » (${legal.text.slice(0, 160)})`);
+    // pas de métro pour un chef de groupe dans « Plus… »
+    await page.keyboard.press('Escape');
+    await frames(page, 2);
+    await clickEl(page, '[data-id="tac-more"]');
+    const more = await page.evaluate(() => [...document.querySelectorAll('[data-id="tac-more-panel"] button')].filter((b) => b.getBoundingClientRect().width > 0).map((b) => b.innerText.replace(/\s+/g, ' ')).join(' | '));
+    check(!/métro/i.test(more), `« Plus… » d'un chef de groupe : sans le métro (${more.slice(0, 200)})`);
     await shot(page, 'command-tactique-chef-groupe-1280x720');
     await browser.close();
   }
-  // CRS : lecture seule
+  // CRS : lecture seule (S6)
   {
     const { browser, page } = await open('role=crs&freeze=1&ai=0&open=carte_tactique');
     await settle(page, 500);
     const r = await page.evaluate(() => ({
       level: window.__cmd.command.scope().level, units: window.__cmd.maps.scene.units.length,
-      palette: getComputedStyle(document.querySelector('.ct-verbs')).display, force: document.querySelector('[data-id="tac-force-3"]').disabled,
+      intents: [...document.querySelectorAll('[data-id^="intent-"]')].filter((b) => b.getBoundingClientRect().width > 0).length,
+      chip: document.querySelector('[data-id="tac-legal"]')?.tagName ?? '',
+      readonly: document.querySelector('[data-id="tactical"]').classList.contains('is-readonly'),
       crowd: window.__cmd.maps.scene.crowdCount,
     }));
-    check(r.level === 'lecture' && r.palette === 'none' && r.force === true, `CRS : lecture seule, pas de palette d'ordres (${JSON.stringify(r)})`);
+    check(r.level === 'lecture' && r.readonly && r.intents === 0 && r.chip !== 'BUTTON', `CRS : lecture seule, ni intentions ni ordres, la pastille légale n'est qu'un affichage (${JSON.stringify(r)})`);
     check(r.units > 20 && r.crowd > 250, `CRS : il voit les unités (${r.units}) et la foule (${r.crowd})`);
-    await shot(page, 'command-tactique-crs-lecture-1280x720');
+    const btns = await visibleButtons(page);
+    check(btns.length <= 4 && btns.includes('tac-close'), `CRS : Fermer, +, −, Moi seulement (${btns.join(', ')})`);
+    await shot(page, 'command-S6-1280x720');
+    // un clic sur la carte : une ligne d'information, jamais une fiche d'ordres
+    const c = await page.evaluate(() => { const r0 = window.__cmd.tactical().map.canvas.getBoundingClientRect(); return { x: r0.left + r0.width / 2, y: r0.top + r0.height / 2 }; });
+    await page.mouse.click(c.x, c.y);
+    await settle(page);
+    check(!(await tac(page)).card, 'CRS : un clic sur la carte n\'ouvre aucune fiche');
     await key(page, 'Tab', 'carte_tactique', false);
-    // roue d'ordres réduite : les deux ordres « me suivre » (à pied, en colonne) à son unité, touches 1 et 2
+    // roue d'ordres réduite : « Suivez-moi à pied » (1), « Suivez-moi en véhicules » (2), « Secours ici » (7)
     await page.keyboard.down('KeyF');
     await untilStack(page, 'roue_ordres', true);
     await frames(page, 3);
-    const labels = await page.evaluate(() => Array.from(document.querySelectorAll('.cw-label')).map((e) => e.textContent));
-    check(labels.length === 2 && labels.every((t) => /Me suivre/.test(t)), `roue d'ordres d'un CRS : les deux ordres « me suivre » seulement (${JSON.stringify(labels)})`);
+    const w = await page.evaluate(() => ({
+      labels: Array.from(document.querySelectorAll('.cw-label')).map((e) => e.textContent),
+      keys: Array.from(document.querySelectorAll('.cw-key')).map((e) => e.textContent),
+    }));
+    const lab = w.labels.map((x) => (x || '').replace(/\s+/g, ''));
+    check(lab.length === 3 && lab[0] === 'Suivez-moiàpied' && lab[1] === 'Suivez-moienvéhicules' && lab[2] === 'Secoursici' && w.keys.join(',') === '1,2,7',
+      `roue d'ordres d'un CRS : trois secteurs, mêmes numéros que le chef (${JSON.stringify(w)})`);
     const wheelNt = await notices(page);
-    check(!wheelNt.some((t) => /recevez les ordres/.test(t)), `roue d'ordres d'un CRS : plus de « vous recevez les ordres » (${JSON.stringify(wheelNt.slice(-3))})`);
+    check(!wheelNt.some((x) => /recevez les ordres/.test(x)), `roue d'ordres d'un CRS : plus de « vous recevez les ordres » (${JSON.stringify(wheelNt.slice(-3))})`);
     // appui LONG (plus d'un quart de seconde et de quatre images) : relâché trop tôt, c'est un appui bref et la
     // roue reste affichée — le scénario dépendait alors de la vitesse de la machine
     await settle(page, 400);
@@ -640,10 +975,7 @@ async function roles() {
     check(r.crowd > 0 && r.crowd === around && (role === 'manifestant' || r.crowd < 300), `${role} : seule la foule autour de lui est connue (${r.crowd} personnes dans 150 m, sur 300)`);
     check(r.stations > 0 && r.route > 0, `${role} : métro et parcours déclaré visibles`);
     if (role === 'manifestant') check(r.incidents === 0 && r.closures === 0, 'manifestant : ni incidents ni fermetures du commandement');
-    const log = await page.evaluate(() => {
-      window.__cmd.tactical().state.setTab('journal');
-      return window.__cmd.maps.scene.vis.radio.join(',');
-    });
+    const log = await page.evaluate(() => window.__cmd.maps.scene.vis.radio.join(','));
     check(!/commandement/.test(log), `${role} : n'entend pas le canal de commandement (${log})`);
     await settle(page, 400);
     await shot(page, `command-tactique-${role}-1280x720`);
@@ -725,17 +1057,20 @@ async function plan() {
   check(await page.evaluate(() => window.__cmd.maps.waypoint === null), 'repère supprimé');
   await key(page, 'KeyM', 'carte', false);
 
-  // ── roue d'ordres : touche maintenue, direction à la souris, relâchement ──
+  // ── roue d'ordres (8 secteurs, « Suivez-moi » d'abord) : touche maintenue, direction à la souris, relâchement ──
   const aim = await page.evaluate(() => { const s = window.__cmd.ctx.player.state; return { x: s.aimX, z: s.aimZ, yaw: s.camYaw }; });
   await page.keyboard.down('KeyF');
   check(await untilStack(page, 'roue_ordres', true), 'touche F maintenue : la roue d\'ordres s\'ouvre');
   await settle(page, 300);
   await shot(page, 'command-roue-1280x720');
-  // secteur « En avant » : en haut de la roue
+  // (libellés sur deux lignes : comparés sans les espaces)
+  const labels8 = await page.evaluate(() => Array.from(document.querySelectorAll('.cw-label')).map((e) => (e.textContent || '').replace(/\s+/g, '')));
+  check(labels8.length === 8 && labels8[0] === 'Suivez-moiàpied' && labels8[1] === 'Suivez-moienvéhicules' && /^Plus/.test(labels8[7]), `roue du chef : huit secteurs, « Suivez-moi à pied » en haut (${labels8.join(' | ')})`);
+  // secteur 3 « Avancer jusqu'ici » : à droite de la roue (sens des aiguilles d'une montre depuis le haut)
   await page.mouse.move(640, 360);
-  await page.mouse.move(640, 250, { steps: 4 });
+  await page.mouse.move(750, 360, { steps: 4 });
   await settle(page, 200);
-  check(await page.evaluate(() => document.querySelector('.cw-title').textContent === 'En avant'), 'survol : secteur « En avant » surligné');
+  check(await page.evaluate(() => /Avancer/.test(document.querySelector('.cw-title').textContent)), `survol : secteur « Avancer jusqu’ici » surligné (${await page.evaluate(() => document.querySelector('.cw-title').textContent)})`);
   await shot(page, 'command-roue-survol-1280x720');
   await page.keyboard.up('KeyF');
   check(await untilStack(page, 'roue_ordres', false), 'relâchement : la roue se ferme');
@@ -743,35 +1078,43 @@ async function plan() {
   check(o.type === 'avancer' && o.issuedBy === I.player, `ordre « avancer » donné à son groupe (${o.type})`);
   near(o.x, aim.x, 0.5, 'roue : l\'ordre vise le point regardé (x)');
   near(o.z, aim.z, 0.5, 'roue : l\'ordre vise le point regardé (z)');
+  /** Centre (client) du secteur i d'une roue de n secteurs. */
+  const wedgeAt = (i, n) => page.evaluate(([k, m]) => {
+    const r = document.querySelector('.cw-svg').getBoundingClientRect();
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2, s = r.width / 320;
+    const a = (k * (Math.PI * 2 / m)) - Math.PI / 2;
+    return { x: cx + Math.cos(a) * 106 * s, y: cy + Math.sin(a) * 106 * s };
+  }, [i, n]);
   // appui bref : la roue reste affichée ; un clic choisit
   await key(page, 'KeyF', 'roue_ordres', true);
   await settle(page, 600);
   check((await stack(page)).includes('roue_ordres'), 'appui bref : la roue reste affichée');
-  const wedge = await page.evaluate(() => {
-    const r = document.querySelector('.cw-svg').getBoundingClientRect();
-    const cx = r.left + r.width / 2, cy = r.top + r.height / 2, k = r.width / 320;
-    const a = (9 * (Math.PI * 2 / 12)) - Math.PI / 2; // secteur « En ligne » (10e des 12 secteurs)
-    return { x: cx + Math.cos(a) * 106 * k, y: cy + Math.sin(a) * 106 * k };
-  });
+  const wedge = await wedgeAt(3, 8); // secteur 4 « Tenir une ligne ici »
   await page.mouse.click(wedge.x, wedge.y);
   const closedAfterChoice = await untilStack(page, 'roue_ordres', false);
   o = await order(page, I.groups[1][0]);
-  check(o.type === 'ligne', `clic sur « En ligne » : ordre transmis (${o.type})`);
+  check(o.type === 'ligne', `clic sur « Tenir une ligne ici » : ordre transmis (${o.type})`);
   angleNear(o.heading, aim.yaw, 0.01, 'ligne de la roue : face au regard');
   check(closedAfterChoice, 'la roue se ferme après le choix');
-  // ordre de force non autorisé : refus
+  // ordre de force non autorisé : « Plus… » (secteur 8) puis « Charger » grisé — aucun ordre
   await key(page, 'KeyF', 'roue_ordres', true);
   await settle(page, 300);
-  const w2 = await page.evaluate(() => {
-    const r = document.querySelector('.cw-svg').getBoundingClientRect();
-    const cx = r.left + r.width / 2, cy = r.top + r.height / 2, k = r.width / 320;
-    const a = (2 * (Math.PI * 2 / 12)) - Math.PI / 2; // « Charge » (3e des 12 secteurs)
-    return { x: cx + Math.cos(a) * 106 * k, y: cy + Math.sin(a) * 106 * k };
-  });
+  const more = await wedgeAt(7, 8);
+  await page.mouse.click(more.x, more.y);
+  await settle(page, 300);
+  const inner = await page.evaluate(() => Array.from(document.querySelectorAll('.cw-label')).map((e) => (e.textContent || '').replace(/\s+/g, '')));
+  check(inner.some((x) => /Charger/.test(x)), `« Plus… » : la couronne intérieure (${inner.join(' | ')})`);
+  const ci = inner.findIndex((x) => /Charger/.test(x));
+  const w2 = await wedgeAt(ci, inner.length);
   await page.mouse.click(w2.x, w2.y);
   await settle(page, 300);
-  check((await order(page, I.groups[1][0])).type === 'ligne', 'secteur « Charge » indisponible (force non autorisée) : aucun ordre');
-  check(await key(page, 'Escape', 'roue_ordres', false), 'Échap ferme la roue');
+  check((await order(page, I.groups[1][0])).type === 'ligne', 'secteur « Charger » indisponible (force non autorisée) : aucun ordre');
+  // Échap : de la couronne intérieure à la roue, puis la roue se ferme
+  for (let i = 0; i < 2 && (await stack(page)).includes('roue_ordres'); i++) {
+    await page.keyboard.press('Escape');
+    await frames(page, 4);
+  }
+  check(await untilStack(page, 'roue_ordres', false), 'Échap ferme la roue');
 
   // ── roue d'ordres au clavier seul (Mac sans souris) : chiffres, flèches puis Entrée, ⌫ ──
   const held0 = await page.evaluate(() => { const p = window.__cmd.ctx.player.person(); return p ? p.active : -2; });
@@ -779,58 +1122,74 @@ async function plan() {
   await key(page, 'KeyF', 'roue_ordres', true);
   await settle(page, 300);
   const keysShown = await page.evaluate(() => Array.from(document.querySelectorAll('.cw-key')).map((e) => e.textContent));
-  check(keysShown.length === 12 && keysShown[0] === '1' && keysShown[9] === '0', `chaque secteur affiche sa touche (${keysShown.join(' ')})`);
+  check(keysShown.join(' ') === '1 2 3 4 5 6 7 8', `chaque secteur affiche sa touche (${keysShown.join(' ')})`);
   check(await page.evaluate(() => /Chiffres, ou flèches puis Entrée/.test(document.querySelector('.cw-legend')?.textContent ?? '')), 'légende « Chiffres, ou flèches puis Entrée » sous la roue');
   await page.keyboard.press('ArrowUp');
   await frames(page, 3);
-  check(await page.evaluate(() => document.querySelector('.cw-title').textContent === 'En avant'), '↑ : secteur « En avant » surligné');
+  check(await page.evaluate(() => /Suivez-moiàpied/.test(document.querySelector('.cw-title').textContent.replace(/\s+/g, ''))), '↑ : secteur « Suivez-moi à pied » surligné');
   await page.keyboard.press('ArrowRight');
   await frames(page, 3);
-  check(await page.evaluate(() => document.querySelector('.cw-title').textContent === 'Bond'), '→ : secteur suivant (« Bond ») surligné');
+  check(await page.evaluate(() => /Suivez-moienvéhicules/.test(document.querySelector('.cw-title').textContent.replace(/\s+/g, ''))), '→ : secteur suivant (« Suivez-moi en véhicules ») surligné');
   check(await key(page, 'Backspace', 'roue_ordres', false), '⌫ ferme la roue sans ordre');
   check((await order(page, I.groups[1][0])).type === before0, 'roue fermée au clavier : aucun nouvel ordre');
   await key(page, 'KeyF', 'roue_ordres', true);
   await settle(page, 300);
-  await page.keyboard.press('Digit1');
-  check(await untilStack(page, 'roue_ordres', false), 'chiffre 1 : la roue se ferme');
+  await page.keyboard.press('Digit3');
+  check(await untilStack(page, 'roue_ordres', false), 'chiffre 3 : la roue se ferme');
   await frames(page, 4);
-  check((await order(page, I.groups[1][0])).type === 'avancer', 'chiffre 1 : ordre « avancer » transmis');
+  check((await order(page, I.groups[1][0])).type === 'avancer', 'chiffre 3 : ordre « avancer » transmis');
   const held1 = await page.evaluate(() => { const p = window.__cmd.ctx.player.person(); return p ? p.active : -2; });
   check(held1 === held0, `le chiffre tapé dans la roue ne change pas l'objet en main (${held0} → ${held1})`);
 
-  // ── carte tactique au clavier seul : section au chiffre, curseur aux flèches, ordre rapide (E), palette (L) ──
-  check(await key(page, 'Tab', 'carte_tactique', true), 'clavier : Tab ouvre la carte tactique');
+  // ── carte de commandement au clavier seul : visée aux flèches, Maj + flèches, E (Envoyer), Entrée, L, H, Échap ──
+  check(await key(page, 'Tab', 'carte_tactique', true), 'clavier : Tab ouvre la carte de commandement');
   await settle(page, 300);
   await frames(page, 3);
   const focus0 = await page.evaluate(() => { const a = document.activeElement; return a ? `${a.tagName}.${a.className}#${a.dataset?.id ?? ''}` : 'null'; });
   check(focus0.endsWith('#tac-map'), `la carte a le focus à l'ouverture (${focus0})`);
-  check(await page.evaluate(() => getComputedStyle(document.querySelector('.ct-keys')).display !== 'none'), 'légende des touches affichée sur la carte');
-  await page.keyboard.press('Digit1');
+  await page.keyboard.press('KeyH');
   await frames(page, 3);
-  check(await page.evaluate(() => window.__cmd.tactical().state.selection.size === 1), 'touche 1 : une unité sélectionnée');
+  check(await page.evaluate(() => document.querySelector('[data-id="tac-help"]').classList.contains('is-on') && /Flèches/.test(document.querySelector('[data-id="tac-help"]').textContent)), 'H : l\'aide des touches');
+  await page.keyboard.press('KeyH');
+  await frames(page, 3);
+  const vk0 = (await tac(page)).visee;
+  await page.keyboard.press('ArrowRight');
+  await frames(page, 3);
+  const vk1 = (await tac(page)).visee;
+  check(!!vk1 && (!vk0 || vk1.key !== vk0.key), `→ : la visée saute au repère voisin (${vk0 && vk0.name} → ${vk1 && vk1.name})`);
+  await page.keyboard.down('Shift');
   await page.keyboard.down('ArrowRight');
   await settle(page, 250);
   await page.keyboard.up('ArrowRight');
+  await page.keyboard.up('Shift');
   await frames(page, 2);
-  check(await page.evaluate(() => window.__cmd.tactical().map.cursorOn && document.querySelector('.cm-cursor').classList.contains('is-on')), 'flèches : le curseur de la carte apparaît et se déplace');
+  check(await page.evaluate(() => window.__cmd.tactical().map.cursorOn && document.querySelector('.cm-cursor').classList.contains('is-on')), 'Maj + flèches : le curseur libre de la carte se déplace');
+  const ord0 = await order(page, I.groups[1][0]);
   await page.keyboard.press('KeyE');
   await frames(page, 4);
-  // (une touche par secteur, quel que soit le nombre d'ordres rapides)
-  check(await page.evaluate(() => { const k = document.querySelectorAll('.ct-quick .cw-key').length; return k >= 10 && k === document.querySelectorAll('.ct-quick .cw-wedge').length; }), 'E : ordre rapide au curseur, touches affichées');
-  await page.keyboard.press('Digit7');
-  await frames(page, 6);
-  check(await page.evaluate(() => document.querySelector('.ct-quick .cw-wheel') === null), 'chiffre 7 : la roue d\'ordre rapide se ferme');
-  check((await order(page, I.groups[1][0])).type === 'tenir', `chiffre 7 : ordre « tenir » transmis (${(await order(page, I.groups[1][0])).type})`);
+  let tk = await tac(page);
+  check(tk.intent === 'envoyer' && !!tk.card && tk.lineLabel !== '', `E : « Envoyer », la fiche du premier lieu proposé (${tk.card && tk.card.name} : ${tk.lineLabel})`);
+  await settle(page, 700);
+  await page.keyboard.press('Enter');
+  await frames(page, 4);
+  const ord1 = await order(page, I.groups[1][0]);
+  check(ord1.issuedAt !== ord0.issuedAt && ord1.issuedBy === I.player, `Entrée : l'ordre part à son groupe (${ord0.type} → ${ord1.type})`);
+  // une seconde Entrée aussitôt : rien (garde de 0,6 s)
+  await page.keyboard.press('Enter');
+  await frames(page, 3);
+  check((await order(page, I.groups[1][0])).issuedAt === ord1.issuedAt, 'Entrée juste après un envoi : aucun second ordre');
+  await settle(page, 2400);
+  await rest(page);
   await page.keyboard.press('KeyL');
   await frames(page, 3);
-  check(await page.evaluate(() => document.activeElement?.classList.contains('ct-verb')), 'L : le focus passe à la liste des ordres');
+  check((await tac(page)).sheet === 'legal', 'L : « Cadre légal »');
   await page.keyboard.press('ArrowDown');
   await frames(page, 3);
-  check(await page.evaluate(() => document.activeElement?.classList.contains('ct-verb')), 'flèches : on parcourt la liste des ordres');
+  check(await page.evaluate(() => !!document.querySelector('[data-id="tac-legal-panel"] button.is-hl')), 'flèches : on parcourt la liste du « Cadre légal »');
   await page.keyboard.press('Escape');
   await frames(page, 3);
-  check(await page.evaluate(() => document.activeElement?.dataset.id === 'tac-map') && (await stack(page)).includes('carte_tactique'), 'Échap dans la liste : retour à la carte (sans la fermer)');
-  check(await key(page, 'Escape', 'carte_tactique', false), 'Échap sur la carte : la carte se ferme');
+  check((await tac(page)).sheet === 'none' && await page.evaluate(() => document.activeElement?.dataset.id === 'tac-map') && (await stack(page)).includes('carte_tactique'), 'Échap dans la liste : retour à la carte (sans la fermer)');
+  check(await key(page, 'Escape', 'carte_tactique', false), 'Échap au repos : la carte se ferme');
 
   // ── radio ──
   check(await key(page, 'KeyT', 'radio', true), 'la touche T ouvre la radio');
@@ -873,6 +1232,8 @@ async function plan() {
 }
 
 // ══════════════════════════════════ MANETTE ══════════════════════════════════
+// Correspondance du §5.1 : stick gauche = visée libre, croix = sauts de la visée, A = Entrée, B = Échap, X = U,
+// Y = « Plus… », LB / RB = « À traiter » précédent / suivant, gâchettes = zoom.
 async function manette() {
   console.log('— manette');
   const { browser, page } = await open('role=commandant&freeze=1&ai=0');
@@ -894,7 +1255,7 @@ async function manette() {
     await frames(page, 4);
   };
   await frames(page, 6);
-  // Select (B8) ouvre la carte tactique ? La table par défaut l'affecte à « carte » : on passe par l'interface.
+  // Select (B8) ouvre le plan (table par défaut) : la carte de commandement s'ouvre par l'interface.
   await page.evaluate(() => window.__cmd.ctx.ui.open('carte_tactique'));
   await settle(page, 600);
   // stick gauche : le curseur apparaît et se déplace
@@ -904,7 +1265,7 @@ async function manette() {
   await frames(page, 4);
   let c = await page.evaluate(() => { const m = window.__cmd.tactical().map; return { on: m.cursorOn, x: m.cursorX, y: m.cursorY, w: m.view.width, dev: window.__cmd.ctx.input.device }; });
   check(c.dev === 'gamepad' && c.on && c.x > c.w / 2 + 60, `stick gauche : curseur affiché et déplacé (${JSON.stringify(c)})`);
-  check(await page.evaluate(() => document.activeElement === window.__cmd.tactical().map.canvas), 'en mode carte, le focus reste sur la carte (les directions pilotent le curseur)');
+  check(await page.evaluate(() => document.activeElement === window.__cmd.tactical().map.canvas), 'en mode carte, le focus reste sur la carte (les directions pilotent la visée)');
   // gâchette droite : zoom avant
   const mpp0 = await page.evaluate(() => window.__cmd.tactical().map.view.mpp);
   await page.evaluate(() => window.__press(7, 1));
@@ -919,86 +1280,115 @@ async function manette() {
   await page.evaluate(() => { window.__pad.axes[2] = 0; });
   const cx1 = await page.evaluate(() => window.__cmd.tactical().map.view.cx);
   check(cx1 > cx0 + 5, `stick droit : la vue se déplace (${(cx1 - cx0).toFixed(1)} m)`);
-  // amener le curseur sur la section 3 et valider : sélection
+  // la visée libre amenée sur la section 3 : A ouvre sa fiche
+  const moveCursor = (sx, sy) => page.evaluate(([x, y]) => {
+    const m = window.__cmd.tactical().map;
+    m.cursorX = x;
+    m.cursorY = y;
+  }, [sx, sy]);
   await page.evaluate((key) => {
     const b = window.__cmd;
     const m = b.tactical().map;
     const u = b.maps.scene.unitModel.get(key);
     m.jumpTo(u.x + 30, u.z, 0.5);
-    const p = m.screenOf(u.x, u.z);
-    m.cursorX = p.x;
-    m.cursorY = p.y;
   }, I.sections[2]);
   await settle(page, 300);
+  let u = await page.evaluate((key) => { const b = window.__cmd; const un = b.maps.scene.unitModel.get(key); const p = b.tactical().map.screenOf(un.x, un.z); return { x: p.x, y: p.y }; }, I.sections[2]);
+  // le stick bouge un peu (visée libre active), puis la visée est posée sur l'unité
+  await page.evaluate(() => { window.__pad.axes[1] = 0.4; });
+  await frames(page, 3);
+  await page.evaluate(() => { window.__pad.axes[1] = 0; });
+  await moveCursor(u.x, u.y);
+  await settle(page, 300);
   await tapPad(0);
   await settle(page, 300);
-  check(JSON.stringify(await selection(page)) === JSON.stringify([I.sections[2]]), `bouton A sur une unité : sélection (${await selection(page)})`);
-  // X : ordre rapide au curseur ; stick vers le haut puis A : « Avancer »
-  await page.evaluate(() => {
-    const m = window.__cmd.tactical().map;
-    m.cursorX += 120;
-    m.cursorY -= 60;
-  });
-  const target = await page.evaluate(() => {
-    const m = window.__cmd.tactical().map;
-    const w = { x: 0, z: 0 };
-    m.view.screenToWorld(m.cursorX, m.cursorY, w);
-    return w;
-  });
-  await tapPad(2);
-  await settle(page, 300);
-  check(await page.evaluate(() => document.querySelector('.ct-quick').classList.contains('is-on')), 'bouton X : menu radial d\'ordre rapide');
-  await page.evaluate(() => { window.__pad.axes[1] = -1; });
-  await settle(page, 250);
-  await shot(page, 'command-tactique-manette-radial-1280x720');
-  await page.evaluate(() => window.__press(0, 1));
-  await frames(page, 4);
-  await page.evaluate(() => { window.__press(0, 0); window.__pad.axes[1] = 0; });
-  await settle(page, 300);
-  const o = await order(page, I.sections[2]);
-  check(o.type === 'avancer', `menu radial : « Avancer » choisi au stick (${o.type})`);
-  near(o.x, target.x, 0.5, 'ordre rapide : au point du curseur (x)');
-  near(o.z, target.z, 0.5, 'ordre rapide : au point du curseur (z)');
-  // ligne tracée au curseur : A maintenu pendant le déplacement
-  await page.evaluate(() => {
-    const t = window.__cmd.tactical();
-    document.querySelector('[data-id="verb-ligne"]').click();
-    t.map.canvas.focus();
-  });
-  await settle(page, 200);
-  const a0 = await page.evaluate(() => { const m = window.__cmd.tactical().map; const w = { x: 0, z: 0 }; m.view.screenToWorld(m.cursorX, m.cursorY, w); return w; });
-  await page.evaluate(() => window.__press(0, 1));
-  await frames(page, 4);
-  await page.evaluate(() => { window.__pad.axes[0] = 1; });
-  await settle(page, 250);
-  await page.evaluate(() => { window.__pad.axes[0] = 0; });
-  await frames(page, 4);
-  const a1 = await page.evaluate(() => { const m = window.__cmd.tactical().map; const w = { x: 0, z: 0 }; m.view.screenToWorld(m.cursorX, m.cursorY, w); return w; });
-  await page.evaluate(() => window.__press(0, 0));
-  await settle(page, 300);
-  const ol = await order(page, I.sections[2]);
-  check(ol.type === 'ligne', `ligne tracée à la manette (${ol.type})`);
-  near(ol.width, Math.hypot(a1.x - a0.x, a1.z - a0.z), 1.2, 'ligne à la manette : largeur du tracé');
-  // LB / RB : zones de focus (carte → unités → onglets)
-  await tapPad(5);
-  await settle(page, 200);
-  check(await page.evaluate(() => document.activeElement && document.activeElement.classList.contains('ct-unit')), 'RB : le focus passe à la liste des unités');
-  await page.evaluate(() => window.__press(13, 1));
-  await frames(page, 4);
-  await page.evaluate(() => window.__press(13, 0));
-  await frames(page, 4);
-  await tapPad(0);
-  await settle(page, 300);
-  const selPad = await selection(page);
-  check(selPad.length === 1 && selPad[0] !== I.sections[2], `croix bas puis A dans la liste : autre unité sélectionnée (${selPad})`);
-  await tapPad(5);
-  await settle(page, 200);
-  check(await page.evaluate(() => document.activeElement && document.activeElement.classList.contains('ct-tab')), 'RB : le focus passe aux onglets');
-  await shot(page, 'command-tactique-manette-focus-1280x720');
-  // B : retour (ferme la carte quand rien n'est en cours)
+  let t = await tac(page);
+  check(t.card && t.card.kind === 'unite' && t.card.squadId === I.sections[2], `bouton A sur une unité : sa fiche (${JSON.stringify(t.card)})`);
+  // B : retour (la fiche se referme, la carte reste)
   await tapPad(1);
   await settle(page, 300);
-  check(!(await stack(page)).includes('carte_tactique'), 'bouton B : la carte tactique se ferme');
+  t = await tac(page);
+  check(!t.card && (await stack(page)).includes('carte_tactique'), 'bouton B : la fiche se referme, la carte reste ouverte');
+  // A sur un lieu libre : sa fiche ; X : Qui suivant ; A : l'ordre part à ce Qui
+  const free = await page.evaluate(([x0, y0]) => {
+    const t0 = window.__cmd.tactical();
+    for (let rad = 60; rad <= 220; rad += 10) {
+      for (let k = 0; k < 12; k++) {
+        const a = (k / 12) * Math.PI * 2;
+        const x = x0 + Math.cos(a) * rad, y = y0 + Math.sin(a) * rad;
+        if (x < 40 || y < 40 || x > t0.map.view.width - 40 || y > t0.map.view.height - 40) continue;
+        const st = t0.tmap.stackAt(x, y, false, true);
+        if (st.length === 0 || st[0].kind === 'rue') return { x, y };
+      }
+    }
+    return null;
+  }, [u.x, u.y]);
+  check(!!free, 'un lieu libre près de la section');
+  await page.evaluate(() => { window.__pad.axes[1] = 0.4; });
+  await frames(page, 3);
+  await page.evaluate(() => { window.__pad.axes[1] = 0; });
+  await moveCursor(free.x, free.y);
+  await settle(page, 300);
+  await tapPad(0);
+  await settle(page, 300);
+  t = await tac(page);
+  check(t.card && (t.card.kind === 'point' || t.card.kind === 'rue') && !!t.who, `A sur un lieu : sa fiche, Qui proposé (${t.card && t.card.kind}, ${t.who && t.who.label})`);
+  const who0 = t.who ? t.who.label : '';
+  await tapPad(2);
+  await settle(page, 300);
+  t = await tac(page);
+  check(t.whoIndex === 1 && t.who && t.who.label !== who0, `X : Qui suivant (${who0} → ${t.who && t.who.label})`);
+  const target = t.who ? t.who.ids : [];
+  const before = await Promise.all(target.map((id) => order(page, id)));
+  await settle(page, 700);
+  await tapPad(0);
+  await settle(page, 300);
+  const after = await Promise.all(target.map((id) => order(page, id)));
+  check(target.length > 0 && after.every((x, i) => x.issuedAt !== before[i].issuedAt && x.issuedBy === I.player), `A : « ${t.lineLabel} » part au Qui choisi (${after.map((x) => x.type).join(', ')})`);
+  await settle(page, 2400);
+  await rest(page);
+  // Y : « Plus… » ; B le referme
+  await tapPad(3);
+  await settle(page, 300);
+  check((await tac(page)).sheet === 'more', 'bouton Y : « Plus… »');
+  await shot(page, 'command-tactique-manette-plus-1280x720');
+  await tapPad(1);
+  await settle(page, 300);
+  check((await tac(page)).sheet === 'none' && (await stack(page)).includes('carte_tactique'), 'bouton B : « Plus… » se referme');
+  // RB : « À traiter » suivant (la fiche de l'élément) ; LB : précédent
+  await tapPad(5);
+  await settle(page, 300);
+  t = await tac(page);
+  const first = t.card ? t.card.key : '';
+  check(!!t.card && (t.card.kind === 'incident' || t.card.kind === 'proposition' || t.card.kind === 'nasse'), `RB : la fiche du premier « À traiter » (${t.card && t.card.name})`);
+  await tapPad(5);
+  await settle(page, 300);
+  t = await tac(page);
+  check(!!t.card && t.card.key !== first, `RB encore : l'élément suivant (${t.card && t.card.name})`);
+  await tapPad(4);
+  await settle(page, 300);
+  t = await tac(page);
+  check(!!t.card && t.card.key === first, 'LB : l\'élément précédent');
+  await rest(page);
+  // croix : la visée saute d'un repère à l'autre
+  // (rien dans la direction : la carte défile d'un pas, comme aux flèches du clavier)
+  // (Échap du clavier vient de servir : la manette reprend la main)
+  await page.evaluate(() => { window.__pad.axes[1] = 0.4; });
+  await frames(page, 3);
+  await page.evaluate(() => { window.__pad.axes[1] = 0; });
+  await settle(page, 200);
+  const v0 = (await tac(page)).visee;
+  const vx0 = await page.evaluate(() => window.__cmd.tactical().map.view.cx);
+  await tapPad(15);
+  await settle(page, 200);
+  const v1 = (await tac(page)).visee;
+  const vx1 = await page.evaluate(() => window.__cmd.tactical().map.view.cx);
+  check((!!v1 && (!v0 || v1.key !== v0.key)) || vx1 > vx0 + 1, `croix droite : la visée saute au repère voisin, ou la carte défile vers la droite (${v0 && v0.name} → ${v1 && v1.name} ; vue ${vx0.toFixed(0)} → ${vx1.toFixed(0)})`);
+  await shot(page, 'command-tactique-manette-1280x720');
+  // B au repos : la carte se ferme
+  await tapPad(1);
+  await settle(page, 300);
+  check(!(await stack(page)).includes('carte_tactique'), 'bouton B au repos : la carte de commandement se ferme');
   await browser.close();
 }
 
@@ -1027,11 +1417,24 @@ async function tactile() {
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: released });
     };
     const tap = async (x, y) => { await down(9, x, y); await frames(page, 2); await up(9); await frames(page, 3); };
+    /** Toucher au centre d'un élément visible ; null s'il est absent. */
     const tapId = async (id) => {
-      const r = await page.evaluate((k) => { const e = document.querySelector(`[data-id="${k}"]`).getBoundingClientRect(); return { x: e.left + e.width / 2, y: e.top + e.height / 2, w: e.width, h: e.height }; }, id);
+      const r = await page.evaluate((k) => {
+        const e = [...document.querySelectorAll(`[data-id="${k}"]`)].find((x) => x.getBoundingClientRect().width > 0);
+        if (!e) return null;
+        e.scrollIntoView({ block: 'nearest' });
+        const b = e.getBoundingClientRect();
+        return { x: b.left + b.width / 2, y: b.top + b.height / 2, w: b.width, h: b.height };
+      }, id);
+      if (!r) return null;
       await page.touchscreen.tap(r.x, r.y);
       await frames(page, 3);
       return r;
+    };
+    /** Toucher de la ligne de la fiche dont le libellé correspond. */
+    const tapLine = async (re) => {
+      const id = await lineId(page, re);
+      return id !== '' && (await tapId(id)) !== null;
     };
     await settle(page, 600);
     // ── HUD par-dessus les commandes tactiles du module d'entrées : aucun chevauchement ──
@@ -1074,16 +1477,26 @@ async function tactile() {
     await page.evaluate(() => { window.__cmd.maps.clearWaypoint(); window.__cmd.ctx.ui.close('carte'); });
     await settle(page, 300);
 
-    // ── carte tactique au doigt ──
+    // ── carte de commandement au doigt ──
     await page.evaluate(() => window.__cmd.ctx.ui.open('carte_tactique'));
     await settle(page, 800);
-    await shot(page, `command-tactique-${size.name}`);
     const compact = await page.evaluate(() => document.querySelector('.ct').classList.contains('is-compact'));
-    check(compact === (size.w < 980 || size.h < 520), `${size.name} : disposition ${compact ? 'compacte (tiroirs)' : 'large (panneaux)'}`);
-    // cibles tactiles : boutons d'au moins 44 px (40 px tolérés pour les lignes de liste serrées)
+    check(compact === (size.w < 980 || size.h < 520), `${size.name} : disposition ${compact ? 'compacte (une feuille à la fois)' : 'large (colonne de droite)'}`);
+    await shot(page, `command-S0-${size.name}`);
+    if (compact) {
+      // barre du bas : sept boutons d'au moins 96 × 52 px dans la zone sûre ; rien ne déborde de l'écran
+      const bar = await page.evaluate(() => [...document.querySelectorAll('[data-id="tac-intents"] button')].filter((b) => b.getBoundingClientRect().width > 0).map((b) => {
+        const r = b.getBoundingClientRect();
+        return { id: b.dataset.id, w: Math.round(r.width), h: Math.round(r.height), l: Math.round(r.left), r: Math.round(r.right), b: Math.round(r.bottom) };
+      }));
+      check(bar.length === 7 && bar.every((b) => b.w >= 96 && b.h >= 52 && b.l >= 0 && b.r <= size.w && b.b <= size.h), `${size.name} : barre du bas, sept boutons ≥ 96 × 52 px dans l'écran (${bar.map((b) => `${b.id} ${b.w}×${b.h}`).join(', ')})`);
+      const sb = await visibleButtons(page);
+      check(sb.length <= 14, `${size.name} : au repos, au plus 14 commandes (${sb.length} : ${sb.join(' · ')})`);
+    }
+    // cibles tactiles : au moins 40 px dans les deux sens (les lignes de fiche font 40 px au téléphone)
     const small = await page.evaluate(() => Array.from(document.querySelectorAll('.ct button')).filter((b) => { const r = b.getBoundingClientRect(); return r.width > 0 && r.height > 0 && (r.height < 39.5 || r.width < 39.5); }).map((b) => (b.dataset.id || b.className) + ' ' + Math.round(b.getBoundingClientRect().width) + '×' + Math.round(b.getBoundingClientRect().height)));
     check(small.length === 0, `${size.name} : toutes les cibles tactiles font au moins 40 px (${small.slice(0, 6).join(', ') || 'ok'})`);
-    // toucher une unité : sélection
+    // toucher une unité : sa fiche (S1), sans aucun ordre
     await page.evaluate((key) => {
       const b = window.__cmd;
       const u = b.maps.scene.unitModel.get(key);
@@ -1092,74 +1505,122 @@ async function tactile() {
     await settle(page, 500);
     let u = await unit(page, I.sections[2]);
     let p = await mapPoint(page, u.x, u.z);
+    const issued0 = (await order(page, I.sections[2])).issuedAt;
     await tap(p.x, p.y);
     await settle(page);
-    check(JSON.stringify(await selection(page)) === JSON.stringify([I.sections[2]]), `${size.name} : toucher une unité la sélectionne (${await selection(page)})`);
-    // glisser : déplacement de la carte
+    let t = await tac(page);
+    check(t.card && t.card.kind === 'unite' && t.card.squadId === I.sections[2], `${size.name} : toucher une unité ouvre sa fiche (${JSON.stringify(t.card)})`);
+    check((await order(page, I.sections[2])).issuedAt === issued0, `${size.name} : un toucher sur la carte ne donne aucun ordre`);
+    await shot(page, `command-S1-${size.name}`);
+    // une feuille à la fois : « Suivi » remplace la fiche
+    if (compact) {
+      await tapId('tac-suivi');
+      await settle(page, 300);
+      const on = await page.evaluate(() => ['follow', 'card', 'sheet'].filter((m) => document.querySelector('.ct-mount-' + m).classList.contains('is-on')));
+      check(on.length === 1 && on[0] === 'follow', `${size.name} : une seule feuille ouverte (${on.join(', ')})`);
+      await shot(page, `command-S5-${size.name}`);
+      await tapId('tac-suivi');
+      await settle(page, 300);
+    }
+    await rest(page);
+    // glisser : déplacement de la carte (sur la carte visible, aucune feuille ouverte)
     const c0 = await page.evaluate(() => { const v = window.__cmd.tactical().map.view; return { cx: v.cx, cz: v.cz, mpp: v.mpp }; });
-    await down(4, p.x + 60, p.y + 90);
-    await move(4, p.x + 10, p.y + 40, 6);
+    const g0 = await spot(page, p.x - 120, p.y + 40, ['point', 'rue'], { touch: true });
+    await down(4, g0.x, g0.y);
+    await move(4, g0.x - 50, g0.y - 50, 6);
     await up(4);
     await settle(page, 200);
     const c1 = await page.evaluate(() => { const v = window.__cmd.tactical().map.view; return { cx: v.cx, cz: v.cz }; });
     near(c1.cx - c0.cx, 50 * c0.mpp, 3, `${size.name} : glisser déplace la carte (x)`);
-    // ouvrir le tiroir des ordres (compact), choisir « Ligne », tracer au doigt
-    if (compact) {
-      await tapId('tab-ordres');
-      await settle(page, 300);
-      check(await page.evaluate(() => document.querySelector('.ct-right').classList.contains('is-open')), `${size.name} : le tiroir des ordres s'ouvre`);
-      await shot(page, `command-tactique-tiroir-${size.name}`);
-    }
-    await tapId('verb-ligne');
-    await settle(page, 300);
-    if (compact) {
-      // le tiroir se referme pour tracer
-      await tapId('tab-ordres');
-      await settle(page, 300);
-    }
+    // ligne tracée au doigt : un lieu, « Autres ordres ici… », « Tracer la ligne moi-même » (toucher, puis second toucher), deux touchers
     u = await unit(page, I.sections[2]);
     p = await mapPoint(page, u.x, u.z);
-    const A = { x: p.x - 70, y: p.y + 70 }, B = { x: p.x + 60, y: p.y + 70 };
+    const sp = await spot(page, p.x - 40, p.y + 20, ['point', 'rue'], { touch: true });
+    check(!!sp, `${size.name} : un lieu libre à toucher`);
+    await tap(sp.x, sp.y);
+    await settle(page, 300);
+    t = await tac(page);
+    check(t.card && (t.card.kind === 'point' || t.card.kind === 'rue'), `${size.name} : toucher un lieu ouvre sa fiche (${t.card && t.card.kind})`);
+    const quiIds = t.who ? t.who.ids : [];
+    await tapId('card-line-0');
+    await settle(page, 200);
+    check(await tapLine(/^Tracer la ligne moi-même$/), `${size.name} : « Tracer la ligne moi-même » touchée`);
+    check(!(await tac(page)).tracing, `${size.name} : un seul toucher sur une ligne ne fait que la surligner`);
+    await tapLine(/^Tracer la ligne moi-même$/);
+    await settle(page, 200);
+    check((await tac(page)).tracing, `${size.name} : second toucher sur la même ligne : la carte attend les deux bouts`);
+    // les deux bouts, sur la partie visible de la carte (à gauche de la feuille au téléphone)
+    const mapBox = await page.evaluate(() => { const r = window.__cmd.tactical().map.canvas.getBoundingClientRect(); return { l: r.left, t: r.top, w: r.width, h: r.height }; });
+    const A = { x: mapBox.l + mapBox.w * 0.25, y: mapBox.t + mapBox.h * 0.62 }, B = { x: mapBox.l + mapBox.w * 0.7, y: mapBox.t + mapBox.h * 0.62 };
     const wA = await worldAt(page, A.x, A.y), wB = await worldAt(page, B.x, B.y);
-    await down(5, A.x, A.y);
-    await move(5, B.x, B.y, 8);
+    await tap(A.x, A.y);
     await frames(page, 3);
     await shot(page, `command-tactique-trace-ligne-${size.name}`);
-    await up(5);
+    await tap(B.x, B.y);
     await settle(page, 400);
-    let o = await order(page, I.sections[2]);
-    check(o.type === 'ligne', `${size.name} : ligne tracée au doigt (${o.type})`);
-    near(o.width, Math.hypot(wB.x - wA.x, wB.z - wA.z), 0.5, `${size.name} : largeur de la ligne`);
-    near(o.x, (wA.x + wB.x) / 2, 0.5, `${size.name} : centre de la ligne (x)`);
-    angleNear(o.heading, Math.PI, 0.03, `${size.name} : tracé ouest → est, face au nord`);
-    // appui long avec une sélection : ordre rapide (menu radial), « Nasse »
-    const L = { x: p.x - 100, y: p.y + 20 };
-    const wL = await worldAt(page, L.x, L.y);
+    let o = quiIds.length > 0 ? await order(page, quiIds[0]) : { type: '' };
+    check(o.type === 'ligne', `${size.name} : ligne tracée au doigt pour l'unité proposée (${o.type})`);
+    if (quiIds.length === 1) {
+      near(o.width, Math.hypot(wB.x - wA.x, wB.z - wA.z), 0.5, `${size.name} : largeur de la ligne`);
+      near(o.x, (wA.x + wB.x) / 2, 0.5, `${size.name} : centre de la ligne (x)`);
+      angleNear(o.heading, Math.PI, 0.03, `${size.name} : tracé ouest → est, face au nord`);
+    }
+    await shot(page, `command-S4-${size.name}`);
+    await settle(page, 2400);
+    await rest(page);
+    // appui long = toucher : la fiche s'ouvre, aucun menu, aucun ordre
+    const L = await spot(page, p.x - 100, p.y - 30, ['point', 'rue'], { touch: true });
+    const nOrders = await page.evaluate(() => window.__cmd.command.issued.length);
     await down(6, L.x, L.y);
     await settle(page, 800);
     await up(6);
     await settle(page, 300);
-    check(await page.evaluate(() => document.querySelector('.ct-quick').classList.contains('is-on')), `${size.name} : appui long = menu radial d'ordre rapide`);
-    await shot(page, `command-tactique-radial-${size.name}`);
-    const nasse = await page.evaluate(() => {
-      const r = document.querySelector('.ct-quick .cw-svg').getBoundingClientRect();
-      const cx = r.left + r.width / 2, cy = r.top + r.height / 2, k = r.width / 320;
-      // secteur « Nasse » : retrouvé par son libellé (le nombre de secteurs change quand on ajoute un ordre rapide)
-      const labels = [...document.querySelectorAll('.ct-quick .cw-label')].map((e) => e.textContent || '');
-      const n = document.querySelectorAll('.ct-quick .cw-wedge').length;
-      const i = labels.findIndex((t) => /Nasse/i.test(t));
-      const a = (i * (Math.PI * 2 / n)) - Math.PI / 2;
-      return { x: cx + Math.cos(a) * 106 * k, y: cy + Math.sin(a) * 106 * k };
-    });
-    await page.touchscreen.tap(nasse.x, nasse.y);
-    await settle(page, 400);
-    o = await order(page, I.sections[2]);
-    check(o.type === 'encercler' && o.width > 20, `${size.name} : « Nasse » depuis le menu radial (${o.type}, diamètre ${o.width.toFixed(0)} m)`);
-    near(o.x, wL.x, 0.6, `${size.name} : nasse centrée sur le point appuyé`);
+    t = await tac(page);
+    check(!!t.card && (await page.evaluate(() => window.__cmd.command.issued.length)) === nOrders, `${size.name} : appui long = toucher (fiche ouverte, aucun ordre)`);
+    // Qui (S2) : la liste au doigt
+    if (await tapId('card-who')) {
+      await settle(page, 200);
+      check((await tac(page)).sheet === 'qui', `${size.name} : « Qui ▸ » ouvre la liste`);
+      await shot(page, `command-S2-${size.name}`);
+    }
+    await rest(page);
+    // intention « Encercler (nasse) » : la fiche de la foule, la nasse surlignée ; le banc n'a pas les barrages de la
+    // simulation (pas de rues d'issue) : on y prend « Encercler en cercle serré » (Autres), ordre ⚖ confirmé en S3
+    check(!!(await tapId('intent-encercler')), `${size.name} : bouton « Encercler »`);
     await settle(page, 300);
-    await shot(page, `command-tactique-nasse-${size.name}`);
-    // incidents : menu de délégation ; fermeture de rue au doigt
-    await tapId('tab-incidents');
+    t = await tac(page);
+    check(t.intent === 'encercler' && t.card && t.card.kind === 'foule' && /^Encercler \(nasse\)$/.test(t.lineLabel), `${size.name} : la fiche de la foule, « Encercler (nasse) » surlignée (${t.lineLabel})`);
+    const crowdAt = t.card;
+    await tapId('card-line-0');
+    await settle(page, 200);
+    await tapLine(/^Encercler en cercle serré/);
+    await tapLine(/^Encercler en cercle serré/);
+    await settle(page, 300);
+    const s3c = await textOf(page, '.ct-mount-card');
+    check((await tac(page)).sheet === 'confirm' && /avant la dernière sommation/.test(s3c), `${size.name} : cercle serré (⚖) : S3 avant l'envoi (${s3c.slice(0, 120)})`);
+    const n0 = await page.evaluate(() => window.__cmd.command.issued.length);
+    check(!!(await tapId('card-confirm')), `${size.name} : « Donner l’ordre quand même »`);
+    await settle(page, 400);
+    const enc = await page.evaluate((n) => window.__cmd.command.issued.slice(n), n0);
+    check(enc.length >= 1 && enc.every((x) => x.type === 'encercler' && Math.abs(x.width - 36) < 0.5) && Math.hypot(enc[0].x - crowdAt.x, enc[0].z - crowdAt.z) < 0.5,
+      `${size.name} : cercle serré autour de la foule (${enc.map((x) => `${x.type} ${x.width.toFixed(0)} m`).join(', ')})`);
+    await settle(page, 2400);
+    await rest(page);
+    // S3 au doigt : « Disperser au gaz » 🔒 → les étapes
+    if (await tapId('intent-disperser')) {
+      await settle(page, 300);
+      if (await tapLine(/^Disperser au gaz lacrymogène$/)) {
+        await tapId('card-send');
+        await settle(page, 300);
+        check((await tac(page)).sheet === 'confirm', `${size.name} : « Disperser au gaz » : les étapes légales (S3)`);
+        await shot(page, `command-S3-${size.name}`);
+      }
+      await rest(page);
+    }
+    // incidents : « Plus… › Tous les incidents », menu de délégation
+    check(!!(await tapId('tac-more')), `${size.name} : « Plus… »`);
+    await settle(page, 300);
+    check(!!(await tapId('tab-incidents')), `${size.name} : « Tous les incidents et secours »`);
     await settle(page, 400);
     const first = await page.evaluate(() => Number(document.querySelector('.ct-inc').dataset.incident));
     await tapId('incident-' + first);
@@ -1169,28 +1630,39 @@ async function tactile() {
     await settle(page, 400);
     const call = await page.evaluate((id) => window.__cmd.scenario.rescue.calls.filter((c) => c.incidentId === id).map((c) => c.kind), first);
     check(call.includes('pompiers'), `${size.name} : véhicule en feu → pompiers appelés pour cet incident`);
-    await tapId('tab-circulation');
-    await settle(page, 300);
-    await tapId('tac-close-road');
-    await settle(page, 300);
-    if (compact) {
-      await tapId('tab-circulation');
-      await settle(page, 300);
-    }
+    await rest(page);
+    // fermeture de rue au doigt : la rue, « Fermer aux voitures », « Donner l'ordre »
     const nb = await page.evaluate(() => window.__cmd.scenario.traffic.closures.length);
     const road = await page.evaluate(() => {
       const b = window.__cmd;
       const v = b.tactical().map.view;
-      const s = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '', roadClass: 'residential', oneway: false };
-      b.ctx.world.nearestRoad(v.cx + 40, v.cz - 60, s, 150);
-      return s;
+      const sm = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '', roadClass: 'residential', oneway: false };
+      b.ctx.world.nearestRoad(v.cx - 40, v.cz - 60, sm, 150);
+      return sm;
     });
     p = await mapPoint(page, road.x, road.z);
-    await tap(p.x, p.y);
-    await settle(page, 400);
-    check(await page.evaluate(() => window.__cmd.scenario.traffic.closures.length) === nb + 1, `${size.name} : rue fermée d'un toucher (${road.name || 'voie'})`);
-    await shot(page, `command-tactique-fermeture-${size.name}`);
+    const onRoad = await spot(page, p.x, p.y, ['rue'], { touch: true, max: 70, edge: road.edgeId });
+    check(!!onRoad, `${size.name} : la rue est désignable au doigt (${road.name || 'voie'})`);
+    if (onRoad) {
+      await tap(onRoad.x, onRoad.y);
+      await settle(page, 300);
+      check(await tapLine(/^Fermer aux voitures \(barrières\)$/), `${size.name} : « Fermer aux voitures (barrières) » touchée`);
+      check(await page.evaluate(() => window.__cmd.scenario.traffic.closures.length) === nb, `${size.name} : un seul toucher ne ferme rien`);
+      await tapId('card-send');
+      await settle(page, 400);
+      check(await page.evaluate(() => window.__cmd.scenario.traffic.closures.length) === nb + 1, `${size.name} : rue fermée (« Donner l’ordre ») (${road.name || 'voie'})`);
+      await shot(page, `command-tactique-fermeture-${size.name}`);
+    }
     await browser.close();
+    // lecture seule (S6) au doigt : un CRS
+    if (compact) {
+      const r = await open('role=crs&freeze=1&ai=0&touch=1&open=carte_tactique', { width: size.w, height: size.h, mobile: true, deviceScaleFactor: 2 });
+      await settle(r.page, 800);
+      const btns = await visibleButtons(r.page);
+      check(btns.length <= 3 && btns.includes('tac-close'), `${size.name} : CRS, carte en lecture seule : ✕ et ◎ seulement (${btns.join(', ')})`);
+      await shot(r.page, `command-S6-${size.name}`);
+      await r.browser.close();
+    }
   }
 }
 
@@ -1200,15 +1672,18 @@ async function degrade() {
   {
     const { browser, page } = await open('role=commandant&freeze=1&ai=0&absent=incidents,traffic,metro,rescue,hazards&open=carte_tactique');
     await settle(page, 700);
+    await dismissModel(page);
+    await clickEl(page, '[data-id="tac-more"]');
     const r = await page.evaluate(() => ({
-      tabs: Array.from(document.querySelectorAll('.ct-tab')).filter((t) => getComputedStyle(t).display !== 'none').map((t) => t.dataset.id),
+      entries: Array.from(document.querySelectorAll('[data-id="tac-more-panel"] button[data-id]')).filter((b) => b.getBoundingClientRect().width > 0).map((b) => b.dataset.id),
       incidents: window.__cmd.maps.scene.incidents.length, stations: window.__cmd.maps.scene.stations.length, closures: window.__cmd.maps.scene.closures.length,
     }));
-    check(JSON.stringify(r.tabs) === JSON.stringify(['tab-ordres', 'tab-journal']), `services étendus absents : seuls restent Ordres et Journal (${r.tabs})`);
+    check(r.entries.includes('more-ordres') && r.entries.includes('tab-journal') && !r.entries.includes('tab-incidents') && !r.entries.includes('tab-circulation'),
+      `services étendus absents : « Plus… » sans incidents ni circulation (${r.entries.join(', ')})`);
     check(r.incidents === 0 && r.stations === 0 && r.closures === 0, 'couches correspondantes vides, sans erreur');
+    await rest(page);
     const I = await ids(page);
-    await click(page, 'unit-' + I.sections[0]);
-    await click(page, 'verb-tenir');
+    check(await clickEl(page, `[data-id="follow-u-${I.sections[0]}"]`) && await cardLine(page, /^Tenir sa position$/), 'section 1 : « Mes unités » → sa fiche → « Tenir sa position »');
     await settle(page, 200);
     check((await order(page, I.sections[0])).type === 'tenir', 'les ordres fonctionnent sans les services étendus');
     await shot(page, 'command-tactique-sans-services-1280x720');
@@ -1217,19 +1692,22 @@ async function degrade() {
     await click(page, 'radio-pompiers');
     await settle(page, 300);
     const nt = await notices(page);
-    check(nt.some((t) => /Aucun service de secours/.test(t)), 'radio : demande de secours transmise, absence du service signalée');
+    check(nt.some((x) => /Aucun service de secours/.test(x)), 'radio : demande de secours transmise, absence du service signalée');
     await browser.close();
   }
   {
     const { browser, page } = await open('role=commandant&freeze=1&ai=0&map=none&open=carte_tactique');
     await settle(page, 700);
+    await dismissModel(page);
     const I = await ids(page);
     check(await page.evaluate(() => window.__cmd.ctx.world.edgeCount === 0), 'monde neutre : aucun graphe routier');
-    await click(page, 'unit-' + I.sections[1]);
-    await click(page, 'verb-ligne');
+    check(await clickEl(page, `[data-id="follow-u-${I.sections[1]}"]`) && await cardLine(page, /^L.envoyer ailleurs/), 'section 2 : « L’envoyer ailleurs… »');
     const u = await unit(page, I.sections[1]);
     const p = await mapPoint(page, u.x, u.z);
-    await drag(page, { x: p.x - 50, y: p.y + 60 }, { x: p.x + 50, y: p.y + 60 });
+    const sp = await spot(page, p.x + 20, p.y + 120, ['point']);
+    await page.mouse.click(sp.x, sp.y);
+    await settle(page);
+    check(await traceLine(page, { x: p.x - 50, y: p.y + 60 }, { x: p.x + 50, y: p.y + 60 }), 'monde neutre : « Tracer la ligne moi-même »');
     await settle(page);
     check((await order(page, I.sections[1])).type === 'ligne', 'monde neutre : la carte et les ordres fonctionnent sans plan');
     await shot(page, 'command-tactique-monde-neutre-1280x720');
@@ -1264,16 +1742,19 @@ async function socle() {
   check(hud.screens.every(Boolean), 'écrans carte, carte_tactique, roue_ordres et radio enregistrés');
   await shot(page, 'command-socle-hud-1280x720');
   // touches d'interface du socle (table HOTKEY_SCREENS)
-  check(await key(page, 'Tab', 'carte_tactique', true), 'socle : Tab ouvre la carte tactique');
+  check(await key(page, 'Tab', 'carte_tactique', true), 'socle : Tab ouvre la carte de commandement');
   await settle(page, 600);
   check(await page.evaluate(() => document.activeElement === window.__cmd.tactical().map.canvas), 'socle : à l\'ouverture, le focus est sur la carte (data-autofocus)');
-  await click(page, 'unit-' + I.sections[2]);
-  await click(page, 'verb-ligne');
+  await dismissModel(page);
+  check(await clickEl(page, `[data-id="follow-u-${I.sections[2]}"]`) && await cardLine(page, /^L.envoyer ailleurs/), 'socle : « Mes unités » → section 3 → « L’envoyer ailleurs… »');
   const u = await unit(page, I.sections[2]);
   const p = await mapPoint(page, u.x, u.z);
+  const sp = await spot(page, p.x + 120, p.y + 40);
+  await page.mouse.click(sp.x, sp.y);
+  await settle(page);
   const A = { x: p.x - 60, y: p.y + 80 }, B = { x: p.x + 70, y: p.y + 80 };
   const wA = await worldAt(page, A.x, A.y), wB = await worldAt(page, B.x, B.y);
-  await drag(page, A, B);
+  check(await traceLine(page, A, B), 'socle : « Tracer la ligne moi-même », deux clics');
   await settle(page);
   const o = await order(page, I.sections[2]);
   check(o.type === 'ligne', `socle : ligne tracée, ordre reçu (${o.type})`);
@@ -1281,9 +1762,13 @@ async function socle() {
   near(o.x, (wA.x + wB.x) / 2, 0.4, 'socle : centre de la ligne');
   await settle(page, 400);
   await shot(page, 'command-socle-tactique-1280x720');
-  check(await page.evaluate(() => window.__cmd.ctx.session.phase === 'playing'), 'socle : la simulation n\'est pas en pause carte tactique ouverte');
-  await click(page, 'verb-avancer');
-  check(await key(page, 'Escape', 'carte_tactique', true) && await page.evaluate(() => window.__cmd.tactical().state.mode.kind === 'idle'), 'socle : Échap annule d\'abord l\'ordre en préparation');
+  check(await page.evaluate(() => window.__cmd.ctx.session.phase === 'playing'), 'socle : la simulation n\'est pas en pause carte ouverte');
+  await settle(page, 2400);
+  await rest(page);
+  await page.mouse.click(sp.x, sp.y);
+  await settle(page);
+  check((await tac(page)).card !== null, 'socle : une fiche ouverte');
+  check(await key(page, 'Escape', 'carte_tactique', true) && (await tac(page)).card === null, 'socle : Échap referme d\'abord la fiche');
   check(await key(page, 'Escape', 'carte_tactique', false), 'socle : Échap ferme ensuite la carte');
   check(await key(page, 'KeyM', 'carte', true), 'socle : M ouvre le plan');
   await page.waitForFunction(() => { const m = window.__cmd.plan(); return !!m && m.map.draws > 0; }, null, { timeout: 20000 }).catch(() => {});
@@ -1301,12 +1786,12 @@ async function socle() {
   check(await untilStack(page, 'roue_ordres', true), 'socle : F maintenue ouvre la roue d\'ordres');
   await settle(page, 300);
   await page.mouse.move(640, 360);
-  await page.mouse.move(640, 250, { steps: 4 });
+  await page.mouse.move(750, 360, { steps: 4 });
   await settle(page, 200);
   await shot(page, 'command-socle-roue-1280x720');
   await page.keyboard.up('KeyF');
   check(await untilStack(page, 'roue_ordres', false), 'socle : relâchement, la roue se ferme');
-  check((await order(page, I.company)).type === 'avancer', 'socle : ordre de la roue transmis à l\'unité du joueur');
+  check((await order(page, I.company)).type === 'avancer', 'socle : « Avancer jusqu’ici » (roue) transmis à l\'unité du joueur');
   // manette dans le vrai socle : zones de focus par LB / RB
   await page.evaluate(() => {
     const pad = { id: 'Manette d\'essai (STANDARD GAMEPAD Vendor: 045e Product: 02ea)', index: 0, connected: true, mapping: 'standard', timestamp: 0, axes: [0, 0, 0, 0], buttons: Array.from({ length: 17 }, () => ({ pressed: false, touched: false, value: 0 })) };
@@ -1327,7 +1812,9 @@ async function socle() {
   await frames(page, 4);
   await page.evaluate(() => window.__press(5, 0));
   await settle(page, 300);
-  check(await page.evaluate(() => !!document.activeElement && document.activeElement.classList.contains('ct-unit')), 'socle + manette : RB passe le focus à la liste des unités (« ui:tab »)');
+  const rb = await tac(page);
+  check(!!rb.card && (rb.card.kind === 'incident' || rb.card.kind === 'proposition' || rb.card.kind === 'nasse'), `socle + manette : RB (« ui:tab ») ouvre le premier « À traiter » (${rb.card && rb.card.name})`);
+  check(await page.evaluate(() => document.activeElement === window.__cmd.tactical().map.canvas), 'socle + manette : le focus reste sur la carte');
   await browser.close();
   // téléphone : HUD du socle + le nôtre + commandes tactiles
   {
@@ -1346,6 +1833,8 @@ async function socle() {
     await shot(m.page, 'command-socle-hud-844x390');
     await m.page.evaluate(() => window.__cmd.ctx.ui.open('carte_tactique'));
     await settle(m.page, 900);
+    const compact = await m.page.evaluate(() => document.querySelector('.ct').classList.contains('is-compact'));
+    check(compact, 'socle, téléphone : carte de commandement en disposition compacte');
     await shot(m.page, 'command-socle-tactique-844x390');
     await m.browser.close();
   }

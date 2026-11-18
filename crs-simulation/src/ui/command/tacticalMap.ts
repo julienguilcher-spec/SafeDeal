@@ -1,33 +1,44 @@
 /* =====================================================================================
- * Carte tactique — interaction avec la carte : sélection (toucher, cadre), ordres par geste (point,
- * segment de ligne de barrage, cercle de nasse, cible), fermeture de rues, appel des secours,
- * délégation d'un incident par glisser-déposer. Les mêmes règles valent pour la souris, le doigt et
- * le curseur de la manette (MapCanvas les traduit en gestes).
+ * Carte de commandement — interaction avec la carte. Les mêmes règles valent pour la souris, le pavé tactile, le
+ * doigt et le curseur du clavier ou de la manette (MapCanvas les traduit en gestes).
+ *
+ * Au repos, un clic (un toucher) ne donne JAMAIS d'ordre : il désigne. Les repères (rues, foules, incidents, unités…,
+ * reperes.ts) sont accrochés à 40 px du pointeur (48 px au doigt) ; la pile triée par priorité part vers l'écran
+ * (`onRepereTap`), qui ouvre la fiche. Le survol fait de même (`onRepereHover`) : le nom du repère accroché s'écrit à
+ * côté du pointeur. Maj + clic sur une de mes unités l'ajoute à Qui. Appui long = toucher (au relâchement).
+ * Gestes experts, jamais nécessaires : clic droit = « Avancer en formation jusqu'ici » pour les unités choisies,
+ * glisser au clic droit = ligne de barrage, Maj + glisser = cadre de sélection, glisser un incident sur une unité =
+ * le lui confier, double toucher sur une unité = toute sa section.
+ * « Tracer la ligne moi-même » : deux clics (ou Entrée, déplacer, Entrée), sans glisser (beginTrace / traceAt).
+ * L'aperçu de la ligne surlignée de la fiche est dessiné par drawCard (tacticalPreview.ts).
+ * Les modes hérités des panneaux (fermer une rue, un périmètre, appeler les secours, ordre armé) restent servis.
  * ===================================================================================== */
 
 import type { OrderType, Prop, RoadSample, Squad } from '@/core/contracts';
-import type { Incident, MetroStation, RescueKind, RoadClosure } from '@/core/extensions';
+import type { Incident, RescueKind, RoadClosure } from '@/core/extensions';
+import type { MissionBrief } from '@/gameplay/session/mission-api';
+import { MISSION_SERVICE } from '@/gameplay/session/mission-api';
 import type { PointerInfo } from '../maps/gestures';
 import type { MapCanvas } from '../maps/mapCanvas';
 import { INCIDENT_RADIUS, foyerRadius } from '../maps/overlay';
 import type { SceneFoyer } from '../maps/scene';
 import { createShown, visibleUnits } from '../maps/overlay-units';
 import type { MapUnit } from '../maps/units';
+import type { CardEnv, CardPreview, Repere } from './cardTypes';
 import type { CommandCore } from './core';
 import { MIN_LINE, areaToOrder, barrageTargetId, lineToOrder, pointHeading, slotsAlongLine, splitLine, spreadPoint, verbOf } from './orders';
 import type { OrderGeom, OrderVerb } from './orders';
-import { nearestCrowd } from './nasse';
+import { cardEnvFromCore, collectReperes, pickAt, placeRepere } from './reperes';
 import { FieldActions } from './tacticalActions';
 import { drawTacticalPreview } from './tacticalPreview';
 import type { Drag } from './tacticalPreview';
 import { IDLE } from './tacticalState';
 import type { TacticalState } from './tacticalState';
 
+/** Ce qu'un geste expert désigne directement (cible d'un ordre armé, incident à glisser sur une unité). */
 export interface MapPick {
   unit: MapUnit | null;
   incident: Incident | null;
-  station: MetroStation | null;
-  closure: RoadClosure | null;
   /** Foyer secondaire (rassemblement, casseurs, blocage) touché. */
   foyer: SceneFoyer | null;
 }
@@ -35,18 +46,61 @@ export interface MapPick {
 /** Espacement entre unités envoyées sur un même point (m). */
 const POINT_SPACING = 10;
 
+/** Distance d'accroche d'un repère au pointeur (px) : 40 à la souris et au pavé tactile, 48 au doigt. */
+export const SNAP_PX = 40;
+export const SNAP_PX_TOUCH = 48;
+/** Âge maximal (s) de la liste des repères lue au survol (elle est relue à chaque clic). */
+const REPERES_TTL = 0.15;
+
+/** Repères de la scène et environnement des fiches qui les a produits. */
+export interface RepereSnapshot {
+  env: CardEnv;
+  reperes: readonly Repere[];
+}
+
+/**
+ * Pile des repères sous un point de l'écran : ceux qu'accroche pickAt (priorité : mon unité > incident > commissariat >
+ * métro / fermeture > foule > VOUS > rue), puis la rue nommée sous le point (à 8 m au plus) si elle n'y est pas déjà —
+ * une foule arrêtée sur une rue donne « Foule | Rue Royale ». Vide : rien d'accroché (l'écran fait un repère de point).
+ */
+export function repereStack(
+  snap: RepereSnapshot, sx: number, sy: number, radiusPx: number, wx: number, wz: number,
+  toScreen: (x: number, z: number, out: { x: number; y: number }) => void,
+): Repere[] {
+  const stack = pickAt(snap.reperes, sx, sy, radiusPx, toScreen);
+  const here = placeRepere(wx, wz, snap.env);
+  if (here.kind === 'rue' && !stack.some((r) => r.key === here.key)) stack.push(here);
+  return stack;
+}
+
 export class TacticalMap {
   drag: Drag | null = null;
   /** Dernière position du pointeur sur la carte (écran et monde), pour les aperçus. */
   hoverX = -1;
   hoverY = -1;
   hoverRoad: RoadSample | null = null;
-  /** Demande d'ouverture du menu radial d'ordre rapide (écran) : lue par l'écran. */
-  onQuickMenu: ((x: number, y: number) => void) | null = null;
-  /** Validation de la proposition « Fermer la nasse » (Entrée sur la carte) : l'écran la fait exécuter. */
-  onAcceptNasse: (() => void) | null = null;
-  /** Élément de carte touché hors unité (station, fermeture) : l'écran ouvre la bulle correspondante. */
-  onPickEntity: ((pick: MapPick, x: number, y: number) => void) | null = null;
+  /**
+   * Clic ou toucher au repos : la pile des repères accrochés (priorité d'abord ; vide = rien d'accroché) et le point de
+   * l'écran. L'écran ouvre la fiche ; aucun ordre ne part d'un clic sur la carte.
+   */
+  onRepereTap: ((stack: Repere[], sx: number, sy: number, touch: boolean) => void) | null = null;
+  /** Survol au pointeur (souris, pavé tactile) : la pile accrochée, pour écrire son nom à côté du pointeur. */
+  onRepereHover: ((stack: Repere[], sx: number, sy: number) => void) | null = null;
+  /**
+   * Source des repères partagée avec l'écran (il les relit déjà à 10 Hz) ; null : la carte les lit elle-même dans la
+   * partie (cardEnvFromCore + collectReperes), au plus toutes les 0,15 s au survol et à chaque clic.
+   */
+  repereSource: (() => RepereSnapshot) | null = null;
+  /** « Tracer la ligne moi-même » : en cours, premier bout posé (monde), et ce qu'on fait des deux bouts. */
+  tracing = false;
+  traceEnds: { ax: number; az: number } | null = null;
+  private onTraceDone: ((ax: number, az: number, bx: number, bz: number) => void) | null = null;
+  /** Aperçu de la ligne surlignée de la fiche et repère visé (drawCard). */
+  cardPreview: CardPreview | null = null;
+  visee: Repere | null = null;
+  private quiKeys: Set<number> | null = null;
+  private snapshot: RepereSnapshot | null = null;
+  private snapshotAt = -Infinity;
 
   private readonly actions: FieldActions;
   private readonly w = { x: 0, z: 0 };
@@ -63,15 +117,147 @@ export class TacticalMap {
   constructor(private readonly core: CommandCore, private readonly map: MapCanvas, private readonly state: TacticalState) {
     this.actions = new FieldActions(core, state, () => this.selectedUnits());
     map.handlers = {
-      onHover: (x, y) => this.hover(x, y),
+      onHover: (x, y, source) => this.hover(x, y, source),
       onTap: (x, y, info) => this.tap(x, y, info),
       onDoubleTap: (x, y) => this.doubleTap(x, y),
-      onLongPress: (x, y) => this.longPress(x, y),
+      // appui long = toucher : sans gestionnaire, l'appui long ne consomme rien, le relâchement est un toucher (et un
+      // appui hésitant suivi d'un glissement déplace toujours la carte, au doigt comme au pavé tactile)
       onDragStart: (x, y, info) => this.dragStart(x, y, info),
       onDragMove: (x, y) => this.dragMove(x, y),
       onDragEnd: (x, y, _info, cancelled) => this.dragEnd(x, y, cancelled),
+      beforeDraw: () => this.beforeDraw(),
       drawExtras: (g, view) => drawTacticalPreview(g, view, this, core, state),
     };
+  }
+
+  // ───────────────────────────── repères ─────────────────────────────
+
+  /** Repères de la scène (source de l'écran, sinon lus dans la partie ; `fresh` : relus maintenant). */
+  reperes(fresh = false): RepereSnapshot {
+    if (this.repereSource) return this.repereSource();
+    const now = typeof performance !== 'undefined' ? performance.now() / 1000 : 0;
+    if (fresh || !this.snapshot || now - this.snapshotAt > REPERES_TTL) {
+      const env = cardEnvFromCore(this.core, Array.from(this.state.selection));
+      this.snapshot = { env, reperes: collectReperes(env) };
+      this.snapshotAt = now;
+    }
+    return this.snapshot;
+  }
+
+  /** Pile des repères sous un point de l'écran (40 px, 48 px au doigt), la plus prioritaire d'abord. */
+  stackAt(sx: number, sy: number, touch: boolean, fresh = false): Repere[] {
+    const view = this.map.view;
+    this.map.worldAt(sx, sy, this.w);
+    return repereStack(this.reperes(fresh), sx, sy, touch ? SNAP_PX_TOUCH : SNAP_PX, this.w.x, this.w.z, (x, z, out) => {
+      view.worldToScreen(x, z, out);
+    });
+  }
+
+  // ───────────────────────────── fiche : aperçu ─────────────────────────────
+
+  /**
+   * Aperçu de la ligne surlignée de la fiche (null : aucun) et repère visé, dont le nom est écrit en grand. Les unités
+   * de Qui sont cerclées, les autres estompées.
+   */
+  drawCard(preview: CardPreview | null, visee: Repere | null): void {
+    this.cardPreview = preview;
+    this.visee = visee;
+    let keys: Set<number> | null = null;
+    if (preview) {
+      for (const a of preview.arrows) (keys ??= new Set()).add(a.squadId);
+      for (const sgm of preview.segments) (keys ??= new Set()).add(sgm.squadId);
+    }
+    this.quiKeys = keys;
+    this.map.invalidate();
+  }
+
+  /** Avant chaque dessin : lecture seule (ni issues de foule, carte de l'exécutant), unités mises en avant. */
+  private beforeDraw(): void {
+    const o = this.map.overlay;
+    const sc = this.core.scope();
+    const readOnly = sc.level === 'lecture';
+    o.readOnly = readOnly;
+    if (readOnly) {
+      // l'exécutant : son groupe en avant, son trajet en jaune et sa destination « ICI — … » ; le reste estompé
+      const brief = this.core.ctx.service<MissionBrief>(MISSION_SERVICE);
+      const c = brief && typeof brief === 'object' ? brief.command : null;
+      const dest = c && (c.x !== 0 || c.z !== 0) ? { x: c.x, z: c.z, label: c.place } : null;
+      o.executant = sc.ownSquadId !== 0 || dest ? { squadId: sc.ownSquadId, dest } : null;
+      o.emphasis = sc.ownSquadId !== 0 ? new Set([sc.ownSquadId]) : null;
+      o.emphasisAlpha = 0.5;
+      return;
+    }
+    o.executant = null;
+    o.emphasis = this.state.mode.kind === 'idle' ? this.quiKeys : null;
+    o.emphasisAlpha = 0.6;
+  }
+
+  // ───────────────────────────── ligne tracée en deux clics ─────────────────────────────
+
+  /**
+   * « Tracer la ligne moi-même » : les deux prochains clics (ou traceAt au clavier) posent les deux bouts de la ligne,
+   * flanc gauche puis flanc droit ; `done` reçoit les deux bouts. Clic droit ou cancelTrace : abandon.
+   */
+  beginTrace(done: (ax: number, az: number, bx: number, bz: number) => void): void {
+    this.tracing = true;
+    this.traceEnds = null;
+    this.onTraceDone = done;
+    this.state.touch();
+    this.invalidate();
+  }
+
+  cancelTrace(): void {
+    if (!this.tracing) return;
+    this.tracing = false;
+    this.traceEnds = null;
+    this.onTraceDone = null;
+    this.state.touch();
+    this.invalidate();
+  }
+
+  /** Pose un bout de la ligne au point du monde (x, z). true quand la ligne est complète (second bout). */
+  traceAt(x: number, z: number): boolean {
+    if (!this.tracing) return false;
+    const a = this.traceEnds;
+    if (!a) {
+      this.traceEnds = { ax: x, az: z };
+      this.state.touch();
+      this.invalidate();
+      return false;
+    }
+    if (Math.hypot(x - a.ax, z - a.az) < MIN_LINE) return false;
+    const done = this.onTraceDone;
+    this.tracing = false;
+    this.traceEnds = null;
+    this.onTraceDone = null;
+    this.state.touch();
+    this.invalidate();
+    done?.(a.ax, a.az, x, z);
+    return true;
+  }
+
+  /** Même chose depuis un point de l'écran (clic, ou Entrée au curseur du clavier). */
+  traceAtScreen(sx: number, sy: number): boolean {
+    this.map.worldAt(sx, sy, this.w);
+    return this.traceAt(this.w.x, this.w.z);
+  }
+
+  /** Bout libre du tracé : le curseur du clavier s'il est affiché, sinon le pointeur. */
+  traceTip(out: { x: number; y: number }): boolean {
+    const m = this.map;
+    if (m.cursorOn) {
+      out.x = m.cursorX;
+      out.y = m.cursorY;
+      return true;
+    }
+    if (this.hoverX < 0) return false;
+    out.x = this.hoverX;
+    out.y = this.hoverY;
+    return true;
+  }
+
+  private invalidate(): void {
+    if (typeof this.map.invalidate === 'function') this.map.invalidate();
   }
 
   // ───────────────────────────── désignation ─────────────────────────────
@@ -118,7 +304,7 @@ export class TacticalMap {
     const scene = this.core.maps.scene;
     const view = this.map.view;
     const r = touch ? 26 : 18;
-    const out: MapPick = { unit: this.pickUnit(x, y, r), incident: null, station: null, closure: null, foyer: this.pickFoyer(x, y, touch) };
+    const out: MapPick = { unit: this.pickUnit(x, y, r), incident: null, foyer: this.pickFoyer(x, y, touch) };
     let bestD = (INCIDENT_RADIUS + (touch ? 14 : 7)) ** 2;
     for (let i = 0; i < scene.incidents.length; i++) {
       const inc = scene.incidents[i]!;
@@ -127,26 +313,6 @@ export class TacticalMap {
       if (d < bestD) {
         bestD = d;
         out.incident = inc;
-      }
-    }
-    bestD = (touch ? 22 : 14) ** 2;
-    for (let i = 0; i < scene.stations.length; i++) {
-      const s = scene.stations[i]!;
-      view.worldToScreen(s.x, s.z, this.sp);
-      const d = (this.sp.x - x) ** 2 + (this.sp.y - y) ** 2;
-      if (d < bestD) {
-        bestD = d;
-        out.station = s;
-      }
-    }
-    bestD = (touch ? 22 : 14) ** 2;
-    for (let i = 0; i < scene.closures.length; i++) {
-      const c = scene.closures[i]!;
-      view.worldToScreen(c.x, c.z, this.sp);
-      const d = (this.sp.x - x) ** 2 + (this.sp.y - y) ** 2;
-      if (d < bestD) {
-        bestD = d;
-        out.closure = c;
       }
     }
     return out;
@@ -344,11 +510,17 @@ export class TacticalMap {
 
   // ───────────────────────────── gestes ─────────────────────────────
 
-  private hover(x: number, y: number): void {
+  private hover(x: number, y: number, source: 'pointer' | 'cursor'): void {
     const st = this.state;
     this.hoverX = x;
     this.hoverY = y;
     const mode = st.mode;
+    if (this.tracing) {
+      this.map.invalidate();
+      return;
+    }
+    // le nom du repère accroché suit le pointeur (le curseur du clavier, lui, est suivi par l'écran)
+    if (mode.kind === 'idle' && source === 'pointer' && !this.drag && this.onRepereHover) this.onRepereHover(this.stackAt(x, y, false), x, y);
     let key = 0;
     if (mode.kind === 'idle' || (mode.kind === 'order' && mode.verb.gesture === 'target')) {
       const u = this.pickUnit(x, y, 18);
@@ -369,9 +541,14 @@ export class TacticalMap {
   private tap(x: number, y: number, info: PointerInfo): void {
     const st = this.state;
     const mode = st.mode;
-    const touch = info.kind !== 'mouse';
+    const touch = info.kind === 'touch' || info.kind === 'pen';
     this.map.worldAt(x, y, this.w);
     const wx = this.w.x, wz = this.w.z;
+    if (this.tracing) {
+      if (info.button === 2) this.cancelTrace();
+      else this.traceAt(wx, wz);
+      return;
+    }
     if (mode.kind === 'order') {
       if (info.button === 2) {
         st.setMode(IDLE);
@@ -414,16 +591,8 @@ export class TacticalMap {
       st.setMode(IDLE);
       return;
     }
-    // proposition « Fermer la nasse » en attente : Entrée (bouton du curseur au clavier) la valide, le clic droit l'écarte
-    if (this.core.nasse && (info.kind === 'pad' || info.button === 2)) {
-      if (info.button === 2) this.core.nasse = null;
-      else this.onAcceptNasse?.();
-      st.touch();
-      return;
-    }
-    // mode libre
+    // repos : clic droit = « Avancer en formation jusqu'ici » pour les unités choisies (geste expert)
     if (info.button === 2) {
-      // clic droit : « avancer » immédiat pour la sélection (au centre du foyer désigné, s'il y en a un)
       if (this.selectedUnits().length > 0) {
         const foyer = this.pickFoyer(x, y, touch);
         if (foyer) this.issuePoint(verbOf('avancer')!, foyer.x, foyer.z, NaN, 0, foyer.name);
@@ -431,50 +600,21 @@ export class TacticalMap {
       }
       return;
     }
-    const pick = this.pick(x, y, touch);
-    if (pick.unit) {
-      st.select(pick.unit.key, info.shift || info.ctrl || st.multi);
-      return;
-    }
-    if (pick.foyer && !pick.incident) {
-      // foyer touché : unités sélectionnées sous mes ordres → elles s'y portent ; sinon, sa fiche en bref
-      const f = pick.foyer;
-      if (this.selectedUnits().length > 0) {
-        this.issuePoint(verbOf('avancer')!, f.x, f.z, NaN, 0, f.name);
+    // Maj (ou Ctrl / Cmd) + clic sur une de mes unités : elle s'ajoute à Qui (ou en sort)
+    if (info.shift || info.ctrl) {
+      const u = this.pickUnit(x, y, touch ? SNAP_PX_TOUCH * 0.6 : SNAP_PX * 0.5);
+      if (u && u.squadId !== 0 && this.core.canCommand(u.squadId)) {
+        st.select(u.key, true);
         return;
       }
-      // foule visée par « Fermer la nasse » (N) et résumé de ses issues dans l'onglet « Ordres »
-      st.focusCrowd = nearestCrowd(this.core.maps.scene.crowdExits, f.x, f.z, 40)?.key ?? '';
-      st.touch();
-      const tension = f.tension < 0.35 ? 'calme' : f.tension < 0.65 ? 'tension montante' : 'très tendu';
-      this.core.ctx.ui.notify(`${f.label} — ${f.people} personnes, ${tension}${f.kettled ? ', encerclé' : ''}. Sélectionnez des unités puis touchez le foyer pour les y envoyer.`, 'info', 6);
-      return;
     }
-    if (pick.incident) {
-      st.focusIncident = pick.incident.id;
-      st.setTab('incidents');
-      return;
-    }
-    if (pick.station || pick.closure) {
-      st.focusStation = pick.station ? pick.station.id : 0;
-      st.focusClosure = pick.station ? 0 : pick.closure!.id;
-      st.touch();
-      this.onPickEntity?.(pick, x, y);
-      return;
-    }
-    if (st.focusStation !== 0 || st.focusClosure !== 0) {
-      st.focusStation = 0;
-      st.focusClosure = 0;
-      st.touch();
-      this.onPickEntity?.(pick, x, y);
-      return;
-    }
-    if (!info.shift && !info.ctrl && !st.multi) st.clearSelection();
+    // sinon : désigner (l'écran ouvre la fiche du repère ; jamais d'ordre ici)
+    this.onRepereTap?.(this.stackAt(x, y, touch, true), x, y, touch);
   }
 
   /** Double toucher sur une unité : sélectionne toute sa section (ses unités sœurs) et centre la vue. */
   private doubleTap(x: number, y: number): boolean {
-    if (this.state.mode.kind !== 'idle') return true;
+    if (this.state.mode.kind !== 'idle' || this.tracing) return true;
     const u = this.pickUnit(x, y, 22);
     if (!u) return false;
     const scene = this.core.maps.scene;
@@ -487,28 +627,12 @@ export class TacticalMap {
     return true;
   }
 
-  /** Appui long : sélectionne l'unité touchée, sinon ouvre l'ordre rapide. `false` = rien fait, le geste continue. */
-  private longPress(x: number, y: number): boolean {
-    // ordre en préparation : un appui hésitant reste le début du tracé (ligne, zone, point)
-    if (this.state.mode.kind !== 'idle') return false;
-    const u = this.pickUnit(x, y, 24);
-    if (u && !this.state.selection.has(u.key)) {
-      this.state.select(u.key, true);
-      return true;
-    }
-    if (this.selectedUnits().length > 0 && this.onQuickMenu) {
-      this.onQuickMenu(x, y);
-      return true;
-    }
-    return false;
-  }
-
   private dragStart(x: number, y: number, info: PointerInfo): 'pan' | 'capture' {
     const st = this.state;
     const mode = st.mode;
     this.map.worldAt(x, y, this.w);
     const base = { ax: this.w.x, az: this.w.z, bx: this.w.x, bz: this.w.z, sx0: x, sy0: y, sx: x, sy: y };
-    if (info.button === 1) return 'pan';
+    if (info.button === 1 || this.tracing) return 'pan';
     if (mode.kind === 'order' && info.button !== 2) {
       const g = mode.verb.gesture;
       if (g === 'immediate') return 'pan';

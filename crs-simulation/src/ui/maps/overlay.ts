@@ -7,10 +7,10 @@
 import type { RoadEdgeInfo } from '@/core/contracts';
 import type { Incident, IncidentKind, RescueCall } from '@/core/extensions';
 import type { GpsTarget } from './api';
-import { BARRAGE_COLORS, barrageLook, exitName, exitOpen } from './barrages';
+import { BARRAGE_COLORS, barrageLook, exitOpen } from './barrages';
 import type { SceneBarrage } from './barrages';
-import { drawOrders, drawUnits } from './overlay-units';
-import type { UnitLayerOptions } from './overlay-units';
+import { drawExecutantFrame, drawOrders, drawUnits } from './overlay-units';
+import type { ExecutantFrame, UnitLayerOptions } from './overlay-units';
 import type { MapScene } from './scene';
 import type { MapTransform, ScreenPoint } from './transform';
 
@@ -48,11 +48,15 @@ export interface OverlayOptions extends UnitLayerOptions {
   focusStation: number;
   focusClosure: number;
   /**
-   * Foule dont on montre les issues ouvertes même si aucune n'est encore tenue (clé de `scene.crowdExits`) : celle que
-   * le joueur vise pour barrer, filtrer ou nasser. Les autres foules ne montrent leurs issues ouvertes que lorsqu'un
-   * encerclement est en cours (au moins une issue tenue, ou nasse détectée) — sinon la carte se couvre de flèches.
+   * Foule dont on montre les issues (clé de `scene.crowdExits`) : celle qui est sous la visée ou dans la fiche ouverte.
+   * Ses rues de sortie sont marquées d'un petit trait à leur débouché (gris : ouverte, vert : tenue). Les autres foules
+   * n'en montrent aucune — 22 rues autour d'une place faisaient une gerbe de flèches illisible.
    */
   focusCrowd?: string;
+  /** Carte en lecture seule (exécutant) : jamais d'issues de foule. */
+  readOnly?: boolean;
+  /** Carte de l'exécutant : trajet de son groupe et destination de l'ordre reçu ; null ailleurs. */
+  executant?: ExecutantFrame | null;
   /** Accès aux arêtes du graphe (tracé des rues fermées). */
   edge: ((id: number) => RoadEdgeInfo) | null;
 }
@@ -413,25 +417,15 @@ function drawBarrages(g: CanvasRenderingContext2D, t: MapTransform, scene: MapSc
   }
 }
 
+/** Couleurs des traits d'issue : rue ouverte, rue tenue (barrée, filtrée, fermée). */
+const EXIT_OPEN = '#a7b3c9';
+const EXIT_HELD = '#34c759';
+
 /**
- * Issues autour des foules : une issue OUVERTE est une flèche blanche qui sort par une trouée, avec le nom de la rue ;
- * une nasse fermée est cerclée de rouge. Les issues tenues sont les barrages eux-mêmes (dessinés par-dessus).
+ * Issues autour des foules : une nasse fermée est cerclée de rouge ; les rues de sortie de la foule mise en avant
+ * (`focusCrowd`) sont marquées d'un trait court en travers de leur débouché, gris si la rue est ouverte, vert si elle
+ * est tenue. Jamais sur la carte en lecture seule.
  */
-/** Rues déjà nommées pour la foule en cours de dessin. */
-const NAMED: string[] = [];
-
-/** La rue porte un vrai nom (pas « passage piéton », « voie sans nom »…) : elle mérite une étiquette. */
-function namedStreet(street: string): boolean {
-  const s = street.trim().toLowerCase();
-  return s !== '' && s !== 'passage piéton' && s !== 'voie sans nom' && s !== 'voie piétonne';
-}
-
-/** Une issue au moins est tenue, fermée ou filtrée : un encerclement est en cours autour de cette foule. */
-function anyHeld(exits: readonly { held: boolean; mode: string }[]): boolean {
-  for (let i = 0; i < exits.length; i++) if (!exitOpen(exits[i]!)) return true;
-  return false;
-}
-
 function drawExits(g: CanvasRenderingContext2D, t: MapTransform, scene: MapScene, o: OverlayOptions): void {
   const list = scene.crowdExits;
   for (let i = 0; i < list.length; i++) {
@@ -446,57 +440,28 @@ function drawExits(g: CanvasRenderingContext2D, t: MapTransform, scene: MapScene
       g.stroke();
       g.setLineDash([]);
     }
-    // issues ouvertes : seulement là où elles servent (foule visée, ou encerclement commencé)
-    if (c.kettleId === 0 && c.key !== o.focusCrowd && !anyHeld(c.exits)) continue;
-    NAMED.length = 0;
+    if (o.readOnly || !o.focusCrowd || c.key !== o.focusCrowd) continue;
+    t.worldToScreen(c.x, c.z, SP);
+    const cx = SP.x, cy = SP.y;
     for (let k = 0; k < c.exits.length; k++) {
       const e = c.exits[k]!;
-      if (!exitOpen(e) || !t.contains(e.x, e.z, 30)) continue;
+      if (!t.contains(e.x, e.z, 30)) continue;
       t.worldToScreen(e.x, e.z, SP);
-      const ex = SP.x, ey = SP.y;
-      t.worldToScreen(c.x, c.z, SP);
-      // vers l'extérieur : du centre de la foule vers l'issue
-      let a = Math.atan2(ey - SP.y, ex - SP.x);
+      // en travers du débouché : perpendiculaire à la direction centre de la foule → issue
+      let a = Math.atan2(SP.y - cy, SP.x - cx);
       if (!Number.isFinite(a)) a = 0;
-      const s = o.compact ? 0.55 : 1;
-      const gap = Math.max(10 * s, Math.min(60, e.width / t.mpp));
-      g.save();
-      g.translate(ex, ey);
-      g.rotate(a);
-      // bords de la trouée (perpendiculaires à la sortie)
-      g.strokeStyle = HALO;
-      g.lineWidth = 4 * s;
+      const half = Math.max(o.compact ? 4 : 6, Math.min(o.compact ? 8 : 14, (e.width * 0.5) / t.mpp));
+      const px = -Math.sin(a), py = Math.cos(a);
       g.lineCap = 'round';
       g.beginPath();
-      g.moveTo(0, -gap / 2 - 5 * s);
-      g.lineTo(0, -gap / 2);
-      g.moveTo(0, gap / 2);
-      g.lineTo(0, gap / 2 + 5 * s);
-      g.stroke();
-      g.strokeStyle = BARRAGE_COLORS.issue;
-      g.lineWidth = 2 * s;
-      g.stroke();
-      // flèche qui passe par la trouée
-      g.fillStyle = BARRAGE_COLORS.issue;
+      g.moveTo(SP.x - px * half, SP.y - py * half);
+      g.lineTo(SP.x + px * half, SP.y + py * half);
       g.strokeStyle = HALO;
-      g.lineWidth = 1.5;
-      g.beginPath();
-      g.moveTo(-9 * s, -2.5 * s);
-      g.lineTo(5 * s, -2.5 * s);
-      g.lineTo(5 * s, -7 * s);
-      g.lineTo(14 * s, 0);
-      g.lineTo(5 * s, 7 * s);
-      g.lineTo(5 * s, 2.5 * s);
-      g.lineTo(-9 * s, 2.5 * s);
-      g.closePath();
+      g.lineWidth = o.compact ? 4 : 6;
       g.stroke();
-      g.fill();
-      g.restore();
-      // nom de la rue : une seule fois par rue ; une trouée hors voie (passage piéton, esplanade) n'a que sa flèche
-      if (!o.compact && t.mpp < 3.2 && namedStreet(e.street) && NAMED.indexOf(e.street) < 0) {
-        NAMED.push(e.street);
-        label(g, exitName(e), ex + Math.cos(a) * 26, ey + Math.sin(a) * 26, '#ffffff', 10, 700);
-      }
+      g.strokeStyle = exitOpen(e) ? EXIT_OPEN : EXIT_HELD;
+      g.lineWidth = o.compact ? 2 : 3.5;
+      g.stroke();
     }
   }
 }
@@ -905,6 +870,7 @@ export function drawOverlay(g: CanvasRenderingContext2D, t: MapTransform, scene:
   if (L.metro && vis.metro) drawMetro(g, t, scene, o);
   if (L.gps) drawGps(g, t, o);
   if (L.orders && vis.police) drawOrders(g, t, scene, o);
+  if (o.executant) drawExecutantFrame(g, t, scene, o.executant, o.time);
   if (L.objectives) drawObjectives(g, t, scene, o);
   if (L.rescue && vis.rescue) drawCalls(g, t, scene, o);
   if (L.units) drawUnits(g, t, scene, o);

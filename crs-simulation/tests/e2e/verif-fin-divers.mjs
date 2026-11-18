@@ -46,12 +46,20 @@ const tp = (page, x, z) => page.evaluate(async ([x, z]) => {
     C.check(vans.length > 0 && vans.every((v) => v.ahead === 0), 'FOURGONS (République) : aucun collègue à pied devant le nez d’un véhicule de police', vans.map((v) => `${v.kind} ${R(v.behind, 0)} m derrière, orient. ${R(v.facing)}, ${v.ahead} devant`).join(' ; '));
     C.check(vans.every((v) => v.bh === 0), 'aucun véhicule de police posé dans un immeuble', vans.filter((v) => v.bh > 0).map((v) => v.kind).join(', '));
 
-    // touche F d'un simple gardien
+    // touche F d'un simple gardien : la roue réduite, mêmes numéros que pour un chef (F puis 1, F puis 2, F puis 7)
     await hold(page, 'KeyF');
     await frames(page, 3);
-    const nt = await notices(page);
-    C.check(nt.some((t) => /recevez les ordres/.test(t)), 'TOUCHE F (simple gardien) : « Vous recevez les ordres »', nt.join(' | ').slice(0, 160));
-    C.check((await state(page)).screen === null, '… aucun écran ne reste ouvert');
+    const wheel = await page.evaluate(() => ({
+      screen: window.__CRS.ctx.ui.current,
+      // (libellés sur deux lignes : comparés sans les espaces)
+      labels: [...document.querySelectorAll('[data-id="order-wheel"] .cw-label')].map((e) => (e.textContent || '').replace(/\s+/g, '')),
+      keys: [...document.querySelectorAll('[data-id="order-wheel"] .cw-key')].map((e) => (e.textContent || '').trim()).join(','),
+    }));
+    C.check(wheel.labels.join('|') === 'Suivez-moiàpied|Suivez-moienvéhicules|Secoursici' && wheel.keys === '1,2,7',
+      'TOUCHE F (simple gardien) : « Suivez-moi à pied » (1), « Suivez-moi en véhicules » (2), « Secours ici » (7)', J(wheel));
+    await hold(page, 'Escape');
+    await frames(page, 3);
+    C.check((await state(page)).screen === null, '… Échap la referme : aucun écran ne reste ouvert');
 
     // « Repousser » sur un collègue : on se place face à un équipier, à 0,9 m
     const mate = await page.evaluate(() => {

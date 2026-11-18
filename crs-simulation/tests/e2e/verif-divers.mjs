@@ -38,9 +38,9 @@ try {
     await page.mouse.move(640, 360);
     await key.down('KeyF'); await frames(page, 3); await page.waitForTimeout(500);
     const open = await ev(() => window.__CRS.ctx.ui.current);
-    await page.mouse.move(640, 300, { steps: 3 }); await frames(page, 2);
-    await page.mouse.move(640, 215, { steps: 3 }); await frames(page, 3); // secteur « En avant » (en haut)
-    await snap(page, `verif-${tag}-B-roue-en-avant`);
+    await page.mouse.move(700, 360, { steps: 3 }); await frames(page, 2);
+    await page.mouse.move(785, 360, { steps: 3 }); await frames(page, 3); // secteur 3 « Avancer jusqu'ici » (à droite ; en haut : « Suivez-moi à pied »)
+    await snap(page, `verif-${tag}-B-roue-avancer`);
     await key.up('KeyF'); await frames(page, 4); await page.waitForTimeout(400);
     R.orderPick = { open, after: await ev(() => window.__CRS.ctx.ui.current) };
     await snap(page, `verif-${tag}-B-apres-ordre`);
@@ -51,7 +51,7 @@ try {
     await step(page, 20);
     R.matesMoved = await ev((m0) => { const c = window.__CRS.ctx; return m0.map((m) => { const q = c.people.get(m.id); return q ? +Math.hypot(q.x - m.x, q.z - m.z).toFixed(2) : null; }); }, mates0);
     log('  déplacement des collègues 20 s après l’ordre (m)', J(R.matesMoved));
-    // carte tactique : le chef peut-il donner un ordre ?
+    // carte de commandement : le chef peut-il donner un ordre ?
     await tap('Tab'); await page.waitForTimeout(700); await frames(page, 3);
     await snap(page, `verif-${tag}-B-tactique-chef`);
     R.tactical = await ev(() => ({ screen: window.__CRS.ctx.ui.current, scope: (() => { const s = window.__CRS.ctx.service('ui.command'); const sc = s && s.scope ? s.scope() : null; return sc ? { level: sc.level, label: sc.label, squads: sc.squadIds.length, canAuthorize: sc.canAuthorize, canSommation: sc.canSommation } : null; })(), text: (document.querySelector('.crs-ui')?.innerText || '').replace(/\n+/g, ' | ').slice(0, 700) }));

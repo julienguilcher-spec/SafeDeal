@@ -1,7 +1,8 @@
 /* =====================================================================================
  * Reconnaissance des gestes de carte (logique pure, sans DOM) : toucher, double toucher, appui
  * long, glisser (déplacement de la carte ou geste capturé par l'outil courant), pincement à deux
- * doigts, molette. Les mêmes règles servent à la souris, au doigt et au curseur de la manette.
+ * doigts, molette et pavé tactile (deux doigts : déplacer ; pincer : zoomer). Les mêmes règles servent à la souris,
+ * au doigt et au curseur de la manette.
  * ===================================================================================== */
 
 export type PointerKind = 'mouse' | 'touch' | 'pen' | 'pad';
@@ -35,6 +36,28 @@ interface Tracked { x: number; y: number; startX: number; startY: number; t0: nu
 
 const LONG_PRESS = 0.55;
 const DOUBLE_TAP = 0.32;
+
+/** Hauteur d'une « ligne » et d'une « page » de molette (px) quand le navigateur compte ainsi (deltaMode 1 et 2). */
+const WHEEL_LINE = 33;
+const WHEEL_PAGE = 800;
+/** Zoom par pixel de molette : cran de souris (100 px ≈ ×0,8) et pincement du pavé tactile (petits pas, plus vifs). */
+const NOTCH_RATE = 0.0022;
+const PINCH_RATE = 0.012;
+/** Un cran de souris en pixels : |dy| au moins ce nombre, entier, sans composante horizontale. */
+const NOTCH_MIN = 50;
+
+/**
+ * Que veut dire un événement `wheel` ? (logique pure)
+ *   'zoom' : pincement du pavé tactile (les navigateurs du Mac le signalent avec `ctrlKey`), Ctrl + molette, ou cran
+ *            de molette de souris (deltaMode 1, ou |dy| ≥ 50 entier sans dx) ;
+ *   'pan'  : défilement à deux doigts sur le pavé tactile (petits pas, souvent fractionnaires, souvent avec dx).
+ */
+export function wheelIntent(dx: number, dy: number, ctrl: boolean, mode: number): 'zoom' | 'pan' {
+  if (ctrl) return 'zoom';
+  if (mode === 1) return 'zoom';
+  if (dx === 0 && Math.abs(dy) >= NOTCH_MIN && Number.isInteger(dy)) return 'zoom';
+  return 'pan';
+}
 
 export class PointerGestures {
   /** 'idle' | 'press' (appui sans mouvement) | 'pan' | 'capture' | 'pinch' */
@@ -155,10 +178,22 @@ export class PointerGestures {
     this.mode = 'idle';
   }
 
-  /** Molette : deltaY > 0 = vers le bas = on s'éloigne. */
-  wheel(x: number, y: number, deltaY: number): void {
-    const d = Math.max(-240, Math.min(240, deltaY));
-    this.h.onZoom(x, y, Math.exp(-d * 0.0022));
+  /**
+   * Molette et pavé tactile (événement `wheel`) : `dx`, `dy` tels que le navigateur les donne, `ctrl` (pincement sur
+   * un pavé tactile de Mac, ou Ctrl + molette), `mode` = WheelEvent.deltaMode (0 pixels, 1 lignes, 2 pages).
+   * Zoom (pincement, cran de molette) : dy > 0 = on s'éloigne. Défilement à deux doigts : la carte suit les doigts,
+   * comme une page qu'on fait défiler.
+   */
+  wheel(x: number, y: number, dx: number, dy: number, ctrl: boolean, mode: number): void {
+    const k = mode === 1 ? WHEEL_LINE : mode === 2 ? WHEEL_PAGE : 1;
+    if (wheelIntent(dx, dy, ctrl, mode) === 'zoom') {
+      const d = Math.max(-240, Math.min(240, dy * k));
+      this.h.onZoom(x, y, Math.exp(-d * (ctrl && mode === 0 ? PINCH_RATE : NOTCH_RATE)));
+      return;
+    }
+    const px = Math.max(-400, Math.min(400, dx * k));
+    const py = Math.max(-400, Math.min(400, dy * k));
+    if (px !== 0 || py !== 0) this.h.onPan(-px, -py);
   }
 
   /** À appeler régulièrement : déclenche l'appui long. */

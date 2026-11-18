@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { OrderType } from '@/core/contracts';
 import {
-  MIN_LINE, ORDER_VERBS, areaToOrder, lineEnds, lineToOrder, orderLabel, pointHeading, slotsAlongLine, splitLine,
+  MIN_LINE, ORDER_GROUP_LABELS, ORDER_VERBS, areaToOrder, lineEnds, lineToOrder, orderLabel, pointHeading, slotsAlongLine, splitLine,
   spreadPoint, verbOf,
 } from '@/ui/command/orders';
 import type { OrderGeom } from '@/ui/command/orders';
@@ -143,7 +143,8 @@ describe('commandement — catalogue des ordres', () => {
       expect(v.short.length).toBeGreaterThan(2);
       expect(v.short.length).toBeLessThanOrEqual(11);
       expect(v.label).not.toContain('_');
-      expect(orderLabel(v.type)).toBe(v.short);
+      // libellé de la pastille d'unité : l'étiquette en clair (« En ligne »), jamais le type brut
+      expect(orderLabel(v.type).toLocaleUpperCase('fr-FR')).toBe(v.tag);
     }
   });
 
@@ -163,5 +164,55 @@ describe('commandement — catalogue des ordres', () => {
     expect(verbOf('repli')!.coercive).toBe(false);
     expect(verbOf('charge')!.coercive).toBe(true);
     for (const v of ORDER_VERBS) if (v.gesture !== 'immediate') expect(v.hint.length).toBeGreaterThan(10);
+  });
+});
+
+describe('commandement — les mots de la refonte (§3.1), simulation inchangée', () => {
+  /** Type → famille, geste, force, ordre de force : tels qu'avant la refonte (seuls les mots changent). */
+  const SIM: Readonly<Record<string, readonly [string, string, number, boolean]>> = {
+    tenir: ['posture', 'immediate', 1, false], ligne: ['posture', 'line', 1, false], colonne: ['posture', 'point', 0, false],
+    couper_circulation: ['posture', 'point', 1, false], filtrer: ['posture', 'point', 1, false], tortue: ['posture', 'immediate', 1, false],
+    avancer: ['mouvement', 'point', 1, false], bond_offensif: ['mouvement', 'point', 1, true], charge: ['mouvement', 'point', 2, true],
+    refoulement: ['mouvement', 'point', 1, true], suivre_pied: ['mouvement', 'immediate', 0, false], avec_moi: ['mouvement', 'immediate', 0, false],
+    faire_mouvement: ['mouvement', 'point', 0, false], repli: ['mouvement', 'point', 0, false], encercler: ['manoeuvre', 'area', 1, true],
+    disperser_gaz: ['manoeuvre', 'point', 3, true], interpeller: ['manoeuvre', 'target', 1, false], degager_barricade: ['manoeuvre', 'target', 0, false],
+    degager_obstacle: ['manoeuvre', 'point', 0, false], proteger: ['appui', 'target', 0, false], escorter: ['appui', 'target', 0, false],
+    suivre: ['appui', 'target', 0, false], embarquer: ['appui', 'immediate', 0, false], debarquer: ['appui', 'immediate', 0, false],
+    cesser: ['fin', 'immediate', 0, false], libre: ['fin', 'immediate', 0, false],
+  };
+
+  it('26 verbes : famille, geste, force et caractère coercitif inchangés', () => {
+    expect(ORDER_VERBS.length).toBe(26);
+    for (const v of ORDER_VERBS) {
+      const want = SIM[v.type];
+      expect(want, v.type).toBeTruthy();
+      expect([v.group, v.gesture, v.force, v.coercive], v.type).toEqual(want);
+    }
+  });
+
+  it('chaque verbe : nom en clair, étiquette, explication et ce que fait l’unité ; jamais de type brut ni de chiffre de force', () => {
+    for (const v of ORDER_VERBS) {
+      expect(v.plain.trim().length, v.type).toBeGreaterThan(3);
+      expect(v.explain.trim().length, v.type).toBeGreaterThan(8);
+      expect(v.doing.trim().length, v.type).toBeGreaterThan(2);
+      expect(v.tag, v.type).toBe(v.tag.toLocaleUpperCase('fr-FR'));
+      expect(v.tag.length, v.type).toBeLessThanOrEqual(20);
+      for (const t of [v.plain, v.tag, v.explain, v.doing]) expect(t, v.type).not.toMatch(/_|niveau \d|force \d/i);
+    }
+    // quelques textes exacts du tableau §3.1
+    expect([verbOf('couper_circulation')!.plain, verbOf('couper_circulation')!.tag]).toEqual(['Barrer la rue', 'BARRE']);
+    expect([verbOf('ligne')!.plain, verbOf('ligne')!.tag]).toEqual(['Tenir une ligne ici', 'EN LIGNE']);
+    expect([verbOf('colonne')!.plain, verbOf('colonne')!.tag]).toEqual(['Y aller', 'VA À PIED']);
+    expect([verbOf('refoulement')!.plain, verbOf('refoulement')!.tag]).toEqual(['Repousser la foule', 'REPOUSSE']);
+    expect([verbOf('disperser_gaz')!.plain, verbOf('disperser_gaz')!.tag]).toEqual(['Disperser au gaz lacrymogène', 'GAZ']);
+    expect([verbOf('suivre_pied')!.plain, verbOf('avec_moi')!.plain]).toEqual(['Suivez-moi à pied', 'Suivez-moi en véhicules']);
+    expect(verbOf('libre')!.tag).toBe('SANS ORDRE');
+    expect(verbOf('tenir')!.plain).toBe('Tenir sa position');
+  });
+
+  it('familles renommées pour « Tous les ordres »', () => {
+    expect(ORDER_GROUP_LABELS).toEqual({
+      posture: 'Se placer', mouvement: 'Se déplacer', manoeuvre: 'Face à la foule', appui: 'Intervenir', fin: 'Fin d’action',
+    });
   });
 });

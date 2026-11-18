@@ -62,8 +62,12 @@ export function leftZoneCenter(zone: ScreenBox, above: ScreenBox, floor: number,
 
 /** Largeur en deçà de laquelle un sous-titre n'est plus lisible (px) : il passe alors au-dessus de la zone de gauche. */
 export const SUBTITLE_MIN_WIDTH = 200;
+/** Largeur minimale des sous-titres quand ils restent à droite de la zone de gauche pour ne pas couvrir le haut (px). */
+export const SUBTITLE_NARROW_WIDTH = 140;
 /** Hauteur de la bande réservée aux sous-titres (px) : deux lignes et leurs marges. */
 const SUBTITLE_BAND = 64;
+/** Haut de la bande qu'un élément du haut peut mordre sans gêner deux lignes de sous-titres (marge de la réserve, px). */
+const SUBTITLE_SLACK = 20;
 
 /**
  * Placement des sous-titres par rapport à la zone de gauche (« Secours », « À pied », « En colonne », proposition de
@@ -75,10 +79,13 @@ const SUBTITLE_BAND = 64;
  *   passent AU-DESSUS de la zone, à droite de la zone du haut à gauche (mini-carte) si elle est à cette hauteur —
  *   resserrés dans 160 px, ils recouvraient « En colonne » et « Plus tard ».
  * `bottomTop` : haut de la zone du bas (px depuis le haut de l'écran).
+ * `keepOut` : ce qui est en haut au centre (boussole, pastille d'unité, bandeaux du téléphone : proposition de
+ * l'adjoint, véhicule qui bloque). Les sous-titres ne remontent pas dessus : si la bande au-dessus de la zone de
+ * gauche le couvrirait, ils restent à droite de la zone, plus étroits (au moins SUBTITLE_NARROW_WIDTH).
  */
 export function subtitlePlacement(
   screenWidth: number, screenHeight: number, baseLeft: number, baseRight: number, bottomTop: number,
-  zone: ScreenBox | null, above: ScreenBox | null,
+  zone: ScreenBox | null, above: ScreenBox | null, keepOut: ScreenBox | null = null,
 ): { bottom: number; edge: number } {
   let bottom = Math.round(screenHeight - bottomTop + 8);
   let edge = -1;
@@ -87,8 +94,14 @@ export function subtitlePlacement(
   if (zone && beside(zone, screenHeight - bottom)) {
     edge = Math.round(zone.right + 8);
     if (baseRight - Math.max(baseLeft, edge) < SUBTITLE_MIN_WIDTH && zone.top > screenHeight * 0.3) {
+      const right = { bottom, edge };
       bottom = Math.round(screenHeight - zone.top + 8);
       edge = above && beside(above, screenHeight - bottom) ? Math.round(above.right + 8) : -1;
+      if (keepOut && keepOut.height > 0 && baseRight - right.edge >= SUBTITLE_NARROW_WIDTH) {
+        const bandBottom = screenHeight - bottom;
+        const left = edge >= 0 ? Math.max(baseLeft, edge) : baseLeft;
+        if (keepOut.bottom > bandBottom - SUBTITLE_BAND + SUBTITLE_SLACK && keepOut.top < bandBottom && keepOut.left < baseRight && keepOut.right > left) return right;
+      }
     }
   }
   return { bottom, edge };

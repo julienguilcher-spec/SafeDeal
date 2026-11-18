@@ -1,7 +1,7 @@
 /* =====================================================================================
  * Journal radio (ctx.radio.log) filtré selon les canaux que le rôle du joueur peut entendre.
  * Les messages sont ajoutés au fil de l'eau ; rien n'est reconstruit tant que le journal ne fait
- * que s'allonger. Utilisé par la carte tactique (onglet « Journal ») et par le panneau radio.
+ * que s'allonger. Utilisé par la carte de commandement (« Plus… › Journal radio », touche J) et par le panneau radio.
  * ===================================================================================== */
 
 import type { RadioChannel, RadioMessage } from '@/core/contracts';
@@ -40,6 +40,11 @@ export class RadioLogView {
     this.hiddenRow.style.display = 'none';
     this.root.append(this.empty, this.hiddenRow, this.list);
     host.appendChild(this.root);
+  }
+
+  /** Retire la vue de son hôte. */
+  dispose(): void {
+    this.root.remove();
   }
 
   refresh(): void {

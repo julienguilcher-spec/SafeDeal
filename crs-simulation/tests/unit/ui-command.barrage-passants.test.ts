@@ -15,13 +15,29 @@ import {
 } from '@/ui/command/orders';
 import { BARRAGE_LET_PASSERSBY as SIM_LET } from '@/sim/police/api';
 import { orderPhrase } from '@/ui/command/phrases';
-import { QUICK_VERBS, quickSub } from '@/ui/command/tacticalScreen';
-import { PASSERSBY_KEY, TACTICAL_KEYS_LEGEND } from '@/ui/command/tacticalKeys';
+import { PASSERSBY_KEY, mapKey } from '@/ui/command/tacticalKeys';
 import { TacticalState } from '@/ui/command/tacticalState';
 import { TacticalMap } from '@/ui/command/tacticalMap';
 import { PASSERSBY_TAG, barrageLook } from '@/ui/maps/barrages';
 import type { BarrageView, BarragesApi, ExitView, KettleView } from '@/ui/maps/barrages';
 import { plainOrder } from '@/gameplay/session/executant';
+import { createSystems as worldQuery } from '@/world/query';
+import { createSystems as roles } from '@/sim/roles';
+import { createSystems as people } from '@/sim/people';
+import { createSystems as vehicles } from '@/sim/vehicles';
+import { createSystems as traffic } from '@/sim/traffic';
+import { createSystems as crowd } from '@/sim/crowd';
+import { createSystems as police } from '@/sim/police';
+import { createSystems as items } from '@/sim/items';
+import { createSystems as props } from '@/sim/props';
+import { createSystems as hazards } from '@/sim/hazards';
+import { createSystems as law } from '@/gameplay/law';
+import { createSystems as radio } from '@/gameplay/radio';
+import { createSystems as session } from '@/gameplay/session';
+import { defaultWho, proposeWho, whoEnvFromCore } from '@/ui/command/bestUnit';
+import { buildCard, intentCandidates } from '@/ui/command/intents';
+import { cardEnvFromCore } from '@/ui/command/reperes';
+import { sendCardLine } from '@/ui/command/sendLine';
 
 describe('« Barrer la rue » : option des passants (modèle pur)', () => {
   it('constante locale identique à celle de la simulation ; libellés ; consigne', () => {
@@ -45,24 +61,14 @@ describe('« Barrer la rue » : option des passants (modèle pur)', () => {
     expect(barrageTargetId('interpeller', true, 42)).toBe(42);
   });
 
-  it('bascule : défaut « bloqués », touche B dans la légende, retenue jusqu’au prochain changement', () => {
+  it('plus de bascule cachée : « passants admis » est une ligne explicite de la fiche d’une rue (touche B : « Bloquer une rue »)', () => {
     const st = new TacticalState();
     expect(st.passersby).toBe(false);
-    const rev = st.revision;
-    expect(st.togglePassersby()).toBe(true);
-    expect(st.passersby).toBe(true);
-    expect(st.revision).toBeGreaterThan(rev);
+    // l'ancienne bascule ne peut plus changer « Barrer la rue » en « passants admis »
     expect(st.togglePassersby()).toBe(false);
+    expect(st.passersby).toBe(false);
     expect(PASSERSBY_KEY).toBe('KeyB');
-    expect(TACTICAL_KEYS_LEGEND).toContain('B = barrage : passants bloqués / admis');
-  });
-
-  it('ordre rapide : « Barrer » dit l’option retenue', () => {
-    expect(QUICK_VERBS).toContain('couper_circulation');
-    expect(quickSub('couper_circulation', false)).toBe('personne ne passe');
-    expect(quickSub('couper_circulation', true)).toBe('passants admis');
-    expect(quickSub('suivre_pied', true)).toBe('à pied');
-    expect(quickSub('avancer', true)).toBeUndefined();
+    expect(mapKey('KeyB', false, { level: 'tout', card: false })).toEqual({ kind: 'intent', id: 'bloquer' });
   });
 
   it('radio, carte, « Ma mission »', () => {
@@ -115,7 +121,7 @@ async function world() {
 }
 
 describe('« Barrer la rue » depuis la carte tactique', () => {
-  it('le point désigné part avec l’option retenue ; la radio le dit ; l’ordre suivant la garde', async () => {
+  it('le point désigné part avec l’option de la ligne choisie ; la radio le dit ; rien n’est retenu en cachette', async () => {
     const w = await world();
     const st = new TacticalState();
     const tmap = new TacticalMap(w.core, { handlers: null } as unknown as MapCanvas, st);
@@ -128,14 +134,14 @@ describe('« Barrer la rue » depuis la carte tactique', () => {
     expect(tmap.issuePoint(verb, -30, 0, NaN)).toBe(true);
     expect(w.g.order.type).toBe('couper_circulation');
     expect(w.g.order.targetId).toBe(0);
-    // B : passants laissés passer
-    st.togglePassersby();
-    expect(tmap.issuePoint(verb, -30, 0, NaN)).toBe(true);
+    // ligne 2 de la fiche d'une rue, « Barrer la rue, passants admis » : targetId −2 explicite
+    expect(tmap.issuePoint(verb, -30, 0, NaN, SIM_LET)).toBe(true);
     expect(w.g.order.targetId).toBe(SIM_LET);
     expect(w.ctx.radio.log.at(-1)!.text).toContain('Laissez passer les passants, pas les manifestants ni les véhicules');
-    // retenue : l'ordre suivant garde l'option ; un autre verbe n'en reçoit rien
+    // l'ancienne bascule (B) ne retient plus rien : l'ordre suivant sans option barre à tous ; un autre verbe n'en reçoit rien
+    st.togglePassersby();
     expect(tmap.issuePoint(verb, -31, 0, NaN)).toBe(true);
-    expect(w.g.order.targetId).toBe(SIM_LET);
+    expect(w.g.order.targetId).toBe(0);
     expect(tmap.issuePoint(verbOf('avancer')!, -35, 0, NaN)).toBe(true);
     expect(w.g.order.targetId).toBe(0);
   });
@@ -151,4 +157,40 @@ describe('« Barrer la rue » depuis la carte tactique', () => {
     expect(barrageLook(a!).tag).toBe('passants admis');
     expect(b!.passersby).toBe(false);
   });
+});
+
+describe('fiche d’une rue : les deux lignes « Barrer la rue » (vraie partie, place de la Concorde)', () => {
+  it('ligne 1 : personne ne passe (targetId 0) ; ligne 2 : passants admis (−2) ; chacune à la section proposée', async () => {
+    const MODULES = [worldQuery, roles, people, vehicles, traffic, crowd, police, items, props, hazards, law, radio, session, mapsSystems, commandSystems];
+    const MEANS = { sections: 3, fourgons: 9, centaure: 0, canon_eau: 0, bravm: 0, drone: 0, pompiers: 0, samu: 0, secours_sur_appel: true };
+    const t = createTestContext({ seed: 21, strict: false, modules: MODULES });
+    await t.start({
+      mode: 'libre', role: 'commandant', rank: 'commandant', place: 'Place de la Concorde', x: -10, z: 15, crowdSize: 300, tension: 0.3,
+      volatility: 0.3, duration: 'standard', extra: { moyens: MEANS, variante: 'terrain' },
+    } as never);
+    t.step(3);
+    const ctx = t.ctx;
+    const core = ctx.service<CommandCore>(COMMAND_SERVICE)!;
+    const state = new TacticalState();
+    const tmap = new TacticalMap(core, { handlers: null } as unknown as MapCanvas, state);
+    const streets = intentCandidates('bloquer', cardEnvFromCore(core), cardEnvFromCore(core).player!);
+    expect(streets.length).toBeGreaterThan(1);
+    for (const [i, want] of [[0, 0], [1, SIM_LET]] as const) {
+      const env = cardEnvFromCore(core);
+      const r = streets[i]!;
+      const line = buildCard(r, env, 'bloquer').lines[i]!;
+      expect(line.action).toEqual({ kind: 'verb', type: 'couper_circulation', geom: 'street', targetId: want });
+      const who = defaultWho(proposeWho(line, r, whoEnvFromCore(core, env, [])))!;
+      expect(who.squadIds.every((id) => env.units.find((u) => u.squadId === id)!.symbol === 'section')).toBe(true);
+      const res = sendCardLine({ core, map: tmap, card: env, trace: null, setSelection: (ids) => state.setSelection(ids) }, line, who, r);
+      expect(res.ok, res.text).toBe(true);
+      for (const id of res.squads) {
+        const s = ctx.squads.get(id)!;
+        const later = core.afterConvoy.get(id);
+        const got = s.order.type === 'couper_circulation' ? s.order.targetId : later?.type === 'couper_circulation' ? later.targetId : NaN;
+        expect(got, `${s.name} : ${s.order.type}`).toBe(want);
+      }
+      core.maps.scene.invalidate();
+    }
+  }, 300000);
 });

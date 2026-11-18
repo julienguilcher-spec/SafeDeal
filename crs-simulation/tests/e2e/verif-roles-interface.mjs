@@ -1,7 +1,9 @@
 // Vérification permanente — INTERFACE DE CHAQUE RÔLE, sur ordinateur (1280×720, clavier) et sur téléphone (844×390, doigts).
 // Pour chaque rôle / poste du catalogue : partie lancée par l'URL (une fois depuis l'accueil par appareil), puis HUD (rien hors
 // écran, rien sous une commande tactile, aucun texte anglais ou de remplissage), boutons tactiles du rôle (pertinents et qui
-// reçoivent le doigt), carte tactique (ouverture, fermeture), plan, pause (tous les boutons atteignables), zéro erreur console.
+// reçoivent le doigt), bloc « ORDRES » des chefs, carte « Ma mission » de l'exécutant (l'ordre d'abord), roue d'ordres (8
+// secteurs pour un chef, 3 pour un exécutant), carte de commandement (disposition et nombre de commandes par rôle : chef ou
+// lecture seule ; ouverture, fermeture), pause (tous les boutons atteignables), zéro erreur console.
 // Code de sortie : 0 seulement si toutes les vérifications passent. Résumé par rôle à la fin.
 // Usage : node tests/e2e/verif-roles-interface.mjs [--device=tel|pc|tous] [--roles=crs:bouclier,manifestant:pacifique] [--accueil=0]
 import { startServer, openPage, waitFor, ouvrirEditeur, frames, step, snap, fingers, rects, overlap, args, J } from './verif-fin-lib.mjs';
@@ -201,17 +203,76 @@ try {
           }
         }
 
+        // qui commande ? (« lecture » : exécutant ; autre : chef) — police seulement
+        const who = await page.evaluate(() => {
+          const c = window.__CRS.ctx;
+          const cmd = c.service('ui.command');
+          const p = c.player.person();
+          return { police: !!p && p.faction === 'police', level: cmd && cmd.scope ? cmd.scope().level : '' };
+        });
+        const chief = who.police && who.level !== '' && who.level !== 'lecture';
+        // bloc « ORDRES » (chefs) : « Suivez-moi à pied », « Suivez-moi en véhicules », « Secours ici » (ordinateur) ; puce
+        // « Suivez-moi … » sous la mini-carte (téléphone)
+        if (chief) {
+          const orders = await page.evaluate(() => {
+            const shown = (q) => { const e = document.querySelector(q); return !!e && !e.classList.contains('is-off') && e.getBoundingClientRect().width > 0; };
+            const b = document.querySelector('[data-id="hud-orders"]');
+            return { block: !!b && b.getBoundingClientRect().width > 0, text: b ? b.innerText.replace(/\s+/g, ' ') : '', foot: shown('[data-id="quick-follow-foot"]'), column: shown('[data-id="quick-follow-column"]'), rescue: shown('[data-id="quick-rescue"]') };
+          });
+          if (mobile) check(orders.foot || orders.column, 'chef (téléphone) : la puce « Suivez-moi … » sous la mini-carte', J(orders));
+          else check(orders.block && /ORDRES/.test(orders.text) && orders.foot && orders.column && orders.rescue && /Suivez-moi à pied/.test(orders.text) && /Suivez-moi en véhicules/.test(orders.text), 'chef : bloc « ORDRES » (Suivez-moi à pied, Suivez-moi en véhicules, Secours ici)', orders.text.slice(0, 160));
+        }
+        // exécutant CRS : la carte « Ma mission » commence par l'ordre (« ORDRE DU … » ou « MA MISSION », puis l'ordre)
+        if (role === 'crs') {
+          const mis = await page.evaluate(() => {
+            const card = document.querySelector('.hud-mis');
+            const vis = (q) => { const e = card && card.querySelector(q); return e && e.getBoundingClientRect().height > 0 ? e.innerText.replace(/\s+/g, ' ').trim() : ''; };
+            return { cap: vis('.hud-mis__head .hud-cap'), order: vis('.hud-mis__order'), l1: vis('.hud-mis__l1') };
+          });
+          if (mobile) check(mis.l1 !== '', 'CRS (téléphone) : « Ma mission » en deux lignes, l’ordre d’abord', J(mis));
+          else check(/^(ORDRE (DU|DE) |ORDRE REÇU|MA MISSION)/.test(mis.cap) && mis.order !== '', 'CRS : « Ma mission » commence par l’ordre (« ORDRE DU … »)', J(mis));
+        }
+        // roue d'ordres : 8 secteurs pour un chef, 3 pour un exécutant (mêmes numéros 1, 2, 7)
+        if (who.police) {
+          if (mobile) { if (!(await tapCtl('orders'))) C.note(`[${current}] bouton « Ordres » absent`); } else await press('KeyF');
+          await page.waitForTimeout(400); await frames(page, 3);
+          const wheel = await page.evaluate(() => ({
+            screen: window.__CRS.ctx.ui.current,
+            wedges: document.querySelectorAll('[data-id="order-wheel"] .cw-wedge').length,
+            keys: [...document.querySelectorAll('[data-id="order-wheel"] .cw-key')].map((e) => e.textContent).join(','),
+          }));
+          if (wheel.screen === 'roue_ordres') {
+            check(chief ? wheel.wedges === 8 && wheel.keys === '1,2,3,4,5,6,7,8' : wheel.wedges === 3 && wheel.keys === '1,2,7', `roue d’ordres : ${chief ? 'huit secteurs (chef)' : 'trois secteurs 1, 2, 7 (exécutant)'}`, J(wheel));
+            await page.evaluate(() => window.__CRS.ctx.ui.close('roue_ordres'));
+            await frames(page, 3);
+          } else C.note(`[${current}] roue d’ordres non ouverte (${wheel.screen})`);
+        }
+
         // carte tactique : ouverture et fermeture
         if (mobile) await tapCtl('tactical'); else await press('Tab');
         await page.waitForTimeout(500); await frames(page, 3);
         let s = await screenNow();
-        check(s.screen === 'carte_tactique', 'la carte tactique s’ouvre', String(s.screen));
+        check(s.screen === 'carte_tactique', 'la carte de commandement s’ouvre', String(s.screen));
         if (s.screen === 'carte_tactique') {
           await snap(page, name + '-tactique');
+          // disposition par rôle : chef = six intentions et « Plus… », au plus 14 commandes fixes (13 au téléphone) ;
+          // lecture seule = ni intentions ni ordres, Fermer / + / − / Moi seulement (✕ et ◎ au téléphone)
+          const lay = await page.evaluate(() => {
+            const root = document.querySelector('[data-id="tactical"]');
+            const btns = [...document.querySelectorAll('[data-id="tactical"] button')].filter((b) => { const r = b.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(b).visibility !== 'hidden'; }).map((b) => b.dataset.id || b.textContent.trim().slice(0, 16));
+            return { readonly: !!root && root.classList.contains('is-readonly'), btns };
+          });
+          const fixed = lay.btns.filter((id) => id !== 'tac-model-ok' && !/^todo-|^follow-/.test(id));
+          if (chief) {
+            check(!lay.readonly && fixed.filter((id) => /^intent-/.test(id)).length === 6 && fixed.includes('tac-more') && fixed.length <= (mobile ? 13 : 14) + (fixed.includes('tac-drone') ? 1 : 0), `carte (chef) : six intentions, « Plus… », au plus ${mobile ? 13 : 14} commandes fixes (+ « Vue drone » quand un drone est engagé)`, `${fixed.length} : ${fixed.join(' · ')}`);
+          } else if (who.police || who.level === 'lecture') {
+            // (« Vue drone » en plus quand un drone est engagé : le télépilote, par exemple)
+            check(lay.readonly && !fixed.some((id) => /^intent-|^tac-more$/.test(id)) && fixed.length <= (mobile ? 3 : 4) + (fixed.includes('tac-drone') ? 1 : 0), 'carte (lecture seule) : ni intention ni ordre, au plus Fermer, +, −, Moi (+ « Vue drone » quand un drone est engagé)', `${fixed.length} : ${fixed.join(' · ')}`);
+          }
           const offT = (await rects(page, '.ui-screen button, .ui-screen [role="button"]')).filter((r) => r.x + r.w > W + 2 || r.x < -2);
-          check(offT.length === 0, 'carte tactique : aucun bouton hors de l’écran en largeur', offT.slice(0, 4).map((r) => r.text || r.cls).join(' ; '));
+          check(offT.length === 0, 'carte de commandement : aucun bouton hors de l’écran en largeur', offT.slice(0, 4).map((r) => r.text || r.cls).join(' ; '));
         }
-        check(await closeScreen(), 'la carte tactique se referme (Échap)');
+        check(await closeScreen(), 'la carte de commandement se referme (Échap, ✕ au doigt)');
 
         // pause : chaque bouton atteignable (au besoin en faisant défiler)
         if (mobile) await tapCtl('pause'); else await press('Escape');

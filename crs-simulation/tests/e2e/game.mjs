@@ -395,13 +395,22 @@ async function bureau(server) {
     const ts2 = await page.evaluate(() => window.__CRS.ctx.clock.timeScale);
     check(ts0 === 1 && ts1 === 4 && ts2 === 1, 'la touche d’avance rapide bascule la vitesse de la simulation', `×${ts0} → ×${ts1} → ×${ts2}`);
 
-    // ── roue d'ordres pour un simple CRS : la roue réduite aux deux ordres « Me suivre » (à pied, en colonne) ──
+    // ── roue d'ordres pour un simple CRS : trois secteurs, mêmes numéros que pour un chef (F puis 1, F puis 2, F puis 7) ──
     await page.keyboard.down('KeyF');
     await frames(page, 2);
     await page.keyboard.up('KeyF');
     await frames(page, 3);
-    const followWheel = await page.evaluate(() => Array.from(document.querySelectorAll('[data-id="order-wheel"] .cw-label')).map((e) => e.textContent));
-    check(followWheel.length === 2 && followWheel.every((t) => /Me suivre/.test(t ?? '')), 'touche des ordres pour un équipier : la roue réduite « Me suivre » (à pied, en colonne)', followWheel.join(' | '));
+    const followWheel = await page.evaluate(() => {
+      const w = document.querySelector('[data-id="order-wheel"]');
+      return {
+        wedges: w ? w.querySelectorAll('.cw-wedge').length : 0,
+        // (libellés sur deux lignes : comparés sans les espaces)
+        labels: w ? Array.from(w.querySelectorAll('.cw-label')).map((e) => (e.textContent || '').replace(/\s+/g, '')).join('|') : '',
+        keys: w ? Array.from(w.querySelectorAll('.cw-key')).map((e) => (e.textContent || '').trim()).join(',') : '',
+      };
+    });
+    check(followWheel.wedges === 3 && followWheel.labels === 'Suivez-moiàpied|Suivez-moienvéhicules|Secoursici' && followWheel.keys === '1,2,7',
+      'touche des ordres pour un équipier : la roue réduite « Suivez-moi à pied » (1), « Suivez-moi en véhicules » (2), « Secours ici » (7)', JSON.stringify(followWheel));
     await page.keyboard.press('Escape');
     await frames(page, 3);
     check((await state(page)).screen === null, '… et Échap la referme : aucun écran ne reste ouvert', String((await state(page)).screen));
@@ -519,12 +528,12 @@ async function bureau(server) {
     await frames(page, 4);
     await page.waitForTimeout(600);
     s = await state(page);
-    check(s.screen === 'carte_tactique', 'la touche Tab ouvre la carte tactique', String(s.screen));
+    check(s.screen === 'carte_tactique', 'la touche Tab ouvre la carte de commandement (lecture seule pour un équipier)', String(s.screen));
     await capture('game-carte-tactique');
     await page.keyboard.press('Tab');
     await frames(page, 3);
     s = await state(page);
-    check(s.screen === null, 'la touche Tab referme la carte tactique', String(s.screen));
+    check(s.screen === null, 'la touche Tab referme la carte de commandement', String(s.screen));
 
     // ── pause, paramètres ──
     await page.keyboard.press('Escape');

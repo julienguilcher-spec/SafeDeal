@@ -136,8 +136,10 @@ export function createSituation(env: HudEnv): HudPart {
           lawful[i]!.set(i < st.lawful);
         }
         forceText.set(forceLabel(st.usable));
-        forceNums.set(`licite ${st.lawful} · autorisée ${st.authorized}`);
-        forceAria.set(`Force utilisable : ${forceLabel(st.usable)} (niveau licite ${st.lawful} sur 5, niveau autorisé ${st.authorized} sur 5)`);
+        // en mots, comme la pastille de la carte de commandement : l'autorisation n'est rappelée que si elle dépasse ce
+        // que la loi permet maintenant (elle prendra effet après les sommations)
+        forceNums.set(st.authorized > st.lawful ? `vous autorisez : ${forceLabel(st.authorized).toLocaleLowerCase('fr-FR')} ⚠` : '');
+        forceAria.set(`Force : ${forceLabel(st.usable)}. La loi permet : ${forceLabel(st.lawful)}. Vous autorisez : ${forceLabel(st.authorized)}.`);
         showRow4.set(false);
       } else {
         const text = mode === 'reminder' ? legalReminder(roe) : '';
