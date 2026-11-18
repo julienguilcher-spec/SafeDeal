@@ -1474,10 +1474,10 @@ index 87f1057..4f0a32c 100644
      void this.ctx;
 diff --git a/crs-simulation/src/ui/command/intents.ts b/crs-simulation/src/ui/command/intents.ts
 new file mode 100644
-index 0000000..9870ee3
+index 0000000..424bd6c
 --- /dev/null
 +++ b/crs-simulation/src/ui/command/intents.ts
-@@ -0,0 +1,918 @@
+@@ -0,0 +1,920 @@
 +/* =====================================================================================
 + * Carte de commandement — INTENTIONS et FICHES (logique pure, sans DOM).
 + *
@@ -1926,7 +1926,9 @@ index 0000000..9870ee3
 +    }));
 +  }
 +  others.push(plainLine('Centrer la carte', 'La carte se centre sur l’incident.', 'eye', { kind: 'centre' }));
-+  const who = assigned ? `confié à ${inc.assignee || (inc.means === 'pompiers' ? 'les pompiers' : inc.means === 'samu' ? 'le SAMU' : 'une unité')}` : 'personne n’y va';
++  // « à les pompiers » / « à le SAMU » se contractent (« aux pompiers », « au SAMU »)
++  const to = inc.assignee || (inc.means === 'pompiers' ? 'les pompiers' : inc.means === 'samu' ? 'le SAMU' : 'une unité');
++  const who = assigned ? `confié ${/^les /i.test(to) ? 'aux ' + to.slice(4) : /^le /i.test(to) ? 'au ' + to.slice(3) : 'à ' + to}` : 'personne n’y va';
 +  return {
 +    title: INCIDENT_KIND_LABELS[inc.kind].toLocaleUpperCase('fr-FR'), name: INCIDENT_KIND_LABELS[inc.kind],
 +    sub: [inc.place, who, `depuis ${ageLabel(inc.age)}`].filter((s) => s !== '').join(' · '),
@@ -2874,7 +2876,7 @@ index 0000000..f9fcd08
 +  }
 +}
 diff --git a/crs-simulation/src/ui/command/orderWheel.ts b/crs-simulation/src/ui/command/orderWheel.ts
-index 78fe9e9..70d5ad4 100644
+index 78fe9e9..c556d6e 100644
 --- a/crs-simulation/src/ui/command/orderWheel.ts
 +++ b/crs-simulation/src/ui/command/orderWheel.ts
 @@ -2,65 +2,256 @@
@@ -3209,7 +3211,7 @@ index 78fe9e9..70d5ad4 100644
      this.yaw = st.camYaw;
      const px = p ? p.x : 0;
      const pz = p ? p.z : 0;
-@@ -110,10 +320,11 @@ export class OrderWheelScreen implements ScreenInstance {
+@@ -110,54 +320,78 @@ export class OrderWheelScreen implements ScreenInstance {
      this.aimZ = az;
      const target = st.aimedPersonId !== 0 ? ctx.people.get(st.aimedPersonId) : undefined;
      this.targetId = target && target.faction !== 'police' ? target.id : 0;
@@ -3222,7 +3224,9 @@ index 78fe9e9..70d5ad4 100644
        this.root.appendChild(cap);
        // Aucune roue à ce poste : on le DIT par une notification qui reste lisible quelques secondes (le message
        // ci-dessus disparaissait au relâchement de la touche — invisible pour un appui bref ou un bouton tactile),
-@@ -122,42 +333,65 @@ export class OrderWheelScreen implements ScreenInstance {
+       // sans bloquer les commandes du joueur. L'écran se referme à la première image.
+-      ctx.ui.notify('Vous recevez les ordres : pas de roue d’ordres à ce poste. La carte tactique reste consultable.', 'info', 5);
++      ctx.ui.notify('Vous recevez les ordres : pas de roue d’ordres à ce poste. La carte reste consultable.', 'info', 5);
        return;
      }
  
@@ -9951,10 +9955,10 @@ index 0000000..c439ae4
 +  return `${who.mode === 'vehicules' ? 'en véhicules' : 'à pied'} · arrivée ~${Math.max(1, Math.round(who.eta / 60))} min`;
 +}
 diff --git a/crs-simulation/src/ui/command/style.ts b/crs-simulation/src/ui/command/style.ts
-index 2de0574..ba0fddb 100644
+index 2de0574..f066f65 100644
 --- a/crs-simulation/src/ui/command/style.ts
 +++ b/crs-simulation/src/ui/command/style.ts
-@@ -1,35 +1,143 @@
+@@ -1,35 +1,145 @@
  /* =====================================================================================
 - * Feuille de style du commandement : carte tactique (« ct- »), roue d'ordres (« cw- »), panneau
 - * radio (« cr- »), éléments de HUD (« ch- »). S'appuie sur les jetons de .cm-root (cartes).
@@ -10034,6 +10038,8 @@ index 2de0574..ba0fddb 100644
 +.ct-intent-w{display:none;font-style:normal}
 +.ct-intent .cm-kbd{position:absolute;right:-4px;top:-8px;background:#0a1322}
 +.ct.is-narrow .ct-intent-t small{display:none}
++/* fenêtre étroite (980 à 1200 px) : le libellé passe sur deux lignes plutôt que d'être coupé (« Encercler (nasse) ») */
++.ct.is-narrow .ct-intent-t b{white-space:normal;overflow-wrap:normal;line-height:1.12}
 +.ct.has-card .ct-intents{display:none}
 +
 +/* ── carte : recherche, aide, modèle, commandes ── */
@@ -10116,7 +10122,7 @@ index 2de0574..ba0fddb 100644
  
  /* ── arborescence des unités ── */
  .ct-unit{appearance:none;position:relative;display:flex;align-items:center;gap:7px;width:100%;min-height:var(--cm-tap);padding:2px 9px 2px calc(8px + var(--d,0) * 13px);
-@@ -59,17 +167,7 @@ border:0;border-bottom:1px solid rgba(148,168,208,.08);background:transparent;co
+@@ -59,17 +169,7 @@ border:0;border-bottom:1px solid rgba(148,168,208,.08);background:transparent;co
  .ct-bar{position:relative;display:block;height:5px;border-radius:3px;background:rgba(148,168,208,.2);overflow:hidden;align-self:center}
  .ct-bar::after{content:"";position:absolute;inset:0;background:var(--c,var(--cm-sky));transform-origin:left center;transform:scaleX(var(--v,0))}
  
@@ -10135,7 +10141,7 @@ index 2de0574..ba0fddb 100644
  .ct-pane{display:none;flex-direction:column;flex:1;min-height:0}
  .ct-pane.is-on{display:flex}
  .ct-sec{padding:10px 12px 12px;border-bottom:1px solid var(--cm-line);display:flex;flex-direction:column;gap:8px}
-@@ -142,81 +240,21 @@ color:var(--cm-dim);font:inherit;font-size:10.5px;font-weight:700;letter-spacing
+@@ -142,81 +242,21 @@ color:var(--cm-dim);font:inherit;font-size:10.5px;font-weight:700;letter-spacing
  .ct-msg p{margin:0;-webkit-user-select:text;user-select:text}
  .ct-empty{padding:18px 14px;font-size:12px;color:var(--cm-dim);line-height:1.45;text-align:center}
  
@@ -10218,7 +10224,7 @@ index 2de0574..ba0fddb 100644
  
  /* ── roue d'ordres ── */
  .cw-screen{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px}
-@@ -276,6 +314,7 @@ export function ensureCommandStyle(): void {
+@@ -276,6 +316,7 @@ export function ensureCommandStyle(): void {
    injected = true;
    const style = document.createElement('style');
    style.id = 'crs-command-style';
@@ -10375,10 +10381,10 @@ index 0000000..5ba81b6
 +`;
 diff --git a/crs-simulation/src/ui/command/stylePanels.ts b/crs-simulation/src/ui/command/stylePanels.ts
 new file mode 100644
-index 0000000..1cbc809
+index 0000000..13f70a2
 --- /dev/null
 +++ b/crs-simulation/src/ui/command/stylePanels.ts
-@@ -0,0 +1,117 @@
+@@ -0,0 +1,119 @@
 +/* =====================================================================================
 + * Feuille de style des PANNEAUX DE CÔTÉ de la carte de commandement (préfixe « cp- ») : « À traiter » et « Mes unités »
 + * (panelFollow.ts), « Plus… » et ses sections (panelMore.ts, panelOrders.ts, panelTraffic.ts), « Cadre légal »
@@ -10433,7 +10439,9 @@ index 0000000..1cbc809
 +.cp-fold:hover{background:rgba(148,168,208,.12);color:var(--cm-text)}
 +.cp-fold.is-none{cursor:default;pointer-events:none}
 +.cm-coarse .cp-fold{width:40px}
-+.cp-unit{padding:5px 8px 5px 6px}
++/* (à côté du bouton de pliage : la rangée prend la place restante, sans déborder de la colonne — width:100% de .cp-row
++   la faisait dépasser de la largeur du pli et la liste défilait de côté) */
++.cp-unit{flex:1 1 0;width:auto;min-width:0;padding:5px 8px 5px 6px}
 +.cp-line{display:flex;align-items:baseline;gap:7px;min-width:0}
 +.cp-name{flex:0 1 auto;min-width:0;font-weight:700;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 +.cp-num{flex:none;font-size:11.5px;font-weight:700;color:var(--cm-dim)}
@@ -11770,7 +11778,7 @@ index 5fc9f51..76fc262 100644
 +
 +const W = { x: 0, z: 0 };
 diff --git a/crs-simulation/src/ui/command/tacticalScreen.ts b/crs-simulation/src/ui/command/tacticalScreen.ts
-index c5e95ca..cd670fa 100644
+index c5e95ca..02b15a2 100644
 --- a/crs-simulation/src/ui/command/tacticalScreen.ts
 +++ b/crs-simulation/src/ui/command/tacticalScreen.ts
 @@ -1,192 +1,370 @@
@@ -12278,7 +12286,7 @@ index c5e95ca..cd670fa 100644
      this.map.canvas.tabIndex = 0;
      this.map.canvas.dataset.autofocus = '';
      this.map.canvas.dataset.id = 'tac-map';
-@@ -198,178 +376,229 @@ export class TacticalScreen implements ScreenInstance {
+@@ -198,178 +376,234 @@ export class TacticalScreen implements ScreenInstance {
        const u = core.maps.scene.unitModel.get(k);
        return u !== undefined && core.canCommand(u.squadId);
      };
@@ -12455,6 +12463,11 @@ index c5e95ca..cd670fa 100644
 +    const modelOk = button('Compris', () => this.modelBox.classList.remove('is-on'), { className: 'is-small', id: 'tac-model-ok' });
 +    modelOk.tabIndex = -1;
 +    this.modelBox.appendChild(modelOk);
++    // le premier geste du pointeur (ou du doigt) ailleurs referme aussi le modèle : il masquait le bouton « + » du zoom et le bas
++    // de la carte tant que le joueur n'avait touché ni une touche ni « Compris »
++    this.root.addEventListener('pointerdown', (e) => {
++      if (!(e.target instanceof Node) || !this.modelBox.contains(e.target)) this.modelBox.classList.remove('is-on');
++    }, true);
 +
 +    // + / − / ◎ Moi
 +    this.mapCtl = el('div', 'cm-mapctl ct-mapctl');
@@ -12659,7 +12672,7 @@ index c5e95ca..cd670fa 100644
    private initialView(open: TacticalOpenData): void {
      const core = this.core;
      const scene = core.maps.scene;
-@@ -388,9 +617,13 @@ export class TacticalScreen implements ScreenInstance {
+@@ -388,9 +622,13 @@ export class TacticalScreen implements ScreenInstance {
        n++;
      };
      const any = core.scope().squadIds.size === 0;
@@ -12674,7 +12687,7 @@ index c5e95ca..cd670fa 100644
      }
      if (scene.hasPlayer) take(scene.px, scene.pz);
      if (scene.hasHead) take(scene.headX, scene.headZ);
-@@ -409,21 +642,96 @@ export class TacticalScreen implements ScreenInstance {
+@@ -409,21 +647,96 @@ export class TacticalScreen implements ScreenInstance {
      this.map.invalidate();
    }
  
@@ -12776,7 +12789,7 @@ index c5e95ca..cd670fa 100644
    private droneFeed(): DroneFeedApi | undefined {
      const f = this.core.ctx.service<DroneFeedApi>(DRONE_FEED_SERVICE);
      return f && typeof f.toggle === 'function' ? f : undefined;
-@@ -436,23 +744,21 @@ export class TacticalScreen implements ScreenInstance {
+@@ -436,23 +749,21 @@ export class TacticalScreen implements ScreenInstance {
      setClass(this.droneBtn, 'is-on', feed.open);
    }
  
@@ -12804,7 +12817,7 @@ index c5e95ca..cd670fa 100644
        feed!.showSquad(u.squadId);
        setClass(this.droneBtn, 'is-on', feed!.open);
      }
-@@ -469,501 +775,1494 @@ export class TacticalScreen implements ScreenInstance {
+@@ -469,501 +780,1494 @@ export class TacticalScreen implements ScreenInstance {
        this.slow = false;
      }
      setClass(this.slowBtn, 'is-on', this.slow);
@@ -19242,7 +19255,7 @@ index 2cc3170..e57ecf8 100644
    await page.locator('[data-id="tac-close"]').click();
    await sleep(800);
 diff --git a/crs-simulation/tests/e2e/verif-fin-chef.mjs b/crs-simulation/tests/e2e/verif-fin-chef.mjs
-index 01b26a1..0d791ff 100644
+index 01b26a1..ee3a8a6 100644
 --- a/crs-simulation/tests/e2e/verif-fin-chef.mjs
 +++ b/crs-simulation/tests/e2e/verif-fin-chef.mjs
 @@ -1,12 +1,13 @@
@@ -19260,7 +19273,7 @@ index 01b26a1..0d791ff 100644
  //   E. fourgon : nez vers la sortie, rouler tout droit ; puis renverser VOLONTAIREMENT un collègue : faute relevée et annoncée ?
  // Usage : node tests/e2e/verif-fin-chef.mjs [--only=ABCDE] [--seed=11]
 -import { startServer, openPage, waitFor, frames, step, state, snap, hold, notices, sysErrors, census, makeChecker, args, J, R, installPad, PAD, padButton } from './verif-fin-lib.mjs';
-+import { startServer, openPage, waitFor, frames, step, state, snap, hold, notices, sysErrors, census, makeChecker, args, J, R, installPad, PAD, padButton, tactical, clickSel, clickCardLine, verbFirst } from './verif-fin-lib.mjs';
++import { startServer, openPage, waitFor, frames, step, state, snap, hold, notices, sysErrors, census, makeChecker, args, J, R, installPad, PAD, padButton, tactical, clickSel, clickCardLine, verbFirst, freeMapSpot } from './verif-fin-lib.mjs';
  
  const tag = 'verif-fin-chef';
  const C = makeChecker(tag);
@@ -19291,7 +19304,7 @@ index 01b26a1..0d791ff 100644
      const toTarget = () => page.evaluate(() => { const c = window.__CRS.ctx; const me = c.player.person(); const sq = c.squads.get(me.squadId); return { order: sq.order.type, by: sq.order.issuedBy, d: sq.members.map((id) => c.people.get(id)).filter((p) => p && !p.isPlayer && p.vehicleId === 0).map((p) => Math.hypot(p.x - sq.order.x, p.z - sq.order.z)), me: Math.hypot(me.x - sq.order.x, me.z - sq.order.z) }; });
      const t0 = await toTarget();
      // joueur immobile, 60 s
-@@ -101,52 +103,48 @@ try {
+@@ -101,52 +103,50 @@ try {
    }
  
    if (parts.includes('C')) {
@@ -19331,9 +19344,12 @@ index 01b26a1..0d791ff 100644
 +      C.check(!!card && card.kind === 'unite', 'TACTIQUE : la rangée de son groupe ouvre sa fiche', J(card && { kind: card.kind, lines: card.lines }));
 +      if (!(await clickCardLine(page, /^L.envoyer ailleurs/))) throw new Error('« L’envoyer ailleurs… » absente de la fiche');
        const box = await page.locator('[data-id="tac-map"]').boundingBox();
-       const px = box.x + box.width * 0.5 + 40, py = box.y + box.height * 0.5 - 30;
+-      const px = box.x + box.width * 0.5 + 40, py = box.y + box.height * 0.5 - 30;
 -      await page.mouse.move(px, py);
 -      await page.mouse.down(); await frames(page, 2); await page.mouse.move(px + 50, py + 10, { steps: 4 }); await frames(page, 2); await page.mouse.up();
++      // (loin de toute unité : un clic sur une unité ouvrirait sa fiche à la place de celle du lieu)
++      const spot = await freeMapSpot(page, [[0.53, 0.46], [0.3, 0.3], [0.7, 0.3], [0.3, 0.7], [0.7, 0.7], [0.5, 0.2], [0.5, 0.8]]);
++      const px = spot ? spot.x : box.x + box.width * 0.5 + 40, py = spot ? spot.y : box.y + box.height * 0.5 - 30;
 +      await page.mouse.click(px, py);
 +      await frames(page, 3);
 +      const place = await tactical(page);
@@ -19365,7 +19381,7 @@ index 01b26a1..0d791ff 100644
        await step(page, 45);
        const aft = await page.evaluate(() => { const c = window.__CRS.ctx; const me = c.player.person(); const sq = c.squads.get(me.squadId); return sq.members.map((id) => c.people.get(id)).filter((p) => p && !p.isPlayer && p.vehicleId === 0).map((p) => Math.hypot(p.x - sq.order.x, p.z - sq.order.z)); });
        C.check(aft.every((d) => d < 8), 'TACTIQUE : 45 s plus tard les équipiers sont en ligne sur le point', aft.map((d) => R(d, 1)).join(', ') + ' m');
-@@ -168,7 +166,7 @@ try {
+@@ -168,7 +168,7 @@ try {
      if (s2 === 'carte_tactique') await snap(page, tag + '-09-manette-tactique');
      await pad(PAD.SELECT); await page.waitForTimeout(300);
      const s3 = await state(page);
@@ -19404,10 +19420,10 @@ index c5cd313..9f0bc99 100644
      // « Repousser » sur un collègue : on se place face à un équipier, à 0,9 m
      const mate = await page.evaluate(() => {
 diff --git a/crs-simulation/tests/e2e/verif-fin-lib.mjs b/crs-simulation/tests/e2e/verif-fin-lib.mjs
-index aa935f2..afbf4cd 100644
+index aa935f2..f76c06a 100644
 --- a/crs-simulation/tests/e2e/verif-fin-lib.mjs
 +++ b/crs-simulation/tests/e2e/verif-fin-lib.mjs
-@@ -48,6 +48,68 @@ export async function hold(page, code, n = 2) {
+@@ -48,6 +48,86 @@ export async function hold(page, code, n = 2) {
    await frames(page, 1);
  }
  
@@ -19473,11 +19489,29 @@ index aa935f2..afbf4cd 100644
 +  return clickSel(page, `[data-id="verb-${type}"]`);
 +}
 +
++/**
++ * Point de la carte de commandement (coordonnées de la page) à au moins 90 px de tout policier : un clic y désigne un
++ * lieu (rue, place, point) et non une unité, dont la fiche remplacerait celle du lieu. `prefs` : fractions [fx, fy] de la
++ * carte essayées dans l'ordre ; null si aucune ne convient.
++ */
++export const freeMapSpot = (page, prefs = [[0.5, 0.5], [0.3, 0.3], [0.7, 0.3], [0.3, 0.7], [0.7, 0.7], [0.5, 0.2], [0.5, 0.8], [0.2, 0.5], [0.8, 0.5]]) => page.evaluate((list) => {
++  const ctx = window.__CRS.ctx;
++  const t = window.__CRS.game.systems.find((s) => s.id === 'ui:command').tactical;
++  const r = t.map.canvas.getBoundingClientRect();
++  const p = { x: 0, y: 0 };
++  const units = ctx.people.list.filter((q) => q.faction === 'police').map((q) => { t.map.view.worldToScreen(q.x, q.z, p); return { x: r.left + p.x, y: r.top + p.y }; });
++  for (const [fx, fy] of list) {
++    const x = r.left + r.width * fx, y = r.top + r.height * fy;
++    if (units.every((u) => Math.hypot(u.x - x, u.y - y) > 90)) return { x, y };
++  }
++  return null;
++}, prefs);
++
  export const notices = (page) => page.evaluate(() => window.__CRS.ctx.service('ui.debug').notices());
  export const sysErrors = (page) => page.evaluate(() => window.__CRS.summary().systems.filter((s) => s.errors > 0 || s.disabled).map((s) => `${s.id}:${s.errors}${s.disabled ? ' (désactivé)' : ''}`));
  
 diff --git a/crs-simulation/tests/e2e/verif-fin-ordres.mjs b/crs-simulation/tests/e2e/verif-fin-ordres.mjs
-index b2b7036..cbc0214 100644
+index b2b7036..f9cc900 100644
 --- a/crs-simulation/tests/e2e/verif-fin-ordres.mjs
 +++ b/crs-simulation/tests/e2e/verif-fin-ordres.mjs
 @@ -1,9 +1,10 @@
@@ -19491,7 +19525,7 @@ index b2b7036..cbc0214 100644
 +//   « Mes unités » → fiche du groupe → « L'envoyer ailleurs… » → lieu → ligne de la fiche).
  // Usage : node tests/e2e/verif-fin-ordres.mjs [--at=3,40] [--walk=0,1] [--seed=11]
 -import { startServer, openPage, waitFor, frames, step, state, snap, hold, notices, sysErrors, makeChecker, args, J, R, rects } from './verif-fin-lib.mjs';
-+import { startServer, openPage, waitFor, frames, step, state, snap, hold, notices, sysErrors, makeChecker, args, J, R, rects, tactical, clickSel, clickCardLine, verbFirst } from './verif-fin-lib.mjs';
++import { startServer, openPage, waitFor, frames, step, state, snap, hold, notices, sysErrors, makeChecker, args, J, R, rects, tactical, clickSel, clickCardLine, verbFirst, freeMapSpot } from './verif-fin-lib.mjs';
  const tag = 'verif-fin-ordres';
  const C = makeChecker(tag);
  const report = { runs: [] };
@@ -19515,7 +19549,7 @@ index b2b7036..cbc0214 100644
      if (v.walk) {
        await page.evaluate(() => { const c = window.__CRS.ctx; const me = c.player.person(); c.player.state.camYaw = Math.atan2(window.__pt.x - me.x, window.__pt.z - me.z); });
        await page.keyboard.down('KeyW');
-@@ -75,44 +76,44 @@ for (const v of variants) {
+@@ -75,44 +76,52 @@ for (const v of variants) {
      await step(page, 0.3);
      await snap(page, `${tag}-${k}-fin`);
  
@@ -19545,7 +19579,13 @@ index b2b7036..cbc0214 100644
 -        await page.mouse.click(vb.x, vb.y); await frames(page, 3);
 +      run.tactique = { rows, subs: subs.length };
 +      let line = '';
-+      if (await clickSel(page, `[data-id="follow-u-${own}"]`) && await clickCardLine(page, /^L.envoyer ailleurs/)) {
++      const rowClicked = await clickSel(page, `[data-id="follow-u-${own}"]`);
++      await page.waitForTimeout(400); await frames(page, 2);
++      const unitCard = await tactical(page);
++      C.check(rowClicked && !!unitCard && unitCard.kind === 'unite', 'TACTIQUE : la rangée de son groupe ouvre sa fiche', J({ rowClicked, card: unitCard && { kind: unitCard.kind, visee: unitCard.visee, lines: unitCard.lines } }));
++      const sendOn = await clickCardLine(page, /^L.envoyer ailleurs/);
++      C.check(!!sendOn, 'TACTIQUE : « L’envoyer ailleurs… » sur sa fiche', J(await tactical(page)));
++      if (sendOn) {
 +        await snap(page, `${tag}-tactique-1`);
          const box = await page.locator('[data-id="tac-map"]').boundingBox();
 -        const px = box.x + box.width * 0.45, py = box.y + box.height * 0.3;
@@ -19564,7 +19604,9 @@ index b2b7036..cbc0214 100644
 -        run.tactique.before = before; run.tactique.after = after;
 -        C.check(after.type === 'ligne' && after.by === after.me && after.at !== before.at, 'TACTIQUE : « Ligne » tracée sur la carte = ordre enregistré au nom du joueur', `« ${before.type} » → « ${after.type} » (par ${after.by}, joueur ${after.me}) ; notifications : ${(await notices(page)).join(' | ').slice(0, 160)}`);
 -        await snap(page, `${tag}-tactique-3`);
-+        await page.mouse.click(box.x + box.width * 0.45, box.y + box.height * 0.3);
++        // (loin de toute unité : un clic sur une unité ouvrirait sa fiche à la place de celle du lieu)
++        const spot = await freeMapSpot(page, [[0.45, 0.3], [0.3, 0.3], [0.7, 0.3], [0.3, 0.7], [0.7, 0.7], [0.5, 0.2], [0.5, 0.8]]);
++        await page.mouse.click(spot ? spot.x : box.x + box.width * 0.45, spot ? spot.y : box.y + box.height * 0.3);
 +        await frames(page, 3);
 +        // la ligne de la fiche est cliquable : rien (sous-titres radio, messages) ne la recouvre
 +        const covered = await page.evaluate(() => {
@@ -19860,7 +19902,7 @@ index 950de10..c17eea5 100644
    ok = false;
    console.error(err);
 diff --git a/crs-simulation/tests/e2e/verif-ordres-carte.mjs b/crs-simulation/tests/e2e/verif-ordres-carte.mjs
-index aa5c427..f834916 100644
+index aa5c427..59c26d5 100644
 --- a/crs-simulation/tests/e2e/verif-ordres-carte.mjs
 +++ b/crs-simulation/tests/e2e/verif-ordres-carte.mjs
 @@ -1,5 +1,8 @@
@@ -19869,11 +19911,11 @@ index aa5c427..f834916 100644
 +// dans « Mes unités », « L'envoyer ailleurs… », un clic sur la carte, « Tenir une ligne ici » : la section reçoit l'ordre
 +// « ligne » (ou embarque d'abord pour s'y rendre en véhicules), donné par le joueur, et la fiche affiche « ✓ ORDRE DONNÉ ».
  import { startServer, openPage, waitFor, shot, finish } from './lib.mjs';
-+import { clickCardLine, clickSel, frames, tactical, verbFirst } from './verif-fin-lib.mjs';
++import { clickCardLine, clickSel, frames, freeMapSpot, tactical, verbFirst } from './verif-fin-lib.mjs';
  const server = await startServer();
  const { browser, page, errors } = await openPage(server.url + 'index.html?autostart=paris&quality=bas&nomenu=1&role=commandant&rank=commandant&crowd=100', { width: 1280, height: 720 });
  let ok = true;
-@@ -10,37 +13,52 @@ try {
+@@ -10,37 +13,54 @@ try {
    await new Promise((r) => setTimeout(r, 5000));
    const scope = await page.evaluate(() => window.__CRS.ctx.service('ui.command')?.scope?.() ?? null);
    console.log('étendue', JSON.stringify(scope && { level: scope.level, label: scope.label, n: scope.squadIds?.size }));
@@ -19900,9 +19942,11 @@ index aa5c427..f834916 100644
 +  // ligne 1 « L'envoyer ailleurs… » : la fiche devient « OÙ L'ENVOYER ? »
 +  if (!(await clickCardLine(page, /^L.envoyer ailleurs/))) throw new Error('« L’envoyer ailleurs… » absente');
 +  await frames(page, 3);
-+  // un clic au centre de la carte : la fiche du lieu, Qui toujours la section
++  // un clic sur la carte, loin de toute unité (sinon c'est la fiche de l'unité touchée) : la fiche du lieu, Qui toujours la section
 +  const box = await page.locator('[data-id="tac-map"]').boundingBox();
-+  await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.5);
++  const spot = await freeMapSpot(page);
++  console.log('clic sur la carte', JSON.stringify(spot));
++  await page.mouse.click(spot ? spot.x : box.x + box.width * 0.5, spot ? spot.y : box.y + box.height * 0.5);
    await new Promise((r) => setTimeout(r, 1000));
 -  // (la carte : le dernier canvas de la page est celui, masqué, du retour vidéo du drone)
 -  const canvas = page.locator('[data-id="tac-map"]');
@@ -19954,10 +19998,10 @@ index aa5c427..f834916 100644
  } catch (e) { console.error(e); ok = false; }
  await finish({ browser, server, errors, ok, label: 'ordres-carte' });
 diff --git a/crs-simulation/tests/e2e/verif-propositions.mjs b/crs-simulation/tests/e2e/verif-propositions.mjs
-index 890200f..e2b2942 100644
+index 890200f..76f11ed 100644
 --- a/crs-simulation/tests/e2e/verif-propositions.mjs
 +++ b/crs-simulation/tests/e2e/verif-propositions.mjs
-@@ -1,24 +1,64 @@
+@@ -1,24 +1,66 @@
 -// Commandant : la proposition de l'adjoint s'affiche au HUD ; « Accepter » fait exécuter (mise en place du dispositif).
 +// Commandant : la proposition de l'adjoint s'affiche au HUD sous un titre simple (« L'ADJOINT PROPOSE » + ce qu'elle
 +// fait, sans indicatif radio) ; P l'accepte et la fait exécuter (mise en place du dispositif) ; Maj + P la remet à plus tard.
@@ -19994,7 +20038,9 @@ index 890200f..e2b2942 100644
    const text = await page.locator('[data-id="hud-proposal"]').innerText();
    console.log('proposition :', JSON.stringify(text));
    await shot(page, 'proposition-1');
-+  if (!/L.ADJOINT PROPOSE/.test(text)) fail('titre « L’ADJOINT PROPOSE »', text);
++  // (fenêtre de 720 px de haut, sous 760 px : la carte se réduit à une ligne « L'adjoint propose : … [Accepter P] », §6.1)
++  if (!/L.ADJOINT PROPOSE/i.test(text)) fail('titre « L’ADJOINT PROPOSE »', text);
++  if (!/Accepter/.test(text) || !/\bP\b/.test(text)) fail('bouton « Accepter P »', text);
 +  if (/QUATRE-ZÉRO|PARLEZ|TERMINÉ/.test(text)) fail('titre en clair, sans la phrase radio', text);
    const before = await page.evaluate(() => window.__CRS.ctx.service('police.command').decisions.length);
 -  await page.locator('[data-id="proposal-accept"]').click();
@@ -23446,10 +23492,10 @@ index 0000000..be62680
 +});
 diff --git a/crs-simulation/tests/unit/ui-command.fiches.test.ts b/crs-simulation/tests/unit/ui-command.fiches.test.ts
 new file mode 100644
-index 0000000..b587ead
+index 0000000..c402850
 --- /dev/null
 +++ b/crs-simulation/tests/unit/ui-command.fiches.test.ts
-@@ -0,0 +1,514 @@
+@@ -0,0 +1,523 @@
 +// Carte de commandement — fiches des repères (intents.ts) et mots des ordres (orders.ts) : au plus six lignes, la ligne
 +// de l'intention toujours visible, les deux barrages de rue, le cadenas légal, la lecture seule, la fiche d'un poste,
 +// et aucun ordre perdu. La fin du fichier construit les fiches d'une vraie partie (place de la Concorde).
@@ -23761,6 +23807,15 @@ index 0000000..b587ead
 +    expect(blesse.lines[1]!.label).toMatch(/^Envoyer MISTRAL 2 \(la plus proche, \d+\u00a0min\)$/);
 +    expect(blesse.lines[1]!.action).toMatchObject({ kind: 'means', means: 'unite', squadId: 3 });
 +    expect(blesse.sub).toContain('confié à MISTRAL 3');
++    // confié aux secours : « aux pompiers », « au SAMU » (jamais « à les pompiers »)
++    const base = env.incidents.find((i) => i.id === 4)!;
++    for (const [means, text] of [['pompiers', 'confié aux pompiers'], ['samu', 'confié au SAMU']] as const) {
++      const inc = { ...base, id: 40, means, squadId: 0, assignee: '' };
++      const e2 = makeEnv({ incidents: [...env.incidents, inc] });
++      const card = buildCard(collectReperes(e2).find((r) => r.incidentId === 40)!, e2, null);
++      expect(card.sub).toContain(text);
++      expect(card.sub).not.toMatch(/à les|à le /);
++    }
 +    expect(blesse.others.find((l) => l.label === 'Protéger les secours')!.action).toEqual({ kind: 'verb', type: 'proteger', geom: 'target', targetId: 501 });
 +    const barricade = buildCard(collectReperes(env).find((r) => r.incidentId === 3)!, env, null);
 +    expect(barricade.lines[0]!.label).toMatch(/^Dégager avec le blindé Centaure \(\d+\u00a0min\)$/);

@@ -2082,6 +2082,23 @@ index 39c9ca0..9f13eeb 100644
      v.y = world.heightAt(x, z);
      const squad = ctx.squads.create('equipage', 'police', site.callsign);
      squad.vehicleId = v.id;
+diff --git a/crs-simulation/src/gameplay/radio/ambient.ts b/crs-simulation/src/gameplay/radio/ambient.ts
+index 3938cb8..c5ceacb 100644
+--- a/crs-simulation/src/gameplay/radio/ambient.ts
++++ b/crs-simulation/src/gameplay/radio/ambient.ts
+@@ -225,6 +225,12 @@ export class RadioAmbient {
+       return;
+     }
+     const facts = this.observe();
++    // équipage de patrouille sans compagnie sur le terrain (vacation) : aucune unité ne rend compte à la voix ; un
++    // message d'ambiance serait prêté à une compagnie qui n'existe pas (les patrouilles de l'IA parlent d'elles-mêmes)
++    if (this.speakers.length === 0 && this.ctx.session.config?.role === 'patrouille') {
++      this.nextAt = now + this.rng.range(AMBIENT_MIN, AMBIENT_MAX);
++      return;
++    }
+     const key = this.pickTopic(facts);
+     // le canal est encombré : on réessaie bientôt plutôt que d'empiler de l'ambiance
+     const channel = this.phrases.info(key)?.channel ?? 'unite';
 diff --git a/crs-simulation/src/gameplay/radio/callsigns.ts b/crs-simulation/src/gameplay/radio/callsigns.ts
 index 877c5cb..049977a 100644
 --- a/crs-simulation/src/gameplay/radio/callsigns.ts
@@ -2126,6 +2143,27 @@ index 877c5cb..049977a 100644
      switch (person.kind) {
        case 'telepilote':
          return SPECIAL_DEFAULTS.drone;
+diff --git a/crs-simulation/src/gameplay/radio/text.ts b/crs-simulation/src/gameplay/radio/text.ts
+index bc0518f..6262219 100644
+--- a/crs-simulation/src/gameplay/radio/text.ts
++++ b/crs-simulation/src/gameplay/radio/text.ts
+@@ -29,9 +29,15 @@ export function spokenNumber(value: number): string {
+   return spokenDigits(String(n));
+ }
+ 
++/** Lettre de secteur d'un indicatif (BAC 75N, 75E, 75S, 75O). */
++const SECTOR_WORDS: Readonly<Record<string, string>> = { N: 'NORD', E: 'EST', S: 'SUD', O: 'OUEST' };
++
+ /** Indicatif tel qu'on le prononce : chaque suite de chiffres est épelée, le reste en capitales. */
+ export function spokenCallsign(callsign: string): string {
+-  return callsign.toUpperCase().replace(/\d+/g, (run) => spokenDigits(run));
++  // un secteur collé au numéro (« BAC 75N ») se dit en toutes lettres : « BAC SEPT-CINQ NORD »
++  return callsign.toUpperCase()
++    .replace(/(\d)([NESO])\b/g, (_m, d: string, s: string) => `${d} ${SECTOR_WORDS[s] ?? s}`)
++    .replace(/\d+/g, (run) => spokenDigits(run));
+ }
+ 
+ /**
 diff --git a/crs-simulation/src/gameplay/session/equipage.ts b/crs-simulation/src/gameplay/session/equipage.ts
 new file mode 100644
 index 0000000..a9b2898
@@ -2382,7 +2420,7 @@ index 0000000..a9b2898
 +  }
 +}
 diff --git a/crs-simulation/src/gameplay/session/follow.ts b/crs-simulation/src/gameplay/session/follow.ts
-index e5248ad..e2272a4 100644
+index e5248ad..db8ea35 100644
 --- a/crs-simulation/src/gameplay/session/follow.ts
 +++ b/crs-simulation/src/gameplay/session/follow.ts
 @@ -440,8 +440,9 @@ export class FollowLeaderSystem implements GameSystem {
@@ -2397,6 +2435,29 @@ index e5248ad..e2272a4 100644
      const own = this.rootOf(me.squadId);
      if (own !== 0) out.add(own);
      const root = ctx.squads.get(own);
+@@ -709,13 +710,21 @@ export class FollowLeaderSystem implements GameSystem {
+         const p = ctx.people.get(id);
+         if (!p || p.isPlayer) continue;
+         if (p.vehicleId !== 0) {
+-          if (p.poste !== 'conducteur' && q.kind !== 'equipage') aboard++;
++          // (l'équipage d'un engin reste à son poste ; celui d'une voiture de patrouille descend avec le joueur, le
++          // conducteur compris : personne ne garde la voiture)
++          if (this.patrolCrew(q) || (p.poste !== 'conducteur' && q.kind !== 'equipage')) aboard++;
+         } else if (p.custody === 'free' && p.posture !== 'down') onFoot++;
+       }
+     }
+     return { onFoot, aboard };
+   }
+ 
++  /** Équipage de la voiture de patrouille du joueur (rôle 'patrouille') : il met pied à terre avec lui. */
++  private patrolCrew(q: Squad): boolean {
++    const ctx = this.ctx!;
++    return q.kind === 'equipage' && ctx.session.config?.role === 'patrouille' && q.id === ctx.player.person()?.squadId;
++  }
++
+   /** Mouvement motorisé de l'unité encore en cours (police.command : elle vient de loin rejoindre le joueur). */
+   private convoying(squadId: number): boolean {
+     const cmd = this.ctx!.service<CommandLike>('police.command');
 diff --git a/crs-simulation/src/gameplay/session/index.ts b/crs-simulation/src/gameplay/session/index.ts
 index 5823e76..e00ebf3 100644
 --- a/crs-simulation/src/gameplay/session/index.ts
@@ -4822,15 +4883,16 @@ index 60138d4..c312478 100644
      // se replace à hauteur du cortège, contre les façades
      const f = core.formation;
 diff --git a/crs-simulation/src/sim/roles/rescue/radio.ts b/crs-simulation/src/sim/roles/rescue/radio.ts
-index 2e73ddd..8d42bef 100644
+index 2e73ddd..0215bfa 100644
 --- a/crs-simulation/src/sim/roles/rescue/radio.ts
 +++ b/crs-simulation/src/sim/roles/rescue/radio.ts
-@@ -194,7 +194,7 @@ export class RescueRadio {
+@@ -194,7 +194,8 @@ export class RescueRadio {
        return;
      }
      const p = this.phrases();
 -    if (p && p.has('secours_en_route') && p.say('secours_en_route', { duree: `${minutes} minute${minutes > 1 ? 's' : ''}` }, { at: call })) return;
-+    if (p && p.has('secours_en_route') && p.say('secours_en_route', { duree: minutes }, { at: call })) return;
++    // (les phrases disent « {duree} minutes » : pour une seule minute, la formule au singulier ci-dessous)
++    if (minutes > 1 && p && p.has('secours_en_route') && p.say('secours_en_route', { duree: minutes }, { at: call })) return;
      const where = this.sector(call.x, call.z);
      const who = call.kind === 'pompiers' ? 'Sapeurs-pompiers' : 'Équipe médicale';
      this.say('CENTRAL', `ICI CENTRAL. ${who} en route${where !== '' ? ` vers ${where}` : ''}. Délai : ${minutes === 1 ? 'UNE' : DIGITS[minutes] ?? minutes} `
@@ -4895,6 +4957,24 @@ index ce41538..fa71e14 100644
    fourgon_cellulaire: { engine: DIESEL(26), handling: H_FOURGON, fire: F_FOURGON, boardTime: 1.8 },
    centaure: {
      engine: LOURD(15.2, '4x4'), handling: H_BLINDE, fire: F_BLINDE, toughness: 0.12, boardTime: 2.0,
+diff --git a/crs-simulation/src/ui/command/core.ts b/crs-simulation/src/ui/command/core.ts
+index 5e51c3a..22a958b 100644
+--- a/crs-simulation/src/ui/command/core.ts
++++ b/crs-simulation/src/ui/command/core.ts
+@@ -330,6 +330,13 @@ export class CommandCore implements CommandApi {
+     const far = me.vehicleId === 0 && this.farFor(s, me.x, me.z);
+     // l'ordre est dit avant d'être exécuté : l'accusé de réception de l'unité vient après lui
+     const say = (text: string): void => ctx.radio.say({ channel: 'commandement', from, priority: 1, personId: playerId, text });
++    // équipage sans unité subordonnée déjà à bord du véhicule du joueur (voiture de patrouille) : pas d'ordre à la radio
++    // dans l'habitacle, il reste à bord
++    if (column && me.vehicleId !== 0 && s.members.length > 0 && !ctx.squads.list.some((q) => q.parentId === s.id)
++      && s.members.every((id) => id === playerId || ctx.people.get(id)?.vehicleId === me.vehicleId)) {
++      ctx.ui.notify(`${s.name} : l’équipage est déjà à bord avec vous.`, 'info', 4);
++      return true;
++    }
+     if (column && follow) {
+       // loin d'un joueur à pied : la colonne vient jusqu'à lui (deux tons) et y reste à bord, prête à le suivre
+       if (!far) say(`${s.name} ICI ${caller}. Me suivre en colonne : embarquez, prenez place derrière mon véhicule. PARLEZ.`);
 diff --git a/crs-simulation/src/ui/command/radioScreen.ts b/crs-simulation/src/ui/command/radioScreen.ts
 index 02ad169..4bc3652 100644
 --- a/crs-simulation/src/ui/command/radioScreen.ts
@@ -6429,10 +6509,10 @@ index 17bb3c6..4ff5386 100644
        ctx.ui.close('historique');
 diff --git a/crs-simulation/src/ui/screens/home-hub.ts b/crs-simulation/src/ui/screens/home-hub.ts
 new file mode 100644
-index 0000000..7f6f7bf
+index 0000000..094e379
 --- /dev/null
 +++ b/crs-simulation/src/ui/screens/home-hub.ts
-@@ -0,0 +1,198 @@
+@@ -0,0 +1,199 @@
 +/* =====================================================================================
 + * Page d'accueil — le hub : quatre grandes entrées, chacune expliquée en une ligne.
 + *
@@ -6449,7 +6529,7 @@ index 0000000..7f6f7bf
 +
 +import type { SessionConfig } from '@/core/contracts';
 +import type { CareerApi } from '@/gameplay/career/api';
-+import { readVacation } from '@/gameplay/patrols/model';
++import { migrateLegacyPatrol, readVacation } from '@/gameplay/patrols/model';
 +import type { MissionLike } from '../core/api';
 +import { el, h } from '../core/dom';
 +import { int } from '../core/format';
@@ -6535,7 +6615,8 @@ index 0000000..7f6f7bf
 +
 +/** « Continuer — … » : la dernière partie en quelques mots. */
 +export function continueLabel(cfg: SessionConfig, missions: readonly Pick<MissionLike, 'id' | 'title'>[]): string {
-+  const v = readVacation(cfg);
++  // (une ancienne « Monde ouvert » est relancée en vacation : le libellé nomme la vacation qui sera jouée)
++  const v = readVacation(migrateLegacyPatrol(cfg));
 +  if (v) return `${v.depart.callsign}, ${v.depart.name}`;
 +  if (cfg.missionId) {
 +    const m = missions.find((x) => x.id === cfg.missionId);
@@ -8625,6 +8706,34 @@ index 0aebd96..71dfd8c 100644
          root.remove();
        },
      };
+diff --git a/crs-simulation/src/ui/screens/pause.ts b/crs-simulation/src/ui/screens/pause.ts
+index 8bbacc6..003f443 100644
+--- a/crs-simulation/src/ui/screens/pause.ts
++++ b/crs-simulation/src/ui/screens/pause.ts
+@@ -11,6 +11,7 @@ import { clear, el, h } from '../core/dom';
+ import { capitalize, hourLabel, stopwatch } from '../core/format';
+ import type { UiEnv } from '../core/kit';
+ import { isPoliceRole } from '../hud/model';
++import { readVacation } from '@/gameplay/patrols/model';
+ import { sortObjectives } from '../hud/objectives';
+ 
+ const KEY_ROWS: readonly { label: string; button: Button }[] = [
+@@ -70,9 +71,13 @@ export function createPause(env: UiEnv): (host: HTMLElement) => ScreenInstance {
+     }, 'secondary', 'restart');
+     b3.dataset.id = 'pause-recommencer';
+     const b4 = widgets.button('Terminer et voir le compte rendu', () => {
++      // vacation de patrouille (mode Patrouille) : on termine la vacation, pas une mission
++      const vacation = !!readVacation(ctx.session.config);
+       widgets.confirm(host, {
+-        title: 'Terminer la mission ?',
+-        text: 'La partie s’arrête ici et le compte rendu d’opération est établi sur ce qui a été fait.',
++        title: vacation ? 'Terminer la vacation ?' : 'Terminer la mission ?',
++        text: vacation
++          ? 'La vacation s’arrête ici et le compte rendu de vacation est établi sur ce qui a été fait.'
++          : 'La partie s’arrête ici et le compte rendu d’opération est établi sur ce qui a été fait.',
+         confirm: 'Terminer',
+         onConfirm: () => ctx.session.end(true),
+       });
 diff --git a/crs-simulation/src/ui/screens/scenario.ts b/crs-simulation/src/ui/screens/scenario.ts
 index 4d46ff1..6a0f441 100644
 --- a/crs-simulation/src/ui/screens/scenario.ts
@@ -9891,10 +10000,10 @@ index c58d444..6c2e2b6 100644
      await click('[data-value="bouclier"]'); await frames(page, 2);
 diff --git a/crs-simulation/tests/e2e/verif-patrouille.mjs b/crs-simulation/tests/e2e/verif-patrouille.mjs
 new file mode 100644
-index 0000000..403bb17
+index 0000000..33f4f98
 --- /dev/null
 +++ b/crs-simulation/tests/e2e/verif-patrouille.mjs
-@@ -0,0 +1,252 @@
+@@ -0,0 +1,260 @@
 +// Mode Patrouille en jeu — carte d'appel de CENTRAL, touche Y, écran radio, compte rendu de vacation.
 +//   PC (1280 × 720, clavier) : hub → Patrouille → BAC → rythme agité, lancé avec &premier=5 → le joueur est dans une
 +//     'voiture_bac' ; la carte « hud-appel » paraît en moins de 30 s de jeu ; Y prend l'appel (état 'acceptee', objectif
@@ -9937,16 +10046,24 @@ index 0000000..403bb17
 +});
 +
 +async function hit(page, id, touch) {
-+  // la carte se replie au bout de 20 s réelles ; au WebGL logiciel (≈ 0,4 s par image), un parcours y suffit : on la rouvre
-+  if (/^(appel-|renfort-)/.test(id) && await visible(page, 'hud-appel-pastille')) {
-+    const pill = page.locator('[data-id="hud-appel-pastille"]');
-+    if (touch) await pill.tap();
-+    else await pill.click();
-+    await frames(page, 3);
-+  }
++  // la carte se replie au bout de 20 s réelles ; au WebGL logiciel (≈ 0,4 s par image), un parcours y suffit, et elle
++  // peut se replier entre le relevé et le clic : on la rouvre par la pastille, puis on réessaie
 +  const loc = page.locator(`[data-id="${id}"]`).first();
-+  if (touch) await loc.tap();
-+  else await loc.click();
++  for (let attempt = 0; ; attempt++) {
++    if (/^(appel-|renfort-)/.test(id) && await visible(page, 'hud-appel-pastille')) {
++      const pill = page.locator('[data-id="hud-appel-pastille"]');
++      if (touch) await pill.tap();
++      else await pill.click();
++      await frames(page, 3);
++    }
++    try {
++      if (touch) await loc.tap({ timeout: 10000 });
++      else await loc.click({ timeout: 10000 });
++      break;
++    } catch (err) {
++      if (attempt >= 2 || !/^(appel-|renfort-)/.test(id)) throw err;
++    }
++  }
 +  await frames(page, 3);
 +}
 +
@@ -11647,6 +11764,21 @@ index 3912f25..76941ec 100644
      const water = () => v.def.turrets.reduce((s, d, i) => s + (d.kind === 'canon_eau' ? v.turretAmmo[i] ?? 0 : 0), 0);
      const w0 = water();
      t.step(72);
+diff --git a/crs-simulation/tests/unit/radio.phrases.test.ts b/crs-simulation/tests/unit/radio.phrases.test.ts
+index 2e14182..5b16038 100644
+--- a/crs-simulation/tests/unit/radio.phrases.test.ts
++++ b/crs-simulation/tests/unit/radio.phrases.test.ts
+@@ -163,6 +163,10 @@ describe('radio — bibliothèque de phrases', () => {
+     expect(spokenNumber(200)).toBe('DEUX-ZÉRO-ZÉRO');
+     expect(spokenNumber(NaN)).toBe('ZÉRO');
+     expect(spokenCallsign('Mistral 12 bravo')).toBe('MISTRAL UN-DEUX BRAVO');
++    // secteur de la BAC collé au numéro, et indicatif de commissariat
++    expect(spokenCallsign('BAC 75N')).toBe('BAC SEPT-CINQ NORD');
++    expect(spokenCallsign('BAC 75O')).toBe('BAC SEPT-CINQ OUEST');
++    expect(spokenCallsign('TV 75-09')).toBe('TV SEPT-CINQ-ZÉRO-NEUF');
+     expect(spokenTime(17.07)).toBe('UNE-SEPT heures ZÉRO-QUATRE');
+     expect(spokenTime(8.5)).toBe('ZÉRO-HUIT heures TROIS-ZÉRO');
+     // devant « heures », le chiffre 1 s'accorde : vingt et une heures, onze heures, une heure
 diff --git a/crs-simulation/tests/unit/session.equipage.test.ts b/crs-simulation/tests/unit/session.equipage.test.ts
 new file mode 100644
 index 0000000..ec52a7e
@@ -11838,6 +11970,61 @@ index 0000000..ec52a7e
 +    expect(manifestationBrief({ 'manif.nom': 'x'.repeat(90) }).length).toBeLessThan(90);
 +  });
 +});
+diff --git a/crs-simulation/tests/unit/ui-command.suivre-tous-roles.test.ts b/crs-simulation/tests/unit/ui-command.suivre-tous-roles.test.ts
+index 49676a1..7826236 100644
+--- a/crs-simulation/tests/unit/ui-command.suivre-tous-roles.test.ts
++++ b/crs-simulation/tests/unit/ui-command.suivre-tous-roles.test.ts
+@@ -19,6 +19,7 @@ import { createSystems as command, ordersButtonVisible } from '@/ui/command';
+ import type { CommandCore } from '@/ui/command';
+ import { FOLLOW_WHEEL, WHEEL, wheelOrders } from '@/ui/command/orderWheel';
+ import { followButtonsShown } from '@/ui/command/quickActions';
++import { sanitizePatrolSetup, vacationSessionConfig } from '@/gameplay/patrols/model';
+ 
+ const SIM = [world, roles, people, vehicles, police, law, radio, session, command];
+ 
+@@ -90,6 +91,42 @@ describe('ordres « me suivre » : tout policier', () => {
+     }, 300000);
+   }
+ 
++  it('équipage de patrouille à bord : « en colonne » le laisse à bord sans ordre radio ; « à pied », le joueur descendu, il suit', async () => {
++    const t = createTestContext({ seed: 21, strict: false, modules: SIM });
++    await t.start(vacationSessionConfig(sanitizePatrolSetup({ seed: 21, crew: 'bac', seat: 'conducteur' })));
++    t.step(3);
++    const ctx = t.ctx;
++    const core = ctx.service<CommandCore>('ui.command')!;
++    const me = ctx.player.person()!;
++    expect(me.vehicleId).not.toBe(0);
++    const unit = core.followUnit()!;
++    expect(unit).toBeTruthy();
++    expect(followButtonsShown(core)).toBe(true);
++    const before = ctx.radio.log.length;
++    expect(core.callFollow(true).ok).toBe(true);
++    for (let i = 0; i < 10; i++) t.step(1);
++    // ni « Me suivre en colonne » dans l'habitacle, ni « Pas de véhicule disponible, je vous suis à pied »
++    const said = ctx.radio.log.slice(before).map((m) => m.text);
++    expect(said.filter((x) => /Me suivre en colonne|Pas de véhicule disponible/.test(x))).toEqual([]);
++    expect(crewOf(ctx, unit).every((p) => p.vehicleId === me.vehicleId)).toBe(true);
++    // le joueur descend, puis « Me suivre à pied » : ses deux collègues descendent et le suivent
++    ctx.vehicles.exit(me);
++    t.step(1);
++    expect(core.callFollow(false).ok).toBe(true);
++    for (let i = 0; i < 30 && crewOf(ctx, unit).some((p) => p.vehicleId !== 0); i++) t.step(2);
++    expect(unit.order.type).toBe('suivre');
++    expect(crewOf(ctx, unit).filter((p) => p.vehicleId !== 0).length).toBe(0);
++    // retour à la voiture : le joueur remonte, « en colonne » fait remonter l'équipage avec lui
++    const car = ctx.vehicles.get(unit.vehicleId)!;
++    expect(car).toBeTruthy();
++    expect(ctx.vehicles.enter(me, car, 0)).toBe(true);
++    const mark = ctx.radio.log.length;
++    expect(core.callFollow(true).ok).toBe(true);
++    for (let i = 0; i < 40 && crewOf(ctx, unit).some((p) => p.vehicleId !== car.id); i++) t.step(1);
++    console.log('remontée :', crewOf(ctx, unit).map((p) => p.vehicleId === car.id), ctx.radio.log.slice(mark).map((m) => m.text).join(' | '));
++    expect(crewOf(ctx, unit).every((p) => p.vehicleId === car.id)).toBe(true);
++  }, 300000);
++
+   it('hors police : ni roue, ni boutons « me suivre »', async () => {
+     const { core } = await start('journaliste');
+     expect(core.followUnit()).toBe(null);
 diff --git a/crs-simulation/tests/unit/ui.home-hub.test.ts b/crs-simulation/tests/unit/ui.home-hub.test.ts
 new file mode 100644
 index 0000000..ee6252f
