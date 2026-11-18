@@ -91,10 +91,15 @@ export function isFree(u: CardUnit, env: CardEnv): boolean {
   return o.type === 'tenir' && !nearAnyCrowd(env, u.x, u.z, FREE_HOLD_DISTANCE);
 }
 
-/** Délai (s), distance (m) et mode d'une unité jusqu'au point. Patrouilles et BRAV-M roulent toujours. */
-export function travel(u: Pick<CardUnit, 'x' | 'z' | 'hasVehicles' | 'patrol' | 'symbol'>, x: number, z: number): { eta: number; distance: number; mode: 'pied' | 'vehicules' } {
+/**
+ * Délai (s), distance (m) et mode d'une unité jusqu'au point. Patrouilles et engins roulent toujours ; la BRAV-M roule
+ * quand ses opérateurs sont en selle, ou au-delà de 250 m (elle remonte d'abord sur ses motos) — à pied et plus près,
+ * elle y va à pied (sim/police/command/bravm.ts).
+ */
+export function travel(u: Pick<CardUnit, 'x' | 'z' | 'hasVehicles' | 'patrol' | 'symbol'> & { embarked?: boolean }, x: number, z: number): { eta: number; distance: number; mode: 'pied' | 'vehicules' } {
   const d = Math.hypot(u.x - x, u.z - z);
-  const rolling = u.patrol || u.symbol === 'bravm' || u.symbol === 'centaure' || u.symbol === 'canon_eau' || u.symbol === 'vehicule';
+  const bravmRides = u.symbol === 'bravm' && (u.embarked !== false || d > MOTOR_DISTANCE);
+  const rolling = u.patrol || bravmRides || u.symbol === 'centaure' || u.symbol === 'canon_eau' || u.symbol === 'vehicule';
   const vehicles = rolling || (d > MOTOR_DISTANCE && u.hasVehicles);
   return { eta: vehicles ? d / DRIVE_SPEED : d / WALK_SPEED, distance: d, mode: vehicles ? 'vehicules' : 'pied' };
 }
@@ -216,6 +221,12 @@ function rankUnits(kind: WhoKind, line: CardLine, where: Repere, env: WhoEnv): R
   for (const u of card.units) {
     if (!u.mine || u.squadId <= 0 || u.valid <= 0 || !env.canCommand(u.squadId)) continue;
     if (env.exclude && env.exclude(u.squadId)) continue;
+    // binôme d'un groupe BRAV-M que je commande : c'est le groupe qui roule à moto, constate et interpelle (le binôme
+    // seul n'irait qu'à pied, et refuserait faute de fait constaté sous ses yeux) — on propose le groupe
+    if (u.symbol === 'bravm' && u.parentId > 0) {
+      const parent = card.units.find((q) => q.squadId === u.parentId);
+      if (parent && parent.symbol === 'bravm' && parent.mine && env.canCommand(parent.squadId)) continue;
+    }
     const fit = fitness(kind, u, line);
     if (!fit) continue;
     const holding = env.holding.has(u.squadId);

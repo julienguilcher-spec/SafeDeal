@@ -110,6 +110,8 @@ export class BravmUnit extends SpecialUnit {
   private arrestOk = false;
   private arrestReason = '';
   private arrested = 0;
+  /** Interception loin d'opérateurs à pied : ils remontent d'abord en selle, puis la colonne roule vers l'objectif. */
+  private rideAfterRemount = false;
   /** Ordre à exécuter une fois le pied à terre fait (manœuvre à pied laissée au module de police). */
   private after: SquadOrder | null = null;
   private handoverSet = false;
@@ -164,6 +166,25 @@ export class BravmUnit extends SpecialUnit {
     return n;
   }
 
+  /**
+   * Pilotes qui peuvent prendre leur machine : en selle, ou à pied à côté (groupe descendu de ses motos, au départ en
+   * mode libre par exemple) — l'embarquement les remet au guidon. Sans ce décompte, une BRAV-M toute à pied ne
+   * remontait jamais en selle et faisait à pied des trajets de plusieurs centaines de mètres.
+   */
+  private pilotsAvailable(): number {
+    let n = this.pilots();
+    if (n > 0) return n;
+    const ctx = this.core.ctx;
+    const ids = [this.squad.id, ...ctx.squads.childrenOf(this.squad.id).map((q) => q.id)];
+    for (const id of ids) {
+      for (const m of ctx.squads.get(id)?.members ?? []) {
+        const p = ctx.people.get(m);
+        if (p && p.poste === 'pilote_moto' && p.posture !== 'down' && p.custody === 'free') n++;
+      }
+    }
+    return n;
+  }
+
   /** Opérateurs à pied valides (dans this.people). */
   private footOperators(): number {
     const n = this.core.members(this.squad.id, this.people);
@@ -214,7 +235,7 @@ export class BravmUnit extends SpecialUnit {
       this.ride(o.x, o.z, RIDE_STANDOFF);
       return true;
     }
-    if (!mounted && !busyOnFoot && this.motos.length > 0 && this.pilots() > 0 && this.footOperators() > 0 && far > WALK_LIMIT) {
+    if (!mounted && !busyOnFoot && this.motos.length > 0 && this.pilotsAvailable() > 0 && this.footOperators() > 0 && far > WALK_LIMIT) {
       // trop loin pour y aller à pied (plus de trois minutes de marche) : retour aux machines d'abord
       this.after = this.copy(o);
       this.order = this.copy(o);
@@ -248,6 +269,7 @@ export class BravmUnit extends SpecialUnit {
     this.status.targetId = o.type === 'interpeller' && o.targetId > 0 ? o.targetId : 0;
     this.arrestOk = false;
     this.arrestReason = '';
+    this.rideAfterRemount = false;
     this.tx = o.x;
     this.tz = o.z;
     if (o.type === 'interpeller' && locate(core, o.targetId)) {
@@ -259,7 +281,13 @@ export class BravmUnit extends SpecialUnit {
       case 'interpeller':
         this.say(received(this.squad.name, 'interception de l’objectif' + (core.sector(this.tx, this.tz) !== '' ? ', ' + core.sector(this.tx, this.tz) : '') + ', pied à terre à distance'));
         if (mounted) this.ride(this.tx, this.tz, core.tuning.bravmStandoff);
-        else this.defer(() => this.approach());
+        else if (this.motos.length > 0 && this.pilotsAvailable() > 0 && this.footOperators() > 0
+          && Math.hypot(this.tx - this.people[0].x, this.tz - this.people[0].z) > WALK_LIMIT) {
+          // objectif à plus de trois minutes de marche : retour aux machines, puis la colonne y roule (la BRAV-M
+          // partait à pied, à des centaines de mètres, alors que la carte annonçait « en véhicules »)
+          this.rideAfterRemount = true;
+          this.defer(() => this.backToMotos());
+        } else this.defer(() => this.approach());
         break;
       case 'avancer':
       case 'colonne':
@@ -793,6 +821,13 @@ export class BravmUnit extends SpecialUnit {
     this.emitStage('en_selle', true, '');
     if (!o) {
       this.setStage('repos');
+      return;
+    }
+    if (o.type === 'interpeller' && this.rideAfterRemount) {
+      // remontés en selle pour une interception lointaine : en route (personne en selle : à pied quand même)
+      this.rideAfterRemount = false;
+      if (this.mountedOperators() > 0) this.ride(this.tx, this.tz, this.core.tuning.bravmStandoff);
+      else this.approach();
       return;
     }
     if (o.type === 'interpeller') {

@@ -174,11 +174,18 @@ export function sentenceOf(line: CardLine, who: WhoCandidate | null, where: Repe
     case 'verb':
       what = verbSentence(String(a.type), a.targetId ?? 0, who, where);
       break;
-    case 'nasse':
+    case 'nasse': {
+      // pas assez d'unités pour toutes les rues (Qui le dit : « — 4 rues resteront ouvertes ») : la nasse ne se ferme
+      // pas, la phrase ne le promet pas
+      const open = who ? /(\d+) rues? rest/.exec(who.label) : null;
+      const end = open
+        ? `\u00a0; ${open[1]} rue${Number(open[1]) > 1 ? 's restent ouvertes' : ' reste ouverte'} faute d’unités\u00a0: la nasse ne sera pas fermée.`
+        : '\u00a0: la nasse se ferme.';
       what = who && who.squadIds.length > 1
-        ? capFirst(`${subjectOf(who.label).text} tiennent chacune une rue autour de la foule\u00a0: la nasse se ferme.`)
-        : 'Chaque rue autour de la foule est tenue par une unité\u00a0: la nasse se ferme.';
+        ? capFirst(`${subjectOf(who.label).text} tiennent chacune une rue autour de la foule${end}`)
+        : `Chaque rue autour de la foule est tenue par une unité${end}`;
       break;
+    }
     case 'filteredExit':
       what = 'L’unité qui tient la plus large sortie la passe en barrage filtrant\u00a0: les gens sortent un par un.';
       break;
