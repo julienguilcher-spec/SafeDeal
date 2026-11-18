@@ -161,7 +161,8 @@ async function bureau(server) {
         fromPlace: Math.hypot(s.x - cfg.x, s.z - cfg.z), moyens: cfg.extra ? cfg.extra.moyens : null,
         unit: [squad?.name, section?.name, company?.name], companyKind: company?.kind ?? '',
         vansBehind: vans.every((v) => (v.x - s.x) * fx + (v.z - s.z) * fz < -10),
-        vansFaceOut: vans.every((v) => Math.sin(v.heading) * fx + Math.cos(v.heading) * fz < -0.9),
+        // (le bloc est tourné vers sa vraie sortie — plus forcément dos à l'unité — : toutes les files au même cap)
+        vansAligned: vans.length > 0 && vans.every((v) => Math.cos(v.heading - vans[0].heading) > 0.95),
         propsDrawn: { ...(c.service('propsRender')?.stats ?? {}) },
       };
     });
@@ -179,7 +180,7 @@ async function bureau(server) {
       `demandés ${asked.sections} sections · ${asked.fourgons} fourgons · ${asked.canon_eau} canon à eau · ${asked.bravm} BRAV-M · ${asked.drone} drone ; en jeu ${m.sections} · ${m.fourgons} · ${m.canon_eau} · ${m.bravm} · ${m.drone} (${m.agents} agents)`);
     check(setup.summary.offCrowd && setup.fromPlace >= 80 && setup.nearestProtester > 25, 'le dispositif est à l’écart du rassemblement',
       `à ${setup.fromPlace.toFixed(0)} m du lieu ; manifestant le plus proche d’un policier : ${setup.nearestProtester.toFixed(0)} m`);
-    check(setup.vansBehind && setup.vansFaceOut, 'les fourgons sont garés derrière l’unité, nez vers la sortie');
+    check(setup.vansBehind && setup.vansAligned, 'les fourgons sont garés derrière l’unité, en files au même cap');
     check((setup.propsDrawn.props ?? 0) > 100 && (setup.propsDrawn.drawCalls ?? 0) > 0, 'le mobilier urbain est dessiné',
       `${setup.propsDrawn.props} objets, ${setup.propsDrawn.shops} devantures, ${setup.propsDrawn.drawCalls} appel(s) de dessin, ${setup.propsDrawn.triangles} triangles`);
     check(setup.inventory.includes('grenade_lacrymo'), 'il a des grenades lacrymogènes', setup.inventory.join(', '));
