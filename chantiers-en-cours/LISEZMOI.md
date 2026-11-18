@@ -6,7 +6,7 @@ chantier aura été intégré dans `crs-simulation/`, testé et publié.
 
 | Fichier | Chantier | Base (commit) | État à la sauvegarde |
 |---|---|---|---|
-| `commande.patch` | Refonte de la carte de commandement et des ordres | `2365d2b` | 8 paquets sur 9 faits |
+| `commande.patch` | Refonte de la carte de commandement et des ordres | `2365d2b` | TERMINÉE et relue par le joueur critique ; fusion avec la version actuelle en cours de vérification |
 | `commissariats.patch` | Commissariats dessinés, envoi des unités | `2365d2b` | 5 paquets sur 8 faits (attend la refonte) |
 
 Reprendre un chantier : `git worktree add --detach <dossier> <base>` puis, dans ce dossier,

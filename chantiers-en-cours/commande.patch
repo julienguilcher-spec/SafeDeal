@@ -350,10 +350,10 @@ index 0000000..ee25fcf
 +}
 diff --git a/crs-simulation/src/ui/command/bestUnit.ts b/crs-simulation/src/ui/command/bestUnit.ts
 new file mode 100644
-index 0000000..7b9eab7
+index 0000000..14a621a
 --- /dev/null
 +++ b/crs-simulation/src/ui/command/bestUnit.ts
-@@ -0,0 +1,403 @@
+@@ -0,0 +1,428 @@
 +/* =====================================================================================
 + * Carte de commandement — QUI : l'unité que le jeu propose pour une ligne de fiche (logique pure).
 + *
@@ -502,7 +502,8 @@ index 0000000..7b9eab7
 +      if (s === 'bravm') return { major: 0, minor: 0 };
 +      if (s === 'groupe' || s === 'binome') return { major: 1, minor: 0 };
 +      if (s === 'section') return { major: 1, minor: 1 };
-+      if (s === 'patrouille') return { major: 1, minor: 2 };
++      // trois policiers d'une voiture de patrouille n'entrent pas dans une foule pour interpeller : en dernier recours
++      if (s === 'patrouille') return { major: 2, minor: 0 };
 +      return null;
 +    }
 +    case 'obstacle':
@@ -660,7 +661,22 @@ index 0000000..7b9eab7
 +      }
 +    }
 +  }
-+  for (const q of ranked) add(candidateOf(q.u, r.x, r.z, env.card, q.holding));
++  for (const q of ranked) {
++    // le gaz : une unité entraînée dans la formation d'une autre (sections de la compagnie au départ) n'emploie que
++    // la force permise par l'ordre de cette formation — la simulation refuserait (« cadre légal non réuni ») ; on
++    // propose alors la formation elle-même, qui reçoit l'ordre et fait lancer ses grenadiers
++    if (kind === 'gaz' && env.forceRoot) {
++      const a = line.action;
++      const force = a.kind === 'verb' ? (a.type === 'disperser_gaz' ? 3 : 0) : 0;
++      const rootId = env.forceRoot(q.u.squadId, force);
++      if (rootId !== q.u.squadId) {
++        const root = env.card.units.find((u) => u.squadId === rootId);
++        if (root && root.mine && env.canCommand(rootId)) add(candidateOf(root, r.x, r.z, env.card, env.holding.has(rootId)));
++        continue;
++      }
++    }
++    add(candidateOf(q.u, r.x, r.z, env.card, q.holding));
++  }
 +  // renforts des commissariats : après mes unités, jamais d'office
 +  if (kind === 'troupe' || kind === 'interpeller' || kind === 'any') {
 +    for (const c of env.stationCandidates?.() ?? []) add(c);
@@ -755,14 +771,23 @@ index 0000000..7b9eab7
 +  };
 +  if (ext.exclude) env.exclude = ext.exclude;
 +  if (ext.stationCandidates) env.stationCandidates = ext.stationCandidates;
++  const units = core.ctx.service<{ rootOf(squadId: number): number }>('police.units');
++  if (units && typeof units.rootOf === 'function') {
++    env.forceRoot = (id, force) => {
++      const rootId = units.rootOf(id);
++      if (rootId === 0 || rootId === id) return id;
++      const root = core.ctx.squads.get(rootId);
++      return !root || root.order.maxForce >= force ? id : rootId;
++    };
++  }
 +  return env;
 +}
 diff --git a/crs-simulation/src/ui/command/cardTypes.ts b/crs-simulation/src/ui/command/cardTypes.ts
 new file mode 100644
-index 0000000..5687ab8
+index 0000000..0d13648
 --- /dev/null
 +++ b/crs-simulation/src/ui/command/cardTypes.ts
-@@ -0,0 +1,535 @@
+@@ -0,0 +1,541 @@
 +/* =====================================================================================
 + * Carte de commandement — CONTRAT des fiches (types seulement, aucune logique).
 + *
@@ -1205,6 +1230,12 @@ index 0000000..5687ab8
 +  stationCandidates?(): WhoCandidate[];
 +  /** Unités choisies pour une nasse autour de la foule (nasse.ts), null si impossible. */
 +  nasse?(crowdKey: string): { squadIds: number[]; label: string } | null;
++  /**
++   * Unité qui doit recevoir une tâche de force `force` (le gaz) pour que la simulation l'exécute : l'unité elle-même
++   * quand elle manœuvre seule, ou quand l'ordre de la formation qui l'entraîne permet ce niveau ; sinon cette
++   * formation (police.units.rootOf). Absent : l'unité elle-même.
++   */
++  forceRoot?(squadId: number, force: number): number;
 +}
 +
 +// ───────────────────────────── aperçu (preview.ts, C1B) ─────────────────────────────
@@ -1299,10 +1330,18 @@ index 0000000..5687ab8
 +  title: string;
 +}
 diff --git a/crs-simulation/src/ui/command/core.ts b/crs-simulation/src/ui/command/core.ts
-index 5e51c3a..7885951 100644
+index 5e51c3a..7d9ff2a 100644
 --- a/crs-simulation/src/ui/command/core.ts
 +++ b/crs-simulation/src/ui/command/core.ts
-@@ -17,6 +17,9 @@ import { computeScope } from './scope';
+@@ -10,13 +10,16 @@ import type { IncidentsApi, MetroApi, RescueApi, TrafficControlApi, UiKit } from
+ import type { MapsRuntime } from '../maps/runtime';
+ import type { CommandApi, CommandScope, IssuedOrder } from './api';
+ import { issueObstacle } from './obstacleOrder';
+-import { BARRAGE_LET_PASSERSBY, verbOf } from './orders';
++import { BARRAGE_LET_PASSERSBY, forceWord, verbOf } from './orders';
+ import type { OrderGeom, OrderVerb } from './orders';
+ import { orderPhrase } from './phrases';
+ import { computeScope } from './scope';
  import { isPoliceRole } from '../maps/visibility';
  import type { FollowApi } from '@/gameplay/session/follow';
  import type { NasseProposal } from './nasse';
@@ -1336,6 +1375,15 @@ index 5e51c3a..7885951 100644
    // ───────────────────────────── services facultatifs ─────────────────────────────
  
    get incidents(): IncidentsApi | undefined {
+@@ -145,7 +160,7 @@ export class CommandCore implements CommandApi {
+     if (verb.force > roe.authorizedForce && !roe.underAttack) {
+       return {
+         ok: false, warning: '',
+-        reason: `Refusé\u00a0: «\u00a0${verb.label}\u00a0» suppose une force de niveau ${verb.force}, le niveau autorisé est ${roe.authorizedForce}.`,
++        reason: `Refusé\u00a0: «\u00a0${verb.plain}\u00a0» demande\u00a0: ${forceWord(verb.force)}\u00a0; la force autorisée n’est que\u00a0: ${forceWord(roe.authorizedForce)}.`,
+       };
+     }
+     let warning = '';
 diff --git a/crs-simulation/src/ui/command/hud.ts b/crs-simulation/src/ui/command/hud.ts
 index fcff3b1..9c9412a 100644
 --- a/crs-simulation/src/ui/command/hud.ts
@@ -1482,7 +1530,7 @@ index 87f1057..4f0a32c 100644
      void this.ctx;
 diff --git a/crs-simulation/src/ui/command/intents.ts b/crs-simulation/src/ui/command/intents.ts
 new file mode 100644
-index 0000000..d2f7d9c
+index 0000000..bcc980f
 --- /dev/null
 +++ b/crs-simulation/src/ui/command/intents.ts
 @@ -0,0 +1,931 @@
@@ -2323,7 +2371,7 @@ index 0000000..d2f7d9c
 +  const seen = new Set<string>();
 +  for (const c of orderedCrowds(env)) {
 +    for (const e of c.exits) {
-+      const r = exitRepere(e, c.key, env);
++      const r = exitRepere(e, c.key, env, c);
 +      if (seen.has(r.key)) continue;
 +      seen.add(r.key);
 +      // les rues d'abord, les trouées piétonnes hors voie ensuite (à rang égal : libre, foule principale)
@@ -3455,7 +3503,7 @@ index 78fe9e9..c91a951 100644
  }
 +
 diff --git a/crs-simulation/src/ui/command/orders.ts b/crs-simulation/src/ui/command/orders.ts
-index 0cedfd2..50b4353 100644
+index 0cedfd2..52fad80 100644
 --- a/crs-simulation/src/ui/command/orders.ts
 +++ b/crs-simulation/src/ui/command/orders.ts
 @@ -25,6 +25,22 @@ export interface OrderVerb {
@@ -3549,7 +3597,7 @@ index 0cedfd2..50b4353 100644
 +    plain: 'Encercler en cercle serré', tag: 'ENCERCLE', explain: 'Cercle autour de la foule, sortie laissée à l’opposé de vos unités.', doing: 'encercle la foule' },
    { type: 'disperser_gaz', label: 'Disperser au gaz', short: 'Gaz', group: 'manoeuvre', gesture: 'point', force: 3, coercive: true,
 -    hint: 'Désignez la zone à traiter\u00a0: vérifiez le vent avant de valider.', rule: 'Lacrymogènes\u00a0: force de niveau 3, après la dernière sommation.' },
-+    hint: 'Désignez la zone à traiter\u00a0: vérifiez le vent avant de valider.', rule: 'Lacrymogènes\u00a0: force de niveau 3, après la dernière sommation.',
++    hint: 'Désignez la zone à traiter\u00a0: vérifiez le vent avant de valider.', rule: 'Gaz lacrymogène\u00a0: seulement après la dernière sommation, et une fois le gaz autorisé.',
 +    plain: 'Disperser au gaz lacrymogène', tag: 'GAZ', explain: 'Vérifiez le vent\u00a0: sa flèche est dessinée sur l’aperçu.', doing: 'disperse au gaz lacrymogène' },
    { type: 'interpeller', label: 'Interpeller la cible', short: 'Interpeller', group: 'manoeuvre', gesture: 'target', force: 1, coercive: false,
 -    hint: 'Désignez la cible\u00a0: un incident «\u00a0suspect\u00a0» ou «\u00a0pillage\u00a0», ou le secteur où l’auteur a été vu.', rule: 'Sur fait constaté seulement.' },
@@ -8138,7 +8186,7 @@ index 0000000..41073b7
 +  }
 +}
 diff --git a/crs-simulation/src/ui/command/quickActions.ts b/crs-simulation/src/ui/command/quickActions.ts
-index 0c58cfe..0bf9127 100644
+index 0c58cfe..bf654b0 100644
 --- a/crs-simulation/src/ui/command/quickActions.ts
 +++ b/crs-simulation/src/ui/command/quickActions.ts
 @@ -1,27 +1,41 @@
@@ -8222,7 +8270,7 @@ index 0c58cfe..0bf9127 100644
  
  const STYLE_ID = 'cm-quick-style';
  
-@@ -41,63 +70,230 @@ function ensureQuickStyle(): void {
+@@ -41,63 +70,232 @@ function ensureQuickStyle(): void {
    const s = document.createElement('style');
    s.id = STYLE_ID;
    s.textContent = `
@@ -8284,8 +8332,10 @@ index 0c58cfe..0bf9127 100644
 +@media (max-height:759px){
 +  .ui-hud[data-touch="none"] .cq-prop{display:flex;align-items:center;gap:6px;padding:4px 6px 4px 9px}
 +  .ui-hud[data-touch="none"] .cq-prop-h{display:none}
-+  .ui-hud[data-touch="none"] .cq-prop-t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px}
-+  .ui-hud[data-touch="none"] .cq-prop-lead{display:inline}
++  /* le titre en clair sur deux lignes au plus (sur une seule, il ne restait que « Te… ») ; « Adjoint : » en tête */
++  .ui-hud[data-touch="none"] .cq-prop-t{flex:1;min-width:0;overflow:hidden;font-size:12px;line-height:1.25;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2}
++  .ui-hud[data-touch="none"] .cq-prop-lead{display:inline;font-size:0}
++  .ui-hud[data-touch="none"] .cq-prop-lead::before{content:"Adjoint : ";font-size:12px}
 +  .ui-hud[data-touch="none"] .cq-prop .cq-row{margin-top:0;flex:none}
 +  .ui-hud[data-touch="none"] .cq-prop .cq-later{display:none}
 +}
@@ -8483,7 +8533,7 @@ index 0c58cfe..0bf9127 100644
    private readonly onKey: (e: KeyboardEvent) => void;
  
    constructor(private readonly core: CommandCore, host: HTMLElement) {
-@@ -122,43 +318,93 @@ export class QuickActionsHud implements HudWidget {
+@@ -122,43 +320,93 @@ export class QuickActionsHud implements HudWidget {
      ensureQuickStyle();
      this.root = el('div', 'cq is-off');
      this.root.dataset.id = 'hud-quick';
@@ -8604,7 +8654,7 @@ index 0c58cfe..0bf9127 100644
    /** Proposition « Fermer la nasse » : P exécute les ordres « Barrer la rue », Maj + P l'écarte. */
    private answerNasse(yes: boolean): void {
      const core = this.core;
-@@ -175,21 +421,22 @@ export class QuickActionsHud implements HudWidget {
+@@ -175,21 +423,22 @@ export class QuickActionsHud implements HudWidget {
      this.last = -1;
    }
  
@@ -8634,7 +8684,7 @@ index 0c58cfe..0bf9127 100644
      const cmd = this.core.ctx.service<{ proposals: readonly ProposalLike[] }>('police.command');
      let best: ProposalLike | null = null;
      if (cmd && this.commander) {
-@@ -205,7 +452,9 @@ export class QuickActionsHud implements HudWidget {
+@@ -205,7 +454,9 @@ export class QuickActionsHud implements HudWidget {
      }
      if (best.id !== this.propId) {
        this.propId = best.id;
@@ -8645,7 +8695,7 @@ index 0c58cfe..0bf9127 100644
      }
      setClass(this.prop, 'is-off', false);
    }
-@@ -236,26 +485,121 @@ export class QuickActionsHud implements HudWidget {
+@@ -236,26 +487,121 @@ export class QuickActionsHud implements HudWidget {
      const p = core.player();
      if (!p || ctx.session.phase !== 'playing') {
        setClass(this.root, 'is-off', true);
@@ -8773,7 +8823,7 @@ index 0c58cfe..0bf9127 100644
    private callFollow(column: boolean): void {
      const core = this.core;
      this.closeRescue();
-@@ -264,7 +608,10 @@ export class QuickActionsHud implements HudWidget {
+@@ -264,7 +610,10 @@ export class QuickActionsHud implements HudWidget {
      if (!r.ok) {
        core.ctx.ui.notify(r.reason, 'warn', 5);
        core.ctx.audio.play('ui_alerte');
@@ -8785,7 +8835,7 @@ index 0c58cfe..0bf9127 100644
    }
  
    private droneFeed(): DroneFeedApi | undefined {
-@@ -302,6 +649,7 @@ export class QuickActionsHud implements HudWidget {
+@@ -302,6 +651,7 @@ export class QuickActionsHud implements HudWidget {
      this.open = !this.open;
      setClass(this.sub, 'is-off', !this.open);
      setClass(this.rescueBtn, 'is-on', this.open);
@@ -8793,7 +8843,7 @@ index 0c58cfe..0bf9127 100644
    }
  
    private closeRescue(): void {
-@@ -309,44 +657,31 @@ export class QuickActionsHud implements HudWidget {
+@@ -309,44 +659,31 @@ export class QuickActionsHud implements HudWidget {
      this.open = false;
      setClass(this.sub, 'is-off', true);
      setClass(this.rescueBtn, 'is-on', false);
@@ -8882,10 +8932,10 @@ index 367cb80..d0af011 100644
      const channels = this.core.maps.scene.vis.radio;
 diff --git a/crs-simulation/src/ui/command/reperes.ts b/crs-simulation/src/ui/command/reperes.ts
 new file mode 100644
-index 0000000..bd19663
+index 0000000..fd82fce
 --- /dev/null
 +++ b/crs-simulation/src/ui/command/reperes.ts
-@@ -0,0 +1,502 @@
+@@ -0,0 +1,530 @@
 +/* =====================================================================================
 + * Carte de commandement — les REPÈRES : ce que le commandant peut désigner (rues d'issue des foules, foules, nasses,
 + * incidents, ses unités, les autres unités, lui-même, stations de métro, rues fermées, proposition de l'adjoint,
@@ -8914,6 +8964,7 @@ index 0000000..bd19663
 +} from './cardTypes';
 +import type { CommandCore } from './core';
 +import { INCIDENT_KIND_LABELS } from './incidents';
++import { withArticle } from './orders';
 +
 +export type { Repere, RepereKind } from './cardTypes';
 +
@@ -8983,15 +9034,42 @@ index 0000000..bd19663
 +/**
 + * Repère d'une issue de foule. Une trouée piétonne hors voie (« passage piéton ») porte en plus le nom de la voie la
 + * plus proche, sinon dix passages de la même place s'appelleraient pareil : « Passage piéton (rue Royale) ».
++ * Une issue posée sur l'anneau d'une place (son arête s'appelle « Place de la Concorde ») prend le nom de la rue qui
++ * en part, cherché en s'éloignant de la foule (`from` : centre de la foule) : « Rue Royale » ; un passage, « Passage
++ * piéton (vers la rue Royale) » — sinon les vingt-sept issues de la Concorde s'appelleraient presque toutes pareil.
 + */
-+export function exitRepere(e: CardExit, crowdKey: string, env?: Pick<CardEnv, 'roadAt'>): Repere {
++export function exitRepere(e: CardExit, crowdKey: string, env?: Pick<CardEnv, 'roadAt'>, from?: { x: number; z: number }): Repere {
 +  let name = capFirst(exitName(e));
++  const outward = env && from ? streetLeaving(e, from, env) : '';
 +  if (e.edgeId < 0 && (e.street.trim() === '' || /^passage piéton$/i.test(e.street.trim())) && env) {
-+    const road = env.roadAt(e.x, e.z, 40);
-+    const near = road ? road.name.trim() : '';
-+    if (near !== '') name = `${name} (${near.charAt(0).toLocaleLowerCase('fr-FR')}${near.slice(1)})`;
-+  }
++    const road = outward === '' ? env.roadAt(e.x, e.z, 40) : null;
++    const near = outward !== '' ? outward : road ? road.name.trim() : '';
++    if (near !== '') name = outward !== '' ? `${name} (vers ${withArticle(near)})` : `${name} (${near.charAt(0).toLocaleLowerCase('fr-FR')}${near.slice(1)})`;
++  } else if (outward !== '') name = capFirst(outward);
 +  return { kind: 'rue', key: streetKey(e.edgeId, e.x, e.z), x: e.x, z: e.z, roadEdge: e.edgeId, crowdKey, name };
++}
++
++/** Nom d'une place, d'un passage ou d'une voie sans nom : pas assez pour distinguer deux issues. */
++const VAGUE_NAME = /^(place|passage piéton|voie sans nom|parvis|carrefour|rond-point)\b/i;
++
++/**
++ * Nom de la rue qui part de l'issue `e` d'une foule centrée en `from`, quand l'issue elle-même porte un nom vague
++ * (place, passage) : premier nom de voie différent trouvé en s’éloignant de la foule (jusqu’à 60 m : au-delà, ce serait une autre rue). '' sinon.
++ */
++function streetLeaving(e: CardExit, from: { x: number; z: number }, env: Pick<CardEnv, 'roadAt'>): string {
++  const own = exitName(e).trim();
++  if (!VAGUE_NAME.test(own)) return '';
++  let dx = e.x - from.x, dz = e.z - from.z;
++  const len = Math.hypot(dx, dz);
++  if (len < 1) return '';
++  dx /= len;
++  dz /= len;
++  for (let d = 15; d <= 60; d += 15) {
++    const road = env.roadAt(e.x + dx * d, e.z + dz * d, 12);
++    const n = road ? road.name.trim() : '';
++    if (n !== '' && !VAGUE_NAME.test(n) && n.toLocaleLowerCase('fr-FR') !== own.toLocaleLowerCase('fr-FR')) return n;
++  }
++  return '';
 +}
 +
 +export function roadRepere(r: CardRoad): Repere {
@@ -9090,7 +9168,7 @@ index 0000000..bd19663
 +  const crowds = orderedCrowds(env);
 +  for (const c of crowds) push(crowdRepere(c));
 +  if (env.player) push({ kind: 'vous', key: 'vous', x: env.player.x, z: env.player.z, name: 'Vous' });
-+  for (const c of crowds) for (const e of c.exits) push(exitRepere(e, c.key, env));
++  for (const c of crowds) for (const e of c.exits) push(exitRepere(e, c.key, env, c));
 +  for (const p of providers) {
 +    let list: readonly Repere[] = [];
 +    try { list = p.fn(env); } catch { list = []; }
@@ -9390,10 +9468,10 @@ index 0000000..bd19663
 +}
 diff --git a/crs-simulation/src/ui/command/sendLine.ts b/crs-simulation/src/ui/command/sendLine.ts
 new file mode 100644
-index 0000000..c55d045
+index 0000000..d1c9181
 --- /dev/null
 +++ b/crs-simulation/src/ui/command/sendLine.ts
-@@ -0,0 +1,660 @@
+@@ -0,0 +1,671 @@
 +/* =====================================================================================
 + * Carte de commandement — ENVOI d'une ligne de fiche (« Donner l'ordre »).
 + *
@@ -9415,6 +9493,7 @@ index 0000000..c55d045
 +
 +import type { ForceLevel, OrderType, Squad } from '@/core/contracts';
 +import { pickFilterExit } from '../maps/barrages';
++import { windFrom } from '../maps/widgets';
 +import type { SceneCrowdExits } from '../maps/barrages';
 +import type { MapUnit } from '../maps/units';
 +import { nasseSections } from './bestUnit';
@@ -9995,6 +10074,8 @@ index 0000000..c55d045
 +      ? forms[subj && subj.plural ? 1 : 0].replace('{sur}', crowd ? 'sur la foule' : 'ici').replace('{vers}', crowd ? 'vers la foule' : 'jusqu’ici')
 +      : verb.doing;
 +    what = `${subj ? subj.text : 'l’unité'} ${act}`;
++    // le gaz : d'où vient le vent et où ira le nuage (§2.5)
++    if (verb.type === 'disperser_gaz' && card.wind && Math.hypot(card.wind.x, card.wind.z) >= 0.3) what += ` (${windDrift(card.wind.x, card.wind.z)})`;
 +  }
 +  const r = legalSteps(
 +    verb ? { force: verb.force, coercive: verb.coercive } : null,
@@ -10003,6 +10084,14 @@ index 0000000..c55d045
 +    refusal, what,
 +  );
 +  return { ...r, plan: r.chain ? legalPlan(line, who, where, r) : null };
++}
++
++/** « vent de sud-ouest : le nuage ira vers le nord-est » (vecteur du vent : là où il souffle). */
++export function windDrift(windX: number, windZ: number): string {
++  const toward = ['le nord', 'le nord-est', 'l’est', 'le sud-est', 'le sud', 'le sud-ouest', 'l’ouest', 'le nord-ouest'];
++  const bearing = Math.atan2(windX, -windZ);
++  const i = ((Math.round(bearing / (Math.PI / 4)) % 8) + 8) % 8;
++  return `vent ${windFrom(windX, windZ)}\u00a0: le nuage ira vers ${toward[i]!}`;
 +}
 +
 +/** Fin de l'étape de l'ordre en S3 (singulier, pluriel) : « puis la section MISTRAL 2 lance le gaz lacrymogène ici ». */
@@ -10344,10 +10433,10 @@ index 2de0574..53f041d 100644
  }
 diff --git a/crs-simulation/src/ui/command/styleCard.ts b/crs-simulation/src/ui/command/styleCard.ts
 new file mode 100644
-index 0000000..e2a5704
+index 0000000..0ba63c4
 --- /dev/null
 +++ b/crs-simulation/src/ui/command/styleCard.ts
-@@ -0,0 +1,142 @@
+@@ -0,0 +1,152 @@
 +/* =====================================================================================
 + * Feuille de style de la FICHE de la carte de commandement (panelCard.ts, préfixe « cc- ») : en-tête, lignes
 + * numérotées (52 px ; 40 px au téléphone), marques légales (⚖ / 🔒), bloc « Qui », phrase « Ce qui va se passer »,
@@ -10455,16 +10544,26 @@ index 0000000..e2a5704
 +.ct.is-short:not(.cm-coarse) .cc:not(.is-compact) .cc-who-btns .cc-btn{min-height:36px}
 +.ct.is-short:not(.cm-coarse) .cc:not(.is-compact) .cc-say{padding-top:4px}
 +.ct.is-short:not(.cm-coarse) .cc:not(.is-compact) .cc-foot{padding:6px 12px}
++/* fiche chargée qui déborderait (onglets, notes, règles ; classe is-tight posée par l'écran après mesure) : mêmes
++   resserrements, quelle que soit la hauteur de la fenêtre — la fiche ne défile jamais */
++.cc.is-tight:not(.is-compact) .cc-row{min-height:44px;padding-top:3px;padding-bottom:3px}
++.cc.is-tight:not(.is-compact) .cc-head{padding:7px 12px 6px}
++.cc.is-tight:not(.is-compact) .cc-who{gap:4px;padding:6px 12px}
++.cc.is-tight:not(.is-compact) .cc-who-btns .cc-btn{min-height:36px}
++.cc.is-tight:not(.is-compact) .cc-say{padding-top:4px}
++.cc.is-tight:not(.is-compact) .cc-foot{padding:6px 12px}
 +
 +/* ── téléphone (feuille de 380 px) : lignes de 40 px, explication de la ligne surlignée seulement, Qui et envoi sur une rangée ── */
-+.cc.is-compact .cc-head{padding:4px 8px;gap:2px}
++/* téléphone : en-tête, lignes et pied au plus juste — les six lignes, « Autres ordres ici… » et « Donner l'ordre »
++   tiennent dans les 390 px de la feuille sans défiler */
++.cc.is-compact .cc-head{padding:0 8px;gap:2px}
 +.cc.is-compact .cc-top{min-height:30px}
 +.cc.is-compact .cc-title{font-size:12.5px;-webkit-line-clamp:1}
-+.cc.is-compact .cc-list{padding:2px 4px}
++.cc.is-compact .cc-list{padding:1px 4px}
 +.cc.is-compact .cc-row{min-height:40px;padding:2px 6px 2px 4px}
 +.cc.is-compact .cc-lab{font-size:13px}
 +.cc.is-compact .cc-exp{font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-+.cc.is-compact .cc-foot{min-height:44px;padding:0 8px calc(4px + var(--safe-bottom,0px));gap:6px}
++.cc.is-compact .cc-foot{min-height:44px;padding:0 8px calc(2px + var(--safe-bottom,0px));gap:6px}
 +.cc-wq{flex:1;min-width:0;display:flex;align-items:center;gap:4px;font-size:12px}
 +.cc-wq b{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 +.cc.is-compact .cc-foot .cc-btn.is-primary{flex:none;min-width:120px}
@@ -11889,10 +11988,10 @@ index 5fc9f51..76fc262 100644
 +
 +const W = { x: 0, z: 0 };
 diff --git a/crs-simulation/src/ui/command/tacticalScreen.ts b/crs-simulation/src/ui/command/tacticalScreen.ts
-index c5e95ca..4eb8ae0 100644
+index c5e95ca..22c3342 100644
 --- a/crs-simulation/src/ui/command/tacticalScreen.ts
 +++ b/crs-simulation/src/ui/command/tacticalScreen.ts
-@@ -1,192 +1,372 @@
+@@ -1,192 +1,376 @@
  /* =====================================================================================
 - * Écran « carte_tactique » : la carte de commandement. Non bloquant pour la simulation (le temps
 - * continue, avec une option « temps ralenti »). Assemble la carte interactive, l'arborescence des
@@ -12264,6 +12363,10 @@ index c5e95ca..4eb8ae0 100644
    private compact = false;
 +  private narrow = false;
 +  private short = false;
++  /** Fiche qui débordait avec toutes les explications (seule la ligne surlignée garde la sienne). */
++  private tightCard = '';
++  /** Identité de la fiche montrée (voir tightCard). */
++  private cardIdent = '';
    private slow = false;
    private savedScale = 1;
 -  private lastPanels = -1;
@@ -12399,7 +12502,7 @@ index c5e95ca..4eb8ae0 100644
      this.map.canvas.tabIndex = 0;
      this.map.canvas.dataset.autofocus = '';
      this.map.canvas.dataset.id = 'tac-map';
-@@ -198,178 +378,234 @@ export class TacticalScreen implements ScreenInstance {
+@@ -198,178 +382,234 @@ export class TacticalScreen implements ScreenInstance {
        const u = core.maps.scene.unitModel.get(k);
        return u !== undefined && core.canCommand(u.squadId);
      };
@@ -12652,12 +12755,6 @@ index c5e95ca..4eb8ae0 100644
 -    if (open.incidentId) {
 -      st.focusIncident = open.incidentId;
 -      st.tab = 'incidents';
--    }
--    if (open.squadId && core.maps.scene.unitModel.get(open.squadId)) st.setSelection([open.squadId]);
--    if (!this.traffic.available && st.tab === 'circulation') st.tab = 'ordres';
--    if (this.compact) {
--      st.leftOpen = false;
--      st.rightOpen = open.tab !== undefined || open.incidentId !== undefined;
 +    this.refreshEnv(true);
 +    if (!readOnly) this.initialVisee(open);
 +    if (open.tab) this.openMore(open.tab);
@@ -12665,6 +12762,12 @@ index c5e95ca..4eb8ae0 100644
 +      MODEL_SHOWN.add(core);
 +      this.modelBox.classList.add('is-on');
      }
+-    if (open.squadId && core.maps.scene.unitModel.get(open.squadId)) st.setSelection([open.squadId]);
+-    if (!this.traffic.available && st.tab === 'circulation') st.tab = 'ordres';
+-    if (this.compact) {
+-      st.leftOpen = false;
+-      st.rightOpen = open.tab !== undefined || open.incidentId !== undefined;
+-    }
 -    // LB / RB : le socle envoie « ui:tab » au conteneur du groupe de focus actif (l'hôte de l'écran, ou notre racine)
 -    host.addEventListener('ui:tab', (e) => this.cycleZone((e as CustomEvent<{ step: number }>).detail.step));
 +    // la racine reçoit « ui:nav » (croix de la manette) et « ui:tab » (LB / RB) ; l'écouteur clavier est en capture
@@ -12785,7 +12888,7 @@ index c5e95ca..4eb8ae0 100644
    private initialView(open: TacticalOpenData): void {
      const core = this.core;
      const scene = core.maps.scene;
-@@ -388,9 +624,13 @@ export class TacticalScreen implements ScreenInstance {
+@@ -388,9 +628,13 @@ export class TacticalScreen implements ScreenInstance {
        n++;
      };
      const any = core.scope().squadIds.size === 0;
@@ -12800,7 +12903,7 @@ index c5e95ca..4eb8ae0 100644
      }
      if (scene.hasPlayer) take(scene.px, scene.pz);
      if (scene.hasHead) take(scene.headX, scene.headZ);
-@@ -409,21 +649,96 @@ export class TacticalScreen implements ScreenInstance {
+@@ -409,21 +653,96 @@ export class TacticalScreen implements ScreenInstance {
      this.map.invalidate();
    }
  
@@ -12902,7 +13005,7 @@ index c5e95ca..4eb8ae0 100644
    private droneFeed(): DroneFeedApi | undefined {
      const f = this.core.ctx.service<DroneFeedApi>(DRONE_FEED_SERVICE);
      return f && typeof f.toggle === 'function' ? f : undefined;
-@@ -436,23 +751,21 @@ export class TacticalScreen implements ScreenInstance {
+@@ -436,23 +755,21 @@ export class TacticalScreen implements ScreenInstance {
      setClass(this.droneBtn, 'is-on', feed.open);
    }
  
@@ -12930,7 +13033,7 @@ index c5e95ca..4eb8ae0 100644
        feed!.showSquad(u.squadId);
        setClass(this.droneBtn, 'is-on', feed!.open);
      }
-@@ -469,501 +782,1501 @@ export class TacticalScreen implements ScreenInstance {
+@@ -469,503 +786,1530 @@ export class TacticalScreen implements ScreenInstance {
        this.slow = false;
      }
      setClass(this.slowBtn, 'is-on', this.slow);
@@ -12943,13 +13046,10 @@ index c5e95ca..4eb8ae0 100644
 +    if (text.trim() === '') return;
 +    this.core.ctx.ui.notify(text, kind, seconds);
 +    if (kind === 'warn') this.core.ctx.audio.play('ui_alerte');
-   }
- 
--  // ───────────────────────────── ordre rapide ─────────────────────────────
++  }
++
 +  // ───────────────────────────── environnement des fiches ─────────────────────────────
- 
--  private openQuick(x: number, y: number): void {
--    this.closeQuick();
++
 +  private selectionIds(): number[] {
 +    return Array.from(this.state.selection).filter((k) => k > 0);
 +  }
@@ -12970,8 +13070,9 @@ index c5e95ca..4eb8ae0 100644
 +  /** Repère à jour (position, nom) d'après sa clé ; un point ou une rue hors liste reste tel quel. */
 +  private fresh(r: Repere): Repere {
 +    return this.reperes.find((q) => q.key === r.key) ?? r;
-+  }
-+
+   }
+ 
+-  // ───────────────────────────── ordre rapide ─────────────────────────────
 +  /** Ce que T sélectionne : le nœud de commandement du joueur (compagnie, section, groupe). */
 +  private wholeOf(env: CardEnv): { squadIds: number[]; label: string } | null {
 +    // environnement de Qui branché (bestUnit.whoEnvFromCore) : un commandant sans unité propre prend ses unités du sommet
@@ -12988,7 +13089,9 @@ index c5e95ca..4eb8ae0 100644
 +    const label = env.command === 'groupe' ? 'Tout le groupe' : env.command === 'section' ? 'Toute la section' : 'Toute la compagnie';
 +    return { squadIds: [id], label };
 +  }
-+
+ 
+-  private openQuick(x: number, y: number): void {
+-    this.closeQuick();
 +  private whoEnv(env: CardEnv): WhoEnv {
      const core = this.core;
 -    if (core.scope().level === 'lecture') return;
@@ -13046,9 +13149,45 @@ index c5e95ca..4eb8ae0 100644
 -    // option des passants de « Barrer la rue », au doigt comme au clavier (B)
 -    const opt = button(passersbyLabel(this.state.passersby), () => this.togglePassersby(), {
 -      className: 'is-small ct-quick-opt' + (this.state.passersby ? ' is-on' : ''), id: 'tac-quick-passants', title: `${passersbyLabel(!this.state.passersby)} (${PASSERSBY_KEY_LABEL})`,
+-    });
+-    if (!coarsePointer()) opt.appendChild(el('span', 'cm-kbd', PASSERSBY_KEY_LABEL));
+-    this.quick.root.appendChild(opt);
+-    // ouvert par un appui long encore en cours : le relâchement ne doit pas annuler le menu ;
+-    // on peut aussi glisser vers un secteur et relâcher pour le choisir
+-    this.quick.swallowHubClick = this.map.gestures.active;
+-    this.quickHeld = this.map.gestures.active;
+-    this.quickBox.classList.add('is-on');
+-    // la roue reste dans la carte
+-    const vx = Math.min(this.map.view.width - 140, Math.max(140, x));
+-    const vy = Math.min(this.map.view.height - 140, Math.max(140, y));
+-    this.quickBox.style.transform = `translate3d(${Math.round(vx)}px,${Math.round(vy)}px,0)`;
+-  }
+-
+-  private closeQuick(): void {
+-    if (!this.quick) return;
+-    this.quick.dispose();
+-    this.quick = null;
+-    this.quickBox.classList.remove('is-on');
+-  }
+-
+-  // ───────────────────────────── clavier seul ─────────────────────────────
+-
+-  /** Rend le focus à la carte (curseur au clavier). */
+-  private focusMap(): void {
+-    this.map.canvas.focus({ preventScroll: true });
+-    this.zone = 0;
 +    };
-+  }
-+
+   }
+ 
+-  /**
+-   * Bascule « Passants : bloqués / laissés passer » de « Barrer la rue » (B, boutons de la palette, du bandeau et de
+-   * l'ordre rapide) : retenue pour les ordres suivants ; la roue ouverte se redessine avec la nouvelle option.
+-   */
+-  togglePassersby(): void {
+-    const on = this.state.togglePassersby();
+-    this.core.ctx.ui.notify(`Barrer la rue — ${passersbyLabel(on)}`, 'info', 2.5);
+-    if (this.quick) this.openQuick(this.quickSX, this.quickSY);
+-    this.refresh(true);
 +  private todoList(): Repere[] {
 +    const env = this.env!;
 +    if (PARTS.todo) {
@@ -13059,8 +13198,16 @@ index c5e95ca..4eb8ae0 100644
 +      }
 +    }
 +    return todoReperes(env);
-+  }
-+
+   }
+ 
+-  private shortcut(e: KeyboardEvent): void {
+-    // B : option des passants, aussi roue d'ordre rapide ouverte (elle se rouvre avec la nouvelle option)
+-    if (e.code === PASSERSBY_KEY && !e.repeat && !e.ctrlKey && !e.altKey && !e.metaKey && !this.root.closest('[inert]')
+-      && this.core.scope().level !== 'lecture') {
+-      const t0 = e.target as HTMLElement | null;
+-      if (!t0 || (t0.tagName !== 'INPUT' && t0.tagName !== 'TEXTAREA' && !t0.isContentEditable)) {
+-        e.preventDefault();
+-        this.togglePassersby();
 +  // ───────────────────────────── fiche ─────────────────────────────
 +
 +  /** Ligne surlignée de la fiche affichée (dans les lignes, ou dans « Autres » dépliés). */
@@ -13152,50 +13299,28 @@ index c5e95ca..4eb8ae0 100644
 +    const pos = st.candidates.length > 1 && st.candidates.some((q) => q.key === r.key) ? `${st.candIndex + 1} / ${st.candidates.length}` : '';
 +    const sticky = isSticky(st.intent) && pos !== '' && st.candIndex > 0 ? this.stickyText() : '';
 +    const wholeLabel = this.wholeOf(env)?.label ?? '';
-+    p.show(card, who, s.line, sentence, this.compact, {
-+      othersOpen: s.othersOpen, explainAll: !this.compact && !this.short, hint: st.lastInput === 'keys' && !this.compact ? CARD_HINT : '',
++    // une fiche chargée (onglets, notes, règles) qui déborderait avec l'explication de chaque ligne : seule la ligne
++    // surlignée garde la sienne (la fiche ne défile jamais, §2.0) ; mémorisé pour cette fiche, sans clignoter
++    const ident = `${r.key}|${card.lines.length}|${s.othersOpen ? 1 : 0}|${card.notes.length}`;
++    const opts = {
++      othersOpen: s.othersOpen, explainAll: !this.compact && !this.short && this.tightCard !== ident,
++      hint: st.lastInput === 'keys' && !this.compact ? CARD_HINT : '',
 +      position: pos, stackIndex: Math.max(0, s.stack.findIndex((q) => q.key === r.key)), sticky, wholeLabel, whole: st.whole,
 +      whoFixed: !!st.where || (card.whoFixed !== null && card.whoFixed.length > 0),
-     });
--    if (!coarsePointer()) opt.appendChild(el('span', 'cm-kbd', PASSERSBY_KEY_LABEL));
--    this.quick.root.appendChild(opt);
--    // ouvert par un appui long encore en cours : le relâchement ne doit pas annuler le menu ;
--    // on peut aussi glisser vers un secteur et relâcher pour le choisir
--    this.quick.swallowHubClick = this.map.gestures.active;
--    this.quickHeld = this.map.gestures.active;
--    this.quickBox.classList.add('is-on');
--    // la roue reste dans la carte
--    const vx = Math.min(this.map.view.width - 140, Math.max(140, x));
--    const vy = Math.min(this.map.view.height - 140, Math.max(140, y));
--    this.quickBox.style.transform = `translate3d(${Math.round(vx)}px,${Math.round(vy)}px,0)`;
--  }
--
--  private closeQuick(): void {
--    if (!this.quick) return;
--    this.quick.dispose();
--    this.quick = null;
--    this.quickBox.classList.remove('is-on');
--  }
--
--  // ───────────────────────────── clavier seul ─────────────────────────────
--
--  /** Rend le focus à la carte (curseur au clavier). */
--  private focusMap(): void {
--    this.map.canvas.focus({ preventScroll: true });
--    this.zone = 0;
++    };
++    this.cardIdent = ident;
++    p.root.classList.toggle('is-tight', this.tightCard === ident);
++    p.show(card, who, s.line, sentence, this.compact, opts);
++    if (this.tightCard !== ident && overflows(p.root)) {
++      // encore trop haute : explication de la seule ligne surlignée, rangées et blocs resserrés (classe is-tight)
++      this.tightCard = ident;
++      p.root.classList.add('is-tight');
++      p.show(card, who, s.line, sentence, this.compact, { ...opts, explainAll: false });
++    }
 +    const sent = st.lastSent;
 +    if (sent && this.time - sent.at < SENT_SECONDS) p.showSent(sent.text, sent.undo && this.time - sent.at < UNDO_SECONDS);
-   }
- 
--  /**
--   * Bascule « Passants : bloqués / laissés passer » de « Barrer la rue » (B, boutons de la palette, du bandeau et de
--   * l'ordre rapide) : retenue pour les ordres suivants ; la roue ouverte se redessine avec la nouvelle option.
--   */
--  togglePassersby(): void {
--    const on = this.state.togglePassersby();
--    this.core.ctx.ui.notify(`Barrer la rue — ${passersbyLabel(on)}`, 'info', 2.5);
--    if (this.quick) this.openQuick(this.quickSX, this.quickSY);
--    this.refresh(true);
++  }
++
 +  /** « Rue suivante (2 / 7) — Entrée : la bloquer aussi · Échap : terminer ». */
 +  private stickyText(): string {
 +    const st = this.state;
@@ -13206,16 +13331,8 @@ index c5e95ca..4eb8ae0 100644
 +      case 'interpeller': return `Interpellation suivante ${n} — Entrée : interpeller aussi · Échap : terminer`;
 +      default: return '';
 +    }
-   }
- 
--  private shortcut(e: KeyboardEvent): void {
--    // B : option des passants, aussi roue d'ordre rapide ouverte (elle se rouvre avec la nouvelle option)
--    if (e.code === PASSERSBY_KEY && !e.repeat && !e.ctrlKey && !e.altKey && !e.metaKey && !this.root.closest('[inert]')
--      && this.core.scope().level !== 'lecture') {
--      const t0 = e.target as HTMLElement | null;
--      if (!t0 || (t0.tagName !== 'INPUT' && t0.tagName !== 'TEXTAREA' && !t0.isContentEditable)) {
--        e.preventDefault();
--        this.togglePassersby();
++  }
++
 +  /** Liste Qui (§2.4) : les candidats du jeu, puis « Toute la compagnie ». */
 +  private whoListFull(card: Card, line: CardLine | null, where: Repere, env: CardEnv): WhoCandidate[] {
 +    let list: WhoCandidate[] = [];
@@ -13543,10 +13660,10 @@ index c5e95ca..4eb8ae0 100644
 +        return;
 +      case 'journal':
 +        this.openMore('journal');
-         return;
++        return;
 +      case 'slow':
 +        this.toggleSlow();
-+        return;
+         return;
 +      case 'help':
 +        this.toggleHelp();
 +        return;
@@ -13712,8 +13829,9 @@ index c5e95ca..4eb8ae0 100644
 +    const r = unitRepere(cu);
 +    this.map.flyTo(r.x, r.z);
 +    this.openRepere(r);
-+  }
-+
+   }
+ 
+-  // ───────────────────────────── nasse ─────────────────────────────
 +  private todo(step: 1 | -1): void {
 +    if (this.core.scope().level === 'lecture') return;
 +    this.refreshEnv(true);
@@ -13731,9 +13849,14 @@ index c5e95ca..4eb8ae0 100644
 +    st.sheet = 'card';
 +    const r = list[this.todoIndex]!;
 +    this.openRepere(r);
-   }
++  }
  
--  // ───────────────────────────── nasse ─────────────────────────────
+-  /** Point désigné au clavier (curseur) ou centre de la vue, dans le monde. */
+-  private designated(out: { x: number; z: number }): { x: number; z: number } {
+-    const v = this.map.view;
+-    const x = this.map.cursorOn ? this.map.cursorX : v.width * 0.5;
+-    const y = this.map.cursorOn ? this.map.cursorY : v.height * 0.5;
+-    this.map.worldAt(x, y, out);
 +  /** C : la visée sur le commissariat le plus proche qui a des unités prêtes (C encore : le suivant). */
 +  private stations(): void {
 +    const env = this.refreshEnv(true);
@@ -13761,13 +13884,7 @@ index c5e95ca..4eb8ae0 100644
 +    this.map.flyTo(r.x, r.z);
 +    this.openRepere(r);
 +  }
- 
--  /** Point désigné au clavier (curseur) ou centre de la vue, dans le monde. */
--  private designated(out: { x: number; z: number }): { x: number; z: number } {
--    const v = this.map.view;
--    const x = this.map.cursorOn ? this.map.cursorX : v.width * 0.5;
--    const y = this.map.cursorOn ? this.map.cursorY : v.height * 0.5;
--    this.map.worldAt(x, y, out);
++
 +  /** G : la visée sur « VOUS » et sa fiche. */
 +  private me(): void {
 +    this.refreshEnv(true);
@@ -14127,8 +14244,8 @@ index c5e95ca..4eb8ae0 100644
 +    const line = this.currentLine();
 +    if (!line) return;
 +    this.sendLine(line);
-+  }
-+
+   }
+ 
 +  /** Une ligne de la fiche : actions de l'écran, confirmation légale, ou envoi (sendLine.ts). */
 +  private sendLine(line: CardLine): void {
 +    const st = this.state;
@@ -14187,8 +14304,8 @@ index c5e95ca..4eb8ae0 100644
 +      return;
 +    }
 +    this.dispatch(line, who, where);
-   }
- 
++  }
++
 +  /**
 +   * « Tracer la ligne moi-même » : la carte attend les deux bouts (deux clics, ou Entrée au curseur : flèches ou
 +   * Maj + flèches pour le déplacer) ; la ligne part au second bout. Échap ou clic droit : abandon.
@@ -14702,6 +14819,11 @@ index c5e95ca..4eb8ae0 100644
 +      this.placeCursor();
 +    }
      this.scale.update(this.map.view.mpp);
++    // fiche rendue avant que sa feuille soit visible : on mesure ici le débordement, une fois qu'elle l'est
++    if (st.card && st.sheet === 'card' && this.cardPanel && this.tightCard !== this.cardIdent && overflows(this.cardPanel.root)) {
++      this.tightCard = this.cardIdent;
++      this.lastCard = -1;
++    }
      this.refresh(false);
 -    if (this.pop.active) this.pop.refresh();
    }
@@ -14743,21 +14865,21 @@ index c5e95ca..4eb8ae0 100644
 +    // « Plus… » ouvert sur une section : Échap revient d'abord au menu
 +    if (st.sheet === 'more' && this.morePanel?.back?.()) {
 +      st.listIndex = -1;
-+      return true;
-+    }
-+    if (st.mode.kind !== 'idle' || st.tool === 'box') {
-+      st.tool = 'main';
-+      st.setMode({ kind: 'idle' });
        return true;
      }
 -    if (this.state.mode.kind !== 'idle' || this.state.tool === 'box') {
 -      this.state.tool = 'main';
 -      this.state.setMode(IDLE);
-+    if (st.sheet === 'help') {
-+      this.toggleHelp(false);
++    if (st.mode.kind !== 'idle' || st.tool === 'box') {
++      st.tool = 'main';
++      st.setMode({ kind: 'idle' });
        return true;
      }
 -    return false;
++    if (st.sheet === 'help') {
++      this.toggleHelp(false);
++      return true;
++    }
 +    const next = backStep({ sheet: st.sheet, card: st.card !== null, othersOpen: st.card?.othersOpen ?? false, intent: st.intent, where: st.where !== null });
 +    if (!next) return false;
 +    if (st.sheet === 'confirm' && next.sheet !== 'confirm') {
@@ -14811,6 +14933,17 @@ index c5e95ca..4eb8ae0 100644
      this.focus.dispose();
      this.map.dispose();
      this.root.remove();
+   }
+ }
++
++/** La fiche (ou une de ses listes) défile-t-elle ? Mesure après rendu ; faux tant qu'elle n'est pas affichée. */
++function overflows(root: HTMLElement): boolean {
++  if (root.clientHeight <= 0) return false;
++  for (const e of [root, ...Array.from(root.querySelectorAll<HTMLElement>('.cc-list, .cc-box'))]) {
++    if (e.clientHeight > 0 && e.scrollHeight - e.clientHeight > 1) return true;
++  }
++  return false;
++}
 diff --git a/crs-simulation/src/ui/command/tacticalState.ts b/crs-simulation/src/ui/command/tacticalState.ts
 index c16f04c..ed6601c 100644
 --- a/crs-simulation/src/ui/command/tacticalState.ts
@@ -19160,6 +19293,385 @@ index 0000000..2f7a452
 +  await server.close().catch(() => {});
 +  process.exit(C.failures.length === 0 ? 0 : 1);
 +}
+diff --git a/crs-simulation/tests/e2e/verif-commande-pointeur.mjs b/crs-simulation/tests/e2e/verif-commande-pointeur.mjs
+new file mode 100644
+index 0000000..0a7277a
+--- /dev/null
++++ b/crs-simulation/tests/e2e/verif-commande-pointeur.mjs
+@@ -0,0 +1,373 @@
++// Carte de commandement AU POINTEUR SEUL (pavé tactile d'un Mac : clics, défilement à deux doigts, pincement ; ni glissé,
++// ni clic droit, ni appui long, ni touche) — refonte du commandement, §4 et §5.2. Ordinateur 1280 × 800, commandant à
++// la place de la Concorde :
++//   ouverture  le bouton « Carte de commandement » du HUD (1 clic) ;
++//   S0         au plus 22 boutons ; aucun libellé n'emploie une abréviation, un type d'ordre brut ou une force en chiffre ;
++//   survol     survoler une ligne la surligne (aperçu) sans rien envoyer ; un clic sur la carte n'envoie jamais rien ;
++//   T1         clic sur une rue · clic sur « Barrer la rue, passants admis » (3 avec l'ouverture) ;
++//   T8         clic sur une rue · clic sur « Fermer aux voitures (barrières) » (3) ;
++//   T3         clic sur la foule · clic sur « Encercler (nasse) » (3) ;
++//   T4         « Interpeller » · clic sur la ligne (3) ;
++//   T7         « Secours » · clic sur la ligne des pompiers (3) ;
++//   T2         pincement · défilement à deux doigts · clic sur le lieu · « Toute la compagnie » · « Y aller » (5) ;
++//   T5         clic sur la foule · « Disperser au gaz lacrymogène » · « Faire les étapes dans l'ordre » (4), puis la
++//              chaîne se suit et s'annule depuis « Mes unités ».
++// Captures commande-ptr-*.png dans tests/e2e/out.
++// Usage : node tests/e2e/verif-commande-pointeur.mjs
++import { startServer, openPage, waitFor, frames, step, makeChecker, snap } from './verif-fin-lib.mjs';
++
++const tag = 'verif-commande-pointeur';
++const C = makeChecker(tag);
++const server = await startServer();
++const { browser, page, errors } = await openPage(`${server.url}?quality=bas`, { width: 1280, height: 800, pointerLock: false });
++
++/** Nombre de clics de la tâche en cours. */
++let clicks = 0;
++async function clickAt(x, y) {
++  await page.mouse.move(x, y, { steps: 3 });
++  await frames(page, 2);
++  await page.mouse.click(x, y);
++  await frames(page, 4);
++  clicks++;
++}
++const rectOf = (sel) => page.evaluate((s) => {
++  const e = [...document.querySelectorAll(s)].find((x) => x.getBoundingClientRect().width > 0 && getComputedStyle(x).visibility !== 'hidden');
++  if (!e) return null;
++  const b = e.getBoundingClientRect();
++  const h = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
++  return { x: b.left + b.width / 2, y: b.top + b.height / 2, w: b.width, h: b.height, top: b.top, bottom: b.bottom, hitOk: !!h && (h === e || e.contains(h)) };
++}, sel);
++async function clickSel(sel) {
++  let r = await rectOf(sel);
++  if (!r) { await frames(page, 3); r = await rectOf(sel); }
++  if (!r) throw new Error(`introuvable ou caché : ${sel}`);
++  if (!r.hitOk) throw new Error(`recouvert : ${sel} ${JSON.stringify(r)}`);
++  if (r.bottom > 800.5 || r.top < -0.5) throw new Error(`hors de l’écran : ${sel} ${JSON.stringify(r)}`);
++  await clickAt(r.x, r.y);
++}
++/** Ligne de la fiche dont le libellé correspond. */
++const lineId = (re) => page.evaluate((src) => {
++  const rx = new RegExp(src);
++  const b = [...document.querySelectorAll('[data-id^="card-line-"]')].find((e) => e.getBoundingClientRect().width > 0 && rx.test(e.querySelector('.cc-lab')?.textContent || ''));
++  return b ? b.dataset.id : null;
++}, re.source);
++const tac = () => page.evaluate(() => {
++  const t = window.__CRS.game.systems.find((s) => s.id === 'ui:command').tactical;
++  if (!t) return null;
++  const s = t.state;
++  const list = t.card && s.card ? (s.card.othersOpen ? t.card.others : t.card.lines) : [];
++  return {
++    intent: s.intent, sheet: s.sheet, kind: s.card && s.card.repere.kind, name: s.card && s.card.repere.name, line: s.card ? s.card.line : -1,
++    lineLabel: list[s.card ? s.card.line : -1]?.label ?? '', lines: list.map((l) => l.label), who: s.who && s.who.label, sent: s.lastSent && s.lastSent.text,
++  };
++});
++const sends = () => page.evaluate(() => window.__c6.slice());
++const screenOf = (x, z) => page.evaluate(([wx, wz]) => {
++  const t = window.__CRS.game.systems.find((s) => s.id === 'ui:command').tactical;
++  const p = t.map.view.worldToScreen(wx, wz, { x: 0, y: 0 });
++  const r = t.map.canvas.getBoundingClientRect();
++  return { x: r.left + p.x, y: r.top + p.y, w: r.width, h: r.height, left: r.left, top: r.top, inside: p.x > 40 && p.y > 60 && p.x < r.width - 40 && p.y < r.height - 60 };
++}, [x, z]);
++/** Défilement à deux doigts (événements wheel sans Ctrl, petits pas fractionnaires) jusqu'à voir le point au centre. */
++let gestures = 0;
++async function scrollTo(x, z) {
++  for (let i = 0; i < 40; i++) {
++    const p = await screenOf(x, z);
++    const cx = p.left + p.w / 2, cy = p.top + p.h / 2;
++    const dx = p.x - cx, dy = p.y - cy;
++    if (Math.abs(dx) < 60 && Math.abs(dy) < 60) return true;
++    await page.mouse.move(cx, cy);
++    // la carte suit les doigts : faire défiler de +d amène ce qui est à +d au centre
++    await page.mouse.wheel(Math.max(-390, Math.min(390, dx)) + 0.5, Math.max(-390, Math.min(390, dy)) + 0.5);
++    await frames(page, 2);
++    gestures++;
++  }
++  return false;
++}
++/** Revient au repos sans fermer la carte (bouton « ‹ Retour » cliqué tant qu'il y en a un). */
++async function rest() {
++  for (let i = 0; i < 6; i++) {
++    const t = await tac();
++    if (!t || (!t.intent && t.sheet === 'none')) return;
++    const back = await rectOf('[data-id="card-back"]');
++    if (back && back.hitOk) { await page.mouse.click(back.x, back.y); await frames(page, 3); continue; }
++    await page.evaluate(() => window.__CRS.game.systems.find((s) => s.id === 'ui:command').tactical.back());
++    await frames(page, 2);
++  }
++}
++/** Tous les libellés visibles de la carte de commandement (boutons, fiche, panneaux). */
++const visibleTexts = () => page.evaluate(() => {
++  const root = document.querySelector('[data-id="tactical"]');
++  const out = [];
++  for (const e of root.querySelectorAll('button, .cc-lab, .cc-exp, .cc-head, .ct-top, [data-id^="follow-"], [data-id^="todo-"]')) {
++    const r = e.getBoundingClientRect();
++    if (r.width <= 0 || r.height <= 0 || getComputedStyle(e).visibility === 'hidden') continue;
++    out.push((e.innerText || '').replace(/\s+/g, ' ').trim());
++  }
++  return [...new Set(out)].filter((s) => s !== '');
++});
++/** Libellés suspects : type d'ordre brut, abréviation non expliquée, niveau de force en chiffre. */
++function suspicious(texts) {
++  const bad = [];
++  for (const s of texts) {
++    if (/[A-Z]{3,}_[A-Z]/.test(s) || /\b(couper_circulation|faire_mouvement|suivre_pied|avec_moi|bond_offensif|disperser_gaz|degager_\w+|retour_poste)\b/.test(s)) bad.push('type brut : ' + s);
++    if (/\b(VL|GM2L|LBD40)\b/.test(s) || (/\bLBD\b/.test(s) && !/lanceurs de balles/.test(s))) bad.push('abréviation : ' + s);
++    if (/\bTV\b/.test(s) && !/police secours|Patrouille TV/i.test(s)) bad.push('abréviation TV : ' + s);
++    if (/(Force|force|Niveau|niveau|licite|autorisée)\s*:?\s*[0-4]\b/.test(s)) bad.push('force en chiffre : ' + s);
++  }
++  return bad;
++}
++const allTexts = new Set();
++async function readTexts(label) {
++  const t = await visibleTexts();
++  for (const s of t) allTexts.add(s);
++  const bad = suspicious(t);
++  C.check(bad.length === 0, `${label} : aucun libellé brut, abrégé ou chiffré`, bad.slice(0, 4).join(' | '));
++}
++
++try {
++  const q = new URLSearchParams({
++    autostart: 'paris', nomenu: '1', mode: 'libre', role: 'commandant', variante: 'terrain', place: 'Place de la Concorde', crowd: '300',
++    quality: 'bas', seed: '11', time: '12', weather: 'clair',
++  });
++  await page.goto(`${server.url}?${q}`, { waitUntil: 'load', timeout: 120000 });
++  await waitFor(page, 'window.__CRS && window.__CRS.ready === true && window.__CRS.ctx.session.phase === "playing"', 400000);
++  await step(page, 3);
++  await page.evaluate(() => {
++    const core = window.__CRS.ctx.service('ui.command');
++    const orig = core.issue.bind(core);
++    window.__c6 = [];
++    core.issue = (type, squads, geoms, targetId = 0, ...rest) => {
++      const r = orig(type, squads, geoms, targetId, ...rest);
++      window.__c6.push({ type: String(type), ids: squads.map((s) => s.id), targetId, ok: r.ok, geoms: (geoms || []).map((g) => g && g.kind) });
++      return r;
++    };
++  });
++
++  // ── ouverture au clic ──
++  clicks = 0;
++  await clickSel('[data-id="quick-map"]');
++  await page.waitForTimeout(500);
++  await frames(page, 4);
++  C.check(await page.evaluate(() => window.__CRS.ctx.ui.current === 'carte_tactique'), 'le bouton du HUD ouvre la carte de commandement');
++  const ok = await rectOf('[data-id="tac-model-ok"]');
++  if (ok) { await page.mouse.click(ok.x, ok.y); await frames(page, 3); }
++  const b0 = await page.evaluate(() => [...document.querySelectorAll('[data-id="tactical"] button')].filter((b) => {
++    const r = b.getBoundingClientRect();
++    return r.width > 0 && r.height > 0 && getComputedStyle(b).visibility !== 'hidden';
++  }).length);
++  C.check(b0 <= 22, `S0 : au plus 22 boutons (${b0})`);
++  await readTexts('S0');
++  await snap(page, 'commande-ptr-S0-1280x800');
++
++  const env = await page.evaluate(() => {
++    const t = window.__CRS.game.systems.find((s) => s.id === 'ui:command').tactical;
++    const e = t.cardEnv();
++    const c = e.crowds.slice().sort((a, b) => b.people - a.people)[0];
++    return c ? { x: c.x, z: c.z, exits: c.exits.filter((x) => x.edgeId >= 0 && x.street.trim() !== '' && !x.held).map((x) => ({ x: x.x, z: x.z, name: x.street })) } : null;
++  });
++  C.check(!!env && env.exits.length >= 2, 'la foule principale a des rues d’issue nommées', JSON.stringify(env && env.exits.slice(0, 3)));
++
++  let p, st, s, n0;
++  // ── T3 : foule · « Encercler (nasse) » ──
++  clicks = 1;
++  await scrollTo(env.x, env.z);
++  p = await screenOf(env.x, env.z);
++  await clickAt(p.x, p.y);
++  st = await tac();
++  C.check(st && (st.kind === 'foule' || st.kind === 'nasse'), 'clic sur la foule : sa fiche', JSON.stringify(st));
++  await readTexts('fiche de foule');
++  const over = await page.evaluate(() => { const l = document.querySelector('.cc-list'); return l ? l.scrollHeight - l.clientHeight : -1; });
++  C.check(over >= 0 && over <= 1, `fiche de la foule sans défilement à 1280 × 800 (${over} px de trop)`);
++  await snap(page, 'commande-ptr-S1-foule');
++  const idN = await lineId(/^Encercler \(nasse\)$/);
++  n0 = (await sends()).length;
++  if (idN) await clickSel(`[data-id="${idN}"]`);
++  await step(page, 0.3);
++  s = (await sends()).slice(n0);
++  C.check(s.length >= 1 && s.every((o) => o.ok && o.type === 'couper_circulation'), `T3 : la nasse part (${s.length} unité(s))`, JSON.stringify(s.map((o) => o.ids)));
++  C.check(clicks <= 3, `T3 : ${clicks} clics (§4 : 3)`);
++  await step(page, 2.5);
++  await rest();
++
++  // ── un clic sur la carte n'envoie jamais rien ; survol = aperçu ──
++  n0 = (await sends()).length;
++  await scrollTo(env.exits[0].x, env.exits[0].z);
++  p = await screenOf(env.exits[0].x, env.exits[0].z);
++  await clickAt(p.x, p.y);
++  st = await tac();
++  C.check(st && st.sheet === 'card', 'clic sur une rue : sa fiche', JSON.stringify(st));
++  C.check((await sends()).length === n0, 'un clic sur la carte n’envoie rien');
++  await readTexts('fiche de rue');
++  await snap(page, 'commande-ptr-S1-rue');
++  const id3 = await lineId(/^Barrage filtrant$/);
++  if (id3) {
++    const r = await rectOf(`[data-id="${id3}"]`);
++    await page.mouse.move(r.x, r.y, { steps: 4 });
++    await frames(page, 4);
++    st = await tac();
++    C.check(st.lineLabel === 'Barrage filtrant', 'survol de « Barrage filtrant » : surlignée (aperçu)', st.lineLabel);
++    C.check((await sends()).length === n0, 'le survol n’envoie rien');
++    await page.mouse.move(r.x - 600, r.y, { steps: 3 });
++    await frames(page, 3);
++  }
++
++  // ── T1 : rue · « Barrer la rue, passants admis » ──
++  clicks = 2;
++  const id2 = await lineId(/^Barrer la rue, passants admis$/);
++  C.check(!!id2, 'la fiche de rue propose « Barrer la rue, passants admis »', JSON.stringify(st.lines));
++  n0 = (await sends()).length;
++  if (id2) await clickSel(`[data-id="${id2}"]`);
++  await step(page, 0.3);
++  s = (await sends()).slice(n0);
++  C.check(s.length === 1 && s[0].ok && s[0].type === 'couper_circulation' && s[0].targetId === -2, 'T1 : couper_circulation, passants admis', JSON.stringify(s));
++  C.check(clicks <= 3, `T1 : ${clicks} clics (§4 : 3)`);
++  st = await tac();
++  C.check(/ORDRE DONNÉ/.test(st.sent || '') || !!st.sent, '« ✓ ORDRE DONNÉ » dans la fiche', st.sent);
++  await snap(page, 'commande-ptr-S4');
++  await step(page, 2.5);
++  await rest();
++
++  // ── T8 : rue · « Fermer aux voitures (barrières) » ──
++  clicks = 1;
++  await scrollTo(env.exits[1].x, env.exits[1].z);
++  p = await screenOf(env.exits[1].x, env.exits[1].z);
++  await clickAt(p.x, p.y);
++  st = await tac();
++  const closures0 = await page.evaluate(() => window.__CRS.ctx.service('ui.command').traffic?.closures.length ?? -1);
++  const id4 = await lineId(/^Fermer aux voitures/);
++  C.check(st.kind === 'rue' && !!id4, 'clic sur une autre rue : « Fermer aux voitures (barrières) »', JSON.stringify(st));
++  if (id4) await clickSel(`[data-id="${id4}"]`);
++  await step(page, 0.3);
++  const closures1 = await page.evaluate(() => window.__CRS.ctx.service('ui.command').traffic?.closures.length ?? -1);
++  C.check(closures1 > closures0, `T8 : la rue est fermée aux voitures (${closures0} → ${closures1})`);
++  C.check(clicks <= 3, `T8 : ${clicks} clics (§4 : 3)`);
++  await step(page, 2.5);
++  await rest();
++
++  // ── T4 : « Interpeller » · ligne ──
++  clicks = 1;
++  await clickSel('[data-id="intent-interpeller"]');
++  st = await tac();
++  C.check(st && st.intent === 'interpeller' && /Interpeller/.test(st.lineLabel), '« Interpeller » : « Interpeller… » surlignée', JSON.stringify(st));
++  await readTexts('fiche Interpeller');
++  const idI = await page.evaluate(() => {
++    const t = window.__CRS.game.systems.find((s) => s.id === 'ui:command').tactical;
++    return `card-line-${t.card.lines[t.state.card.line].n ?? t.state.card.line + 1}`;
++  });
++  n0 = (await sends()).length;
++  const hl = await page.evaluate(() => { const e = document.querySelector('.cc-row.is-hl, [data-id^="card-line-"].is-on, [data-id^="card-line-"][aria-current="true"]'); return e ? e.dataset.id : null; });
++  await clickSel(`[data-id="${hl || idI}"]`);
++  await step(page, 0.3);
++  s = (await sends()).slice(n0);
++  C.check(s.some((o) => o.ok && o.type === 'interpeller'), 'T4 : un ordre « interpeller » part', JSON.stringify(s));
++  C.check(clicks <= 3, `T4 : ${clicks} clics (§4 : 3)`);
++  await step(page, 2.5);
++  await rest();
++
++  // ── T7 : « Secours » · pompiers ──
++  clicks = 1;
++  const calls0 = await page.evaluate(() => window.__CRS.ctx.service('ui.command').rescue?.calls.length ?? -1);
++  await clickSel('[data-id="intent-secours"]');
++  st = await tac();
++  C.check(st && /pompiers/i.test(st.lineLabel), '« Secours » : les pompiers surlignés', JSON.stringify(st));
++  await readTexts('fiche Secours');
++  const idP = await lineId(/pompiers|Pompiers/);
++  if (idP) await clickSel(`[data-id="${idP}"]`);
++  await step(page, 0.3);
++  const calls1 = await page.evaluate(() => window.__CRS.ctx.service('ui.command').rescue?.calls.length ?? -1);
++  C.check(calls1 > calls0, `T7 : les pompiers sont demandés (${calls0} → ${calls1})`);
++  C.check(clicks <= 3, `T7 : ${clicks} clics (§4 : 3)`);
++  await rest();
++
++  // ── T2 : pincement · défilement · lieu lointain · « Toute la compagnie » · « Y aller » ──
++  clicks = 1;
++  gestures = 0;
++  const mapR = await rectOf('[data-id="tac-map"]');
++  const mc = mapR || { x: 470, y: 400 };
++  await page.mouse.move(mc.x, mc.y);
++  await page.keyboard.down('Control');
++  for (let i = 0; i < 4; i++) { await page.mouse.wheel(0, 30.5); await frames(page, 1); }
++  await page.keyboard.up('Control');
++  gestures++;
++  const far = await page.evaluate(() => {
++    const c = window.__CRS.ctx;
++    const p = c.player.person();
++    const out = { x: 0, z: 0 };
++    for (const [dx, dz] of [[900, -900], [-900, -900], [900, 900], [-900, 900]]) {
++      if (c.world.randomFreePoint(p.x + dx, p.z + dz, 60, 'road', () => 0.5, out)) return { x: out.x, z: out.z };
++    }
++    return null;
++  });
++  const g0 = gestures;
++  await scrollTo(far.x, far.z);
++  C.note(`T2 : ${gestures - g0} défilement(s) à deux doigts pour amener le lieu (non comptés comme clics)`);
++  p = await screenOf(far.x, far.z);
++  await clickAt(p.x, p.y);
++  st = await tac();
++  C.check(st && st.sheet === 'card', 'clic sur un lieu lointain : sa fiche', JSON.stringify(st));
++  await clickSel('[data-id="card-who-all"]');
++  st = await tac();
++  C.check(/Toute la compagnie/.test(st.who || ''), '« Toute la compagnie » : Qui = toute la compagnie', st.who);
++  const idGo = await lineId(/^Y aller$/);
++  C.check(!!idGo, 'la fiche propose « Y aller »', JSON.stringify(st.lines));
++  const sentence = await page.evaluate(() => document.querySelector('.ct-mount-card')?.innerText.replace(/\s+/g, ' ') ?? '');
++  C.check(/en véhicules/.test(sentence) && /km/.test(sentence), 'la fiche dit « en véhicules » et la distance en km', sentence.slice(0, 300));
++  await snap(page, 'commande-ptr-T2');
++  n0 = (await sends()).length;
++  if (idGo) await clickSel(`[data-id="${idGo}"]`);
++  await step(page, 0.3);
++  s = (await sends()).slice(n0);
++  const company = await page.evaluate(() => window.__CRS.ctx.squads.list.find((q) => q.kind === 'compagnie' && q.faction === 'police')?.id ?? 0);
++  C.check(s.length === 1 && s[0].ok && s[0].ids.includes(company), 'T2 : l’ordre part à la compagnie', JSON.stringify(s));
++  C.check(clicks <= 4 && gestures - g0 <= 6, `T2 : ${clicks} clics + 1 pincement (§4 : 5 actions)`);
++  await step(page, 2.5);
++  await rest();
++
++  // ── T5 : foule · gaz · « Faire les étapes dans l'ordre » ; puis annuler depuis « Mes unités » ──
++  clicks = 1;
++  await page.mouse.move(mc.x, mc.y);
++  await page.keyboard.down('Control');
++  for (let i = 0; i < 4; i++) { await page.mouse.wheel(0, -30.5); await frames(page, 1); }
++  await page.keyboard.up('Control');
++  await scrollTo(env.x, env.z);
++  p = await screenOf(env.x, env.z);
++  await clickAt(p.x, p.y);
++  const idG = await lineId(/^Disperser au gaz lacrymogène$/);
++  C.check(!!idG, 'la fiche de la foule propose « Disperser au gaz lacrymogène »', JSON.stringify((await tac()).lines));
++  n0 = (await sends()).length;
++  if (idG) await clickSel(`[data-id="${idG}"]`);
++  st = await tac();
++  const s3 = await page.evaluate(() => document.querySelector('.ct-mount-card')?.innerText.replace(/\s+/g, ' ').trim() ?? '');
++  C.check(st.sheet === 'confirm' && /sommations/i.test(s3), 'S3 : les étapes légales', s3.slice(0, 300));
++  C.check((await sends()).length === n0, 'S3 : rien ne part avant la confirmation');
++  await readTexts('S3');
++  await snap(page, 'commande-ptr-S3');
++  await clickSel('[data-id="card-confirm"]');
++  C.check(clicks <= 4, `T5 : ${clicks} clics (§4 : 4)`);
++  await step(page, 6);
++  const chain = await page.evaluate(() => window.__CRS.ctx.service('ui.command').legalChain.status());
++  C.check(!!chain && chain.stage !== 'refus', 'la chaîne légale tourne', JSON.stringify(chain));
++  await rest();
++  // « Mes unités » : la ligne de la chaîne et son « Annuler »
++  const rowTxt = await page.evaluate(() => { const e = document.querySelector('[data-id="follow-chaine"]'); return e ? e.innerText.replace(/\s+/g, ' ') : null; });
++  C.check(!!rowTxt && /sommation/i.test(rowTxt), '« Mes unités » montre la chaîne (sommation n sur 3)', rowTxt);
++  await readTexts('Mes unités');
++  await snap(page, 'commande-ptr-S5');
++  await clickSel('[data-id="chain-cancel"]');
++  await step(page, 0.5);
++  const after = await page.evaluate(() => window.__CRS.ctx.service('ui.command').legalChain.status());
++  C.check(!after || after.stage === 'annule', 'la chaîne s’annule depuis « Mes unités »', JSON.stringify(after));
++  await step(page, 60);
++  C.check(!(await sends()).some((o) => o.type === 'disperser_gaz'), 'après l’annulation, aucun gaz ne part');
++
++  C.note('libellés lus : ' + [...allTexts].slice(0, 200).join(' ‖ '));
++} catch (e) {
++  C.check(false, 'scénario interrompu', e && e.stack ? e.stack : String(e));
++} finally {
++  C.check(errors.length === 0, 'aucune erreur dans la page', errors.slice(0, 5).join(' | '));
++  C.done();
++  await browser.close().catch(() => {});
++  await server.close().catch(() => {});
++  process.exit(C.failures.length === 0 ? 0 : 1);
++}
 diff --git a/crs-simulation/tests/e2e/verif-commande-tel.mjs b/crs-simulation/tests/e2e/verif-commande-tel.mjs
 new file mode 100644
 index 0000000..cd75422
@@ -19697,10 +20209,10 @@ index c5cd313..9f0bc99 100644
      // « Repousser » sur un collègue : on se place face à un équipier, à 0,9 m
      const mate = await page.evaluate(() => {
 diff --git a/crs-simulation/tests/e2e/verif-fin-lib.mjs b/crs-simulation/tests/e2e/verif-fin-lib.mjs
-index aa935f2..f76c06a 100644
+index aa935f2..4b82831 100644
 --- a/crs-simulation/tests/e2e/verif-fin-lib.mjs
 +++ b/crs-simulation/tests/e2e/verif-fin-lib.mjs
-@@ -48,6 +48,86 @@ export async function hold(page, code, n = 2) {
+@@ -48,6 +48,89 @@ export async function hold(page, code, n = 2) {
    await frames(page, 1);
  }
  
@@ -19777,9 +20289,12 @@ index aa935f2..f76c06a 100644
 +  const r = t.map.canvas.getBoundingClientRect();
 +  const p = { x: 0, y: 0 };
 +  const units = ctx.people.list.filter((q) => q.faction === 'police').map((q) => { t.map.view.worldToScreen(q.x, q.z, p); return { x: r.left + p.x, y: r.top + p.y }; });
++  // ni une foule, ni un incident, ni une unité (la fiche serait la leur, pas celle du lieu)
++  const busy = (t.reperes || []).filter((q) => q.kind === 'foule' || q.kind === 'nasse' || q.kind === 'incident' || q.kind === 'cible')
++    .map((q) => { t.map.view.worldToScreen(q.x, q.z, p); return { x: r.left + p.x, y: r.top + p.y, rad: 70 + (q.radius || 0) / Math.max(0.05, t.map.view.mpp) }; });
 +  for (const [fx, fy] of list) {
 +    const x = r.left + r.width * fx, y = r.top + r.height * fy;
-+    if (units.every((u) => Math.hypot(u.x - x, u.y - y) > 90)) return { x, y };
++    if (units.every((u) => Math.hypot(u.x - x, u.y - y) > 90) && busy.every((b) => Math.hypot(b.x - x, b.y - y) > b.rad)) return { x, y };
 +  }
 +  return null;
 +}, prefs);
@@ -21147,6 +21662,225 @@ index 0000000..351676a
 +      expect(written.find((w) => w.text.startsWith('Square'))!.font).toMatch(/^italic /);
 +    }
 +  });
++});
+diff --git a/crs-simulation/tests/unit/playtest.commande.test.ts b/crs-simulation/tests/unit/playtest.commande.test.ts
+new file mode 100644
+index 0000000..3b431a1
+--- /dev/null
++++ b/crs-simulation/tests/unit/playtest.commande.test.ts
+@@ -0,0 +1,213 @@
++// Partie robot de la carte de commandement (refonte « commande ») : un commandant, dans de vraies parties à plusieurs
++// endroits de Paris et avec plusieurs graines, parcourt chaque intention comme le ferait le joueur — il choisit
++// l'intention, lit la fiche du premier lieu proposé, laisse le jeu choisir l'unité et donne l'ordre. On mesure :
++//   - chaque fiche : au plus six lignes, la ligne par défaut visible, aucun libellé brut / abrégé / chiffré ;
++//   - chaque ordre donné existe vraiment dans le monde (l'unité a l'ordre, ou le reprendra au débarquement) ;
++//   - une seconde partie dans le même processus repart propre (aucun ordre, aucune chaîne légale, aucune nasse).
++import { describe, expect, it } from 'vitest';
++
++import { createTestContext } from '@/core/testing';
++import { createSystems as world } from '@/world/query';
++import { createSystems as roles } from '@/sim/roles';
++import { createSystems as people } from '@/sim/people';
++import { createSystems as vehicles } from '@/sim/vehicles';
++import { createSystems as traffic } from '@/sim/traffic';
++import { createSystems as crowd } from '@/sim/crowd';
++import { createSystems as police } from '@/sim/police';
++import { createSystems as items } from '@/sim/items';
++import { createSystems as props } from '@/sim/props';
++import { createSystems as hazards } from '@/sim/hazards';
++import { createSystems as law } from '@/gameplay/law';
++import { createSystems as radio } from '@/gameplay/radio';
++import { createSystems as env } from '@/env';
++import { createSystems as incidents } from '@/gameplay/incidents';
++import { createSystems as rescue } from '@/sim/roles/rescue';
++import { createSystems as session } from '@/gameplay/session';
++import { createSystems as maps } from '@/ui/maps';
++import { createSystems as command } from '@/ui/command';
++import type { CommandCore } from '@/ui/command';
++import type { MapCanvas } from '@/ui/maps/mapCanvas';
++import { defaultWho, proposeWho, whoEnvFromCore } from '@/ui/command/bestUnit';
++import type { Card, CardEnv, CardLine, Repere, SendEnv } from '@/ui/command/cardTypes';
++import { INTENTS, MAX_LINES, buildCard, intentCandidates } from '@/ui/command/intents';
++import { sentenceOf } from '@/ui/command/preview';
++import { cardEnvFromCore } from '@/ui/command/reperes';
++import { legalCheck, lineSends, sendCardLine, windDrift } from '@/ui/command/sendLine';
++import { TacticalMap } from '@/ui/command/tacticalMap';
++import { TacticalState } from '@/ui/command/tacticalState';
++
++const MODULES = [env, world, roles, people, vehicles, traffic, crowd, police, items, props, hazards, law, radio, incidents, rescue, session, maps, command];
++const MEANS = { sections: 3, fourgons: 9, centaure: 1, canon_eau: 1, bravm: 1, drone: 0, pompiers: 0, samu: 0, secours_sur_appel: true };
++
++/** Libellés interdits à l'écran : type d'ordre brut, abréviation non expliquée, force en chiffre. */
++function suspicious(s: string): string {
++  if (/[A-Z]{3,}_[A-Z]/.test(s) || /\b[a-z]+_[a-z_]+\b/.test(s)) return 'type brut';
++  if (/\b(VL|GM2L)\b/.test(s)) return 'abréviation';
++  if (/\bLBD\b/.test(s) && !/lanceurs de balles/.test(s)) return 'LBD non expliqué';
++  if (/\bTV\b/.test(s) && !/police secours/i.test(s)) return 'TV non expliqué';
++  if (/(Force|force|[Nn]iveau|licite|autorisée)\s*:?\s*[0-4]\b/.test(s)) return 'force en chiffre';
++  if (/undefined|NaN|\[object/.test(s)) return 'valeur cassée';
++  return '';
++}
++
++function checkCard(card: Card, where: string): string[] {
++  const bad: string[] = [];
++  if (card.lines.length > MAX_LINES) bad.push(`${where} : ${card.lines.length} lignes`);
++  if (card.lines.length > 0 && (card.defaultLine < 0 || card.defaultLine >= card.lines.length)) bad.push(`${where} : ligne par défaut ${card.defaultLine} hors des lignes`);
++  for (const txt of [card.title, card.sub, ...card.notes, ...card.lines.flatMap((l) => [l.label, l.explain, l.rule]), ...card.others.flatMap((l) => [l.label, l.explain])]) {
++    const why = suspicious(txt ?? '');
++    if (why !== '') bad.push(`${where} : ${why} « ${txt} »`);
++  }
++  return bad;
++}
++
++async function start(place: string, seed: number, x: number, z: number, role = 'commandant', rank: string | undefined = 'commandant') {
++  const t = createTestContext({ seed, strict: false, modules: MODULES });
++  await t.start({
++    mode: 'libre', role, rank, place, x, z, crowdSize: 300, tension: 0.4, volatility: 0.3, duration: 'standard',
++    extra: { moyens: MEANS, variante: 'terrain' },
++  } as never);
++  t.step(3);
++  const core = t.ctx.service<CommandCore>('ui.command')!;
++  const state = new TacticalState();
++  const tmap = new TacticalMap(core, { handlers: null } as unknown as MapCanvas, state);
++  const sendEnv = (card: CardEnv): SendEnv => ({ core, map: tmap, setSelection: (ids) => state.setSelection(ids), card, trace: null });
++  return { t, ctx: t.ctx, core, sendEnv };
++}
++
++/** L'ordre donné à une unité existe-t-il dans le monde (direct, ou repris au débarquement) ? */
++function hasOrder(core: CommandCore, squadId: number, type: string): boolean {
++  const s = core.ctx.squads.get(squadId);
++  if (!s) return false;
++  if (String(s.order.type) === type) return true;
++  const later = core.afterConvoy.get(squadId);
++  return !!later && String(later.type) === type;
++}
++
++const PLACES: [string, number, number, number][] = [
++  ['Place de la Concorde', 21, -10, 15],
++  ['Place de la Bastille', 5, 3542, 1395],
++  ['Place de la République', 9, 3123, -208],
++];
++
++describe('partie robot : la carte de commandement, intention par intention', () => {
++  for (const [place, seed, px, pz] of PLACES) {
++    it(`${place} (graine ${seed}) : chaque intention ouvre une fiche lisible et son ordre par défaut part pour de vrai`, async () => {
++      const { t, core, sendEnv } = await start(place, seed, px, pz);
++      const problems: string[] = [];
++      const log: string[] = [];
++      for (const intent of INTENTS) {
++        const env = cardEnvFromCore(core);
++        const from = env.player ?? { x: 0, z: 0 };
++        const cands = intentCandidates(intent.id, env, from);
++        log.push(`${intent.label} : ${cands.length} lieu(x) — ${cands.slice(0, 3).map((r) => `${r.kind}:${r.name}`).join(', ')}`);
++        if (intent.id === 'envoyer' || intent.id === 'bloquer' || intent.id === 'encercler' || intent.id === 'disperser') {
++          if (cands.length === 0) problems.push(`${intent.label} : aucun lieu proposé alors qu'une foule est là`);
++        }
++        for (const r of cands.slice(0, 4)) problems.push(...checkCard(buildCard(r, env, intent.id), `${intent.label}/${r.kind} ${r.name}`));
++        const r = cands[0];
++        if (!r) continue;
++        const card = buildCard(r, env, intent.id);
++        const line: CardLine | undefined = card.lines[card.defaultLine];
++        if (!line) { problems.push(`${intent.label} : fiche sans ligne`); continue; }
++        if (!lineSends(line) || line.lock) { log.push(`  ${intent.label} : « ${line.label} » (ne part pas directement)`); continue; }
++        const who = line.needsWho ? defaultWho(proposeWho(line, r, whoEnvFromCore(core, env, []))) : null;
++        if (line.needsWho && !who) { log.push(`  ${intent.label} : « ${line.label} » — aucune unité proposée`); continue; }
++        if (who) {
++          const s = sentenceOf(line, who, r);
++          const why = suspicious(s.what);
++          if (why) problems.push(`${intent.label} : phrase ${why} « ${s.what} »`);
++        }
++        const before = core.issued.length;
++        const res = sendCardLine(sendEnv(env), line, who, r);
++        log.push(`  ${intent.label} : « ${line.label} » → ${res.ok ? 'OK' : 'REFUS'} ${res.text}`);
++        if (suspicious(res.text)) problems.push(`${intent.label} : compte rendu ${suspicious(res.text)} « ${res.text} »`);
++        if (!res.ok) { problems.push(`${intent.label} : l'ordre par défaut « ${line.label} » est refusé : ${res.text}`); continue; }
++        const a = line.action;
++        if (a.kind === 'verb') {
++          for (const id of res.squads) if (!hasOrder(core, id, a.type)) problems.push(`${intent.label} : l'unité ${id} n'a pas l'ordre ${a.type} (${core.ctx.squads.get(id)?.order.type})`);
++          if (core.issued.length <= before) problems.push(`${intent.label} : rien dans les ordres donnés`);
++        }
++        t.step(2);
++      }
++      // le monde avance sans erreur avec tous ces ordres
++      t.step(20);
++      console.log(`[${place}]\n` + log.join('\n'));
++      expect(problems, problems.join('\n')).toEqual([]);
++    }, 400000);
++  }
++
++  it('seconde partie dans le même processus : rien ne reste de la première', async () => {
++    const a = await start('Place de la Concorde', 21, -10, 15);
++    const env = cardEnvFromCore(a.core);
++    const r = intentCandidates('bloquer', env, env.player!)[0]!;
++    const line = buildCard(r, env, 'bloquer').lines[0]!;
++    const who = defaultWho(proposeWho(line, r, whoEnvFromCore(a.core, env, [])))!;
++    expect(sendCardLine(a.sendEnv(env), line, who, r).ok).toBe(true);
++    // la chaîne légale démarre dans la première partie
++    const crowdR = intentCandidates('disperser', env, env.player!)[0]!;
++    const gas = buildCard(crowdR, env, 'disperser').lines.find((l) => l.action.kind === 'verb' && l.action.type === 'disperser_gaz');
++    expect(gas).toBeTruthy();
++    a.t.step(2);
++    const b = await start('Place de la Concorde', 21, -10, 15);
++    expect(b.core.issued.length).toBe(0);
++    expect(b.core.legalChain.status()).toBeNull();
++    expect(b.core.afterConvoy.size).toBe(0);
++    const env2 = cardEnvFromCore(b.core);
++    const units = env2.units.filter((u) => u.mine);
++    expect(units.length).toBeGreaterThan(0);
++  }, 400000);
++
++  it('« Disperser au gaz » confirmé une fois : la chaîne fait les sommations, autorise, et l’unité lance VRAIMENT le gaz', async () => {
++    const { t, ctx, core } = await start('Place de la Concorde', 21, -10, 15);
++    const refused: string[] = [];
++    ctx.events.onAny('police:order_refused', (e) => refused.push(JSON.stringify(e)));
++    const said: string[] = [];
++    const env = cardEnvFromCore(core);
++    const crowdR = intentCandidates('disperser', env, env.player!)[0]!;
++    const card = buildCard(crowdR, env, 'disperser');
++    const gas = card.lines.find((l) => l.action.kind === 'verb' && l.action.type === 'disperser_gaz')!;
++    const who = defaultWho(proposeWho(gas, crowdR, whoEnvFromCore(core, env, [])))!;
++    const chk = legalCheck(core, env, gas, who, crowdR);
++    expect(chk.plan, chk.reason).toBeTruthy();
++    if (env.wind && Math.hypot(env.wind.x, env.wind.z) >= 0.3) expect(JSON.stringify(chk)).toMatch(/le nuage ira vers/);
++    core.legalChain.start(chk.plan!);
++    let issuedAt = -1;
++    for (let i = 0; i < 400 && issuedAt < 0; i++) {
++      t.step(1);
++      if (core.issued.some((o) => String(o.type) === 'disperser_gaz')) issuedAt = ctx.clock.now;
++    }
++    expect(issuedAt, JSON.stringify(core.legalChain.status())).toBeGreaterThan(0);
++    for (let i = 0; i < 30; i++) {
++      t.step(1);
++      for (const m of ctx.radio.log) if (/refus|objection|abandonn/i.test(m.text) && !said.includes(m.text)) said.push(m.text);
++    }
++    const gasRefused = refused.filter((r) => /disperser_gaz/.test(r));
++    expect(gasRefused, gasRefused.join('\n') + '\n' + said.join('\n') + `\nroe ${JSON.stringify(ctx.law.roe)}`).toEqual([]);
++  }, 400000);
++
++  it('S3 du gaz : le vent et la dérive du nuage en toutes lettres', () => {
++    expect(windDrift(1, 0)).toBe('vent d’ouest\u00a0: le nuage ira vers l’est');
++    expect(windDrift(0, -1)).toBe('vent de sud\u00a0: le nuage ira vers le nord');
++  });
++
++  for (const [role, rank] of [['crs', 'gardien'], ['chef_groupe', 'brigadier_chef'], ['secouriste', 'gardien'], ['manifestant', 'gardien']] as const) {
++    it(`rôle ${role} : la carte ne propose que ce que ce rôle peut commander, sans libellé brut`, async () => {
++      const { core } = await start('Place de la Concorde', 21, -10, 15, role, rank);
++      const env = cardEnvFromCore(core);
++      const problems: string[] = [];
++      for (const intent of INTENTS) {
++        const cands = intentCandidates(intent.id, env, env.player ?? { x: -10, z: 15 });
++        for (const r of cands.slice(0, 3)) {
++          const card = buildCard(r, env, intent.id);
++          problems.push(...checkCard(card, `${role}/${intent.label}/${r.kind}`));
++          if (env.level === 'lecture' && (card.lines.length > 0 || card.others.length > 0)) problems.push(`${role} : lecture seule mais des lignes d'ordre`);
++        }
++      }
++      console.log(`[${role}] niveau ${env.level}`);
++      if (role === 'chef_groupe') expect(env.level).toBe('unite');
++      else expect(env.level).toBe('lecture');
++      expect(problems, problems.join('\n')).toEqual([]);
++    }, 400000);
++  }
 +});
 diff --git a/crs-simulation/tests/unit/ui-command.adjoint.test.ts b/crs-simulation/tests/unit/ui-command.adjoint.test.ts
 new file mode 100644
@@ -24632,10 +25366,10 @@ index 41464ac..5a5192b 100644
 +});
 diff --git a/crs-simulation/tests/unit/ui-command.panneaux.test.ts b/crs-simulation/tests/unit/ui-command.panneaux.test.ts
 new file mode 100644
-index 0000000..cc9118c
+index 0000000..4cd89ef
 --- /dev/null
 +++ b/crs-simulation/tests/unit/ui-command.panneaux.test.ts
-@@ -0,0 +1,681 @@
+@@ -0,0 +1,690 @@
 +// Carte de commandement — panneaux de côté (paquet C4) : « Mes unités » (textes de suivi, groupes repliés à la Concorde),
 +// « À traiter » (ordre : chaîne légale arrêtée, incident vital, proposition de l'adjoint, nasse fermée ; trois au plus),
 +// « Plus… » selon le rôle (lecture seule sans « Tous les ordres », chef de groupe sans métro), « Cadre légal » selon
@@ -24996,6 +25730,15 @@ index 0000000..cc9118c
 +const MODULES = [world, roles, people, vehicles, traffic, crowd, police, items, props, hazards, law, radio, session, maps, command];
 +const MEANS = { sections: 3, fourgons: 9, centaure: 1, canon_eau: 1, bravm: 1, drone: 0, pompiers: 0, samu: 0, secours_sur_appel: true };
 +
++/**
++ * Environnement des fiches relu dans la partie : la scène des cartes ne se recalcule qu'à intervalles de temps réel
++ * (horloge du navigateur), alors qu'un test fait avancer la simulation d'un coup — on la force à se relire.
++ */
++function freshEnv(core: CommandCore): ReturnType<typeof cardEnvFromCore> {
++  core.maps.scene.invalidate();
++  return cardEnvFromCore(core);
++}
++
 +async function concorde(role: string, extra: Record<string, unknown> = {}, seed = 21): Promise<{ t: ReturnType<typeof createTestContext>; core: CommandCore }> {
 +  const t = createTestContext({ seed, strict: false, modules: MODULES });
 +  await t.start({
@@ -25010,7 +25753,7 @@ index 0000000..cc9118c
 +  it('commandant : groupes repliés (au plus six rangées), un barrage suivi en route, une colonne qui embarque', async () => {
 +    const { t, core } = await concorde('commandant');
 +    const memory = new Map<number, { issuedAt: number; total: number; since: number }>();
-+    let env = cardEnvFromCore(core);
++    let env = freshEnv(core);
 +    let rows = followRows(env.units, readTracks(core, env, memory), { now: t.ctx.clock.now, unfolded: new Map(), chain: chainOf(core) });
 +    expect(rows.length).toBeLessThanOrEqual(6);
 +    expect(rows.filter((r) => r.name.startsWith('Section MISTRAL')).length).toBe(3);
@@ -25029,7 +25772,7 @@ index 0000000..cc9118c
 +    const r1 = core.issue('couper_circulation', [m2], [{ x: road.x, z: road.z, heading: road.heading, width: road.width }]);
 +    expect(r1.ok).toBe(true);
 +    t.step(2);
-+    env = cardEnvFromCore(core);
++    env = freshEnv(core);
 +    rows = followRows(env.units, readTracks(core, env, memory), { now: t.ctx.clock.now, unfolded: new Map(), chain: chainOf(core) });
 +    const row2 = rows.find((r) => r.squadId === m2.id)!;
 +    expect(row2.doing.startsWith('Barre ')).toBe(true);
@@ -25041,7 +25784,7 @@ index 0000000..cc9118c
 +    const r2 = core.issue('colonne', [m3], [{ x: far.x, z: far.z, heading: 0, width: 0 }]);
 +    expect(r2.ok).toBe(true);
 +    t.step(1);
-+    env = cardEnvFromCore(core);
++    env = freshEnv(core);
 +    rows = followRows(env.units, readTracks(core, env, memory), { now: t.ctx.clock.now, unfolded: new Map(), chain: chainOf(core) });
 +    const row3 = rows.find((r) => r.squadId === m3.id)!;
 +    expect(row3.doing.startsWith('Va en véhicules')).toBe(true);
@@ -25061,7 +25804,7 @@ index 0000000..cc9118c
 +      t.step(1);
 +      const c = chainOf(core)!;
 +      expect(c.status.text.startsWith('Sommations')).toBe(true);
-+      const env = cardEnvFromCore(core);
++      const env = freshEnv(core);
 +      const rows = followRows(env.units, new Map(), { now: t.ctx.clock.now, unfolded: new Map(), chain: c });
 +      expect(rows[rows.length - 1]!.cancel).toBe(true);
 +      core.legalChain.cancel();
@@ -25078,7 +25821,7 @@ index 0000000..cc9118c
 +    const v = legalView(legalInput(core));
 +    expect(v.lines.some((l) => l.action.kind === 'request')).toBe(true);
 +    expect(v.lines.some((l) => l.action.kind === 'authorize')).toBe(false);
-+    const env = cardEnvFromCore(core);
++    const env = freshEnv(core);
 +    const rows = followRows(env.units, new Map(), { now: 0, unfolded: new Map(), chain: null });
 +    expect(rows.length).toBeGreaterThan(0);
 +    for (const r of rows) if (r.squadId > 0) expect(core.canCommand(r.squadId)).toBe(true);
@@ -25318,7 +26061,7 @@ index 0000000..cc9118c
 +  }, 300000);
 +});
 diff --git a/crs-simulation/tests/unit/ui-command.portee.test.ts b/crs-simulation/tests/unit/ui-command.portee.test.ts
-index 89e95cd..bfec5b1 100644
+index 89e95cd..90c0837 100644
 --- a/crs-simulation/tests/unit/ui-command.portee.test.ts
 +++ b/crs-simulation/tests/unit/ui-command.portee.test.ts
 @@ -5,6 +5,10 @@ import { createTestContext } from '@/core/testing';
@@ -25332,7 +26075,17 @@ index 89e95cd..bfec5b1 100644
  import { computeScope } from '@/ui/command/scope';
  import { MAP2D_SERVICE, MAPS_SERVICE, createSystems as mapsSystems } from '@/ui/maps';
  import type { MapsRuntime } from '@/ui/maps';
-@@ -296,3 +300,47 @@ describe('commandement — émission des ordres (sans interface)', () => {
+@@ -253,7 +257,8 @@ describe('commandement — émission des ordres (sans interface)', () => {
+     core.invalidateScope();
+     const refused = core.issue('disperser_gaz', [s.groupA], [{ x: 10, z: 10, heading: 0, width: 0 }]);
+     expect(refused.ok).toBe(false);
+-    expect(refused.reason).toMatch(/niveau 3/);
++    expect(refused.reason).toMatch(/gaz lacrymogène/);
++    expect(refused.reason).not.toMatch(/niveau \d|\d\./);
+     expect(s.groupA.order.type).toBe('libre');
+     expect(core.authorize(3)).toBe(true);
+     expect(s.ctx.law.roe.authorizedForce).toBe(3);
+@@ -296,3 +301,47 @@ describe('commandement — émission des ordres (sans interface)', () => {
      expect(s.groupA.order.type).toBe('libre');
    });
  });
@@ -25382,10 +26135,10 @@ index 89e95cd..bfec5b1 100644
 +});
 diff --git a/crs-simulation/tests/unit/ui-command.qui.test.ts b/crs-simulation/tests/unit/ui-command.qui.test.ts
 new file mode 100644
-index 0000000..5d7cccd
+index 0000000..a738bdb
 --- /dev/null
 +++ b/crs-simulation/tests/unit/ui-command.qui.test.ts
-@@ -0,0 +1,188 @@
+@@ -0,0 +1,193 @@
 +// « Qui » : l'unité que le jeu propose pour une ligne de fiche (bestUnit.ts), dans une vraie partie à la Concorde
 +// (commandant, cortège de 300 personnes, 3 sections, Centaure, canon à eau, BRAV-M). Barrer → une section, jamais la
 +// compagnie ; rue large → deux sections ; interpeller → la BRAV-M ; pousser un véhicule → le Centaure ; gaz → une
@@ -25493,8 +26246,13 @@ index 0000000..5d7cccd
 +    expect(symbols(card, bravm)).toEqual(['bravm']);
 +    const gas = lineOf(all, (l) => l.action.kind === 'verb' && l.action.type === 'disperser_gaz');
 +    const gasWho = proposeWho(gas, crowdRep, env);
-+    expect(symbols(card, gasWho[0]!)).toEqual(['section']);
-+    expect(unitOf(card, gasWho[0]!.squadIds[0]!).ammo).toBeGreaterThan(0);
++    // au départ, les sections manœuvrent dans la formation de la compagnie, dont l'ordre ne permet que les mains
++    // nues : la simulation refuserait le gaz à une section seule ; c'est la compagnie (ses grenadiers) qui le reçoit
++    const gasUnit = gasWho[0]!.squadIds[0]!;
++    const rootOf = (id: number): number => t.ctx.service<{ rootOf(id: number): number }>('police.units')!.rootOf(id);
++    expect(['section', 'compagnie']).toContain(symbols(card, gasWho[0]!)[0]);
++    expect(rootOf(gasUnit) === gasUnit || t.ctx.squads.get(rootOf(gasUnit))!.order.maxForce >= 3).toBe(true);
++    expect(unitOf(card, gasUnit).ammo).toBeGreaterThan(0);
 +
 +    // pousser un véhicule : le blindé Centaure
 +    const pt = pointRepere(me.x + 40, me.z, card);

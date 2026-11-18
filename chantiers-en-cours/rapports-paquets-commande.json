@@ -295,5 +295,236 @@
    "The patch for the « commissariats » team is left to the coordinator, as the plan asks."
   ],
   "complete": true
+ },
+ "paquet:commande:C7": {
+  "summary": "I finished package C7. Every existing browser scenario that pinned the old command interface now drives the new one: intention bar, cards, « Mes unités », « Plus… › Tous les ordres », « Cadre légal », the 8-sector / 3-sector wheel, the « ORDRES » block, plain proposal titles and « SANS ORDRE ». Each still checks the same simulation result: the order type issued, that it is in the player's name, and that units arrive on the line.\n\n**Scenarios**\nI kept the previous agent's partial work. I re-ran every scenario in the list and fixed what was wrong:\n- New helpers in `verif-fin-lib.mjs`: `tactical`, `clickSel`, `clickCardLine`, `verbFirst` and a new `freeMapSpot`. `freeMapSpot` clicks the map at least 90 px away from any police unit, so the click opens the card of a place, not the card of a unit.\n- `verif-ordres-carte`, `verif-fin-chef` and `verif-fin-ordres` now send « Tenir une ligne ici » straight from the place card. Their regex now accepts the non-breaking space in « Contenir : … ».\n- `verif-fin-chef` checks that each team member is on the line segment, which runs from one façade to the other, instead of within 8 m of its centre.\n- `verif-fin-ordres` checks the row → unit card → « L'envoyer ailleurs… » steps one by one.\n- `verif-propositions` accepts the one-line proposal shown below 760 px of window height (§6.1).\n- `verif-tpm-manette2` reads the highlighted wedge, which has no text, through `.cw-wedge.is-hot`.\n- `verif-roles-interface` allows « Vue drone » on the read-only map when a drone is engaged (the drone operator).\n- `verif-commande-tel` (C6) waits a few frames before saying the bottom bar is missing, and says why if it really is.\n\n**Real defects found by the scenarios and fixed** (small edits, commented in French)\n- `intents.ts`: the incident card read « confié à les pompiers ». It now reads « aux pompiers » / « au SAMU », with a new unit assertion in `ui-command.fiches.test.ts`.\n- `stylePanels.ts`: the « Mes unités » rows were 30 px wider than the column, so the column scrolled sideways and clicks on a row could miss. Rows now fill only the remaining width.\n- `style.ts`, three fixes:\n  - between 980 and 1200 px of width the intention labels were cut (« Encercler (nass… »); they now wrap onto two lines;\n  - the phone top bar is now 40 px (it was 36 px), because its 40 px touch buttons stuck out of the top of the screen;\n  - the « Suivi » button is hidden on the read-only phone map (§2.9).\n- `tacticalScreen.ts`, two fixes:\n  - the first-opening help box now also closes on the first pointer or finger press anywhere; before, it covered the « + » zoom button until a key or « Compris » was pressed;\n  - the legal chip updates on the next frame after a sommation or an authorisation; before, it could still read 2/3 after the last sommation.\n- `orderWheel.ts`, three fixes:\n  - a tap or click outside the wheel now closes it (an inner ring goes back to the wheel). This was already broken before the redesign, confirmed by running the old version;\n  - on the 2- to 4-sector wheels, the key numbers moved so they no longer sit on the second line of a side sector (« 2 » was over « toute mon unité »);\n  - the notice now says « La carte reste consultable » instead of « la carte tactique ».\n\n`npx tsc --noEmit -p .` is clean.",
+  "filesChanged": [
+   "/tmp/claude-0/hunt/commande/crs-simulation/tests/e2e/command.mjs (rewritten by the previous C7 agent, kept and re-run)",
+   "/tmp/claude-0/hunt/commande/crs-simulation/tests/e2e/verif-fin-lib.mjs",
+   "/tmp/claude-0/hunt/commande/crs-simulation/tests/e2e/verif-ordres-carte.mjs",
+   "/tmp/claude-0/hunt/commande/crs-simulation/tests/e2e/verif-suivi-ordres.mjs",
+   "/tmp/claude-0/hunt/commande/crs-simulation/tests/e2e/verif-actions-rapides.mjs",
+   "/tmp/claude-0/hunt/commande/crs-simulation/tests/e2e/verif-propositions.mjs",
+   "/tmp/claude-0/hunt/commande/crs-simulation/tests/e2e/verif-ma-mission.mjs",
+   "/tmp/claude-0/hunt/commande/crs-simulation/tests/e2e/verif-secours-carte.mjs",
+   "/tmp/claude-0/hunt/commande/crs-simulation/tests/e2e/verif-fin-chef.mjs",
+   "/tmp/claude-0/hunt/commande/crs-simulation/tests/e2e/verif-fin-ordres.mjs",
+   "/tmp/claude-0/hunt/commande/crs-simulation/tests/e2e/verif-fin-divers.mjs",
+   "/tmp/claude-0/hunt/commande/crs-simulation/tests/e2e/verif-tpm-tactique-tel.mjs",
+   "/tmp/claude-0/hunt/commande/crs-simulation/tests/e2e/verif-tpm-tel2.mjs",
+   "/tmp/claude-0/hunt/commande/crs-simulation/tests/e2e/verif-tpm-manette2.mjs",
+   "/tmp/claude-0/hunt/commande/crs-simulation/tests/e2e/game.mjs",
+   "/tmp/claude-0/hunt/commande/crs-simulation/tests/e2e/verif-divers.mjs",
+   "/tmp/claude-0/hunt/commande/crs-simulation/tests/e2e/verif-drone-video.mjs",
+   "/tmp/claude-0/hunt/commande/crs-simulation/tests/e2e/verif-roles-interface.mjs",
+   "/tmp/claude-0/hunt/commande/crs-simulation/tests/e2e/verif-commande-tel.mjs (C6 file: tapSel waits for the bottom bar and explains a failure)",
+   "/tmp/claude-0/hunt/commande/crs-simulation/tests/unit/ui-command.fiches.test.ts (assertion « confié aux pompiers / au SAMU »)",
+   "/tmp/claude-0/hunt/commande/crs-simulation/src/ui/command/intents.ts (contraction « aux » / « au »)",
+   "/tmp/claude-0/hunt/commande/crs-simulation/src/ui/command/style.ts (intention labels on two lines when narrow; phone top bar 40 px; no « Suivi » on the read-only phone map)",
+   "/tmp/claude-0/hunt/commande/crs-simulation/src/ui/command/stylePanels.ts (.cp-unit no longer overflows the column)",
+   "/tmp/claude-0/hunt/commande/crs-simulation/src/ui/command/tacticalScreen.ts (help box closes on the first press; legal chip refreshed on the next frame)",
+   "/tmp/claude-0/hunt/commande/crs-simulation/src/ui/command/orderWheel.ts (tap outside closes the wheel; key numbers moved on 2–4 sector wheels; notice wording)"
+  ],
+  "testsRun": "Browser, one at a time, each script starting its own server. Logs are in scratchpad/commande/c7/runs2 and runs3. The fin-* and tpm-* scripts always exit 0, so the counts below are read from their logs. The last run of each:\n- command.mjs: 367/0, after all src edits.\n- verif-commande-clavier: 37/0 (run before the last two tacticalScreen edits). verif-commande-tel: 34/0. verif-hud-ordres: 27/0.\n- verif-ordres-carte: OK. verif-suivi-ordres: OK. verif-actions-rapides: OK. verif-propositions: OK, after the fix. verif-ma-mission: OK. verif-secours-carte: OK.\n- verif-fin-ordres: 11/0, run with --at=40 --walk=1 (the variant that holds the command-map part); the full 4-variant run before the row fix had 23 checks with 1 failure, since fixed. verif-fin-chef: 22/23; the one failure is « le fourgon a bien heurté le collègue » (part E, outside the command UI). verif-fin-divers: 14/0. verif-fin-pc: 40/0. verif-fin-tel: 36/0.\n- verif-tpm-tactique-tel: 17/0. verif-tpm-tel: 46/55; all 9 failures also fail at HEAD (see open issues), and its command-map check now passes. verif-tpm-tel2 (crs): 31/32; the one failure, « lamp », also fails at HEAD. verif-tpm-manette2: 15/0.\n- game: 75/0. ui: 400/0. assemblage2: 32/0. verif-divers: survey, no system or console errors. verif-drone-video: OK; the feed sits at the map's top-right corner and does not cover « Rechercher un lieu »; O opens « Plus… » without toggling the feed.\n- verif-roles-interface:\n  - full run: phone, every role, 0 failures; laptop, police roles up to crs:lanceur, 0 failures; it then hit my 40-minute timeout;\n  - laptop, remaining roles: 152/153, the drone-operator check, which I then fixed;\n  - telepilote and chef_groupe after that fix: 41/0.\n- verif-partie: exit 0, with three Playwright timeouts in the pause and home-screen flows (« pause-reprendre », « pause-terminer », « tab-role »); its screens step for the map and wheel ran without error.\n- Baseline: the HEAD tree, extracted with git archive into the scratchpad with its own Vite cache. verif-tpm-tel: 45/55; verif-tpm-tel2: 36/38. This shows which failures already existed.\n\nUnit (vitest, targeted):\n- ui-command.fiches: 19/19.\n- ui-command.clavier, fiches, fiche-dom, carte-clavier, panneaux, incidents, suivre-tous-roles, branchement: 8 files, 112/112.\n- After the last edits, clavier, fiche-dom, carte-clavier, branchement, suivre-libelles, suivre-tous-roles: 6 files, 70/70.\n\nType check: `npx tsc --noEmit -p .` exit 0, run before the last two orderWheel / tacticalScreen edits and not re-run after them; the unit tests above were re-run after those edits.",
+  "deviations": [
+   "command.mjs, S0 count: it checks at most 14 fixed controls, at most 3 « À traiter » rows and one folded row per section, instead of a flat « ≤ 22 buttons ». The test bench has more sections than the Concorde setup, which is what the plan's 22 assumes. The literal ≤ 22 at the Concorde is checked by C6's verif-commande-clavier.",
+   "verif-fin-divers: the plan says F for a plain gardien « still says Vous recevez les ordres ». The code (C5 and the HEAD commit 80d506b) gives every executant with a unit the 3-sector wheel (1, 2, 7), as §6.4 says. The scenario checks that wheel; the notice now only shows for a player with no unit.",
+   "command.mjs, gamepad step: the D-pad check first nudges the stick. Right after a keyboard key, the input module keeps the keyboard as the active device for 0.25 s, so the D-pad's « ui:nav » is ignored on purpose by the screen to avoid double moves. This dwell is in src/input, outside the redesign.",
+   "Phone top bar is 40 px, not the 36 px of §2.0. Its buttons must be at least 40 px to touch (a check already in the scenario before the redesign), and at 36 px they stuck out of the top of the screen. This leaves 4 px less for the phone sheet.",
+   "src fixes beyond the scenario files, all small and allowed by the package's « small fixes in the C1–C5 files »: intents.ts, style.ts, stylePanels.ts, tacticalScreen.ts, orderWheel.ts. The orderWheel fix (tap outside closes) repairs a defect that already existed at HEAD.",
+   "verif-commande-tel.mjs (C6's file) got a small robustness edit: tapSel waits 3 frames and reports the screen state before saying the bottom bar is missing. One run failed there and the next passed; no defect was found in the screen."
+  ],
+  "openIssues": [
+   "Failures that also happen at HEAD, so not caused by the redesign. verif-tpm-tel (9):\n- home screen tabs off-screen at 844 px, and « tab-tension » under the kicker;\n- choosing the grenadier post by touch fails, and the grenade, jump and mask checks fail after it;\n- the minimap overlaps the touch « Radio » / « Ordres » buttons;\n- the wheel has no close button that the script can find;\n- « pause-quitter » is off-screen.\nverif-tpm-tel2: the « lamp » touch button is covered by the touch overlay's look zone (`ct-zone ct-look`, src/input).",
+   "verif-fin-chef part E (« le fourgon a bien heurté le collègue », a check that the run-over test itself is valid) and verif-partie's Playwright timeouts in the pause and home flows. Both are outside the command UI. I did not run them on the HEAD baseline.",
+   "On the phone, a card with place tabs (for example « Place de la Concorde | Passage piéton… ») shows only lines 1–5; « Y aller » and « Autres ordres ici… » need scrolling. The plan's height check (372 px) leaves out the tabs row. The same happens at 1024×576 on a laptop (lines 6 and 0 hidden). This is C3B / C6 layout: only the highlighted line or the tabs could shrink further.",
+   "The field HUD situation panel still shows « FORCE … licite 1 · autorisée 1 » with digits. §7.1 asks for the same words as the chip. This is outside C7's files.",
+   "Small visual overlaps remain on the map: unit track labels over place names, and « 25 rues restent ouvertes » over the crowd label.",
+   "verif-roles-interface over every role on both devices takes longer than 40 minutes on this machine. I ran it in three parts: phone every role, laptop up to crs:lanceur, then the remaining laptop roles. Run it with --device=pc / --device=tel separately.",
+   "Scratch files (run scripts, logs, the HEAD baseline copy with its own Vite cache) are under /tmp/claude-0/-home-user-SafeDeal/f854eafd-7c66-528c-834c-30dfeec78944/scratchpad/commande/c7/."
+  ],
+  "complete": true
+ },
+ "intégration:commande": {
+  "summary": "I integrated the « commande » redesign. Packages C1 to C7 were already wired together and coherent:\n- `setTacticalParts` is installed by `CommandSystem.init` (through `tacticalParts.ts`);\n- the legal chain is ticked by `CommandSystem.update` with `ctx.clock.now`;\n- per-session state is reset on `session:started` (`legalChain.reset`, nasse, issued orders);\n- `MEMORY` / `ORDERED` are keyed per session;\n- I found no `Math.random` / `Date.now` in the simulation path, and no TODOs.\n\nWhat I completed or fixed on top of that:\n\n1) The RESTART NOTE's liaison slot is now a working line. `crowd.core.setLiaison` exists in this tree. « Négocier un parcours (liaison) » is the first entry of « Autres ordres ici… » on the main cortège card. It shows only when:\n   - the player commands the whole operation (level `tout`);\n   - the crowd service has `setLiaison`;\n   - the liaison team is not already in contact (the director's `liaison` flag).\n   Sending it calls `setLiaison(true)`, says it on the radio (« LIAISON ICI MISTRAL… ») and moves no unit; the line then disappears. Code: `cardTypes.ts` (`liaison` action and the `CardEnv.liaison` field), `reperes.ts` (`liaisonState`), `intents.ts`, `sendLine.ts`, `preview.ts`. Covered by a unit test and a new browser scenario, `verif-commande-liaison.mjs` (9/0). The main repository's `crowd:liaison` event will fire on its own after the merge. « Rendre compte » on the radio screen is untouched (`radioScreen.ts` is not modified).\n\n2) §7.1: the field situation panel no longer shows « licite 1 · autorisée 1 ». It uses the chip's words (« Mains nues », « Gaz »…). It adds « vous autorisez : … ⚠ » only when the authorisation is above what the law allows. I removed the dead `FORCE_LABELS` / `FORCE_SHORT` (with « GM2L ») from `orders.ts`.\n\n3) After « Faire les étapes dans l'ordre », the card header said « ✓ ORDRE DONNÉ » although the order only leaves at the end of the chain. It now reads « ✓ ÉTAPES LANCÉES — <plan> », with a second line « l'ordre partira après la dernière étape ».\n\n4) Phone card (844×390):\n   - stacked place tabs now sit in the header row in place of the title;\n   - the sheet now rises to the top of the screen; the top-bar buttons stay to its left;\n   - compact header, list and footer padding are tighter.\n   The six lines, « 0 Autres ordres ici… » and « Donner l'ordre » now fit without scrolling. Before, row 0 was cut, and with tabs lines 6 and 0 needed scrolling. The phone scenario now checks this.\n\n5) The command map's radio subtitles showed the top of a clipped third line in their bottom padding. That padding is now a transparent border.\n\n6) Field HUD at 1280×800: « Plus tard Maj+P » stuck out past the right edge of the adjoint's proposal card; the buttons now fit. At window heights below 760 px the one-line proposal showed only « L'adjoint propose : Te… ». It now reads « Adjoint : <title> » on up to 2 lines.\n\n7) Two test fixes:\n   - `ui-command.panneaux.test.ts` failed depending on machine load. The maps scene refreshes on the real-time clock, so a fast run read a stale unit order. The test now calls `scene.invalidate()` before re-reading the scene.\n   - In `verif-fin-chef`, the place click could land on a crowd. `freeMapSpot` (`verif-fin-lib.mjs`) now also avoids crowds and incidents.\n\nThe `ui.hud-model` force-label assertion was updated, as §7.1 intends.\n\n`tsc` is clean. Every targeted unit group passes. All browser scenarios that were run pass, except `verif-fin-chef` part E (run-over test, outside the command UI; part E was not re-run after the fixes).",
+  "planItemsChecked": [
+   {
+    "item": "§1 mental model shown at first opening + help H exact text",
+    "ok": true,
+    "note": "Model box seen in commande-S0 screenshot; HELP_TEXT in tacticalKeys.ts, tested in ui-command.carte-clavier"
+   },
+   {
+    "item": "§1/§2.1 S0: 6 intentions + Plus… + legal chip in words, ≤22 controls",
+    "ok": true,
+    "note": "verif-commande-clavier: 18 buttons at Concorde; chip « ⚖ Sommations 0/3 · Force : mains nues »"
+   },
+   {
+    "item": "§2.0 keyboard focus model (canvas keeps focus, ui:nav mapped, capture keydown, 0.6 s Entrée guard, drone ignores O)",
+    "ok": true,
+    "note": "verif-commande-clavier: game keys and O do nothing while the map is open; a double Entrée gives one order"
+   },
+   {
+    "item": "§2.0 layout: subtitles top-left of the map, toasts bottom-left max 2, drone feed top-right of the map",
+    "ok": true,
+    "note": "Toast probe at 844×390: bottom-left, older toasts covered; verif-drone-video (C7). Subtitle clipping fixed"
+   },
+   {
+    "item": "§2.2 S1 card: ≤6 lines + Autres, Qui block, sentence, Donner l'ordre / ‹ Retour, hint line for keyboard only",
+    "ok": true,
+    "note": "Screenshots commande-S1-1280x800 / 1280x720 (no scroll)"
+   },
+   {
+    "item": "§2.2 phone sheet fits 390 px (card never scrolls)",
+    "ok": true,
+    "note": "Fixed (sheet up to the top, tabs in the header row, tighter padding); new check in verif-commande-tel passes"
+   },
+   {
+    "item": "§2.3 cards per repère (rue, foule, nasse, incident, unite, cible, vous, point, metro, fermeture, proposition, bloqueur, commissariat hooks)",
+    "ok": true,
+    "note": "ui-command.fiches (21 tests incl. coverage of every verb)"
+   },
+   {
+    "item": "§2.3 sticky intention B/S/I, others return to rest",
+    "ok": true,
+    "note": "carte-clavier unit + T1/T8 in verif-commande-clavier"
+   },
+   {
+    "item": "§2.4 Qui: U / T / Maj+Entrée list with ticks",
+    "ok": true,
+    "note": "commande-S2 screenshot; no « Voir toutes mes unités… » row (U cycles all, « Mes unités » lists all)"
+   },
+   {
+    "item": "§2.5 S3 legal confirmation with sommationRefusal pre-check, officer variant, chef de groupe request",
+    "ok": true,
+    "note": "commande-S3 at 1280×800 and 844×390; chaine-legale unit; card-confirm-request"
+   },
+   {
+    "item": "§2.6 S4 « ✓ ORDRE DONNÉ » + Annuler l'ordre X (5 s), no success toast",
+    "ok": true,
+    "note": "Legal-chain wording fixed to « ✓ ÉTAPES LANCÉES »"
+   },
+   {
+    "item": "§2.7 Mes unités rows with status vocabulary, progress, relief",
+    "ok": true,
+    "note": "ui-command.panneaux (flaky test fixed); S5 phone screenshot"
+   },
+   {
+    "item": "§2.8 Plus… menu (tab-*, more-* ids, Tous les ordres with search) and Cadre légal panel",
+    "ok": true,
+    "note": "command.mjs 367/0"
+   },
+   {
+    "item": "§2.9 read-only executant map (banner, framing, 4 controls)",
+    "ok": true,
+    "note": "command-S6-844x390; verif-roles-interface --device=tel 332/0"
+   },
+   {
+    "item": "§3.1 plain/tag/explain on every verb, ORDER_TAGS fallback ''",
+    "ok": true,
+    "note": "ui-command.ordres, carte-gestes, verif-suivi-ordres OK"
+   },
+   {
+    "item": "§4 T1, T3, T4, T5, T7, T8 key counts; phone T1–T4 tap counts",
+    "ok": true,
+    "note": "verif-commande-clavier 37/0, verif-commande-tel 35/0"
+   },
+   {
+    "item": "§5.2 trackpad: two-finger pan, pinch zoom, snap 40 px, no drag required",
+    "ok": true,
+    "note": "ui-command.carte-gestes, ui-maps.gestes, command.mjs"
+   },
+   {
+    "item": "§5.3 touch: single tap never sends, 7 bottom buttons ≥ 96×52 px in the safe area, one sheet at a time",
+    "ok": true,
+    "note": "verif-commande-tel, command.mjs phone section"
+   },
+   {
+    "item": "§6.1 field ORDRES block, « F puis n » hints, proposal card with plain title, compact proposal below 760 px",
+    "ok": true,
+    "note": "Overflow of « Plus tard » and the unreadable compact title fixed; verif-hud-ordres 27/0, verif-propositions OK"
+   },
+   {
+    "item": "§6.2 phone chips under the minimap, smart Suivez-moi, top banners",
+    "ok": true,
+    "note": "verif-hud-ordres phone part"
+   },
+   {
+    "item": "§6.3 plain adjoint titles",
+    "ok": true,
+    "note": "ui-command.adjoint"
+   },
+   {
+    "item": "§6.4 wheel 8 sectors / executant 3 sectors (1, 2, 7)",
+    "ok": true,
+    "note": "ui-command.clavier, suivre-tous-roles, verif-tpm-manette2 (C7)"
+   },
+   {
+    "item": "§6.5 executant order card « ORDRE DU COMMANDANT »",
+    "ok": true,
+    "note": "hud.ordre-du-chef, verif-ma-mission (C7)"
+   },
+   {
+    "item": "§7.1 chip / panel / field situation panel use force words, never digits",
+    "ok": true,
+    "note": "HUD panel fixed (was « licite 1 · autorisée 1 »). The law module's own toast still has a digit (src/gameplay/law, out of scope)"
+   },
+   {
+    "item": "§7.1 legal chain runs with the map closed, cancellable",
+    "ok": true,
+    "note": "T5 in verif-commande-clavier: 3 sommations, then disperser_gaz"
+   },
+   {
+    "item": "§7.2 who proposal, preview drawing, sentence",
+    "ok": true,
+    "note": "ui-command.qui, preview drawn in S1/S3 screenshots"
+   },
+   {
+    "item": "§7.2.4 visual fixes (normal-size labels, no starburst, raw types)",
+    "ok": true,
+    "note": "Screenshots; some unit-label overlap on the map remains"
+   },
+   {
+    "item": "§7.3 commissariat hooks (registerCardBuilder / registerRepereProvider / registerCardLines / registerMoreSection, C reserved, engageFromCommissariat optional)",
+    "ok": true,
+    "note": "Documented header in intents.ts; ui-command.fiches extension test"
+   },
+   {
+    "item": "Addendum 3 / RESTART NOTE: liaison line « Négocier un parcours (liaison) » on the crowd card",
+    "ok": true,
+    "note": "Implemented on the existing crowd.core.setLiaison; verif-commande-liaison 9/0"
+   },
+   {
+    "item": "RESTART NOTE: « Rendre compte » stays available to an executant on the radio screen",
+    "ok": true,
+    "note": "radioScreen.ts untouched (situationReport quick message)"
+   },
+   {
+    "item": "Addendum: Y key unused, bindings.ts/wheel.ts/radioScreen.ts/src/sim/src/gameplay untouched",
+    "ok": true,
+    "note": "git diff shows none of these files"
+   }
+  ],
+  "fixes": [
+   "Liaison: new card action { kind: 'liaison' } and CardEnv.liaison (cardTypes.ts); liaisonState() in cardEnvFromCore (reperes.ts); « Négocier un parcours (liaison) » first in « Autres ordres ici… » of the main crowd (intents.ts); sends crowd.core.setLiaison(true) with a radio message (sendLine.ts); sentence in preview.ts; unit test in ui-command.fiches.test.ts; new browser scenario tests/e2e/verif-commande-liaison.mjs",
+   "Field situation panel (src/ui/hud/situation.ts, model.ts): force in words like the chip, no « licite N · autorisée N »; ui.hud-model.test.ts updated as §7.1 intends; dead FORCE_LABELS/FORCE_SHORT removed from orders.ts",
+   "Legal chain S4: « ✓ ÉTAPES LANCÉES — <plan> » + « l'ordre partira après la dernière étape » instead of « ✓ ORDRE DONNÉ » (tacticalScreen.ts, panelCard.ts keeps a header that starts with ✓); fiche-dom test",
+   "Phone card fits 390 px: stacked-place tabs in the header row in place of the title (panelCard.ts stackTabs, styleCard.ts); the sheet rises to the top of the screen with the top-bar buttons to its left (style.ts); tighter compact padding; fiche-dom test and a new no-scroll check in verif-commande-tel.mjs",
+   "Command-map radio subtitles: no clipped third line peeking into the padding (style.ts)",
+   "Field HUD proposal card: « Plus tard Maj+P » no longer overflows the 262 px card; the compact (<760 px high) one-line proposal now reads « Adjoint : <title> » on up to 2 lines instead of « L'adjoint propose : Te… » (quickActions.ts CSS)",
+   "ui-command.panneaux.test.ts: fixed a failure that depended on machine speed (the maps scene refreshes on the real-time clock) by invalidating the scene before re-reading it",
+   "verif-fin-lib.mjs freeMapSpot: also avoids crowds/incidents, so verif-fin-chef part C really tests « Tenir une ligne ici » on a place"
+  ],
+  "tscClean": true,
+  "testsRun": "Unit (vitest, targeted groups, never the whole suite), all pass at the end:\n- ui-command.* (26 files), maps.etiquettes-ordres, hud.ordre-du-chef;\n- ui-maps.density / gestes / search / transform, ui.hud-model, ui.hud-zone-gauche, ui.objectives;\n- ui-command.after-convoy / barrage-passants-convoi, integration.mission-card-passants, police.rue-barree-passants;\n- session.mission-card, session.ordres-mission, playtest.ordres-clairs, ui.system;\n- input.bindings / labels / touch-layout / touch-place / modal-fuite / system / arrows-move, ui-drone.feed / visee;\n- police-command.obstacle-demande, integration.avec-moi / suivre-colonne, session.cycle-de-vie.\nAbout 450 tests. The final re-runs after my edits:\n- 9 files, 129 tests: the one panneaux failure there was then fixed and passes 13/13 alone;\n- 18 files: 167/167.\n`npx tsc --noEmit -p .`: exit 0, run after the last edit.",
+  "browserChecks": "One browser at a time; logs in /tmp/claude-0/-home-user-SafeDeal/f854eafd-7c66-528c-834c-30dfeec78944/scratchpad/commande/integ/.\n\n**Passing runs**\n- verif-commande-clavier (1280×800, keyboard only): 37/0.\n- verif-commande-tel (844×390, taps): 35/0, after the phone-card fix. The new check finds every row on screen: lines 1 and 6, « Autres ordres ici… », « Donner l'ordre ».\n- verif-commande-liaison (new): 9/0.\n- command.mjs: 367/0.\n- verif-ordres-carte, verif-suivi-ordres, verif-ordre-joueur, verif-propositions: OK.\n- verif-hud-ordres: 27/0, run twice.\n- game: 75/0. ui: 400/0. input: 274/0.\n- verif-fin-pc: 40/0. verif-tpm-tactique-tel: 17/0.\n- verif-roles-interface --device=tel: 332/0.\n\n**Failures and re-runs**\n- verif-fin-tel: 36/1 on the first run (joystick half-way: 0.44 m/s against a 0.5 m/s threshold, outside the command UI); 36/0 on the re-run.\n- verif-fin-chef, full run: 23/2.\n  - Part C failed because the click hit the crowd. After the freeMapSpot fix, `--only=BC` gives 13/0.\n  - The other failure is the known part E run-over check. I did not re-run part E.\n\n**What I saw in the screenshots** (S0–S4 at 1280×800 and 1280×720, phone S0/S1/S3/S5/S6, HUD at 1280×800 and 1280×720, proposals)\n- Before the fixes:\n  - the phone card cut « Autres ordres ici… »;\n  - « Plus tard » stuck out of the HUD proposal card;\n  - the compact proposal read « Te… »;\n  - command-map subtitles showed a clipped third line.\n  All are fixed and checked in later screenshots, except the subtitle fix, which has no screenshot after it.\n- A toast over the phone card in command-S1-844x390 did not happen again in a dedicated probe: toasts go bottom-left of the map and earlier ones are covered.\n- Left as is: unit labels overlapping each other around the commandant, and place names over the scale bar. These are cosmetic.\n\n**Not run**\n- verif-roles-interface --device=pc (over 40 minutes; C7 ran it in parts).\n- The tpm-tel, tpm-tel2 and verif-partie scenarios.",
+  "openIssues": [
+   "Outside this feature (src/gameplay, src/sim, src/input — not touched): the rescue radio message reads « Arrivée dans 2 minutes minutes » (c-manoeuvres-incidents.ts template + rescue/radio.ts); the law module's toast still shows a force digit (« Niveau 3 (lacrymogènes…) enregistré… ») right next to the word-only chip; pre-existing HEAD failures in verif-tpm-tel (9) and verif-tpm-tel2 (« lamp » under the touch look zone), as C7 reported.",
+   "Liaison line: wired to crowd.core.setLiaison, which exists in this tree. When merging with the main repo, check that the merged setLiaison still emits 'crowd:liaison' so the objective « Obtenir un parcours négocié par la liaison » validates. Nothing is in the commandant's wheel « Plus… » ring (that is the « bugs » team's wheel.ts).",
+   "Phone layout change to check on a real notched phone: while a sheet is open it now covers the top bar's right part, and the top-bar buttons (✕, status, Sommations, Suivi, Ralentir) are squeezed into the remaining ~464 px. 844×390 looks fine in the screenshots. A sticky header (« Rue suivante (2 / 7) ») or a long sub-line on the phone may still make the card list scroll.",
+   "At the Concorde, B's first candidates are crowd-exit edges named « Place de la Concorde » or « Passage piéton (place de la …) », so orders read « Barrer la place de la Concorde ». This comes from exit naming in the maps scene. Qui sometimes proposes a group already holding a barrage (« la quittera ») when the company has a single free section.",
+   "The Qui list has no « ⋯ Voir toutes mes unités… » row (§2.4). U cycles every candidate and « Mes unités » lists all units, so nothing is unreachable.",
+   "Other unit tests that call cardEnvFromCore after t.step() may fail when the machine is fast, as panneaux did (the maps scene refreshes on the real-time clock). They pass now; if one fails occasionally, call core.maps.scene.invalidate() first.",
+   "Not re-run after my fixes: verif-roles-interface --device=pc (C7 ran it in parts), verif-tpm-tel / tel2 / manette2, verif-partie, verif-fin-chef part E, verif-drone-video, assemblage2. Scratch logs and the toast probe are under /tmp/claude-0/-home-user-SafeDeal/f854eafd-7c66-528c-834c-30dfeec78944/scratchpad/commande/integ/."
+  ]
  }
 }

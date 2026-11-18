@@ -1,9 +1,9 @@
-# RESTART NOTE (18 November, 00:20 — read before everything else)
+# RESTART NOTE (18 November, 06:30 — read before everything else)
 
-The machine restarted: the agents were cut off, but the worktree is intact. State of the redesign:
-- packages C1, C1B, C2, C3, C3B, C4, C5 and C6 are FINISHED; their reports (summary, files, deviations, open issues) are in /tmp/claude-0/-home-user-SafeDeal/f854eafd-7c66-528c-834c-30dfeec78944/scratchpad/rapports-paquets-commande.json — read it first;
-- package C7 (every existing browser scenario the redesign breaks) was IN PROGRESS: its partial work is in the worktree (uncommitted) and its scratch files (run script, logs of the scenarios already run, notes) are under /tmp/claude-0/-home-user-SafeDeal/f854eafd-7c66-528c-834c-30dfeec78944/scratchpad/commande/c7/ — look at them before re-running anything;
-- the main repository has moved on since: a liaison call now exists in the simulation (look for the liaison API added in src/sim/crowd/core-api.ts and src/sim/police/command/ in /home/user/SafeDeal/crs-simulation — read-only reference, it is NOT in your tree yet). Addendum item 3 therefore becomes: the integrator of this feature must leave a clearly documented card line slot « Négocier un parcours (liaison) » on the crowd card and keep « Rendre compte » (compte rendu de situation) available to an executant on the radio screen; the coordinator will wire the liaison call when merging.
+The machine restarted a second time (it restarts about every six hours): the agents were cut off, but the worktree is intact. State of the redesign:
+- ALL nine packages C1, C1B, C2, C3, C3B, C4, C5, C6 and C7 are FINISHED; their reports (summary, files, deviations, open issues) are in /tmp/claude-0/-home-user-SafeDeal/f854eafd-7c66-528c-834c-30dfeec78944/scratchpad/rapports-paquets-commande.json — read it first;
+- the INTEGRATION is finished too (its report is in the same file under the key « intégration:commande »); a playtester had just started when the machine restarted: if you are the playtester, you start from the integrated worktree;
+- the main repository has moved on since your base (2365d2b): a new home screen with four modes and a patrol mode (a call card on the field HUD with key Y, files under src/ui/patrol/, a section « Appel en cours » in src/ui/command/radioScreen.ts, quick actions for a patrol crew in src/ui/command/core.ts / quickActions.ts), a liaison call in the simulation, many fixes to columns. They are NOT in your tree; your patch will be three-way merged with them by the coordinator. Keep your edits in files you do not own minimal and local; leave a clearly documented card line slot « Négocier un parcours (liaison) » on the crowd card and keep « Rendre compte » (compte rendu de situation) available to an executant on the radio screen.
 
 # COORDINATOR ADDENDUM (takes precedence over the rest of this document)
 
