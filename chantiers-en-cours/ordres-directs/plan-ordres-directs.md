@@ -1,3 +1,75 @@
+# COORDINATOR'S UPDATE — stage 3 (P18, P19, then P16, integration, playtest) — read first; it overrides everything below
+
+**State of this worktree (nothing committed; `git status` shows it all):** every package P1–P15 and P17 has been written
+(reports in `/tmp/claude-0/-home-user-SafeDeal/f854eafd-7c66-528c-834c-30dfeec78944/scratchpad/rapports-paquets-ordres-directs.json`),
+P11 (phone) is finishing, and the police stations of the published game (version 22) have been merged in and checked.
+The tree compiles. **But the columns have REGRESSED against the published game**, and the player's first complaint is
+exactly there: « ils ne suivaient pas », « tout le monde doit me suivre, c'est obligatoire ». The published game
+passes all of the tests below; this worktree does not. Nothing is released until they pass again.
+
+Reference for « what the published game does »: `/home/user/SafeDeal/crs-simulation` (read only; never run git or
+write there). To find which package broke a test, compare with that tree file by file (a scratch copy of this worktree
+with one file reverted is the quickest bisect; never revert in place).
+
+## PACKAGE P18 — Colonnes : zéro régression, puis la garantie d'arrivée (this IS its section-8 entry)
+- **Files (owned):** `src/sim/police/command/convoy.ts`, `src/gameplay/session/{follow,journee}.ts`,
+  `src/sim/vehicles/**`, `src/gameplay/session/engins.ts`, `tests/unit/playtest.colonne-garantie*`,
+  `tests/unit/playtest.commandant-mission.lib.ts` (the robot), `tests/unit/playtest.commandant-compagnie-depart.test.ts`.
+- **Part A — regressions first (each one must be green again, without weakening the test):**
+  1. `PLAYTEST_STRICT=1 PLAYTEST_LIGHT=1 npx vitest run tests/unit/playtest.colonnes-roles.test.ts` — 38/42 here, 42/42
+     in the published game. Red: crs/conducteur at Concorde, République and Bastille, chef_section driver at
+     République: agents are left on foot when the PLAYER is the driver of the lead van.
+  2. `tests/unit/police.convoi-ordre-joueur.test.ts` (2 red cases), `tests/unit/session.cellulaires.test.ts` « journée
+     de service » (every company van stuck in `park/manoeuvre` for 300 s, the remise point never set),
+     `tests/unit/integration.colonne-places-joueur.test.ts`, `tests/unit/playtest.commandant-mission-colonne.test.ts`.
+  3. The suites nobody has re-run since the packages landed: `playtest.colonne-ia`, `playtest.colonne-ia-graines`,
+     `playtest.colonne-barrages`, `playtest.colonne-joueur`, `integration.journee*`, `session.depart-base`,
+     `integration.colonne-*`, `integration.suivre-colonne`, `integration.commissariats-journee-depart`,
+     `playtest.missions-accueil`, `vehicles.*`, `integration.engins*`. Run them all (small groups), fix what is red.
+- **Part B — the guarantee when the commandant drives his own car or goes ahead** (`PLAYTEST_COLONNE=1 npx vitest run
+  tests/unit/playtest.colonne-garantie-a.test.ts` (…-b, …-c): 7/21 green today):
+  1. First make the ROBOT a fair player: its driver loops and teleports (cdt-02: more than 3 km for 1.9 km as the crow
+     flies; cdt-03: never reaches the place while the day says `sur_place`). It must drive the street route the GPS
+     shows, at a human speed (at most 50 km/h in town, slower in turns), without teleporting. A red case caused by the
+     robot is not a game bug — but say which were which.
+  2. When the player drives his own car, the escorts must NOT replay his trail: they drive to the day's destination
+     by their own route (follow.ts `keepColumn` / `gatherEscorts`), in file behind each other.
+  3. Late column, out of the player's sight: once the commandant has been within 150 m of the place for 30 s, any
+     vehicle of his company still more than 400 m away AND out of his sight (`EnginsSystem.unseen`, never within 300 m
+     of him, never a « held » station vehicle) is advanced along its own route to a road point about 300 m from him,
+     keeping the order of the file, and drives the rest normally. The player never sees a vehicle appear.
+  4. cdt-02 as a passenger (the column stops about 385 m from the place) and the four remaining cases of
+     `playtest.commandant-compagnie-depart` (Concorde seed 7, Bastille 5: three vans never leave, République 11;
+     République 21 in a service day: adapt the test flow, the card offers no vehicles there).
+- **Done:** Part A entirely green; the 21 games of Part B green with the criterion « when the commandant arrives, all
+  his groups are within 300 m of the place — or of the parking row when the place is a crowd — within 180 s »; the
+  strict roles test 42/42; `npx tsc --noEmit -p .` clean. List honestly whatever is left.
+
+## PACKAGE P19 — BRAV-M, fourgons cellulaires et attentes de tests périmées (this IS its section-8 entry)
+- **Files (owned):** `src/sim/police/command/{bravm,special}.ts`, `src/gameplay/session/remise.ts`,
+  `src/gameplay/transfer/**`, `src/sim/police/{arrest-service,ops-arrest}.ts`, and the tests named below. Do NOT edit
+  P18's files (ask in openIssues); P18 works at the same time.
+- **Content:**
+  1. BRAV-M regressions: `tests/unit/playtest.bravm-passager.test.ts` (3–4 red cases), `integration.journee.chef-bravm`,
+     `playtest.commissariats` (« cycle complet 9e »: FAUCON 9 arrives 88–104 m from the point, limit 80; « retour sous
+     les yeux du joueur 9e »: a moto ends 45 m from its bay), `playtest.commandant-terrain`, `playtest.commandant-interpeller`
+     (« la BRAV-M va constater »: rides until « Les motos n'avancent plus » at 114 s and arrives at 239 s). P17 raised the
+     gap between motos in a column to 6 m (autopilot) where bravm.ts asks 3.5 m: make the two agree. In a dense crowd
+     the BRAV-M must get to the player when called (cdt-04 « vers moi »: stage `remontee` has no time limit; it walks
+     back to its motos and takes 90 s to remount, then stalls).
+  2. Cellular vans: `tests/unit/transfer.cellulaire.test.ts` (2 red cases: « avec les commissariats » minCover = 0 at
+     line 309; « 30 minutes » `arrestInto` at line 179) and `tests/unit/police.interpelles-fourgon.test.ts` must be green
+     again; the player's sentence: « il faut toujours qu'il y ait quelques wagons pour mettre les interpellés ».
+  3. Stale expectations (check that the NEW value is right for the player, then update): `ui-command.panneaux`
+     (« Engins (2) »), `ui-command.direct-logique`, `ui-command.qui`; browser scenarios `tests/e2e/verif-commande-clavier.mjs`
+     (« I : Interpeller » is now « Aller constater »), `tests/e2e/verif-roles-interface.mjs` (the wheel has 7 sectors
+     now, not 8).
+  4. One-van radio line (`src/sim/police/command/convoy.ts` lines ~811 and ~852: « …, UN véhicules en colonne »): ask
+     P18 for it in openIssues (one-line change: singular wording when the column has one vehicle).
+- **Done:** every test named above green; `npx tsc --noEmit -p .` clean.
+
+---
+
 # COORDINATOR'S UPDATE — stage 1b, second run (P3, P4, P6, P17) — read first; it overrides everything below
 
 **State of this worktree now** (`git status` shows it all, staged or not; nothing is committed):
