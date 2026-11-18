@@ -66,6 +66,7 @@ interface ConvoyLike {
   total?: number;
   departIn?: number;
   remaining?: number;
+  awaitingDriver?: boolean;
 }
 interface CommandLike {
   convoyOf?(squadId: number): ConvoyLike | null;
@@ -593,7 +594,8 @@ export class MissionBriefSystem implements GameSystem {
     const gained = this.startRemaining >= 0 ? this.startRemaining - remaining : 0;
     const speed = elapsed > PACE_AFTER && gained > 0 ? Math.max(PACE_MIN, gained / elapsed) : COLUMN_SPEED;
     const departIn = st && typeof st.departIn === 'number' && st.departIn >= 0 ? st.departIn : -1;
-    return { stage, movingFor, aboard, total, playerAfoot: me.vehicleId === 0, departIn, remaining, speed, stoppedFor };
+    const driverWait = !!st && st.awaitingDriver === true && me.vehicleId !== 0;
+    return { stage, movingFor, aboard, total, playerAfoot: me.vehicleId === 0, departIn, remaining, speed, stoppedFor, driverWait };
   }
 
   /**

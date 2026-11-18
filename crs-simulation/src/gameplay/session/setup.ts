@@ -37,7 +37,7 @@ import {
 import type {
   EngagedMeans, LoadingProgress, PoliceCommandLike, PoliceUnitHandleLike, PoliceUnitsLike, SessionSetupApi, SessionSetupSummary,
 } from './api';
-import { FILE_SPACING, RANK_DEPTH, chooseStand, chooseStandOffCrowd, parkingSpot, roadSpot, settle, supportSpot } from './placement';
+import { FILE_SPACING, RANK_DEPTH, chooseStand, chooseStandOffCrowd, hasWayOut, parkingSpot, roadSpot, settle, supportSpot } from './placement';
 import type { Stand } from './placement';
 import { castFor, isPoliceRole, meansOf, rankOf } from './roster';
 import { EQUIPAGE_SERVICE, buildPatrolCrew } from './equipage';
@@ -55,12 +55,15 @@ const LEADER_ROLES: ReadonlySet<string> = new Set(['chef_groupe', 'bravm', 'gend
 const PARKED_KINDS: readonly string[] = ['fourgon_crs', 'car_crs', 'vl_commandement', 'fourgon_cellulaire', 'voiture_police', 'moto_bravm'];
 /** Longueur (m) du début d'itinéraire où une sortie ne doit croiser aucun véhicule arrêté hors du bloc (voir crossesParked). */
 const CROSS_CHECK = 45;
+/** Voiture d'une petite équipe garée à côté du bloc d'une compagnie : écart minimal à ses véhicules (m, voir nearBlock). */
+const BLOCK_CLEAR = 6;
 /**
  * Fourgon cellulaire rangé derrière le bloc (voir cellToRear) : places essayées autour de chaque véhicule (recul, écart
  * latéral, m) — juste derrière lui, en biais derrière, à côté de lui (file voisine), deux rangs derrière.
  */
 const CELL_SPOTS: readonly number[] = [7.6, 0, 7.6, 3.6, 7.6, -3.6, 0, 3.6, 0, -3.6, 15.2, 0];
 const isProtester = (p: { faction: string }): boolean => p.faction === 'protest';
+const propsScratch: unknown[] = [];
 
 const DEFAULT_BYSTANDERS = 10;
 const BYSTANDER_REACH = 120;
@@ -208,7 +211,7 @@ export class SessionSetupSystem implements GameSystem {
           const own = ctx.squads.get(player.squadId);
           if (own && own.faction === 'police' && own.leaderId !== player.id) ctx.squads.setLeader(own.id, player.id);
           // canon à eau, Centaure : un groupe de CRS de la compagnie l'escorte et le suit
-          if (own && (config.role === 'operateur_canon_eau' || config.role === 'gendarme_centaure')) this.attachEscort(player, own);
+          if (own && (config.role === 'operateur_canon_eau' || config.role === 'gendarme_centaure')) this.attachEscort(player, own, config.role === 'gendarme_centaure');
         }
         // le joueur chef d'une unité (groupe, section) : son unité le suit tant qu'il ne lui donne pas d'autre ordre
         // (pas l'équipage de patrouille : il est à bord avec lui, et descend sur son ordre)
@@ -641,6 +644,18 @@ export class SessionSetupSystem implements GameSystem {
     return this.routesFrom(head, h, group);
   }
 
+  /**
+   * Un véhicule de police garé (bloc d'une compagnie) est-il à moins de BLOCK_CLEAR m (entre caisses, à peu près) de la
+   * place (x, z) ? (Pas les véhicules de l'unité du joueur déjà garés, `own` : ils se rangent côte à côte.)
+   */
+  private nearBlock(x: number, z: number, length: number, own: readonly Vehicle[]): boolean {
+    for (const o of this.ctx.vehicles.list) {
+      if (own.indexOf(o) >= 0 || o.faction !== 'police' || o.def.flying || Math.abs(o.speed) > 0.5 || PARKED_KINDS.indexOf(o.kind) < 0) continue;
+      if (Math.hypot(o.x - x, o.z - z) < (o.def.length + length) * 0.5 + BLOCK_CLEAR) return true;
+    }
+    return false;
+  }
+
   /** Itinéraires qui partent droit devant `head`, au cap `h`, sans traverser de véhicule arrêté hors de `ignore`. */
   private routesFrom(head: Vehicle, h: number, ignore: readonly Vehicle[]): number {
     const ctx = this.ctx;
@@ -961,7 +976,7 @@ export class SessionSetupSystem implements GameSystem {
    * Escorte d'un engin conduit par le joueur : le groupe de CRS le plus proche quitte sa section (le commandant IA
    * ne lui donne plus de poste) et passe sous l'équipage du joueur ; il suit l'engin à pied.
    */
-  private attachEscort(player: Person, crew: Squad): void {
+  private attachEscort(player: Person, crew: Squad, alone = false): void {
     const ctx = this.ctx;
     let best: Squad | null = null;
     let bestD = Infinity;
@@ -974,7 +989,65 @@ export class SessionSetupSystem implements GameSystem {
     }
     if (best && bestD < 400) {
       best.parentId = crew.id;
+      // équipage du Centaure : seul le groupe d'escorte suit l'engin, la compagnie reste à sa mission (session/follow.ts,
+      // wholeCompanies) — son fourgon, enfermé dans le bloc, quitte le bloc et se gare derrière l'engin, dans son axe.
+      // (Canon à eau : toute la compagnie suit le joueur en colonne, le fourgon sort du bloc avec les autres.)
+      const van = alone && best.vehicleId !== 0 ? ctx.vehicles.get(best.vehicleId) : undefined;
+      const engine = crew.vehicleId !== 0 ? ctx.vehicles.get(crew.vehicleId) : undefined;
+      if (van && engine && van !== engine) this.escortVanOut(van, engine);
       ctx.radio.say({ channel: 'unite', from: crew.name, text: `${best.name}, vous escortez l’engin : suivez-nous.`, priority: 1, personId: player.id });
+    }
+  }
+
+  /**
+   * Fourgon du groupe d'escorte du Centaure : garé au milieu du bloc de la compagnie, il n'en
+   * sortait pas — les fourgons devant lui, partis à leurs propres ordres (ligne, tenir), s'y attendaient les uns les
+   * autres (Bastille, gendarme du Centaure : fourgon d'escorte resté à sa place, l'engin parti seul). Il prend une place
+   * libre derrière l'engin, dans son axe (ou sur une file voisine), avec une sortie. Aucune place : il reste où il est.
+   */
+  private escortVanOut(van: Vehicle, engine: Vehicle): void {
+    const ctx = this.ctx;
+    if (Math.abs(van.speed) > 0.1 || PARKED_KINDS.indexOf(van.kind) < 0) return;
+    // (seulement s'il est enfermé : un véhicule garé juste devant lui dans sa file — sinon il sort du bloc avec les autres)
+    const hx = Math.sin(van.heading), hz = Math.cos(van.heading);
+    const shut = ctx.vehicles.list.some((o) => {
+      if (o === van || o.faction !== 'police' || o.def.flying || Math.abs(o.speed) > 0.1) return false;
+      const dx = o.x - van.x, dz = o.z - van.z;
+      const gap = dx * hx + dz * hz - (van.def.length + o.def.length) * 0.5;
+      return gap > -0.5 && gap < 4 && Math.abs(-dx * hz + dz * hx) < (van.def.width + o.def.width) * 0.5 + 0.3;
+    });
+    if (!shut) return;
+    const fx = Math.sin(engine.heading);
+    const fz = Math.cos(engine.heading);
+    const hl = van.def.length * 0.5;
+    const hw = van.def.width * 0.5;
+    const fits = (x: number, z: number): boolean => {
+      for (const k of [-1, 0, 1]) {
+        const px = x + fx * k * (hl - hw), pz = z + fz * k * (hl - hw);
+        if (!ctx.world.isFree(px, pz, hw + 0.2)) return false;
+        const sf = ctx.world.surfaceAt(px, pz);
+        if (sf === 'park' || sf === 'water' || sf === 'building' || sf === 'interior') return false;
+      }
+      for (const o of ctx.vehicles.list) {
+        if (o === van || o.def.flying) continue;
+        if (Math.hypot(o.x - x, o.z - z) < hl + Math.max(o.def.length, o.def.width) * 0.5 + 1.2) return false;
+      }
+      if (ctx.props.queryRadius(x, z, hl + 0.3, propsScratch as never[], (q) => q.blocksMove) > 0) return false;
+      if (ctx.people.countIn(x, z, hl + 0.6, (q) => q.vehicleId === 0) > 0) return false;
+      return hasWayOut(ctx, x, z, Math.min(1.2, hw));
+    };
+    for (let back = engine.def.length * 0.5 + hl + 3; back <= 40; back += 3) {
+      for (const lat of [0, 3.5, -3.5]) {
+        const x = engine.x - fx * back - fz * lat;
+        const z = engine.z - fz * back + fx * lat;
+        if (!fits(x, z)) continue;
+        van.x = x;
+        van.z = z;
+        van.heading = engine.heading;
+        van.vx = 0;
+        van.vz = 0;
+        return;
+      }
     }
   }
 
@@ -1025,14 +1098,18 @@ export class SessionSetupSystem implements GameSystem {
     // véhicules stationnés derrière le front (créés d'abord : les conducteurs se tiennent à leur portière)
     const vehicles: Vehicle[] = [];
     const hit = this.hit;
-    const reachable = (px: number, pz: number): boolean =>
-      !ctx.world.raycast(stand.x, stand.z, px, pz, hit) || (hit.kind !== 'building' && hit.kind !== 'barrier');
     const faction = cast.squads[0]?.faction ?? 'police';
     for (let i = 0; i < cast.vehicles.length; i++) {
       const kind = cast.vehicles[i]!;
       const def = ctx.vehicles.def(kind);
       const length = def ? def.length : 5;
       const width = def ? def.width : 2;
+      // (et, à côté du bloc d'une compagnie, une place à l'écart de ses véhicules : République, la voiture de l'équipe
+      // drone, garée en queue du bloc, à 7 m du cellulaire, n'en sortait qu'en se faufilant entre les fourgons — plus
+      // d'une minute de manœuvres)
+      const reachable = (px: number, pz: number): boolean =>
+        (!ctx.world.raycast(stand.x, stand.z, px, pz, hit) || (hit.kind !== 'building' && hit.kind !== 'barrier'))
+        && (!summary.usedPoliceUnits || PARKED_KINDS.indexOf(kind) < 0 || kind === 'moto_bravm' || !this.nearBlock(px, pz, length, vehicles));
       // derrière l'unité ; à défaut (place prise par une compagnie, parvis piéton), sur la chaussée la plus proche
       // jamais derrière une grille ou un mur qui le sépare de l'unité (Concorde : motos de la BRAV-M garées dans
       // l'entrée des Tuileries, de l'autre côté de la grille, pilotes coupés de leur chef)

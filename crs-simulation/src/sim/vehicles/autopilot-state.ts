@@ -101,6 +101,8 @@ export class ApState {
   avoidWaitT = 0;
   /** Nouvel itinéraire après des blocages répétés (compteur). */
   replans = 0;
+  /** Temps d'arrêt (blockedFor) lors du dernier essai d'un autre itinéraire devant un obstacle fixe, resté sans effet. */
+  rerouteAt = 0;
   /** Reculs pour prendre l'angle, nez contre un véhicule arrêté (sortie d'un stationnement en bloc ; compteur). */
   nudges = 0;
   /** Le véhicule qui me suit en colonne m'a déjà rejoint une fois (je l'attends s'il décroche). */
@@ -110,6 +112,11 @@ export class ApState {
   uturn = 0;
   uturnDir = 1;
   uturnMoves = 0;
+  /** Demi-tour sans progrès : temps passé (s), position et écart de cap au début de la mesure. */
+  uturnStallT = 0;
+  uturnX = 0;
+  uturnZ = 0;
+  uturnErr = 0;
   // ── voie ──
   laneT = 0;
   laneOffset = 0;
@@ -195,10 +202,12 @@ export class ApState {
     this.giveWay = false;
     this.avoidWaitT = 0;
     this.replans = 0;
+    this.rerouteAt = 0;
     this.nudges = 0;
     this.behindJoined = false;
     this.uturn = 0;
     this.uturnMoves = 0;
+    this.uturnStallT = 0;
     this.laneT = 0;
     this.laneOffset = 0;
     this.laneWant = 0;

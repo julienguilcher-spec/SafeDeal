@@ -339,6 +339,8 @@ export interface ConvoyStatus {
   departIn?: number;
   /** La colonne n'attend plus que le joueur (il est à pied). */
   awaitingPlayer?: boolean;
+  /** Le joueur tient le volant d'un véhicule de la colonne et n'a pas encore démarré : la colonne attend son départ. */
+  awaitingDriver?: boolean;
   /** Mètres d'itinéraire restant à la tête de colonne (0 à l'arrêt). */
   remaining?: number;
   /** Itinéraire prévu de la tête de colonne (x, z, x, z…), vide hors trajet. */

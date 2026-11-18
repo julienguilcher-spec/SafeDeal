@@ -55,8 +55,17 @@ const CASUALTY_HURT = 55;
 const CASUALTY_MAX = 12;
 /** Portée d'observation d'un signe avant-coureur pour un compte rendu radio (m). */
 const REPORT_RANGE = 150;
-/** Attente maximale de l'arrivée sur place avant de lancer la mission quand même (s). */
+/**
+ * Trajet en colonne de la journée de service : le joueur est « sur place » à moins de ARRIVE_NEAR m de la zone de
+ * stationnement, et la mission commence quand il y est resté ARRIVE_HOLD s à l'arrêt (la grande colonne manœuvre
+ * encore — quatorze fourgons du chef de groupe, boulevard Voltaire : début au filet des 900 s, six minutes après son
+ * arrivée —, il ne l'attend plus). Filet : au bout de TRAVEL_MAX s, la mission commence quand même si le joueur est à
+ * moins de TRAVEL_NEAR m du point — jamais à des kilomètres de son lieu (BRAV-M, Centaure : à lui de conduire).
+ */
 const TRAVEL_MAX = 900;
+const TRAVEL_NEAR = 400;
+const ARRIVE_NEAR = 150;
+const ARRIVE_HOLD = 20;
 /**
  * Ordre des phases de la foule. Une phase de mission qui attend « départ » ou « cortège » est close quand la foule en est
  * déjà plus loin : en journée de service, le cortège part pendant le trajet en colonne, avant le début de la mission.
@@ -143,6 +152,10 @@ export class MissionSystem implements GameSystem {
   private readonly staged = new Set<EntityId>();
   /** Groupe du joueur exécutant retenu pour l'objectif de la mission (0 : aucun). */
   private pinnedId = 0;
+  /** Poste du groupe pas encore donné (le groupe débarque encore), et instant du début de l'attente (−1 : aucune). */
+  private postSince = -1;
+  /** Le joueur est sur place (journée de service, colonne encore en manœuvre) depuis cet instant (−1 : non). */
+  private nearSince = -1;
   private readonly catalog_: Record<string, unknown>[];
 
   constructor() {
@@ -196,6 +209,8 @@ export class MissionSystem implements GameSystem {
     this.staged.clear();
     this.aleas.reset();
     this.waitSince = -1;
+    this.postSince = -1;
+    this.nearSince = -1;
     this.tracker?.reset();
     this.def = null;
     this.pending = false;
@@ -238,7 +253,7 @@ export class MissionSystem implements GameSystem {
       decidedAt: -1,
     }));
     this.stageVictims();
-    this.postGroup();
+    this.postSince = this.postGroup() ? -1 : ctx.clock.now;
     this.publishObjectives();
     this.equipForSommations();
     this.equipForCare();
@@ -323,18 +338,39 @@ export class MissionSystem implements GameSystem {
    * « Couvrir le lanceur du groupe ») : son groupe y est posté par son chef et le commandant IA ne l'emploie plus
    * ailleurs. Sans cela, le dispositif de l'IA emmenait le groupe tenir un débouché à 300 m de l'objectif : le
    * joueur qui obéissait à son chef ne pouvait plus réussir (0 agent au point, « 0 principal sur 2 »).
+   * En journée de service, la mission commence quand la colonne débarque : tant que des agents du groupe en train de
+   * débarquer sont encore assis dans leur fourgon, le poste attend (tant que la colonne se gare, puis une minute au plus) — donné tout de
+   * suite, il remplaçait l'ordre de débarquer et le groupe restait à bord, le chef avec lui, à cent mètres du point :
+   * la carte « Rejoignez votre groupe » ramenait l'élève au fourgon et l'atelier « Tenir la ligne » était perdu.
+   * false : à redemander.
    */
-  private postGroup(): void {
+  private postGroup(): boolean {
     const ctx = this.ctx!;
     const def = this.def!;
     const me = ctx.player.person();
-    if (!me || me.faction !== 'police' || !EXECUTANTS.has(def.role) || me.squadId === 0) return;
+    if (!me || me.faction !== 'police' || !EXECUTANTS.has(def.role) || me.squadId === 0) return true;
     // un poste placé seulement : sans lieu, rien ne dit où le groupe doit se tenir
     const run = this.runs.find((r) => !r.def.secondary && r.at && (r.def.kind === 'tenir_position' || r.def.kind === 'proteger_site'));
-    if (!run || !run.at) return;
+    if (!run || !run.at) return true;
     const group = ctx.squads.get(me.squadId);
     const cmd = ctx.service<CommandPin>('police.command');
-    if (!group || !cmd || !cmd.pin) return;
+    if (!group || !cmd || !cmd.pin) return true;
+    // (retenu tout de suite : le commandant IA ne l'emploie pas ailleurs pendant qu'il débarque)
+    cmd.pin(group.id, true);
+    this.pinnedId = group.id;
+    let aboard = false;
+    for (const id of group.members) {
+      const p = ctx.people.get(id);
+      if (p && !p.isPlayer && p.vehicleId !== 0 && p.custody === 'free' && p.posture !== 'down') { aboard = true; break; }
+    }
+    // (colonne encore en manœuvre — mission commencée à l'arrivée du joueur — : le débarquement viendra ; la minute
+    // d'attente court depuis la fin du trajet)
+    const travelling = ctx.service<{ travelling: boolean }>('session.journee')?.travelling === true;
+    if (aboard && travelling) {
+      this.postSince = ctx.clock.now;
+      return false;
+    }
+    if (aboard && group.order.type === 'debarquer' && (this.postSince < 0 || ctx.clock.now - this.postSince < 60)) return false;
     const x = run.at.x;
     const z = run.at.z;
     // face à la foule : le manifestant le plus proche du poste
@@ -345,13 +381,12 @@ export class MissionSystem implements GameSystem {
       const d = Math.hypot(p.x - x, p.z - z);
       if (d > 2 && d < bd) { bd = d; heading = Math.atan2(p.x - x, p.z - z); }
     }
-    cmd.pin(group.id, true);
-    this.pinnedId = group.id;
     const parent = group.parentId !== 0 ? ctx.squads.get(group.parentId) : undefined;
     const by = parent && parent.leaderId !== 0 ? parent.leaderId : group.leaderId;
     ctx.squads.issue(group.id, run.def.kind === 'proteger_site'
       ? { type: 'proteger', x, z, heading, width: 20, issuedBy: by }
       : { type: 'ligne', x, z, heading, width: 0, issuedBy: by });
+    return true;
   }
 
   /**
@@ -506,14 +541,25 @@ export class MissionSystem implements GameSystem {
       if (!ctx.player.person()) return;
       // journée de service : la mission commence à l'arrivée sur place, pas pendant la prise de service et le
       // trajet en colonne depuis la caserne (filet : TRAVEL_MAX)
-      const j = ctx.service<{ stage: string }>('session.journee');
+      const j = ctx.service<{ stage: string; destination: { x: number; z: number } | null }>('session.journee');
       if (j && (j.stage === 'prise_de_service' || j.stage === 'embarquement' || j.stage === 'route')) {
-        if (this.waitSince < 0) this.waitSince = ctx.clock.now;
-        if (ctx.clock.now - this.waitSince < TRAVEL_MAX) return;
+        const now = ctx.clock.now;
+        if (this.waitSince < 0) this.waitSince = now;
+        const me = ctx.player.person()!;
+        const d = j.destination;
+        const far = d ? Math.hypot(me.x - d.x, me.z - d.z) : Infinity;
+        // (à pied, ou son véhicule arrêté : pas pendant qu'il manœuvre encore pour se garer)
+        const v = me.vehicleId !== 0 ? ctx.vehicles.get(me.vehicleId) : undefined;
+        if (j.stage === 'route' && far < ARRIVE_NEAR && (!v || Math.abs(v.speed) < 0.5)) {
+          if (this.nearSince < 0) this.nearSince = now;
+        } else this.nearSince = -1;
+        const inPlace = this.nearSince >= 0 && now - this.nearSince >= ARRIVE_HOLD;
+        if (!inPlace && (now - this.waitSince < TRAVEL_MAX || far > TRAVEL_NEAR)) return;
       }
       this.begin();
     }
     if (!this.started) return;
+    if (this.postSince >= 0 && this.postGroup()) this.postSince = -1;
     this.aleas.update(ctx);
     const env = this.env!;
     env.elapsed = this.elapsed();

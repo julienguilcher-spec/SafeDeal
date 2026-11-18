@@ -297,6 +297,8 @@ export interface DepartureFacts {
   speed: number;
   /** La colonne est arrêtée en route depuis tant de secondes (0 si elle roule). */
   stoppedFor: number;
+  /** Le joueur tient le volant d'un véhicule de la colonne et n'a pas encore démarré : elle attend son départ. */
+  driverWait?: boolean;
 }
 
 /** Durée pendant laquelle « La colonne part » reste affiché (s), et arrêt en route au-delà duquel on dit pourquoi (s). */
@@ -321,6 +323,8 @@ export function departureLine(f: DepartureFacts): string {
   };
   switch (f.stage) {
     case 'route': {
+      // au volant : c'est lui qui part (la colonne ne se dit ni arrivée ni bloquée tant qu'il n'a pas démarré)
+      if (f.driverWait) return 'Vous êtes au volant : on attend votre départ — démarrez, suivez le GPS';
       if (f.movingFor < 0) return boarding('Embarquement');
       if (f.movingFor < LEAVING_SECONDS) return 'La colonne part';
       if (f.stoppedFor > STOPPED_SECONDS) return 'Colonne à l’arrêt — elle repart dès que la voie est libre';

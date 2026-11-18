@@ -38,6 +38,8 @@ const FOLLOW_PEOPLE_DODGE = 5;
 /** Arrêt devant un obstacle fixe infranchissable avant de chercher un autre itinéraire (s) : en conduite normale, en urgence. */
 const OBSTACLE_REROUTE = 10;
 const OBSTACLE_REROUTE_URGENT = 6;
+/** Demi-tour sans progrès (ni déplacement ni cap gagné) depuis plus de (s) : il se déclare « bloqué ». */
+const UTURN_STALL = 30;
 
 /** Emprise d'un obstacle dans le repère de l'itinéraire (abscisses le long, écarts à droite de l'axe). */
 interface Extent { sMin: number; sMax: number; latMin: number; latMax: number }
@@ -224,6 +226,13 @@ export class ApDriver {
         ap.uturnDir = turnErr >= 0 ? 1 : -1;
         ap.uturnMoves = 0;
         ap.phaseT = 0;
+        // (un nouveau demi-tour au même endroit — après un nouvel itinéraire — ne remet pas la mesure du progrès à zéro)
+        if (Math.hypot(v.x - ap.uturnX, v.z - ap.uturnZ) > 4) {
+          ap.uturnStallT = 0;
+          ap.uturnX = v.x;
+          ap.uturnZ = v.z;
+          ap.uturnErr = Math.abs(turnErr);
+        }
       }
       if (ap.uturn !== 0) {
         if (this.uTurn(rt, ap, turnErr, dt)) return;
@@ -558,11 +567,18 @@ export class ApDriver {
       // mobilier en travers, véhicule garé sans conducteur ou épave) : l'endroit est signalé et l'on prend un autre
       // itinéraire — sans quoi le véhicule restait là pour de bon (« bloqué »), loin du point, et sa colonne arrivait sans lui
       // (pas la circulation civile : sa patience, son demi-tour ou son contournement sont réglés par sim/traffic)
+      // (essai resté sans effet — aucun autre itinéraire, ou tête de colonne qui refuse de faire demi-tour contre son
+      // suivant : voir Autopilot.replan — : le temps d'arrêt continue de courir, nouvel essai un peu plus tard ; remis à
+      // zéro, il ne dépassait jamais les 20 s au bout desquelles la conduite de la colonne fait ranger les voitures
+      // civiles qui la bloquent, police/command/convoy.ts)
+      if (ap.blockedFor < ap.rerouteAt) ap.rerouteAt = 0;
       if (stopped && !closed && v.faction !== 'civil' && ap.avoidVeh === 0 && ap.avoidProp === 0 && (ap.mode === 'drive' || ap.mode === 'follow')
-        && ap.blockedFor > (ap.urgence ? OBSTACLE_REROUTE_URGENT : OBSTACLE_REROUTE) && this.replan && ap.replans < 8 && this.fixedBlocker(rt, ap)) {
+        && ap.blockedFor > ap.rerouteAt + (ap.urgence ? OBSTACLE_REROUTE_URGENT : OBSTACLE_REROUTE) && this.replan && ap.replans < 8 && this.fixedBlocker(rt, ap)) {
         ap.replans++;
-        ap.blockedFor = 0;
+        ap.rerouteAt = ap.blockedFor;
         if (this.replan(rt, ap, false, true)) {
+          ap.blockedFor = 0;
+          ap.rerouteAt = 0;
           this.setStatus(rt, ap, 'en_route', '');
           return;
         }
@@ -705,8 +721,11 @@ export class ApDriver {
     // (de même, un véhicule de police conduit seul, arrêté par des collègues à pied immobiles devant lui — les hommes de
     // son unité, une autre compagnie rangée sur la chaussée — : ils tiennent leur place, ils ne s'écartent pas ; sans
     // contournement il les attendait pour de bon)
-    const standing = ap.obsReason === 'personne' && !ap.convoy && ap.blockedFor > FOLLOW_PEOPLE_DODGE && au < 0.3
-      && (ap.mode === 'follow' || (ap.mode === 'drive' && v.faction === 'police' && this.colleaguesAhead(rt)));
+    // (suivant d'une colonne de l'IA — départ de la caserne, mouvement motorisé — : seulement une personne à terre, qui ne
+    // se relèvera pas ; il l'attendait jusqu'à la fin, et la colonne arrivait sans le fourgon du joueur, resté à 2 km)
+    const standing = ap.obsReason === 'personne' && ap.blockedFor > FOLLOW_PEOPLE_DODGE && au < 0.3
+      && (ap.convoy ? ap.mode === 'follow' && this.lyingAhead(rt, ap)
+        : ap.mode === 'follow' || (ap.mode === 'drive' && v.faction === 'police' && this.colleaguesAhead(rt)));
     // (personnes immobiles, ou à terre — un blessé allongé sur la chaussée —, devant un suivant : on les contourne
     // franchement, en leur laissant un mètre, comme un objet arrêté sur la voie ; un petit pas de côté ne suffisait pas
     // et la colonne attendait derrière un blessé jusqu'à la fin)
@@ -947,6 +966,25 @@ export class ApDriver {
       found++;
     }
     return found > 0;
+  }
+
+  /** Une personne à terre (allongée, blessée) est-elle dans mon couloir, juste devant l'obstacle qui m'arrête ? */
+  private lyingAhead(rt: VehicleRt, ap: ApState): boolean {
+    const v = rt.v;
+    const sn = Math.sin(v.heading), cs = Math.cos(v.heading);
+    const reach = Math.max(0, ap.obsDist) + 3;
+    const n = this.k.ctx.people.queryRadius(v.x + sn * (rt.halfL + reach * 0.5), v.z + cs * (rt.halfL + reach * 0.5), reach * 0.5 + rt.halfW + 1, this.nearPeople);
+    let found = false;
+    for (let i = 0; i < n && !found; i++) {
+      const p = this.nearPeople[i]!;
+      if (p.vehicleId !== 0 || p.dormant || (p.posture !== 'down' && p.posture !== 'prone')) continue;
+      const dx = p.x - v.x, dz = p.z - v.z;
+      const f = dx * sn + dz * cs - rt.halfL;
+      const l = dx * cs - dz * sn;
+      found = f > -0.5 && f < reach && l < rt.halfW + 0.9 && l > -(rt.halfW + 0.9);
+    }
+    this.nearPeople.length = 0;
+    return found;
   }
 
   /** L'obstacle qui m'arrête est-il là pour de bon : objet, ou véhicule garé sans conducteur, ou épave (hors de ma colonne) ? */
@@ -1273,9 +1311,21 @@ export class ApDriver {
   private uTurn(rt: VehicleRt, ap: ApState, err: number, dt: number): boolean {
     const v = rt.v;
     const cmd = v.cmd;
+    // progrès : on a quitté l'endroit (4 m) ou l'écart de cap s'est réduit d'une demi-radian ; sinon le temps court
+    const ae = err < 0 ? -err : err;
+    if (Math.hypot(v.x - ap.uturnX, v.z - ap.uturnZ) > 4 || ae < ap.uturnErr - 0.5) {
+      ap.uturnStallT = 0;
+      ap.uturnX = v.x;
+      ap.uturnZ = v.z;
+      ap.uturnErr = ae;
+    } else {
+      ap.uturnStallT += dt;
+    }
     if ((err < 1 && err > -1) || ap.uturnMoves > 8) {
       ap.uturn = 0;
       ap.obsDist = Infinity;
+      // (demi-tour réussi : la mesure du progrès repart de zéro pour le suivant)
+      if (err < 1 && err > -1) ap.uturnX = Infinity;
       if (ap.uturnMoves > 8 && (err >= 1 || err <= -1) && this.replan) {
         // huit reprises sans y parvenir (rue trop étroite, voitures garées) : on renonce au demi-tour et l'on repart
         // droit devant, par le tour du pâté de maisons (nouvel itinéraire, demi-tour sur place exclu)
@@ -1324,7 +1374,15 @@ export class ApDriver {
     }
     v.indicator = ap.uturnDir > 0 ? -1 : 1;
     ap.status.targetSpeed = target;
-    this.setStatus(rt, ap, 'manoeuvre', '');
+    if (ap.uturnStallT > UTURN_STALL) {
+      // enfermé (véhicules arrêtés devant et derrière, chaussée trop étroite) : les reprises et les nouveaux itinéraires
+      // recommençaient sans fin à l'état « manœuvre », que ni la conduite de la colonne ni la session (engins.ts) ne
+      // reprennent — il continue d'essayer, mais se déclare « bloqué », le temps passé là faisant foi
+      this.setStatus(rt, ap, 'bloque', ap.obsReason === 'vehicule' || ap.obsReason === 'obstacle' ? ap.obsReason : 'mur');
+      ap.status.blockedFor = ap.uturnStallT;
+    } else {
+      this.setStatus(rt, ap, 'manoeuvre', '');
+    }
     return true;
   }
 

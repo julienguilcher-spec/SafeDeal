@@ -40,12 +40,20 @@ const HOLD_FAR = 90;
 const HOLD_PACKED = 8.5;
 /** Points gardés de la trace du meneur pendant l'attente. */
 const HOLD_TRACE_MAX = 600;
+/** Départ loin de toute chaussée : tronçon d'accroche au-delà duquel on cherche la sortie par les allées ; parcours
+ * maximal par les allées ; distance d'accroche à la chaussée acceptée au bout des allées (m). */
+const ESCAPE_FAR = 20;
+const ESCAPE_RUN = 400;
+const ESCAPE_SNAP = 10;
+/** Tête de colonne : écart (m, entre pare-chocs) en deçà duquel son suivant la serre — pas de demi-tour. */
+const FOLLOWER_CLOSE = 15;
 
 export class Autopilot implements AutopilotApi {
   private readonly driver: ApDriver;
   private readonly scratch: number[] = [];
   private readonly keepBuf: number[] = [];
   private readonly footBuf: number[] = [];
+  private readonly escapeBuf: number[] = [];
   private readonly joinOrder: number[] = [];
   private readonly joinCost: number[] = [];
   private readonly joinHit: RayHit = makeRayHit();
@@ -82,6 +90,11 @@ export class Autopilot implements AutopilotApi {
     if (ap.mode !== 'drive' || ap.n < 2) return false;
     const x = ap.path[ap.n * 2 - 2]!;
     const z = ap.path[ap.n * 2 - 1]!;
+    // tête de colonne, son suivant serré derrière elle : pas de demi-tour (elle repartait nez à nez avec lui et la colonne
+    // s'enfermait elle-même, Cité → République) — le tour du pâté de maisons droit devant, sinon rien : elle reste
+    // arrêtée devant l'obstacle, que la conduite de la colonne fait dégager (voitures civiles, police/command/convoy.ts)
+    const hemmed = ap.convoy && this.followerClose(rt, ap);
+    if (hemmed) around = true;
     this.forceAround = around;
     const keep = this.keepBuf;
     keep.length = 0;
@@ -89,8 +102,9 @@ export class Autopilot implements AutopilotApi {
     const n = ap.n;
     const axis = ap.axisUntil >= ap.total;
     const endInLane = ap.endInLane;
-    const planned = this.plan(rt, ap, x, z);
+    let planned = this.plan(rt, ap, x, z);
     this.forceAround = false;
+    if (planned && hemmed && this.startsBehind(rt, ap)) planned = false;
     if (!planned) {
       ap.setPath(keep, n);
       ap.axisUntil = axis ? ap.total : 0;
@@ -101,6 +115,25 @@ export class Autopilot implements AutopilotApi {
     ap.uturn = 0;
     ap.obsDist = Infinity;
     return true;
+  }
+
+  /** Le véhicule qui me suit en colonne est-il serré derrière moi (moins de FOLLOWER_CLOSE m entre nos pare-chocs) ? */
+  private followerClose(rt: VehicleRt, ap: ApState): boolean {
+    if (ap.behindId === 0) return false;
+    const b = this.k.peek(ap.behindId);
+    const bap = b ? (b.ap as ApState | null) : null;
+    if (!b || !bap || bap.mode !== 'follow' || bap.leaderId !== rt.v.id) return false;
+    return Math.hypot(b.v.x - rt.v.x, b.v.z - rt.v.z) - rt.halfL - b.halfL < FOLLOWER_CLOSE;
+  }
+
+  /** L'itinéraire repart-il dans mon dos (demi-tour à faire) ? */
+  private startsBehind(rt: VehicleRt, ap: ApState): boolean {
+    const v = rt.v;
+    const pt = this.pp;
+    ap.sample(Math.min(ap.total, 10), pt);
+    const dx = pt.x - v.x, dz = pt.z - v.z;
+    const l = Math.hypot(dx, dz);
+    return l > 1 && (dx * Math.sin(v.heading) + dz * Math.cos(v.heading)) / l < -0.3;
   }
 
   private state(rt: VehicleRt): ApState {
@@ -288,7 +321,7 @@ export class Autopilot implements AutopilotApi {
       buf[3] = z;
       count = 2;
     }
-    if (count >= 2 && world.edgeCount > 0) count = this.clearEnds(v, buf, count);
+    if (count >= 2 && world.edgeCount > 0) count = this.clearEnds(v, buf, count, start);
     ap.setPath(buf, count);
     ap.axisUntil = ap.total;
     ap.endInLane = endInLane;
@@ -303,10 +336,11 @@ export class Autopilot implements AutopilotApi {
    * (cheminement piéton, au pas : place de la Concorde, esplanades) au lieu de foncer droit dessus. Retourne le
    * nouveau nombre de points.
    */
-  private clearEnds(v: Vehicle, buf: number[], count: number): number {
+  private clearEnds(v: Vehicle, buf: number[], count: number, start?: PathStartOptions): number {
     const hw = v.def.width * 0.5 + 0.2;
     const world = this.k.ctx.world;
-    const legClear = (ax: number, az: number, bx: number, bz: number): boolean => {
+    // (loose : allée gravillonnée admise — voir plus bas, départ loin de toute chaussée)
+    const legClear = (ax: number, az: number, bx: number, bz: number, loose = false): boolean => {
       const dx = bx - ax, dz = bz - az;
       const l = Math.sqrt(dx * dx + dz * dz);
       if (l < 0.5) return true;
@@ -321,7 +355,7 @@ export class Autopilot implements AutopilotApi {
         const x = ax + (dx * i) / n, z = az + (dz * i) / n;
         if (!world.isFree(x, z, hw - 0.1)) return false;
         const sf = world.surfaceAt(x, z);
-        if (sf === 'park' || sf === 'gravel' || sf === 'water' || sf === 'building') return false;
+        if (sf === 'park' || (sf === 'gravel' && !loose) || sf === 'water' || sf === 'building') return false;
       }
       return true;
     };
@@ -346,6 +380,14 @@ export class Autopilot implements AutopilotApi {
         count = buf.length >> 1;
       }
     }
+    // départ loin de toute chaussée carrossable (véhicule garé sur une place, une terrasse : Orangerie, à la Concorde) :
+    // la rue la plus proche est parfois en contrebas (voie Georges-Pompidou), au-delà de murs et de grilles, et le tronçon
+    // droit qui y menait butait contre eux (fourgon « bloqué / mur » pour de bon, itinéraire de près de 3 km par les
+    // quais). On suit les allées (chemin d'un piéton vers la destination) jusqu'au premier point d'où une chaussée
+    // carrossable est proche et franche, puis l'itinéraire routier de là
+    if (count >= 2 && Math.hypot(buf[2]! - buf[0]!, buf[3]! - buf[1]!) > ESCAPE_FAR && !legClear(buf[0]!, buf[1]!, buf[2]!, buf[3]!)) {
+      count = this.escapeOffRoad(v, buf, count, start, legClear);
+    }
     // arrivée
     if (count >= 2) {
       const i = (count - 2) * 2;
@@ -357,6 +399,34 @@ export class Autopilot implements AutopilotApi {
           count = buf.length >> 1;
         }
       }
+    }
+    return count;
+  }
+
+  /**
+   * Itinéraire d'un véhicule loin de toute chaussée, dont le tronçon d'accroche est barré : les allées (chemin à pied
+   * vers la destination, tronçons franchissables par le véhicule) jusqu'au premier point d'où l'itinéraire routier
+   * s'accroche à moins de ESCAPE_SNAP m, tout droit, puis cet itinéraire. Inchangé si rien ne convient.
+   */
+  private escapeOffRoad(v: Vehicle, buf: number[], count: number, start: PathStartOptions | undefined,
+    legClear: (ax: number, az: number, bx: number, bz: number, loose?: boolean) => boolean): number {
+    const world = this.k.ctx.world;
+    const ex = buf[count * 2 - 2]!, ez = buf[count * 2 - 1]!;
+    const foot = this.footBuf;
+    if (!world.findPath(buf[0]!, buf[1]!, ex, ez, 'foot', foot) || foot.length < 4) return count;
+    const f = foot.slice();
+    const road = this.escapeBuf;
+    const opts: PathStartOptions = { heading: NaN, uturn: 0, avoid: start?.avoid, contraflow: start?.contraflow ?? 0, minWidth: start?.minWidth ?? v.def.width + 1.2 };
+    let run = 0;
+    for (let i = 2; i < f.length && run < ESCAPE_RUN; i += 2) {
+      if (!legClear(f[i - 2]!, f[i - 1]!, f[i]!, f[i + 1]!, true)) return count;
+      run += Math.hypot(f[i]! - f[i - 2]!, f[i + 1]! - f[i - 1]!);
+      if (!world.findPath(f[i]!, f[i + 1]!, ex, ez, 'vehicle', road, opts) || road.length < 4) continue;
+      if (Math.hypot(road[2]! - road[0]!, road[3]! - road[1]!) > ESCAPE_SNAP || !legClear(road[0]!, road[1]!, road[2]!, road[3]!, true)) continue;
+      buf.length = 0;
+      for (let k = 0; k <= i + 1; k++) buf.push(f[k]!);
+      for (let k = 2; k < road.length; k++) buf.push(road[k]!);
+      return buf.length >> 1;
     }
     return count;
   }

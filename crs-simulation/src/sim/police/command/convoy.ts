@@ -61,6 +61,14 @@ interface Convoy {
   stallZ: number;
   stallAt: number;
   restarts: number;
+  /**
+   * Véhicule de la colonne dont le joueur tient le volant (0 : aucun), sa position quand la colonne est partie, et
+   * prochain rappel radio « on attend votre départ ».
+   */
+  drvId: number;
+  drvX: number;
+  drvZ: number;
+  drvRemindAt: number;
 }
 
 /** Attente maximale du joueur avant que la colonne parte sans lui (s), et intervalle des rappels radio. */
@@ -81,6 +89,12 @@ const PARK_WAIT_JOINING = 720;
 /** Voiture civile arrêtée devant un véhicule de la colonne en urgence : au-delà de tant de secondes, elle est dégagée. */
 const CIVIL_CLEAR = 20;
 const PLAYER_REMIND = 30;
+/**
+ * Véhicule conduit par le joueur : il est sur le point à moins de tant de mètres (comme une tête rendue au repos près du
+ * point), et il a « démarré » au-delà de tant de mètres de sa place de départ (m).
+ */
+const DRIVER_ARRIVE = 90;
+const DRIVER_MOVED = 30;
 
 /**
  * Allure de croisière demandée pour une colonne en urgence (deux tons) ; le pilote automatique la porte à une fois et
@@ -140,7 +154,7 @@ export class ConvoyControl {
         status: { squadId, stage: 'route', vehicles: 0, parked: 0, alignError: -1, headingError: -1, t0: this.core.now, aboard: 0, total: 0, departIn: 0, awaitingPlayer: false, remaining: 0, route: [] },
         vehicles: [], dest: { x: 0, z: 0, heading: 0 }, hasDest: false, exitX: 0, exitZ: 0, hasExit: false, stageT: this.core.now,
         fromX: 0, fromZ: 0, orderDone: false, stragglersAt: 0, boarding: false, waitSince: 0, remindAt: 0, solo: [], unstuckAt: 0, staggerIdx: 0, staggerAt: 0, startX: [], startZ: [], zones: [], zonesAt: 0, routeLen: -1, rerouteAt: 0,
-        stallX: 0, stallZ: 0, stallAt: 0, restarts: 0,
+        stallX: 0, stallZ: 0, stallAt: 0, restarts: 0, drvId: 0, drvX: 0, drvZ: 0, drvRemindAt: 0,
       };
       this.list.push(c);
     }
@@ -366,6 +380,8 @@ export class ConvoyControl {
     c.orderDone = false;
     c.stallAt = 0;
     c.restarts = 0;
+    c.drvId = 0;
+    c.status.awaitingDriver = false;
     c.status.t0 = core.now;
     c.status.parked = 0;
     c.status.alignError = -1;
@@ -458,6 +474,51 @@ export class ConvoyControl {
     const own = p.squadId !== 0 ? ctx.squads.get(p.squadId) : undefined;
     if (own && own.vehicleId !== 0) for (const v of c.vehicles) if (v.id === own.vehicleId) return v.id;
     return c.vehicles[0].id;
+  }
+
+  /** Le joueur tient-il le volant de ce véhicule ? */
+  private isPlayerWheel(v: Vehicle): boolean {
+    const pid = this.core.ctx.player.state.personId;
+    return pid !== 0 && v.seats[0] === pid;
+  }
+
+  /** Véhicule de la colonne (ou parti seul) dont le joueur tient le volant, null sinon. */
+  private playerWheel(c: Convoy): Vehicle | null {
+    for (const v of c.vehicles) if (this.isPlayerWheel(v)) return v;
+    for (const v of c.solo) if (this.isPlayerWheel(v)) return v;
+    return null;
+  }
+
+  /**
+   * Le joueur conduit un véhicule de la colonne (le pilote automatique lui a rendu la main) : tant que ce véhicule
+   * n'est pas arrêté sur le point, la colonne n'est ni arrivée ni bloquée — elle l'attend (en tête, ses suiveurs le
+   * suivent ; suiveur, les autres l'attendent au point) et, tant qu'il n'a pas démarré, le lui rappelle à la radio.
+   * true : on l'attend.
+   */
+  private awaitDriver(c: Convoy, v: Vehicle): boolean {
+    const core = this.core;
+    const now = core.now;
+    if (c.drvId !== v.id) {
+      c.drvId = v.id;
+      c.drvX = v.x;
+      c.drvZ = v.z;
+      c.drvRemindAt = now + 15;
+    }
+    if (Math.hypot(v.x - c.dest.x, v.z - c.dest.z) < DRIVER_ARRIVE && Math.abs(v.speed) < 0.5) {
+      c.status.awaitingDriver = false;
+      return false;
+    }
+    const idle = Math.hypot(v.x - c.drvX, v.z - c.drvZ) < DRIVER_MOVED;
+    c.status.awaitingDriver = idle;
+    if (idle && now >= c.drvRemindAt) {
+      c.drvRemindAt = now + PLAYER_REMIND;
+      const pid = core.ctx.player.state.personId;
+      const p = pid !== 0 ? core.ctx.people.get(pid) : undefined;
+      const own = p && p.squadId !== 0 ? core.ctx.squads.get(p.squadId) : undefined;
+      const squad = core.ctx.squads.get(c.status.squadId);
+      core.say(squad ? squad.name : 'PC', `${own ? own.name : 'Unité'}, vous êtes au volant : on attend votre départ !`, 2, 'unite');
+    }
+    return true;
   }
 
   /**
@@ -607,6 +668,10 @@ export class ConvoyControl {
       if (st.state === 'arrive' || st.state === 'echec' || (st.mode === 'idle' && near) || (near && Math.abs(v.speed) < 0.5 && st.blockedFor > 4)
         || (st.state === 'bloque' && st.blockedFor > 60)) done++;
     }
+    // (le véhicule que conduit le joueur, au repos tant qu'il n'a pas démarré : la colonne l'attend — voir awaitDriver)
+    const pv = this.playerWheel(c);
+    if (!pv) c.status.awaitingDriver = false;
+    else if (this.awaitDriver(c, pv)) return;
     const max = this.routeMax(c, 600);
     if (done < n && now - c.stageT < max) return;
     for (let i = 0; i < n; i++) if (Math.abs(c.vehicles[i]!.speed) > 0.4 && now - c.stageT < max + 20) return;
@@ -640,6 +705,8 @@ export class ConvoyControl {
     if (now >= c.unstuckAt) {
       for (let i = 1; i < c.vehicles.length; i++) {
         const vi = c.vehicles[i]!;
+        // (le véhicule du joueur au volant : le pilote automatique lui rend la main, il n'est ni bloqué ni décroché)
+        if (this.isPlayerWheel(vi)) continue;
         const vs = ap.status(vi);
         // arrêté pour de bon derrière autre chose que son meneur, ou sorti de la colonne (pilote au repos loin du point)
         // (pas pour des personnes devant lui — la foule près du point : la colonne entière l'attend — ni près du point)
@@ -660,7 +727,7 @@ export class ConvoyControl {
       // un véhicule parti seul dont le pilote s'est arrêté loin du point repart
       for (const v of c.solo) {
         const vs = ap.status(v);
-        if (vs.mode === 'idle' && Math.abs(v.speed) < 0.3 && Math.hypot(v.x - c.dest.x, v.z - c.dest.z) > 90) {
+        if (!this.isPlayerWheel(v) && vs.mode === 'idle' && Math.abs(v.speed) < 0.3 && Math.hypot(v.x - c.dest.x, v.z - c.dest.z) > 90) {
           ap.driveTo(v, c.dest.x, c.dest.z, { urgence: true, speed: urgentSpeed(core), stopBefore: 4 + (c.vehicles.length + c.solo.indexOf(v)) * 9, avoid: this.crowdZones(c) });
         }
       }
@@ -693,7 +760,7 @@ export class ConvoyControl {
     }
     // pilote de tête au repos loin du point (rendu la main, itinéraire abandonné) alors qu'il reste de la route : ce n'est
     // pas une arrivée — la colonne repart vers le point (comme un véhicule sorti de la colonne), trois fois au plus
-    if (st.mode === 'idle' && st.state !== 'arrive' && leadToDest > 90 && c.restarts < 3 && now >= c.unstuckAt) {
+    if (st.mode === 'idle' && st.state !== 'arrive' && leadToDest > 90 && c.restarts < 3 && now >= c.unstuckAt && !this.isPlayerWheel(lead)) {
       c.restarts++;
       c.unstuckAt = now + 10;
       for (const v of c.solo) if (c.vehicles.indexOf(v) < 0) c.vehicles.push(v);
@@ -708,6 +775,12 @@ export class ConvoyControl {
     const arrived = st.state === 'arrive' || parkedNear || (st.mode === 'idle' && (leadToDest <= 90 || c.restarts >= 3));
     const max = this.routeMax(c, 420);
     const stuck = st.state === 'echec' || (st.state === 'bloque' && st.blockedFor > 40) || now - c.stageT > max;
+    // le joueur au volant d'un véhicule de la colonne, pas encore sur le point : ni arrivée ni blocage — son pilote au
+    // repos n'est que le joueur qui n'a pas démarré (la colonne se disait « bloquée » au bout de vingt secondes,
+    // débarquait à la caserne et la mission commençait à trois kilomètres de son lieu)
+    const pv = this.playerWheel(c);
+    if (!pv) c.status.awaitingDriver = false;
+    else if (this.awaitDriver(c, pv)) return;
     if (!arrived && !stuck) return;
     // les véhicules partis seuls reprennent leur place pour le stationnement
     for (const v of c.solo) if (c.vehicles.indexOf(v) < 0) c.vehicles.push(v);
@@ -1069,6 +1142,7 @@ export class ConvoyControl {
       st.total = total;
     }
     st.awaitingPlayer = waiting && c.waitSince > 0;
+    if (!moving) st.awaitingDriver = false;
     if (waiting) {
       // l'ordre d'embarquer, puis les retardataires, puis le joueur : la colonne part au plus tard au bout du plus long
       let left = !c.orderDone && now - c.stageT < BOARD_MAX ? BOARD_MAX - (now - c.stageT) : 0;
