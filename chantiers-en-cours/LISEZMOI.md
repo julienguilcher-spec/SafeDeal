@@ -4,19 +4,49 @@ Ce dossier ne fait pas partie du jeu : c'est une sauvegarde du travail des agent
 redémarrage ou une perte de la machine de travail ne le fasse pas disparaître. Il sera supprimé quand chaque
 chantier aura été intégré dans `crs-simulation/`, testé et publié.
 
-| Fichier | Chantier | Base (commit) | État à la sauvegarde |
+État au 18 novembre, 14 h 55 (heure de Paris 15 h 55). Le jeu publié est la **version 20** (commit `66e72f6`).
+
+## Correctifs et chantiers
+
+| Fichier | Chantier | Base | État à la sauvegarde |
 |---|---|---|---|
-| `commissariats.patch` | Commissariats dessinés, envoi des unités | `2365d2b` | TERMINÉ dans son espace (paquets, intégration, test en joueur : `critique-commissariats.json`) |
-| `commissariats-delta-A.patch` | Les seuls ajouts du chantier des commissariats par rapport à « 2365d2b + refonte du commandement » (instantané de 12 h 44) | à appliquer en `git apply --3way` sur la branche principale (`52e9d92`) | fusion en cours (5 fichiers en conflit, script `workflow-fusion-commissariats.js`) ; `commissariats-delta-B.patch` = les dernières retouches du joueur critique (3 fichiers), à appliquer ensuite |
+| `commandant-carte-2.patch` | Campagne du commandant, tour 2 : fiche honnête pour « Interpeller » (auteur en fuite, pas de fait constaté) et pour « Toute la compagnie » (la colonne attend le commandant à pied) | branche principale (`52e9d92` et suivants) | RELU ET VALIDÉ ; appliqué dans l'arbre de travail, suite complète en cours avant enregistrement |
+| `fusion-commissariats.patch` | Commissariats fusionnés avec la version actuelle (instantané de l'arbre de fusion) | `52e9d92` | conflits résolus, compile ; vérification croisée simulation + interface en cours, puis suite complète |
+| `commissariats-delta-B.patch` | Dernières retouches du joueur critique des commissariats (3 fichiers) | à appliquer en `--3way` sur l'arbre de fusion, après la vérification croisée | à appliquer |
+| `commissariats.patch`, `commissariats-delta-A.patch` | Le chantier des commissariats dans son espace d'origine (complet, base `2365d2b`) et ses seuls ajouts par rapport à « 2365d2b + refonte du commandement » | voir colonne 1 | TERMINÉ (paquets, intégration, test en joueur) ; sert de référence à la fusion |
+| `colonne-tete-bloquee.patch` | Colonne arrêtée pour de bon derrière sa tête bloquée contre un mur ; réseau radio saturé ; point inaccessible sans message ; sirène | branche principale + `commandant-carte-2.patch` | brouillon du chasseur, en cours |
+| `commandant-mission.patch` | La partie du joueur : commandant en mode Missions spéciales, aucun ordre possible à l'arrivée, personne ne suit, BRAV-M immobile | branche principale + `commandant-carte-2.patch` | brouillon du chasseur, en cours |
+| `ordres-directs/` | Diagnostic du retour du joueur et conception des ordres directs sur le terrain, des unités « avec moi », de la réactivité, des fourgons cellulaires et du circuit des interpellés | documents | diagnostic « terrain » écrit ; les deux autres diagnostics, les trois propositions, la synthèse et la critique sont en cours |
 
-Reprendre un chantier : `git worktree add --detach <dossier> <base>` puis, dans ce dossier,
-`git apply --3way chantiers-en-cours/<chantier>.patch`.
+## Reprendre
 
-`restes-a-faire.md` : la liste des défauts connus à traiter dans un dernier lot.
+- Un correctif : `git worktree add --detach <dossier> <base>` puis, dans ce dossier,
+  `git apply --3way chantiers-en-cours/<chantier>.patch`. Pour les deux brouillons basés sur « branche principale +
+  `commandant-carte-2.patch` », appliquer d'abord `commandant-carte-2.patch`.
+- Les scripts d'orchestration (`workflow-*.js`) se relancent avec l'outil Workflow (`scriptPath`) et les mêmes
+  arguments ; les chasseurs reprennent le brouillon trouvé dans leur arbre de travail.
+- Ordre d'intégration prévu : `commandant-carte-2` → `colonne-tete-bloquee` et `commandant-mission` (chacun : suite
+  complète, scénarios navigateur, publication) → fusion des commissariats + `commissariats-delta-B` → réalisation des
+  ordres directs et du circuit des interpellés sur la base fusionnée (cahier des charges
+  `ordres-directs/design-ordres-directs.md` quand il sera écrit).
 
-Autres fichiers : les plans (`plan-commissariats.md`, `design-commande.md`), les comptes rendus des paquets terminés
-(`rapports-paquets-*.json`) et les deux scripts d'orchestration (`workflow-*.js`).
+## Autres fichiers
+
+- `restes-a-faire.md` : la liste des défauts connus à traiter dans un dernier lot.
+- `design-commande.md` : cahier des charges de la carte de commandement (intégrée en version 18).
+- `plan-commissariats.md`, `rapports-paquets-commissariats.json`, `rapport-integration-commissariats.json`,
+  `critique-commissariats.json` : plan et comptes rendus du chantier des commissariats.
+
+## Ce que le joueur a demandé le 18 novembre (à livrer)
+
+> « Je suis arrivé sur une manifestation, c'était n'importe quoi. Je pouvais donner zéro ordre, ils ne suivaient pas.
+> La BRAV-M, j'arrivais pas à leur donner d'ordre aussi, ils bougeaient pas. […] Pour l'escorte aussi, c'est encore un
+> peu flou. J'interpelle des gens, mais je sais même pas où les mettre. Il n'y a même pas de wagon pénitentiaire. Il
+> faut toujours qu'il y ait quelques wagons pour pouvoir mettre les interpellés qui les emmènent au commissariat. Mais
+> surtout, c'était pas du tout assez réactif, on comprenait rien. Les CRS, ils me suivent, mais ils n'ont pas d'ordre.
+> Il faut vraiment que tu simplifies ce process où je peux donner directement des ordres et ils y vont direct. »
+
+Il jouait **commandant, en mode Missions spéciales**.
 
 Déjà intégrés et retirés d'ici : l'accueil en quatre modes, les véhicules garés en bloc, les fins de trajet de colonne,
-la refonte de la carte de commandement (son cahier des charges `design-commande.md` reste ici : le chantier des
-commissariats s'y réfère).
+la refonte de la carte de commandement, la lisibilité de la carte, le premier tour de la campagne du commandant.

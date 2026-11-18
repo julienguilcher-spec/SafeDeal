@@ -155,7 +155,10 @@ phase('Paquets')
 const reports = await Promise.all(packages.map((p) => run(p).then((r) => ({ key: p.key, title: p.title, report: r }))))
 
 phase('Intégration')
-let integ = await agent(integPrompt(reports), { label: `intégration:${feature}`, phase: 'Intégration', schema: INTEG_SCHEMA, model: MODEL })
+// intégration déjà faite lors d'un lancement précédent (coupé par un redémarrage) : on passe directement au joueur critique
+let integ = args.integrationReportFile
+  ? { note: 'The integration was finished in an earlier run. The integrator\'s full report is in the JSON file ' + args.integrationReportFile + ' under the key « intégration:' + feature + ' » — read it first.' }
+  : await agent(integPrompt(reports), { label: `intégration:${feature}`, phase: 'Intégration', schema: INTEG_SCHEMA, model: MODEL })
 if (!integ) integ = await agent(integPrompt(reports), { label: `intégration:${feature}:reprise`, phase: 'Intégration', schema: INTEG_SCHEMA, model: MODEL })
 
 phase('Joueur critique')

@@ -1,0 +1,508 @@
+diff --git a/crs-simulation/src/gameplay/missions/objectives.ts b/crs-simulation/src/gameplay/missions/objectives.ts
+index cf0917f..67c00f1 100644
+--- a/crs-simulation/src/gameplay/missions/objectives.ts
++++ b/crs-simulation/src/gameplay/missions/objectives.ts
+@@ -86,11 +86,16 @@ export interface EvalEnv {
+    * elles sont la prémisse de la mission et ne comptent pas parmi les blessés reprochés au joueur.
+    */
+   staged?: ReadonlySet<EntityId>;
++  /**
++   * Blessés de la foule déjà comptés au début de la mission (journée de service : le cortège part pendant le trajet en
++   * colonne depuis la caserne) : la mission ne juge que ce qui arrive après son début.
++   */
++  injuredAtStart?: number;
+ }
+ 
+ /** Blessés de la foule, hors victimes mises en scène par la mission. */
+ export function crowdInjured(env: EvalEnv): number {
+-  const n = env.ctx.director.stats.injured;
++  const n = Math.max(0, env.ctx.director.stats.injured - (env.injuredAtStart ?? 0));
+   if (!env.staged || env.staged.size === 0) return n;
+   let k = 0;
+   for (const id of env.staged) {
+diff --git a/crs-simulation/src/gameplay/missions/system.ts b/crs-simulation/src/gameplay/missions/system.ts
+index a40f290..07da94c 100644
+--- a/crs-simulation/src/gameplay/missions/system.ts
++++ b/crs-simulation/src/gameplay/missions/system.ts
+@@ -150,6 +150,13 @@ export class MissionSystem implements GameSystem {
+   private readonly casualtiesFor = new Set<string>();
+   /** Victimes mises en scène (prémisse de la mission : non reprochées au joueur dans les blessés). */
+   private readonly staged = new Set<EntityId>();
++  /**
++   * Agents des forces déjà blessés au début de la mission (journée de service : chute d'une moto de la BRAV-M pendant le
++   * trajet, foyer secondaire à l'autre bout de Paris) : la mission ne les reproche pas au joueur. Relevé de la recette
++   * du commandant : « Nuit des vitrines » échouait au premier pas après l'arrivée (« Trop de blessés parmi vos agents »,
++   * dix motards légèrement blessés pendant le trajet), avant qu'il ait pu donner un seul ordre.
++   */
++  private readonly hurtBefore = new Set<EntityId>();
+   /** Groupe du joueur exécutant retenu pour l'objectif de la mission (0 : aucun). */
+   private pinnedId = 0;
+   /** Poste du groupe pas encore donné (le groupe débarque encore), et instant du début de l'attente (−1 : aucune). */
+@@ -207,6 +214,7 @@ export class MissionSystem implements GameSystem {
+     this.unpin();
+     this.casualtiesFor.clear();
+     this.staged.clear();
++    this.hurtBefore.clear();
+     this.aleas.reset();
+     this.waitSince = -1;
+     this.postSince = -1;
+@@ -242,7 +250,9 @@ export class MissionSystem implements GameSystem {
+       isCommander: def.role === 'commandant' || def.role === 'chef_groupe',
+       scratch: [] as Person[],
+       staged: this.staged,
++      injuredAtStart: ctx.director.stats.injured,
+     };
++    for (const p of ctx.people.list) if (p.faction === 'police' && p.injury !== 'none') this.hurtBefore.add(p.id);
+     this.runs = def.objectives.map((o) => ({
+       def: o,
+       state: 'actif' as const,
+@@ -651,7 +661,7 @@ export class MissionSystem implements GameSystem {
+   /** Agents des forces de l'ordre blessés (même légèrement), comme la foule compte ses blessés. */
+   private policeInjured(): number {
+     let n = 0;
+-    for (const p of this.ctx!.people.list) if (p.faction === 'police' && p.injury !== 'none' && !this.staged.has(p.id)) n++;
++    for (const p of this.ctx!.people.list) if (p.faction === 'police' && p.injury !== 'none' && !this.staged.has(p.id) && !this.hurtBefore.has(p.id)) n++;
+     return n;
+   }
+ 
+diff --git a/crs-simulation/src/sim/police/command/api.ts b/crs-simulation/src/sim/police/command/api.ts
+index ca125b6..2f826dd 100644
+--- a/crs-simulation/src/sim/police/command/api.ts
++++ b/crs-simulation/src/sim/police/command/api.ts
+@@ -475,6 +475,11 @@ export interface CommandApi {
+   /** Rembarquement, puis départ en colonne vers `exit` s'il est fourni. */
+   depart(squadId: number, exit?: { x: number; z: number }): boolean;
+   convoyOf(squadId: number): ConvoyStatus | null;
++  /**
++   * Le joueur donne un ordre à cette unité (carte, roue, bloc « ORDRES ») : la colonne en cours d'arrivée dont elle fait
++   * partie ne lui donnera plus l'ordre de débarquer en fin de trajet (il remplacerait le sien).
++   */
++  takeOver?(squadId: number): void;
+ }
+ 
+ export type { Squad };
+diff --git a/crs-simulation/src/sim/police/command/bravm.ts b/crs-simulation/src/sim/police/command/bravm.ts
+index 159e617..d670f52 100644
+--- a/crs-simulation/src/sim/police/command/bravm.ts
++++ b/crs-simulation/src/sim/police/command/bravm.ts
+@@ -59,6 +59,14 @@ const REJOIN_GAP = 10;
+ const REJOIN_MAX = 12;
+ /** Opérateurs à moins de tant de mètres de leurs machines : ils y montent directement (embarquement), sans colonne à pied (m). */
+ const MOUNT_REACH = 40;
++/**
++ * Tête de colonne arrêtée au milieu de la foule (au moins CROWD_AROUND manifestants à moins de CROWD_RADIUS m) depuis
++ * CROWD_STUCK s sans avoir avancé de 3 m : les motos ne fendent pas une foule — pied à terre, la suite se fait à pied
++ * (m, nombre, s).
++ */
++const CROWD_RADIUS = 15;
++const CROWD_AROUND = 6;
++const CROWD_STUCK = 8;
+ 
+ /** L'unité est-elle un groupe de BRAV-M (au moins un binôme subordonné doté d'une moto, ou binôme isolé) ? */
+ export function isBravmGroup(core: CommandCore, s: Squad): boolean {
+@@ -110,6 +118,10 @@ export class BravmUnit extends SpecialUnit {
+   private arrestOk = false;
+   private arrestReason = '';
+   private arrested = 0;
++  /** Tête de colonne au milieu de la foule : dernière position où elle avançait et depuis quand (voir CROWD_STUCK). */
++  private crowdX = 0;
++  private crowdZ = 0;
++  private crowdAt = -1;
+   /** Interception loin d'opérateurs à pied : ils remontent d'abord en selle, puis la colonne roule vers l'objectif. */
+   private rideAfterRemount = false;
+   /** Ordre à exécuter une fois le pied à terre fait (manœuvre à pied laissée au module de police). */
+@@ -370,9 +382,17 @@ export class BravmUnit extends SpecialUnit {
+     this.standZ = sz;
+     this.slow = false;
+     if (Math.hypot(sx - lead.x, sz - lead.z) < 8) {
++      // foule sur tout l'itinéraire, jusqu'aux machines (BRAV-M arrivée avec la colonne au milieu du rassemblement) : le
++      // point d'arrêt retombait sur la tête, et la colonne se disait « en position » sans avoir bougé, à cent cinquante
++      // mètres du point — « la BRAV-M, ils bougeaient pas ». Pied à terre : l'ordre est exécuté à pied.
++      if (Math.hypot(x - lead.x, z - lead.z) > RIDE_STANDOFF + 8 && core.ctx.people.countIn(lead.x, lead.z, CROWD_RADIUS, isProtester) >= CROWD_AROUND) {
++        this.crowdDismount();
++        return;
++      }
+       this.arrived();
+       return;
+     }
++    this.crowdAt = -1;
+     this.relaunches = 0;
+     this.rejoinAt = -1;
+     // trajet à travers la ville : en urgence, les fermetures de rue de la police sont franchies (arrêtée devant un
+@@ -535,6 +555,16 @@ export class BravmUnit extends SpecialUnit {
+     const st = ap.status(lead);
+     const d = Math.hypot(this.standX - lead.x, this.standZ - lead.z);
+     const stopped = Math.abs(lead.speed) < 0.4;
++    // tête arrêtée au milieu de la foule (le pilote automatique attend que les manifestants s'écartent, indéfiniment) :
++    // pied à terre, la suite à pied (voir CROWD_STUCK)
++    if (this.crowdAt < 0 || Math.hypot(lead.x - this.crowdX, lead.z - this.crowdZ) > 3) {
++      this.crowdX = lead.x;
++      this.crowdZ = lead.z;
++      this.crowdAt = now;
++    } else if (now - this.crowdAt > CROWD_STUCK && d > RIDE_STANDOFF && core.ctx.people.countIn(lead.x, lead.z, CROWD_RADIUS, isProtester) >= CROWD_AROUND) {
++      this.crowdDismount();
++      return;
++    }
+     // tête arrêtée loin du point (circulation, rue encombrée, pilote automatique arrêté) : la colonne n'est pas
+     // « arrivée » — elle repart par un nouvel itinéraire (voir RIDE_FAR) ; le délai de route ne joue que près du point
+     const far = d > RIDE_FAR && this.relaunches < RELAUNCH_MAX;
+@@ -630,6 +660,17 @@ export class BravmUnit extends SpecialUnit {
+ 
+   // ───────────────────────────── pied à terre ─────────────────────────────
+ 
++  /**
++   * Colonne prise dans la foule : les motos s'arrêtent, les opérateurs mettent pied à terre et l'ordre continue à pied
++   * (déplacement : colonne à pied jusqu'au point ; interception : approche à pied), annoncé à la radio.
++   */
++  private crowdDismount(): void {
++    this.stopMotos();
++    this.crowdAt = -1;
++    this.say(report(this.superior(), this.squad.name, 'Foule sur l’itinéraire, les motos ne passent pas. Pied à terre, je continue à pied'));
++    this.dismount();
++  }
++
+   /** Tous les opérateurs descendent dans le même pas (les pilotes gardent les machines). */
+   private dismount(): void {
+     const core = this.core;
+diff --git a/crs-simulation/src/sim/police/command/convoy.ts b/crs-simulation/src/sim/police/command/convoy.ts
+index 8f83986..e0598e4 100644
+--- a/crs-simulation/src/sim/police/command/convoy.ts
++++ b/crs-simulation/src/sim/police/command/convoy.ts
+@@ -116,11 +116,48 @@ export class ConvoyControl {
+   private readonly headBuf: number[] = [];
+   private readonly roadBuf: RoadSample = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '', roadClass: 'residential', oneway: false };
+ 
++  /**
++   * Unités d'une colonne en cours d'arrivée (par colonne) que le joueur a commandées pendant le trajet ou le
++   * stationnement : le débarquement de fin de trajet ne leur est plus donné. Relevé de la recette du commandant en
++   * mission (« Nuit des vitrines ») : la mission commence quand il arrive, la colonne se gare encore ; il fait barrer une
++   * rue, repousser la foule, « Suivez-moi à pied »… et une minute plus tard le « débarquez » de la colonne remplaçait
++   * tous ces ordres : les sections s'arrêtaient, sans ordre, là où elles étaient.
++   */
++  private readonly taken = new Map<number, Set<number>>();
++
+   constructor(private readonly core: CommandCore) {}
+ 
+   reset(): void {
+     this.list.length = 0;
+     this.thinkAt = 0;
++    this.taken.clear();
++  }
++
++  /** Le joueur donne un ordre à cette unité : retenue pour la colonne en cours d'arrivée dont elle fait partie. */
++  takeOver(squadId: number): void {
++    for (let i = 0; i < this.list.length; i++) {
++      const c = this.list[i];
++      if ((c.status.stage !== 'route' && c.status.stage !== 'stationnement') || !this.core.isUnder(squadId, c.status.squadId)) continue;
++      let set = this.taken.get(c.status.squadId);
++      if (!set) this.taken.set(c.status.squadId, (set = new Set<number>()));
++      set.add(squadId);
++    }
++  }
++
++  /**
++   * Débarquement de fin de trajet donné aux seules branches de la colonne que le joueur n'a pas commandées (l'ordre
++   * donné plus haut reprendrait sinon toute la descendance) : les unités qui ont ses ordres les exécutent.
++   */
++  private disembarkRest(squadId: number, taken: ReadonlySet<number>, order: Parameters<CommandCore['issue']>[1]): void {
++    if (taken.has(squadId)) return;
++    let mixed = false;
++    for (const id of taken) if (this.core.isUnder(id, squadId)) { mixed = true; break; }
++    if (!mixed) {
++      this.core.issue(squadId, { ...order });
++      return;
++    }
++    const kids = this.core.ctx.squads.childrenOf(squadId);
++    for (let i = 0; i < kids.length; i++) this.disembarkRest(kids[i].id, taken, order);
+   }
+ 
+   of(squadId: number): Convoy | null {
+@@ -374,6 +411,7 @@ export class ConvoyControl {
+     const squad = core.ctx.squads.get(squadId);
+     if (!squad) return false;
+     const c = this.obtain(squadId);
++    this.taken.delete(squadId);
+     c.dest = { ...dest };
+     c.hasDest = true;
+     c.routeLen = -1;
+@@ -989,7 +1027,16 @@ export class ConvoyControl {
+     }
+     c.orderDone = false;
+     const squad = core.ctx.squads.get(c.status.squadId);
+-    core.issue(c.status.squadId, { type: 'debarquer', x: lx, z: lz, heading: lh, width: 0, issuedBy: squad ? squad.leaderId : 0 });
++    const order = { type: 'debarquer' as const, x: lx, z: lz, heading: lh, width: 0, issuedBy: squad ? squad.leaderId : 0 };
++    const taken = this.taken.get(c.status.squadId);
++    this.taken.delete(c.status.squadId);
++    if (taken && taken.size > 0) {
++      // le joueur a déjà commandé une partie de la colonne : le reste débarque, ses ordres tiennent
++      this.disembarkRest(c.status.squadId, taken, order);
++      this.setStage(c, 'en_place');
++      return;
++    }
++    core.issue(c.status.squadId, order);
+     this.setStage(c, 'debarquement');
+   }
+ 
+diff --git a/crs-simulation/src/sim/police/command/system.ts b/crs-simulation/src/sim/police/command/system.ts
+index c7a2b3d..ca75d66 100644
+--- a/crs-simulation/src/sim/police/command/system.ts
++++ b/crs-simulation/src/sim/police/command/system.ts
+@@ -124,6 +124,7 @@ export class CommandSystem implements GameSystem {
+       arrive: (id, dest) => this.convoy.arrive(id, dest),
+       depart: (id, exit) => this.convoy.depart(id, exit),
+       convoyOf: (id) => this.convoy.statusOf(id),
++      takeOver: (id) => this.convoy.takeOver(id),
+     };
+     const post: CommandPost = {
+       get atVehicle(): boolean { return self.postState(0); },
+diff --git a/crs-simulation/src/ui/command/core.ts b/crs-simulation/src/ui/command/core.ts
+index 74c0e7a..2e36226 100644
+--- a/crs-simulation/src/ui/command/core.ts
++++ b/crs-simulation/src/ui/command/core.ts
+@@ -194,6 +194,8 @@ export class CommandCore implements CommandApi {
+       const g = geoms ? geoms[geoms.length === 1 ? 0 : i] : undefined;
+       // un nouvel ordre annule celui qui attendait le débarquement d'une colonne précédente (motorize le repose au besoin)
+       this.afterConvoy.delete(s.id);
++      // colonne de la journée encore en route ou qui se gare : son « débarquez » de fin de trajet ne remplacera pas cet ordre
++      ctx.service<{ takeOver?(id: number): void }>('police.command')?.takeOver?.(s.id);
+       // voiture de patrouille (Police secours, BAC) : elle roule déjà, elle se rend elle-même sur le point en urgence
+       // (service 'police.patrols') — ni colonne, ni débarquement ; « Faire mouvement » vaut « Avancer jusqu'à »
+       // « Me suivre en colonne (véhicules) » / « Me suivre à pied » (session/follow.ts)
+diff --git a/crs-simulation/tests/unit/playtest.cdt-explore.test.ts b/crs-simulation/tests/unit/playtest.cdt-explore.test.ts
+new file mode 100644
+index 0000000..c42f29a
+--- /dev/null
++++ b/crs-simulation/tests/unit/playtest.cdt-explore.test.ts
+@@ -0,0 +1,232 @@
++// Exploration (temporaire) : commandant en mission, de « Lancer la mission » aux premiers ordres.
++import { describe, it } from 'vitest';
++import type { GameContext, GameSystem, ModuleFactory, Person, SessionConfig, Vehicle } from '@/core/contracts';
++import { EXT } from '@/core/extensions';
++import type { ObjectivesApi } from '@/core/extensions';
++import { createTestContext } from '@/core/testing';
++import { createSystems as env } from '@/env';
++import { createWorldQuerySystems } from '@/world/query';
++import { createSystems as roles } from '@/sim/roles';
++import { createSystems as people } from '@/sim/people';
++import { createSystems as vehicles } from '@/sim/vehicles';
++import { createSystems as traffic } from '@/sim/traffic';
++import { createSystems as crowd } from '@/sim/crowd';
++import { createSystems as police } from '@/sim/police';
++import { createSystems as items } from '@/sim/items';
++import { createSystems as props } from '@/sim/props';
++import { createSystems as hazards } from '@/sim/hazards';
++import { createSystems as law } from '@/gameplay/law';
++import { createSystems as radio } from '@/gameplay/radio';
++import { createSystems as incidents } from '@/gameplay/incidents';
++import { createSystems as rescue } from '@/sim/roles/rescue';
++import { createSystems as medics } from '@/sim/roles/medics';
++import { createSystems as session } from '@/gameplay/session';
++import { createSystems as missions, missionConfig } from '@/gameplay/missions';
++import type { MissionsApi } from '@/gameplay/missions';
++import { JOURNEE_SERVICE } from '@/gameplay/session';
++import type { JourneeApi } from '@/gameplay/session';
++import { MISSIONS } from '@/gameplay/missions/catalog';
++import { createObjectives } from '@/ui/core/objectives';
++import { pickMission } from '@/ui/screens/home-panes-a';
++import type { HomeModel } from '@/ui/screens/home';
++import { buildSessionConfig, defaultDraft, sanitizeDraft } from '@/ui/screens/scenario';
++import type { ScenarioDraft } from '@/ui/screens/scenario';
++import { readMissions } from '@/ui/screens/services';
++import { createSystems as maps } from '@/ui/maps';
++import { createSystems as command } from '@/ui/command';
++import type { CommandCore } from '@/ui/command';
++
++const objectives: ModuleFactory = () => [{ id: 'test.objectives', order: 0, provide(ctx: GameContext) { ctx.provide(EXT.objectives, createObjectives()); } } as GameSystem];
++const world: ModuleFactory = () => createWorldQuerySystems({ source: 'paris' });
++const SIM = [env, world, roles, people, vehicles, traffic, crowd, police, items, props, hazards, law, radio, incidents, rescue, medics, session, missions, objectives, maps, command];
++
++function launchFromSheet(ctx: GameContext, id: string): SessionConfig {
++  const draft: ScenarioDraft = defaultDraft();
++  const model = {
++    draft,
++    update(patch: Partial<ScenarioDraft>) { Object.assign(draft, sanitizeDraft({ ...draft, ...patch }, draft)); },
++    replace(next: ScenarioDraft) { Object.assign(draft, sanitizeDraft(next, draft)); },
++  } as unknown as HomeModel;
++  const catalog = readMissions({ catalog: MISSIONS.map((m) => ({ id: m.id, title: m.title, roles: [m.role, ...m.altRoles], type: m.type, difficulty: m.difficulty, summary: m.pitch, place: m.place, config: missionConfig(m, ctx.world) })) });
++  pickMission(model, catalog.find((m) => m.id === id)!);
++  return buildSessionConfig(draft);
++}
++
++function walk(ctx: GameContext, me: Person, x: number, z: number, dist: number, path: number[]): void {
++  if (me.vehicleId !== 0 || Math.hypot(x - me.x, z - me.z) < 1) return;
++  path.length = 0;
++  if (!ctx.world.findPath(me.x, me.z, x, z, 'foot', path) || path.length < 4) return;
++  let left = dist;
++  for (let i = 2; i < path.length && left > 0; i += 2) {
++    const dx = path[i]! - me.x, dz = path[i + 1]! - me.z;
++    const l = Math.hypot(dx, dz);
++    if (l <= left) { me.x = path[i]!; me.z = path[i + 1]!; left -= l; } else { me.x += (dx / l) * left; me.z += (dz / l) * left; left = 0; }
++  }
++}
++
++function drive(ctx: GameContext, v: Vehicle, x: number, z: number, dist: number, path: number[]): void {
++  if (Math.hypot(x - v.x, z - v.z) < 8) { v.speed = 0; v.vx = 0; v.vz = 0; return; }
++  path.length = 0;
++  if (!ctx.world.findPath(v.x, v.z, x, z, 'vehicle', path) || path.length < 4) return;
++  let left = dist;
++  for (let i = 2; i < path.length && left > 0; i += 2) {
++    const dx = path[i]! - v.x, dz = path[i + 1]! - v.z;
++    const l = Math.hypot(dx, dz);
++    if (l < 0.01) continue;
++    v.heading = Math.atan2(dx, dz);
++    if (l <= left) { v.x = path[i]!; v.z = path[i + 1]!; left -= l; } else { v.x += (dx / l) * left; v.z += (dz / l) * left; left = 0; }
++  }
++  const s = Math.hypot(x - v.x, z - v.z) < 8 ? 0 : dist;
++  v.speed = s; v.vx = Math.sin(v.heading) * s; v.vz = Math.cos(v.heading) * s;
++  const me = ctx.player.person();
++  if (me) { me.x = v.x; me.z = v.z; }
++}
++
++const ID = process.env.CDT ?? 'cdt-02-le-precortege';
++const MODE = (process.env.ARR ?? 'passenger') as 'passenger' | 'driver' | 'walk';
++
++describe('explore', () => {
++  it(`${ID} ${MODE}`, async () => {
++    const t = createTestContext({ seed: 7, strict: false, modules: SIM });
++    await t.ready;
++    const { ctx } = t;
++    const cfg = launchFromSheet(ctx, ID);
++    cfg.crowdSize = Math.min(cfg.crowdSize ?? 300, 300);
++    console.log('cfg', JSON.stringify({ place: cfg.place, x: cfg.x, z: cfg.z, extra: cfg.extra }).slice(0, 800));
++    await t.start(cfg);
++    const m = ctx.service<MissionsApi>('missions')!;
++    const obj = ctx.service<ObjectivesApi>(EXT.objectives)!;
++    const j = ctx.service<JourneeApi>(JOURNEE_SERVICE)!;
++    const core = ctx.service<CommandCore>('ui.command')!;
++    const cmd = ctx.service<any>('police.command')!;
++    const path: number[] = [];
++    const stages: string[] = [];
++    let s = 0;
++    for (; s < 1200 && m.phaseIndex < 0; s++) {
++      t.step(1);
++      const me = ctx.player.person()!;
++      if (!stages.includes(j.stage)) { stages.push(j.stage); console.log(`t=${s} journée ${j.stage} joueur (${me.x.toFixed(0)},${me.z.toFixed(0)}) veh ${me.vehicleId} dest ${j.destination ? `${j.destination.x.toFixed(0)},${j.destination.z.toFixed(0)}` : '-'}`); }
++      if (MODE === 'walk' && j.destination && s > 5) {
++        if (me.vehicleId !== 0) ctx.vehicles.exit(me);
++        walk(ctx, me, j.destination.x, j.destination.z, 4, path);
++        continue;
++      }
++      if (me.vehicleId === 0) {
++        const e = obj.list.find((o) => o.state === 'actif' && /^Embarquez/.test(o.text) && o.x !== undefined);
++        if (!e) continue;
++        walk(ctx, me, e.x!, e.z!, 4, path);
++        const v = ctx.vehicles.list.find((x) => Math.hypot(x.x - e.x!, x.z - e.z!) < 6 && Math.hypot(x.x - me.x, x.z - me.z) < 6);
++        if (!v) continue;
++        if (MODE === 'driver') { if (v.seats[0] !== 0 && v.seats[0] !== me.id) { const d = ctx.people.get(v.seats[0]!); if (d) ctx.vehicles.exit(d); } ctx.vehicles.enter(me, v); }
++        else ctx.vehicles.enter(me, v, 'passenger');
++        console.log(`t=${s} embarqué véh ${me.vehicleId} ${ctx.vehicles.get(me.vehicleId)?.kind}`);
++        continue;
++      }
++      const v = ctx.vehicles.get(me.vehicleId)!;
++      if (MODE === 'driver' && v.seats[0] === me.id && j.destination) drive(ctx, v, j.destination.x, j.destination.z, 9, path);
++    }
++    const me = ctx.player.person()!;
++    console.log(`MISSION ${m.phaseIndex >= 0 ? 'commencée' : 'NON'} à s=${s} ; journée ${j.stage} ; joueur (${me.x.toFixed(0)},${me.z.toFixed(0)}) veh ${me.vehicleId}`);
++    { const inj = ctx.people.list.filter((p) => p.faction === 'police' && p.injury !== 'none'); console.log(`blessés police ${inj.length} : ${inj.slice(0, 12).map((p) => `${ctx.squads.get(p.squadId)?.name ?? '-'}:${p.injury} à ${Math.hypot(p.x - me.x, p.z - me.z).toFixed(0)} m`).join(', ')} ; foule blessés ${ctx.director.stats.injured}`); }
++    const sc = core.scope();
++    console.log(`scope ${sc.level} own ${sc.ownSquadId} ${ctx.squads.get(sc.ownSquadId)?.name} n=${sc.squadIds.size} followUnit=${core.followUnit()?.name}`);
++    const dump = (label: string) => {
++      console.log(`-- ${label} t=${ctx.clock.now.toFixed(0)} journée ${j.stage}`);
++      for (const q of ctx.squads.list) {
++        if (q.faction !== 'police') continue;
++        const L = ctx.people.get(q.leaderId);
++        let aboard = 0, moving = 0;
++        for (const id of q.members) { const p = ctx.people.get(id); if (!p) continue; if (p.vehicleId) aboard++; if (Math.hypot(p.vx ?? 0, p.vz ?? 0) > 0.3) moving++; }
++        const cv = cmd.convoyOf(q.id);
++        const d = L ? Math.hypot(L.x - me.x, L.z - me.z) : -1;
++        console.log(`  ${q.id} ${q.kind} ${q.name} par ${q.parentId} ordre ${q.order.type} n=${q.members.length} bord ${aboard} bouge ${moving} d=${d.toFixed(0)} cv ${cv ? cv.stage + (cv.awaitingPlayer ? ' AP' : '') + (cv.awaitingDriver ? ' AD' : '') : '-'} aC ${core.afterConvoy.has(q.id) ? core.afterConvoy.get(q.id)!.type : '-'}`);
++      }
++    };
++    dump('arrivée');
++    const { cardEnvFromCore, pointRepere } = await import('@/ui/command/reperes');
++    const { buildCard, intentCandidates } = await import('@/ui/command/intents');
++    const { defaultWho, proposeWho, whoEnvFromCore, wholeCandidate } = await import('@/ui/command/bestUnit');
++    const { sendCardLine } = await import('@/ui/command/sendLine');
++    const { TacticalMap } = await import('@/ui/command/tacticalMap');
++    const { TacticalState } = await import('@/ui/command/tacticalState');
++    const state = new TacticalState();
++    const tmap = new TacticalMap(core, { handlers: null } as any, state);
++    const sendEnv = (card: any): any => ({ core, map: tmap, setSelection: (ids: number[]) => state.setSelection(ids), card, trace: null });
++    const subtree = (ids: readonly number[]): number[] => { const out = new Set<number>(); const add = (id: number) => { if (out.has(id)) return; out.add(id); for (const q of ctx.squads.list) if (q.parentId === id) add(q.id); }; ids.forEach(add); return [...out]; };
++    const posOf = (pid: number) => { const p = ctx.people.get(pid)!; const v = p.vehicleId ? ctx.vehicles.get(p.vehicleId) : undefined; return v ? { x: v.x, z: v.z } : { x: p.x, z: p.z }; };
++    interface Att { label: string; ok: boolean; text: string; squads: number[]; t0: number; start: Map<number, { x: number; z: number }>; moved: number; target?: { x: number; z: number } }
++    const atts: Att[] = [];
++    const track = (label: string, ok: boolean, text: string, squads: number[], target?: { x: number; z: number }) => {
++      const start = new Map<number, { x: number; z: number }>();
++      for (const id of subtree(squads)) for (const m of ctx.squads.get(id)?.members ?? []) if (m !== me.id) start.set(m, posOf(m));
++      atts.push({ label, ok, text, squads, t0: ctx.clock.now, start, moved: -1, target });
++      console.log(`>> t+${(ctx.clock.now - tArr).toFixed(0)} ${label} : ${ok ? 'ACCEPTÉ' : 'REFUSÉ'} « ${text} » → ${squads.map((i) => ctx.squads.get(i)?.name).join(', ')}`);
++    };
++    const describeSq = (ids: number[], target?: { x: number; z: number }) => subtree(ids).filter((id) => (ctx.squads.get(id)?.members.length ?? 0) > 0).map((id) => {
++      const q = ctx.squads.get(id)!; let ab = 0; let dx = 0, dz = 0;
++      for (const m of q.members) { const p = ctx.people.get(m)!; if (p.vehicleId) ab++; const ps = posOf(m); dx += ps.x; dz += ps.z; }
++      dx /= q.members.length; dz /= q.members.length;
++      const cv = cmd.convoyOf(id);
++      return `${q.name}[${q.order.type}${ab ? ` bord ${ab}/${q.members.length}` : ''} dJ ${Math.hypot(dx - me.x, dz - me.z).toFixed(0)}${target ? ` dT ${Math.hypot(dx - target.x, dz - target.z).toFixed(0)}` : ''}${cv ? ' cv ' + cv.stage + (cv.awaitingPlayer ? '/AP' : '') : ''}]`;
++    }).join(' ');
++    const tick = () => {
++      t.step(1);
++      for (const a of atts) {
++        const el = ctx.clock.now - a.t0;
++        if (a.moved < 0) for (const [m, p0] of a.start) { const p = posOf(m); if (Math.hypot(p.x - p0.x, p.z - p0.z) > 1.5) { a.moved = el; break; } }
++        for (const w of [5, 20, 60]) if (Math.abs(el - w) < 0.5) console.log(`   [${a.label} +${w}] premier mouvement ${a.moved < 0 ? 'AUCUN' : a.moved.toFixed(0) + ' s'} ; ${describeSq(a.squads, a.target)}`);
++      }
++    };
++    const tArr = ctx.clock.now;
++    if (me.vehicleId !== 0) ctx.vehicles.exit(me);
++    const unitsOf = () => cardEnvFromCore(core);
++    const mapIntent = (intent: string, who?: (e: any) => number[]) => {
++      const e = unitsOf();
++      const r = intentCandidates(intent as never, e, e.player!)[0];
++      if (!r) { track(`carte ${intent}`, false, 'aucun repère proposé', []); return; }
++      const card = buildCard(r, e, intent as never);
++      const line = card.lines[card.defaultLine];
++      if (!line) { track(`carte ${intent}`, false, 'fiche sans ligne', []); return; }
++      const sel = who ? who(e) : [];
++      const list = proposeWho(line, r, whoEnvFromCore(core, e, sel));
++      const w = defaultWho(list);
++      const res = sendCardLine(sendEnv(e), line, w, r);
++      track(`carte ${intent} « ${line.label} » @${r.name} qui=${w?.label ?? '-'}`, res.ok, res.text, res.squads ?? [], { x: r.x, z: r.z });
++    };
++    const bravmIds = () => ctx.squads.list.filter((q) => q.faction === 'police' && q.kind === 'groupe' && /FAUCON/.test(q.name)).map((q) => q.id);
++    const plan: [number, () => void][] = [
++      [2, () => { const r = core.callFollow(false); track('ORDRES Suivez-moi à pied', r.ok, r.reason || 'ok', r.ok ? [core.followUnit()!.id] : []); }],
++      [12, () => { const g = { x: me.x + Math.sin(me.heading) * 20, z: me.z + Math.cos(me.heading) * 20, heading: me.heading, width: 0 }; const own = ctx.squads.get(core.scope().ownSquadId)!; const r = core.issue('avancer', [own], [g]); track('roue 3 Avancer', r.ok, r.reason || 'ok', [own.id], g); }],
++      [22, () => { const own = ctx.squads.get(core.scope().ownSquadId)!; const g = { x: me.x, z: me.z, heading: me.heading, width: 0 }; const r = core.issue('ligne', [own], [g]); track('roue 4 Ligne', r.ok, r.reason || 'ok', [own.id], g); }],
++      [32, () => mapIntent('envoyer')],
++      [42, () => mapIntent('bloquer')],
++      [52, () => mapIntent('disperser')],
++      [62, () => mapIntent('interpeller')],
++      [72, () => mapIntent('encercler')],
++      [82, () => { const b = bravmIds(); if (!b.length) return; mapIntent('envoyer', () => b.slice(0, 1)); }],
++      [92, () => { const b = bravmIds(); if (!b.length) return; const e = unitsOf(); const r = pointRepere(me.x, me.z, e); const card = buildCard(r, e, null); const line = card.lines.concat(card.others).find((l: any) => l.label === 'Y aller') ?? card.lines[0]!; const w = proposeWho(line, r, whoEnvFromCore(core, e, b.slice(0, 1)))[0]!; const res = sendCardLine(sendEnv(e), line, w, r); track(`BRAV-M vers moi « ${line.label} »`, res.ok, res.text, res.squads ?? [], { x: me.x, z: me.z }); }],
++      [102, () => { const p = cmd.proposals.find((x: any) => x.executable && x.saidAt >= 0); if (!p) { track('adjoint P', false, `aucune proposition (${cmd.proposals.length})`, []); return; } const ok = cmd.accept(p.id); track(`adjoint P « ${p.text.slice(0, 60)} »`, ok, ok ? 'acceptée' : 'plus d’actualité', []); }],
++      [112, () => { const e = unitsOf(); const we = whoEnvFromCore(core, e, []); const r = pointRepere(me.x + 60, me.z, e); const card = buildCard(r, e, 'envoyer'); const line = card.lines[card.defaultLine]!; const w = wholeCandidate(r, we); const res = sendCardLine(sendEnv(e), line, w, r); track(`T Toute la compagnie « ${line.label} »`, res.ok, res.text, res.squads ?? [], r); }],
++      [122, () => { const r = core.callFollow(false); track('ORDRES Suivez-moi à pied (2)', r.ok, r.reason || 'ok', r.ok ? [core.followUnit()!.id] : []); }],
++    ];
++    if (process.env.PLAN === 'bravm') {
++      const fa = () => bravmIds()[0]!;
++      const farPt = () => { const sq = ctx.squads.get(fa())!; const kids = ctx.squads.list.filter((q) => q.parentId === sq.id); const p0 = posOf(kids[0]!.members[0]!); const road = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '', roadClass: 'residential', oneway: false } as any; for (let a = 0; a < 16; a++) { const tx = p0.x + Math.sin(a * Math.PI / 8) * 400, tz = p0.z + Math.cos(a * Math.PI / 8) * 400; if (ctx.world.nearestRoad(tx, tz, road, 30) && !['pedestrian', 'footway', 'service'].includes(road.roadClass) && ctx.world.findPath(p0.x, p0.z, road.x, road.z, 'vehicle', [])) return { x: road.x, z: road.z }; } return { x: p0.x + 300, z: p0.z }; };
++      plan.length = 0;
++      plan.push([2, () => { const e = unitsOf(); const pt = farPt(); const r = pointRepere(pt.x, pt.z, e); const card = buildCard(r, e, 'envoyer'); const line = card.lines[card.defaultLine]!; const w = proposeWho(line, r, whoEnvFromCore(core, e, [fa()]))[0]!; const res = sendCardLine(sendEnv(e), line, w, r); track(`BRAV-M envoyer 400 m « ${line.label} » qui=${w.label} ${w.mode}`, res.ok, res.text, res.squads ?? [], pt); }]);
++      plan.push([62, () => { const e = unitsOf(); const r = pointRepere(me.x, me.z, e); const card = buildCard(r, e, 'envoyer'); const line = card.lines[card.defaultLine]!; const w = proposeWho(line, r, whoEnvFromCore(core, e, [fa()]))[0]!; const res = sendCardLine(sendEnv(e), line, w, r); track(`BRAV-M vers moi « ${line.label} » qui=${w.label} ${w.mode}`, res.ok, res.text, res.squads ?? [], { x: me.x, z: me.z }); }]);
++      plan.push([122, () => mapIntent('interpeller')]);
++      plan.push([130, () => { const r = core.callFollow(false); track('ORDRES Suivez-moi à pied', r.ok, r.reason || 'ok', r.ok ? [core.followUnit()!.id] : []); }]);
++    }
++    for (let k = 0; k <= 185; k++) {
++      for (const [at, f] of plan) if (at === k) f();
++      if (process.env.PLAN === 'bravm' && (k < 40 || (k > 60 && k < 80)) && k % 3 === 0) { const id = bravmIds()[0]!; const sp = cmd.special(id); const ap = ctx.service<any>('vehicles.autopilot'); const motos = ctx.squads.list.filter((q) => q.parentId === id).map((q) => ctx.vehicles.get(q.vehicleId)!); { const v = motos[0]!; const fx = Math.sin(v.heading), fz = Math.cos(v.heading); const near = ctx.people.list.filter((p) => p.vehicleId === 0 && !p.dormant).map((p) => ({ p, f: (p.x - v.x) * fx + (p.z - v.z) * fz, l: Math.abs((p.x - v.x) * fz - (p.z - v.z) * fx) })).filter((o) => o.f > 0 && o.f < 14 && o.l < 3).slice(0, 5); console.log(`   devant ${v.id}: ${near.map((o) => `${o.p.faction}/${o.p.kind}/${ctx.squads.get(o.p.squadId)?.name ?? '-'}/${o.p.posture}/${o.p.injury} f=${o.f.toFixed(1)} l=${o.l.toFixed(1)}`).join(' ; ')}`); }
++        console.log(`  sp k=${k} stage ${sp?.stage} order ${sp?.order} foule@tête ${ctx.people.countIn(motos[0]!.x, motos[0]!.z, 15, (p: any) => p.faction === 'protest')} ${motos.map((v) => { const st = ap.status(v); const rt = ap.k?.rt?.(v)?.ap; const ob = rt && rt.obsId ? (ctx.vehicles.get(rt.obsId)?.kind ?? ctx.people.get(rt.obsId)?.kind ?? rt.obsId) : '-'; return `${v.id}:${st.mode}/${st.state}/${st.reason ?? ''}/${v.speed.toFixed(1)} ob=${rt?.obsReason}:${ob} ld=${st.leaderId}`; }).join(' ')}`); }
++      if (k % 30 === 0) console.log(`k=${k} clock ${ctx.clock.now.toFixed(1)} phase ${ctx.session.phase} res ${m.result ? m.result.summary : '-'}`);
++      tick();
++    }
++    console.log(ctx.radio.log.filter((l) => l.t >= tArr && /FAUCON 1 1/.test(l.from + l.text)).map((l) => `t+${(l.t - tArr).toFixed(0)} ${l.from}: ${l.text}`).join('\n'));
++    const radio = ctx.radio.log.filter((l) => l.t >= tArr).slice(-40).map((l) => `${l.from}: ${l.text}`);
++    console.log(radio.join('\n'));
++  }, 1_800_000);
++});

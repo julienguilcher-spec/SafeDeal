@@ -1,0 +1,455 @@
+diff --git a/crs-simulation/src/sim/police/command/bravm.ts b/crs-simulation/src/sim/police/command/bravm.ts
+index 0a76978..159e617 100644
+--- a/crs-simulation/src/sim/police/command/bravm.ts
++++ b/crs-simulation/src/sim/police/command/bravm.ts
+@@ -900,6 +900,16 @@ export class BravmUnit extends SpecialUnit {
+       this.arrestOk = ok;
+       this.arrestReason = ok ? '' : reason;
+       if (ok) this.arrested++;
++      else {
++        // l'auteur a fui (un fuyard sans équipement court plus vite qu'un opérateur casqué) ou s'est dégagé : compte
++        // rendu tout de suite, sur le réseau de l'unité. Celui du module de police part sur le réseau de commandement,
++        // souvent saturé (il y était écarté) ; et le compte rendu de fin, en selle, venait plusieurs minutes après,
++        // sans motif : le commandant ne savait jamais que l'interpellation avait été abandonnée.
++        const fled = /atteinte|fuite|échappé|trop loin|perdu de vue/i.test(reason);
++        this.say(report(this.superior(), this.squad.name,
++          (fled ? 'Auteur en fuite, interpellation abandonnée' : 'Interpellation abandonnée' + (reason !== '' ? ' : ' + reason.replace(/\.$/, '').toLocaleLowerCase('fr-FR') : ''))
++          + '. Je regagne les machines'));
++      }
+       this.backToMotos();
+     } else if (stage === 'retour' && type === 'colonne') {
+       this.remount();
+diff --git a/crs-simulation/src/ui/command/bestUnit.ts b/crs-simulation/src/ui/command/bestUnit.ts
+index 1f6c824..50c66db 100644
+--- a/crs-simulation/src/ui/command/bestUnit.ts
++++ b/crs-simulation/src/ui/command/bestUnit.ts
+@@ -362,6 +362,7 @@ export function wholeCandidate(where: { x: number; z: number }, env: WhoEnv): Wh
+   if (!w || w.squadIds.length === 0) return null;
+   let eta = 0, distance = 0, agents = 0;
+   let vehicles = false;
++  let withPlayer = false;
+   for (const id of w.squadIds) {
+     const u = env.card.units.find((q) => q.squadId === id);
+     if (!u) continue;
+@@ -369,9 +370,13 @@ export function wholeCandidate(where: { x: number; z: number }, env: WhoEnv): Wh
+     eta = Math.max(eta, t.eta);
+     distance = Math.max(distance, t.distance);
+     if (t.mode === 'vehicules') vehicles = true;
++    withPlayer = withPlayer || (u.hasPlayer === true && t.mode === 'vehicules');
+     agents += u.valid;
+   }
+-  return { squadIds: w.squadIds.slice(), label: w.label, mode: vehicles ? 'vehicules' : 'pied', eta, distance, busy: `${agents} agents` };
++  const out: WhoCandidate = { squadIds: w.squadIds.slice(), label: w.label, mode: vehicles ? 'vehicules' : 'pied', eta, distance, busy: `${agents} agents` };
++  // le commandant à pied fait partie de la colonne : elle l'attend pour partir (convoy.ts awaitPlayer)
++  if (withPlayer && env.card.player && !env.card.player.inVehicle) out.waitsForYou = true;
++  return out;
+ }
+ 
+ /** Libellé du bouton T selon ce qu'il sélectionne (« Toute la compagnie », « Toute la section », « Tout le groupe »). */
+diff --git a/crs-simulation/src/ui/command/cardTypes.ts b/crs-simulation/src/ui/command/cardTypes.ts
+index 0d13648..0681620 100644
+--- a/crs-simulation/src/ui/command/cardTypes.ts
++++ b/crs-simulation/src/ui/command/cardTypes.ts
+@@ -82,7 +82,7 @@ export type VerbGeom = 'point' | 'street' | 'autoLine' | 'trace' | 'immediate' |
+ 
+ export type LineAction =
+   /** Ordre du catalogue (orders.ts). `targetId` : BARRAGE_LET_PASSERSBY pour « passants admis », entité visée sinon. */
+-  | { kind: 'verb'; type: OrderType; geom: VerbGeom; targetId?: number }
++  | { kind: 'verb'; type: OrderType; geom: VerbGeom; targetId?: number; noFact?: boolean }
+   /** « Encercler (nasse) » : chaque issue ouverte de la foule reçoit une unité (nasse.ts proposeNasse + acceptNasse). */
+   | { kind: 'nasse' }
+   /** « Ouvrir une sortie filtrée » d'une nasse fermée (nasse.ts openFilteredExit). */
+@@ -407,6 +407,11 @@ export interface CardEnv {
+    * null = pas de liaison possible (service absent, ou joueur qui ne commande pas l'ensemble du dispositif).
+    */
+   liaison?: boolean | null;
++  /**
++   * Un auteur de fait constaté, interpellable, se trouve-t-il à moins de `radius` m du point ? Absent : inconnu (la fiche
++   * promet alors l'interpellation comme avant).
++   */
++  offenderAt?(x: number, z: number, radius: number): boolean;
+ }
+ 
+ // ───────────────────────────── Qui (bestUnit.ts, C1B) ─────────────────────────────
+@@ -423,6 +428,11 @@ export interface WhoCandidate {
+   busy: string;
+   /** Unité d'un commissariat à engager à l'envoi (entrée du module des commissariats). */
+   fromStation?: number;
++  /**
++   * Le joueur, à pied, fait partie de l'unité qui part en véhicules : sa colonne l'attend pour démarrer (jusqu'à 5 min,
++   * sim/police/command/convoy.ts awaitPlayer). La phrase de la fiche le dit.
++   */
++  waitsForYou?: boolean;
+ }
+ 
+ export interface WhoEnv {
+diff --git a/crs-simulation/src/ui/command/intents.ts b/crs-simulation/src/ui/command/intents.ts
+index bcc980f..fe183a7 100644
+--- a/crs-simulation/src/ui/command/intents.ts
++++ b/crs-simulation/src/ui/command/intents.ts
+@@ -158,11 +158,18 @@ const VERB_ICONS: Readonly<Record<string, IconName>> = {
+  * Ligne de fiche pour un ordre du catalogue au point (x, z) : libellé et explication du verbe (sauf `opts`), cadenas
+  * légal, règle. null si le verbe n'existe pas (encore) dans le catalogue — la ligne n'est alors pas proposée.
+  */
++/** Rayon (m) où l'envoi cherche l'auteur d'un fait constaté dans une foule (sendLine.ts). */
++const NO_FACT_RADIUS = 40;
++
+ export function verbLine(env: CardEnv, type: OrderType, geom: VerbGeom, x: number, z: number, opts: VerbLineOpts = {}): CardLine | null {
+   const v = verbOf(type);
+   if (!v) return null;
+   const legal = legalOf(v, env, x, z);
+-  const action: LineAction = opts.targetId !== undefined ? { kind: 'verb', type, geom, targetId: opts.targetId } : { kind: 'verb', type, geom };
++  const verb: Extract<LineAction, { kind: 'verb' }> = opts.targetId !== undefined ? { kind: 'verb', type, geom, targetId: opts.targetId } : { kind: 'verb', type, geom };
++  // « Interpeller » sans auteur désigné et sans fait constaté autour : l'unité ira constater, mais n'interpellera
++  // personne (la fiche disait « interpelle l'auteur », puis l'unité répondait « négatif » à la radio)
++  if (type === 'interpeller' && (opts.targetId ?? 0) === 0 && env.offenderAt && !env.offenderAt(x, z, NO_FACT_RADIUS)) verb.noFact = true;
++  const action: LineAction = verb;
+   return {
+     label: opts.label ?? v.plain, explain: opts.explain ?? v.explain, icon: opts.icon ?? VERB_ICONS[type] ?? 'nav', action,
+     coercive: legal.coercive, lock: legal.lock, needsWho: opts.needsWho ?? true, rule: v.rule,
+diff --git a/crs-simulation/src/ui/command/preview.ts b/crs-simulation/src/ui/command/preview.ts
+index 8010e67..82a85a8 100644
+--- a/crs-simulation/src/ui/command/preview.ts
++++ b/crs-simulation/src/ui/command/preview.ts
+@@ -104,7 +104,9 @@ const ACTIONS: Readonly<Record<string, Forms>> = {
+   bond_offensif: ['fait un bond en avant de 20 à 40\u00a0m vers {lieu}, sans chercher le contact.', 'font un bond en avant de 20 à 40\u00a0m vers {lieu}, sans chercher le contact.'],
+   disperser_gaz: ['lance le gaz lacrymogène sur {lieu}\u00a0; le nuage suit le vent.', 'lancent le gaz lacrymogène sur {lieu}\u00a0; le nuage suit le vent.'],
+   encercler: ['encercle {lieu} en cercle serré\u00a0; une sortie reste ouverte à l’opposé.', 'encerclent {lieu} en cercle serré\u00a0; une sortie reste ouverte à l’opposé.'],
+-  interpeller: ['interpelle l’auteur des faits constatés près {de}.', 'interpellent l’auteur des faits constatés près {de}.'],
++  // l'auteur peut fuir pendant l'approche (il court plus vite qu'un policier équipé) : l'unité y renonce et le dit
++  interpeller: ['interpelle l’auteur des faits constatés près {de}\u00a0; s’il prend la fuite, l’interpellation est abandonnée et l’unité rend compte.',
++    'interpellent l’auteur des faits constatés près {de}\u00a0; s’il prend la fuite, l’interpellation est abandonnée et les unités rendent compte.'],
+   degager_barricade: ['dégage la barricade.', 'dégagent la barricade.'],
+   degager_obstacle: ['pousse le véhicule hors de la chaussée.', 'poussent le véhicule hors de la chaussée.'],
+   proteger: ['se place pour couvrir {lieu}.', 'se placent pour couvrir {lieu}.'],
+@@ -133,21 +135,37 @@ function fill(t: string, where: Repere): string {
+   return t.replace('{lieu}', p).replace('{de}', deOf(p)).replace('{jusque}', untilOf(p));
+ }
+ 
+-function verbSentence(type: string, targetId: number, who: WhoCandidate | null, where: Repere): string {
++/** « Interpeller » sans fait constaté près du point (LineAction.noFact) : l'unité constate, n'interpelle personne. */
++const NO_FACT: Forms = ['va constater près {de}\u00a0; sans fait constaté, personne n’est interpellé.', 'vont constater près {de}\u00a0; sans fait constaté, personne n’est interpellé.'];
++
++/**
++ * Colonne dont le joueur à pied fait partie (T, toute la compagnie) : elle ne démarre qu'avec lui à bord — la phrase
++ * annonçait « part en véhicules (~1 min) » et la colonne restait embarquée jusqu'à 5 min à l'attendre.
++ */
++function waitText(who: WhoCandidate | null, type: string): string {
++  if (!who || who.waitsForYou !== true || who.mode !== 'vehicules' || IMMEDIATE.has(type)) return '';
++  return ' La colonne vous attend pour partir\u00a0: montez à bord (elle part sans vous au bout de 5\u00a0min).';
++}
++
++function verbSentence(type: string, targetId: number, who: WhoCandidate | null, where: Repere, noFact = false): string {
+   if (type === 'degager_obstacle' && (!who || who.squadIds.length === 0)) {
+     return 'Le blindé Centaure libre le plus proche pousse le véhicule hors de la chaussée.';
+   }
+   const s = who ? subjectOf(who.label) : { text: 'l’unité', plural: false };
+   const i = s.plural ? 1 : 0;
+   const p = placePhrase(where);
++  if (type === 'interpeller' && noFact && !(who && /^BRAV-M\s/.test(who.label))) {
++    // une troupe ne part pas « constater » : sans fait constaté, elle refuse l'ordre sur place (ops.ts startTask)
++    return capFirst(`aucun fait constaté ${fill('près {de}', where)}\u00a0: ${s.text} ne peut interpeller personne et ${s.plural ? 'refuseront' : 'refusera'} l’ordre.`);
++  }
+   if (type === 'colonne') {
+-    return capFirst(`${s.text} ${s.plural ? 'partent' : 'part'} ${who ? modeText(who) : 'à pied'}, en file, vers ${p}.`);
++    return capFirst(`${s.text} ${s.plural ? 'partent' : 'part'} ${who ? modeText(who) : 'à pied'}, en file, vers ${p}.`) + waitText(who, type);
+   }
+   if (type === 'faire_mouvement') {
+     const eta = who ? ` (~${minutesText(who.eta)})` : '';
+-    return capFirst(`${s.text} ${s.plural ? 'embarquent et partent' : 'embarque et part'} en véhicules, deux-tons, vers ${p}${eta}, puis ${s.plural ? 'débarquent' : 'débarque'}.`);
++    return capFirst(`${s.text} ${s.plural ? 'embarquent et partent' : 'embarque et part'} en véhicules, deux-tons, vers ${p}${eta}, puis ${s.plural ? 'débarquent' : 'débarque'}.`) + waitText(who, type);
+   }
+-  let action = ACTIONS[type]?.[i];
++  let action = type === 'interpeller' && noFact ? NO_FACT[i] : ACTIONS[type]?.[i];
+   if (type === 'couper_circulation' && targetId === BARRAGE_LET_PASSERSBY) {
+     action = s.plural ? 'barrent {lieu}\u00a0: les manifestants ne passent pas, les passants oui.' : 'barre {lieu}\u00a0: les manifestants ne passent pas, les passants oui.';
+   }
+@@ -158,7 +176,7 @@ function verbSentence(type: string, targetId: number, who: WhoCandidate | null,
+   const move = who && !IMMEDIATE.has(type) && !MOVES.has(type) && who.distance > NEAR
+     ? `${s.plural ? 'partent' : 'part'} ${modeText(who)} et `
+     : '';
+-  return capFirst(`${s.text} ${move}${fill(action, where)}`);
++  return capFirst(`${s.text} ${move}${fill(action, where)}`) + waitText(who, type);
+ }
+ 
+ /**
+@@ -172,7 +190,7 @@ export function sentenceOf(line: CardLine, who: WhoCandidate | null, where: Repe
+   let what: string;
+   switch (a.kind) {
+     case 'verb':
+-      what = verbSentence(String(a.type), a.targetId ?? 0, who, where);
++      what = verbSentence(String(a.type), a.targetId ?? 0, who, where, a.noFact === true);
+       break;
+     case 'nasse': {
+       // pas assez d'unités pour toutes les rues (Qui le dit : « — 4 rues resteront ouvertes ») : la nasse ne se ferme
+diff --git a/crs-simulation/src/ui/command/reperes.ts b/crs-simulation/src/ui/command/reperes.ts
+index 6fe275c..05376a0 100644
+--- a/crs-simulation/src/ui/command/reperes.ts
++++ b/crs-simulation/src/ui/command/reperes.ts
+@@ -523,6 +523,8 @@ export function cardEnvFromCore(core: CommandCore, selection: readonly number[]
+       return !!lead && Math.hypot(lead.x - x, lead.z - z) > MOTOR_DISTANCE;
+     },
+     roadAt, placeName, wind: { x: scene.windX, z: scene.windZ }, liaison: liaisonState(core),
++    // même règle que l'envoi (sendLine) et que l'unité (droit : fait constaté) : quelqu'un d'interpellable près du point ?
++    offenderAt: (x, z, radius) => !!ctx.people.nearest(x, z, radius, (q) => q.faction === 'protest' && q.custody === 'free' && ctx.law.canArrest(q)),
+   };
+   for (const h of envHooks) {
+     try { h(env, core); } catch { /* une extension défaillante ne prive pas la carte de ses fiches */ }
+diff --git a/crs-simulation/src/ui/command/tacticalState.ts b/crs-simulation/src/ui/command/tacticalState.ts
+index 2990adc..2fb90f2 100644
+--- a/crs-simulation/src/ui/command/tacticalState.ts
++++ b/crs-simulation/src/ui/command/tacticalState.ts
+@@ -364,8 +364,9 @@ export function withVerbFirst(card: Card, type: OrderType, env: CardEnv, targetI
+ }
+ 
+ /** Qui imposé (fiche d'une unité, « L'envoyer ailleurs… », unité choisie dans la liste) : délai jusqu'au lieu `to`. */
+-export function fixedCandidate(env: Pick<CardEnv, 'units'>, squadIds: readonly number[], to: { x: number; z: number }, label = ''): WhoCandidate {
++export function fixedCandidate(env: Pick<CardEnv, 'units'> & Partial<Pick<CardEnv, 'player'>>, squadIds: readonly number[], to: { x: number; z: number }, label = ''): WhoCandidate {
+   let eta = 0;
++  let withPlayer = false;
+   let distance = 0;
+   let vehicles = false;
+   const names: string[] = [];
+@@ -378,12 +379,16 @@ export function fixedCandidate(env: Pick<CardEnv, 'units'>, squadIds: readonly n
+     if (e.eta > eta) eta = e.eta;
+     if (e.distance > distance) distance = e.distance;
+     vehicles = vehicles || e.vehicles;
++    withPlayer = withPlayer || (u.hasPlayer === true && e.vehicles);
+     if (squadIds.length === 1) busy = u.order ? 'a déjà un ordre (le quittera)' : 'sans ordre';
+   }
+-  return {
++  const out: WhoCandidate = {
+     squadIds: squadIds.slice(), label: label !== '' ? label : names.length > 0 ? names.join(', ') : 'Unité',
+     mode: vehicles ? 'vehicules' : 'pied', eta, distance, busy,
+   };
++  // T (toute la compagnie) : le commandant à pied fait partie de la colonne, elle l'attend pour partir
++  if (withPlayer && env.player && !env.player.inVehicle) out.waitsForYou = true;
++  return out;
+ }
+ 
+ // ───────────────────────────── « À traiter » ─────────────────────────────
+diff --git a/crs-simulation/tests/unit/playtest.commandant-compagnie.test.ts b/crs-simulation/tests/unit/playtest.commandant-compagnie.test.ts
+new file mode 100644
+index 0000000..53ae386
+--- /dev/null
++++ b/crs-simulation/tests/unit/playtest.commandant-compagnie.test.ts
+@@ -0,0 +1,89 @@
++// Partie robot du commandant, deuxième tour : « Toute la compagnie » (T). La fiche dit qui part, comment et quand ; la
++// colonne de la compagnie, dont le commandant fait partie, doit faire ce que dit la phrase.
++import { describe, expect, it } from 'vitest';
++
++import { createTestContext } from '@/core/testing';
++import { createSystems as world } from '@/world/query';
++import { createSystems as roles } from '@/sim/roles';
++import { createSystems as people } from '@/sim/people';
++import { createSystems as vehicles } from '@/sim/vehicles';
++import { createSystems as traffic } from '@/sim/traffic';
++import { createSystems as crowd } from '@/sim/crowd';
++import { createSystems as police } from '@/sim/police';
++import { createSystems as items } from '@/sim/items';
++import { createSystems as props } from '@/sim/props';
++import { createSystems as hazards } from '@/sim/hazards';
++import { createSystems as law } from '@/gameplay/law';
++import { createSystems as radio } from '@/gameplay/radio';
++import { createSystems as env } from '@/env';
++import { createSystems as incidents } from '@/gameplay/incidents';
++import { createSystems as rescue } from '@/sim/roles/rescue';
++import { createSystems as session } from '@/gameplay/session';
++import { createSystems as maps } from '@/ui/maps';
++import { createSystems as command } from '@/ui/command';
++import type { CommandCore } from '@/ui/command';
++import type { MapCanvas } from '@/ui/maps/mapCanvas';
++import { defaultWho, proposeWho, whoEnvFromCore } from '@/ui/command/bestUnit';
++import type { CardEnv, SendEnv } from '@/ui/command/cardTypes';
++import { buildCard, intentCandidates } from '@/ui/command/intents';
++import { sentenceOf } from '@/ui/command/preview';
++import { cardEnvFromCore, pointRepere } from '@/ui/command/reperes';
++import { sendCardLine } from '@/ui/command/sendLine';
++import { TacticalMap } from '@/ui/command/tacticalMap';
++import { TacticalState } from '@/ui/command/tacticalState';
++
++const MODULES = [env, world, roles, people, vehicles, traffic, crowd, police, items, props, hazards, law, radio, incidents, rescue, session, maps, command];
++const MEANS = { sections: 3, fourgons: 9, centaure: 1, canon_eau: 1, bravm: 1, drone: 0, pompiers: 0, samu: 0, secours_sur_appel: true };
++
++async function start(place: string, seed: number, x: number, z: number, means: Record<string, unknown> = MEANS) {
++  const t = createTestContext({ seed, strict: false, modules: MODULES });
++  await t.start({
++    mode: 'libre', role: 'commandant', rank: 'commandant', place, x, z, crowdSize: 300, tension: 0.4, volatility: 0.3, duration: 'standard',
++    extra: { moyens: means, variante: 'terrain' },
++  } as never);
++  t.step(3);
++  const core = t.ctx.service<CommandCore>('ui.command')!;
++  const state = new TacticalState();
++  const tmap = new TacticalMap(core, { handlers: null } as unknown as MapCanvas, state);
++  const sendEnv = (card: CardEnv): SendEnv => ({ core, map: tmap, setSelection: (ids) => state.setSelection(ids), card, trace: null });
++  return { t, ctx: t.ctx, core, sendEnv };
++}
++
++import { fixedCandidate } from '@/ui/command/tacticalState';
++import { wholeCandidate } from '@/ui/command/bestUnit';
++
++describe('commandant : « Toute la compagnie » (T) fait ce que dit la fiche', () => {
++  it('Concorde : T + « Y aller » à 600 m, commandant à pied — la phrase dit que la colonne l’attend, et elle l’attend', async () => {
++    const { t, ctx, core, sendEnv } = await start('Place de la Concorde', 21, -10, 15);
++    const e0 = cardEnvFromCore(core);
++    const sec = e0.units.find((u) => u.symbol === 'section' && u.mine && u.hasVehicles)!;
++    const road = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '', roadClass: 'residential', oneway: false } as never as { x: number; z: number; roadClass: string };
++    let target: { x: number; z: number } | null = null;
++    for (let a = 0; a < 16 && !target; a++) {
++      const tx = sec.x + Math.sin(a * Math.PI / 8) * 600;
++      const tz = sec.z + Math.cos(a * Math.PI / 8) * 600;
++      if (ctx.world.nearestRoad(tx, tz, road as never, 30) && !['pedestrian', 'footway', 'service'].includes(road.roadClass) && ctx.world.findPath(sec.x, sec.z, road.x, road.z, 'vehicle', [])) target = { x: road.x, z: road.z };
++    }
++    const r = pointRepere(target!.x, target!.z, e0);
++    const card = buildCard(r, e0, 'envoyer');
++    const line = card.lines[card.defaultLine]!;
++    const we = whoEnvFromCore(core, e0, []);
++    expect(we.whole?.label).toBe('Toute la compagnie');
++    // les deux chemins de T (fiche ouverte : fixedCandidate ; liste Qui : wholeCandidate) disent la même chose
++    const who = fixedCandidate(e0, we.whole!.squadIds, r, we.whole!.label);
++    const who2 = wholeCandidate(r, we)!;
++    expect(e0.player!.inVehicle).toBe(false);
++    const what = sentenceOf(line, who, r).what;
++    expect(who.mode, what).toBe('vehicules');
++    expect(what).toMatch(/La colonne vous attend pour partir/);
++    expect(sentenceOf(line, who2, r).what).toMatch(/La colonne vous attend pour partir/);
++    expect(sendCardLine(sendEnv(e0), line, who, r).ok).toBe(true);
++    t.step(60);
++    const cv = ctx.service<{ convoyOf(id: number): { awaitingPlayer?: boolean } | null }>('police.command')!.convoyOf(who.squadIds[0]!);
++    // sur le terrain : la colonne est embarquée et attend bien le commandant
++    expect(cv?.awaitingPlayer).toBe(true);
++    // une section seule (le commandant n'en fait pas partie) ne l'attend pas, et la phrase ne le dit pas
++    const one = fixedCandidate(e0, [sec.squadId], r);
++    expect(sentenceOf(line, one, r).what).not.toMatch(/vous attend/);
++  }, 600000);
++});
+diff --git a/crs-simulation/tests/unit/playtest.commandant-interpeller.test.ts b/crs-simulation/tests/unit/playtest.commandant-interpeller.test.ts
+new file mode 100644
+index 0000000..c26be5e
+--- /dev/null
++++ b/crs-simulation/tests/unit/playtest.commandant-interpeller.test.ts
+@@ -0,0 +1,124 @@
++// Partie robot du commandant, deuxième tour : « Interpeller » jusqu'au bout (l'auteur s'éloigne pendant l'approche ;
++// aucun fait constaté). La fiche dit ce qui va se passer, le terrain et la radio doivent dire la même chose.
++import { describe, expect, it } from 'vitest';
++
++import { createTestContext } from '@/core/testing';
++import { createSystems as world } from '@/world/query';
++import { createSystems as roles } from '@/sim/roles';
++import { createSystems as people } from '@/sim/people';
++import { createSystems as vehicles } from '@/sim/vehicles';
++import { createSystems as traffic } from '@/sim/traffic';
++import { createSystems as crowd } from '@/sim/crowd';
++import { createSystems as police } from '@/sim/police';
++import { createSystems as items } from '@/sim/items';
++import { createSystems as props } from '@/sim/props';
++import { createSystems as hazards } from '@/sim/hazards';
++import { createSystems as law } from '@/gameplay/law';
++import { createSystems as radio } from '@/gameplay/radio';
++import { createSystems as env } from '@/env';
++import { createSystems as incidents } from '@/gameplay/incidents';
++import { createSystems as rescue } from '@/sim/roles/rescue';
++import { createSystems as session } from '@/gameplay/session';
++import { createSystems as maps } from '@/ui/maps';
++import { createSystems as command } from '@/ui/command';
++import type { CommandCore } from '@/ui/command';
++import type { MapCanvas } from '@/ui/maps/mapCanvas';
++import { defaultWho, proposeWho, whoEnvFromCore } from '@/ui/command/bestUnit';
++import type { CardEnv, SendEnv } from '@/ui/command/cardTypes';
++import { buildCard, intentCandidates } from '@/ui/command/intents';
++import { sentenceOf } from '@/ui/command/preview';
++import { cardEnvFromCore } from '@/ui/command/reperes';
++import { sendCardLine } from '@/ui/command/sendLine';
++import { TacticalMap } from '@/ui/command/tacticalMap';
++import { TacticalState } from '@/ui/command/tacticalState';
++
++const MODULES = [env, world, roles, people, vehicles, traffic, crowd, police, items, props, hazards, law, radio, incidents, rescue, session, maps, command];
++const MEANS = { sections: 3, fourgons: 9, centaure: 1, canon_eau: 1, bravm: 1, drone: 0, pompiers: 0, samu: 0, secours_sur_appel: true };
++
++async function start(place: string, seed: number, x: number, z: number, means: Record<string, unknown> = MEANS) {
++  const t = createTestContext({ seed, strict: false, modules: MODULES });
++  await t.start({
++    mode: 'libre', role: 'commandant', rank: 'commandant', place, x, z, crowdSize: 300, tension: 0.4, volatility: 0.3, duration: 'standard',
++    extra: { moyens: means, variante: 'terrain' },
++  } as never);
++  t.step(3);
++  const core = t.ctx.service<CommandCore>('ui.command')!;
++  const state = new TacticalState();
++  const tmap = new TacticalMap(core, { handlers: null } as unknown as MapCanvas, state);
++  const sendEnv = (card: CardEnv): SendEnv => ({ core, map: tmap, setSelection: (ids) => state.setSelection(ids), card, trace: null });
++  return { t, ctx: t.ctx, core, sendEnv };
++}
++
++/** Fiche « Interpeller » de la première foule, sa ligne par défaut, Qui proposé et la phrase. */
++function arrestCard(core: CommandCore) {
++  const e = cardEnvFromCore(core);
++  const r = intentCandidates('interpeller', e, e.player!)[0]!;
++  const card = buildCard(r, e, 'interpeller');
++  const line = card.lines[card.defaultLine]!;
++  const who = defaultWho(proposeWho(line, r, whoEnvFromCore(core, e, [])))!;
++  return { e, r, line, who, what: sentenceOf(line, who, r).what };
++}
++
++describe('commandant : « Interpeller » tient sa promesse jusqu’au bout', () => {
++  it('Concorde : l’auteur s’enfuit pendant l’interpellation — la fiche l’a dit, et la BRAV-M rend compte tout de suite à la radio', async () => {
++    const { t, ctx, core, sendEnv } = await start('Place de la Concorde', 21, -10, 15);
++    const e0 = cardEnvFromCore(core);
++    const r0 = intentCandidates('interpeller', e0, e0.player!)[0]!;
++    const offender = ctx.people.nearest(r0.x, r0.z, 40, (q) => q.faction === 'protest' && q.custody === 'free' && q.vehicleId === 0)!;
++    const off = ctx.law.recordOffense(offender, 'jet_projectile', offender.x, offender.z, 3);
++    off.witnessed = true;
++    const { e, r, line, who, what } = arrestCard(core);
++    expect(what).toMatch(/interpelle l’auteur/);
++    // la fiche ne promet pas sans réserve : l'auteur peut fuir, l'unité le dit
++    expect(what).toMatch(/s’il prend la fuite, l’interpellation est abandonnée/);
++    const sq = ctx.squads.get(who.squadIds[0]!)!;
++    let failedAt = -1;
++    ctx.events.onAny('police:order_done', (ev) => {
++      const d = ev as { squadId: number; type: string; ok: boolean };
++      if (d.squadId === sq.id && d.type === 'interpeller' && !d.ok && failedAt < 0) failedAt = ctx.clock.now;
++    });
++    const t0 = ctx.clock.now;
++    expect(sendCardLine(sendEnv(e), line, who, r).ok).toBe(true);
++    let caught = false;
++    for (let i = 0; i < 260 && !caught && failedAt < 0; i++) {
++      t.step(1);
++      caught = ctx.people.get(offender.id)!.custody !== 'free';
++    }
++    if (caught) return; // interpellé : la promesse est tenue
++    expect(failedAt, 'ni interpellé ni abandon en 260 s').toBeGreaterThan(0);
++    t.step(15);
++    // le commandant l'entend dans les secondes qui suivent (pas seulement au retour en selle, des minutes plus tard)
++    const heard = ctx.radio.log.filter((m) => m.t >= failedAt - 1 && m.t <= failedAt + 15 && m.from === sq.name && /en fuite|abandonnée/.test(m.text));
++    expect(heard.map((m) => m.text), ctx.radio.log.filter((m) => m.t >= t0 && m.from === sq.name).map((m) => `${Math.round(m.t - t0)} ${m.text}`).join('\n')).not.toEqual([]);
++  }, 600000);
++
++  it('Concorde : aucun fait constaté — la phrase dit que la BRAV-M va constater sans interpeller, et c’est ce qu’elle fait', async () => {
++    const { t, ctx, core, sendEnv } = await start('Place de la Concorde', 21, -10, 15);
++    const { e, r, line, who, what } = arrestCard(core);
++    expect(who.label).toMatch(/^BRAV-M/);
++    expect(what, what).toMatch(/va constater .*sans fait constaté, personne n’est interpellé/);
++    expect(what).not.toMatch(/interpelle l’auteur/);
++    const sq = ctx.squads.get(who.squadIds[0]!)!;
++    const t0 = ctx.clock.now;
++    expect(sendCardLine(sendEnv(e), line, who, r).ok).toBe(true);
++    let neg = false;
++    for (let i = 0; i < 240 && !neg; i++) {
++      t.step(1);
++      neg = ctx.radio.log.some((m) => m.t >= t0 && m.from === sq.name && /Aucun fait constaté/.test(m.text));
++    }
++    expect(neg).toBe(true);
++    expect(ctx.people.list.filter((p) => p.faction === 'protest' && p.custody !== 'free').length).toBe(0);
++  }, 600000);
++
++  it('Concorde, sans BRAV-M : aucun fait constaté — la phrase annonce le refus du groupe, et le groupe refuse', async () => {
++    const { ctx, core, sendEnv, t } = await start('Place de la Concorde', 21, -10, 15, { ...MEANS, bravm: 0 });
++    const { e, r, line, who, what } = arrestCard(core);
++    expect(who.label).not.toMatch(/^BRAV-M/);
++    expect(what, what).toMatch(/aucun fait constaté .*ne peut interpeller personne et refusera l’ordre/i);
++    const refused: number[] = [];
++    ctx.events.onAny('police:order_refused', (ev) => refused.push((ev as { squadId: number }).squadId));
++    expect(sendCardLine(sendEnv(e), line, who, r).ok).toBe(true);
++    t.step(20);
++    expect(refused.some((id) => who.squadIds.includes(id) || ctx.squads.get(id)?.parentId === who.squadIds[0])).toBe(true);
++  }, 600000);
++});
