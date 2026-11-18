@@ -280,6 +280,10 @@ describe('commandement — émission des ordres (sans interface)', () => {
     expect(s.groupA.order.type).toBe('libre');
     expect(core.authorize(3)).toBe(true);
     expect(s.ctx.law.roe.authorizedForce).toBe(3);
+    // l'autorisation dite à la radio nomme les moyens, jamais un numéro de niveau (F4)
+    const said = s.ctx.radio.log[s.ctx.radio.log.length - 1]!.text;
+    expect(said).toMatch(/autorisé jusqu’à\u00a0: gaz lacrymogène et canon à eau/);
+    expect(said).not.toMatch(/niveau \d/);
     const ok = core.issue('disperser_gaz', [s.groupA], [{ x: 10, z: 10, heading: 0, width: 0 }]);
     expect(ok.ok).toBe(true);
     expect(s.groupA.order.type).toBe('disperser_gaz');

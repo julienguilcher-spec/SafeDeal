@@ -90,7 +90,8 @@ function at(s: string): string {
 
 /** Corps de l'accusé de réception d'un ordre. */
 export function ackBody(k: Kernel, o: SquadOrder, dist: number): string {
-  const sec = sector(k, o.x, o.z);
+  // le lieu nommé par celui qui a donné l'ordre (le même mot à l'ordre et à l'accusé de réception), sinon le secteur
+  const sec = o.place ? o.place : sector(k, o.x, o.z);
   const d = spell(Math.max(5, Math.round(dist / 5) * 5));
   switch (o.type as OrderType) {
     case 'tenir': return 'je tiens la position' + at(sec);

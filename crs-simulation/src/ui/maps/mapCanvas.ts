@@ -12,6 +12,7 @@ import { BaseLayer } from './basecache';
 import type { BaseLayerOptions } from './basecache';
 import { PointerGestures } from './gestures';
 import type { GestureHandlers, PointerInfo, PointerKind } from './gestures';
+import { LabelBoard } from './labelLayout';
 import { ALL_LAYERS, drawOverlay } from './overlay';
 import type { OverlayOptions } from './overlay';
 import { CURSOR_EDGE, cursorAcceptsButton, cursorAxes, cursorWakes, stepCursor } from './cursor';
@@ -34,8 +35,11 @@ export interface MapCanvasHandlers {
    * de la manette.
    */
   onHover?(x: number, y: number, source: 'pointer' | 'cursor'): void;
-  /** Juste avant chaque dessin des couches (options du calque à jour pour cette image). */
-  beforeDraw?(): void;
+  /**
+   * Juste avant chaque dessin des couches (options du calque à jour pour cette image). La planche des étiquettes
+   * (overlay.labels) vient d'être vidée : on peut y marquer les obstacles (noms de lieux du fond de plan).
+   */
+  beforeDraw?(g?: CanvasRenderingContext2D, view?: MapTransform): void;
   /** Dessins de l'outil courant, par-dessus les couches (aperçus de tracé, cadre de sélection). */
   drawExtras?(g: CanvasRenderingContext2D, view: MapTransform): void;
   onViewChange?(): void;
@@ -117,7 +121,7 @@ export class MapCanvas {
     this.overlay = {
       layers: { ...ALL_LAYERS }, compact: false, selection: null, hoverKey: 0, commandable: null, size: 15,
       time: 0, gpsRoute: runtime.gps.route, gpsTarget: null, focusIncident: 0, focusStation: 0, focusClosure: 0,
-      edge: (id) => runtime.ctx.world.edge(id),
+      edge: (id) => runtime.ctx.world.edge(id), labels: new LabelBoard(),
     };
 
     const self = this;
@@ -427,9 +431,12 @@ export class MapCanvas {
     o.gpsRoute = this.runtime.gps.route;
     o.gpsTarget = this.runtime.gps.target;
     try {
-      this.handlers.beforeDraw?.();
+      o.labels?.reset();
+      this.handlers.beforeDraw?.(g, v);
       drawOverlay(g, v, this.runtime.scene, o);
       this.handlers.drawExtras?.(g, v);
+      // tous les textes de l'image, posés ensemble par priorité (labelLayout.ts)
+      o.labels?.flush(g, v.width, v.height);
     } catch (err) {
       console.error('[cartes] erreur de dessin des couches', err);
     }

@@ -756,7 +756,10 @@ export class MissionBriefSystem implements GameSystem {
     if (!found && !(journee.travelling && dest)) return null;
     const obj = found ?? { text: `En route vers ${dest!.name}`, x: dest!.x, z: dest!.z };
     const v = me.vehicleId !== 0 ? ctx.vehicles.get(me.vehicleId) : undefined;
-    const mine = v ? this.vehicleLabel(v, group && group.vehicleId === v.id ? group : this.squadOfVehicle(v)) : '';
+    // « votre fourgon de CRS » ; le véhicule n'est nommé par son unité que s'il est celui d'une AUTRE unité que la sienne
+    // (« le fourgon de CRS de MISTRAL 1 BRAVO ») : « le fourgon de CRS MISTRAL 1 BRAVO » se lisait comme le nom de son
+    // propre groupe, alors que la pastille du haut dit « MISTRAL 1 ALFA »
+    const mine = v ? this.boardLabel(v, group) : '';
     const driver = !!v && v.seats[0] === me.id;
     let title = obj.text;
     let detail = '';
@@ -765,7 +768,7 @@ export class MissionBriefSystem implements GameSystem {
       case 'rembarquement':
         if (v) {
           title = dest && journee.stage === 'embarquement' ? `En route bientôt vers ${dest.name}` : 'À bord : la colonne va partir';
-          detail = driver ? 'Vous conduisez : suivez la colonne au départ.' : `Vous êtes dans le ${mine}. Restez à bord, le chauffeur conduit.`;
+          detail = driver ? 'Vous conduisez : suivez la colonne au départ.' : `Vous êtes dans ${mine}. Restez à bord, le chauffeur conduit.`;
         } else {
           title = obj.text.replace(/^(Embarquez|Rembarquez) : (.*)$/, (_m, verb: string, what: string) => `${verb} dans ${theVehicle(what)}`);
           detail = 'Montez à bord avec votre groupe : la colonne attend que tout le monde soit embarqué.';
@@ -793,14 +796,14 @@ export class MissionBriefSystem implements GameSystem {
           detail = 'Enfourchez votre moto (repère) : la BRAV-M part, deux tons.';
           return { title, detail, travelling: journee.travelling, x: moto.x, z: moto.z, target: 'vehicle' };
         } else {
-          detail = v ? (driver ? 'Vous conduisez : suivez le véhicule de tête, deux tons.' : `Dans le ${mine}, en colonne, deux tons. Le chauffeur conduit : restez à bord.`)
+          detail = v ? (driver ? 'Vous conduisez : suivez le véhicule de tête, deux tons.' : `Dans ${mine}, en colonne, deux tons. Le chauffeur conduit : restez à bord.`)
             : 'Montez dans un véhicule de la compagnie : la colonne part.';
         }
         break;
       }
       case 'retour':
         title = obj.text.replace(/^Retour : /, 'Retour vers ');
-        detail = v ? `Dans le ${mine}, retour en colonne. Restez à bord.` : 'Rejoignez un véhicule de la compagnie.';
+        detail = v ? `Dans ${mine}, retour en colonne. Restez à bord.` : 'Rejoignez un véhicule de la compagnie.';
         break;
       case 'intervention':
         detail = 'Restez avec votre groupe dans le cordon : personne n’approche des pompiers.';
@@ -833,6 +836,14 @@ export class MissionBriefSystem implements GameSystem {
   private squadOfVehicle(v: Vehicle): Squad | undefined {
     for (const s of this.ctx!.squads.list) if (s.vehicleId === v.id) return s;
     return undefined;
+  }
+
+  /** Véhicule où le joueur est assis, dans une phrase : « votre fourgon de CRS », « le fourgon de CRS de MISTRAL 1 BRAVO ». */
+  private boardLabel(v: Vehicle, group: Squad | undefined): string {
+    const name = v.def.name.charAt(0).toLowerCase() + v.def.name.slice(1);
+    const owner = group && group.vehicleId === v.id ? group : this.squadOfVehicle(v);
+    if (!owner || (group && owner.id === group.id)) return `votre ${name}`;
+    return `le ${name} de ${owner.name}`;
   }
 
   /** « fourgon de CRS MISTRAL 1 ALFA ». */

@@ -182,8 +182,25 @@ function arrestable(core: CommandCore, x: number, z: number, radius: number): { 
   return p ? { id: p.id, x: p.x, z: p.z } : null;
 }
 
-/** Donne un ordre du catalogue (ligne `verb`) : mêmes gestes que la carte, sans tracé. */
+/**
+ * Donne un ordre du catalogue (ligne `verb`) : mêmes gestes que la carte, sans tracé. Une rue visée garde le nom écrit sur
+ * la fiche : la radio, l'accusé de réception et le suivi le disent (CommandCore.placeHint, le temps de l'envoi).
+ */
 function sendVerb(
+  core: CommandCore, issuer: Issuer, card: CardEnv, line: CardLine, squads: readonly number[], where: Repere,
+  trace: SendEnv['trace'],
+): { ok: boolean; reason: string } {
+  const named = where.kind === 'rue' || where.kind === 'fermeture';
+  const before = core.placeHint;
+  if (named) core.placeHint = where.name.split(' — ')[0]!.trim();
+  try {
+    return sendVerbAt(core, issuer, card, line, squads, where, trace);
+  } finally {
+    core.placeHint = before;
+  }
+}
+
+function sendVerbAt(
   core: CommandCore, issuer: Issuer, card: CardEnv, line: CardLine, squads: readonly number[], where: Repere,
   trace: SendEnv['trace'],
 ): { ok: boolean; reason: string } {

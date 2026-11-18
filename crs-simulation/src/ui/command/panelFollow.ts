@@ -132,6 +132,10 @@ export interface ConvoyView {
   total?: number;
   departIn?: number;
   remaining?: number;
+  /** La colonne n'attend plus que le joueur, à pied (ConvoyStatus.awaitingPlayer). */
+  awaitingPlayer?: boolean;
+  /** Le joueur tient le volant d'un de ses véhicules et n'a pas démarré (ConvoyStatus.awaitingDriver). */
+  awaitingDriver?: boolean;
 }
 
 /** Suivi d'une unité, calculé par le panneau d'après la carte (itinéraire réel) et la colonne de véhicules. */
@@ -241,6 +245,9 @@ export function unitActivity(u: CardUnit, t: FollowTrack | undefined, now: numbe
     const total = c.total ?? 0;
     const aboard = c.aboard ?? 0;
     const boarding = c.stage === 'rembarquement' || (c.stage === 'route' && (c.departIn ?? 0) > 0);
+    // la colonne attend le joueur lui-même (comme le dit sa fiche « Ma mission ») : jamais « en route » à l'arrêt
+    if (c.awaitingDriver) return { doing, status: 'attend votre départ\u00a0: vous êtes au volant', tone: 'warn', progress: total > 0 ? aboard / total * 0.2 : -1 };
+    if (c.awaitingPlayer) return { doing, status: 'attend que vous montiez', tone: 'warn', progress: total > 0 ? aboard / total * 0.2 : -1 };
     if (boarding) {
       return { doing, status: total > 0 ? `embarque (${aboard}/${total} à bord)` : 'embarque', tone: base, progress: total > 0 ? aboard / total * 0.2 : -1 };
     }
@@ -389,7 +396,10 @@ export function readTracks(
     if (cmd && typeof cmd.convoyOf === 'function') {
       const c = cmd.convoyOf(u.squadId);
       if (c && (CONVOY_BUSY.has(c.stage) || (c.stage === 'echec' && now - (c.t0 ?? -Infinity) < ECHEC_FRESH))) {
-        convoy = { stage: c.stage, aboard: c.aboard, total: c.total, departIn: c.departIn, remaining: c.remaining };
+        convoy = {
+          stage: c.stage, aboard: c.aboard, total: c.total, departIn: c.departIn, remaining: c.remaining,
+          awaitingPlayer: c.awaitingPlayer === true, awaitingDriver: c.awaitingDriver === true,
+        };
       }
     }
     const next = core.afterConvoy.get(u.squadId);
@@ -397,7 +407,7 @@ export function readTracks(
     if (next && convoy) {
       const g = next.geom;
       const street = next.type === 'couper_circulation' || next.type === 'filtrer' ? env.roadAt(g.x, g.z, 30) : null;
-      intended = { type: next.type, place: street ? street.name : env.placeName(g.x, g.z), targetId: next.targetId === BARRAGE_LET_PASSERSBY ? next.targetId : 0 };
+      intended = { type: next.type, place: g.place || (street ? street.name : env.placeName(g.x, g.z)), targetId: next.targetId === BARRAGE_LET_PASSERSBY ? next.targetId : 0 };
     } else if (convoy && cmd && typeof cmd.convoyOf === 'function') {
       // simple mouvement en véhicules : la destination est la fin de l'itinéraire de la colonne
       const r = cmd.convoyOf(u.squadId)?.route ?? [];

@@ -19,6 +19,8 @@ import type { Incident, RescueKind, RoadClosure } from '@/core/extensions';
 import type { MissionBrief } from '@/gameplay/session/mission-api';
 import { MISSION_SERVICE } from '@/gameplay/session/mission-api';
 import type { PointerInfo } from '../maps/gestures';
+import { avoidLandmarkNames } from '../maps/labelLayout';
+import type { LabelBoard } from '../maps/labelLayout';
 import type { MapCanvas } from '../maps/mapCanvas';
 import { INCIDENT_RADIUS, foyerRadius } from '../maps/overlay';
 import type { SceneFoyer } from '../maps/scene';
@@ -125,7 +127,12 @@ export class TacticalMap {
       onDragStart: (x, y, info) => this.dragStart(x, y, info),
       onDragMove: (x, y) => this.dragMove(x, y),
       onDragEnd: (x, y, _info, cancelled) => this.dragEnd(x, y, cancelled),
-      beforeDraw: () => this.beforeDraw(),
+      beforeDraw: (g, view) => {
+        this.beforeDraw();
+        // noms de monuments du fond de plan : la bulle et les étiquettes évitent de les recouvrir (labelLayout.ts)
+        const board = this.labels;
+        if (board && g && view) avoidLandmarkNames(board, g, view, core.ctx.world.landmarks);
+      },
       drawExtras: (g, view) => drawTacticalPreview(g, view, this, core, state),
     };
   }
@@ -169,6 +176,11 @@ export class TacticalMap {
     }
     this.quiKeys = keys;
     this.map.invalidate();
+  }
+
+  /** Planche des étiquettes de la carte (vidée à chaque image par MapCanvas) ; null sans carte. */
+  get labels(): LabelBoard | null {
+    return this.map.overlay?.labels ?? null;
   }
 
   /** Avant chaque dessin : lecture seule (ni issues de foule, carte de l'exécutant), unités mises en avant. */

@@ -19,10 +19,13 @@ import { formables, refreshFormable } from './tree';
 import * as T from './tuning';
 
 export function copyOrder(o: SquadOrder): SquadOrder {
-  return {
+  const c: SquadOrder = {
     type: o.type, x: o.x, z: o.z, heading: o.heading, width: o.width, targetId: o.targetId, maxForce: o.maxForce,
     issuedAt: o.issuedAt, issuedBy: o.issuedBy,
   };
+  // le lieu nommé par celui qui a donné l'ordre suit la copie (accusé de réception, suivi)
+  if (o.place) c.place = o.place;
+  return c;
 }
 
 export function setPhase(k: Kernel, u: Unit, phase: UnitPhase): void {

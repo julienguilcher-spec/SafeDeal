@@ -296,6 +296,8 @@ export interface OrderGeom {
   z: number;
   heading: number;
   width: number;
+  /** Lieu nommé sur la fiche (« Voie Georges-Pompidou ») : dit tel quel à la radio et dans le suivi. */
+  place?: string;
 }
 
 /** Longueur minimale d'un tracé pour valoir une ligne (m) ; en deçà, c'est un point. */

@@ -470,7 +470,8 @@ export function cardEnvFromCore(core: CommandCore, selection: readonly number[] 
     if (u.faction !== 'police' && u.faction !== 'rescue') continue;
     const o = u.order;
     let orderPlace = '';
-    if (o && Number.isFinite(o.x) && Number.isFinite(o.z) && (o.x !== 0 || o.z !== 0)) {
+    if (o && o.place) orderPlace = o.place; // le nom dit quand l'ordre a été donné (fiche, radio)
+    else if (o && Number.isFinite(o.x) && Number.isFinite(o.z) && (o.x !== 0 || o.z !== 0)) {
       const street = o.type === 'couper_circulation' || o.type === 'filtrer' ? roadAt(o.x, o.z, 30) : null;
       orderPlace = street ? street.name : placeName(o.x, o.z);
     }

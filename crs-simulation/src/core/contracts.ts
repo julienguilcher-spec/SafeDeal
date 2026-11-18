@@ -959,6 +959,11 @@ export interface SquadOrder {
   maxForce: ForceLevel;
   issuedAt: number;
   issuedBy: EntityId;
+  /**
+   * Lieu nommé quand l'ordre a été donné (« Voie Georges-Pompidou ») : la radio, l'accusé de réception et les lignes de
+   * suivi disent ce nom-là, celui de la fiche. Absent : le secteur du point.
+   */
+  place?: string;
 }
 
 export interface Squad {

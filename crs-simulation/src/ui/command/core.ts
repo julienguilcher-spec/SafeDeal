@@ -205,22 +205,26 @@ export class CommandCore implements CommandApi {
       this.follow?.release(s.id);
       const patrol = this.isPatrol(s.id);
       const t: OrderType = patrol && type === 'faire_mouvement' ? 'avancer' : type;
+      // un seul nom de lieu pour tout l'ordre : celui de la fiche s'il y en a un, sinon la rue ou le secteur du point ;
+      // il part avec l'ordre (SquadOrder.place) : la radio, l'accusé de réception et le suivi disent le même
+      const place = g ? (g.place || this.placeHint || this.placeName(t, g.x, g.z)) : '';
+      const gp: OrderGeom | undefined = g && place !== '' && g.place !== place ? { ...g, place } : g;
       // mouvement motorisé : demandé (« Faire mouvement ») ou implicite pour un point éloigné d'une unité qui a ses
       // véhicules — elle embarque, roule en colonne jusqu'au point, débarque, puis exécute l'ordre donné
       if (g && !patrol && (type === 'faire_mouvement' || (MOTOR_AUTO.has(type) && this.farFor(s, g.x, g.z)))) {
         // une unité dont un supérieur est aussi désigné fait partie de sa colonne
         if (squads.some((q) => q !== s && this.isAncestor(q.id, s))) { count++; continue; }
-        if (this.motorize(s, type, g, from, false, targetId)) { count++; continue; }
+        if (this.motorize(s, type, gp!, from, false, targetId)) { count++; continue; }
         if (type === 'faire_mouvement') {
           ctx.ui.notify(`${s.name} n’a pas de véhicule disponible : mouvement à pied.`, 'warn', 4);
-          ctx.squads.issue(s.id, { type: 'colonne', x: g.x, z: g.z, heading: g.heading, width: 0, targetId, maxForce, issuedBy: playerId });
+          ctx.squads.issue(s.id, { type: 'colonne', x: g.x, z: g.z, heading: g.heading, width: 0, targetId, maxForce, issuedBy: playerId, place });
           count++;
           continue;
         }
       }
       if (g) {
         ctx.squads.issue(s.id, {
-          type: t, x: g.x, z: g.z, heading: g.heading, width: g.width, targetId, maxForce, issuedBy: playerId,
+          type: t, x: g.x, z: g.z, heading: g.heading, width: g.width, targetId, maxForce, issuedBy: playerId, place,
         });
       } else {
         // ordre immédiat : point et cap du chef d'unité (valeurs par défaut du magasin)
@@ -235,7 +239,7 @@ export class CommandCore implements CommandApi {
         ctx.radio.say({
           channel: 'commandement', from, priority: verb.coercive ? 2 : 1, personId: playerId,
           text: orderPhrase({
-            type: t, unit: s.name, from, sector: g ? this.placeName(t, o.x, o.z) : '', heading: o.heading, width: o.width,
+            type: t, unit: s.name, from, sector: place, heading: o.heading, width: o.width,
             distance: dist, target: targetName, passersby: targetId === BARRAGE_LET_PASSERSBY,
           }),
         });
@@ -248,6 +252,12 @@ export class CommandCore implements CommandApi {
     return { ok: true, reason: '', count };
   }
 
+  /**
+   * Nom du lieu visé par la fiche en cours d'envoi (sendLine.ts le pose le temps d'un envoi) : les ordres partis pendant
+   * ce temps le disent à la radio et le gardent pour le suivi. '' : la rue ou le secteur du point.
+   */
+  placeHint = '';
+
   private readonly road: RoadSample = {
     edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '', roadClass: 'residential', oneway: false,
   };
@@ -258,7 +268,8 @@ export class CommandCore implements CommandApi {
     if ((type === 'couper_circulation' || type === 'filtrer') && world.edgeCount > 0 && world.nearestRoad(x, z, this.road, 40) && this.road.name) {
       return this.road.name;
     }
-    return world.sectorName(x, z);
+    const sector = world.sectorName(x, z);
+    return sector === 'secteur inconnu' ? '' : sector;
   }
 
   /** Ordre donné : tracé dans `issued`. */
@@ -318,7 +329,7 @@ export class CommandCore implements CommandApi {
     else this.afterConvoy.delete(s.id);
     ctx.radio.say({
       channel: 'commandement', from, priority: 2, personId: ctx.player.state.personId,
-      text: `${s.name} ICI ${from.toUpperCase()}. Embarquez, mouvement en véhicules, deux tons, sur ${ctx.world.sectorName(g.x, g.z) || 'le point indiqué'}. PARLEZ.`,
+      text: `${s.name} ICI ${from.toUpperCase()}. Embarquez, mouvement en véhicules, deux tons, sur ${g.place || ctx.world.sectorName(g.x, g.z) || 'le point indiqué'}. PARLEZ.`,
     });
     return true;
   }
@@ -402,7 +413,7 @@ export class CommandCore implements CommandApi {
     this.afterConvoy.delete(squadId);
     const ctx = this.ctx;
     const g = next.geom;
-    ctx.squads.issue(squadId, { type: next.type, x: g.x, z: g.z, heading: g.heading, width: g.width, targetId: next.targetId, maxForce: this.effectiveForce(), issuedBy: ctx.player.state.personId });
+    ctx.squads.issue(squadId, { type: next.type, x: g.x, z: g.z, heading: g.heading, width: g.width, targetId: next.targetId, maxForce: this.effectiveForce(), issuedBy: ctx.player.state.personId, place: g.place });
   }
 
   /** Fixe le niveau de force autorisé (autorité ou commandant) et l'annonce à la radio. */
@@ -414,8 +425,8 @@ export class CommandCore implements CommandApi {
     ctx.law.authorize(level, ctx.player.state.personId);
     const from = this.callsign();
     const text = level > previous
-      ? `À TOUS ICI ${from.toUpperCase()}. Emploi de la force autorisé jusqu’au niveau ${level}. FAITES L’APERÇU.`
-      : `À TOUS ICI ${from.toUpperCase()}. Niveau de force ramené à ${level}. TERMINÉ.`;
+      ? `À TOUS ICI ${from.toUpperCase()}. Emploi de la force autorisé jusqu’à\u00a0: ${forceWord(level)}. FAITES L’APERÇU.`
+      : `À TOUS ICI ${from.toUpperCase()}. Force ramenée à\u00a0: ${forceWord(level)}. TERMINÉ.`;
     ctx.radio.say({ channel: 'commandement', from, priority: 2, personId: ctx.player.state.personId, text });
     return true;
   }

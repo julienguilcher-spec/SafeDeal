@@ -3,6 +3,8 @@
  * ===================================================================================== */
 
 import type { OrderType } from '@/core/contracts';
+import { LABEL_PRIORITY } from './labelLayout';
+import type { LabelBoard } from './labelLayout';
 import type { MapScene } from './scene';
 import { UNIT_COLORS, drawUnitSymbol } from './symbols';
 import type { SymbolOptions } from './symbols';
@@ -29,6 +31,11 @@ export interface UnitLayerOptions {
    */
   emphasis?: ReadonlySet<number> | null;
   emphasisAlpha?: number;
+  /**
+   * Planche des étiquettes de l'image (labelLayout.ts) : les textes des unités et des ordres y sont demandés, posés en
+   * fin d'image sans se chevaucher. Absente (mini-carte, aperçus) : textes écrits sur place, comme avant.
+   */
+  labels?: LabelBoard | null;
 }
 
 /** Unités à dessiner pour une échelle donnée, avec l'étendue de leur sous-arbre dans scene.units. */
@@ -192,10 +199,121 @@ function drawDot(g: CanvasRenderingContext2D, u: MapUnit, x: number, y: number, 
   g.stroke();
 }
 
+// ───────────────────────────── unités au même endroit : une étiquette ─────────────────────────────
+
+/** Deux symboles plus proches que cela à l'écran (px, × taille du cadre) se recouvrent : ils forment une pile. */
+export const STACK_FACTOR = 1.25;
+/** Décalage (px) de chaque symbole d'une pile, vers le haut à droite, au plus pour les trois premiers. */
+const STACK_STEP = 4;
+
+/** Indicatif commun d'unités (« MISTRAL 1 ALFA », « MISTRAL 1 », « MISTRAL » → « MISTRAL »), sinon le premier nom. */
+export function commonName(names: readonly string[]): string {
+  if (names.length === 0) return '';
+  let words = names[0]!.split(/\s+/);
+  for (let i = 1; i < names.length; i++) {
+    const w = names[i]!.split(/\s+/);
+    let k = 0;
+    while (k < words.length && k < w.length && words[k] === w[k]) k++;
+    words = words.slice(0, k);
+  }
+  return words.length > 0 ? words.join(' ') : names[0]!;
+}
+
+/**
+ * Étiquette d'une pile d'unités : « MISTRAL · 3 unités · 45 » (indicatif commun, nombre, agents valides). L'effectif
+ * d'une unité compte ses subordonnées : une unité dont un supérieur est dans la même pile n'est pas comptée deux fois
+ * (`parentOf` : clé de l'unité supérieure, d'après le modèle de la scène ; à défaut, `parentKey` seul).
+ */
+export function stackLabel(
+  units: readonly Pick<MapUnit, 'name' | 'valid' | 'total' | 'squadId' | 'key' | 'parentKey'>[], parentOf?: (key: number) => number,
+): string {
+  const name = commonName(units.map((u) => u.name));
+  let valid = 0;
+  for (const u of units) {
+    if (u.squadId === 0 || u.total <= 0) continue;
+    let inPile = false;
+    let p = u.parentKey;
+    for (let guard = 0; p !== 0 && guard < 8 && !inPile; guard++) {
+      for (const v of units) if (v !== u && v.key === p) inPile = true;
+      p = parentOf ? parentOf(p) : 0;
+    }
+    if (!inPile) valid += u.valid;
+  }
+  return `${name} · ${units.length} unités${valid > 0 ? ' · ' + valid : ''}`;
+}
+
+/**
+ * Regroupe en piles les unités montrées dont les symboles se recouvrent à l'écran (`pos` : x, y par unité ; NaN hors
+ * champ) : `pile[i]` = indice de la première unité de sa pile, `rank[i]` = rang dans la pile (0 : la première). Les
+ * véhicules sans unité ne s'empilent pas. Logique pure.
+ */
+export function stackUnits(units: readonly MapUnit[], pos: readonly number[], radius: number, pile: number[], rank: number[]): void {
+  const n = units.length;
+  pile.length = n;
+  rank.length = n;
+  for (let i = 0; i < n; i++) {
+    pile[i] = i;
+    rank[i] = 0;
+    const x = pos[i * 2]!, y = pos[i * 2 + 1]!;
+    if (!(x === x) || (units[i]!.squadId === 0 && units[i]!.symbol === 'vehicule')) continue;
+    for (let j = 0; j < i; j++) {
+      if (pile[j] !== j) continue;
+      const u = units[j]!;
+      if (u.squadId === 0 && u.symbol === 'vehicule') continue;
+      const dx = pos[j * 2]! - x, dy = pos[j * 2 + 1]! - y;
+      if (dx * dx + dy * dy <= radius * radius) {
+        pile[i] = j;
+        let r = 0;
+        for (let k = j; k < i; k++) if (pile[k] === j) r++;
+        rank[i] = r;
+        break;
+      }
+    }
+  }
+}
+
+const POS: number[] = [];
+const PILE: number[] = [];
+const RANK: number[] = [];
+const PILE_SIZE: number[] = [];
+const PILE_OPEN: boolean[] = [];
+const PILE_UNITS: MapUnit[] = [];
+
 export function drawUnits(g: CanvasRenderingContext2D, t: MapTransform, scene: MapScene, o: UnitLayerOptions): void {
   const shown = visibleUnits(scene, t.mpp, o.compact, SHOWN);
   const all = scene.units;
   const sel = o.selection;
+  // planche des étiquettes : les unités qui se recouvrent forment une pile, sous UNE étiquette (dépliée si l'une
+  // d'elles est sélectionnée ou survolée) ; chaque texte est posé à une place libre en fin d'image
+  const board = !o.compact && !o.dots ? o.labels ?? null : null;
+  if (board) {
+    const n = shown.units.length;
+    POS.length = n * 2;
+    for (let i = 0; i < n; i++) {
+      const u = shown.units[i]!;
+      if (!t.contains(u.x, u.z, 40)) {
+        POS[i * 2] = NaN;
+        POS[i * 2 + 1] = NaN;
+        continue;
+      }
+      t.worldToScreen(u.x, u.z, SP);
+      POS[i * 2] = SP.x;
+      POS[i * 2 + 1] = SP.y;
+    }
+    stackUnits(shown.units, POS, o.size * STACK_FACTOR, PILE, RANK);
+    PILE_SIZE.length = n;
+    PILE_OPEN.length = n;
+    for (let i = 0; i < n; i++) {
+      PILE_SIZE[i] = 0;
+      PILE_OPEN[i] = false;
+    }
+    for (let i = 0; i < n; i++) {
+      const p = PILE[i]!;
+      PILE_SIZE[p]!++;
+      const u = shown.units[i]!;
+      if (u.key === o.hoverKey || isSelected(scene, u, sel)) PILE_OPEN[p] = true;
+    }
+  }
   // deux passes : les unités sélectionnées par-dessus les autres
   for (let pass = 0; pass < 2; pass++) {
     for (let i = 0; i < shown.units.length; i++) {
@@ -215,6 +333,13 @@ export function drawUnits(g: CanvasRenderingContext2D, t: MapTransform, scene: M
       const emph = o.emphasis;
       g.globalAlpha = emph && emph.size > 0 && !emphasised(scene, shown, i, emph) ? (o.emphasisAlpha ?? 0.6) : 1;
       t.worldToScreen(u.x, u.z, SP);
+      // pile refermée : symboles décalés en escalier, lisibles comme une pile
+      const piled = board !== null && PILE_SIZE[PILE[i]!]! > 1 && !PILE_OPEN[PILE[i]!];
+      if (piled) {
+        const k = Math.min(2, RANK[i]!);
+        SP.x += k * STACK_STEP;
+        SP.y -= k * STACK_STEP;
+      }
       if (o.compact || o.dots) {
         if (u.squadId === 0 && u.symbol === 'vehicule') drawVehicleMark(g, SP.x, SP.y, t.headingToScreenAngle(u.heading), t.mpp * 1.6, false, false);
         else drawDot(g, u, SP.x, SP.y, u.hasPlayer);
@@ -237,6 +362,21 @@ export function drawUnits(g: CanvasRenderingContext2D, t: MapTransform, scene: M
       if (u.patrol) SYM.detail = selected || t.mpp < 6 ? u.status : '';
       else SYM.detail = (selected || t.mpp < 0.75) && u.squadId !== 0 && u.total > 0 ? `${u.valid}/${u.total}${selected && u.status !== '' ? ' · ' + u.status : ''}` : '';
       SYM.compact = false;
+      if (board) {
+        // le texte part sur la planche : sous le symbole s'il y a la place, sinon à côté, sinon il n'est pas écrit
+        const text = piled ? '' : [SYM.code, SYM.detail].filter((s) => s !== '').join(' · ');
+        const color = SYM.strength < 0.6 ? UNIT_COLORS.hurt : UNIT_COLORS.text;
+        SYM.code = '';
+        SYM.detail = '';
+        const r = o.size * 0.62;
+        board.avoid(SP.x - o.size * 0.8, SP.y - o.size * 0.8, SP.x + o.size * 0.8, SP.y + o.size * 0.6);
+        if (text !== '') board.text(text, SP.x, SP.y, color, 9.5, 700, selected ? LABEL_PRIORITY.selected : LABEL_PRIORITY.unit, 'below', r);
+        if (piled && PILE[i] === i) {
+          PILE_UNITS.length = 0;
+          for (let k = i; k < shown.units.length; k++) if (PILE[k] === i) PILE_UNITS.push(shown.units[k]!);
+          board.text(stackLabel(PILE_UNITS, (k) => scene.unitModel.get(k)?.parentKey ?? 0), SP.x + STACK_STEP, SP.y - STACK_STEP, UNIT_COLORS.text, 10, 700, LABEL_PRIORITY.unit, 'below', r + STACK_STEP);
+        }
+      }
       drawUnitSymbol(g, u.symbol, SP.x, SP.y, SYM);
     }
   }
@@ -653,7 +793,12 @@ export function drawOrders(g: CanvasRenderingContext2D, t: MapTransform, scene: 
   if (LABELS.length === 0) return;
   g.font = TAG_FONT;
   const placed = layoutOrderLabels(LABELS, (text) => g.measureText(text).width);
-  for (const p of placed) tag(g, p.text, p.x, p.y, p.color);
+  const board = o.labels;
+  for (const p of placed) {
+    // planche des étiquettes : posée par priorité avec la bulle, l'aperçu et les unités (aucun chevauchement)
+    if (board) board.text(p.text, p.x, p.y, p.color, 9.5, 700, LABEL_PRIORITY.order, 'center', 0);
+    else tag(g, p.text, p.x, p.y, p.color);
+  }
 }
 
 // ───────────────────────────── carte de l'exécutant ─────────────────────────────

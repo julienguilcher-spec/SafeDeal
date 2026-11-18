@@ -431,7 +431,9 @@ export class ForceJudge {
     if (frame !== 'legitime_defense' && !this.commands(by)) {
       const auth = som.authorizedFor(by, frame === 'riposte');
       if (level > auth) {
-        this.set('non_autorise', frame, level >= 4 ? 3 : 2, 'Emploi ' + of + " sans ordre : la hiérarchie n'a autorisé que le niveau " + auth + ' (' + LEVEL_NAMES[auth] + '), ce moyen relève du niveau ' + level + ". Le cadre légal était réuni, mais l'initiative n'appartient pas à l'agent.");
+        // les moyens dits en mots, jamais en numéros de niveau (comme la pastille « Force : … » et les autorisations)
+        const allowed = auth <= 0 ? "la hiérarchie n'avait autorisé aucun emploi de la force" : "la hiérarchie n'avait autorisé que : " + LEVEL_NAMES[auth];
+        this.set('non_autorise', frame, level >= 4 ? 3 : 2, 'Emploi ' + of + ' sans ordre : ' + allowed + ' ; ce moyen relève de : ' + LEVEL_NAMES[level] + ". Le cadre légal était réuni, mais l'initiative n'appartient pas à l'agent.");
         return;
       }
     }

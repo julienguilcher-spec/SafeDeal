@@ -143,6 +143,7 @@ class SquadStoreImpl implements SquadApi {
       issuedAt: ctx.clock.now,
       issuedBy: order.issuedBy ?? 0,
     };
+    if (order.place) full.place = order.place;
     squad.order = full;
     ctx.events.emit('order:issued', { squadId, order: full });
   }

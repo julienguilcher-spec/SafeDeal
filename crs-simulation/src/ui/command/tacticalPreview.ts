@@ -10,6 +10,8 @@
  * ===================================================================================== */
 
 import type { RoadSample } from '@/core/contracts';
+import { LABEL_PRIORITY } from '../maps/labelLayout';
+import type { LabelBoard } from '../maps/labelLayout';
 import { drawBarrageLine, drawNasse, drawOrderArrow, drawTargetMark } from '../maps/overlay-units';
 import type { MapTransform } from '../maps/transform';
 import type { MapUnit } from '../maps/units';
@@ -47,6 +49,8 @@ export interface PreviewSource {
   readonly traceEnds: { ax: number; az: number } | null;
   /** Bout libre du tracé (pointeur, ou curseur du clavier), en pixels ; false s'il n'y en a pas. */
   traceTip(out: { x: number; y: number }): boolean;
+  /** Planche des étiquettes de l'image (labelLayout.ts) ; absente : textes écrits sur place. */
+  readonly labels?: LabelBoard | null;
 }
 
 const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
@@ -54,7 +58,18 @@ const EMPTY_UNITS: MapUnit[] = [];
 const GEOM: OrderGeom = { x: 0, z: 0, heading: 0, width: 0 };
 const SP = { x: 0, y: 0 };
 
-function text(g: CanvasRenderingContext2D, s: string, x: number, y: number, color: string, size = 11): void {
+/** Planche des étiquettes de l'image en cours de dessin (posée par drawTacticalPreview), null sans planche. */
+let BOARD: LabelBoard | null = null;
+
+/**
+ * Texte de l'aperçu : demandé à la planche (priorité de l'aperçu, au-dessus des étiquettes d'unités et d'ordres, posé à
+ * une place libre), ou écrit sur place sans planche.
+ */
+function text(g: CanvasRenderingContext2D, s: string, x: number, y: number, color: string, size = 11, priority: number = LABEL_PRIORITY.preview): void {
+  if (BOARD) {
+    BOARD.text(s, x, y, color, size, 700, priority, 'center', 0);
+    return;
+  }
   g.font = `700 ${size}px ${FONT}`;
   g.textAlign = 'center';
   g.textBaseline = 'middle';
@@ -74,6 +89,7 @@ function text(g: CanvasRenderingContext2D, s: string, x: number, y: number, colo
 export function drawTacticalPreview(
   g: CanvasRenderingContext2D, view: MapTransform, tm: PreviewSource, core: CommandCore, st: TacticalState,
 ): void {
+  BOARD = tm.labels ?? null;
   const d = tm.drag;
   const mode = st.mode;
   const units = mode.kind === 'order' || (d && d.kind === 'order') ? tm.selectedUnits() : EMPTY_UNITS;
@@ -270,6 +286,11 @@ function drawViseeLabel(g: CanvasRenderingContext2D, view: MapTransform, r: Repe
   g.stroke();
   const lines = [{ s: viseeTitle(r), size: 14, color: '#ffe680', weight: 800 }];
   if (hint !== '') lines.push({ s: hint, size: 11, color: '#e8eef9', weight: 600 });
+  if (BOARD) {
+    // la bulle passe avant tout autre texte ; elle cherche une place sans nom de lieu dessous (au-dessus, au-dessous…)
+    BOARD.pill(lines, sx, sy, 24, YELLOW, LABEL_PRIORITY.bubble, 'above', true);
+    return;
+  }
   const h = 8 + lines.reduce((sum, l) => sum + l.size + 4, 0);
   let y = sy - 26 - h / 2;
   if (y - h / 2 < 6) y = sy + 26 + h / 2;
@@ -289,7 +310,8 @@ function quiRing(g: CanvasRenderingContext2D, x: number, y: number): void {
   g.lineWidth = 2.5;
   g.strokeStyle = YELLOW;
   g.stroke();
-  text(g, 'QUI', x, y - 24, '#ffe680', 10);
+  if (BOARD) BOARD.text('QUI', x, y, '#ffe680', 10, 700, LABEL_PRIORITY.qui, 'above', 15);
+  else text(g, 'QUI', x, y - 24, '#ffe680', 10);
 }
 
 /** Flèches de Qui vers le point, avec « à pied · 2 min » / « en véhicules · 6 min » au milieu. */
@@ -439,6 +461,10 @@ function drawSteps(g: CanvasRenderingContext2D, view: MapTransform, p: CardPrevi
   if (p.steps.length === 0) return;
   view.worldToScreen(p.x, p.z, SP);
   const lines = p.steps.map((s) => ({ s, size: 11, color: '#ffe0b3', weight: 700 }));
+  if (BOARD) {
+    BOARD.pill(lines, SP.x, SP.y, 28, '#ff9f43', LABEL_PRIORITY.preview, 'right', false);
+    return;
+  }
   g.font = `700 11px ${FONT}`;
   let w = 0;
   for (const l of lines) w = Math.max(w, g.measureText(l.s).width);

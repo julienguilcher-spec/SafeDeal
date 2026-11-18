@@ -9,6 +9,8 @@ import type { Incident, IncidentKind, RescueCall } from '@/core/extensions';
 import type { GpsTarget } from './api';
 import { BARRAGE_COLORS, barrageLook, exitOpen } from './barrages';
 import type { SceneBarrage } from './barrages';
+import { LABEL_PRIORITY } from './labelLayout';
+import type { LabelBoard } from './labelLayout';
 import { drawExecutantFrame, drawOrders, drawUnits } from './overlay-units';
 import type { ExecutantFrame, UnitLayerOptions } from './overlay-units';
 import type { MapScene } from './scene';
@@ -84,7 +86,15 @@ function applyWorld(g: CanvasRenderingContext2D, t: MapTransform): void {
   g.transform(rx * k, -fx * k, rz * k, -fz * k, t.width * 0.5 - (t.cx * rx + t.cz * rz) * k, t.height * 0.5 + (t.cx * fx + t.cz * fz) * k);
 }
 
+/** Planche des étiquettes de l'image en cours (posée par drawOverlay) : null sans planche (mini-carte). */
+let BOARD: LabelBoard | null = null;
+
 function label(g: CanvasRenderingContext2D, text: string, x: number, y: number, color: string, size = 10, weight = 600): void {
+  // avec une planche : posé en fin d'image à une place libre (barrages, foules, métro, secours), sous les ordres
+  if (BOARD) {
+    BOARD.text(text, x, y, color, size, weight, LABEL_PRIORITY.layer, 'center', 0);
+    return;
+  }
   g.font = `${weight} ${size}px ${FONT}`;
   g.textAlign = 'center';
   g.textBaseline = 'middle';
@@ -859,6 +869,7 @@ function drawPlayer(g: CanvasRenderingContext2D, t: MapTransform, scene: MapScen
 export function drawOverlay(g: CanvasRenderingContext2D, t: MapTransform, scene: MapScene, o: OverlayOptions): void {
   const L = o.layers;
   const vis = scene.vis;
+  BOARD = o.compact ? null : o.labels ?? null;
   if (L.crowd) drawCrowd(g, t, scene);
   if (L.crowd) drawFoyers(g, t, scene, o);
   if (L.route && vis.route) drawRoute(g, t, scene, o.compact);

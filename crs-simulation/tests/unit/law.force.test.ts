@@ -165,7 +165,10 @@ describe('droit — ordre de la hiérarchie', () => {
     const v = ctx.law.reportForce(agent, 'lacrymo', null, 0, 20);
     expect(v.kind).toBe('non_autorise');
     expect(v.severity).toBe(2);
-    expect(v.reason).toContain('niveau 2');
+    // moyens en mots (F4) : jamais « niveau 2 », « niveau 3 » dans le compte rendu
+    expect(v.reason).toContain("n'avait autorisé que : bâton et aérosol");
+    expect(v.reason).toContain("relève de : lacrymogènes à main et engin lanceur d'eau");
+    expect(v.reason).not.toMatch(/niveau \d/);
     expect(ctx.law.reportForce(agent, 'gazeuse', null, 0, 18).kind).toBe('licite');
     expect(ctx.law.reportForce(cdt, 'lacrymo', null, 0, 21).kind).toBe('licite');
     // l'ordre donné à l'unité de l'agent vaut autorisation
