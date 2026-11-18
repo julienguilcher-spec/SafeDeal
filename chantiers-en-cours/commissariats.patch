@@ -687,10 +687,10 @@ index 0000000..a6fdcdf
 +export { atName, homeName } from './texts';
 diff --git a/crs-simulation/src/gameplay/commissariats/stock.ts b/crs-simulation/src/gameplay/commissariats/stock.ts
 new file mode 100644
-index 0000000..baa6284
+index 0000000..7540099
 --- /dev/null
 +++ b/crs-simulation/src/gameplay/commissariats/stock.ts
-@@ -0,0 +1,152 @@
+@@ -0,0 +1,174 @@
 +/* =====================================================================================
 + * COMMISSARIATS (jeu) — véhicules garés en réserve : occupation des places, mise en place des véhicules sans
 + * équipage (à la mise en place de la session), choix d'une place libre (engagement, retour d'une unité accueillie).
@@ -771,6 +771,28 @@ index 0000000..baa6284
 +  return true;
 +}
 +
++/** Longueur du couloir d'approche contrôlé derrière une place (m) : le point d'approche du pilote automatique. */
++export const APPROACH_LEN = 9;
++
++/**
++ * Le couloir d'approche d'une place (dans son axe, juste derrière elle, sur APPROACH_LEN m) est-il libre de tout
++ * véhicule (hors `ignore`) ? Le pilote automatique se gare en entrant dans la place par l'arrière, dans son axe : une
++ * voiture garée juste derrière la bloque (au 8e, TV 75-18 restait arrêtée derrière TV 75-28 et BAC 75-08).
++ */
++export function approachClear(ctx: GameContext, slot: YardSlot, kind: VehicleKind, ignore?: ReadonlySet<EntityId>): boolean {
++  const d = dims(ctx, kind);
++  const fx = Math.sin(slot.heading), fz = Math.cos(slot.heading);
++  const back = d.len / 2 + APPROACH_LEN / 2;
++  const box: Box = { x: slot.x - fx * back, z: slot.z - fz * back, h: slot.heading, hl: APPROACH_LEN / 2, hw: d.width / 2 + 0.2 };
++  const n = ctx.vehicles.queryRadius(box.x, box.z, APPROACH_LEN / 2 + 14, nearV);
++  for (let i = 0; i < n; i++) {
++    const o = nearV[i]!;
++    if (o.def.flying || (ignore && ignore.has(o.id))) continue;
++    if (boxesOverlap(box, { x: o.x, z: o.z, h: o.heading, hl: o.def.length / 2, hw: o.def.width / 2 })) return false;
++  }
++  return true;
++}
++
 +/** La place peut-elle recevoir ce véhicule (assez longue) ? */
 +function fits(slot: YardSlot, kind: VehicleKind): boolean {
 +  return slot.len + 0.05 >= vehicleLen(kind);
@@ -845,10 +867,10 @@ index 0000000..baa6284
 +}
 diff --git a/crs-simulation/src/gameplay/commissariats/system.ts b/crs-simulation/src/gameplay/commissariats/system.ts
 new file mode 100644
-index 0000000..8fb7d60
+index 0000000..3a1999d
 --- /dev/null
 +++ b/crs-simulation/src/gameplay/commissariats/system.ts
-@@ -0,0 +1,879 @@
+@@ -0,0 +1,1108 @@
 +/* =====================================================================================
 + * COMMISSARIATS (jeu) — système de simulation (ordre SystemOrder.CONTROL + 7 : juste après les patrouilles). Sans DOM.
 + *
@@ -871,7 +893,7 @@ index 0000000..8fb7d60
 + * Aucun tirage au hasard : tout suit l'ordre des données.
 + * ===================================================================================== */
 +
-+import type { EntityId, GameContext, GameSystem, Person, PoliceRank, SquadOrder, Unsubscribe, Vehicle } from '@/core/contracts';
++import type { EntityId, GameContext, GameSystem, Person, PoliceRank, RoadSample, SquadOrder, Unsubscribe, Vehicle } from '@/core/contracts';
 +import { SystemOrder } from '@/core/contracts';
 +import type { PatrolsApi } from '@/gameplay/patrols/api';
 +import { SESSION_SETUP_EVENT, SESSION_SETUP_SERVICE } from '@/gameplay/session/api';
@@ -891,7 +913,7 @@ index 0000000..8fb7d60
 +  EngageResult, EntryState, RecallTarget, StockEntryView,
 +} from './api';
 +import { buildUnit, crewCount, unitVehicles } from './engage';
-+import { freeSlot, parkTemplate, realKind, slotFree } from './stock';
++import { approachClear, freeSlot, parkTemplate, realKind, slotFree } from './stock';
 +import { REFUS, adoptedLabel, availableText, radioFrame, readyText, returnedText } from './texts';
 +
 +// ───────────────────────────── réglages ─────────────────────────────
@@ -920,6 +942,35 @@ index 0000000..8fb7d60
 +const PARK_REACH = 12;
 +/** Manœuvre directe du pilote automatique : point d'approche à moins de … m. */
 +const PARK_DIRECT = 15;
++/**
++ * Rangement d'un véhicule arrêté en amont de ses places, dans l'axe (queue d'une colonne de motos) : places à moins de
++ * … m, points d'approche droit devant lui, à moins de PARK_AHEAD_LAT m de côté.
++ */
++const PARK_AHEAD = 40;
++const PARK_AHEAD_LAT = 8;
++
++/**
++ * Le pilote automatique peut-il ranger ce véhicule sur cette place sans faire le tour du pâté de maisons ?
++ * `ahead` faux : ses deux points d'approche (`back`, `run` m derrière la place) à moins de PARK_DIRECT m (il y va
++ * directement) ; vrai : le véhicule roule dans le sens de la place et les deux points sont droit devant lui.
++ */
++function reachable(v: Vehicle, s: Pose, back: number, run: number, ahead: boolean): boolean {
++  const hs = Math.sin(s.heading), hc = Math.cos(s.heading);
++  for (const k of [back, run]) {
++    const dx = s.x - hs * k - v.x;
++    const dz = s.z - hc * k - v.z;
++    if (!ahead) {
++      if (Math.hypot(dx, dz) > PARK_DIRECT) return false;
++      continue;
++    }
++    if (Math.cos(v.heading - s.heading) < 0.7) return false;
++    const lon = dx * hs + dz * hc;
++    const lat = Math.abs(dx * hc - dz * hs);
++    if (lon < 0 || lat > PARK_AHEAD_LAT || Math.hypot(dx, dz) > PARK_AHEAD) return false;
++  }
++  return true;
++}
++
 +/** Durée pendant laquelle la manœuvre de rangement ne compte pas comme un départ (s). */
 +const PARK_TIME = 90;
 +/**
@@ -933,7 +984,35 @@ index 0000000..8fb7d60
 +/** Forme attendue du pilote automatique (src/sim/vehicles). */
 +interface AutopilotLike {
 +  park(v: Vehicle, x: number, z: number, heading: number): boolean;
++  driveTo(v: Vehicle, x: number, z: number, options?: { urgence?: boolean; stopBefore?: number }): boolean;
++  status(v: Vehicle): Readonly<{ state: string }>;
 +}
++
++/**
++ * Véhicule rentré à contresens de sa place (rue à double sens : arrivé par la voie d'en face) : il fait le tour —
++ * d'abord au-delà de sa place (demi-tour ou tour du pâté de maisons), puis revient par l'arrière, dans le sens de la
++ * place, et s'y gare. Un véhicule ne se gare jamais à contresens ni en travers de la voie.
++ */
++interface Homing {
++  entry: Entry;
++  slot: Pose;
++  stage: 'tour' | 'approche';
++  viaX: number;
++  viaZ: number;
++  /** Début de l'étape en cours (s), abandon (s), tours déjà faits. */
++  since: number;
++  until: number;
++  turns: number;
++}
++
++/** Tour d'un véhicule rentré à contresens : point de demi-tour à … m devant sa place, point d'approche à … m derrière. */
++const TURN_AHEAD = 45;
++const TURN_BACK = 14;
++/** Durée maximale du tour (s) ; tours au plus. */
++const TURN_TIME = 300;
++const TURN_MAX = 2;
++/** Cap « dans le sens de la place » (cosinus de l'écart). */
++const ALIGNED = 0.7;
 +
 +/** Ordres que l'unité se donne elle-même en route (convoi) : ils n'interrompent pas un retour. */
 +const CONVOY_ORDERS: ReadonlySet<string> = new Set(['embarquer', 'debarquer', 'libre']);
@@ -988,6 +1067,9 @@ index 0000000..8fb7d60
 +  /** Véhicules de l'unité examinée par think() (vbuf sert aux fonctions qu'elle appelle). */
 +  private readonly tbuf: Vehicle[] = [];
 +  private readonly changed = new Set<string>();
++  /** Véhicules rentrés à contresens qui font le tour avant de se garer. */
++  private readonly homing = new Map<EntityId, Homing>();
++  private readonly road: RoadSample = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '', roadClass: 'residential', oneway: false };
 +
 +  provide(ctx: GameContext): void {
 +    this.ctx = ctx;
@@ -1047,6 +1129,7 @@ index 0000000..8fb7d60
 +    this.bySquad.clear();
 +    this.held.clear();
 +    this.changed.clear();
++    this.homing.clear();
 +    this.tickAt = 0;
 +    this.removing = false;
 +  }
@@ -1338,6 +1421,7 @@ index 0000000..8fb7d60
 +      e = this.adopt(squadId, def);
 +    }
 +    const now = ctx.clock.now;
++    if (e.patrol && e.view.state !== 'alerte') e.homeSlot = this.patrolSlot(e);
 +    const home = this.homeOf(e);
 +    const st = e.view.state;
 +    if (st === 'alerte') {
@@ -1401,6 +1485,29 @@ index 0000000..8fb7d60
 +      if (p) return p;
 +    }
 +    return null;
++  }
++
++  /**
++   * Place de retour d'une voiture de patrouille : la sienne si elle est libre et qu'on peut y entrer par l'arrière
++   * (couloir d'approche libre), sinon la première place de réserve libre et accessible, sinon la sienne quand même
++   * (null : sa place de tête ; unité accueillie sans place accessible : la première place de réserve).
++   */
++  private patrolSlot(e: Entry): Pose | null {
++    const ctx = this.ctx!;
++    const def = e.def;
++    const vs = unitVehicles(ctx, e.view.squadId, this.vbuf);
++    const kind = vs.length > 0 ? vs[0]!.kind : 'voiture_police';
++    const ignore = new Set<EntityId>(vs.map((v) => v.id));
++    const cands: number[] = e.template ? [...e.template.slots] : [];
++    for (let i = 0; i < def.slots.length; i++) if (def.slots[i]!.spare && cands.indexOf(i) < 0) cands.push(i);
++    for (const i of cands) {
++      const s = def.slots[i]!;
++      if (s.len + 0.05 < vehicleLen(kind) || !slotFree(ctx, s, kind, ignore) || !approachClear(ctx, s, kind, ignore)) continue;
++      return e.template && i === e.template.slots[0] ? null : { x: s.x, z: s.z, heading: s.heading };
++    }
++    if (e.template) return null;
++    const spare = def.slots.find((s) => s.spare);
++    return spare ? { x: spare.x, z: spare.z, heading: spare.heading } : null;
 +  }
 +
 +  /** Unité d'ailleurs accueillie sur les places de réserve d'un site. */
@@ -1567,7 +1674,7 @@ index 0000000..8fb7d60
 +      for (const v of vs) units.refillReserve(v.id);
 +      units.rest(id);
 +    }
-+    if (!e.patrol) this.parkInBays(e, vs);
++    this.parkInBays(e, vs, e.patrol);
 +    const rest = morale < 0.5 ? REST_LOW_MORALE : REST;
 +    const now = ctx.clock.now;
 +    e.recallAt = -1;
@@ -1592,7 +1699,7 @@ index 0000000..8fb7d60
 +   * places de réserve) — seulement quand la manœuvre se fait sur place, en reculant jusqu'au point d'approche du pilote
 +   * automatique (moins de 15 m) : sinon il ferait le tour du pâté de maisons, et il reste où il est.
 +   */
-+  private parkInBays(e: Entry, vs: readonly Vehicle[]): void {
++  private parkInBays(e: Entry, vs: readonly Vehicle[], misalignedOnly = false): void {
 +    const ctx = this.ctx!;
 +    const ap = ctx.service<AutopilotLike>('vehicles.autopilot');
 +    if (!ap) return;
@@ -1601,31 +1708,174 @@ index 0000000..8fb7d60
 +    for (let i = 0; i < def.slots.length; i++) if (def.slots[i]!.spare && idx.indexOf(i) < 0) idx.push(i);
 +    const own = new Set<EntityId>(vs.map((v) => v.id));
 +    const used = new Set<number>();
++    const fileSlots = e.template ? e.template.slots : [];
++    const settled = (v: Vehicle, s: Pose): boolean =>
++      Math.hypot(s.x - v.x, s.z - v.z) <= 0.6
++      && Math.abs(Math.atan2(Math.sin(v.heading - s.heading), Math.cos(v.heading - s.heading))) <= 0.1;
++    // véhicules déjà rangés : ils gardent leur place
++    const done = new Set<EntityId>();
 +    for (const v of vs) {
-+      if (v.state === 'wrecked' || v.state === 'burnt' || v.seats.length === 0 || v.seats[0] === 0) continue;
-+      let best = -1, bestD = PARK_REACH;
 +      for (const i of idx) {
++        if (!used.has(i) && settled(v, def.slots[i]!)) {
++          used.add(i);
++          done.add(v.id);
++          break;
++        }
++      }
++    }
++    // puis les plus avancés d'abord : la tête de la colonne prend les places de tête de sa file (dans l'ordre de la
++    // file), les places de réserve ensuite (la plus proche)
++    const h = def.exit.heading;
++    const order = vs.filter((v) => !done.has(v.id)).sort((a, b) =>
++      (b.x * Math.sin(h) + b.z * Math.cos(h)) - (a.x * Math.sin(h) + a.z * Math.cos(h)));
++    for (const v of order) {
++      if (v.state === 'wrecked' || v.state === 'burnt' || v.seats.length === 0 || v.seats[0] === 0) continue;
++      // rentré à contresens (voie d'en face d'une rue à double sens) : il fait le tour avant de se garer
++      if (this.turnAround(e, v, fileSlots, idx, used, own)) continue;
++      if (misalignedOnly) continue;
++      // points d'approche du pilote automatique (autopilot.ts, park) : à moins de 15 m, il y va directement ; plus
++      // loin il calcule un itinéraire, sans détour quand le point est droit devant lui dans le sens de la place
++      const len = v.def.length;
++      const back = Math.max(7, len * 1.4 + 2);
++      const run = back + Math.max(8, len * 1.6);
++      const ok = (i: number): boolean => {
 +        const s = def.slots[i]!;
-+        if (used.has(i) || s.len + 0.05 < vehicleLen(v.kind)) continue;
++        if (used.has(i) || s.len + 0.05 < vehicleLen(v.kind)) return false;
 +        const d = Math.hypot(s.x - v.x, s.z - v.z);
-+        if (d < bestD && slotFree(ctx, s, v.kind, own)) {
-+          bestD = d;
++        if (d > PARK_AHEAD) return false;
++        if (!(d < PARK_REACH && reachable(v, s, back, run, false)) && !reachable(v, s, back, run, true)) return false;
++        return slotFree(ctx, s, v.kind, own);
++      };
++      let best = -1;
++      for (const i of fileSlots) {
++        if (ok(i)) {
 +          best = i;
++          break;
++        }
++      }
++      if (best < 0) {
++        let bestD = Infinity;
++        for (const i of idx) {
++          if (fileSlots.indexOf(i) >= 0) continue;
++          const d = Math.hypot(def.slots[i]!.x - v.x, def.slots[i]!.z - v.z);
++          if (d < bestD && ok(i)) {
++            bestD = d;
++            best = i;
++          }
 +        }
 +      }
 +      if (best < 0) continue;
 +      used.add(best);
 +      const s = def.slots[best]!;
-+      const turn = Math.abs(Math.atan2(Math.sin(v.heading - s.heading), Math.cos(v.heading - s.heading)));
-+      if (bestD <= 0.6 && turn <= 0.1) continue;
-+      // points d'approche du pilote automatique (autopilot.ts, park) : à moins de 15 m, il y va directement
-+      const len = v.def.length;
-+      const back = Math.max(7, len * 1.4 + 2);
-+      const run = back + Math.max(8, len * 1.6);
-+      const hs = Math.sin(s.heading), hc = Math.cos(s.heading);
-+      const reach = (k: number): number => Math.hypot(s.x - hs * k - v.x, s.z - hc * k - v.z);
-+      if (reach(back) > PARK_DIRECT || reach(run) > PARK_DIRECT) continue;
 +      if (ap.park(v, s.x, s.z, s.heading)) e.parkUntil = ctx.clock.now + PARK_TIME;
++    }
++  }
++
++  /**
++   * Véhicule arrêté près de ses places mais tourné à contresens (écart de cap de plus de 72°) : place retenue (la
++   * première libre de sa file, sinon la réserve libre la plus proche) et tour lancé. false s'il est dans le bon sens.
++   */
++  private turnAround(
++    e: Entry, v: Vehicle, fileSlots: readonly number[], idx: readonly number[], used: Set<number>, own: ReadonlySet<EntityId>,
++  ): boolean {
++    const ctx = this.ctx!;
++    const def = e.def;
++    // sens de la place la plus proche (au 1er, les places de réserve sont dans une autre rue, dans un autre sens)
++    let s0: Pose | null = null;
++    let d0 = Infinity;
++    for (const i of idx) {
++      const s = def.slots[i]!;
++      const d = Math.hypot(s.x - v.x, s.z - v.z);
++      if (d < d0) {
++        d0 = d;
++        s0 = s;
++      }
++    }
++    if (!s0 || d0 > PARK_AHEAD || Math.cos(v.heading - s0.heading) >= 0.3) return false;
++    const free = (i: number): boolean => {
++      const s = def.slots[i]!;
++      return !used.has(i) && s.len + 0.05 >= vehicleLen(v.kind) && slotFree(ctx, s, v.kind, own);
++    };
++    let best = -1;
++    for (const i of fileSlots) {
++      if (free(i)) {
++        best = i;
++        break;
++      }
++    }
++    if (best < 0) {
++      let bestD = Infinity;
++      for (const i of idx) {
++        const d = Math.hypot(def.slots[i]!.x - v.x, def.slots[i]!.z - v.z);
++        if (d < bestD && fileSlots.indexOf(i) < 0 && free(i)) {
++          bestD = d;
++          best = i;
++        }
++      }
++    }
++    if (best < 0) return false;
++    used.add(best);
++    const s = def.slots[best]!;
++    const now = ctx.clock.now;
++    const h: Homing = { entry: e, slot: { x: s.x, z: s.z, heading: s.heading }, stage: 'tour', viaX: 0, viaZ: 0, since: now, until: now + TURN_TIME, turns: 0 };
++    this.homing.set(v.id, h);
++    this.startTurn(v, h);
++    return true;
++  }
++
++  /** Étape 1 du tour : au-delà de la place, dans son sens (le pilote fait demi-tour ou le tour du pâté de maisons). */
++  private startTurn(v: Vehicle, h: Homing): void {
++    const ctx = this.ctx!;
++    const ap = ctx.service<AutopilotLike>('vehicles.autopilot');
++    if (!ap) return;
++    const fx = Math.sin(h.slot.heading), fz = Math.cos(h.slot.heading);
++    let x = h.slot.x + fx * TURN_AHEAD, z = h.slot.z + fz * TURN_AHEAD;
++    if (ctx.world.nearestRoad(x, z, this.road, 25)) {
++      x = this.road.x;
++      z = this.road.z;
++    }
++    h.stage = 'tour';
++    h.viaX = x;
++    h.viaZ = z;
++    h.since = ctx.clock.now;
++    h.turns++;
++    ap.driveTo(v, x, z, { urgence: false, stopBefore: 0 });
++    h.entry.parkUntil = Math.max(h.entry.parkUntil, h.until);
++  }
++
++  /** Suivi des tours en cours (toutes les TICK s). */
++  private updateHoming(now: number): void {
++    if (this.homing.size === 0) return;
++    const ctx = this.ctx!;
++    const ap = ctx.service<AutopilotLike>('vehicles.autopilot');
++    for (const [id, h] of [...this.homing]) {
++      const v = ctx.vehicles.get(id);
++      const st = h.entry.view.state;
++      if (!ap || !v || v.state === 'wrecked' || v.state === 'burnt' || v.seats[0] === 0 || now > h.until
++        || (st !== 'repos' && st !== 'au_poste')) {
++        this.homing.delete(id);
++        continue;
++      }
++      const arrived = now - h.since > 1 && ap.status(v).state === 'arrive';
++      if (h.stage === 'tour') {
++        if (!arrived && Math.hypot(v.x - h.viaX, v.z - h.viaZ) > 10) continue;
++        // étape 2 : revenir par l'arrière de la place, dans son sens
++        const fx = Math.sin(h.slot.heading), fz = Math.cos(h.slot.heading);
++        h.stage = 'approche';
++        h.since = now;
++        ap.driveTo(v, h.slot.x - fx * TURN_BACK, h.slot.z - fz * TURN_BACK, { urgence: false, stopBefore: 0 });
++        continue;
++      }
++      const d = Math.hypot(v.x - h.slot.x, v.z - h.slot.z);
++      if (d < PARK_DIRECT + 3 && Math.cos(v.heading - h.slot.heading) >= ALIGNED) {
++        ap.park(v, h.slot.x, h.slot.z, h.slot.heading);
++        h.entry.parkUntil = Math.max(h.entry.parkUntil, now + PARK_TIME);
++        this.homing.delete(id);
++      } else if (arrived) {
++        // encore à contresens : un autre tour, sinon on le laisse où il est
++        if (h.turns < TURN_MAX) this.startTurn(v, h);
++        else this.homing.delete(id);
++      }
 +    }
 +  }
 +
@@ -1637,6 +1887,7 @@ index 0000000..8fb7d60
 +    const now = ctx.clock.now;
 +    if (now < this.tickAt) return;
 +    this.tickAt = now + TICK;
++    this.updateHoming(now);
 +    const patrols = ctx.service<PatrolsApi>('police.patrols');
 +    for (const site of this.sites) {
 +      for (let i = site.entries.length - 1; i >= 0; i--) this.think(site.entries[i]!, now);
@@ -6329,7 +6580,7 @@ index 0000000..36853ff
 +  return rows.map((r) => r.row);
 +}
 diff --git a/crs-simulation/src/ui/command/core.ts b/crs-simulation/src/ui/command/core.ts
-index 5e51c3a..cbfd10e 100644
+index 5e51c3a..711d398 100644
 --- a/crs-simulation/src/ui/command/core.ts
 +++ b/crs-simulation/src/ui/command/core.ts
 @@ -10,13 +10,20 @@ import type { IncidentsApi, MetroApi, RescueApi, TrafficControlApi, UiKit } from
@@ -6457,7 +6708,7 @@ index 5e51c3a..cbfd10e 100644
              type: t, unit: s.name, from, sector: g ? this.placeName(t, o.x, o.z) : '', heading: o.heading, width: o.width,
              distance: dist, target: targetName, passersby: targetId === BARRAGE_LET_PASSERSBY,
            }),
-@@ -372,6 +432,88 @@ export class CommandCore implements CommandApi {
+@@ -372,6 +432,94 @@ export class CommandCore implements CommandApi {
      return false;
    }
  
@@ -6540,7 +6791,13 @@ index 5e51c3a..cbfd10e 100644
 +    if (cmd && this.hasVehicles(s) && cmd.arrive(s.id, {
 +      x: t.x, z: t.z, heading: t.heading, layout: 'file', boardFirst: true, stagger: true, disembark: false, urgence: false,
 +    })) return;
-+    ctx.squads.issue(s.id, { type: 'colonne', x: t.doorX, z: t.doorZ, heading: t.heading, width: 0, targetId: 0, maxForce: this.effectiveForce(), issuedBy: playerId });
++    // la BRAV-M rentre à moto jusqu'à ses places (souvent dans une autre rue que la porte : au 9e, boulevard Haussmann) ;
++    // envoyée à la porte, elle s'arrêtait à 100 m de ses places et restait « Retour » sans fin
++    const bravm = this.isBravm(s);
++    ctx.squads.issue(s.id, {
++      type: 'colonne', x: bravm ? t.x : t.doorX, z: bravm ? t.z : t.doorZ, heading: t.heading, width: 0, targetId: 0,
++      maxForce: this.effectiveForce(), issuedBy: playerId,
++    });
 +  }
 +
    /** Fin du débarquement d'une colonne : l'ordre donné est exécuté sur place. */
@@ -22864,10 +23121,10 @@ index aaab785..9e0bd5a 100644
        for (let k = 0; k < v.seats.length; k++) if (v.seats[k] !== 0) occupants++;
 diff --git a/crs-simulation/src/world/commissariats/data.ts b/crs-simulation/src/world/commissariats/data.ts
 new file mode 100644
-index 0000000..b688b78
+index 0000000..8c321ab
 --- /dev/null
 +++ b/crs-simulation/src/world/commissariats/data.ts
-@@ -0,0 +1,484 @@
+@@ -0,0 +1,491 @@
 +/* =====================================================================================
 + * COMMISSARIATS — données des sites de police réels du cœur de Paris (pur : aucun three.js, aucun service).
 + *
@@ -23039,6 +23296,11 @@ index 0000000..b688b78
 +  readonly z: number;
 +  /** La porte donne sur une voie piétonne (la rue du commissariat est cherchée parmi les rues piétonnes nommées). */
 +  readonly pedestrianStreet?: boolean;
++  /**
++   * Écart supplémentaire des places au bord de la voie du commissariat (m) : le trottoir réel déborde la largeur de
++   * voie de la carte (boulevard du Palais : 2 m ; sinon les véhicules garés mordaient sur le trottoir et son mobilier).
++   */
++  readonly curbShift?: number;
 +  readonly stock: readonly StockSeed[];
 +}
 +
@@ -23068,7 +23330,7 @@ index 0000000..b688b78
 +export const COMMISSARIAT_SEEDS: readonly CommissariatSeed[] = [
 +  {
 +    id: 'cite', name: 'Préfecture de police — caserne de la Cité', short: 'Préfecture', kind: 'prefecture',
-+    address: '9, boulevard du Palais', sign: 'none', arrondissement: 4, x: 1781, z: 1215,
++    address: '9, boulevard du Palais', sign: 'none', arrondissement: 4, x: 1781, z: 1215, curbShift: 2,
 +    stock: [
 +      {
 +        id: 'cite:aquilon1', kind: 'section_crs', callsign: 'AQUILON 1', label: 'Section CRS de réserve · 3 fourgons',
@@ -23171,18 +23433,20 @@ index 0000000..b688b78
 +    street: 'Boulevard du Palais', bayStreet: null,
 +    door: [1781.5, 1215.4], facade: [1782.2, 1215.8, -2.168],
 +    exit: [1809.7, 1143.3, 2.692],
++    // (curbShift 2 m : sur le boulevard du Palais, le trottoir réel déborde de 2 m la largeur de voie de la carte ; au
++    // bord calculé, les fourgons étaient à moitié sur le trottoir, dans les candélabres et la fontaine Wallace)
 +    slots: [
-+      [1801.5, 1171.4, 2.542, 5.9, 2.05, 0, 0],
-+      [1797.5, 1177.2, 2.542, 5.9, 2.05, 0, 0],
-+      [1793.5, 1183.1, 2.542, 5.9, 2.05, 0, 0],
-+      [1788, 1190.7, 2.542, 10.5, 2.6, 1, 0],
-+      [1781.4, 1200.4, 2.542, 10.5, 2.6, 2, 0],
-+      [1776.2, 1208.3, 2.542, 6, 2.05, 3, 0],
-+      [1770.2, 1216.7, 2.542, 12.2, 2.55, 4, 0],
-+      [1764.4, 1225.6, 2.542, 6.6, 2.1, 5, 0],
-+      [1760.2, 1231.7, 2.542, 6, 2.1, 6, 1],
-+      [1756.1, 1237.7, 2.542, 6, 2.1, 6, 1],
-+      [1752.1, 1243.6, 2.542, 6, 2.1, 6, 1],
++      [1799.8, 1170.3, 2.542, 5.9, 2.05, 0, 0],
++      [1795.8, 1176.1, 2.542, 5.9, 2.05, 0, 0],
++      [1791.8, 1182, 2.542, 5.9, 2.05, 0, 0],
++      [1786.3, 1189.6, 2.542, 10.5, 2.6, 1, 0],
++      [1779.7, 1199.3, 2.542, 10.5, 2.6, 2, 0],
++      [1774.5, 1207.2, 2.542, 6, 2.05, 3, 0],
++      [1768.5, 1215.6, 2.542, 12.2, 2.55, 4, 0],
++      [1762.7, 1224.5, 2.542, 6.6, 2.1, 5, 0],
++      [1758.5, 1230.6, 2.542, 6, 2.1, 6, 1],
++      [1754.4, 1236.6, 2.542, 6, 2.1, 6, 1],
++      [1750.4, 1242.5, 2.542, 6, 2.1, 6, 1],
 +    ],
 +    files: [[0, 1, 2], [3], [4], [5], [6], [7]],
 +  },
@@ -23409,10 +23673,10 @@ index 0000000..a5a5a16
 +export { isHeldVehicle } from './held';
 diff --git a/crs-simulation/src/world/commissariats/layout.ts b/crs-simulation/src/world/commissariats/layout.ts
 new file mode 100644
-index 0000000..4b4b4d2
+index 0000000..11dc49e
 --- /dev/null
 +++ b/crs-simulation/src/world/commissariats/layout.ts
-@@ -0,0 +1,1111 @@
+@@ -0,0 +1,1116 @@
 +/* =====================================================================================
 + * COMMISSARIATS — calcul et contrôle de la disposition d'un site sur la vraie carte.
 + *
@@ -24039,7 +24303,7 @@ index 0000000..4b4b4d2
 + * Pose la rangée sur un côté d'un tronçon, la tête (aval) à l'abscisse sHead. `side` : +1 à droite du sens du
 + * tronçon, −1 à gauche ; `down` : +1 si la circulation de ce côté va dans le sens du tronçon.
 + */
-+function placeRun(c: Chain, specs: readonly FileSpec[], sHead: number, side: number, down: number): YardSlot[] {
++function placeRun(c: Chain, specs: readonly FileSpec[], sHead: number, side: number, down: number, shift = 0): YardSlot[] {
 +  const out: YardSlot[] = [];
 +  const pt: ChainPoint = { x: 0, z: 0, dx: 0, dz: 1, width: 0 };
 +  let offset = 0;
@@ -24048,7 +24312,7 @@ index 0000000..4b4b4d2
 +    if (i > 0) offset += gapBetween(specs[i - 1]!, sp);
 +    const sc = sHead - down * (offset + sp.len * 0.5);
 +    chainPoint(c, sc, 0, pt);
-+    const lat = side * (pt.width * 0.5 - SLOT_RULES.curbMargin - sp.width * 0.5);
++    const lat = side * (pt.width * 0.5 - SLOT_RULES.curbMargin - sp.width * 0.5 - shift);
 +    chainPoint(c, sc, lat, pt);
 +    out.push({
 +      x: pt.x, z: pt.z, heading: Math.atan2(down * pt.dx, down * pt.dz), len: sp.len, width: sp.width, file: sp.file,
@@ -24061,8 +24325,11 @@ index 0000000..4b4b4d2
 +
 +const chainPointTmp: ChainPoint = { x: 0, z: 0, dx: 0, dz: 1, width: 0 };
 +
-+/** Un côté de chaussée où poser des places : tronçon, côté (+1 droite / −1 gauche), sens de la circulation. */
-+interface Curb { chain: Chain; side: number; down: number }
++/**
++ * Un côté de chaussée où poser des places : tronçon, côté (+1 droite / −1 gauche), sens de la circulation ; `shift` :
++ * écart supplémentaire au bord de la voie (m), quand le trottoir réel déborde la largeur de voie de la carte.
++ */
++interface Curb { chain: Chain; side: number; down: number; shift: number }
 +
 +interface Placement { curb: Curb; sHead: number; slots: YardSlot[]; score: number }
 +
@@ -24174,7 +24441,7 @@ index 0000000..4b4b4d2
 +  cands.sort((a, b) => a.score - b.score || a.sHead - b.sHead);
 +  let first = '';
 +  for (const cand of cands) {
-+    const slots = placeRun(c, specs, cand.sHead, curb.side, down);
++    const slots = placeRun(c, specs, cand.sHead, curb.side, down, curb.shift);
 +    let ok = true;
 +    for (const s of slots) {
 +      const p = ck.problem(s) ?? (extra ? extra(s) : null);
@@ -24341,7 +24608,9 @@ index 0000000..4b4b4d2
 +      }
 +    }
 +    const doorSide = pr.lat >= 0 ? 1 : -1;
-+    for (const side of [doorSide, -doorSide]) curbs.push({ chain, side, down: chain.oneway || side > 0 ? 1 : -1 });
++    for (const side of [doorSide, -doorSide]) {
++      curbs.push({ chain, side, down: chain.oneway || side > 0 ? 1 : -1, shift: own(cand.edge) ? seed.curbShift ?? 0 : 0 });
++    }
 +  }
 +  // (d) toute la rangée sur un même côté de chaussée, sinon file par file (chaque file reste d'un seul tenant)
 +  let placements: Placement[] = [];
@@ -26493,10 +26762,21 @@ index 0000000..4737abc
 +for (const f of failures) errors.push('contrôle : ' + f);
 +await finish({ browser: browserRef, server, errors, ok: failures.length === 0, label: 'commissariats' });
 diff --git a/crs-simulation/tests/e2e/game.mjs b/crs-simulation/tests/e2e/game.mjs
-index cb85971..b80a751 100644
+index cb85971..62101b0 100644
 --- a/crs-simulation/tests/e2e/game.mjs
 +++ b/crs-simulation/tests/e2e/game.mjs
-@@ -391,13 +391,22 @@ async function bureau(server) {
+@@ -146,7 +146,9 @@ async function bureau(server) {
+       let nearest = Infinity;
+       for (const m of protesters) for (const q of police) nearest = Math.min(nearest, Math.hypot(m.x - q.x, m.z - q.z));
+       const fx = Math.sin(s.heading), fz = Math.cos(s.heading);
+-      const vans = c.vehicles.list.filter((v) => v.faction === 'police' && (v.kind === 'fourgon_crs' || v.kind === 'vl_commandement'));
++      // (sans les véhicules garés en réserve des commissariats, ailleurs dans Paris)
++      const held = c.service('police.commissariats');
++      const vans = c.vehicles.list.filter((v) => v.faction === 'police' && (v.kind === 'fourgon_crs' || v.kind === 'vl_commandement') && !(held && held.holds(v.id)));
+       const squad = c.squads.get(p.squadId);
+       const section = squad ? c.squads.get(squad.parentId) : undefined;
+       const company = section ? c.squads.get(section.parentId) : undefined;
+@@ -391,13 +393,22 @@ async function bureau(server) {
      const ts2 = await page.evaluate(() => window.__CRS.ctx.clock.timeScale);
      check(ts0 === 1 && ts1 === 4 && ts2 === 1, 'la touche d’avance rapide bascule la vitesse de la simulation', `×${ts0} → ×${ts1} → ×${ts2}`);
  
@@ -26522,7 +26802,7 @@ index cb85971..b80a751 100644
      await page.keyboard.press('Escape');
      await frames(page, 3);
      check((await state(page)).screen === null, '… et Échap la referme : aucun écran ne reste ouvert', String((await state(page)).screen));
-@@ -515,12 +524,12 @@ async function bureau(server) {
+@@ -515,12 +526,12 @@ async function bureau(server) {
      await frames(page, 4);
      await page.waitForTimeout(600);
      s = await state(page);
@@ -28226,10 +28506,21 @@ index 01b26a1..f64a277 100644
      await frames(page, 3);
      if ((await state(page)).screen === 'pause') { await page.locator('[data-id="pause-reprendre"]').click(); await frames(page, 3); }
 diff --git a/crs-simulation/tests/e2e/verif-fin-divers.mjs b/crs-simulation/tests/e2e/verif-fin-divers.mjs
-index c5cd313..9f0bc99 100644
+index c5cd313..0c83382 100644
 --- a/crs-simulation/tests/e2e/verif-fin-divers.mjs
 +++ b/crs-simulation/tests/e2e/verif-fin-divers.mjs
-@@ -46,12 +46,20 @@ const tp = (page, x, z) => page.evaluate(async ([x, z]) => {
+@@ -36,7 +36,9 @@ const tp = (page, x, z) => page.evaluate(async ([x, z]) => {
+     // véhicules de l'unité : nez vers la sortie, aucun collègue devant
+     const vans = await page.evaluate(() => {
+       const c = window.__CRS.ctx; const s = c.service('session.setup').summary; const fx = Math.sin(s.heading), fz = Math.cos(s.heading);
+-      return c.vehicles.list.filter((v) => v.faction === 'police').map((v) => {
++      // (sans les véhicules garés en réserve des commissariats : ils ne sont pas ceux de l'unité)
++      const held = c.service('police.commissariats');
++      return c.vehicles.list.filter((v) => v.faction === 'police' && !(held && held.holds(v.id))).map((v) => {
+         const vfx = Math.sin(v.heading), vfz = Math.cos(v.heading); let ahead = 0;
+         for (const p of c.people.list) { if (p.faction !== 'police' || p.vehicleId !== 0) continue; const dx = p.x - v.x, dz = p.z - v.z; const a = dx * vfx + dz * vfz, l = Math.abs(dx * vfz - dz * vfx); if (a > 2 && a < 30 && l < 1.6) ahead++; }
+         return { kind: v.kind, facing: Math.sin(v.heading) * fx + Math.cos(v.heading) * fz, behind: -((v.x - s.x) * fx + (v.z - s.z) * fz), ahead, free: c.world.isFree(v.x, v.z, 0.8), bh: c.world.buildingHeightAt(v.x, v.z) };
+@@ -46,12 +48,20 @@ const tp = (page, x, z) => page.evaluate(async ([x, z]) => {
      C.check(vans.length > 0 && vans.every((v) => v.ahead === 0), 'FOURGONS (République) : aucun collègue à pied devant le nez d’un véhicule de police', vans.map((v) => `${v.kind} ${R(v.behind, 0)} m derrière, orient. ${R(v.facing)}, ${v.ahead} devant`).join(' ; '));
      C.check(vans.every((v) => v.bh === 0), 'aucun véhicule de police posé dans un immeuble', vans.filter((v) => v.bh > 0).map((v) => v.kind).join(', '));
  
@@ -31485,6 +31776,206 @@ index 0000000..3b431a1
 +      else expect(env.level).toBe('lecture');
 +      expect(problems, problems.join('\n')).toEqual([]);
 +    }, 400000);
++  }
++});
+diff --git a/crs-simulation/tests/unit/playtest.commissariats.test.ts b/crs-simulation/tests/unit/playtest.commissariats.test.ts
+new file mode 100644
+index 0000000..1b3a8e9
+--- /dev/null
++++ b/crs-simulation/tests/unit/playtest.commissariats.test.ts
+@@ -0,0 +1,194 @@
++// Robot joueur « commissariats » (vraie carte de Paris) : sonde de placement.
++import { describe, expect, it } from 'vitest';
++
++import type { GameContext, Prop, RoadSample, SessionConfig, Vehicle } from '@/core/contracts';
++import { createTestContext } from '@/core/testing';
++import { createSystems as world } from '@/world/query';
++import { createSystems as roles } from '@/sim/roles';
++import { createSystems as people } from '@/sim/people';
++import { createSystems as vehicles } from '@/sim/vehicles';
++import { createSystems as traffic } from '@/sim/traffic';
++import { createSystems as crowd } from '@/sim/crowd';
++import { createSystems as police } from '@/sim/police';
++import { createSystems as items } from '@/sim/items';
++import { createSystems as props } from '@/sim/props';
++import { createSystems as hazards } from '@/sim/hazards';
++import { createSystems as law } from '@/gameplay/law';
++import { createSystems as radio } from '@/gameplay/radio';
++import { createSystems as session } from '@/gameplay/session';
++import { createSystems as patrols } from '@/gameplay/patrols';
++import { createSystems as commissariats, COMMISSARIATS_SERVICE } from '@/gameplay/commissariats';
++import type { CommissariatsApi } from '@/gameplay/commissariats';
++import { COMMISSARIATS } from '@/world/commissariats';
++import { PROPS_EXT_SERVICE } from '@/sim/props/api';
++import { createSystems as command } from '@/ui/command';
++import type { CommandCore } from '@/ui/command';
++import { entryNumber } from '@/ui/command/commissariatsModel';
++import type { CommandApi } from '@/sim/police/command/api';
++import { verbOf } from '@/ui/command/orders';
++
++const SIM = [world, roles, people, vehicles, traffic, crowd, police, items, props, hazards, law, radio, session, patrols, commissariats];
++const MEANS = { sections: 1, fourgons: 3, centaure: 0, canon_eau: 0, bravm: 0, drone: 0, pompiers: 0, samu: 0, secours_sur_appel: true };
++
++async function start(config: Partial<SessionConfig>, seed = 5, ui = false) {
++  const t = createTestContext({ seed, strict: false, modules: ui ? [...SIM, command] : SIM });
++  await t.start({
++    mode: 'libre', role: 'commandant', rank: 'commandant', place: 'Place de la Concorde', x: -10, z: 15, crowdSize: 0,
++    tension: 0.1, volatility: 0.1, duration: 'standard', ...config,
++    extra: { moyens: MEANS, variante: 'terrain', foyers: 0, ...(config.extra ?? {}) },
++  } as Partial<SessionConfig>);
++  t.step(1);
++  return { t, ctx: t.ctx, api: t.ctx.require<CommissariatsApi>(COMMISSARIATS_SERVICE) };
++}
++
++function corners(v: Vehicle): [number, number][] {
++  const fx = Math.sin(v.heading), fz = Math.cos(v.heading);
++  const hl = v.def.length / 2, hw = v.def.width / 2;
++  const out: [number, number][] = [];
++  for (const a of [-1, 1]) for (const b of [-1, 1]) out.push([v.x + fx * hl * a + fz * hw * b, v.z + fz * hl * a - fx * hw * b]);
++  return out;
++}
++
++const nearP: Prop[] = [];
++
++async function loadSites(ctx: GameContext): Promise<void> {
++  for (const c of COMMISSARIATS) await ctx.world.whenLoaded(c.door.x, c.door.z, 260);
++  const ext = ctx.service<{ flushTiles(): void }>(PROPS_EXT_SERVICE);
++  ext?.flushTiles();
++}
++
++function audit(ctx: GameContext, api: CommissariatsApi): string[] {
++  const lines: string[] = [];
++  const road = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '' } as unknown as RoadSample;
++  for (const site of api.list) {
++    const def = COMMISSARIATS.find((c) => c.id === site.id)!;
++    for (const e of site.entries) {
++      const tpl = def.stock.find((s) => s.id === e.id);
++      const own = tpl ? tpl.slots : [];
++      const parked = e.vehicleIds.length;
++      const probs: string[] = [];
++      for (const id of e.vehicleIds) {
++        const v = ctx.vehicles.get(id)!;
++        // place : dans sa file ?
++        let best = -1, bd = Infinity;
++        def.slots.forEach((s, i) => { const d = Math.hypot(s.x - v.x, s.z - v.z); if (d < bd) { bd = d; best = i; } });
++        if (own.indexOf(best) < 0) probs.push(`hors file (place ${best}${def.slots[best]!.spare ? ' réserve' : ''})`);
++        for (const [cx, cz] of corners(v)) {
++          const surf = ctx.world.surfaceAt(cx, cz);
++          if (surf !== 'road') probs.push(`coin sur ${surf}`);
++          if (!ctx.world.isFree(cx, cz, 0.05)) probs.push('coin dans un obstacle');
++        }
++        const pn = ctx.props.queryRadius(v.x, v.z, v.def.length / 2 + 3, nearP);
++        for (let k = 0; k < pn; k++) {
++          const p = nearP[k]!;
++          if (!p.blocksMove) continue;
++          const dx = p.x - v.x, dz = p.z - v.z;
++          const fx = Math.sin(v.heading), fz = Math.cos(v.heading);
++          const a = Math.abs(dx * fx + dz * fz), b = Math.abs(dx * fz - dz * fx);
++          if (a < v.def.length / 2 + Math.max(p.halfX, p.halfZ) && b < v.def.width / 2 + Math.max(p.halfX, p.halfZ)) probs.push(`touche ${p.kind} (${b.toFixed(2)} m de l'axe)`);
++        }
++        if (ctx.world.nearestRoad(v.x, v.z, road, 30)) {
++          const lane = road.width / 2 - road.dist - v.def.width / 2;
++          // reste de chaussée de l'autre côté du véhicule
++          const left = road.width / 2 + road.dist - v.def.width / 2;
++          if (left < (road.oneway ? 5 : 8)) probs.push(`chaussée restante ${left.toFixed(1)} m (${road.name}, ${road.width.toFixed(1)} m${road.oneway ? ' sens unique' : ''})`);
++          void lane;
++        }
++      }
++      lines.push(`${site.short.padEnd(10)} ${e.callsign.padEnd(18)} ${parked}/${tpl ? tpl.vehicles : '?'} garés ${probs.length ? '⚠ ' + [...new Set(probs)].join(' ; ') : 'ok'}`);
++    }
++  }
++  return lines;
++}
++
++describe('robot joueur — commissariats', () => {
++  it('sonde : placement des véhicules garés (libre, Concorde)', async () => {
++    const { ctx, api } = await start({});
++    await loadSites(ctx);
++    const lines = audit(ctx, api);
++    console.log(lines.join('\n'));
++    expect(lines.length).toBeGreaterThan(0);
++  }, 600000);
++
++  it('sonde : journée de service à la Cité', async () => {
++    const { ctx, api } = await start({ extra: { journee: true } });
++    await loadSites(ctx);
++    const lines = audit(ctx, api);
++    console.log(lines.join('\n'));
++  }, 600000);
++
++  for (const siteId of (process.env.CRS_SITES ?? 'cite,celestins,1er,3e,7e,8e,9e').split(',')) {
++    it(`cycle complet au ${siteId} : engager, envoyer, rentrer, se garer`, async () => {
++      const { t, ctx, api } = await start({}, 11, true);
++      await loadSites(ctx);
++      const core = ctx.require<CommandCore>('ui.command');
++      const cmd = ctx.require<CommandApi>('police.command');
++      const def = COMMISSARIATS.find((c) => c.id === siteId)!;
++      const road = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '' } as unknown as RoadSample;
++      const sent: { id: string; squad: number; tx: number; tz: number }[] = [];
++      const log: string[] = [];
++      let k = 0;
++      const only = process.env.CRS_UNITS ? process.env.CRS_UNITS.split(',') : null;
++      for (const tpl of def.stock) {
++        if (!tpl.engageable || (only && !only.includes(tpl.id))) continue;
++        const r = core.engageFromCommissariat(entryNumber(tpl.id));
++        expect(r.ok, `${tpl.callsign} : ${r.reason}`).toBe(true);
++        const sq = ctx.squads.get(r.squadId)!;
++        // vers l'intérieur de la carte (le centre de Paris), un peu de biais pour chaque unité
++        const ang = Math.atan2(1500 - def.exit.x, 0 - def.exit.z) + (k - 1) * 0.6;
++        k++;
++        expect(ctx.world.nearestRoad(def.exit.x + Math.sin(ang) * 600, def.exit.z + Math.cos(ang) * 600, road, 200)).toBe(true);
++        const verb = api.entry(tpl.id)!.kind === 'bravm' ? 'colonne' : (r as { defaultVerb?: string }).defaultVerb ?? 'faire_mouvement';
++        const res = core.issue(verbOf(api.get(def.id)!.entries.find((e) => e.id === tpl.id)!.kind === 'police_secours' || tpl.kind === 'bac' ? 'avancer' : tpl.kind === 'bravm' ? 'colonne' : 'faire_mouvement')!.type as never, [sq], [{ x: road.x, z: road.z, heading: road.heading, width: 0 }]);
++        void verb;
++        expect(res.ok, `${tpl.callsign} : ${res.reason}`).toBe(true);
++        sent.push({ id: tpl.id, squad: r.squadId, tx: road.x, tz: road.z });
++      }
++      const avail0 = api.get(def.id)!.available;
++      // aller
++      for (let s = 0; s < 200; s++) {
++        t.step(2);
++        if (sent.every((u) => api.entry(u.id)!.state === 'engage')) break;
++      }
++      for (const u of sent) expect(api.entry(u.id)!.state, `${u.id} parti`).toBe('engage');
++      expect(api.get(def.id)!.available).toBe(avail0 - sent.length);
++      for (let s = 0; s < 240; s++) t.step(2);
++      for (const u of sent) {
++        const e = api.entry(u.id)!;
++        const v = ctx.vehicles.get(e.vehicleIds[0]!)!;
++        const d = Math.hypot(v.x - u.tx, v.z - u.tz);
++        log.push(`${e.callsign} : à ${d.toFixed(0)} m du point (${e.where}) convoi ${cmd.convoyOf(u.squad)?.stage ?? '-'} sirène ${v.siren}`);
++      }
++      // retour
++      for (const u of sent) {
++        const res = core.issue('retour_poste' as never, [ctx.squads.get(u.squad)!], null);
++        expect(res.ok, `${u.id} retour : ${res.reason}`).toBe(true);
++      }
++      let sirens = 0;
++      for (let s = 0; s < 300; s++) {
++        t.step(2);
++        for (const u of sent) for (const id of api.entry(u.id)!.vehicleIds) { const v = ctx.vehicles.get(id); if (v && v.siren > 0 && s > 10) sirens++; }
++        if (sent.every((u) => api.entry(u.id)!.state !== 'retour')) break;
++      }
++      for (let s = 0; s < 70; s++) t.step(2);
++      for (const u of sent) {
++        const e = api.entry(u.id)!;
++        const tpl = def.stock.find((x) => x.id === u.id)!;
++        const pos = e.vehicleIds.map((id) => {
++          const v = ctx.vehicles.get(id)!;
++          let bd = Infinity, bi = -1;
++          def.slots.forEach((sl, i) => { const d = Math.hypot(sl.x - v.x, sl.z - v.z); if (d < bd) { bd = d; bi = i; } });
++          const dh = Math.abs(Math.atan2(Math.sin(v.heading - def.slots[bi]!.heading), Math.cos(v.heading - def.slots[bi]!.heading)));
++          const s0 = def.slots[bi]!;
++          const lat = (v.x - s0.x) * Math.cos(s0.heading) - (v.z - s0.z) * Math.sin(s0.heading);
++          const lon = (v.x - s0.x) * Math.sin(s0.heading) + (v.z - s0.z) * Math.cos(s0.heading);
++          return `${bd.toFixed(1)} m de la place ${bi}${tpl.slots.includes(bi) ? '' : '*'} (long ${lon.toFixed(1)} lat ${lat.toFixed(1)}) cap ${(dh * 57).toFixed(0)}° v ${v.speed.toFixed(1)} siège ${v.seats[0]}`;
++        });
++        log.push(`${e.callsign} : ${e.state} ${pos.join(' | ')}`);
++      }
++      log.push(`sirènes pendant le retour : ${sirens} ; disponibles avant ${avail0} après ${api.get(def.id)!.available}`);
++      console.log(`── ${def.short}\n` + log.join('\n'));
++      for (const u of sent) expect(['au_poste', 'repos'], u.id).toContain(api.entry(u.id)!.state);
++    }, 1800000);
 +  }
 +});
 diff --git a/crs-simulation/tests/unit/police-command.convoi-sans-urgence.test.ts b/crs-simulation/tests/unit/police-command.convoi-sans-urgence.test.ts
@@ -37815,3 +38306,63 @@ index db9adbb..17f679b 100644
 +    expect(subtitlePlacement(W, H, baseLeft, baseRight, bottomTop, zone, above)).toEqual(p);
 +  });
 +});
+diff --git a/crs-simulation/tests/unit/zz-probe-gm.test.ts b/crs-simulation/tests/unit/zz-probe-gm.test.ts
+new file mode 100644
+index 0000000..b6fa407
+--- /dev/null
++++ b/crs-simulation/tests/unit/zz-probe-gm.test.ts
+@@ -0,0 +1,54 @@
++import { it } from 'vitest';
++import type { SessionConfig } from '@/core/contracts';
++import { createTestContext } from '@/core/testing';
++import { createSystems as world } from '@/world/query';
++import { createSystems as roles } from '@/sim/roles';
++import { createSystems as people } from '@/sim/people';
++import { createSystems as vehicles } from '@/sim/vehicles';
++import { createSystems as traffic } from '@/sim/traffic';
++import { createSystems as police } from '@/sim/police';
++import { createSystems as law } from '@/gameplay/law';
++import { createSystems as radio } from '@/gameplay/radio';
++import { createSystems as session } from '@/gameplay/session';
++import { createSystems as patrols } from '@/gameplay/patrols';
++import { createSystems as commissariats, COMMISSARIATS_SERVICE } from '@/gameplay/commissariats';
++import type { CommissariatsApi } from '@/gameplay/commissariats';
++import { createSystems as command } from '@/ui/command';
++import type { CommandCore } from '@/ui/command';
++import { entryNumber } from '@/ui/command/commissariatsModel';
++import type { CommandApi } from '@/sim/police/command/api';
++it('gm', async () => {
++  const t = createTestContext({ seed: 11, strict: false, modules: [world, roles, people, vehicles, traffic, police, law, radio, session, patrols, commissariats, command] });
++  await t.start({ mode: 'libre', role: 'commandant', rank: 'commandant', place: 'Place de la Concorde', x: -10, z: 15, crowdSize: 0, tension: 0.1, volatility: 0.1, duration: 'standard',
++    extra: { moyens: { sections: 1, fourgons: 3, centaure: 0, canon_eau: 0, bravm: 0, drone: 0, pompiers: 0, samu: 0, secours_sur_appel: true }, variante: 'terrain', foyers: 0 } } as Partial<SessionConfig>);
++  t.step(1);
++  const ctx = t.ctx; const core = ctx.require<CommandCore>('ui.command'); const api = ctx.require<CommissariatsApi>(COMMISSARIATS_SERVICE);
++  const cmd = ctx.require<CommandApi>('police.command');
++  const said: string[] = []; const orig = ctx.radio.say.bind(ctx.radio); ctx.radio.say = (m) => { said.push(`${ctx.clock.now.toFixed(0)} ${m.from}: ${m.text}`); orig(m); };
++  const id = process.env.CRS_ENTRY ?? 'celestins:epervier9';
++  const r = core.engageFromCommissariat(entryNumber(id));
++  const sq = ctx.squads.get(r.squadId)!;
++  let tx = Number(process.env.CRS_TX ?? 2800), tz = Number(process.env.CRS_TZ ?? 1300);
++  const rd = {} as never as { x: number; z: number; name: string }; if (ctx.world.nearestRoad(tx, tz, rd as never, 200)) { tx = rd.x; tz = rd.z; } console.log('dest', tx, tz, rd.name, ctx.world.bounds);
++  const res = core.issue((process.env.CRS_VERB ?? 'faire_mouvement') as never, [sq], [{ x: tx, z: tz, heading: 0, width: 0 }]);
++  console.log('issue', res, sq.kind, sq.name, ctx.squads.childrenOf(sq.id).map((c) => `${c.name}:${c.vehicleId}`).join(' '));
++  for (let s = 0; s < 60; s++) {
++    t.step(5);
++    const e = api.entry(id)!;
++    const v = ctx.vehicles.get(e.vehicleIds[0]!)!;
++    if (s % 20 === 0) console.log(ctx.clock.now.toFixed(0), e.state, cmd.convoyOf(sq.id)?.stage ?? '-', sq.order.type, `v0 ${v.x.toFixed(0)},${v.z.toFixed(0)} sp ${v.speed.toFixed(1)} siren ${v.siren}`, e.vehicleIds.map((i) => ctx.vehicles.get(i)!.seats.filter((x) => x).length).join('/'));
++  }
++  core.issue('retour_poste' as never, [sq], null);
++  const ap = ctx.require<{ status(v: unknown): { mode: string; state: string; reason: string } }>('vehicles.autopilot');
++  for (let s = 0; s < 400; s++) {
++    t.step(1);
++    const e = api.entry(id)!;
++    const v = ctx.vehicles.get(e.vehicleIds[0]!)!;
++    const st = ap.status(v);
++    const hs = Number(process.env.CRS_H ?? 1.112);
++    const sx = Number(process.env.CRS_SX ?? -440), sz = Number(process.env.CRS_SZ ?? -182.7);
++    const d = Math.hypot(v.x - sx, v.z - sz);
++    if (d < 60) console.log(ctx.clock.now.toFixed(0), e.state, `d ${d.toFixed(1)} long ${((v.x - sx) * Math.sin(hs) + (v.z - sz) * Math.cos(hs)).toFixed(1)} lat ${((v.x - sx) * Math.cos(hs) - (v.z - sz) * Math.sin(hs)).toFixed(1)} cap ${((v.heading - hs) * 57).toFixed(0)} sp ${v.speed.toFixed(1)} ${st.mode}/${st.state}/${st.reason}`);
++  }
++  console.log(said.slice(-6).join('\n'));
++}, 600000);
