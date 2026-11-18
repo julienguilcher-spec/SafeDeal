@@ -4,18 +4,15 @@ Ce dossier ne fait pas partie du jeu : c'est une sauvegarde du travail des agent
 redémarrage ou une perte de la machine de travail ne le fasse pas disparaître. Il sera supprimé quand chaque
 chantier aura été intégré dans `crs-simulation/`, testé et publié.
 
-État au 18 novembre, 14 h 55 (heure de Paris 15 h 55). Le jeu publié est la **version 20** (commit `66e72f6`).
+État au 18 novembre, 14 h 55 (heure de Paris 15 h 55). Le jeu publié est la **version 21** (commit `8dc8378`).
 
 ## Correctifs et chantiers
 
 | Fichier | Chantier | Base | État à la sauvegarde |
 |---|---|---|---|
-| `fusion-commissariats.patch` | Commissariats fusionnés avec la version actuelle (instantané de l'arbre de fusion) | `52e9d92` | conflits résolus, compile ; vérification croisée simulation + interface en cours, puis suite complète |
-| `commissariats-delta-B.patch` | Dernières retouches du joueur critique des commissariats (3 fichiers) | à appliquer en `--3way` sur l'arbre de fusion, après la vérification croisée | à appliquer |
-| `commissariats.patch`, `commissariats-delta-A.patch` | Le chantier des commissariats dans son espace d'origine (complet, base `2365d2b`) et ses seuls ajouts par rapport à « 2365d2b + refonte du commandement » | voir colonne 1 | TERMINÉ (paquets, intégration, test en joueur) ; sert de référence à la fusion |
-| `colonne-tete-bloquee.patch`, `commandant-carte-3.patch` | Colonne figée derrière sa tête (file rangée à travers le mur de quai), radio saturée, point inaccessible dit à la radio, sirène ; troisième tour du commandant (équipage de patrouille, nasse qui s'ouvre, « Autre unité ») | branche principale (`bf5b4b4`) | RELUS ET VALIDÉS ; appliqués dans l'arbre de travail principal, suite complète à lancer avec `commandant-mission` |
-| `commandant-mission.patch` | La partie du joueur : commandant en mode Missions spéciales (mission perdue au premier pas, ordre écrasé par « débarquez », BRAV-M immobile, mission lancée avec la compagnie 600 m derrière) | branche principale (`bf5b4b4`) | chasse finie (7 défauts corrigés), relecture en cours |
-| `ordres-directs.patch` | Réalisation des ordres directs : paquet P1 (logique commune) + les deux lots relus ci-dessus | branche principale (`bf5b4b4`) | P1 fait ; P2, P7, P5 en cours ; puis P3, P4, P6 ; puis l'interface et les interpellés |
+| `fusion-commissariats.patch` + `commissariats-delta-B.patch` | Commissariats fusionnés et vérifiés (simulation, interface, suite complète) sur une version antérieure | `52e9d92` | TERMINÉ ; en cours de report sur la version 21 (3 fichiers en conflit dans la gestion des colonnes, script `workflow-refusion-commissariats.js`) |
+| `commissariats.patch` | Le chantier des commissariats dans son espace d'origine (référence) | `2365d2b` | TERMINÉ |
+| `ordres-directs.patch` | Réalisation des ordres directs | branche principale | P1, P2, P7 faits (rapports dans `ordres-directs/rapports-paquets-ordres-directs.json`) ; P5 en cours ; puis P3, P4, P6 et la colonne garantie ; puis l'interface et les interpellés |
 | `ordres-directs/` | Ordres directs sur le terrain, unités « avec moi », réactivité, fourgons cellulaires et circuit des interpellés | documents | diagnostic (3 rapports), 3 propositions, cahier des charges critiqué `design-ordres-directs.md` (16 paquets, 15 blocages), plan de réalisation `plan-ordres-directs.md` (avec l'addendum du coordinateur) ; réalisation lancée : paquet P1 en cours dans un arbre basé sur la branche principale |
 
 ## Reprendre
