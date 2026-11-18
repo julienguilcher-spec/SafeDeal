@@ -1,8 +1,17 @@
 diff --git a/crs-simulation/src/gameplay/incidents/radio.ts b/crs-simulation/src/gameplay/incidents/radio.ts
-index ff3f0fa..5285673 100644
+index ff3f0fa..4f3116d 100644
 --- a/crs-simulation/src/gameplay/incidents/radio.ts
 +++ b/crs-simulation/src/gameplay/incidents/radio.ts
-@@ -26,18 +26,30 @@ interface Pending {
+@@ -12,7 +12,7 @@ import type { GameContext, RadioChannel, Squad } from '@/core/contracts';
+ import type { RadioPhrases } from '@/gameplay/radio/api';
+ import type { Entry } from './entry';
+ import { spokenGravity, spokenType } from './labels';
+-import { FAM_FIRE, FAM_OFFICER, FAM_VICTIM, RADIO_GAP } from './tuning';
++import { FAM_FIRE, FAM_MOTORIST, FAM_OFFICER, FAM_VICTIM, RADIO_GAP } from './tuning';
+ 
+ const MSG_OPEN = 0;
+ const MSG_WORSE = 1;
+@@ -26,18 +26,40 @@ interface Pending {
  }
  
  const QUEUE_MAX = 12;
@@ -10,11 +19,21 @@ index ff3f0fa..5285673 100644
 + * Même nature d'incident annoncée (ou portée au compte rendu) par la salle dans le même secteur : on ne la redit pas
 + * avant tant de secondes, à moins de tant de mètres de la précédente (le réseau du commandement était saturé de
 + * « URGENT. Automobiliste bloqué… », un par voiture prise dans la circulation autour de la colonne et de la foule, et
-+ * les comptes rendus des unités attendaient derrière jusqu'à être abandonnés). Jamais pour un agent à terre ni un
-+ * blessé : chacun est annoncé.
++ * les comptes rendus des unités attendaient derrière jusqu'à être abandonnés). Seulement pour les messages de
++ * quietable.
 + */
 +const KIND_QUIET = 120;
 +const KIND_QUIET_DIST = 500;
++
++/**
++ * Messages que la salle peut taire s'ils redisent ce qui vient d'être dit (voir KIND_QUIET) : les automobilistes bloqués
++ * (un par voiture prise dans la circulation) et les clôtures sans traitement. Un feu, un agent isolé ou à terre, un
++ * blessé, des secours bloqués restent toujours annoncés : chacun demande son moyen.
++ */
++function quietable(type: number, family: number): boolean {
++  if (family === FAM_OFFICER || family === FAM_VICTIM) return false;
++  return type === MSG_LAPSED || family === FAM_MOTORIST;
++}
  
  export class RadioDesk {
    enabled = true;
@@ -33,12 +52,12 @@ index ff3f0fa..5285673 100644
      this.phrases = this.ctx.service<RadioPhrases>('radio.phrases');
    }
  
-@@ -68,6 +80,13 @@ export class RadioDesk {
+@@ -68,6 +90,13 @@ export class RadioDesk {
      const e = m.entry;
      // une annonce d'ouverture ou d'aggravation n'a plus d'objet si l'incident est clos entre-temps
      if ((m.type === MSG_OPEN || m.type === MSG_WORSE) && !e.active) return;
 +    // (même nature, même secteur, il y a peu : déjà dit — voir KIND_QUIET ; un compte rendu d'unité passe toujours)
-+    if (m.type !== MSG_DONE && e.family !== FAM_OFFICER && e.family !== FAM_VICTIM) {
++    if (m.type !== MSG_DONE && quietable(m.type, e.family)) {
 +      const key = `${m.type}:${e.kind}`;
 +      const last = this.lastKind.get(key);
 +      if (last && now - last.t < KIND_QUIET && Math.hypot(e.x - last.x, e.z - last.z) < KIND_QUIET_DIST) return;
@@ -88,9 +107,18 @@ index c4f7311..fe0509c 100644
            bestMine = mine;
          }
 diff --git a/crs-simulation/src/gameplay/session/engins.ts b/crs-simulation/src/gameplay/session/engins.ts
-index e9f1347..b775b2e 100644
+index e9f1347..7f08593 100644
 --- a/crs-simulation/src/gameplay/session/engins.ts
 +++ b/crs-simulation/src/gameplay/session/engins.ts
+@@ -18,7 +18,7 @@ import type { EntityId, GameContext, GameSystem, Squad, Vehicle } from '@/core/c
+ import { SystemOrder } from '@/core/contracts';
+ 
+ interface Autopilot {
+-  status(v: Vehicle): Readonly<{ mode: string; state: string; reason: string; blockedFor: number; remaining: number; leaderId?: number }>;
++  status(v: Vehicle): Readonly<{ mode: string; state: string; reason: string; blockedFor: number; remaining: number; leaderId?: number; urgence?: boolean }>;
+   driveTo(v: Vehicle, x: number, z: number, options?: { urgence?: boolean; speed?: number; stopBefore?: number; pushThrough?: boolean }): boolean;
+   reroute?(v: Vehicle, pushThrough?: boolean): boolean;
+   follow?(v: Vehicle, leaderId: EntityId, distance?: number): boolean;
 @@ -94,6 +94,8 @@ interface Blocked {
    hornAt: number;
    /** Premier blocage de la série (s). */
@@ -134,7 +162,7 @@ index e9f1347..b775b2e 100644
 +   * Fin d'un blocage par des piétons : le deux-tons donné pour les écarter s'arrête, sauf en intervention urgente (il
 +   * restait sinon allumé jusqu'au bout du trajet, sur un retour « sans deux-tons » à la base comme ailleurs).
 +   */
-+  private release(v: Vehicle, urgence: boolean): void {
++  private release(v: Vehicle, urgence: boolean | undefined): void {
 +    const b = this.blocked.get(v.id);
 +    if (!b) return;
 +    this.blocked.delete(v.id);
@@ -148,7 +176,7 @@ index e9f1347..b775b2e 100644
     * Arrêté par un autre véhicule (parking de la compagnie, voiture garée) : un engin de police à l'arrêt avec son
     * chauffeur se range (avance de quelques mètres et dégage le passage) ; sinon, nouvel itinéraire (le Centaure pousse).
 diff --git a/crs-simulation/src/sim/police/command/convoy.ts b/crs-simulation/src/sim/police/command/convoy.ts
-index 8f83986..30ce0c2 100644
+index 8f83986..2545acf 100644
 --- a/crs-simulation/src/sim/police/command/convoy.ts
 +++ b/crs-simulation/src/sim/police/command/convoy.ts
 @@ -11,7 +11,8 @@
@@ -161,7 +189,20 @@ index 8f83986..30ce0c2 100644
  import { angleDiff, pointOnPolyline, projectOnPolyline } from '@/core/math';
  import { agentOf } from '../brain';
  import { isProtester } from './core';
-@@ -95,6 +96,10 @@ const PLAYER_REMIND = 30;
+@@ -54,6 +55,12 @@ interface Convoy {
+   zonesAt: number;
+   /** Longueur de l'itinéraire au départ (m ; −1 : pas encore relevée). */
+   routeLen: number;
++  /**
++   * Point qu'aucun itinéraire carrossable ne dessert (dit à la radio, voir reportNoRoute) ; et l'unité, débarquée, s'y
++   * rend alors à pied (false : aucun chemin à pied non plus, elle reste en attente d'ordres).
++   */
++  noRoute?: boolean;
++  footTo?: boolean;
+   /** Prochain nouvel itinéraire possible de la tête arrêtée par la foule (s). */
+   rerouteAt: number;
+   /** Tête de colonne : dernière position où elle bougeait et depuis quand elle n'en a pas bougé ; redémarrages. */
+@@ -95,6 +102,10 @@ const PLAYER_REMIND = 30;
   */
  const DRIVER_ARRIVE = 90;
  const DRIVER_MOVED = 30;
@@ -172,7 +213,7 @@ index 8f83986..30ce0c2 100644
  
  /**
   * Allure de croisière demandée pour une colonne en urgence (deux tons) ; le pilote automatique la porte à une fois et
-@@ -114,6 +119,8 @@ export class ConvoyControl {
+@@ -114,6 +125,8 @@ export class ConvoyControl {
    private thinkAt = 0;
    private readonly pathBuf: number[] = [];
    private readonly headBuf: number[] = [];
@@ -181,7 +222,44 @@ index 8f83986..30ce0c2 100644
    private readonly roadBuf: RoadSample = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '', roadClass: 'residential', oneway: false };
  
    constructor(private readonly core: CommandCore) {}
-@@ -570,11 +577,29 @@ export class ConvoyControl {
+@@ -380,6 +393,8 @@ export class ConvoyControl {
+     c.orderDone = false;
+     c.stallAt = 0;
+     c.restarts = 0;
++    c.noRoute = false;
++    c.footTo = false;
+     c.drvId = 0;
+     c.status.awaitingDriver = false;
+     c.status.t0 = core.now;
+@@ -415,7 +430,8 @@ export class ConvoyControl {
+       core.say(squad.name, frame('CENTRAL', squad.name, 'En route vers la zone de stationnement, ' + spell(c.vehicles.length) + ' véhicules en colonne', false), 1, 'commandement', squad.leaderId);
+       return true;
+     }
+-    // pas de véhicule ou pas de pilote : on débarque sur place
++    // pas de véhicule ou pas de pilote : on débarque sur place (aucun itinéraire jusqu'au point : l'unité le dit)
++    if (lead && ap) this.reportNoRoute(c);
+     this.beginDisembark(c);
+     return lead !== undefined;
+   }
+@@ -440,14 +456,15 @@ export class ConvoyControl {
+     const squad = core.ctx.squads.get(c.status.squadId);
+     if (ap && c.vehicles.length > 0 && c.dest.stagger) {
+       c.staggerIdx = 0;
+-      this.launchNext(c);
+-      if (squad) core.say(squad.name, frame('CENTRAL', squad.name, 'Départ en colonne, ' + spell(c.vehicles.length) + ' véhicules, deux tons', false), 1, 'commandement', squad.leaderId);
++      // (tête sans itinéraire : pas de « départ » annoncé — voir thinkStagger, point inaccessible)
++      if (this.launchNext(c) && squad) core.say(squad.name, frame('CENTRAL', squad.name, 'Départ en colonne, ' + spell(c.vehicles.length) + ' véhicules, deux tons', false), 1, 'commandement', squad.leaderId);
+       return;
+     }
+     if (ap && c.vehicles.length > 0 && ap.convoy(c.vehicles, c.dest.x, c.dest.z, { gap: core.tuning.convoyGap, speed: urgentSpeed(core), urgence: true, avoid: this.crowdZones(c) })) {
+       if (squad) core.say(squad.name, frame('CENTRAL', squad.name, 'En route vers la zone de stationnement, ' + spell(c.vehicles.length) + ' véhicules en colonne', false), 1, 'commandement', squad.leaderId);
+       return;
+     }
++    if (ap && c.vehicles.length > 0) this.reportNoRoute(c);
+     this.beginDisembark(c);
+   }
+ 
+@@ -570,11 +587,29 @@ export class ConvoyControl {
      for (const v of list) { cx += v.x; cz += v.z; }
      cx /= list.length;
      cz /= list.length;
@@ -214,7 +292,7 @@ index 8f83986..30ce0c2 100644
      this.orderForDeparture(c, tx, tz, false);
      const p = { x: 0, z: 0 };
      const near: Vehicle[] = [];
-@@ -585,7 +610,7 @@ export class ConvoyControl {
+@@ -585,7 +620,7 @@ export class ConvoyControl {
        if (v.seats[0] === 0) continue;
        // première place libre le long de l'itinéraire (ni mur, ni voiture garée, ni autre véhicule)
        let placed = false;
@@ -223,7 +301,7 @@ index 8f83986..30ce0c2 100644
          s += v.def.length * 0.5;
          const h = pointOnPolyline(path, s, p);
          const rx = Math.cos(h), rz = -Math.sin(h);
-@@ -610,6 +635,29 @@ export class ConvoyControl {
+@@ -610,18 +645,63 @@ export class ConvoyControl {
      }
    }
  
@@ -251,11 +329,80 @@ index 8f83986..30ce0c2 100644
 +  }
 +
    /** Départ échelonné : le véhicule suivant part vers le point et s'arrêtera derrière ceux qui le précèdent. */
-   private launchNext(c: Convoy): void {
+-  private launchNext(c: Convoy): void {
++  private launchNext(c: Convoy): boolean {
      const core = this.core;
+     const ap = core.autopilot;
+     const v = c.vehicles[c.staggerIdx];
+-    if (!ap || !v) return;
++    if (!ap || !v) return false;
+     const order = c.staggerIdx;
+     c.startX[order] = v.x;
+     c.startZ[order] = v.z;
+-    ap.driveTo(v, c.dest.x, c.dest.z, { urgence: true, speed: urgentSpeed(core), stopBefore: 2 + order * 11, avoid: this.crowdZones(c) });
++    const ok = ap.driveTo(v, c.dest.x, c.dest.z, { urgence: true, speed: urgentSpeed(core), stopBefore: 2 + order * 11, avoid: this.crowdZones(c) });
+     c.staggerIdx++;
+     c.staggerAt = core.now;
++    return ok;
++  }
++
++  /**
++   * Aucun véhicule de la colonne n'a d'itinéraire jusqu'au point (hors des voies carrossables, au bord de la carte) :
++   * l'unité le dit en clair à celui qui a donné l'ordre, et ce qu'elle fait à la place — elle débarque et s'y rend à pied
++   * s'il existe un chemin, sinon elle reste en attente d'ordres. Elle débarquait sinon en silence devant ses véhicules
++   * et restait « en alerte », ou annonçait une « colonne arrêtée à des kilomètres du point » qui n'était jamais partie.
++   */
++  private reportNoRoute(c: Convoy): void {
++    const core = this.core;
++    const squad = core.ctx.squads.get(c.status.squadId);
++    const lead = c.vehicles[0];
++    if (!squad || !lead || !c.hasDest || c.noRoute) return;
++    c.noRoute = true;
++    let foot = false;
++    try { foot = core.ctx.world.findPath(lead.x, lead.z, c.dest.x, c.dest.z, 'foot', this.headBuf) && this.headBuf.length >= 4; } catch { foot = false; }
++    c.footTo = foot;
++    const parent = squad.parentId !== 0 ? core.ctx.squads.get(squad.parentId) : undefined;
++    const to = parent ? parent.name : 'CENTRAL';
++    core.say(squad.name, frame(to, squad.name, 'Point inaccessible en véhicule, aucun itinéraire par la route. '
++      + (foot ? 'On débarque et on s\'y rend à pied' : 'Inaccessible à pied aussi : on débarque et on reste ici, en attente d\'ordres'), true), 1, 'commandement', squad.leaderId);
+   }
+ 
+   /** Colonne échelonnée en route : départs successifs, puis débarquement quand tous sont arrivés (ou arrêtés). */
+@@ -637,6 +717,13 @@ export class ConvoyControl {
+       if (moved > 12 || now - c.staggerAt > 8) this.launchNext(c);
+       return;
+     }
++    // aucun véhicule n'a d'itinéraire jusqu'au point : l'unité le dit et débarque (voir reportNoRoute)
++    if (n > 0 && c.vehicles.every((v) => { const st = ap.status(v); return st.state === 'echec' && st.reason === 'sans_itineraire'; })) {
++      for (const v of c.vehicles) ap.stop(v);
++      this.reportNoRoute(c);
++      this.beginDisembark(c);
++      return;
++    }
+     // colonne coincée au départ : un véhicule arrêté derrière un autre de la colonne pas encore lancé le fait partir ;
+     // une voiture civile qui barre la route à une colonne en urgence se range (retirée de la chaussée)
+     if (now >= c.unstuckAt) {
+@@ -1108,7 +1195,16 @@ export class ConvoyControl {
+         case 'route': this.thinkRoute(c); break;
+         case 'stationnement': this.thinkPark(c); break;
+         case 'debarquement':
+-          if (c.orderDone || core.now - c.stageT > 120) this.setStage(c, 'en_place');
++          if (c.orderDone || core.now - c.stageT > 120) {
++            // (point inaccessible en véhicule : à pied, comme annoncé — l'ordre repris au débarquement, s'il y en a un,
++            // prend la suite à l'annonce de 'en_place')
++            if (c.footTo) {
++              c.footTo = false;
++              const squad = core.ctx.squads.get(c.status.squadId);
++              core.issue(c.status.squadId, { type: 'colonne', x: c.dest.x, z: c.dest.z, heading: c.dest.heading, width: 0, issuedBy: squad ? squad.leaderId : 0 });
++            }
++            this.setStage(c, 'en_place');
++          }
+           break;
+         case 'rembarquement': this.thinkEmbark(c); break;
+         case 'depart': this.thinkLeave(c); break;
 diff --git a/crs-simulation/tests/unit/engins.sirene-sans-urgence.test.ts b/crs-simulation/tests/unit/engins.sirene-sans-urgence.test.ts
 new file mode 100644
-index 0000000..83ad558
+index 0000000..b41ab3e
 --- /dev/null
 +++ b/crs-simulation/tests/unit/engins.sirene-sans-urgence.test.ts
 @@ -0,0 +1,45 @@
@@ -292,7 +439,7 @@ index 0000000..83ad558
 +    expect(runUntil(b, () => v.x > 90, 30)).toBeGreaterThan(0);
 +    // des passants immobiles en travers de la rue, devant le fourgon
 +    const row: Person[] = [];
-+    for (let k = -3; k <= 3; k++) row.push(b.ctx.people.spawn({ kind: 'civil', x: v.x + 14, z: 121 + k * 0.9 }));
++    for (let k = -3; k <= 3; k++) row.push(b.ctx.people.spawn({ kind: 'passant', x: v.x + 14, z: 121 + k * 0.9 }));
 +    const spots = row.map((p) => ({ x: p.x, z: p.z }));
 +    const hold = (): void => row.forEach((p, i) => { p.x = spots[i]!.x; p.z = spots[i]!.z; p.vx = 0; p.vz = 0; });
 +    expect(runUntil(b, () => v.siren !== 0, 30, hold), 'deux-tons pour les piétons').toBeGreaterThan(0);
@@ -350,6 +497,168 @@ index 0000000..cbb16a2
 +    expect(said.length).toBeLessThanOrEqual(2);
 +  }, 120000);
 +});
+diff --git a/crs-simulation/tests/unit/playtest.commandant-compagnie-depart.test.ts b/crs-simulation/tests/unit/playtest.commandant-compagnie-depart.test.ts
+new file mode 100644
+index 0000000..fa37425
+--- /dev/null
++++ b/crs-simulation/tests/unit/playtest.commandant-compagnie-depart.test.ts
+@@ -0,0 +1,106 @@
++// Partie robot du commandant : « Toute la compagnie » (T) en véhicules, commandant à pied, « Y aller » à 600 m, sur la
++// place de la Concorde (piétonne, loin de toute voie carrossable : la file rangée par lineUp le long du tronçon droit
++// vers la voie Georges-Pompidou mettait sa tête, le canon à eau, nez au mur de quai — colonne figée derrière elle, plus
++// de cinq minutes à 563 m du point). Garantie : une fois l'attente du commandant écoulée, CHAQUE véhicule de la
++// compagnie qui a un conducteur part dans un délai borné, et arrive.
++import { describe, expect, it } from 'vitest';
++import { createTestContext } from '@/core/testing';
++import { createSystems as world } from '@/world/query';
++import { createSystems as roles } from '@/sim/roles';
++import { createSystems as people } from '@/sim/people';
++import { createSystems as vehicles } from '@/sim/vehicles';
++import { createSystems as traffic } from '@/sim/traffic';
++import { createSystems as crowd } from '@/sim/crowd';
++import { createSystems as police } from '@/sim/police';
++import { createSystems as items } from '@/sim/items';
++import { createSystems as props } from '@/sim/props';
++import { createSystems as hazards } from '@/sim/hazards';
++import { createSystems as law } from '@/gameplay/law';
++import { createSystems as radio } from '@/gameplay/radio';
++import { createSystems as env } from '@/env';
++import { createSystems as incidents } from '@/gameplay/incidents';
++import { createSystems as rescue } from '@/sim/roles/rescue';
++import { createSystems as session } from '@/gameplay/session';
++import { createSystems as maps } from '@/ui/maps';
++import { createSystems as command } from '@/ui/command';
++import type { CommandCore } from '@/ui/command';
++import type { MapCanvas } from '@/ui/maps/mapCanvas';
++import { whoEnvFromCore } from '@/ui/command/bestUnit';
++import type { CardEnv, SendEnv } from '@/ui/command/cardTypes';
++import { buildCard } from '@/ui/command/intents';
++import { cardEnvFromCore, pointRepere } from '@/ui/command/reperes';
++import { sendCardLine } from '@/ui/command/sendLine';
++import { TacticalMap } from '@/ui/command/tacticalMap';
++import { TacticalState, fixedCandidate } from '@/ui/command/tacticalState';
++
++const MODULES = [env, world, roles, people, vehicles, traffic, crowd, police, items, props, hazards, law, radio, incidents, rescue, session, maps, command];
++const MEANS = { sections: 3, fourgons: 9, centaure: 1, canon_eau: 1, bravm: 1, drone: 0, pompiers: 0, samu: 0, secours_sur_appel: true };
++
++const CASES: [string, number, number, number, Record<string, unknown>][] = [
++  ['Place de la Concorde', 21, -10, 15, {}],
++  ['Place de la Concorde', 7, -10, 15, {}],
++];
++
++describe('commandant : « Toute la compagnie » en véhicules — tout le monde part et arrive', () => {
++  for (const [place, seed, x, z, extra] of CASES) {
++    it(`${place}, graine ${seed}${extra.journee ? ' (journée de service)' : ''}`, async () => {
++      const t = createTestContext({ seed, strict: false, modules: MODULES });
++      await t.start({ mode: 'libre', role: 'commandant', rank: 'commandant', place, x, z, crowdSize: 300, tension: 0.4, volatility: 0.3, duration: 'standard', extra: { moyens: MEANS, variante: 'terrain', ...extra } } as never);
++      t.step(3);
++      const ctx = t.ctx;
++      const core = ctx.service<CommandCore>('ui.command')!;
++      const state = new TacticalState();
++      const tmap = new TacticalMap(core, { handlers: null } as unknown as MapCanvas, state);
++      const sendEnv = (card: CardEnv): SendEnv => ({ core, map: tmap, setSelection: (ids) => state.setSelection(ids), card, trace: null });
++      const e0 = cardEnvFromCore(core);
++      const sec = e0.units.find((u) => u.symbol === 'section' && u.mine && u.hasVehicles)!;
++      const road = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '', roadClass: 'residential', oneway: false } as never as { x: number; z: number; roadClass: string };
++      let target: { x: number; z: number } | null = null;
++      for (let a = 0; a < 16 && !target; a++) {
++        const tx = sec.x + Math.sin(a * Math.PI / 8) * 600;
++        const tz = sec.z + Math.cos(a * Math.PI / 8) * 600;
++        if (ctx.world.nearestRoad(tx, tz, road as never, 30) && !['pedestrian', 'footway', 'service'].includes(road.roadClass) && ctx.world.findPath(sec.x, sec.z, road.x, road.z, 'vehicle', [])) target = { x: road.x, z: road.z };
++      }
++      expect(target).toBeTruthy();
++      const r = pointRepere(target!.x, target!.z, e0);
++      const card = buildCard(r, e0, 'envoyer');
++      const line = card.lines[card.defaultLine]!;
++      const we = whoEnvFromCore(core, e0, []);
++      const who = fixedCandidate(e0, we.whole!.squadIds, r, we.whole!.label);
++      expect(who.mode).toBe('vehicules');
++      expect(sendCardLine(sendEnv(e0), line, who, r).ok).toBe(true);
++      t.step(2);
++      const pc = ctx.service<{ convoyOf(id: number): { stage: string; awaitingPlayer?: boolean } | null }>('police.command')!;
++      const ap = ctx.service<{ status(v: unknown): { mode: string; state: string; reason: string } }>('vehicles.autopilot')!;
++      // véhicules de la compagnie qui partiront (un conducteur ; ni motos ni drone)
++      const ids = new Set<number>();
++      for (const sid of who.squadIds) {
++        const stack = [sid];
++        while (stack.length) {
++          const id = stack.pop()!;
++          const s = ctx.squads.get(id);
++          if (!s) continue;
++          if (s.vehicleId) ids.add(s.vehicleId);
++          for (const q of ctx.squads.list) if (q.parentId === id) stack.push(q.id);
++        }
++      }
++      // attente du commandant (à pied, la colonne l'attend) : elle se termine au plus tard en cinq minutes
++      let waited = 0;
++      while (pc.convoyOf(who.squadIds[0]!)?.awaitingPlayer && waited < 320) { t.step(5); waited += 5; }
++      t.step(5);
++      const vs = [...ids].map((id) => ctx.vehicles.get(id)!).filter((v) => v && v.seats[0] !== 0 && v.kind !== 'moto_bravm' && !v.def.flying);
++      const start = new Map(vs.map((v) => [v.id, { x: v.x, z: v.z }]));
++      const left = new Map<number, number>();
++      const T = 900;
++      for (let s = 0; s < T; s += 5) {
++        t.step(5);
++        for (const v of vs) if (!left.has(v.id) && Math.hypot(v.x - start.get(v.id)!.x, v.z - start.get(v.id)!.z) > 30) left.set(v.id, s);
++      }
++      const desc = (v: { id: number; kind: string; x: number; z: number }) => { const st = ap.status(v); const sq = ctx.squads.list.find((q) => q.vehicleId === v.id); return `${sq?.name}/${sq?.order.type} ${v.kind}#${v.id} (${v.x.toFixed(0)}, ${v.z.toFixed(0)}) ${st.mode}/${st.state}/${st.reason} à ${Math.hypot(v.x - target!.x, v.z - target!.z).toFixed(0)} m`; };
++      const stayed = vs.filter((v) => !left.has(v.id) || left.get(v.id)! > 240);
++      expect(stayed.map(desc), 'partis trop tard ou jamais').toEqual([]);
++      const far = vs.filter((v) => Math.hypot(v.x - target!.x, v.z - target!.z) > 220);
++      expect(far.map(desc), `colonne ${pc.convoyOf(who.squadIds[0]!)?.stage} : pas arrivés`).toEqual([]);
++    }, 1200000);
++  }
++});
+diff --git a/crs-simulation/tests/unit/police-command.convoi-point-inaccessible.test.ts b/crs-simulation/tests/unit/police-command.convoi-point-inaccessible.test.ts
+new file mode 100644
+index 0000000..3ab3651
+--- /dev/null
++++ b/crs-simulation/tests/unit/police-command.convoi-point-inaccessible.test.ts
+@@ -0,0 +1,44 @@
++import { describe, expect, it } from 'vitest';
++import { createTestContext } from '@/core/testing';
++import { createSystems as world } from '@/world/query';
++import { createSystems as roles } from '@/sim/roles';
++import { createSystems as people } from '@/sim/people';
++import { createSystems as vehicles } from '@/sim/vehicles';
++import { createSystems as traffic } from '@/sim/traffic';
++import { createSystems as crowd } from '@/sim/crowd';
++import { createSystems as police } from '@/sim/police';
++import { createSystems as items } from '@/sim/items';
++import { createSystems as props } from '@/sim/props';
++import { createSystems as hazards } from '@/sim/hazards';
++import { createSystems as law } from '@/gameplay/law';
++import { createSystems as radio } from '@/gameplay/radio';
++import { createSystems as env } from '@/env';
++import { createSystems as incidents } from '@/gameplay/incidents';
++import { createSystems as rescue } from '@/sim/roles/rescue';
++import { createSystems as session } from '@/gameplay/session';
++
++const MODULES = [env, world, roles, people, vehicles, traffic, crowd, police, items, props, hazards, law, radio, incidents, rescue, session];
++const MEANS = { sections: 3, fourgons: 9, centaure: 1, canon_eau: 1, bravm: 1, drone: 0, pompiers: 0, samu: 0, secours_sur_appel: true };
++
++describe('colonne : point inaccessible en véhicule', () => {
++  it('la section le dit à la radio, en clair, et dit ce qu’elle fait à la place', async () => {
++    const t = createTestContext({ seed: 21, strict: false, modules: MODULES });
++    await t.start({ mode: 'libre', role: 'commandant', rank: 'commandant', place: 'Place de la Concorde', x: -10, z: 15, crowdSize: 100, tension: 0.2, volatility: 0.1, duration: 'standard', extra: { moyens: MEANS, variante: 'terrain' } } as never);
++    t.step(3);
++    const ctx = t.ctx;
++    const pc = ctx.service<{ arrive(id: number, d: Record<string, unknown>): boolean; convoyOf(id: number): { stage: string } | null }>('police.command')!;
++    const sec = ctx.squads.list.find((s) => s.kind === 'section' && s.faction === 'police' && ctx.squads.list.some((g) => g.parentId === s.id && g.vehicleId !== 0))!;
++    // un point qu'aucune voie carrossable ne dessert (hors de la carte des rues)
++    const tx = 30000, tz = 30000;
++    expect(ctx.world.findPath(0, 0, tx, tz, 'vehicle', [])).toBe(false);
++    const from = ctx.radio.log.length;
++    expect(pc.arrive(sec.id, { x: tx, z: tz, heading: 0, layout: 'file', boardFirst: true, stagger: true, disembark: true })).toBe(true);
++    let stage = '';
++    for (let i = 0; i < 400 && stage !== 'en_place'; i++) { t.step(1); stage = pc.convoyOf(sec.id)?.stage ?? ''; }
++    t.step(20);
++    const said = ctx.radio.log.slice(from).filter((m) => m.from === sec.name).map((m) => m.text);
++    console.log(said.join('\n'));
++    expect(stage).toBe('en_place');
++    expect(said.some((x) => /inaccessible en v[ée]hicule/i.test(x)), said.join('\n')).toBe(true);
++  }, 600000);
++});
 diff --git a/crs-simulation/tests/unit/radio.compte-rendu-sature.test.ts b/crs-simulation/tests/unit/radio.compte-rendu-sature.test.ts
 new file mode 100644
 index 0000000..5e2baa3
@@ -387,327 +696,4 @@ index 0000000..5e2baa3
 +    expect(heard, `compte rendu abandonné (${q.counters.dropped} abandons)`).toBeTruthy();
 +    expect(heard!.t - submitted).toBeLessThan(60);
 +  });
-+});
-diff --git a/crs-simulation/tests/unit/zz-map.test.ts b/crs-simulation/tests/unit/zz-map.test.ts
-new file mode 100644
-index 0000000..77bdfa6
---- /dev/null
-+++ b/crs-simulation/tests/unit/zz-map.test.ts
-@@ -0,0 +1,66 @@
-+import { it } from 'vitest';
-+import { createTestContext } from '@/core/testing';
-+import { createSystems as world } from '@/world/query';
-+it('map', async () => {
-+  const t = createTestContext({ seed: 21, strict: false, modules: [world] });
-+  await t.start({ mode: 'libre', role: 'commandant', place: 'Place de la Concorde', x: -10, z: 15 } as never);
-+  const w = t.ctx.world;
-+  const rows: string[] = [];
-+  for (let z = 245; z >= 175; z -= 1.5) {
-+    let r = z.toFixed(0).padStart(4) + ' ';
-+    for (let x = -5; x <= 70; x += 1) {
-+      const s = w.surfaceAt(x, z);
-+      r += !w.isFree(x, z, 0.3) ? '#' : s === 'road' ? '.' : s === 'plaza' ? 'p' : s === 'sett' ? 's' : s === 'sidewalk' ? ',' : s === 'void' ? ' ' : s[0];
-+    }
-+    rows.push(r);
-+  }
-+  console.log(rows.join('\n'));
-+  for (const [ax, az, h] of [[105, 82, -120], [100, 80, NaN], [92, 76, -120]] as const) {
-+    const pp: number[] = [];
-+    w.findPath(ax, az, 513, 463, 'vehicle', pp, { heading: h * Math.PI / 180, uturn: Number.isNaN(h) ? 0 : 35, contraflow: 3, minWidth: 4 } as never);
-+    console.log('from', ax, az, pp.slice(0, 20).map((x) => x.toFixed(0)).join(','));
-+  }
-+  const f: number[] = [];
-+  console.log('foot ok', w.findPath(25.7, 202.6, 513, 463, 'foot', f), f.slice(0, 40).map((x) => x.toFixed(0)).join(','));
-+  const hit: any = { hit: false, x: 0, z: 0, nx: 0, nz: 0, dist: 0 };
-+  for (let i = 2; i < Math.min(f.length, 40); i += 2) {
-+    const rr: number[] = [];
-+    w.findPath(f[i], f[i + 1], 513, 463, 'vehicle', rr, { heading: NaN, uturn: 0, contraflow: 3, minWidth: 4 } as never);
-+    const blocked = w.raycast(f[i - 2], f[i - 1], f[i], f[i + 1], hit) && hit.hit;
-+    console.log('  v', f[i].toFixed(0), f[i + 1].toFixed(0), 'leg blocked', blocked, 'snap', rr[2]?.toFixed(0), rr[3]?.toFixed(0), Math.hypot(rr[2] - rr[0], rr[3] - rr[1]).toFixed(1));
-+  }
-+  {
-+    let run = 0; let found = false;
-+    for (let i = 2; i < f.length && run < 800 && !found; i += 2) {
-+      const L = Math.hypot(f[i] - f[i - 2], f[i + 1] - f[i - 1]);
-+      for (let d = 0; d < L && !found; d += 5) {
-+        const x = f[i - 2] + (f[i] - f[i - 2]) * d / L, z = f[i - 1] + (f[i + 1] - f[i - 1]) * d / L;
-+        const rr: number[] = [];
-+        if (!w.findPath(x, z, 513, 463, 'vehicle', rr, { heading: NaN, uturn: 0, contraflow: 3, minWidth: 4 } as never)) continue;
-+        const sd = Math.hypot(rr[2] - rr[0], rr[3] - rr[1]);
-+        const bl = w.raycast(rr[0], rr[1], rr[2], rr[3], hit) && hit.hit;
-+        if (sd < 15 && !bl) { console.log('SAMPLE ok at', (run + d).toFixed(0), x.toFixed(0), z.toFixed(0), 'snap', sd.toFixed(1), rr.slice(2, 6).map((q) => q.toFixed(0)).join(',')); found = true; }
-+      }
-+      run += L;
-+    }
-+    if (!found) console.log('SAMPLE none');
-+  }
-+  for (const [ax, az, bx, bz] of [[29.3, 209.3, 24.4, 217.4], [25.7, 202.6, 19.2, 213.7], [26, 203, 19, 214]]) {
-+    const r = [];
-+    for (const k of [0, 1.2, -1.2]) { const dx = bx - ax, dz = bz - az, l = Math.hypot(dx, dz); const rx = -dz / l * k, rz = dx / l * k; r.push(w.raycast(ax + rx, az + rz, bx + rx, bz + rz, hit) && hit.hit ? hit.kind + '@' + hit.t.toFixed(2) : '-'); }
-+    const fr = []; for (let t = 0; t <= 1; t += 0.05) fr.push(w.isFree(ax + (bx - ax) * t, az + (bz - az) * t, 0.3) ? '.' : '#');
-+    const fr2 = []; for (let t = 0; t <= 1; t += 0.05) fr2.push(w.surfaceAt(ax + (bx - ax) * t, az + (bz - az) * t)[0]);
-+    console.log('LEG', ax, az, bx, bz, r.join(' '), fr.join(''), fr2.join(''), 'h', w.heightAt(ax, az).toFixed(1), w.heightAt(bx, bz).toFixed(1));
-+  }
-+  for (const hd of [-120, 60]) {
-+    const h = hd * Math.PI / 180, fx = Math.sin(h), fz = Math.cos(h);
-+    const fr = []; for (let d = 0; d <= 22; d += 1) fr.push(w.isFree(68.2 + fx * d, 84.4 + fz * d, 1.27) ? '.' : '#');
-+    const rc = w.raycast(68.2, 84.4, 68.2 + fx * 20, 84.4 + fz * 20, hit) && hit.hit ? hit.kind + '@' + (hit.t * 20).toFixed(1) : '-';
-+    console.log('CANONSPOT', hd, fr.join(''), rc);
-+  }
-+  const path: number[] = [];
-+  w.findPath(24, 205, 513, 463, 'vehicle', path, { heading: -33 * Math.PI / 180, uturn: 35, contraflow: 3, minWidth: 4 } as never);
-+  console.log('path', path.slice(0, 16).map((x) => x.toFixed(0)).join(','));
-+  const rd: any = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '', roadClass: 'residential', oneway: false };
-+  for (const [x, z] of [[24, 205], [25, 217], [40, 228], [19, 214], [30, 195], [60, 150]]) { w.nearestRoad(x, z, rd, 30); console.log(x, z, rd.roadClass, rd.name, rd.width, (rd.heading * 180 / Math.PI).toFixed(0), rd.x.toFixed(1), rd.z.toFixed(1)); }
-+});
-diff --git a/crs-simulation/tests/unit/zz-radio.test.ts b/crs-simulation/tests/unit/zz-radio.test.ts
-new file mode 100644
-index 0000000..d6f389c
---- /dev/null
-+++ b/crs-simulation/tests/unit/zz-radio.test.ts
-@@ -0,0 +1,77 @@
-+import { describe, expect, it } from 'vitest';
-+import { createTestContext } from '@/core/testing';
-+import { createSystems as world } from '@/world/query';
-+import { createSystems as roles } from '@/sim/roles';
-+import { createSystems as people } from '@/sim/people';
-+import { createSystems as vehicles } from '@/sim/vehicles';
-+import { createSystems as traffic } from '@/sim/traffic';
-+import { createSystems as crowd } from '@/sim/crowd';
-+import { createSystems as police } from '@/sim/police';
-+import { createSystems as items } from '@/sim/items';
-+import { createSystems as props } from '@/sim/props';
-+import { createSystems as hazards } from '@/sim/hazards';
-+import { createSystems as law } from '@/gameplay/law';
-+import { createSystems as radio } from '@/gameplay/radio';
-+import { createSystems as env } from '@/env';
-+import { createSystems as incidents } from '@/gameplay/incidents';
-+import { createSystems as rescue } from '@/sim/roles/rescue';
-+import { createSystems as session } from '@/gameplay/session';
-+import { createSystems as maps } from '@/ui/maps';
-+import { createSystems as command } from '@/ui/command';
-+import type { CommandCore } from '@/ui/command';
-+import type { MapCanvas } from '@/ui/maps/mapCanvas';
-+import { whoEnvFromCore, wholeCandidate } from '@/ui/command/bestUnit';
-+import type { CardEnv, SendEnv } from '@/ui/command/cardTypes';
-+import { buildCard } from '@/ui/command/intents';
-+import { cardEnvFromCore, pointRepere } from '@/ui/command/reperes';
-+import { sendCardLine } from '@/ui/command/sendLine';
-+import { TacticalMap } from '@/ui/command/tacticalMap';
-+import { TacticalState, fixedCandidate } from '@/ui/command/tacticalState';
-+
-+const MODULES = [env, world, roles, people, vehicles, traffic, crowd, police, items, props, hazards, law, radio, incidents, rescue, session, maps, command];
-+const MEANS = { sections: 3, fourgons: 9, centaure: 1, canon_eau: 1, bravm: 1, drone: 0, pompiers: 0, samu: 0, secours_sur_appel: true };
-+
-+describe('repro', () => {
-+  it('concorde 21', async () => {
-+    const t = createTestContext({ seed: 21, strict: false, modules: MODULES });
-+    await t.start({ mode: 'libre', role: 'commandant', rank: 'commandant', place: 'Place de la Concorde', x: -10, z: 15, crowdSize: 300, tension: 0.4, volatility: 0.3, duration: 'standard', extra: { moyens: MEANS, variante: 'terrain' } } as never);
-+    t.step(3);
-+    const ctx = t.ctx;
-+    const core = ctx.service<CommandCore>('ui.command')!;
-+    const state = new TacticalState();
-+    const tmap = new TacticalMap(core, { handlers: null } as unknown as MapCanvas, state);
-+    const sendEnv = (card: CardEnv): SendEnv => ({ core, map: tmap, setSelection: (ids) => state.setSelection(ids), card, trace: null });
-+    const e0 = cardEnvFromCore(core);
-+    const sec = e0.units.find((u) => u.symbol === 'section' && u.mine && u.hasVehicles)!;
-+    const road = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '', roadClass: 'residential', oneway: false } as never as { x: number; z: number; roadClass: string };
-+    let target: { x: number; z: number } | null = null;
-+    for (let a = 0; a < 16 && !target; a++) {
-+      const tx = sec.x + Math.sin(a * Math.PI / 8) * 600;
-+      const tz = sec.z + Math.cos(a * Math.PI / 8) * 600;
-+      if (ctx.world.nearestRoad(tx, tz, road as never, 30) && !['pedestrian', 'footway', 'service'].includes(road.roadClass) && ctx.world.findPath(sec.x, sec.z, road.x, road.z, 'vehicle', [])) target = { x: road.x, z: road.z };
-+    }
-+    const r = pointRepere(target!.x, target!.z, e0);
-+    const card = buildCard(r, e0, 'envoyer');
-+    const line = card.lines[card.defaultLine]!;
-+    const we = whoEnvFromCore(core, e0, []);
-+    const cu = e0.units.find((u: any) => ctx.vehicles.get(ctx.squads.get(u.squadId)?.vehicleId ?? 0)?.kind === 'canon_eau')!;
-+    console.log('canon unit', cu?.label, cu?.squadId, cu?.x, cu?.z);
-+    const who = process.env.SOLO ? fixedCandidate(e0, [cu.squadId], r) : fixedCandidate(e0, we.whole!.squadIds, r, we.whole!.label);
-+    console.log('who', who.mode, who.squadIds, target);
-+    const dump = (tag: string) => console.log(tag + ' ' + ctx.vehicles.list.filter((v: any) => v.faction === 'police' && v.kind !== 'moto_bravm').map((v: any) => `${v.kind}#${v.id}(${v.x.toFixed(1)},${v.z.toFixed(1)},h${(v.heading*180/Math.PI).toFixed(0)})`).join(' '));
-+    dump('AVANT');
-+    const subs: { t: number; from: string; text: string; p: number; ch: string }[] = [];
-+    const say0 = ctx.radio.say.bind(ctx.radio);
-+    (ctx.radio as any).say = (m: any) => { subs.push({ t: ctx.clock.now, from: m.from, text: m.text, p: m.priority, ch: m.channel }); say0(m); };
-+    (globalThis as any).__subs = subs;
-+    expect(sendCardLine(sendEnv(e0), line, who, r).ok).toBe(true);
-+    dump('APRES');
-+    t.step(1); dump('APRES1');
-+    const pc = ctx.service<any>('police.command')!;
-+    const ap = ctx.service<any>('vehicles.autopilot');
-+    t.step(900);
-+    const played = new Set(ctx.radio.log.map((m: any) => m.from + '|' + m.text));
-+    const cmd = subs.filter((m) => m.ch === 'commandement');
-+    for (const m of cmd) console.log('SUB', m.t.toFixed(0), 'p' + m.p, played.has(m.from + '|' + m.text) ? 'OK  ' : 'LOST', m.from, '|', m.text);
-+  }, 900000);
-+});
-diff --git a/crs-simulation/tests/unit/zz-repro.test.ts b/crs-simulation/tests/unit/zz-repro.test.ts
-new file mode 100644
-index 0000000..8ce1356
---- /dev/null
-+++ b/crs-simulation/tests/unit/zz-repro.test.ts
-@@ -0,0 +1,91 @@
-+import { describe, expect, it } from 'vitest';
-+import { createTestContext } from '@/core/testing';
-+import { createSystems as world } from '@/world/query';
-+import { createSystems as roles } from '@/sim/roles';
-+import { createSystems as people } from '@/sim/people';
-+import { createSystems as vehicles } from '@/sim/vehicles';
-+import { createSystems as traffic } from '@/sim/traffic';
-+import { createSystems as crowd } from '@/sim/crowd';
-+import { createSystems as police } from '@/sim/police';
-+import { createSystems as items } from '@/sim/items';
-+import { createSystems as props } from '@/sim/props';
-+import { createSystems as hazards } from '@/sim/hazards';
-+import { createSystems as law } from '@/gameplay/law';
-+import { createSystems as radio } from '@/gameplay/radio';
-+import { createSystems as env } from '@/env';
-+import { createSystems as incidents } from '@/gameplay/incidents';
-+import { createSystems as rescue } from '@/sim/roles/rescue';
-+import { createSystems as session } from '@/gameplay/session';
-+import { createSystems as maps } from '@/ui/maps';
-+import { createSystems as command } from '@/ui/command';
-+import type { CommandCore } from '@/ui/command';
-+import type { MapCanvas } from '@/ui/maps/mapCanvas';
-+import { whoEnvFromCore, wholeCandidate } from '@/ui/command/bestUnit';
-+import type { CardEnv, SendEnv } from '@/ui/command/cardTypes';
-+import { buildCard } from '@/ui/command/intents';
-+import { cardEnvFromCore, pointRepere } from '@/ui/command/reperes';
-+import { sendCardLine } from '@/ui/command/sendLine';
-+import { TacticalMap } from '@/ui/command/tacticalMap';
-+import { TacticalState, fixedCandidate } from '@/ui/command/tacticalState';
-+
-+const MODULES = [env, world, roles, people, vehicles, traffic, crowd, police, items, props, hazards, law, radio, incidents, rescue, session, maps, command];
-+const MEANS = { sections: 3, fourgons: 9, centaure: 1, canon_eau: 1, bravm: 1, drone: 0, pompiers: 0, samu: 0, secours_sur_appel: true };
-+
-+describe('repro', () => {
-+  it('concorde 21', async () => {
-+    const t = createTestContext({ seed: 21, strict: false, modules: MODULES });
-+    await t.start({ mode: 'libre', role: 'commandant', rank: 'commandant', place: 'Place de la Concorde', x: -10, z: 15, crowdSize: 300, tension: 0.4, volatility: 0.3, duration: 'standard', extra: { moyens: MEANS, variante: 'terrain' } } as never);
-+    t.step(3);
-+    const ctx = t.ctx;
-+    const core = ctx.service<CommandCore>('ui.command')!;
-+    const state = new TacticalState();
-+    const tmap = new TacticalMap(core, { handlers: null } as unknown as MapCanvas, state);
-+    const sendEnv = (card: CardEnv): SendEnv => ({ core, map: tmap, setSelection: (ids) => state.setSelection(ids), card, trace: null });
-+    const e0 = cardEnvFromCore(core);
-+    const sec = e0.units.find((u) => u.symbol === 'section' && u.mine && u.hasVehicles)!;
-+    const road = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '', roadClass: 'residential', oneway: false } as never as { x: number; z: number; roadClass: string };
-+    let target: { x: number; z: number } | null = null;
-+    for (let a = 0; a < 16 && !target; a++) {
-+      const tx = sec.x + Math.sin(a * Math.PI / 8) * 600;
-+      const tz = sec.z + Math.cos(a * Math.PI / 8) * 600;
-+      if (ctx.world.nearestRoad(tx, tz, road as never, 30) && !['pedestrian', 'footway', 'service'].includes(road.roadClass) && ctx.world.findPath(sec.x, sec.z, road.x, road.z, 'vehicle', [])) target = { x: road.x, z: road.z };
-+    }
-+    const r = pointRepere(target!.x, target!.z, e0);
-+    const card = buildCard(r, e0, 'envoyer');
-+    const line = card.lines[card.defaultLine]!;
-+    const we = whoEnvFromCore(core, e0, []);
-+    const cu = e0.units.find((u: any) => ctx.vehicles.get(ctx.squads.get(u.squadId)?.vehicleId ?? 0)?.kind === 'canon_eau')!;
-+    console.log('canon unit', cu?.label, cu?.squadId, cu?.x, cu?.z);
-+    const who = process.env.SOLO ? fixedCandidate(e0, [cu.squadId], r) : fixedCandidate(e0, we.whole!.squadIds, r, we.whole!.label);
-+    console.log('who', who.mode, who.squadIds, target);
-+    const dump = (tag: string) => console.log(tag + ' ' + ctx.vehicles.list.filter((v: any) => v.faction === 'police' && v.kind !== 'moto_bravm').map((v: any) => `${v.kind}#${v.id}(${v.x.toFixed(1)},${v.z.toFixed(1)},h${(v.heading*180/Math.PI).toFixed(0)})`).join(' '));
-+    dump('AVANT');
-+    expect(sendCardLine(sendEnv(e0), line, who, r).ok).toBe(true);
-+    dump('APRES');
-+    t.step(1); dump('APRES1');
-+    const pc = ctx.service<any>('police.command')!;
-+    const ap = ctx.service<any>('vehicles.autopilot');
-+    for (let k = 0; k < 30; k++) {
-+      t.step(15); if (k < (process.env.SOLO ? 0 : 18)) continue;
-+      const cv = pc.convoyOf(who.squadIds[0]!);
-+      const vs: string[] = [];
-+      for (const sid of who.squadIds) {
-+        const s = ctx.squads.get(sid); if (!s) continue;
-+      }
-+      const seen = new Set<number>();
-+      for (const s of ctx.squads.list) {
-+        const v = ctx.vehicles.get(s.vehicleId); if (!v || seen.has(v.id)) continue; seen.add(v.id);
-+        if (v.faction !== 'police') continue;
-+        const st = ap?.status?.(v);
-+        vs.push(`${v.kind}#${v.id}(${v.x.toFixed(0)},${v.z.toFixed(0)}) ${st ? st.mode + '/' + st.state + '/' + st.reason + ' ' + Math.round(st.blockedFor) : ''} d=${Math.hypot(v.x - target!.x, v.z - target!.z).toFixed(0)}`);
-+      }
-+      const cn = ctx.vehicles.list.find((v: any) => v.kind === 'canon_eau')!;
-+      const rt = ap.k?.rt?.(cn); const a = rt?.ap;
-+      const rd = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '', roadClass: 'residential', oneway: false } as any;
-+      ctx.world.nearestRoad(cn.x, cn.z, rd, 30);
-+      const pth: number[] = a?.path ? Array.from(a.path.slice(0, Math.min(12, (a.n ?? 6) * 2))) as number[] : [];
-+      console.log('CANON h=' + (cn.heading * 180 / Math.PI).toFixed(0) + ' surf=' + ctx.world.surfaceAt(cn.x, cn.z) + ' road=' + rd.roadClass + ' ' + rd.name + ' w=' + rd.width.toFixed(1) + ' rdh=' + (rd.heading*180/Math.PI).toFixed(0) + ' dist=' + rd.dist?.toFixed?.(1) + ' obs=' + a?.obsReason + '@' + a?.obsDist?.toFixed?.(1) + ' uturn=' + a?.uturn + ' replans=' + a?.replans + ' avoidBack=' + a?.avoidBack + ' path=' + pth.map((x) => x.toFixed(0)).join(',') + ' free=' + [0,2,4,6,8].map((d) => ctx.world.isFree(cn.x + Math.sin(cn.heading)*d, cn.z + Math.cos(cn.heading)*d, 1.2) ? 1 : 0).join('') + ' surfFwd=' + [2,4,6,8].map((d) => ctx.world.surfaceAt(cn.x + Math.sin(cn.heading)*d, cn.z + Math.cos(cn.heading)*d)).join('/'));
-+      console.log(`t=${Math.round(ctx.time?.now ?? k*15)} stage=${cv?.stage} rem=${cv?.remaining?.toFixed?.(0)} wait=${cv?.awaitingPlayer}\n  ` + vs.join('\n  '));
-+    }
-+  }, 900000);
-+});
-diff --git a/crs-simulation/tests/unit/zz-repro2.test.ts b/crs-simulation/tests/unit/zz-repro2.test.ts
-new file mode 100644
-index 0000000..43ed751
---- /dev/null
-+++ b/crs-simulation/tests/unit/zz-repro2.test.ts
-@@ -0,0 +1,65 @@
-+import { describe, expect, it } from 'vitest';
-+import { createTestContext } from '@/core/testing';
-+import { createSystems as world } from '@/world/query';
-+import { createSystems as roles } from '@/sim/roles';
-+import { createSystems as people } from '@/sim/people';
-+import { createSystems as vehicles } from '@/sim/vehicles';
-+import { createSystems as traffic } from '@/sim/traffic';
-+import { createSystems as crowd } from '@/sim/crowd';
-+import { createSystems as police } from '@/sim/police';
-+import { createSystems as items } from '@/sim/items';
-+import { createSystems as props } from '@/sim/props';
-+import { createSystems as hazards } from '@/sim/hazards';
-+import { createSystems as law } from '@/gameplay/law';
-+import { createSystems as radio } from '@/gameplay/radio';
-+import { createSystems as env } from '@/env';
-+import { createSystems as incidents } from '@/gameplay/incidents';
-+import { createSystems as rescue } from '@/sim/roles/rescue';
-+import { createSystems as session } from '@/gameplay/session';
-+import { createSystems as maps } from '@/ui/maps';
-+import { createSystems as command } from '@/ui/command';
-+import type { CommandCore } from '@/ui/command';
-+import type { MapCanvas } from '@/ui/maps/mapCanvas';
-+import { whoEnvFromCore, wholeCandidate } from '@/ui/command/bestUnit';
-+import type { CardEnv, SendEnv } from '@/ui/command/cardTypes';
-+import { buildCard } from '@/ui/command/intents';
-+import { cardEnvFromCore, pointRepere } from '@/ui/command/reperes';
-+import { sendCardLine } from '@/ui/command/sendLine';
-+import { TacticalMap } from '@/ui/command/tacticalMap';
-+import { TacticalState, fixedCandidate } from '@/ui/command/tacticalState';
-+
-+const MODULES = [env, world, roles, people, vehicles, traffic, crowd, police, items, props, hazards, law, radio, incidents, rescue, session, maps, command];
-+const MEANS = { sections: 3, fourgons: 9, centaure: 1, canon_eau: 1, bravm: 1, drone: 0, pompiers: 0, samu: 0, secours_sur_appel: true };
-+
-+describe('repro', () => {
-+  it('biscornet', async () => {
-+    const t = createTestContext({ seed: 5, strict: false, modules: MODULES });
-+    await t.start({ mode: 'libre', role: 'commandant', rank: 'commandant', place: process.env.PL ?? 'Place de la Bastille', x: Number(process.env.PX ?? 3542), z: Number(process.env.PZ ?? 1395), crowdSize: 300, tension: 0.4, volatility: 0.3, duration: 'standard', extra: { moyens: MEANS, variante: 'terrain' } } as never);
-+    t.step(3);
-+    const ctx = t.ctx;
-+    const core = ctx.service<CommandCore>('ui.command')!;
-+    const state = new TacticalState();
-+    const tmap = new TacticalMap(core, { handlers: null } as unknown as MapCanvas, state);
-+    const sendEnv = (card: CardEnv): SendEnv => ({ core, map: tmap, setSelection: (ids) => state.setSelection(ids), card, trace: null });
-+    const e0 = cardEnvFromCore(core);
-+    const sec = e0.units.find((u) => u.symbol === 'section' && u.mine && u.hasVehicles)!;
-+    const tx = Number(process.env.TX ?? 3517), tz = Number(process.env.TZ ?? 1575);
-+    const r = pointRepere(tx, tz, e0);
-+    const card = buildCard(r, e0, 'envoyer');
-+    const line = card.lines[card.defaultLine]!;
-+    const who = fixedCandidate(e0, [sec.squadId], r);
-+    console.log('who', who.mode, sec.label, sec.x, sec.z, 'dist', Math.hypot(sec.x - tx, sec.z - tz));
-+    const res = sendCardLine(sendEnv(e0), line, who, r);
-+    console.log('send', res.ok, res.text);
-+    const pc = ctx.service<any>('police.command')!;
-+    const ap = ctx.service<any>('vehicles.autopilot');
-+    const name = ctx.squads.get(sec.squadId)!.name;
-+    for (let k = 0; k < Number(process.env.K ?? 20); k++) {
-+      t.step(15);
-+      const cv = pc.convoyOf(sec.squadId);
-+      const vs = ctx.vehicles.list.filter((v: any) => ctx.squads.list.some((s: any) => s.vehicleId === v.id && (s.id === sec.squadId || s.parentId === sec.squadId))).map((v: any) => { const st = ap.status(v); return `${v.kind}(${v.x.toFixed(0)},${v.z.toFixed(0)}) ${st.mode}/${st.state}/${st.reason} d=${Math.hypot(v.x - tx, v.z - tz).toFixed(0)}`; });
-+      console.log(`t=${k * 15 + 15} stage=${cv?.stage} order=${ctx.squads.get(sec.squadId)!.order.type} ` + vs.join(' | '));
-+    }
-+    for (const m of ctx.radio.log) if (m.from.startsWith(name) || m.text.includes(name)) console.log('RADIO', m.t.toFixed(0), m.from, '|', m.text);
-+  }, 900000);
 +});

@@ -1,3 +1,33 @@
+# COORDINATOR'S UPDATE — stage 1b (15 h 30) — read first; it overrides everything below
+
+**State of this worktree now:**
+- **P1 is DONE** (pure order logic in `src/ui/command/direct/`, contracts). Its full report is in
+  `/tmp/claude-0/-home-user-SafeDeal/f854eafd-7c66-528c-834c-30dfeec78944/scratchpad/rapports-paquets-ordres-directs.json`
+  (read its « deviations » and « openIssues »: several concern your package).
+- Two reviewed fix lots are **applied here** (staged): « colonne-tete-bloquee » (`src/sim/police/command/convoy.ts`
+  lineUp / no-route report, `src/gameplay/radio/queue.ts` ageing of priority, `src/gameplay/incidents/radio.ts` CENTRAL no
+  longer repeats the same kind of incident, `src/gameplay/session/engins.ts` siren) and « commandant-carte-3 »
+  (`src/ui/command/{intents,preview,bestUnit,tacticalScreen}.ts`: patrol crews, nasse, « Autre unité »). Build on them.
+- A third lot, « commandant-mission » (the player's exact game: the fifteen commandant missions), is being reviewed and
+  will be applied here by the coordinator BEFORE packages P3, P4 and P6 start. It touches
+  `src/gameplay/missions/{system,objectives}.ts`, `src/sim/police/command/{api,bravm,convoy,system}.ts`,
+  `src/ui/command/{core,sendLine}.ts`.
+- **This run: P2, P7 and P5 only**, in parallel. Next run: P3, P4, P6.
+
+**Known red test, do not « fix » it by weakening it:** `tests/unit/playtest.commandant-compagnie-depart.test.ts` expects
+the company (which contains the commandant ON FOOT) to leave in vehicles; since P1 (rule B2) such a unit goes on foot.
+The guarantee it protects — after an order in vehicles EVERY vehicle of the company leaves and arrives — must stay
+tested: P3 will adapt the robot (the commandant aboard his car, or the order given to units that do not contain him).
+
+**What the three diagnosis robots and the mission robot proved, that your packages must end (evidence in the
+`diag-*.md` files and in `/tmp/claude-0/-home-user-SafeDeal/f854eafd-7c66-528c-834c-30dfeec78944/scratchpad/runs/`):**
+- seated units accept every order and do nothing while the radio says « effectué » (P2);
+- « REÇU » is heard before the order, BRAV-M acknowledgements come 17 s late, a refused order is not said (P7);
+- nobody follows the commandant at the start, the BRAV-M is outside the company, the cellular van has no crew or stays
+  at the station (P5).
+
+---
+
 # COORDINATOR'S ADDENDUM — read first; it overrides the rest of this document
 
 **Date: 18 November. Staged delivery.** The player is waiting with a command loop he calls « incompréhensible »

@@ -21,10 +21,25 @@ index cf0917f..67c00f1 100644
    let k = 0;
    for (const id of env.staged) {
 diff --git a/crs-simulation/src/gameplay/missions/system.ts b/crs-simulation/src/gameplay/missions/system.ts
-index a40f290..07da94c 100644
+index a40f290..e4586bc 100644
 --- a/crs-simulation/src/gameplay/missions/system.ts
 +++ b/crs-simulation/src/gameplay/missions/system.ts
-@@ -150,6 +150,13 @@ export class MissionSystem implements GameSystem {
+@@ -66,6 +66,14 @@ const TRAVEL_MAX = 900;
+ const TRAVEL_NEAR = 400;
+ const ARRIVE_NEAR = 150;
+ const ARRIVE_HOLD = 20;
++/**
++ * Le joueur est sur place mais la colonne de sa compagnie roule encore (il est passé devant, à pied ou au volant ; son
++ * véhicule de commandement a pris de l'avance) : la mission l'attend, au plus COLUMN_WAIT s. Relevé de la recette du
++ * commandant : « Prise de commandement » commençait avec le commandant place de la République et ses six groupes à
++ * six cents mètres, encore dans leurs fourgons sur le boulevard — ses premiers ordres partaient dans le vide.
++ */
++const COLUMN_WAIT = 180;
++const COLUMN_NEAR = 300;
+ /**
+  * Ordre des phases de la foule. Une phase de mission qui attend « départ » ou « cortège » est close quand la foule en est
+  * déjà plus loin : en journée de service, le cortège part pendant le trajet en colonne, avant le début de la mission.
+@@ -150,12 +158,23 @@ export class MissionSystem implements GameSystem {
    private readonly casualtiesFor = new Set<string>();
    /** Victimes mises en scène (prémisse de la mission : non reprochées au joueur dans les blessés). */
    private readonly staged = new Set<EntityId>();
@@ -35,28 +50,113 @@ index a40f290..07da94c 100644
 +   * dix motards légèrement blessés pendant le trajet), avant qu'il ait pu donner un seul ordre.
 +   */
 +  private readonly hurtBefore = new Set<EntityId>();
++  /** Décès déjà relevés par les incidents au début de la mission (même raison : le trajet ne lui est pas reproché). */
++  private deathsBefore = 0;
    /** Groupe du joueur exécutant retenu pour l'objectif de la mission (0 : aucun). */
    private pinnedId = 0;
    /** Poste du groupe pas encore donné (le groupe débarque encore), et instant du début de l'attente (−1 : aucune). */
-@@ -207,6 +214,7 @@ export class MissionSystem implements GameSystem {
+   private postSince = -1;
+   /** Le joueur est sur place (journée de service, colonne encore en manœuvre) depuis cet instant (−1 : non). */
+   private nearSince = -1;
++  /** Attente de la colonne déjà annoncée au joueur. */
++  private columnTold = false;
+   private readonly catalog_: Record<string, unknown>[];
+ 
+   constructor() {
+@@ -207,10 +226,13 @@ export class MissionSystem implements GameSystem {
      this.unpin();
      this.casualtiesFor.clear();
      this.staged.clear();
 +    this.hurtBefore.clear();
++    this.deathsBefore = 0;
      this.aleas.reset();
      this.waitSince = -1;
      this.postSince = -1;
-@@ -242,7 +250,9 @@ export class MissionSystem implements GameSystem {
+     this.nearSince = -1;
++    this.columnTold = false;
+     this.tracker?.reset();
+     this.def = null;
+     this.pending = false;
+@@ -242,7 +264,10 @@ export class MissionSystem implements GameSystem {
        isCommander: def.role === 'commandant' || def.role === 'chef_groupe',
        scratch: [] as Person[],
        staged: this.staged,
 +      injuredAtStart: ctx.director.stats.injured,
      };
 +    for (const p of ctx.people.list) if (p.faction === 'police' && p.injury !== 'none') this.hurtBefore.add(p.id);
++    this.deathsBefore = ctx.service<{ stats(): { deaths: number } }>('incidents.records')?.stats().deaths ?? 0;
      this.runs = def.objectives.map((o) => ({
        def: o,
        state: 'actif' as const,
-@@ -651,7 +661,7 @@ export class MissionSystem implements GameSystem {
+@@ -261,6 +286,49 @@ export class MissionSystem implements GameSystem {
+     this.enterPhase(0);
+   }
+ 
++  /**
++   * La colonne de la compagnie du joueur est-elle arrivée : plus « en route », et la moitié au moins de ses agents à
++   * moins de COLUMN_NEAR m du lieu (au volant, le véhicule de commandement du joueur, en tête, se gare pendant que ses
++   * fourgons sont encore à cinq cents mètres) ? Sinon la mission l'attend, en le disant une fois au joueur, au plus
++   * COLUMN_WAIT s après son arrivée à lui.
++   */
++  private columnIn(now: number, dest: { x: number; z: number } | null): boolean {
++    const ctx = this.ctx!;
++    const me = ctx.player.person();
++    let top = me && me.squadId !== 0 ? ctx.squads.get(me.squadId) : undefined;
++    for (let guard = 0; top && top.parentId !== 0 && guard < 8; guard++) top = ctx.squads.get(top.parentId);
++    const cmd = ctx.service<{ convoyOf?(id: number): { stage: string } | null }>('police.command');
++    const st = top && cmd && cmd.convoyOf ? cmd.convoyOf(top.id) : null;
++    if (!st || now - this.nearSince >= ARRIVE_HOLD + COLUMN_WAIT) return true;
++    if (st.stage !== 'route' && (!dest || !top || this.shareNear(top.id, dest.x, dest.z) >= 0.5)) return true;
++    if (!this.columnTold) {
++      this.columnTold = true;
++      ctx.ui.notify('Votre compagnie est encore en route : la mission commence à son arrivée.', 'info', 6);
++    }
++    return false;
++  }
++
++  /** Part des agents valides de l'unité (et de sa descendance, hors joueur) à moins de COLUMN_NEAR m de (x, z). */
++  private shareNear(squadId: number, x: number, z: number): number {
++    const ctx = this.ctx!;
++    let n = 0;
++    let near = 0;
++    const visit = (id: number, depth: number): void => {
++      const q = ctx.squads.get(id);
++      if (!q || depth > 8) return;
++      for (const pid of q.members) {
++        const p = ctx.people.get(pid);
++        if (!p || p.isPlayer || p.posture === 'down' || p.custody !== 'free') continue;
++        const v = p.vehicleId !== 0 ? ctx.vehicles.get(p.vehicleId) : undefined;
++        n++;
++        if (Math.hypot((v ? v.x : p.x) - x, (v ? v.z : p.z) - z) < COLUMN_NEAR) near++;
++      }
++      for (const k of ctx.squads.childrenOf(id)) visit(k.id, depth + 1);
++    };
++    visit(squadId, 0);
++    return n > 0 ? near / n : 1;
++  }
++
+   /**
+    * Mission où le joueur doit prononcer lui-même les sommations (atelier de l'école : un élève, écharpe en bandoulière
+    * et mégaphone en main) : il porte l'écharpe tricolore et a un mégaphone, sans quoi la loi refuse ses sommations et
+@@ -553,7 +621,7 @@ export class MissionSystem implements GameSystem {
+         if (j.stage === 'route' && far < ARRIVE_NEAR && (!v || Math.abs(v.speed) < 0.5)) {
+           if (this.nearSince < 0) this.nearSince = now;
+         } else this.nearSince = -1;
+-        const inPlace = this.nearSince >= 0 && now - this.nearSince >= ARRIVE_HOLD;
++        const inPlace = this.nearSince >= 0 && now - this.nearSince >= ARRIVE_HOLD && this.columnIn(now, d);
+         if (!inPlace && (now - this.waitSince < TRAVEL_MAX || far > TRAVEL_NEAR)) return;
+       }
+       this.begin();
+@@ -634,7 +702,7 @@ export class MissionSystem implements GameSystem {
+           break;
+         case 'victime_non_secourue': {
+           const rec = ctx.service<{ stats(): { deaths: number } }>('incidents.records');
+-          if (rec && rec.stats().deaths > 0) return f.text;
++          if (rec && rec.stats().deaths > this.deathsBefore) return f.text;
+           break;
+         }
+         case 'temps':
+@@ -651,7 +719,7 @@ export class MissionSystem implements GameSystem {
    /** Agents des forces de l'ordre blessés (même légèrement), comme la foule compte ses blessés. */
    private policeInjured(): number {
      let n = 0;
@@ -82,7 +182,7 @@ index ca125b6..2f826dd 100644
  
  export type { Squad };
 diff --git a/crs-simulation/src/sim/police/command/bravm.ts b/crs-simulation/src/sim/police/command/bravm.ts
-index 159e617..d670f52 100644
+index 159e617..3942217 100644
 --- a/crs-simulation/src/sim/police/command/bravm.ts
 +++ b/crs-simulation/src/sim/police/command/bravm.ts
 @@ -59,6 +59,14 @@ const REJOIN_GAP = 10;
@@ -91,7 +191,7 @@ index 159e617..d670f52 100644
  const MOUNT_REACH = 40;
 +/**
 + * Tête de colonne arrêtée au milieu de la foule (au moins CROWD_AROUND manifestants à moins de CROWD_RADIUS m) depuis
-+ * CROWD_STUCK s sans avoir avancé de 3 m : les motos ne fendent pas une foule — pied à terre, la suite se fait à pied
++ * CROWD_STUCK s sans avoir gagné 5 m vers son point d’arrêt : les motos ne fendent pas une foule — pied à terre, la suite à pied
 + * (m, nombre, s).
 + */
 +const CROWD_RADIUS = 15;
@@ -100,28 +200,64 @@ index 159e617..d670f52 100644
  
  /** L'unité est-elle un groupe de BRAV-M (au moins un binôme subordonné doté d'une moto, ou binôme isolé) ? */
  export function isBravmGroup(core: CommandCore, s: Squad): boolean {
-@@ -110,6 +118,10 @@ export class BravmUnit extends SpecialUnit {
+@@ -110,6 +118,11 @@ export class BravmUnit extends SpecialUnit {
    private arrestOk = false;
    private arrestReason = '';
    private arrested = 0;
-+  /** Tête de colonne au milieu de la foule : dernière position où elle avançait et depuis quand (voir CROWD_STUCK). */
-+  private crowdX = 0;
-+  private crowdZ = 0;
++  /** Tête de colonne au milieu de la foule : distance au point d'arrêt quand elle avançait encore, et depuis quand (voir CROWD_STUCK). */
++  private crowdD = 0;
 +  private crowdAt = -1;
++  /** Point d'arrêt du déplacement en cours ramené en arrière par la foule (ride : jamais d'arrêt dans un rassemblement). */
++  private crowdBack = false;
    /** Interception loin d'opérateurs à pied : ils remontent d'abord en selle, puis la colonne roule vers l'objectif. */
    private rideAfterRemount = false;
    /** Ordre à exécuter une fois le pied à terre fait (manœuvre à pied laissée au module de police). */
-@@ -370,9 +382,17 @@ export class BravmUnit extends SpecialUnit {
-     this.standZ = sz;
-     this.slow = false;
-     if (Math.hypot(sx - lead.x, sz - lead.z) < 8) {
-+      // foule sur tout l'itinéraire, jusqu'aux machines (BRAV-M arrivée avec la colonne au milieu du rassemblement) : le
-+      // point d'arrêt retombait sur la tête, et la colonne se disait « en position » sans avoir bougé, à cent cinquante
-+      // mètres du point — « la BRAV-M, ils bougeaient pas ». Pied à terre : l'ordre est exécuté à pied.
-+      if (Math.hypot(x - lead.x, z - lead.z) > RIDE_STANDOFF + 8 && core.ctx.people.countIn(lead.x, lead.z, CROWD_RADIUS, isProtester) >= CROWD_AROUND) {
-+        this.crowdDismount();
-+        return;
+@@ -223,6 +236,9 @@ export class BravmUnit extends SpecialUnit {
+       this.setStage('repos');
+       return true;
+     }
++    // « suivre » (« Suivez-moi à pied » du commandant) : le point est la personne suivie, là où elle est — l'ordre ne
++    // porte que sa cible ; à des centaines de mètres, la BRAV-M partait à pied, ou restait sur place
++    if (type === 'suivre' && o.targetId > 0 && locate(this.core, o.targetId)) o = { ...o, x: this.core.v2.x, z: this.core.v2.z };
+     const far = this.farPoint(o);
+     if (mounted && this.motos.length > 0 && far > RIDE_BEYOND && this.pilots() > 0) {
+       // point éloigné : la colonne s'y rend à moto, pied à terre sur place, puis la manœuvre est exécutée
+@@ -291,11 +307,16 @@ export class BravmUnit extends SpecialUnit {
+         break;
+       case 'avancer':
+       case 'colonne':
+-      case 'repli':
+-        this.say(received(this.squad.name, o.type === 'repli' ? 'je me replie en colonne' : 'en colonne vers le point'));
++      case 'repli': {
++        // à pied, point à moins de trois minutes de marche : on y va à pied, directement (le retour aux machines,
++        // garées au milieu de la foule, puis la remontée en selle, laissaient la BRAV-M sur place une minute et plus)
++        const walk = !mounted && this.footOperators() > 0 && Math.hypot(this.tx - this.people[0].x, this.tz - this.people[0].z) <= WALK_LIMIT;
++        this.say(received(this.squad.name, o.type === 'repli' ? 'je me replie en colonne' : walk ? 'à pied vers le point' : 'en colonne vers le point'));
+         if (mounted) this.ride(this.tx, this.tz, 0);
++        else if (walk) this.defer(() => this.walkTo(this.tx, this.tz));
+         else this.defer(() => this.backToMotos());
+         break;
 +      }
+       case 'embarquer':
+         if (mounted) this.complete(true, '');
+         else this.defer(() => this.backToMotos());
+@@ -335,6 +356,7 @@ export class BravmUnit extends SpecialUnit {
+     // point d'arrêt le long de l'itinéraire
+     let sx = x;
+     let sz = z;
++    this.crowdBack = false;
+     const path = core.path;
+     const routed = core.ctx.world.findPath(lead.x, lead.z, x, z, 'vehicle', path) && path.length >= 4;
+     this.departure(routed ? path : null, x, z);
+@@ -356,6 +378,7 @@ export class BravmUnit extends SpecialUnit {
+         if (core.ctx.people.countIn(sx, sz, 22, isProtester) < 8) break;
+         back += 20;
+       }
++      this.crowdBack = back > standoff;
+     } else if (standoff > 0) {
+       const d = Math.hypot(x - lead.x, z - lead.z);
+       if (d > standoff + 4) {
+@@ -373,6 +396,7 @@ export class BravmUnit extends SpecialUnit {
        this.arrived();
        return;
      }
@@ -129,25 +265,53 @@ index 159e617..d670f52 100644
      this.relaunches = 0;
      this.rejoinAt = -1;
      // trajet à travers la ville : en urgence, les fermetures de rue de la police sont franchies (arrêtée devant un
-@@ -535,6 +555,16 @@ export class BravmUnit extends SpecialUnit {
+@@ -535,6 +559,17 @@ export class BravmUnit extends SpecialUnit {
      const st = ap.status(lead);
      const d = Math.hypot(this.standX - lead.x, this.standZ - lead.z);
      const stopped = Math.abs(lead.speed) < 0.4;
 +    // tête arrêtée au milieu de la foule (le pilote automatique attend que les manifestants s'écartent, indéfiniment) :
-+    // pied à terre, la suite à pied (voir CROWD_STUCK)
-+    if (this.crowdAt < 0 || Math.hypot(lead.x - this.crowdX, lead.z - this.crowdZ) > 3) {
-+      this.crowdX = lead.x;
-+      this.crowdZ = lead.z;
++    // pied à terre, la suite à pied (voir CROWD_STUCK) — sur un ordre du joueur ; l'arrivée de la journée de service, elle,
++    // s'arrête avant la foule (session/journee.ts)
++    // (« avancé » : cinq mètres de gagnés vers le point d'arrêt — une tête qui piétine sur place dans la foule n'avance pas)
++    if (this.crowdAt < 0 || d < this.crowdD - 5) {
++      this.crowdD = d;
 +      this.crowdAt = now;
-+    } else if (now - this.crowdAt > CROWD_STUCK && d > RIDE_STANDOFF && core.ctx.people.countIn(lead.x, lead.z, CROWD_RADIUS, isProtester) >= CROWD_AROUND) {
++    } else if (this.byPlayer() && now - this.crowdAt > CROWD_STUCK && d > RIDE_STANDOFF && core.ctx.people.countIn(lead.x, lead.z, CROWD_RADIUS, isProtester) >= CROWD_AROUND) {
 +      this.crowdDismount();
 +      return;
 +    }
      // tête arrêtée loin du point (circulation, rue encombrée, pilote automatique arrêté) : la colonne n'est pas
      // « arrivée » — elle repart par un nouvel itinéraire (voir RIDE_FAR) ; le délai de route ne joue que près du point
      const far = d > RIDE_FAR && this.relaunches < RELAUNCH_MAX;
-@@ -630,6 +660,17 @@ export class BravmUnit extends SpecialUnit {
+@@ -589,6 +624,18 @@ export class BravmUnit extends SpecialUnit {
+     }
+     this.rejoinTries = 0;
+     this.rejoinAt = this.core.now + REJOIN_GAP;
++    // déplacement arrêté par la foule loin du point (BRAV-M arrivée avec la colonne au milieu du rassemblement : point
++    // d'arrêt retombé sur la tête, pilote automatique qui attend que les manifestants s'écartent) : la colonne se disait
++    // « en position » sans avoir bougé, à cent cinquante mètres du point — « la BRAV-M, ils bougeaient pas ». Pied à
++    // terre, la suite à pied. Aussi quand le point demandé est dans la foule : ride() a ramené le point d'arrêt au bord du
++    // rassemblement (les motos ne s'arrêtent pas dedans), parfois sur la tête elle-même — « En position » à cent mètres du
++    // point où le commandant l'appelait (sur son ordre : l'arrivée de la journée de service s'arrête avant la foule)
++    const left = lead ? Math.hypot(this.tx - lead.x, this.tz - lead.z) : 0;
++    if (o && lead && this.byPlayer() && (o.type === 'avancer' || o.type === 'colonne') && this.mountedOperators() > 0 && left > RIDE_STANDOFF + 8
++      && (this.core.ctx.people.countIn(lead.x, lead.z, CROWD_RADIUS, isProtester) >= CROWD_AROUND || (left <= WALK_LIMIT && this.crowdBack))) {
++      this.crowdDismount();
++      return;
++    }
+     if (!o || o.type === 'avancer' || o.type === 'colonne' || o.type === 'repli') {
+       // arrêtée loin de son point d'arrêt (route coupée, mur du bord de la carte, foule en travers) : elle le dit, avec la
+       // distance qui reste — « En position » à 130 m du point trompait celui qui l'y avait envoyée
+@@ -628,8 +675,25 @@ export class BravmUnit extends SpecialUnit {
+     }
+   }
  
++  /** L'ordre en cours vient-il du joueur (carte, roue, bloc « ORDRES ») ? */
++  private byPlayer(): boolean {
++    const o = this.order;
++    return !!o && o.issuedBy !== 0 && o.issuedBy === this.core.ctx.player.state.personId;
++  }
++
    // ───────────────────────────── pied à terre ─────────────────────────────
  
 +  /**
@@ -164,6 +328,21 @@ index 159e617..d670f52 100644
    /** Tous les opérateurs descendent dans le même pas (les pilotes gardent les machines). */
    private dismount(): void {
      const core = this.core;
+@@ -672,7 +736,13 @@ export class BravmUnit extends SpecialUnit {
+       return;
+     }
+     // déplacement demandé sans machines disponibles : colonne à pied
+-    this.internal({ type: 'colonne', x: this.tx, z: this.tz, issuedBy: o.issuedBy });
++    this.walkTo(this.tx, this.tz);
++  }
++
++  /** Déplacement à pied jusqu'au point (colonne du module de police) : l'unité redevient une unité à pied. */
++  private walkTo(x: number, z: number): void {
++    const o = this.order;
++    this.internal({ type: 'colonne', x, z, issuedBy: o ? o.issuedBy : 0 });
+     this.order = null;
+     this.status.order = '';
+     this.setStage('a_pied');
 diff --git a/crs-simulation/src/sim/police/command/convoy.ts b/crs-simulation/src/sim/police/command/convoy.ts
 index 8f83986..e0598e4 100644
 --- a/crs-simulation/src/sim/police/command/convoy.ts
@@ -268,15 +447,586 @@ index 74c0e7a..2e36226 100644
        // voiture de patrouille (Police secours, BAC) : elle roule déjà, elle se rend elle-même sur le point en urgence
        // (service 'police.patrols') — ni colonne, ni débarquement ; « Faire mouvement » vaut « Avancer jusqu'à »
        // « Me suivre en colonne (véhicules) » / « Me suivre à pied » (session/follow.ts)
-diff --git a/crs-simulation/tests/unit/playtest.cdt-explore.test.ts b/crs-simulation/tests/unit/playtest.cdt-explore.test.ts
+diff --git a/crs-simulation/src/ui/command/sendLine.ts b/crs-simulation/src/ui/command/sendLine.ts
+index 27bebb4..2ac4cd8 100644
+--- a/crs-simulation/src/ui/command/sendLine.ts
++++ b/crs-simulation/src/ui/command/sendLine.ts
+@@ -406,10 +406,23 @@ export function sendCardLine(env: SendEnv, line: CardLine, who: WhoCandidate | n
+       return done('Toutes les rues sont rouvertes à la circulation', []);
+     }
+     case 'follow': {
++      // unités choisies sur la carte (Qui, Maj + clic, fiche d'unité) qui ne sont pas de son unité — la BRAV-M, qui n'est
++      // pas de la compagnie : elles viennent aussi (« Suivez-moi » ne parlait qu'à la compagnie : la BRAV-M ne venait
++      // jamais avec le commandant)
++      const own = core.followUnit();
++      const outside = (id: number): boolean => {
++        for (let q = core.ctx.squads.get(id), guard = 0; q && guard < 8; q = q.parentId !== 0 ? core.ctx.squads.get(q.parentId) : undefined, guard++) {
++          if (own && q.id === own.id) return false;
++        }
++        return true;
++      };
++      const picked = squadsOf(core, env.card.selection.filter((id) => id > 0 && outside(id)));
+       const r = core.callFollow(a.column);
+-      if (!r.ok) return fail(r.reason);
++      const r2 = picked.length > 0 ? core.issue((a.column ? 'avec_moi' : 'suivre_pied') as OrderType, picked, null) : null;
++      if (!r.ok && !(r2 && r2.ok)) return fail(r2 ? r2.reason : r.reason);
+       const u = core.followUnit();
+-      return done(`${a.column ? 'Suivez-moi en véhicules' : 'Suivez-moi à pied'}${u ? ` — ${u.name}` : ''}`, u ? [u.id] : []);
++      const all = [...(r.ok && u ? [u] : []), ...(r2 && r2.ok ? picked : [])];
++      return done(`${a.column ? 'Suivez-moi en véhicules' : 'Suivez-moi à pied'}${all.length > 0 ? ` — ${all.map((s) => s.name).join(', ')}` : ''}`, all.map((s) => s.id));
+     }
+     case 'centre':
+       env.centre?.(where.x, where.z);
+diff --git a/crs-simulation/tests/unit/playtest.commandant-mission-01.test.ts b/crs-simulation/tests/unit/playtest.commandant-mission-01.test.ts
 new file mode 100644
-index 0000000..c42f29a
+index 0000000..7652d0d
 --- /dev/null
-+++ b/crs-simulation/tests/unit/playtest.cdt-explore.test.ts
-@@ -0,0 +1,232 @@
-+// Exploration (temporaire) : commandant en mission, de « Lancer la mission » aux premiers ordres.
-+import { describe, it } from 'vitest';
-+import type { GameContext, GameSystem, ModuleFactory, Person, SessionConfig, Vehicle } from '@/core/contracts';
++++ b/crs-simulation/tests/unit/playtest.commandant-mission-01.test.ts
+@@ -0,0 +1,21 @@
++// Robot du commandant en mission (voir playtest.commandant-mission.lib.ts) : cdt-01-prise-de-commandement, lancée depuis la fiche de l'accueil,
++// arrivée en passager, au volant, puis seul devant la colonne ; trois minutes d'ordres dès l'arrivée.
++// Joué sur demande (quelques minutes par mission) : PLAYTEST_COMMANDANT=1, ou PLAYTEST_ARRIVAL=passager|volant|devant pour
++// une seule façon d'arriver. Relevé en cours : les colonnes qui roulent sans le joueur se garent encore loin du lieu
++// (pilote automatique, colonne de la journée) — voir le compte rendu de la recette.
++import { describe, expect, it } from 'vitest';
++import { ARRIVALS, defects, playCommandant, report } from './playtest.commandant-mission.lib';
++
++const ONLY = process.env.PLAYTEST_ARRIVAL;
++const RUN = process.env.PLAYTEST_COMMANDANT === '1' || ONLY !== undefined;
++
++describe.skipIf(!RUN)('commandant en mission : cdt-01-prise-de-commandement', () => {
++  for (const arrival of ARRIVALS) {
++    if (ONLY && ONLY !== arrival) continue;
++    it(`${arrival} : il commande dès l’arrivée et il est obéi`, async () => {
++      const r = await playCommandant('cdt-01-prise-de-commandement', arrival);
++      console.log(report(r));
++      expect(defects(r)).toEqual([]);
++    }, 1_200_000);
++  }
++});
+diff --git a/crs-simulation/tests/unit/playtest.commandant-mission-02.test.ts b/crs-simulation/tests/unit/playtest.commandant-mission-02.test.ts
+new file mode 100644
+index 0000000..10b08a3
+--- /dev/null
++++ b/crs-simulation/tests/unit/playtest.commandant-mission-02.test.ts
+@@ -0,0 +1,21 @@
++// Robot du commandant en mission (voir playtest.commandant-mission.lib.ts) : cdt-02-le-precortege, lancée depuis la fiche de l'accueil,
++// arrivée en passager, au volant, puis seul devant la colonne ; trois minutes d'ordres dès l'arrivée.
++// Joué sur demande (quelques minutes par mission) : PLAYTEST_COMMANDANT=1, ou PLAYTEST_ARRIVAL=passager|volant|devant pour
++// une seule façon d'arriver. Relevé en cours : les colonnes qui roulent sans le joueur se garent encore loin du lieu
++// (pilote automatique, colonne de la journée) — voir le compte rendu de la recette.
++import { describe, expect, it } from 'vitest';
++import { ARRIVALS, defects, playCommandant, report } from './playtest.commandant-mission.lib';
++
++const ONLY = process.env.PLAYTEST_ARRIVAL;
++const RUN = process.env.PLAYTEST_COMMANDANT === '1' || ONLY !== undefined;
++
++describe.skipIf(!RUN)('commandant en mission : cdt-02-le-precortege', () => {
++  for (const arrival of ARRIVALS) {
++    if (ONLY && ONLY !== arrival) continue;
++    it(`${arrival} : il commande dès l’arrivée et il est obéi`, async () => {
++      const r = await playCommandant('cdt-02-le-precortege', arrival);
++      console.log(report(r));
++      expect(defects(r)).toEqual([]);
++    }, 1_200_000);
++  }
++});
+diff --git a/crs-simulation/tests/unit/playtest.commandant-mission-03.test.ts b/crs-simulation/tests/unit/playtest.commandant-mission-03.test.ts
+new file mode 100644
+index 0000000..a19176f
+--- /dev/null
++++ b/crs-simulation/tests/unit/playtest.commandant-mission-03.test.ts
+@@ -0,0 +1,21 @@
++// Robot du commandant en mission (voir playtest.commandant-mission.lib.ts) : cdt-03-etoile-a-douze-branches, lancée depuis la fiche de l'accueil,
++// arrivée en passager, au volant, puis seul devant la colonne ; trois minutes d'ordres dès l'arrivée.
++// Joué sur demande (quelques minutes par mission) : PLAYTEST_COMMANDANT=1, ou PLAYTEST_ARRIVAL=passager|volant|devant pour
++// une seule façon d'arriver. Relevé en cours : les colonnes qui roulent sans le joueur se garent encore loin du lieu
++// (pilote automatique, colonne de la journée) — voir le compte rendu de la recette.
++import { describe, expect, it } from 'vitest';
++import { ARRIVALS, defects, playCommandant, report } from './playtest.commandant-mission.lib';
++
++const ONLY = process.env.PLAYTEST_ARRIVAL;
++const RUN = process.env.PLAYTEST_COMMANDANT === '1' || ONLY !== undefined;
++
++describe.skipIf(!RUN)('commandant en mission : cdt-03-etoile-a-douze-branches', () => {
++  for (const arrival of ARRIVALS) {
++    if (ONLY && ONLY !== arrival) continue;
++    it(`${arrival} : il commande dès l’arrivée et il est obéi`, async () => {
++      const r = await playCommandant('cdt-03-etoile-a-douze-branches', arrival);
++      console.log(report(r));
++      expect(defects(r)).toEqual([]);
++    }, 1_200_000);
++  }
++});
+diff --git a/crs-simulation/tests/unit/playtest.commandant-mission-04.test.ts b/crs-simulation/tests/unit/playtest.commandant-mission-04.test.ts
+new file mode 100644
+index 0000000..57eae85
+--- /dev/null
++++ b/crs-simulation/tests/unit/playtest.commandant-mission-04.test.ts
+@@ -0,0 +1,21 @@
++// Robot du commandant en mission (voir playtest.commandant-mission.lib.ts) : cdt-04-nuit-des-vitrines, lancée depuis la fiche de l'accueil,
++// arrivée en passager, au volant, puis seul devant la colonne ; trois minutes d'ordres dès l'arrivée.
++// Joué sur demande (quelques minutes par mission) : PLAYTEST_COMMANDANT=1, ou PLAYTEST_ARRIVAL=passager|volant|devant pour
++// une seule façon d'arriver. Relevé en cours : les colonnes qui roulent sans le joueur se garent encore loin du lieu
++// (pilote automatique, colonne de la journée) — voir le compte rendu de la recette.
++import { describe, expect, it } from 'vitest';
++import { ARRIVALS, defects, playCommandant, report } from './playtest.commandant-mission.lib';
++
++const ONLY = process.env.PLAYTEST_ARRIVAL;
++const RUN = process.env.PLAYTEST_COMMANDANT === '1' || ONLY !== undefined;
++
++describe.skipIf(!RUN)('commandant en mission : cdt-04-nuit-des-vitrines', () => {
++  for (const arrival of ARRIVALS) {
++    if (ONLY && ONLY !== arrival) continue;
++    it(`${arrival} : il commande dès l’arrivée et il est obéi`, async () => {
++      const r = await playCommandant('cdt-04-nuit-des-vitrines', arrival);
++      console.log(report(r));
++      expect(defects(r)).toEqual([]);
++    }, 1_200_000);
++  }
++});
+diff --git a/crs-simulation/tests/unit/playtest.commandant-mission-05.test.ts b/crs-simulation/tests/unit/playtest.commandant-mission-05.test.ts
+new file mode 100644
+index 0000000..9289b3b
+--- /dev/null
++++ b/crs-simulation/tests/unit/playtest.commandant-mission-05.test.ts
+@@ -0,0 +1,21 @@
++// Robot du commandant en mission (voir playtest.commandant-mission.lib.ts) : cdt-05-trois-ponts, lancée depuis la fiche de l'accueil,
++// arrivée en passager, au volant, puis seul devant la colonne ; trois minutes d'ordres dès l'arrivée.
++// Joué sur demande (quelques minutes par mission) : PLAYTEST_COMMANDANT=1, ou PLAYTEST_ARRIVAL=passager|volant|devant pour
++// une seule façon d'arriver. Relevé en cours : les colonnes qui roulent sans le joueur se garent encore loin du lieu
++// (pilote automatique, colonne de la journée) — voir le compte rendu de la recette.
++import { describe, expect, it } from 'vitest';
++import { ARRIVALS, defects, playCommandant, report } from './playtest.commandant-mission.lib';
++
++const ONLY = process.env.PLAYTEST_ARRIVAL;
++const RUN = process.env.PLAYTEST_COMMANDANT === '1' || ONLY !== undefined;
++
++describe.skipIf(!RUN)('commandant en mission : cdt-05-trois-ponts', () => {
++  for (const arrival of ARRIVALS) {
++    if (ONLY && ONLY !== arrival) continue;
++    it(`${arrival} : il commande dès l’arrivée et il est obéi`, async () => {
++      const r = await playCommandant('cdt-05-trois-ponts', arrival);
++      console.log(report(r));
++      expect(defects(r)).toEqual([]);
++    }, 1_200_000);
++  }
++});
+diff --git a/crs-simulation/tests/unit/playtest.commandant-mission-06.test.ts b/crs-simulation/tests/unit/playtest.commandant-mission-06.test.ts
+new file mode 100644
+index 0000000..96f4958
+--- /dev/null
++++ b/crs-simulation/tests/unit/playtest.commandant-mission-06.test.ts
+@@ -0,0 +1,21 @@
++// Robot du commandant en mission (voir playtest.commandant-mission.lib.ts) : cdt-06-sortie-controlee, lancée depuis la fiche de l'accueil,
++// arrivée en passager, au volant, puis seul devant la colonne ; trois minutes d'ordres dès l'arrivée.
++// Joué sur demande (quelques minutes par mission) : PLAYTEST_COMMANDANT=1, ou PLAYTEST_ARRIVAL=passager|volant|devant pour
++// une seule façon d'arriver. Relevé en cours : les colonnes qui roulent sans le joueur se garent encore loin du lieu
++// (pilote automatique, colonne de la journée) — voir le compte rendu de la recette.
++import { describe, expect, it } from 'vitest';
++import { ARRIVALS, defects, playCommandant, report } from './playtest.commandant-mission.lib';
++
++const ONLY = process.env.PLAYTEST_ARRIVAL;
++const RUN = process.env.PLAYTEST_COMMANDANT === '1' || ONLY !== undefined;
++
++describe.skipIf(!RUN)('commandant en mission : cdt-06-sortie-controlee', () => {
++  for (const arrival of ARRIVALS) {
++    if (ONLY && ONLY !== arrival) continue;
++    it(`${arrival} : il commande dès l’arrivée et il est obéi`, async () => {
++      const r = await playCommandant('cdt-06-sortie-controlee', arrival);
++      console.log(report(r));
++      expect(defects(r)).toEqual([]);
++    }, 1_200_000);
++  }
++});
+diff --git a/crs-simulation/tests/unit/playtest.commandant-mission-07.test.ts b/crs-simulation/tests/unit/playtest.commandant-mission-07.test.ts
+new file mode 100644
+index 0000000..386a759
+--- /dev/null
++++ b/crs-simulation/tests/unit/playtest.commandant-mission-07.test.ts
+@@ -0,0 +1,21 @@
++// Robot du commandant en mission (voir playtest.commandant-mission.lib.ts) : cdt-07-cortege-officiel, lancée depuis la fiche de l'accueil,
++// arrivée en passager, au volant, puis seul devant la colonne ; trois minutes d'ordres dès l'arrivée.
++// Joué sur demande (quelques minutes par mission) : PLAYTEST_COMMANDANT=1, ou PLAYTEST_ARRIVAL=passager|volant|devant pour
++// une seule façon d'arriver. Relevé en cours : les colonnes qui roulent sans le joueur se garent encore loin du lieu
++// (pilote automatique, colonne de la journée) — voir le compte rendu de la recette.
++import { describe, expect, it } from 'vitest';
++import { ARRIVALS, defects, playCommandant, report } from './playtest.commandant-mission.lib';
++
++const ONLY = process.env.PLAYTEST_ARRIVAL;
++const RUN = process.env.PLAYTEST_COMMANDANT === '1' || ONLY !== undefined;
++
++describe.skipIf(!RUN)('commandant en mission : cdt-07-cortege-officiel', () => {
++  for (const arrival of ARRIVALS) {
++    if (ONLY && ONLY !== arrival) continue;
++    it(`${arrival} : il commande dès l’arrivée et il est obéi`, async () => {
++      const r = await playCommandant('cdt-07-cortege-officiel', arrival);
++      console.log(report(r));
++      expect(defects(r)).toEqual([]);
++    }, 1_200_000);
++  }
++});
+diff --git a/crs-simulation/tests/unit/playtest.commandant-mission-08.test.ts b/crs-simulation/tests/unit/playtest.commandant-mission-08.test.ts
+new file mode 100644
+index 0000000..bceed8e
+--- /dev/null
++++ b/crs-simulation/tests/unit/playtest.commandant-mission-08.test.ts
+@@ -0,0 +1,21 @@
++// Robot du commandant en mission (voir playtest.commandant-mission.lib.ts) : cdt-08-une-heure-du-matin, lancée depuis la fiche de l'accueil,
++// arrivée en passager, au volant, puis seul devant la colonne ; trois minutes d'ordres dès l'arrivée.
++// Joué sur demande (quelques minutes par mission) : PLAYTEST_COMMANDANT=1, ou PLAYTEST_ARRIVAL=passager|volant|devant pour
++// une seule façon d'arriver. Relevé en cours : les colonnes qui roulent sans le joueur se garent encore loin du lieu
++// (pilote automatique, colonne de la journée) — voir le compte rendu de la recette.
++import { describe, expect, it } from 'vitest';
++import { ARRIVALS, defects, playCommandant, report } from './playtest.commandant-mission.lib';
++
++const ONLY = process.env.PLAYTEST_ARRIVAL;
++const RUN = process.env.PLAYTEST_COMMANDANT === '1' || ONLY !== undefined;
++
++describe.skipIf(!RUN)('commandant en mission : cdt-08-une-heure-du-matin', () => {
++  for (const arrival of ARRIVALS) {
++    if (ONLY && ONLY !== arrival) continue;
++    it(`${arrival} : il commande dès l’arrivée et il est obéi`, async () => {
++      const r = await playCommandant('cdt-08-une-heure-du-matin', arrival);
++      console.log(report(r));
++      expect(defects(r)).toEqual([]);
++    }, 1_200_000);
++  }
++});
+diff --git a/crs-simulation/tests/unit/playtest.commandant-mission-09.test.ts b/crs-simulation/tests/unit/playtest.commandant-mission-09.test.ts
+new file mode 100644
+index 0000000..301740a
+--- /dev/null
++++ b/crs-simulation/tests/unit/playtest.commandant-mission-09.test.ts
+@@ -0,0 +1,21 @@
++// Robot du commandant en mission (voir playtest.commandant-mission.lib.ts) : cdt-09-la-seine-monte, lancée depuis la fiche de l'accueil,
++// arrivée en passager, au volant, puis seul devant la colonne ; trois minutes d'ordres dès l'arrivée.
++// Joué sur demande (quelques minutes par mission) : PLAYTEST_COMMANDANT=1, ou PLAYTEST_ARRIVAL=passager|volant|devant pour
++// une seule façon d'arriver. Relevé en cours : les colonnes qui roulent sans le joueur se garent encore loin du lieu
++// (pilote automatique, colonne de la journée) — voir le compte rendu de la recette.
++import { describe, expect, it } from 'vitest';
++import { ARRIVALS, defects, playCommandant, report } from './playtest.commandant-mission.lib';
++
++const ONLY = process.env.PLAYTEST_ARRIVAL;
++const RUN = process.env.PLAYTEST_COMMANDANT === '1' || ONLY !== undefined;
++
++describe.skipIf(!RUN)('commandant en mission : cdt-09-la-seine-monte', () => {
++  for (const arrival of ARRIVALS) {
++    if (ONLY && ONLY !== arrival) continue;
++    it(`${arrival} : il commande dès l’arrivée et il est obéi`, async () => {
++      const r = await playCommandant('cdt-09-la-seine-monte', arrival);
++      console.log(report(r));
++      expect(defects(r)).toEqual([]);
++    }, 1_200_000);
++  }
++});
+diff --git a/crs-simulation/tests/unit/playtest.commandant-mission-10.test.ts b/crs-simulation/tests/unit/playtest.commandant-mission-10.test.ts
+new file mode 100644
+index 0000000..196ed6c
+--- /dev/null
++++ b/crs-simulation/tests/unit/playtest.commandant-mission-10.test.ts
+@@ -0,0 +1,21 @@
++// Robot du commandant en mission (voir playtest.commandant-mission.lib.ts) : cdt-10-double-front, lancée depuis la fiche de l'accueil,
++// arrivée en passager, au volant, puis seul devant la colonne ; trois minutes d'ordres dès l'arrivée.
++// Joué sur demande (quelques minutes par mission) : PLAYTEST_COMMANDANT=1, ou PLAYTEST_ARRIVAL=passager|volant|devant pour
++// une seule façon d'arriver. Relevé en cours : les colonnes qui roulent sans le joueur se garent encore loin du lieu
++// (pilote automatique, colonne de la journée) — voir le compte rendu de la recette.
++import { describe, expect, it } from 'vitest';
++import { ARRIVALS, defects, playCommandant, report } from './playtest.commandant-mission.lib';
++
++const ONLY = process.env.PLAYTEST_ARRIVAL;
++const RUN = process.env.PLAYTEST_COMMANDANT === '1' || ONLY !== undefined;
++
++describe.skipIf(!RUN)('commandant en mission : cdt-10-double-front', () => {
++  for (const arrival of ARRIVALS) {
++    if (ONLY && ONLY !== arrival) continue;
++    it(`${arrival} : il commande dès l’arrivée et il est obéi`, async () => {
++      const r = await playCommandant('cdt-10-double-front', arrival);
++      console.log(report(r));
++      expect(defects(r)).toEqual([]);
++    }, 1_200_000);
++  }
++});
+diff --git a/crs-simulation/tests/unit/playtest.commandant-mission-11.test.ts b/crs-simulation/tests/unit/playtest.commandant-mission-11.test.ts
+new file mode 100644
+index 0000000..9988b1d
+--- /dev/null
++++ b/crs-simulation/tests/unit/playtest.commandant-mission-11.test.ts
+@@ -0,0 +1,21 @@
++// Robot du commandant en mission (voir playtest.commandant-mission.lib.ts) : cdt-11-l-echarpe, lancée depuis la fiche de l'accueil,
++// arrivée en passager, au volant, puis seul devant la colonne ; trois minutes d'ordres dès l'arrivée.
++// Joué sur demande (quelques minutes par mission) : PLAYTEST_COMMANDANT=1, ou PLAYTEST_ARRIVAL=passager|volant|devant pour
++// une seule façon d'arriver. Relevé en cours : les colonnes qui roulent sans le joueur se garent encore loin du lieu
++// (pilote automatique, colonne de la journée) — voir le compte rendu de la recette.
++import { describe, expect, it } from 'vitest';
++import { ARRIVALS, defects, playCommandant, report } from './playtest.commandant-mission.lib';
++
++const ONLY = process.env.PLAYTEST_ARRIVAL;
++const RUN = process.env.PLAYTEST_COMMANDANT === '1' || ONLY !== undefined;
++
++describe.skipIf(!RUN)('commandant en mission : cdt-11-l-echarpe', () => {
++  for (const arrival of ARRIVALS) {
++    if (ONLY && ONLY !== arrival) continue;
++    it(`${arrival} : il commande dès l’arrivée et il est obéi`, async () => {
++      const r = await playCommandant('cdt-11-l-echarpe', arrival);
++      console.log(report(r));
++      expect(defects(r)).toEqual([]);
++    }, 1_200_000);
++  }
++});
+diff --git a/crs-simulation/tests/unit/playtest.commandant-mission-12.test.ts b/crs-simulation/tests/unit/playtest.commandant-mission-12.test.ts
+new file mode 100644
+index 0000000..3717eaa
+--- /dev/null
++++ b/crs-simulation/tests/unit/playtest.commandant-mission-12.test.ts
+@@ -0,0 +1,21 @@
++// Robot du commandant en mission (voir playtest.commandant-mission.lib.ts) : cdt-12-dialogue-d-abord, lancée depuis la fiche de l'accueil,
++// arrivée en passager, au volant, puis seul devant la colonne ; trois minutes d'ordres dès l'arrivée.
++// Joué sur demande (quelques minutes par mission) : PLAYTEST_COMMANDANT=1, ou PLAYTEST_ARRIVAL=passager|volant|devant pour
++// une seule façon d'arriver. Relevé en cours : les colonnes qui roulent sans le joueur se garent encore loin du lieu
++// (pilote automatique, colonne de la journée) — voir le compte rendu de la recette.
++import { describe, expect, it } from 'vitest';
++import { ARRIVALS, defects, playCommandant, report } from './playtest.commandant-mission.lib';
++
++const ONLY = process.env.PLAYTEST_ARRIVAL;
++const RUN = process.env.PLAYTEST_COMMANDANT === '1' || ONLY !== undefined;
++
++describe.skipIf(!RUN)('commandant en mission : cdt-12-dialogue-d-abord', () => {
++  for (const arrival of ARRIVALS) {
++    if (ONLY && ONLY !== arrival) continue;
++    it(`${arrival} : il commande dès l’arrivée et il est obéi`, async () => {
++      const r = await playCommandant('cdt-12-dialogue-d-abord', arrival);
++      console.log(report(r));
++      expect(defects(r)).toEqual([]);
++    }, 1_200_000);
++  }
++});
+diff --git a/crs-simulation/tests/unit/playtest.commandant-mission-13.test.ts b/crs-simulation/tests/unit/playtest.commandant-mission-13.test.ts
+new file mode 100644
+index 0000000..58f1a21
+--- /dev/null
++++ b/crs-simulation/tests/unit/playtest.commandant-mission-13.test.ts
+@@ -0,0 +1,21 @@
++// Robot du commandant en mission (voir playtest.commandant-mission.lib.ts) : cdt-13-autoriser-ou-attendre, lancée depuis la fiche de l'accueil,
++// arrivée en passager, au volant, puis seul devant la colonne ; trois minutes d'ordres dès l'arrivée.
++// Joué sur demande (quelques minutes par mission) : PLAYTEST_COMMANDANT=1, ou PLAYTEST_ARRIVAL=passager|volant|devant pour
++// une seule façon d'arriver. Relevé en cours : les colonnes qui roulent sans le joueur se garent encore loin du lieu
++// (pilote automatique, colonne de la journée) — voir le compte rendu de la recette.
++import { describe, expect, it } from 'vitest';
++import { ARRIVALS, defects, playCommandant, report } from './playtest.commandant-mission.lib';
++
++const ONLY = process.env.PLAYTEST_ARRIVAL;
++const RUN = process.env.PLAYTEST_COMMANDANT === '1' || ONLY !== undefined;
++
++describe.skipIf(!RUN)('commandant en mission : cdt-13-autoriser-ou-attendre', () => {
++  for (const arrival of ARRIVALS) {
++    if (ONLY && ONLY !== arrival) continue;
++    it(`${arrival} : il commande dès l’arrivée et il est obéi`, async () => {
++      const r = await playCommandant('cdt-13-autoriser-ou-attendre', arrival);
++      console.log(report(r));
++      expect(defects(r)).toEqual([]);
++    }, 1_200_000);
++  }
++});
+diff --git a/crs-simulation/tests/unit/playtest.commandant-mission-14.test.ts b/crs-simulation/tests/unit/playtest.commandant-mission-14.test.ts
+new file mode 100644
+index 0000000..23264ff
+--- /dev/null
++++ b/crs-simulation/tests/unit/playtest.commandant-mission-14.test.ts
+@@ -0,0 +1,21 @@
++// Robot du commandant en mission (voir playtest.commandant-mission.lib.ts) : cdt-14-minuit-sur-le-parvis, lancée depuis la fiche de l'accueil,
++// arrivée en passager, au volant, puis seul devant la colonne ; trois minutes d'ordres dès l'arrivée.
++// Joué sur demande (quelques minutes par mission) : PLAYTEST_COMMANDANT=1, ou PLAYTEST_ARRIVAL=passager|volant|devant pour
++// une seule façon d'arriver. Relevé en cours : les colonnes qui roulent sans le joueur se garent encore loin du lieu
++// (pilote automatique, colonne de la journée) — voir le compte rendu de la recette.
++import { describe, expect, it } from 'vitest';
++import { ARRIVALS, defects, playCommandant, report } from './playtest.commandant-mission.lib';
++
++const ONLY = process.env.PLAYTEST_ARRIVAL;
++const RUN = process.env.PLAYTEST_COMMANDANT === '1' || ONLY !== undefined;
++
++describe.skipIf(!RUN)('commandant en mission : cdt-14-minuit-sur-le-parvis', () => {
++  for (const arrival of ARRIVALS) {
++    if (ONLY && ONLY !== arrival) continue;
++    it(`${arrival} : il commande dès l’arrivée et il est obéi`, async () => {
++      const r = await playCommandant('cdt-14-minuit-sur-le-parvis', arrival);
++      console.log(report(r));
++      expect(defects(r)).toEqual([]);
++    }, 1_200_000);
++  }
++});
+diff --git a/crs-simulation/tests/unit/playtest.commandant-mission-15.test.ts b/crs-simulation/tests/unit/playtest.commandant-mission-15.test.ts
+new file mode 100644
+index 0000000..9df78ec
+--- /dev/null
++++ b/crs-simulation/tests/unit/playtest.commandant-mission-15.test.ts
+@@ -0,0 +1,21 @@
++// Robot du commandant en mission (voir playtest.commandant-mission.lib.ts) : cdt-15-le-perimetre, lancée depuis la fiche de l'accueil,
++// arrivée en passager, au volant, puis seul devant la colonne ; trois minutes d'ordres dès l'arrivée.
++// Joué sur demande (quelques minutes par mission) : PLAYTEST_COMMANDANT=1, ou PLAYTEST_ARRIVAL=passager|volant|devant pour
++// une seule façon d'arriver. Relevé en cours : les colonnes qui roulent sans le joueur se garent encore loin du lieu
++// (pilote automatique, colonne de la journée) — voir le compte rendu de la recette.
++import { describe, expect, it } from 'vitest';
++import { ARRIVALS, defects, playCommandant, report } from './playtest.commandant-mission.lib';
++
++const ONLY = process.env.PLAYTEST_ARRIVAL;
++const RUN = process.env.PLAYTEST_COMMANDANT === '1' || ONLY !== undefined;
++
++describe.skipIf(!RUN)('commandant en mission : cdt-15-le-perimetre', () => {
++  for (const arrival of ARRIVALS) {
++    if (ONLY && ONLY !== arrival) continue;
++    it(`${arrival} : il commande dès l’arrivée et il est obéi`, async () => {
++      const r = await playCommandant('cdt-15-le-perimetre', arrival);
++      console.log(report(r));
++      expect(defects(r)).toEqual([]);
++    }, 1_200_000);
++  }
++});
+diff --git a/crs-simulation/tests/unit/playtest.commandant-mission-colonne.test.ts b/crs-simulation/tests/unit/playtest.commandant-mission-colonne.test.ts
+new file mode 100644
+index 0000000..a33c4af
+--- /dev/null
++++ b/crs-simulation/tests/unit/playtest.commandant-mission-colonne.test.ts
+@@ -0,0 +1,118 @@
++// Commandant en mission, « Nuit des vitrines » (cdt-04, lancée depuis la fiche de l'accueil, trajet en passager de son
++// véhicule de commandement) : les quatre défauts relevés par le robot du commandant, prouvés un par un.
++//   (a) la mission était perdue au premier pas après l'arrivée (« Trop de blessés parmi vos agents ») : les motards de
++//       la BRAV-M blessés pendant le trajet, avant la mission, lui étaient comptés ;
++//   (b) l'ordre donné à l'arrivée, pendant que la colonne se gare encore, était remplacé une minute plus tard par le
++//       « débarquez » de fin de trajet de la colonne : les sections s'arrêtaient, sans ordre ;
++//   (c) la BRAV-M, qui n'est pas de la compagnie, choisie sur la carte puis « Suivez-moi à pied » (fiche « VOUS ») : seule
++//       la compagnie était appelée, la BRAV-M restait où elle était — « la BRAV-M, ils bougeaient pas » ;
++//   (d) la BRAV-M envoyée (« Y aller ») vers un point de l'autre côté du rassemblement rendait compte « En position » sans
++//       avoir bougé : le point d'arrêt des motos, ramené au bord de la foule, retombait sur la tête de colonne.
++import { describe, expect, it } from 'vitest';
++import type { Person } from '@/core/contracts';
++import { EXT } from '@/core/extensions';
++import type { ObjectivesApi } from '@/core/extensions';
++import { createTestContext } from '@/core/testing';
++import type { MissionsApi } from '@/gameplay/missions';
++import type { CommandCore } from '@/ui/command';
++import type { MapCanvas } from '@/ui/maps/mapCanvas';
++import type { CardEnv, SendEnv } from '@/ui/command/cardTypes';
++import { buildCard } from '@/ui/command/intents';
++import { cardEnvFromCore, pointRepere } from '@/ui/command/reperes';
++import { sendCardLine } from '@/ui/command/sendLine';
++import { TacticalMap } from '@/ui/command/tacticalMap';
++import { TacticalState } from '@/ui/command/tacticalState';
++import { SIM, launchFromSheet, walk } from './playtest.commandant-mission.lib';
++
++describe('commandant en mission : à l’arrivée de « Nuit des vitrines »', () => {
++  it('la mission n’est pas perdue d’avance, l’ordre donné tient après le débarquement de la colonne, la BRAV-M obéit', async () => {
++    const t = createTestContext({ seed: 7, strict: false, modules: SIM });
++    await t.ready;
++    const { ctx } = t;
++    const cfg = launchFromSheet(ctx, 'cdt-04-nuit-des-vitrines');
++    cfg.crowdSize = Math.min(cfg.crowdSize ?? 300, 300);
++    await t.start(cfg);
++    const m = ctx.service<MissionsApi>('missions')!;
++    const obj = ctx.service<ObjectivesApi>(EXT.objectives)!;
++    const core = ctx.service<CommandCore>('ui.command')!;
++    const cmd = ctx.service<{ convoyOf(id: number): { stage: string } | null }>('police.command')!;
++    const path: number[] = [];
++    for (let s = 0; s < 1300 && m.phaseIndex < 0 && !m.result; s++) {
++      t.step(1);
++      const me = ctx.player.person()!;
++      if (me.vehicleId !== 0) continue;
++      const e = obj.list.find((o) => o.state === 'actif' && /^Embarquez/.test(o.text) && o.x !== undefined);
++      if (!e) continue;
++      walk(ctx, me, e.x!, e.z!, 4, path);
++      const v = ctx.vehicles.list.find((x) => Math.hypot(x.x - e.x!, x.z - e.z!) < 6 && Math.hypot(x.x - me.x, x.z - me.z) < 6);
++      if (v) ctx.vehicles.enter(me, v, 'passenger');
++    }
++    expect(m.phaseIndex).toBeGreaterThanOrEqual(0);
++    const me: Person = ctx.player.person()!;
++    if (me.vehicleId !== 0) ctx.vehicles.exit(me);
++    t.step(5);
++    // (a) la mission n'est pas perdue au premier pas
++    expect(m.result?.summary ?? '').toBe('');
++    // (b) « Tenir une ligne ici » (roue, F puis 4) à toute la compagnie, la colonne pas encore débarquée
++    const own = ctx.squads.get(core.scope().ownSquadId)!;
++    const stage0 = cmd.convoyOf(own.id)?.stage ?? '-';
++    const g = { x: me.x + Math.sin(me.heading) * 20, z: me.z + Math.cos(me.heading) * 20, heading: me.heading, width: 0 };
++    expect(core.issue('ligne', [own], [g]).ok).toBe(true);
++    let after = -1;
++    for (let s = 0; s < 240; s++) {
++      t.step(1);
++      const st = cmd.convoyOf(own.id)?.stage ?? '-';
++      if (after < 0 && (st === 'en_place' || st === 'parti' || st === '-')) after = s;
++      if (after >= 0 && s - after >= 15 && s >= 60) break;
++    }
++    const stage1 = cmd.convoyOf(own.id)?.stage ?? '-';
++    expect(after).toBeGreaterThanOrEqual(0);
++    expect(own.order.type).toBe('ligne');
++    const groups = ctx.squads.list.filter((q) => q.faction === 'police' && q.kind === 'groupe' && /FAUCON/.test(q.name) && q.parentId === 0);
++    expect(groups.length).toBeGreaterThan(1);
++    const opsOf = (b: { id: number }): Person[] => ctx.squads.list.filter((q) => q.parentId === b.id).flatMap((q) => q.members.map((id) => ctx.people.get(id)!))
++      .filter((p) => p && p.poste !== 'pilote_moto' && p.custody === 'free');
++    const meanAt = (b: { id: number }, x: number, z: number): number => { const a = opsOf(b); return a.reduce((s, p) => s + Math.hypot(p.x - x, p.z - z), 0) / Math.max(1, a.length); };
++    const meanOf = (b: { id: number }): number => meanAt(b, me.x, me.z);
++    // (d) « Y aller » à la BRAV-M la plus proche de la foule, vers un point de l'autre côté du rassemblement : le point
++    // d'arrêt des motos, ramené au bord de la foule, retombait sur la tête — « En position » sans avoir bougé
++    const pr = ctx.people.list.filter((p) => p.faction === 'protest');
++    const cx = pr.reduce((a, p) => a + p.x, 0) / pr.length;
++    const cz = pr.reduce((a, p) => a + p.z, 0) / pr.length;
++    const centre = (b: { id: number }): { x: number; z: number } => { const a = opsOf(b); return { x: a.reduce((k, p) => k + p.x, 0) / a.length, z: a.reduce((k, p) => k + p.z, 0) / a.length }; };
++    const near = groups.slice().sort((a, b) => meanAt(a, cx, cz) - meanAt(b, cx, cz))[0]!;
++    const c0 = centre(near);
++    const dd = Math.max(1, Math.hypot(cx - c0.x, cz - c0.z));
++    const tx = c0.x + ((cx - c0.x) / dd) * (dd + 60);
++    const tz = c0.z + ((cz - c0.z) / dd) * (dd + 60);
++    const y0 = meanAt(near, tx, tz);
++    expect(core.issue('colonne', [near], [{ x: tx, z: tz, heading: 0, width: 0 }]).ok).toBe(true);
++    t.step(60);
++    const y60 = meanAt(near, tx, tz);
++    console.log(`${near.name} « Y aller » de l'autre côté de la foule : ${y0.toFixed(0)} → ${y60.toFixed(0)} m du point`);
++    expect(y60 < 30 || y0 - y60 >= 30, `${near.name} ${y0.toFixed(0)} → ${y60.toFixed(0)} m du point`).toBe(true);
++    // (c) une autre BRAV-M, la plus éloignée du commandant, choisie sur la carte, puis la fiche « VOUS » : « Suivez-moi à pied »
++    const bravm = groups.filter((q) => q !== near).sort((a, b) => meanOf(b) - meanOf(a))[0]!;
++    const meanTo = (): number => meanOf(bravm);
++    const state = new TacticalState();
++    const tmap = new TacticalMap(core, { handlers: null } as unknown as MapCanvas, state);
++    const e = cardEnvFromCore(core, [bravm.id]);
++    const sendEnv: SendEnv = { core, map: tmap, setSelection: (ids) => state.setSelection(ids), card: e as CardEnv, trace: null };
++    const r = pointRepere(me.x, me.z, e);
++    const card = buildCard({ ...r, kind: 'vous', key: 'vous', name: 'Vous' } as never, e, null);
++    const line = card.lines.find((l) => l.label === 'Suivez-moi à pied')!;
++    expect(line).toBeTruthy();
++    const d0 = meanTo();
++    const res = sendCardLine(sendEnv, line, null, r);
++    expect(res.ok).toBe(true);
++    expect(res.text).toContain(bravm.name);
++    t.step(1);
++    // l'ordre du commandant est à la BRAV-M (« Me suivre à pied » : pied à terre d'abord, « suivre » ensuite)
++    expect(bravm.order.issuedBy, `${bravm.name} : ${bravm.order.type}`).toBe(me.id);
++    expect(['debarquer', 'suivre']).toContain(bravm.order.type);
++    t.step(89);
++    const d90 = meanTo();
++    console.log(`colonne ${stage0} → ${stage1} ; compagnie : ligne ; ${bravm.name} ${d0.toFixed(0)} → ${d90.toFixed(0)} m du commandant ; ${res.text}`);
++    // (l'approche elle-même dépend du pilote automatique dans la foule : relevé, pas exigé ici)
++  }, 1_200_000);
++});
+diff --git a/crs-simulation/tests/unit/playtest.commandant-mission.lib.ts b/crs-simulation/tests/unit/playtest.commandant-mission.lib.ts
+new file mode 100644
+index 0000000..2bca13f
+--- /dev/null
++++ b/crs-simulation/tests/unit/playtest.commandant-mission.lib.ts
+@@ -0,0 +1,466 @@
++// Robot du commandant en « Missions spéciales » (retour du joueur : « je jouais commandant, en mode mission… je pouvais
++// donner zéro ordre, ils ne suivaient pas, la BRAV-M ne bougeait pas »). Il rejoue exactement cela :
++//   1. lancement depuis la fiche de la mission sur la page d'accueil (pickMission puis buildSessionConfig) ;
++//   2. trajet depuis la caserne, de l'une des trois façons du joueur :
++//        'passager'  il monte à la place passager de son véhicule de commandement, l'IA conduit ;
++//        'volant'    il prend le volant de ce véhicule et conduit lui-même le long des rues jusqu'au point ;
++//        'devant'    il descend et part seul devant la colonne : à pied si le lieu est proche, sinon au volant ;
++//   3. dès l'arrivée (début de la mission) et pendant trois minutes, toutes les dix secondes, il commande comme un
++//      joueur : bloc « ORDRES » (« Suivez-moi à pied », « Suivez-moi en véhicules », « Secours ici »), roue d'ordres
++//      (F), proposition de l'adjoint (P), carte de commandement (Tab) : chacune des six intentions avec la proposition
++//      de la fiche et « Donner l'ordre », la BRAV-M (« Envoyer », « vers moi ») et « Toute la compagnie » (T).
++// Pour chaque tentative : acceptée ou refusée (texte), délai jusqu'au premier mouvement d'un agent de l'unité, ce que
++// fait chaque unité 5 s, 20 s et 60 s plus tard, où elle est, et l'étape de la journée, de la colonne et de la mission.
++// Foule allégée (300 personnes au plus) pour que chaque mission tienne en quelques minutes.
++import type { GameContext, GameSystem, ModuleFactory, OrderType, Person, SessionConfig, Squad, Vehicle } from '@/core/contracts';
 +import { EXT } from '@/core/extensions';
 +import type { ObjectivesApi } from '@/core/extensions';
 +import { createTestContext } from '@/core/testing';
@@ -296,11 +1046,10 @@ index 0000000..c42f29a
 +import { createSystems as incidents } from '@/gameplay/incidents';
 +import { createSystems as rescue } from '@/sim/roles/rescue';
 +import { createSystems as medics } from '@/sim/roles/medics';
-+import { createSystems as session } from '@/gameplay/session';
++import { createSystems as session, JOURNEE_SERVICE } from '@/gameplay/session';
++import type { JourneeApi } from '@/gameplay/session';
 +import { createSystems as missions, missionConfig } from '@/gameplay/missions';
 +import type { MissionsApi } from '@/gameplay/missions';
-+import { JOURNEE_SERVICE } from '@/gameplay/session';
-+import type { JourneeApi } from '@/gameplay/session';
 +import { MISSIONS } from '@/gameplay/missions/catalog';
 +import { createObjectives } from '@/ui/core/objectives';
 +import { pickMission } from '@/ui/screens/home-panes-a';
@@ -311,12 +1060,40 @@ index 0000000..c42f29a
 +import { createSystems as maps } from '@/ui/maps';
 +import { createSystems as command } from '@/ui/command';
 +import type { CommandCore } from '@/ui/command';
++import type { MapCanvas } from '@/ui/maps/mapCanvas';
++import { defaultWho, proposeWho, whoEnvFromCore, wholeCandidate } from '@/ui/command/bestUnit';
++import type { CardEnv, CardLine, SendEnv, WhoCandidate } from '@/ui/command/cardTypes';
++import { buildCard, intentCandidates } from '@/ui/command/intents';
++import { cardEnvFromCore, pointRepere } from '@/ui/command/reperes';
++import { sendCardLine } from '@/ui/command/sendLine';
++import { requestRescueAtPlayer } from '@/ui/command/quickActions';
++import { TacticalMap } from '@/ui/command/tacticalMap';
++import { TacticalState } from '@/ui/command/tacticalState';
 +
 +const objectives: ModuleFactory = () => [{ id: 'test.objectives', order: 0, provide(ctx: GameContext) { ctx.provide(EXT.objectives, createObjectives()); } } as GameSystem];
 +const world: ModuleFactory = () => createWorldQuerySystems({ source: 'paris' });
-+const SIM = [env, world, roles, people, vehicles, traffic, crowd, police, items, props, hazards, law, radio, incidents, rescue, medics, session, missions, objectives, maps, command];
++export const SIM = [env, world, roles, people, vehicles, traffic, crowd, police, items, props, hazards, law, radio, incidents, rescue, medics, session, missions, objectives, maps, command];
 +
-+function launchFromSheet(ctx: GameContext, id: string): SessionConfig {
++export type Arrival = 'passager' | 'volant' | 'devant';
++export const ARRIVALS: readonly Arrival[] = ['passager', 'volant', 'devant'];
++/** Foule allégée (personnes). */
++const LIGHT_CROWD = 300;
++/** Attente maximale du début de la mission (s de jeu). */
++const TRAVEL_LIMIT = 1300;
++/** Durée jouée après l'arrivée (s). */
++const PLAY = 192;
++/** En deçà, le joueur qui part devant y va à pied (m). */
++const WALK_AHEAD = 1500;
++
++interface PoliceCommandLike {
++  convoyOf(id: number): { stage: string; awaitingPlayer?: boolean } | null;
++  proposals: readonly { id: number; text: string; executable: boolean; saidAt: number }[];
++  accept(id: number): boolean;
++  special(id: number): { stage: string; order: string } | null;
++}
++
++/** Ce que fait la fiche « Lancer la mission » de l'accueil (Missions spéciales). */
++export function launchFromSheet(ctx: GameContext, id: string): SessionConfig {
 +  const draft: ScenarioDraft = defaultDraft();
 +  const model = {
 +    draft,
@@ -328,7 +1105,7 @@ index 0000000..c42f29a
 +  return buildSessionConfig(draft);
 +}
 +
-+function walk(ctx: GameContext, me: Person, x: number, z: number, dist: number, path: number[]): void {
++export function walk(ctx: GameContext, me: Person, x: number, z: number, dist: number, path: number[]): void {
 +  if (me.vehicleId !== 0 || Math.hypot(x - me.x, z - me.z) < 1) return;
 +  path.length = 0;
 +  if (!ctx.world.findPath(me.x, me.z, x, z, 'foot', path) || path.length < 4) return;
@@ -340,6 +1117,7 @@ index 0000000..c42f29a
 +  }
 +}
 +
++/** Le joueur au volant conduit `dist` mètres vers (x, z) par les rues (comme au clavier). */
 +function drive(ctx: GameContext, v: Vehicle, x: number, z: number, dist: number, path: number[]): void {
 +  if (Math.hypot(x - v.x, z - v.z) < 8) { v.speed = 0; v.vx = 0; v.vz = 0; return; }
 +  path.length = 0;
@@ -358,151 +1136,345 @@ index 0000000..c42f29a
 +  if (me) { me.x = v.x; me.z = v.z; }
 +}
 +
-+const ID = process.env.CDT ?? 'cdt-02-le-precortege';
-+const MODE = (process.env.ARR ?? 'passenger') as 'passenger' | 'driver' | 'walk';
++/** Une tentative de commandement et ce qui s'ensuit. */
++export interface Attempt {
++  label: string;
++  /** Ordre adressé à des unités (sinon : secours, proposition…). */
++  units: boolean;
++  ok: boolean;
++  text: string;
++  squads: number[];
++  at: number;
++  /** Délai jusqu'au premier mouvement d'un agent (s ; −1 : aucun). */
++  moved: number;
++  target?: { x: number; z: number };
++  /** Ordre donné (type), et type relevé 9 s plus tard sur la première unité. */
++  type: string;
++  typeAfter: string;
++  /** Distance moyenne des agents au but (ou au joueur) au départ et 60 s plus tard (m). */
++  d0: number;
++  d60: number;
++  /** Une phrase dite (radio, notification) dans les 5 s pour ces unités. */
++  said: boolean;
++  states: string[];
++}
 +
-+describe('explore', () => {
-+  it(`${ID} ${MODE}`, async () => {
-+    const t = createTestContext({ seed: 7, strict: false, modules: SIM });
-+    await t.ready;
-+    const { ctx } = t;
-+    const cfg = launchFromSheet(ctx, ID);
-+    cfg.crowdSize = Math.min(cfg.crowdSize ?? 300, 300);
-+    console.log('cfg', JSON.stringify({ place: cfg.place, x: cfg.x, z: cfg.z, extra: cfg.extra }).slice(0, 800));
-+    await t.start(cfg);
-+    const m = ctx.service<MissionsApi>('missions')!;
-+    const obj = ctx.service<ObjectivesApi>(EXT.objectives)!;
-+    const j = ctx.service<JourneeApi>(JOURNEE_SERVICE)!;
-+    const core = ctx.service<CommandCore>('ui.command')!;
-+    const cmd = ctx.service<any>('police.command')!;
-+    const path: number[] = [];
-+    const stages: string[] = [];
-+    let s = 0;
-+    for (; s < 1200 && m.phaseIndex < 0; s++) {
-+      t.step(1);
-+      const me = ctx.player.person()!;
-+      if (!stages.includes(j.stage)) { stages.push(j.stage); console.log(`t=${s} journée ${j.stage} joueur (${me.x.toFixed(0)},${me.z.toFixed(0)}) veh ${me.vehicleId} dest ${j.destination ? `${j.destination.x.toFixed(0)},${j.destination.z.toFixed(0)}` : '-'}`); }
-+      if (MODE === 'walk' && j.destination && s > 5) {
-+        if (me.vehicleId !== 0) ctx.vehicles.exit(me);
-+        walk(ctx, me, j.destination.x, j.destination.z, 4, path);
-+        continue;
-+      }
-+      if (me.vehicleId === 0) {
-+        const e = obj.list.find((o) => o.state === 'actif' && /^Embarquez/.test(o.text) && o.x !== undefined);
-+        if (!e) continue;
-+        walk(ctx, me, e.x!, e.z!, 4, path);
-+        const v = ctx.vehicles.list.find((x) => Math.hypot(x.x - e.x!, x.z - e.z!) < 6 && Math.hypot(x.x - me.x, x.z - me.z) < 6);
-+        if (!v) continue;
-+        if (MODE === 'driver') { if (v.seats[0] !== 0 && v.seats[0] !== me.id) { const d = ctx.people.get(v.seats[0]!); if (d) ctx.vehicles.exit(d); } ctx.vehicles.enter(me, v); }
-+        else ctx.vehicles.enter(me, v, 'passenger');
-+        console.log(`t=${s} embarqué véh ${me.vehicleId} ${ctx.vehicles.get(me.vehicleId)?.kind}`);
-+        continue;
-+      }
-+      const v = ctx.vehicles.get(me.vehicleId)!;
-+      if (MODE === 'driver' && v.seats[0] === me.id && j.destination) drive(ctx, v, j.destination.x, j.destination.z, 9, path);
-+    }
++export interface MissionRun {
++  id: string;
++  arrival: Arrival;
++  /** Secondes de jeu avant le début de la mission (−1 : jamais). */
++  startAfter: number;
++  failedEarly: string;
++  arrivalState: string;
++  /** Groupes à pied ou en fourgon à plus de 300 m du joueur à l'arrivée / sur l'ensemble. */
++  farGroups: number;
++  groups: number;
++  scope: string;
++  firstOrderAt: number;
++  attempts: Attempt[];
++  /** « Suivez-moi à pied » final : groupes à moins de 50 m du joueur 60 s après / groupes à pied. */
++  around: number;
++  aroundOf: number;
++  /** Unités du dispositif dont l'état lisible est vide à la fin. */
++  unreadable: string[];
++  notes: string[];
++}
++
++export async function playCommandant(id: string, arrival: Arrival): Promise<MissionRun> {
++  const t = createTestContext({ seed: 7, strict: false, modules: SIM });
++  await t.ready;
++  const { ctx } = t;
++  const cfg = launchFromSheet(ctx, id);
++  cfg.crowdSize = Math.min(cfg.crowdSize ?? LIGHT_CROWD, LIGHT_CROWD);
++  await t.start(cfg);
++  const m = ctx.service<MissionsApi>('missions')!;
++  const obj = ctx.service<ObjectivesApi>(EXT.objectives)!;
++  const j = ctx.service<JourneeApi>(JOURNEE_SERVICE)!;
++  const core = ctx.service<CommandCore>('ui.command')!;
++  const cmd = ctx.service<PoliceCommandLike>('police.command')!;
++  const run: MissionRun = {
++    id, arrival, startAfter: -1, failedEarly: '', arrivalState: '', farGroups: 0, groups: 0, scope: '', firstOrderAt: -1,
++    attempts: [], around: 0, aroundOf: 0, unreadable: [], notes: [],
++  };
++  // ── trajet ──
++  const path: number[] = [];
++  let s = 0;
++  let alone = false;
++  for (; s < TRAVEL_LIMIT && m.phaseIndex < 0 && !m.result; s++) {
++    t.step(1);
 +    const me = ctx.player.person()!;
-+    console.log(`MISSION ${m.phaseIndex >= 0 ? 'commencée' : 'NON'} à s=${s} ; journée ${j.stage} ; joueur (${me.x.toFixed(0)},${me.z.toFixed(0)}) veh ${me.vehicleId}`);
-+    { const inj = ctx.people.list.filter((p) => p.faction === 'police' && p.injury !== 'none'); console.log(`blessés police ${inj.length} : ${inj.slice(0, 12).map((p) => `${ctx.squads.get(p.squadId)?.name ?? '-'}:${p.injury} à ${Math.hypot(p.x - me.x, p.z - me.z).toFixed(0)} m`).join(', ')} ; foule blessés ${ctx.director.stats.injured}`); }
++    const d = j.destination;
++    if (arrival === 'devant' && d && s >= 3) {
++      if (!alone) {
++        alone = true;
++        if (Math.hypot(d.x - me.x, d.z - me.z) > WALK_AHEAD) {
++          // trop loin à pied : il prend le volant de son véhicule et part seul devant
++          const v = ctx.vehicles.list.filter((x) => x.kind === 'vl_commandement' && x.faction === 'police').sort((a, b) => Math.hypot(a.x - me.x, a.z - me.z) - Math.hypot(b.x - me.x, b.z - me.z))[0];
++          if (v) {
++            if (me.vehicleId !== 0 && me.vehicleId !== v.id) ctx.vehicles.exit(me);
++            if (v.seats[0] !== 0 && v.seats[0] !== me.id) { const drv = ctx.people.get(v.seats[0]!); if (drv) ctx.vehicles.exit(drv); }
++            me.x = v.x; me.z = v.z;
++            if (me.vehicleId === 0) ctx.vehicles.enter(me, v);
++          }
++        } else if (me.vehicleId !== 0) ctx.vehicles.exit(me);
++      }
++      const v = me.vehicleId !== 0 ? ctx.vehicles.get(me.vehicleId) : undefined;
++      if (v && v.seats[0] === me.id) drive(ctx, v, d.x, d.z, 12, path);
++      else { if (me.vehicleId !== 0) ctx.vehicles.exit(me); walk(ctx, me, d.x, d.z, 4, path); }
++      continue;
++    }
++    if (me.vehicleId === 0) {
++      const e = obj.list.find((o) => o.state === 'actif' && /^Embarquez/.test(o.text) && o.x !== undefined);
++      if (!e) continue;
++      walk(ctx, me, e.x!, e.z!, 4, path);
++      const v = ctx.vehicles.list.find((x) => Math.hypot(x.x - e.x!, x.z - e.z!) < 6 && Math.hypot(x.x - me.x, x.z - me.z) < 6);
++      if (!v) continue;
++      if (arrival === 'volant') {
++        if (v.seats[0] !== 0 && v.seats[0] !== me.id) { const drv = ctx.people.get(v.seats[0]!); if (drv) ctx.vehicles.exit(drv); }
++        ctx.vehicles.enter(me, v);
++      } else ctx.vehicles.enter(me, v, 'passenger');
++      continue;
++    }
++    const v = ctx.vehicles.get(me.vehicleId)!;
++    if (arrival === 'volant' && v.seats[0] === me.id && d) drive(ctx, v, d.x, d.z, 9, path);
++  }
++  const me = ctx.player.person()!;
++  if (m.phaseIndex < 0) {
++    run.notes.push(`mission jamais commencée après ${s} s (journée ${j.stage})`);
++    return run;
++  }
++  run.startAfter = s;
++  const tArr = ctx.clock.now;
++  const ownId = core.scope().ownSquadId;
++  const subtree = (ids: readonly number[]): number[] => {
++    const out = new Set<number>();
++    const add = (sid: number): void => { if (out.has(sid)) return; out.add(sid); for (const q of ctx.squads.list) if (q.parentId === sid) add(q.id); };
++    ids.forEach(add);
++    return [...out];
++  };
++  const posOf = (pid: number): { x: number; z: number } => {
++    const p = ctx.people.get(pid)!;
++    const v = p.vehicleId ? ctx.vehicles.get(p.vehicleId) : undefined;
++    return v ? { x: v.x, z: v.z } : { x: p.x, z: p.z };
++  };
++  /** Agents (hors conducteurs restés à leur volant et hors joueur) des unités. */
++  const agents = (ids: readonly number[]): Person[] => {
++    const out: Person[] = [];
++    for (const sid of subtree(ids)) for (const pid of ctx.squads.get(sid)?.members ?? []) {
++      const p = ctx.people.get(pid);
++      if (p && !p.isPlayer && p.custody === 'free' && p.posture !== 'down' && p.poste !== 'conducteur' && p.poste !== 'pilote_moto') out.push(p);
++    }
++    return out;
++  };
++  const meanDist = (ids: readonly number[], x: number, z: number): number => {
++    const a = agents(ids);
++    if (a.length === 0) return -1;
++    let sum = 0;
++    for (const p of a) { const q = posOf(p.id); sum += Math.hypot(q.x - x, q.z - z); }
++    return sum / a.length;
++  };
++  const groupsOf = (): Squad[] => ctx.squads.list.filter((q) => q.faction === 'police' && q.members.length > 0 && q.kind === 'groupe' && subtree([ownId]).includes(q.id));
++  const describe = (ids: readonly number[], target?: { x: number; z: number }): string => subtree(ids).filter((sid) => (ctx.squads.get(sid)?.members.length ?? 0) > 0).map((sid) => {
++    const q = ctx.squads.get(sid)!;
++    let ab = 0, x = 0, z = 0;
++    for (const pid of q.members) { const p = ctx.people.get(pid)!; if (p.vehicleId) ab++; const ps = posOf(pid); x += ps.x; z += ps.z; }
++    x /= q.members.length; z /= q.members.length;
++    const cv = cmd.convoyOf(sid);
++    return `${q.name}[${q.order.type}${ab ? ` à bord ${ab}/${q.members.length}` : ''} à ${Math.hypot(x - me.x, z - me.z).toFixed(0)} m${target ? `, but ${Math.hypot(x - target.x, z - target.z).toFixed(0)} m` : ''}${cv ? ' colonne ' + cv.stage : ''}]`;
++  }).join(' ');
++  // état à l'arrivée : où est la compagnie
++  {
++    const gs = groupsOf();
++    run.groups = gs.length;
++    run.farGroups = gs.filter((q) => meanDist([q.id], me.x, me.z) > 300).length;
++    const cv = cmd.convoyOf(ownId);
++    run.arrivalState = `journée ${j.stage}, colonne ${cv ? cv.stage : '-'}, mission phase ${m.phaseIndex + 1} ; ${run.farGroups}/${run.groups} groupes à plus de 300 m ; ${describe([ownId])}`;
 +    const sc = core.scope();
-+    console.log(`scope ${sc.level} own ${sc.ownSquadId} ${ctx.squads.get(sc.ownSquadId)?.name} n=${sc.squadIds.size} followUnit=${core.followUnit()?.name}`);
-+    const dump = (label: string) => {
-+      console.log(`-- ${label} t=${ctx.clock.now.toFixed(0)} journée ${j.stage}`);
-+      for (const q of ctx.squads.list) {
-+        if (q.faction !== 'police') continue;
-+        const L = ctx.people.get(q.leaderId);
-+        let aboard = 0, moving = 0;
-+        for (const id of q.members) { const p = ctx.people.get(id); if (!p) continue; if (p.vehicleId) aboard++; if (Math.hypot(p.vx ?? 0, p.vz ?? 0) > 0.3) moving++; }
-+        const cv = cmd.convoyOf(q.id);
-+        const d = L ? Math.hypot(L.x - me.x, L.z - me.z) : -1;
-+        console.log(`  ${q.id} ${q.kind} ${q.name} par ${q.parentId} ordre ${q.order.type} n=${q.members.length} bord ${aboard} bouge ${moving} d=${d.toFixed(0)} cv ${cv ? cv.stage + (cv.awaitingPlayer ? ' AP' : '') + (cv.awaitingDriver ? ' AD' : '') : '-'} aC ${core.afterConvoy.has(q.id) ? core.afterConvoy.get(q.id)!.type : '-'}`);
++    run.scope = `${sc.level} ; « Qui » : ${ctx.squads.get(sc.ownSquadId)?.name ?? '-'} ; bloc ORDRES : ${core.followUnit() ? 'oui' : 'VIDE'}`;
++  }
++  // ── tentatives ──
++  const state = new TacticalState();
++  const tmap = new TacticalMap(core, { handlers: null } as unknown as MapCanvas, state);
++  const sendEnv = (card: CardEnv): SendEnv => ({ core, map: tmap, setSelection: (ids) => state.setSelection(ids), card, trace: null });
++  const said: { t: number; text: string }[] = [];
++  const offN = ctx.events.onAny('ui:notify', (e: unknown) => said.push({ t: ctx.clock.now, text: String((e as { text?: string }).text ?? '') }));
++  void offN;
++  const start = new Map<Attempt, Map<number, { x: number; z: number }>>();
++  const track = (label: string, units: boolean, ok: boolean, text: string, squads: number[], type: string, target?: { x: number; z: number }): void => {
++    const a: Attempt = { label, units, ok, text, squads, at: ctx.clock.now, moved: -1, target, type, typeAfter: '', d0: -1, d60: -1, said: false, states: [] };
++    const pos = new Map<number, { x: number; z: number }>();
++    for (const p of agents(squads)) pos.set(p.id, posOf(p.id));
++    // conducteurs compris : un fourgon qui démarre bouge aussi
++    for (const sid of subtree(squads)) for (const pid of ctx.squads.get(sid)?.members ?? []) if (!pos.has(pid) && !ctx.people.get(pid)?.isPlayer) pos.set(pid, posOf(pid));
++    start.set(a, pos);
++    const g = target ?? { x: me.x, z: me.z };
++    a.d0 = meanDist(squads, g.x, g.z);
++    if (ok && run.firstOrderAt < 0 && units) run.firstOrderAt = ctx.clock.now - tArr;
++    run.attempts.push(a);
++  };
++  const names = (ids: readonly number[]): string[] => ids.map((sid) => ctx.squads.get(sid)?.name ?? '').filter((n) => n !== '');
++  const tick = (): void => {
++    t.step(1);
++    for (const a of run.attempts) {
++      const el = Math.round(ctx.clock.now - a.at);
++      const pos = start.get(a)!;
++      if (a.moved < 0) for (const [pid, p0] of pos) { const p = posOf(pid); if (Math.hypot(p.x - p0.x, p.z - p0.z) > 1.5) { a.moved = el; break; } }
++      if (el === 5 && !a.said) {
++        const ns = names(a.squads).map((n) => n.toUpperCase());
++        a.said = ctx.radio.log.some((l) => l.t >= a.at - 0.5 && ns.some((n) => l.from.toUpperCase() === n || l.text.toUpperCase().includes(n))) || said.some((x) => x.t >= a.at - 0.5);
 +      }
-+    };
-+    dump('arrivée');
-+    const { cardEnvFromCore, pointRepere } = await import('@/ui/command/reperes');
-+    const { buildCard, intentCandidates } = await import('@/ui/command/intents');
-+    const { defaultWho, proposeWho, whoEnvFromCore, wholeCandidate } = await import('@/ui/command/bestUnit');
-+    const { sendCardLine } = await import('@/ui/command/sendLine');
-+    const { TacticalMap } = await import('@/ui/command/tacticalMap');
-+    const { TacticalState } = await import('@/ui/command/tacticalState');
-+    const state = new TacticalState();
-+    const tmap = new TacticalMap(core, { handlers: null } as any, state);
-+    const sendEnv = (card: any): any => ({ core, map: tmap, setSelection: (ids: number[]) => state.setSelection(ids), card, trace: null });
-+    const subtree = (ids: readonly number[]): number[] => { const out = new Set<number>(); const add = (id: number) => { if (out.has(id)) return; out.add(id); for (const q of ctx.squads.list) if (q.parentId === id) add(q.id); }; ids.forEach(add); return [...out]; };
-+    const posOf = (pid: number) => { const p = ctx.people.get(pid)!; const v = p.vehicleId ? ctx.vehicles.get(p.vehicleId) : undefined; return v ? { x: v.x, z: v.z } : { x: p.x, z: p.z }; };
-+    interface Att { label: string; ok: boolean; text: string; squads: number[]; t0: number; start: Map<number, { x: number; z: number }>; moved: number; target?: { x: number; z: number } }
-+    const atts: Att[] = [];
-+    const track = (label: string, ok: boolean, text: string, squads: number[], target?: { x: number; z: number }) => {
-+      const start = new Map<number, { x: number; z: number }>();
-+      for (const id of subtree(squads)) for (const m of ctx.squads.get(id)?.members ?? []) if (m !== me.id) start.set(m, posOf(m));
-+      atts.push({ label, ok, text, squads, t0: ctx.clock.now, start, moved: -1, target });
-+      console.log(`>> t+${(ctx.clock.now - tArr).toFixed(0)} ${label} : ${ok ? 'ACCEPTÉ' : 'REFUSÉ'} « ${text} » → ${squads.map((i) => ctx.squads.get(i)?.name).join(', ')}`);
-+    };
-+    const describeSq = (ids: number[], target?: { x: number; z: number }) => subtree(ids).filter((id) => (ctx.squads.get(id)?.members.length ?? 0) > 0).map((id) => {
-+      const q = ctx.squads.get(id)!; let ab = 0; let dx = 0, dz = 0;
-+      for (const m of q.members) { const p = ctx.people.get(m)!; if (p.vehicleId) ab++; const ps = posOf(m); dx += ps.x; dz += ps.z; }
-+      dx /= q.members.length; dz /= q.members.length;
-+      const cv = cmd.convoyOf(id);
-+      return `${q.name}[${q.order.type}${ab ? ` bord ${ab}/${q.members.length}` : ''} dJ ${Math.hypot(dx - me.x, dz - me.z).toFixed(0)}${target ? ` dT ${Math.hypot(dx - target.x, dz - target.z).toFixed(0)}` : ''}${cv ? ' cv ' + cv.stage + (cv.awaitingPlayer ? '/AP' : '') : ''}]`;
-+    }).join(' ');
-+    const tick = () => {
-+      t.step(1);
-+      for (const a of atts) {
-+        const el = ctx.clock.now - a.t0;
-+        if (a.moved < 0) for (const [m, p0] of a.start) { const p = posOf(m); if (Math.hypot(p.x - p0.x, p.z - p0.z) > 1.5) { a.moved = el; break; } }
-+        for (const w of [5, 20, 60]) if (Math.abs(el - w) < 0.5) console.log(`   [${a.label} +${w}] premier mouvement ${a.moved < 0 ? 'AUCUN' : a.moved.toFixed(0) + ' s'} ; ${describeSq(a.squads, a.target)}`);
-+      }
-+    };
-+    const tArr = ctx.clock.now;
-+    if (me.vehicleId !== 0) ctx.vehicles.exit(me);
-+    const unitsOf = () => cardEnvFromCore(core);
-+    const mapIntent = (intent: string, who?: (e: any) => number[]) => {
-+      const e = unitsOf();
-+      const r = intentCandidates(intent as never, e, e.player!)[0];
-+      if (!r) { track(`carte ${intent}`, false, 'aucun repère proposé', []); return; }
-+      const card = buildCard(r, e, intent as never);
-+      const line = card.lines[card.defaultLine];
-+      if (!line) { track(`carte ${intent}`, false, 'fiche sans ligne', []); return; }
-+      const sel = who ? who(e) : [];
-+      const list = proposeWho(line, r, whoEnvFromCore(core, e, sel));
-+      const w = defaultWho(list);
-+      const res = sendCardLine(sendEnv(e), line, w, r);
-+      track(`carte ${intent} « ${line.label} » @${r.name} qui=${w?.label ?? '-'}`, res.ok, res.text, res.squads ?? [], { x: r.x, z: r.z });
-+    };
-+    const bravmIds = () => ctx.squads.list.filter((q) => q.faction === 'police' && q.kind === 'groupe' && /FAUCON/.test(q.name)).map((q) => q.id);
-+    const plan: [number, () => void][] = [
-+      [2, () => { const r = core.callFollow(false); track('ORDRES Suivez-moi à pied', r.ok, r.reason || 'ok', r.ok ? [core.followUnit()!.id] : []); }],
-+      [12, () => { const g = { x: me.x + Math.sin(me.heading) * 20, z: me.z + Math.cos(me.heading) * 20, heading: me.heading, width: 0 }; const own = ctx.squads.get(core.scope().ownSquadId)!; const r = core.issue('avancer', [own], [g]); track('roue 3 Avancer', r.ok, r.reason || 'ok', [own.id], g); }],
-+      [22, () => { const own = ctx.squads.get(core.scope().ownSquadId)!; const g = { x: me.x, z: me.z, heading: me.heading, width: 0 }; const r = core.issue('ligne', [own], [g]); track('roue 4 Ligne', r.ok, r.reason || 'ok', [own.id], g); }],
-+      [32, () => mapIntent('envoyer')],
-+      [42, () => mapIntent('bloquer')],
-+      [52, () => mapIntent('disperser')],
-+      [62, () => mapIntent('interpeller')],
-+      [72, () => mapIntent('encercler')],
-+      [82, () => { const b = bravmIds(); if (!b.length) return; mapIntent('envoyer', () => b.slice(0, 1)); }],
-+      [92, () => { const b = bravmIds(); if (!b.length) return; const e = unitsOf(); const r = pointRepere(me.x, me.z, e); const card = buildCard(r, e, null); const line = card.lines.concat(card.others).find((l: any) => l.label === 'Y aller') ?? card.lines[0]!; const w = proposeWho(line, r, whoEnvFromCore(core, e, b.slice(0, 1)))[0]!; const res = sendCardLine(sendEnv(e), line, w, r); track(`BRAV-M vers moi « ${line.label} »`, res.ok, res.text, res.squads ?? [], { x: me.x, z: me.z }); }],
-+      [102, () => { const p = cmd.proposals.find((x: any) => x.executable && x.saidAt >= 0); if (!p) { track('adjoint P', false, `aucune proposition (${cmd.proposals.length})`, []); return; } const ok = cmd.accept(p.id); track(`adjoint P « ${p.text.slice(0, 60)} »`, ok, ok ? 'acceptée' : 'plus d’actualité', []); }],
-+      [112, () => { const e = unitsOf(); const we = whoEnvFromCore(core, e, []); const r = pointRepere(me.x + 60, me.z, e); const card = buildCard(r, e, 'envoyer'); const line = card.lines[card.defaultLine]!; const w = wholeCandidate(r, we); const res = sendCardLine(sendEnv(e), line, w, r); track(`T Toute la compagnie « ${line.label} »`, res.ok, res.text, res.squads ?? [], r); }],
-+      [122, () => { const r = core.callFollow(false); track('ORDRES Suivez-moi à pied (2)', r.ok, r.reason || 'ok', r.ok ? [core.followUnit()!.id] : []); }],
-+    ];
-+    if (process.env.PLAN === 'bravm') {
-+      const fa = () => bravmIds()[0]!;
-+      const farPt = () => { const sq = ctx.squads.get(fa())!; const kids = ctx.squads.list.filter((q) => q.parentId === sq.id); const p0 = posOf(kids[0]!.members[0]!); const road = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '', roadClass: 'residential', oneway: false } as any; for (let a = 0; a < 16; a++) { const tx = p0.x + Math.sin(a * Math.PI / 8) * 400, tz = p0.z + Math.cos(a * Math.PI / 8) * 400; if (ctx.world.nearestRoad(tx, tz, road, 30) && !['pedestrian', 'footway', 'service'].includes(road.roadClass) && ctx.world.findPath(p0.x, p0.z, road.x, road.z, 'vehicle', [])) return { x: road.x, z: road.z }; } return { x: p0.x + 300, z: p0.z }; };
-+      plan.length = 0;
-+      plan.push([2, () => { const e = unitsOf(); const pt = farPt(); const r = pointRepere(pt.x, pt.z, e); const card = buildCard(r, e, 'envoyer'); const line = card.lines[card.defaultLine]!; const w = proposeWho(line, r, whoEnvFromCore(core, e, [fa()]))[0]!; const res = sendCardLine(sendEnv(e), line, w, r); track(`BRAV-M envoyer 400 m « ${line.label} » qui=${w.label} ${w.mode}`, res.ok, res.text, res.squads ?? [], pt); }]);
-+      plan.push([62, () => { const e = unitsOf(); const r = pointRepere(me.x, me.z, e); const card = buildCard(r, e, 'envoyer'); const line = card.lines[card.defaultLine]!; const w = proposeWho(line, r, whoEnvFromCore(core, e, [fa()]))[0]!; const res = sendCardLine(sendEnv(e), line, w, r); track(`BRAV-M vers moi « ${line.label} » qui=${w.label} ${w.mode}`, res.ok, res.text, res.squads ?? [], { x: me.x, z: me.z }); }]);
-+      plan.push([122, () => mapIntent('interpeller')]);
-+      plan.push([130, () => { const r = core.callFollow(false); track('ORDRES Suivez-moi à pied', r.ok, r.reason || 'ok', r.ok ? [core.followUnit()!.id] : []); }]);
++      if (el === 9 && a.squads.length > 0) a.typeAfter = String(ctx.squads.get(a.squads[0]!)?.order.type ?? '');
++      if (el === 5 || el === 20 || el === 60) a.states.push(`+${el} s : ${describe(a.squads, a.target)}`);
++      if (el === 60) { const g = a.target ?? { x: me.x, z: me.z }; a.d60 = meanDist(a.squads, g.x, g.z); }
 +    }
-+    for (let k = 0; k <= 185; k++) {
-+      for (const [at, f] of plan) if (at === k) f();
-+      if (process.env.PLAN === 'bravm' && (k < 40 || (k > 60 && k < 80)) && k % 3 === 0) { const id = bravmIds()[0]!; const sp = cmd.special(id); const ap = ctx.service<any>('vehicles.autopilot'); const motos = ctx.squads.list.filter((q) => q.parentId === id).map((q) => ctx.vehicles.get(q.vehicleId)!); { const v = motos[0]!; const fx = Math.sin(v.heading), fz = Math.cos(v.heading); const near = ctx.people.list.filter((p) => p.vehicleId === 0 && !p.dormant).map((p) => ({ p, f: (p.x - v.x) * fx + (p.z - v.z) * fz, l: Math.abs((p.x - v.x) * fz - (p.z - v.z) * fx) })).filter((o) => o.f > 0 && o.f < 14 && o.l < 3).slice(0, 5); console.log(`   devant ${v.id}: ${near.map((o) => `${o.p.faction}/${o.p.kind}/${ctx.squads.get(o.p.squadId)?.name ?? '-'}/${o.p.posture}/${o.p.injury} f=${o.f.toFixed(1)} l=${o.l.toFixed(1)}`).join(' ; ')}`); }
-+        console.log(`  sp k=${k} stage ${sp?.stage} order ${sp?.order} foule@tête ${ctx.people.countIn(motos[0]!.x, motos[0]!.z, 15, (p: any) => p.faction === 'protest')} ${motos.map((v) => { const st = ap.status(v); const rt = ap.k?.rt?.(v)?.ap; const ob = rt && rt.obsId ? (ctx.vehicles.get(rt.obsId)?.kind ?? ctx.people.get(rt.obsId)?.kind ?? rt.obsId) : '-'; return `${v.id}:${st.mode}/${st.state}/${st.reason ?? ''}/${v.speed.toFixed(1)} ob=${rt?.obsReason}:${ob} ld=${st.leaderId}`; }).join(' ')}`); }
-+      if (k % 30 === 0) console.log(`k=${k} clock ${ctx.clock.now.toFixed(1)} phase ${ctx.session.phase} res ${m.result ? m.result.summary : '-'}`);
-+      tick();
++  };
++  if (me.vehicleId !== 0) ctx.vehicles.exit(me);
++  const own = (): Squad | undefined => ctx.squads.get(core.scope().ownSquadId);
++  const bravm = (): number[] => ctx.squads.list.filter((q) => q.faction === 'police' && q.kind === 'groupe' && cmd.special(q.id)?.stage !== undefined && /FAUCON/.test(q.name)).map((q) => q.id);
++  const mapIntent = (intent: string, label = `carte : ${intent}`, sel?: number[]): void => {
++    const e = cardEnvFromCore(core);
++    const r = intentCandidates(intent as never, e, e.player!)[0];
++    if (!r) { track(label, true, false, 'aucun lieu proposé par la carte', [], intent); return; }
++    const card = buildCard(r, e, intent as never);
++    const line = card.lines[card.defaultLine];
++    if (!line) { track(label, true, false, 'fiche sans ligne', [], intent); return; }
++    const who = defaultWho(proposeWho(line, r, whoEnvFromCore(core, e, sel ?? [])));
++    const res = sendCardLine(sendEnv(e), line, who, r);
++    const type = line.action.kind === 'verb' ? String(line.action.type) : line.action.kind;
++    track(`${label} « ${line.label} » (${r.name}) → ${who ? who.label : 'personne'}`, line.action.kind === 'verb' || line.action.kind === 'nasse', res.ok, res.text, res.squads, type, { x: r.x, z: r.z });
++  };
++  const at = (pt: { x: number; z: number }, label: string, sel: number[], type?: OrderType): void => {
++    const e = cardEnvFromCore(core);
++    const r = pointRepere(pt.x, pt.z, e);
++    const card = buildCard(r, e, 'envoyer');
++    const line: CardLine | undefined = card.lines.concat(card.others).find((l) => (type ? l.action.kind === 'verb' && l.action.type === type : l.label === 'Y aller')) ?? card.lines[card.defaultLine];
++    if (!line) { track(label, true, false, 'fiche sans ligne', sel, ''); return; }
++    const we = whoEnvFromCore(core, e, sel);
++    const who: WhoCandidate | null = sel.length > 0 ? proposeWho(line, r, we)[0] ?? null : wholeCandidate(r, we);
++    const res = sendCardLine(sendEnv(e), line, who, r);
++    track(`${label} « ${line.label} » → ${who ? who.label : 'personne'}`, true, res.ok, res.text, res.squads, line.action.kind === 'verb' ? String(line.action.type) : line.action.kind, pt);
++  };
++  const farPoint = (from: { x: number; z: number }, dist: number): { x: number; z: number } => {
++    const road = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '', roadClass: 'residential', oneway: false };
++    for (let a = 0; a < 16; a++) {
++      const tx = from.x + Math.sin(a * Math.PI / 8) * dist, tz = from.z + Math.cos(a * Math.PI / 8) * dist;
++      if (ctx.world.nearestRoad(tx, tz, road as never, 30) && !['pedestrian', 'footway', 'service'].includes(road.roadClass) && ctx.world.findPath(from.x, from.z, road.x, road.z, 'vehicle', [])) return { x: road.x, z: road.z };
 +    }
-+    console.log(ctx.radio.log.filter((l) => l.t >= tArr && /FAUCON 1 1/.test(l.from + l.text)).map((l) => `t+${(l.t - tArr).toFixed(0)} ${l.from}: ${l.text}`).join('\n'));
-+    const radio = ctx.radio.log.filter((l) => l.t >= tArr).slice(-40).map((l) => `${l.from}: ${l.text}`);
-+    console.log(radio.join('\n'));
-+  }, 1_800_000);
-+});
++    return { x: from.x + dist, z: from.z };
++  };
++  const follow = (column: boolean, label: string): void => {
++    const u = core.followUnit();
++    const r = core.callFollow(column);
++    track(label, true, r.ok, r.ok ? `Ordre donné : ${u?.name}` : r.reason, r.ok && u ? [u.id] : [], column ? 'avec_moi' : 'suivre_pied');
++  };
++  const plan: [number, () => void][] = [
++    [2, () => follow(false, 'ORDRES « Suivez-moi à pied » (F puis 1)')],
++    [12, () => {
++      const o = own();
++      const g = { x: me.x + Math.sin(me.heading) * 20, z: me.z + Math.cos(me.heading) * 20, heading: me.heading, width: 0 };
++      const r = o ? core.issue('ligne', [o], [g]) : { ok: false, reason: 'aucune unité', count: 0 };
++      track('roue (F puis 4) « Tenir une ligne ici »', true, r.ok, r.ok ? 'Ordre donné' : r.reason, r.ok && o ? [o.id] : [], 'ligne', g);
++    }],
++    [22, () => mapIntent('envoyer')],
++    [32, () => mapIntent('bloquer')],
++    [42, () => mapIntent('disperser')],
++    [52, () => mapIntent('interpeller')],
++    [62, () => mapIntent('encercler')],
++    [72, () => mapIntent('secours')],
++    [82, () => {
++      const b = bravm();
++      if (b.length === 0) { follow(true, 'ORDRES « Suivez-moi en véhicules » (F puis 2)'); return; }
++      const lead = agents([b[0]!])[0];
++      at(farPoint(lead ? posOf(lead.id) : me, 400), 'BRAV-M : « Envoyer » à 400 m', [b[0]!]);
++    }],
++    [92, () => {
++      const b = bravm();
++      if (b.length === 0) { at(farPoint(me, 120), '« Toute la compagnie » (T) à 120 m', []); return; }
++      at({ x: me.x, z: me.z }, 'BRAV-M : vers moi', [b[0]!]);
++    }],
++    [102, () => {
++      const p = cmd.proposals.find((x) => x.executable && x.saidAt >= 0);
++      if (!p) { track('adjoint (P)', false, false, `aucune proposition affichée (${cmd.proposals.length} en attente)`, [], ''); return; }
++      const ok = cmd.accept(p.id);
++      track(`adjoint (P) « ${p.text.slice(0, 70)} »`, false, ok, ok ? 'Proposition acceptée : l’adjoint fait exécuter.' : 'Cette proposition n’est plus d’actualité.', [], '');
++    }],
++    [112, () => { const ok = requestRescueAtPlayer(core, 'samu'); track('ORDRES « Secours ici » → SAMU ici', false, ok, ok ? 'SAMU demandé' : 'refusé', [], ''); }],
++    [120, () => follow(false, 'ORDRES « Suivez-moi à pied » (2)')],
++    [130, () => {
++      // la BRAV-M choisie sur la carte, puis la fiche « VOUS » : « Suivez-moi à pied »
++      const b = bravm();
++      if (b.length === 0) return;
++      const e = cardEnvFromCore(core, [b[0]!]);
++      const r = pointRepere(me.x, me.z, e);
++      const card = buildCard({ ...r, kind: 'vous', key: 'vous', name: 'Vous' } as never, e, null);
++      const line = card.lines.find((l) => l.label === 'Suivez-moi à pied');
++      if (!line) { track('BRAV-M : « Suivez-moi à pied » (carte, fiche VOUS)', true, false, 'pas de ligne « Suivez-moi à pied » sur la fiche VOUS', [b[0]!], 'suivre_pied'); return; }
++      const res = sendCardLine(sendEnv(e), line, null, r);
++      track('BRAV-M : « Suivez-moi à pied » (carte, fiche VOUS) vers moi', true, res.ok, res.text, res.ok ? [b[0]!] : [], 'suivre_pied');
++    }],
++  ];
++  for (let k = 0; k <= PLAY; k++) {
++    if (m.result && !run.failedEarly && ctx.clock.now - tArr < 30) run.failedEarly = m.result.summary;
++    for (const [when, f] of plan) if (when === k && ctx.session.phase === 'playing') f();
++    tick();
++  }
++  // ── « Suivez-moi à pied » final : les groupes autour du joueur, avec un état lisible ──
++  const last = run.attempts.find((a) => a.label.startsWith('ORDRES « Suivez-moi à pied » (2)'));
++  if (last && last.ok) {
++    const gs = groupsOf().filter((q) => agents([q.id]).length > 0);
++    run.aroundOf = gs.length;
++    run.around = gs.filter((q) => { const d = meanDist([q.id], me.x, me.z); return d >= 0 && d < 50; }).length;
++  }
++  const e = cardEnvFromCore(core);
++  for (const u of e.units) {
++    if (!u.mine || !subtree([ownId]).includes(u.squadId) || u.symbol === 'compagnie') continue;
++    if (u.status === '' && !u.order) run.unreadable.push(u.name);
++  }
++  return run;
++}
++
++/** Compte rendu lisible d'une partie (tableau du coordinateur). */
++export function report(r: MissionRun): string {
++  const lines = [
++    `${r.id} — ${r.arrival} : mission ${r.startAfter >= 0 ? `commencée après ${r.startAfter} s` : 'JAMAIS commencée'}${r.failedEarly ? ` — ÉCHEC IMMÉDIAT : ${r.failedEarly}` : ''}`,
++    `  à l'arrivée : ${r.arrivalState}`,
++    `  commandement : ${r.scope} ; premier ordre accepté à +${r.firstOrderAt.toFixed(0)} s`,
++  ];
++  for (const a of r.attempts) {
++    lines.push(`  ${a.ok ? 'ACCEPTÉ' : 'REFUSÉ '} +${Math.round(a.at - (r.attempts[0]?.at ?? a.at) + 2)} s ${a.label} : « ${a.text} » ; premier mouvement ${a.moved < 0 ? 'AUCUN' : `${a.moved} s`} ; ordre à +9 s : ${a.typeAfter || '-'} ; distance ${a.d0.toFixed(0)} → ${a.d60.toFixed(0)} m${a.said ? '' : ' ; RIEN DIT'}`);
++    for (const st of a.states) lines.push(`      ${st}`);
++  }
++  lines.push(`  « Suivez-moi à pied » : ${r.around}/${r.aroundOf} groupes à moins de 50 m au bout de 60 s ; état illisible : ${r.unreadable.join(', ') || 'aucun'}`);
++  for (const n of r.notes) lines.push(`  ! ${n}`);
++  return lines.join('\n');
++}
++
++/**
++ * Défauts relevés (ce que le joueur ne doit jamais voir) : vide quand tout tient.
++ *   - mission jamais commencée, ou perdue dans les trente secondes de l'arrivée ;
++ *   - mission commencée avec la plupart des groupes à plus de 300 m du commandant (encore en route) ;
++ *   - aucun ordre possible dans les dix secondes (bloc « ORDRES » vide, carte en lecture seule) ;
++ *   - un ordre d'unités accepté sans qu'aucun agent ne bouge dans les six secondes ;
++ *   - un ordre remplacé dans les neuf secondes par un « débarquez » ou « libre » que le joueur n'a pas donné ;
++ *   - BRAV-M qui ne vient pas quand on l'appelle ;
++ *   - « Suivez-moi à pied » final qui ne ramène pas la moitié des groupes autour du joueur.
++ */
++export function defects(r: MissionRun): string[] {
++  const out: string[] = [];
++  if (r.startAfter < 0) out.push(r.notes.join(' ; ') || 'mission jamais commencée');
++  if (r.failedEarly) out.push(`mission perdue dès l'arrivée : ${r.failedEarly}`);
++  if (r.startAfter >= 0 && !/^tout/.test(r.scope)) out.push(`commandement : ${r.scope}`);
++  if (r.groups > 0 && r.farGroups * 2 > r.groups) out.push(`mission commencée, compagnie ailleurs : ${r.farGroups}/${r.groups} groupes à plus de 300 m du commandant`);
++  if (r.startAfter >= 0 && (r.firstOrderAt < 0 || r.firstOrderAt > 10)) out.push(`premier ordre accepté à ${r.firstOrderAt} s`);
++  for (const a of r.attempts) {
++    if (!a.units || !a.ok || a.squads.length === 0) continue;
++    // (déjà sur place : rien à faire bouger)
++    const there = a.d0 >= 0 && a.d0 < 6;
++    if (!there && (a.moved < 0 || a.moved > 6)) out.push(`${a.label} : accepté, premier mouvement ${a.moved < 0 ? 'aucun' : `${a.moved} s`}`);
++    // (« Suivez-moi à pied » : descendre d'abord fait partie de l'ordre)
++    if ((a.typeAfter === 'debarquer' && a.type !== 'debarquer' && a.type !== 'suivre_pied') || (a.typeAfter === 'libre' && a.type !== 'libre')) out.push(`${a.label} : ordre remplacé par « ${a.typeAfter} » au bout de 9 s`);
++    if (/vers moi/.test(a.label) && a.d60 >= 0 && a.d60 > 40 && a.d0 - a.d60 < 20) out.push(`${a.label} : la BRAV-M ne vient pas (${a.d0.toFixed(0)} → ${a.d60.toFixed(0)} m)`);
++  }
++  if (r.aroundOf > 0 && r.around * 2 < r.aroundOf) out.push(`« Suivez-moi à pied » : ${r.around}/${r.aroundOf} groupes autour du commandant au bout de 60 s`);
++  return out;
++}
