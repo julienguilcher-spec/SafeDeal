@@ -4,13 +4,13 @@ Ce dossier ne fait pas partie du jeu : c'est une sauvegarde du travail des agent
 redémarrage ou une perte de la machine de travail ne le fasse pas disparaître. Il sera supprimé quand chaque
 chantier aura été intégré dans `crs-simulation/`, testé et publié.
 
-État au 18 novembre, 14 h 55 (heure de Paris 15 h 55). Le jeu publié est la **version 22** (commit `0e488cd`), commissariats compris.
+État au 18 novembre, 20 h 05 UTC (21 h 05 à Paris). Le jeu publié est la **version 22** (commit `0e488cd`), commissariats compris.
 
 ## Correctifs et chantiers
 
 | Fichier | Chantier | Base | État à la sauvegarde |
 |---|---|---|---|
-| `ordres-directs.patch` | Réalisation des ordres directs (instantané de l'arbre de travail ; contient aussi les trois lots de la version 21) | `d24fffd` (code de la branche principale avant la version 21) | P1, P2, P7, P5, P3, P8 faits (rapports dans `ordres-directs/rapports-paquets-ordres-directs.json`) ; P4, P9, P6, P13 en cours ; puis report des commissariats dans cet arbre, P17, P10, P11, P12, P14, P15, P16, intégration et joueur critique |
+| `ordres-directs.patch` | Réalisation des ordres directs (instantané de l'arbre de travail ; il contient aussi les lots de la version 21 et les commissariats de la version 22, reportés dedans) | `d24fffd` | 11 paquets faits sur 17 (P1–P9, P12, P13 ; rapports dans `ordres-directs/rapports-paquets-ordres-directs.json`) ; en cours : report des commissariats (résolution puis contre-vérification), P10 puis P11 (affichage, téléphone), P14 (transfert au commissariat), P17 (colonne garantie) ; restent P15, P16, l'intégration et le joueur critique. Livraison : l'arbre contient tout ce que la branche principale a — le correctif final se calcule contre la branche principale, pas contre `d24fffd` |
 | `ordres-directs/` | Ordres directs sur le terrain, unités « avec moi », réactivité, fourgons cellulaires et circuit des interpellés | documents | diagnostic (3 rapports), 3 propositions, cahier des charges critiqué `design-ordres-directs.md` (16 paquets, 15 blocages), plan de réalisation `plan-ordres-directs.md` (avec l'addendum du coordinateur) ; réalisation lancée : paquet P1 en cours dans un arbre basé sur la branche principale |
 
 ## Reprendre
