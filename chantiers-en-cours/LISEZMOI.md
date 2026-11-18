@@ -11,8 +11,9 @@ chantier aura été intégré dans `crs-simulation/`, testé et publié.
 | Fichier | Chantier | Base | État à la sauvegarde |
 |---|---|---|---|
 | `fusion-commissariats.patch` + `commissariats-delta-B.patch` | Commissariats fusionnés et vérifiés (simulation, interface, suite complète) sur une version antérieure | `52e9d92` | TERMINÉ ; en cours de report sur la version 21 (3 fichiers en conflit dans la gestion des colonnes, script `workflow-refusion-commissariats.js`) |
+| `fusion-commissariats-2.patch` | Commissariats reportés sur la version 21 (instantané de l'arbre de fusion) | version 21 avant le correctif de la sirène des suiveurs (`refs/scratch/main-v21`, même code que `8dc8378` moins ce correctif) | conflits résolus ; contre-vérification en cours |
 | `commissariats.patch` | Le chantier des commissariats dans son espace d'origine (référence) | `2365d2b` | TERMINÉ |
-| `ordres-directs.patch` | Réalisation des ordres directs | branche principale | P1, P2, P7 faits (rapports dans `ordres-directs/rapports-paquets-ordres-directs.json`) ; P5 en cours ; puis P3, P4, P6 et la colonne garantie ; puis l'interface et les interpellés |
+| `ordres-directs.patch` | Réalisation des ordres directs (instantané de l'arbre de travail ; contient aussi les trois lots de la version 21) | `d24fffd` (code de la branche principale avant la version 21) | P1, P2, P7, P5 faits (rapports dans `ordres-directs/rapports-paquets-ordres-directs.json`) ; P3, P4, P8 en cours ; puis P6, P17 (colonne garantie), P9–P11 (interface), P12–P15 (interpellés), P16 (recette) |
 | `ordres-directs/` | Ordres directs sur le terrain, unités « avec moi », réactivité, fourgons cellulaires et circuit des interpellés | documents | diagnostic (3 rapports), 3 propositions, cahier des charges critiqué `design-ordres-directs.md` (16 paquets, 15 blocages), plan de réalisation `plan-ordres-directs.md` (avec l'addendum du coordinateur) ; réalisation lancée : paquet P1 en cours dans un arbre basé sur la branche principale |
 
 ## Reprendre

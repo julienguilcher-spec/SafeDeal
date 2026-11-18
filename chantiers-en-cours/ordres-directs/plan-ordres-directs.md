@@ -1,3 +1,95 @@
+# COORDINATOR'S UPDATE — stage 1b, second run (P3, P4, P6, P17) — read first; it overrides everything below
+
+**State of this worktree now** (`git status` shows it all, staged or not; nothing is committed):
+- DONE: **P1** (order logic), **P2** (seated units get out then execute; honest reports; « en garde » posture inside
+  `suivre`), **P7** (radio: silent player phrase, reply lane ≤ 1 s, refusals said, reports to the player).
+  **P5** (setup: everybody follows, BRAV-M in the company, crewed cellular vans) is FINISHING in this worktree while P3
+  starts: its files (`src/gameplay/session/{setup,placement}.ts`, `src/sim/police/{units,api}.ts`,
+  `src/ui/screens/scenario.ts`…) may still change — do not edit them; tests that depend on them may be red for a while.
+  Their full reports — READ the « deviations » and
+  « openIssues » that name your package — are in
+  `/tmp/claude-0/-home-user-SafeDeal/f854eafd-7c66-528c-834c-30dfeec78944/scratchpad/rapports-paquets-ordres-directs.json`.
+- APPLIED by the coordinator (already in the published game, version 21): three reviewed fix lots.
+  - « commandant-mission » — the player's own game (commandant, « Missions spéciales »): `ConvoyControl.takeOver` /
+    `disembarkRest` (an order given on arrival is no longer replaced by the column's « débarquez »), `columnIn` in
+    `src/gameplay/missions/system.ts` (the mission waits for the column, 180 s at most), injuries / deaths of the trip no
+    longer fail the mission, `bravm.ts` (the BRAV-M moves when called), `sendLine.ts` (« Suivez-moi » reaches the BRAV-M).
+    Robot: `tests/unit/playtest.commandant-mission-colonne.test.ts` and `playtest.commandant-mission-NN.test.ts`
+    (skipped unless `PLAYTEST_ARRIVAL=passager|volant|devant`); logs of the fifteen missions × three arrivals in
+    `/tmp/claude-0/-home-user-SafeDeal/f854eafd-7c66-528c-834c-30dfeec78944/scratchpad/runs/`.
+  - « colonne-tete-bloquee » — lineUp probe (no file through a quay wall), `noRoute` / `footTo` / `reportNoRoute` in
+    `convoy.ts`, radio queue ageing, CENTRAL quiet, siren released when the way is clear EXCEPT for a follower whose
+    leader has its siren on (`engins.ts urgent()`).
+  - « commandant-carte-3 » — card texts.
+  **P3: `takeOver` / `disembarkRest` overlap with the `release` / per-squad `debarquer` this document plans — reconcile
+  them into ONE mechanism, do not add a second one; keep the robot `playtest.commandant-mission-colonne` green.**
+
+**Order of this stage: P3 now; P4 when P5 has finished; then P6; then P17 (new, specified below).** After it: integration, then publication.
+
+**Additions to the packages of this run (they come from robots that replayed the player's game):**
+- **P3 also:** (a) dismount-first for TASK orders (interpeller, secourir…): `system.ts startTask` still sees nobody on
+  foot when the unit is seated (P2's open issue; its helpers `beginDismount` / `dismountStep` in `maneuver.ts` may be
+  exported); (b) adapt `tests/unit/playtest.commandant-compagnie-depart.test.ts`, red since P1's rule B2 (a unit that
+  contains the player on foot no longer drives): the robot commandant must be aboard his car, or order units that do not
+  contain him — the guarantee « every vehicle of the company leaves and arrives » must stay tested, and its three
+  removed cases (Bastille seed 5, République seed 11, République seed 21 in a service day) are handed to P17.
+- **P4 also:** (a) a BRAV-M on foot in a dense crowd walks at 0.5 m/s and, for a goal beyond 250 m, first walks back to
+  its motos through the crowd (cdt-04 « vers moi » 242 → 282 m, cdt-08 214 → 212 m): the pilots bring the motos to the
+  riders, or the riders finish on foot when that is quicker; (b) change `BRAVM_RIDE_MIN` / `BRAVM_REMOUNT_MIN` in
+  `src/ui/command/direct/travel.ts` together with `bravm.ts` (P1's open issue) so that the card never says « à pied »
+  when she rides or the reverse.
+- **P6 also:** (a) « Avec moi » for units far away: today « Suivez-moi à pied » makes sections 400 m or more away WALK
+  the whole way (cdt-02: up to 960 m; 0–5 groups out of 12 around the commandant after 60 s). Units beyond the drive
+  threshold of `travel.ts` come in their vehicles and get out near him; the company root's own members (the
+  commandant's staff) must follow too (a first attempt that ordered each child separately left the root on
+  `embarquer`: do not repeat it); (b) set `byPlayer: true` on the orders issued by `follow.ts` for the player's « Avec
+  moi » (P7's open issue) so that their acknowledgement uses the ≤ 1 s lane.
+
+## PACKAGE P17 — Colonne garantie : la compagnie arrive toujours avec le commandant (NEW; this IS its section-8 entry)
+- **Why:** the player: « tout le monde doit me suivre, c'est obligatoire », « ils ne suivaient pas ». The mission robot
+  showed that when the commandant DRIVES his own car or goes AHEAD, the column parks or unloads 0.8–2.1 km from the
+  place (cdt-01 devant 800 m, cdt-03 devant 1.2 km, cdt-07 volant 1.3–1.5 km and devant 2.1 km, cdt-09 volant 2 km,
+  cdt-04 volant 250–370 m short), and that even as a passenger the vans can be 400–960 m behind three minutes after
+  his car arrives (cdt-02, cdt-13: mission start after 1136 s).
+- **Files (owned):** `src/sim/vehicles/autopilot.ts`, `autopilot-drive.ts`, `autopilot-sense.ts`, `autopilot-state.ts`,
+  `src/sim/vehicles/collide.ts`, `src/gameplay/session/engins.ts`; and, AFTER P3 and P6 have finished with them,
+  `src/sim/police/command/convoy.ts` (thinkRoute / thinkStagger / finishAlone / parkRow) and the departure part of
+  `src/gameplay/session/journee.ts` — re-read them first, keep P3's and P6's changes, small local hunks.
+- **Content — each item starts from a failing robot test:**
+  1. A column NEVER parks or unloads far from its destination. When `thinkRoute` / `thinkStagger` declares a vehicle
+     stuck (echec, blocked > 40 s, routeMax) or when the lead is the player's own car already at the point, the other
+     vehicles are re-routed to the point (as `finishAlone` does), not unloaded where they stand; a vehicle is only
+     allowed to unload beyond 150 m of its row when no route exists (then it says so: `reportNoRoute`).
+  2. The guarantee, with a bounded time: for a column of the player's company, every vehicle is within 150 m of its
+     parking row at most `route length / 6 m/s + 120 s` after the departure. The last resort already exists and must be
+     generalised: OUT OF THE PLAYER'S SIGHT (`EnginsSystem.unseen`), a vehicle that makes no progress is moved further
+     along its own route (`unstick` / `skipAhead`), keeping its place in the file; never in his sight.
+  3. Slow columns: a 12-van column must not trail 400–960 m behind the command car (stagger gaps, the command car
+     leaving first and alone, vans waiting for each other at each stop).
+  4. Autopilot in a crowd: a police vehicle waiting for standing pedestrians (`attente / personne`) for more than 15 s
+     creeps forward at walking pace with its siren (the crowd parts: `engins.ts` already stirs it), instead of waiting
+     forever; a convoy follower goes round a person standing still as it already does for a person lying down.
+  5. A vehicle stopped nose against a wall, a parapet or a street lamp reverses out (the cases kept as failing tests by
+     earlier agents: Concorde quay at (25.7, 202.6) heading −33°, a cellular van against a candelabre at (1682, 857)).
+  6. BRAV-M motos no longer hurt their riders by bumping each other in column (cdt-04: ten riders lightly hurt at the
+     start of the mission): a larger gap between motos, and no injury for a low-speed contact between two police
+     vehicles of the same column.
+  7. A column vehicle the player left driverless is re-manned in every kind of column (it exists only in thinkStagger).
+- **dependsOn:** P3, P6.
+- **Tests:** NEW `tests/unit/playtest.colonne-garantie.test.ts` — the mission robot (`playtest.commandant-mission.lib.ts`)
+  for cdt-01, 02, 03, 04, 07, 09 and 13 in the three arrivals (light crowd; split in several files if one takes more
+  than a few minutes): when the commandant arrives, at least 90 % of his groups are within 300 m within 180 s and all
+  of them within 300 s; restore the five cases of `playtest.commandant-compagnie-depart` (Concorde 21 and 7, Bastille 5,
+  République 11, République 21 in a service day); one focused test per item 4, 5, 6, 7. Keep green:
+  `PLAYTEST_STRICT=1 PLAYTEST_LIGHT=1 npx vitest run tests/unit/playtest.colonnes-roles.test.ts` (42/42),
+  `playtest.colonne-ia*`, `playtest.colonne-barrages`, `playtest.colonne-joueur`, `integration.journee*`,
+  `session.depart-base`, `vehicles.*`, `integration.engins*`, `integration.colonne-deux-tons-foule`,
+  `engins.sirene-sans-urgence`, `police-command.convoi*`, `police.convoi*`.
+- **Done:** the matrix above is green; no vehicle of the player's company is ever left `bloque` or `attente` for more
+  than 60 s without the game doing something about it.
+
+---
+
 # COORDINATOR'S UPDATE — stage 1b (15 h 30) — read first; it overrides everything below
 
 **State of this worktree now:**
