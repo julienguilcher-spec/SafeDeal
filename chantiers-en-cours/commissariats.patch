@@ -1785,6 +1785,27 @@ index 0000000..d0055c8
 +export function adoptedLabel(): string {
 +  return 'Unité accueillie · places de réserve';
 +}
+diff --git a/crs-simulation/src/gameplay/law/handover.ts b/crs-simulation/src/gameplay/law/handover.ts
+index cc4db10..c7c33c8 100644
+--- a/crs-simulation/src/gameplay/law/handover.ts
++++ b/crs-simulation/src/gameplay/law/handover.ts
+@@ -8,6 +8,7 @@ import type { Person, Vehicle } from '@/core/contracts';
+ import type { HandoverPoint, LawHandover } from './api';
+ import { LAW_HANDOVER_SERVICE } from './api';
+ import type { Kernel } from './kernel';
++import { isHeldVehicle } from '@/world/commissariats';
+ 
+ /** Destination d'une remise. */
+ export interface HandoverDest {
+@@ -43,6 +44,8 @@ export class Handover {
+       const v = vs[i]!;
+       if (v.faction !== 'police' || v.def.flying || v.kind === 'moto_bravm') continue;
+       if (v.state !== 'ok' && v.state !== 'damaged') continue;
++      // véhicule garé en réserve d'un commissariat (verrouillé, sans équipage) : pas une destination de remise
++      if (isHeldVehicle(ctx, v.id)) continue;
+       let seat = -1;
+       for (let s = 0; s < v.seats.length; s++) {
+         const def = v.def.seats[s];
 diff --git a/crs-simulation/src/gameplay/patrols/api.ts b/crs-simulation/src/gameplay/patrols/api.ts
 index c812264..582c13f 100644
 --- a/crs-simulation/src/gameplay/patrols/api.ts
@@ -2250,6 +2271,126 @@ index 39c9ca0..5599dbe 100644
      if (now - p.reportAt < REPORT_GAP || now - this.globalAt < GLOBAL_GAP) return;
      const name = p.view.name;
      // 1. foyers secondaires à portée de vue
+diff --git a/crs-simulation/src/gameplay/session/engins.ts b/crs-simulation/src/gameplay/session/engins.ts
+index e9f1347..32e44ec 100644
+--- a/crs-simulation/src/gameplay/session/engins.ts
++++ b/crs-simulation/src/gameplay/session/engins.ts
+@@ -16,6 +16,7 @@
+ 
+ import type { EntityId, GameContext, GameSystem, Squad, Vehicle } from '@/core/contracts';
+ import { SystemOrder } from '@/core/contracts';
++import { isHeldVehicle } from '@/world/commissariats';
+ 
+ interface Autopilot {
+   status(v: Vehicle): Readonly<{ mode: string; state: string; reason: string; blockedFor: number; remaining: number; leaderId?: number }>;
+@@ -511,6 +512,8 @@ export class EnginsSystem implements GameSystem {
+     const used = new Set<number>(this.escorts.values());
+     for (const v of ctx.vehicles.list) {
+       if (v.faction !== 'police' || !ARMORED.has(v.kind) || v.state === 'wrecked' || v.state === 'burnt') continue;
++      // engin garé en réserve d'un commissariat (sans équipage) : pas d'escorte à pied
++      if (isHeldVehicle(ctx, v.id)) continue;
+       // l'escorte en place tient-elle toujours ?
+       const cur = this.escorts.get(v.id);
+       if (cur !== undefined) {
+diff --git a/crs-simulation/src/gameplay/session/follow.ts b/crs-simulation/src/gameplay/session/follow.ts
+index e5248ad..2094e69 100644
+--- a/crs-simulation/src/gameplay/session/follow.ts
++++ b/crs-simulation/src/gameplay/session/follow.ts
+@@ -28,6 +28,7 @@
+ 
+ import type { EntityId, GameContext, GameSystem, Person, RayHit, Squad, Vehicle } from '@/core/contracts';
+ import { SystemOrder } from '@/core/contracts';
++import { isHeldVehicle } from '@/world/commissariats';
+ 
+ interface Autopilot {
+   follow(v: Vehicle, leaderId: EntityId, distance?: number, trail?: readonly number[]): boolean;
+@@ -102,7 +103,7 @@ const ARMORED: ReadonlySet<string> = new Set(['centaure', 'canon_eau']);
+ const FREE_ORDERS: ReadonlySet<string> = new Set(['libre', 'suivre', 'cesser', 'embarquer', 'debarquer', 'colonne', 'escorter']);
+ /** Véhicules qui emmènent la compagnie : quand le joueur en conduit un, toute la colonne suit. */
+ const TROOP_KINDS: ReadonlySet<string> = new Set(['fourgon_crs', 'car_crs', 'vl_commandement', 'canon_eau', 'centaure', 'fourgon_cellulaire']);
+-const POLICE_FLEET: ReadonlySet<string> = new Set(['moto_bravm', 'fourgon_crs', 'car_crs', 'voiture_police', 'vl_commandement', 'fourgon_cellulaire']);
++const POLICE_FLEET: ReadonlySet<string> = new Set(['moto_bravm', 'fourgon_crs', 'car_crs', 'voiture_police', 'voiture_bac', 'vl_commandement', 'fourgon_cellulaire']);
+ /**
+  * « Tout le monde me suit » (demande du commanditaire : « c'est obligatoire ») : quel que soit son rôle de police — sauf
+  * l'équipage du Centaure, que seul l'engin apparié accompagne —, quand le joueur conduit un véhicule de police (ou est
+@@ -331,6 +332,8 @@ export class FollowLeaderSystem implements GameSystem {
+     const rank = new Map<Vehicle, number>();
+     for (const v of ctx.vehicles.list) {
+       if (v === lead || v.state === 'wrecked' || v.state === 'burnt' || v.def.flying || !POLICE_FLEET.has(v.kind)) continue;
++      // véhicules garés en réserve d'un commissariat : ils n'appartiennent qu'à leur unité du stock
++      if (isHeldVehicle(ctx, v.id)) continue;
+       if (v.seats.some((id) => id !== 0)) continue;
+       const d = Math.hypot(v.x - lead.x, v.z - lead.z);
+       if (d > FLEET_RADIUS) continue;
+@@ -560,6 +563,7 @@ export class FollowLeaderSystem implements GameSystem {
+       const tree = this.tree(rootId, []);
+       for (const v of ctx.vehicles.list) {
+         if (v.kind !== 'moto_bravm' || owned.has(v.id) || out.indexOf(v) >= 0 || v.state === 'wrecked' || v.state === 'burnt') continue;
++        if (isHeldVehicle(ctx, v.id)) continue;
+         if (!out.some((o) => o.kind === 'moto_bravm' && Math.hypot(o.x - v.x, o.z - v.z) < FLEET_RADIUS)) continue;
+         if (v.seats.some((id) => id !== 0 && !tree.some((q) => q.members.indexOf(id) >= 0))) continue;
+         out.push(v);
+diff --git a/crs-simulation/src/gameplay/session/journee.ts b/crs-simulation/src/gameplay/session/journee.ts
+index ebe8320..060ef35 100644
+--- a/crs-simulation/src/gameplay/session/journee.ts
++++ b/crs-simulation/src/gameplay/session/journee.ts
+@@ -56,6 +56,10 @@ interface CommandLike {
+   stateOf(companyId: number): { phase: string; missionEnded: boolean } | null;
+   special?(squadId: number): { kind: string } | null;
+ }
++/** Vue minimale du service des commissariats (police.commissariats, src/gameplay/commissariats). */
++interface StationsLike {
++  isStationUnit(squadId: number): boolean;
++}
+ interface VehiclesExt {
+   setSiren?(v: Vehicle, mode: 0 | 1 | 2): void;
+   setBeacons?(v: Vehicle, on: boolean): void;
+@@ -235,8 +239,11 @@ export class JourneeSystem implements GameSystem {
+   private engageOthers(x: number, z: number, heading: number, back: boolean): void {
+     const ctx = this.ctx!;
+     const command = ctx.service<CommandLike>('police.command');
++    const stations = ctx.service<StationsLike>('police.commissariats');
+     for (const s of ctx.squads.list) {
+       if (s.faction !== 'police' || s.parentId !== 0 || s.id === this.companyId) continue;
++      // unité d'un commissariat (engagée par le commandant ou rentrée à ses places) : elle n'est pas de la journée
++      if (stations?.isStationUnit(s.id)) continue;
+       // (une BRAV-M n'a pas de membres propres : ses binômes sont des sous-unités)
+       if (this.isBravm(s.id)) {
+         ctx.squads.issue(s.id, { type: 'colonne', x, z, heading, width: 0, issuedBy: s.leaderId });
+diff --git a/crs-simulation/src/main.ts b/crs-simulation/src/main.ts
+index 7b97adb..e04d94b 100644
+--- a/crs-simulation/src/main.ts
++++ b/crs-simulation/src/main.ts
+@@ -41,6 +41,7 @@ import { createSystems as rescue } from '@/sim/roles/rescue';        // pompiers
+ import { createSystems as medics } from '@/sim/roles/medics';        // médecins de rue
+ import { createSystems as session, installLoadingGate } from '@/gameplay/session'; // mise en place de la session
+ import { createSystems as patrols } from '@/gameplay/patrols';         // voitures de police en patrouille dans Paris
++import { createSystems as commissariats } from '@/gameplay/commissariats'; // stock des commissariats, engagement, retour
+ import { createSystems as missions, missionById, missionConfig } from '@/gameplay/missions'; // cadre de mission
+ import { createSystems as career } from '@/gameplay/career';         // carrière : grades, chapitres, sanctions
+ import { createSystems as history } from '@/gameplay/history';       // historique des parties jouées
+@@ -50,6 +51,7 @@ import { createSystems as monuments } from '@/world/monuments';      // monument
+ import { createSystems as renderPeople } from '@/render/people';     // personnages
+ import { createSystems as renderVehicles } from '@/render/vehicles'; // véhicules
+ import { createSystems as renderProps } from '@/render/props';       // mobilier urbain, vitrines, barricades
++import { createSystems as renderCommissariats } from '@/render/commissariats'; // habillage des commissariats
+ import { createSystems as renderFx } from '@/render/fx';             // gaz, fumée, feu, eau, projectiles, décalques
+ import { createSystems as ui } from '@/ui';                          // accueil, HUD, cartes, commandement
+ import { createSystems as audio } from '@/audio';                    // sons, ambiances, voix
+@@ -181,10 +183,11 @@ const MODULES: ModuleFactory[] = [
+   // simulation
+   // (la circulation après les véhicules : elle attend leur pilote automatique)
+   // (la police après la foule : à ordre égal, les manifestants décident avant les unités qui leur répondent)
++  // (les commissariats après la session et les patrouilles : ils garnissent les places à la mise en place)
+   input, env, worldQuery, simRoles, simPeople, simVehicles, simTraffic, simCrowd, simPolice, simItems, simProps, simHazards,
+-  law, radio, incidents, rescue, medics, session, patrols, missions, career, history,
++  law, radio, incidents, rescue, medics, session, patrols, commissariats, missions, career, history,
+   // présentation — le rendu de base d'abord
+-  renderBase, worldView, map2dAdapter, monuments, monumentsClearAir, renderPeople, renderVehicles, renderProps, renderFx, ui, audio,
++  renderBase, worldView, map2dAdapter, monuments, monumentsClearAir, renderPeople, renderVehicles, renderProps, renderCommissariats, renderFx, ui, audio,
+ ];
+ 
+ // ───────────────────────────── démarrage ─────────────────────────────
 diff --git a/crs-simulation/src/render/commissariats/api.ts b/crs-simulation/src/render/commissariats/api.ts
 new file mode 100644
 index 0000000..fe2d32f
@@ -3590,6 +3731,48 @@ index 0000000..380ab76
 +    this.renderer = null;
 +  }
 +}
+diff --git a/crs-simulation/src/sim/crowd/detour.ts b/crs-simulation/src/sim/crowd/detour.ts
+index 682dce0..fd23c96 100644
+--- a/crs-simulation/src/sim/crowd/detour.ts
++++ b/crs-simulation/src/sim/crowd/detour.ts
+@@ -23,6 +23,7 @@ import { EXT } from '@/core/extensions';
+ import type { CordonsApi, TrafficControlApi } from '@/core/extensions';
+ import type { RoutePoint } from './api';
+ import type { Corridor } from './route';
++import { isHeldVehicle } from '@/world/commissariats';
+ 
+ const sample: RoadSample = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '', roadClass: 'residential', oneway: false };
+ const rp: RoutePoint = { x: 0, z: 0, tx: 0, tz: 1, center: 0, half: 8, stretch: 1 };
+@@ -67,6 +68,8 @@ export class RoadBlocks {
+     }
+     for (const v of ctx.vehicles.list) {
+       if (v.faction !== 'police' || v.def.flying || Math.abs(v.speed) > 0.5) continue;
++      // véhicules garés le long du trottoir, dans les places réservées d'un commissariat : la rue reste ouverte
++      if (isHeldVehicle(ctx, v.id)) continue;
+       if (!world.nearestRoad(v.x, v.z, sample, 5) || sample.edgeId < 0) continue;
+       count.set(sample.edgeId, (count.get(sample.edgeId) ?? 0) + LINE_AGENTS);
+     }
+diff --git a/crs-simulation/src/sim/crowd/radical/assess.ts b/crs-simulation/src/sim/crowd/radical/assess.ts
+index 83148a2..2899f1f 100644
+--- a/crs-simulation/src/sim/crowd/radical/assess.ts
++++ b/crs-simulation/src/sim/crowd/radical/assess.ts
+@@ -14,6 +14,7 @@
+  * ===================================================================================== */
+ 
+ import type { Person } from '@/core/contracts';
++import { isHeldVehicle } from '@/world/commissariats';
+ import { isPolice } from './kernel';
+ import type { RadKernel } from './kernel';
+ import { isAble } from './model';
+@@ -180,6 +181,8 @@ export function assess(k: RadKernel, g: RadGroup): Assessment {
+   for (let i = 0; i < nv; i++) {
+     const v = vs[i]!;
+     if (v.faction !== 'police' || v.dormant || v.def.flying || v.state === 'wrecked' || v.state === 'burnt') continue;
++    // véhicule garé en réserve d'un commissariat (sans équipage) : ni menace ni cible du groupe
++    if (isHeldVehicle(ctx, v.id)) continue;
+     const d = Math.hypot(v.x - gx, v.z - gz);
+     if (v.kind === 'canon_eau') {
+       if (d < a.water) a.water = d;
 diff --git a/crs-simulation/src/sim/police/api.ts b/crs-simulation/src/sim/police/api.ts
 index 5274cbf..a8412a2 100644
 --- a/crs-simulation/src/sim/police/api.ts
@@ -3988,6 +4171,145 @@ index 74e63ce..a2d29a8 100644
    syncTree(k, true);
    const u = unitOf(squad);
    if (u) u.phase = 'embarque';
+diff --git a/crs-simulation/src/sim/traffic/car-clear.ts b/crs-simulation/src/sim/traffic/car-clear.ts
+index 188c5b0..1715143 100644
+--- a/crs-simulation/src/sim/traffic/car-clear.ts
++++ b/crs-simulation/src/sim/traffic/car-clear.ts
+@@ -24,6 +24,7 @@ import type { Cars } from './cars';
+ import { CP_BOX } from './route';
+ import type { TrafficKernel } from './shared';
+ import { makeRoadSample } from './shared';
++import { isHeldVehicle } from '@/world/commissariats';
+ 
+ /** Portée du deux-tons d'un véhicule arrêté : les véhicules arrêtés devant lui à moins de … m dégagent (m). */
+ export const CLEAR_SIREN_RANGE = 25;
+@@ -425,7 +426,8 @@ export class CarClearer {
+       const along = rx * dx + rz * dz;
+       const lat = -rx * dz + rz * dx;
+       if (o.siren !== 0 && along < b.halfL + 3) wait = true;
+-      else if (o.faction === 'police' && along < 0 && along > -(b.halfL + 20) && lat < 1 && lat > -6) wait = true;
++      // (un véhicule garé en réserve d'un commissariat ne bouge pas : il ne retient pas la voiture rangée)
++      else if (o.faction === 'police' && along < 0 && along > -(b.halfL + 20) && lat < 1 && lat > -6 && !isHeldVehicle(ctx, o.id)) wait = true;
+     }
+     list.length = 0;
+     if (wait) return true;
+diff --git a/crs-simulation/src/sim/traffic/parking.ts b/crs-simulation/src/sim/traffic/parking.ts
+index 8712919..701e82d 100644
+--- a/crs-simulation/src/sim/traffic/parking.ts
++++ b/crs-simulation/src/sim/traffic/parking.ts
+@@ -9,6 +9,7 @@
+  * occupée ou non selon un tirage figé par la graine de session : une rue garde ses voitures quand on y
+  * revient. Un véhicule garé est une entité ordinaire de ctx.vehicles, endormie (coût nul) ; dès qu'on y
+  * touche (déplacé, endommagé, incendié, occupé), il n'appartient plus à ce module et reste où il est.
++ * Le stationnement réservé des commissariats (places de leurs véhicules, src/world/commissariats) reste libre.
+  * ===================================================================================== */
+ 
+ import type { EntityId, Prop, RoadSample, Vehicle, VehicleKind } from '@/core/contracts';
+@@ -19,6 +20,8 @@ import type { EdgePoint } from './graph';
+ import { E_BRIDGE, E_ONEWAY, N_CROSSING, N_DEADEND, N_JUNCTION, N_SIGNAL } from './graph';
+ import type { TrafficKernel } from './shared';
+ import { makeRoadSample } from './shared';
++import { COMMISSARIATS, reservedBays } from '@/world/commissariats';
++import type { ReservedBay } from '@/world/commissariats';
+ import {
+   CAR_COLORS, PARKED_MIX, PARK_CLEAR_CROSSING, PARK_CLEAR_JUNCTION, PARK_MIN_ONEWAY, PARK_MIN_TWOWAY, PARK_SLOT,
+ } from './tuning';
+@@ -30,6 +33,22 @@ class ParkedCar {
+   constructor(readonly v: Vehicle) {}
+ }
+ 
++/**
++ * Stationnement réservé des commissariats : aucune voiture civile garée (ni au tirage, ni en se garant) à moins de
++ * cette distance (m) du centre d'une place réservée (src/world/commissariats), que le module des commissariats soit
++ * chargé ou non — la règle est celle de la voirie, pas celle du stock.
++ */
++const RESERVED_CLEAR = 6;
++
++/** Places réservées des commissariats, avec leur emprise globale (pré-filtre), si la carte chargée les contient. */
++interface ReservedZone {
++  readonly bays: readonly ReservedBay[];
++  readonly minX: number;
++  readonly maxX: number;
++  readonly minZ: number;
++  readonly maxZ: number;
++}
++
+ /** Taux d'occupation des places à densité normale. */
+ const OCCUPANCY = 0.62;
+ const RINGS: readonly number[] = [0, 70, 120, 160, 1e9];
+@@ -52,6 +71,8 @@ export class Parking {
+   private readonly road: RoadSample = makeRoadSample();
+   // géométrie de la dernière arête examinée
+   private slotStart = 0;
++  /** Places réservées des commissariats (undefined : pas encore calculé ; null : carte sans commissariat). */
++  private reserved: ReservedZone | null | undefined = undefined;
+   private poseX = 0;
+   private poseZ = 0;
+   private poseH = 0;
+@@ -67,6 +88,7 @@ export class Parking {
+     this.ring = 0;
+     this.prewarm = true;
+     this.seed = seed | 0;
++    this.reserved = undefined;
+   }
+ 
+   /** Retire tous les véhicules garés encore intacts (clearAmbient). */
+@@ -261,9 +283,54 @@ export class Parking {
+     return 'voiture';
+   }
+ 
+-  /** La place est-elle praticable et libre ? (chaussée, pas dans un obstacle, ni véhicule ni mobilier) */
++  /**
++   * Places réservées des commissariats, retenues seulement quand la carte chargée est celle de Paris (toutes les
++   * portes dans l'emprise) : sur le quartier d'essai, les coordonnées de Paris ne veulent rien dire.
++   */
++  private reservedZone(): ReservedZone | null {
++    if (this.reserved !== undefined) return this.reserved;
++    const b = this.k.ctx.world.bounds;
++    let inside = !!b && b.maxX - b.minX >= 3000;
++    for (const c of COMMISSARIATS) {
++      if (!inside) break;
++      inside = c.door.x >= b.minX && c.door.x <= b.maxX && c.door.z >= b.minZ && c.door.z <= b.maxZ;
++    }
++    if (!inside) {
++      this.reserved = null;
++      return null;
++    }
++    const bays = reservedBays();
++    let minX = Infinity;
++    let maxX = -Infinity;
++    let minZ = Infinity;
++    let maxZ = -Infinity;
++    for (const r of bays) {
++      if (r.x < minX) minX = r.x;
++      if (r.x > maxX) maxX = r.x;
++      if (r.z < minZ) minZ = r.z;
++      if (r.z > maxZ) maxZ = r.z;
++    }
++    this.reserved = { bays, minX: minX - RESERVED_CLEAR, maxX: maxX + RESERVED_CLEAR, minZ: minZ - RESERVED_CLEAR, maxZ: maxZ + RESERVED_CLEAR };
++    return this.reserved;
++  }
++
++  /** Le point est-il sur le stationnement réservé d'un commissariat (à moins de RESERVED_CLEAR d'une place) ? */
++  isReserved(x: number, z: number): boolean {
++    const r = this.reservedZone();
++    if (!r || x < r.minX || x > r.maxX || z < r.minZ || z > r.maxZ) return false;
++    const lim = RESERVED_CLEAR * RESERVED_CLEAR;
++    for (const bay of r.bays) {
++      const dx = bay.x - x;
++      const dz = bay.z - z;
++      if (dx * dx + dz * dz < lim) return true;
++    }
++    return false;
++  }
++
++  /** La place est-elle praticable et libre ? (chaussée, pas dans un obstacle, ni véhicule ni mobilier, ni réservée) */
+   private free(x: number, z: number, halfW: number): boolean {
+     const ctx = this.k.ctx;
++    if (this.isReserved(x, z)) return false;
+     const surface = ctx.world.surfaceAt(x, z);
+     if (surface !== 'road' && surface !== 'sett' && surface !== 'void') return false;
+     if (!ctx.world.isFree(x, z, halfW)) return false;
 diff --git a/crs-simulation/src/ui/command/adjointPlays.ts b/crs-simulation/src/ui/command/adjointPlays.ts
 new file mode 100644
 index 0000000..379e46c
@@ -4170,7 +4492,7 @@ index 0000000..379e46c
 +  return fn(obs, prop);
 +}
 diff --git a/crs-simulation/src/ui/command/api.ts b/crs-simulation/src/ui/command/api.ts
-index 685fc99..f5c3027 100644
+index 685fc99..af19c6b 100644
 --- a/crs-simulation/src/ui/command/api.ts
 +++ b/crs-simulation/src/ui/command/api.ts
 @@ -2,7 +2,7 @@
@@ -4182,7 +4504,7 @@ index 685fc99..f5c3027 100644
   *                     ctx.ui.open('carte_tactique', { x?, z?, mpp?, incidentId?, squadId?, tab? })
   *   'roue_ordres'     roue d'ordres rapide en vue de jeu (touche « Ordres » maintenue ou brève)
   *   'radio'           panneau radio : journal et messages rapides
-@@ -14,20 +14,30 @@ import type { ForceLevel, OrderType } from '@/core/contracts';
+@@ -14,20 +14,32 @@ import type { ForceLevel, OrderType } from '@/core/contracts';
  
  export const COMMAND_SERVICE = 'ui.command';
  
@@ -4204,6 +4526,8 @@ index 685fc99..f5c3027 100644
 -  /** Unité à sélectionner d'emblée. */
 +  /** Unité à mettre en avant : sa fiche s'ouvre. */
    squadId?: number;
++  /** Commissariat à mettre en avant (identifiant du site, « 9e ») : sa fiche s'ouvre. */
++  commissariatId?: string;
 +  /** Section de « Plus… » à ouvrir d'emblée (« Tous les incidents et secours », « Circulation et métro »…). */
    tab?: TacticalTab;
  }
@@ -4340,7 +4664,7 @@ index 0000000..ee25fcf
 +}
 diff --git a/crs-simulation/src/ui/command/bestUnit.ts b/crs-simulation/src/ui/command/bestUnit.ts
 new file mode 100644
-index 0000000..14a621a
+index 0000000..f6f078a
 --- /dev/null
 +++ b/crs-simulation/src/ui/command/bestUnit.ts
 @@ -0,0 +1,428 @@
@@ -4611,7 +4935,7 @@ index 0000000..14a621a
 +  if (kind === 'station') {
 +    const a = line.action;
 +    const entry = a.kind === 'engage' ? a.entryId : -1;
-+    for (const c of env.stationCandidates?.() ?? []) if (c.fromStation === entry) add(c);
++    for (const c of env.stationCandidates?.(r) ?? []) if (c.fromStation === entry) add(c);
 +    return out;
 +  }
 +  if (env.selection.length > 0 && kind !== 'nasse') add(selectionCandidate(r, env));
@@ -4669,7 +4993,7 @@ index 0000000..14a621a
 +  }
 +  // renforts des commissariats : après mes unités, jamais d'office
 +  if (kind === 'troupe' || kind === 'interpeller' || kind === 'any') {
-+    for (const c of env.stationCandidates?.() ?? []) add(c);
++    for (const c of env.stationCandidates?.(r) ?? []) add(c);
 +  }
 +  return out;
 +}
@@ -4732,7 +5056,7 @@ index 0000000..14a621a
 + */
 +export function whoEnvFromCore(
 +  core: CommandCore, card: CardEnv, selection: readonly number[],
-+  ext: { exclude?: (squadId: number) => boolean; stationCandidates?: () => WhoCandidate[] } = {},
++  ext: { exclude?: (squadId: number) => boolean; stationCandidates?: (where?: { x: number; z: number }) => WhoCandidate[] } = {},
 +): WhoEnv {
 +  const scene = core.maps.scene;
 +  const canCommand = (id: number): boolean => core.canCommand(id) && !(ext.exclude && ext.exclude(id));
@@ -4774,7 +5098,7 @@ index 0000000..14a621a
 +}
 diff --git a/crs-simulation/src/ui/command/cardTypes.ts b/crs-simulation/src/ui/command/cardTypes.ts
 new file mode 100644
-index 0000000..0d13648
+index 0000000..33dcb81
 --- /dev/null
 +++ b/crs-simulation/src/ui/command/cardTypes.ts
 @@ -0,0 +1,541 @@
@@ -5216,8 +5540,8 @@ index 0000000..0d13648
 +  canCommand(squadId: number): boolean;
 +  /** Unités à écarter (au poste, en alerte : module des commissariats). */
 +  exclude?(squadId: number): boolean;
-+  /** Renforts des commissariats pour la liste Qui. */
-+  stationCandidates?(): WhoCandidate[];
++  /** Renforts des commissariats pour la liste Qui ; `where` : lieu visé (délai d'arrivée de chacun). */
++  stationCandidates?(where?: { x: number; z: number }): WhoCandidate[];
 +  /** Unités choisies pour une nasse autour de la foule (nasse.ts), null si impossible. */
 +  nasse?(crowdKey: string): { squadIds: number[]; label: string } | null;
 +  /**
@@ -5319,11 +5643,577 @@ index 0000000..0d13648
 +  reason: string;
 +  title: string;
 +}
+diff --git a/crs-simulation/src/ui/command/commissariatsLink.ts b/crs-simulation/src/ui/command/commissariatsLink.ts
+new file mode 100644
+index 0000000..a6b3146
+--- /dev/null
++++ b/crs-simulation/src/ui/command/commissariatsLink.ts
+@@ -0,0 +1,212 @@
++/* =====================================================================================
++ * Carte de commandement — COMMISSARIATS, branchement sur la partie (service 'police.commissariats').
++ *
++ * La station est une source d'unités (Qui) qu'on désigne comme n'importe quel repère (design-commande.md, §7.3) :
++ *   installCommissariats()     une fois, quand le module des commissariats est branché (CommandSystem.init) :
++ *                              « Rentrer au commissariat » au catalogue, environnement des fiches (stations, commissariat
++ *                              d'attache des unités), fiche du commissariat retouchée, « Plus… › Commissariats »,
++ *                              couche « Commissariats » de « Affichage de la carte » ;
++ *   fillStations(env, core)    CardEnv.stations et l'état des unités venues d'un poste (« rentre au commissariat du 9e ») ;
++ *   stationCandidates(core, …) les unités prêtes de tous les postes pour la liste Qui (« Renforts des commissariats ») ;
++ *   stationWhoAt(core, qui, …) Qui « depuis le commissariat » recalculé pour le lieu visé (« OÙ L'ENVOYER ? ») ;
++ *   travelTimes(ctx)           trajets estimés par les rues (deux-tons), mis en cache 5 s par site et par case de 50 m.
++ * Sans le service (module absent, mode éditeur ou essai, extra.commissariats = false), rien n'est ajouté.
++ * ===================================================================================== */
++
++import type { GameContext } from '@/core/contracts';
++import type { CommissariatView } from '@/gameplay/commissariats/api';
++import type { PatrolsApi } from '@/gameplay/patrols/api';
++import { commissariatById } from '@/world/commissariats';
++import { isPoliceRole } from '../maps/visibility';
++import type { CardEnv, CardUnit, WhoCandidate } from './cardTypes';
++import {
++  cardStation, dispatchable, entryKey, restText, stationAt, stationCandidate, stationCard, stationHome,
++} from './commissariatsModel';
++import type { CommandCore } from './core';
++import { DRIVE_SPEED, defaultCardBuilder, registerCardBuilder } from './intents';
++import { ensureStationVerb } from './orders';
++import { mountCommissariatsPanel } from './panelCommissariats';
++import { registerMapLayer, registerMoreSection } from './panelMore';
++import { registerCardEnvHook } from './reperes';
++
++// ───────────────────────────── trajets ─────────────────────────────
++
++/** Sortie des places (embarquement fait, départ échelonné) avant de rouler (s). */
++const DEPART_DELAY = 20;
++/** Case du cache (m), durée de vie d'un trajet (s de partie), taille maximale du cache. */
++const CELL = 50;
++const TTL = 5;
++const CACHE_MAX = 256;
++/** En deçà (m), la distance à vol d'oiseau suffit. */
++const NEAR = 40;
++/** Itinéraire introuvable : détour moyen des rues de Paris. */
++const DETOUR = 1.4;
++
++/** Trajets en véhicule d'un site à un point : distance par les rues et délai deux-tons, mis en cache. */
++export class TravelTimes {
++  private readonly cache = new Map<string, { t: number; distance: number; eta: number }>();
++  private readonly path: number[] = [];
++
++  constructor(private readonly ctx: GameContext) {}
++
++  get(view: Pick<CommissariatView, 'id' | 'returnX' | 'returnZ'>, x: number, z: number): { distance: number; eta: number } {
++    const key = `${view.id}|${Math.round(x / CELL)}|${Math.round(z / CELL)}`;
++    const now = this.ctx.clock.now;
++    const hit = this.cache.get(key);
++    if (hit && now >= hit.t && now - hit.t < TTL) return hit;
++    const straight = Math.hypot(x - view.returnX, z - view.returnZ);
++    let distance = straight;
++    if (straight > NEAR) {
++      distance = straight * DETOUR;
++      const world = this.ctx.world;
++      try {
++        if (world.edgeCount > 0 && world.findPath(view.returnX, view.returnZ, x, z, 'vehicle', this.path)) {
++          let len = 0;
++          for (let i = 2; i + 1 < this.path.length; i += 2) {
++            len += Math.hypot(this.path[i]! - this.path[i - 2]!, this.path[i + 1]! - this.path[i - 1]!);
++          }
++          if (len > 0) distance = Math.max(straight, len);
++        }
++      } catch {
++        /* graphe indisponible : détour moyen */
++      }
++    }
++    const r = { t: now, distance, eta: DEPART_DELAY + distance / DRIVE_SPEED };
++    if (this.cache.size >= CACHE_MAX) this.cache.clear();
++    this.cache.set(key, r);
++    return r;
++  }
++}
++
++const TRAVEL = new WeakMap<GameContext, TravelTimes>();
++
++export function travelTimes(ctx: GameContext): TravelTimes {
++  let t = TRAVEL.get(ctx);
++  if (!t) {
++    t = new TravelTimes(ctx);
++    TRAVEL.set(ctx, t);
++  }
++  return t;
++}
++
++// ───────────────────────────── environnement des fiches ─────────────────────────────
++
++/** Le joueur voit les commissariats (policier) et le module est actif. */
++function stationsVisible(core: CommandCore): boolean {
++  return !!core.commissariats && isPoliceRole(core.ctx.player.state.role);
++}
++
++/** Point de référence des distances : le joueur, sinon la foule principale, sinon aucun. */
++function referenceOf(env: CardEnv): { x: number; z: number } | null {
++  if (env.player) return { x: env.player.x, z: env.player.z };
++  const main = env.crowds.find((c) => c.main) ?? env.crowds[0];
++  return main ? { x: main.x, z: main.z } : null;
++}
++
++/**
++ * Complète l'environnement des fiches : les sites (CardEnv.stations), et pour chaque unité venue d'un poste son
++ * commissariat d'attache et son état (« rentre au commissariat du 9e », « au repos … — encore 1:20 »).
++ */
++export function fillStations(env: CardEnv, core: CommandCore): void {
++  const api = core.commissariats;
++  if (!api || !stationsVisible(core)) return;
++  const ctx = core.ctx;
++  const tt = travelTimes(ctx);
++  const ref = referenceOf(env);
++  const cfg = ctx.session.config;
++  const renforts = !(cfg && cfg.extra && cfg.extra['renforts'] === false);
++  const patrols = ctx.service<PatrolsApi>('police.patrols');
++  const isPatrol = (id: number): boolean => !!patrols && typeof patrols.isPatrol === 'function' && patrols.isPatrol(id);
++  const now = ctx.clock.now;
++  env.stations = api.list.map((v) => cardStation(v, {
++    now, ref, travel: (_id, x, z) => tt.get(v, x, z), renforts, isPatrol, streetOf: (id) => commissariatById(id)?.street ?? '',
++  }));
++  let changed = false;
++  const units: CardUnit[] = env.units.map((u) => {
++    if (u.squadId <= 0) return u;
++    const e = api.entryOf(u.squadId);
++    const view = e ? api.get(e.commissariatId) : undefined;
++    if (!e || !view) return u;
++    changed = true;
++    const at = stationAt(view);
++    switch (e.state) {
++      case 'retour':
++        return {
++          ...u, homeStation: stationHome(view), orderPlace: at,
++          order: { type: 'retour_poste', x: view.returnX, z: view.returnZ, targetId: 0, issuedAt: u.order ? u.order.issuedAt : now },
++        };
++      case 'repos':
++        // déjà rentrée : « Rentrer au commissariat » passe dans « Autres ordres ici… »
++        return { ...u, homeStation: '', order: null, status: `au repos ${at} — encore ${restText(e.restUntil - now)}` };
++      case 'au_poste':
++        return { ...u, homeStation: '', order: null, status: `au poste ${at} — prête` };
++      case 'alerte':
++        return { ...u, homeStation: stationHome(view), status: u.order ? u.status : `en alerte ${at}, équipage à bord` };
++      default:
++        return { ...u, homeStation: stationHome(view) };
++    }
++  });
++  if (changed) env.units = units;
++}
++
++// ───────────────────────────── Qui ─────────────────────────────
++
++/** Unités prêtes (ou en alerte) de tous les postes, la plus rapide au lieu visé d'abord ; [] si le joueur ne peut pas engager. */
++export function stationCandidates(core: CommandCore, where?: { x: number; z: number }): WhoCandidate[] {
++  const api = core.commissariats;
++  if (!api || !api.canDispatch) return [];
++  const tt = travelTimes(core.ctx);
++  const out: { c: WhoCandidate; i: number }[] = [];
++  for (const v of api.list) {
++    for (const e of v.entries) {
++      if (!dispatchable(e)) continue;
++      const tr = where ? tt.get(v, where.x, where.z) : { distance: 0, eta: 0 };
++      out.push({ c: stationCandidate(v, e, tr), i: out.length });
++    }
++  }
++  out.sort((a, b) => a.c.eta - b.c.eta || a.i - b.i);
++  return out.map((o) => o.c);
++}
++
++/** Qui « depuis le commissariat » (OÙ L'ENVOYER ?) : délai et distance recalculés pour le lieu visé. */
++export function stationWhoAt(core: CommandCore, who: WhoCandidate, where: { x: number; z: number }): WhoCandidate {
++  if (who.fromStation === undefined) return who;
++  const api = core.commissariats;
++  const key = entryKey(who.fromStation);
++  const e = api && key ? api.entry(key) : undefined;
++  const view = e && api ? api.get(e.commissariatId) : undefined;
++  if (!view) return who;
++  const tr = travelTimes(core.ctx).get(view, where.x, where.z);
++  return { ...who, eta: tr.eta, distance: tr.distance };
++}
++
++/**
++ * Ce que l'environnement de Qui (bestUnit.whoEnvFromCore) reçoit des commissariats : les unités au poste, en alerte ou
++ * au repos écartées des propositions, de « Toute la compagnie » et de la nasse ; les unités prêtes des postes en
++ * « Renforts des commissariats ».
++ */
++export function stationWhoExt(core: CommandCore): { exclude: (squadId: number) => boolean; stationCandidates: (where?: { x: number; z: number }) => WhoCandidate[] } {
++  return { exclude: (id) => core.atPost(id), stationCandidates: (where) => stationCandidates(core, where) };
++}
++
++// ───────────────────────────── installation ─────────────────────────────
++
++let installed = false;
++
++/** Branche les commissariats dans la carte de commandement (une seule fois ; sans effet sans le module). */
++export function installCommissariats(): void {
++  if (installed) return;
++  installed = true;
++  ensureStationVerb();
++  registerCardEnvHook(fillStations);
++  registerCardBuilder('commissariat', (r, env, intent) => stationCard(defaultCardBuilder(r, env, intent), r, env));
++  registerMoreSection({
++    id: 'commissariats', label: 'Commissariats', key: 'KeyC', icon: 'flag', sub: 'les unités de chaque poste et leur état',
++    available: (core) => stationsVisible(core),
++    mount: (host, core, api) => mountCommissariatsPanel(host, core, api, (id, x, z) => {
++      const v = core.commissariats?.get(id);
++      return v ? travelTimes(core.ctx).get(v, x, z) : { distance: 0, eta: 0 };
++    }),
++  });
++  registerMapLayer('commissariats', 'Commissariats');
++}
+diff --git a/crs-simulation/src/ui/command/commissariatsModel.ts b/crs-simulation/src/ui/command/commissariatsModel.ts
+new file mode 100644
+index 0000000..36853ff
+--- /dev/null
++++ b/crs-simulation/src/ui/command/commissariatsModel.ts
+@@ -0,0 +1,342 @@
++/* =====================================================================================
++ * Carte de commandement — COMMISSARIATS, modèle pur (sans DOM ni partie en cours ; testé tel quel).
++ *
++ * Demande du joueur : « plusieurs commissariats dans la ville pour, quand je serai commandant, pouvoir dispatcher
++ * des unités ». Le service 'police.commissariats' (src/gameplay/commissariats) tient le stock des sept sites ; ce
++ * fichier le met en mots pour la carte de commandement :
++ *   entryNumber / entryKey     identifiant numérique d'une unité du stock (« 9e:tv19 » ↔ 12), celui des fiches ;
++ *   entryCardState, entryStateLabel, entryShortState, entryWhat, entryIcon, defaultVerbOf
++ *                              état et nature d'une unité en clair (« Au poste — prête », « Police secours, 3 gardiens ») ;
++ *   cardStation                un site tel que la fiche du commissariat le lit (CardStation de cardTypes.ts) ;
++ *   stationCandidate           une unité du stock dans la liste Qui (« Renforts des commissariats ») ;
++ *   stationCard                retouche la fiche du commissariat (intents.ts) : ligne de l'unité choisie surlignée,
++ *                              état de chaque unité quand le joueur ne peut pas engager ;
++ *   buildRows                  « Plus… › Commissariats » : les sites, du plus proche au plus loin, et leurs unités.
++ * ===================================================================================== */
++
++import type { OrderType } from '@/core/contracts';
++import type { CommissariatView, EntryState, StockEntryView } from '@/gameplay/commissariats/api';
++import { COMMISSARIATS } from '@/world/commissariats';
++import type { IconName } from '../core/icons';
++import type { Card, CardEnv, CardStation, CardStationEntry, Repere, WhoCandidate } from './cardTypes';
++import { minutesText } from './intents';
++
++// ───────────────────────────── identifiants ─────────────────────────────
++
++const NUMBERS = new Map<string, number>();
++const KEYS = new Map<number, string>();
++let nextNumber = 1;
++
++/** Identifiant numérique (stable pour la durée du jeu) d'une unité du stock, celui des lignes de fiche et de Qui. */
++export function entryNumber(id: string): number {
++  let n = NUMBERS.get(id);
++  if (n === undefined) {
++    n = nextNumber++;
++    NUMBERS.set(id, n);
++    KEYS.set(n, id);
++  }
++  return n;
++}
++
++/** Identifiant du service d'une unité du stock à partir de son numéro ; null s'il est inconnu. */
++export function entryKey(n: number): string | null {
++  return KEYS.get(n) ?? null;
++}
++
++// les unités du stock sont numérotées dans l'ordre des données (à délai égal, la fiche les range dans cet ordre) ;
++// les unités accueillies plus tard prennent les numéros suivants
++for (const def of COMMISSARIATS) for (const tpl of def.stock) entryNumber(tpl.id);
++
++// ───────────────────────────── états et mots ─────────────────────────────
++
++/**
++ * État d'une unité pour l'affichage : 'pret' (au poste, engageable), 'alerte', 'engage', 'retour', 'repos',
++ * 'indisponible', 'hors' (véhicule garé hors dispositif : car, PC mobile).
++ */
++export type StationEntryState = 'pret' | Exclude<EntryState, 'au_poste'> | 'hors';
++
++export function entryCardState(e: Pick<StockEntryView, 'engageable' | 'state' | 'vehicles'>): StationEntryState {
++  if (!e.engageable) return e.vehicles > 0 ? 'hors' : 'indisponible';
++  if (e.state === 'au_poste') return e.vehicles > 0 ? 'pret' : 'indisponible';
++  return e.state;
++}
++
++/** Durée restante d'un repos : « 1:20 ». */
++export function restText(seconds: number): string {
++  const s = Math.max(0, Math.ceil(seconds));
++  const m = Math.floor(s / 60);
++  const r = s % 60;
++  return `${m}:${r < 10 ? '0' : ''}${r}`;
++}
++
++/** État en clair, complet (listes, fiches en lecture seule) : « Au poste — prête », « Au repos 1:20 »… */
++export function entryStateLabel(e: Pick<StockEntryView, 'engageable' | 'state' | 'vehicles' | 'where' | 'restUntil'>, now: number): string {
++  switch (entryCardState(e)) {
++    case 'pret': return 'Au poste — prête';
++    case 'alerte': return 'En alerte (équipage à bord)';
++    case 'engage': return e.where !== '' ? `Engagée — ${e.where}` : 'Engagée';
++    case 'retour': return 'Retour au commissariat';
++    case 'repos': return `Au repos ${restText(e.restUntil - now)}`;
++    case 'hors': return 'Garé — hors dispositif';
++    default: return 'Indisponible';
++  }
++}
++
++/** État en un mot pour la ligne « Envoyer … · prête » de la fiche. */
++export function entryShortState(st: StationEntryState): string {
++  switch (st) {
++    case 'pret': return 'prête';
++    case 'alerte': return 'en alerte';
++    case 'engage': return 'engagée';
++    case 'retour': return 'rentre';
++    case 'repos': return 'au repos';
++    case 'hors': return 'hors dispositif';
++    default: return 'indisponible';
++  }
++}
++
++/** Ce qu'est l'unité, en clair (jargon expliqué) : « Police secours, 3 gardiens », « BRAV-M (policiers à moto), 6 motos ». */
++export function entryWhat(e: Pick<StockEntryView, 'kind' | 'crew' | 'vehicles' | 'label'>): string {
++  const n = (count: number, one: string, many: string): string => `${count} ${count > 1 ? many : one}`;
++  switch (e.kind) {
++    case 'police_secours': return `Police secours, ${n(e.crew, 'gardien', 'gardiens')}`;
++    case 'bac': return `voiture banalisée, ${n(e.crew, 'policier', 'policiers')}`;
++    case 'section_crs': return `section de CRS, ${n(e.vehicles, 'fourgon', 'fourgons')}, ${n(e.crew, 'agent', 'agents')}`;
++    case 'peloton_gm': return `gendarmes mobiles, ${n(e.vehicles, 'fourgon', 'fourgons')}, ${n(e.crew, 'gendarme', 'gendarmes')}`;
++    case 'bravm': return `BRAV-M (policiers à moto), ${n(e.vehicles, 'moto', 'motos')}`;
++    case 'canon_eau': return 'canon à eau (camion qui arrose la foule)';
++    case 'centaure': return 'blindé Centaure (pousse véhicules et barricades)';
++    case 'cellulaire': return 'fourgon cellulaire (transfert des interpellés)';
++    default: return e.label;
++  }
++}
++
++export function entryIcon(e: Pick<StockEntryView, 'kind'>): IconName {
++  switch (e.kind) {
++    case 'police_secours': case 'bac': return 'car';
++    case 'section_crs': return 'role_crs';
++    case 'peloton_gm': return 'shield';
++    case 'bravm': return 'role_bravm';
++    case 'canon_eau': return 'role_operateur_canon_eau';
++    case 'centaure': return 'role_gendarme_centaure';
++    case 'cellulaire': return 'lock';
++    default: return 'car';
++  }
++}
++
++/**
++ * Ordre proposé d'office une fois l'unité engagée (« OÙ L'ENVOYER ? ») : une voiture de patrouille y va d'elle-même
++ * (« Avancer jusqu'à »), la BRAV-M en colonne (ses motos), les autres en véhicules (« Faire mouvement »).
++ */
++export function defaultVerbOf(e: Pick<StockEntryView, 'kind'>, patrol: boolean): OrderType {
++  if (e.kind === 'police_secours' || e.kind === 'bac' || patrol) return 'avancer';
++  if (e.kind === 'bravm') return 'colonne';
++  return 'faire_mouvement';
++}
++
++/** Mots qui ouvrent un nom de voie : en minuscule dans un titre (« COMMISSARIAT DU 9E — rue Chauchat »). */
++const VOIE_WORDS: ReadonlySet<string> = new Set(['rue', 'avenue', 'boulevard', 'place', 'quai', 'pont', 'cours', 'passage', 'square', 'allée', 'impasse', 'rond-point']);
++
++/** « Rue Chauchat » → « rue Chauchat ». */
++export function streetInText(s: string): string {
++  const t = s.trim();
++  const sp = t.indexOf(' ');
++  const first = sp < 0 ? t : t.slice(0, sp);
++  return VOIE_WORDS.has(first.toLocaleLowerCase('fr-FR')) ? first.toLocaleLowerCase('fr-FR') + t.slice(first.length) : t;
++}
++
++/** Nom et rue d'un site : « Commissariat du 9e — rue Chauchat » → { « Commissariat du 9e », « rue Chauchat » }. */
++export function stationTitle(view: Pick<CommissariatView, 'name'>, street: string): { name: string; street: string } {
++  const i = view.name.indexOf(' — ');
++  const name = i >= 0 ? view.name.slice(0, i) : view.name;
++  return { name, street: streetInText(street) };
++}
++
++/** Distance en clair : « 2,1 km », « 380 m ». */
++export function distanceText(m: number): string {
++  if (m >= 1000) return `${(m / 1000).toFixed(1).replace('.', ',')} km`;
++  return `${Math.max(10, Math.round(m / 10) * 10)} m`;
++}
++
++/** Ligne d'un site : « à 2,1 km · ≈ 4 min deux-tons · 3 prêtes ». */
++export function stationSub(distance: number, eta: number, ready: number): string {
++  const parts: string[] = [];
++  if (distance > 0) parts.push(`à ${distanceText(distance)} · ≈ ${minutesText(eta)} deux-tons`);
++  parts.push(ready === 0 ? 'aucune unité prête' : `${ready} prête${ready > 1 ? 's' : ''}`);
++  return parts.join(' · ');
++}
++
++// ───────────────────────────── fiche et Qui ─────────────────────────────
++
++/** Trajet estimé d'un site à un point : distance par les rues (m) et délai deux-tons (s). */
++export type TravelFn = (stationId: string, x: number, z: number) => { distance: number; eta: number };
++
++/** Unité de la fiche, avec son état complet (notes en lecture seule). */
++export interface StationCardEntry extends CardStationEntry {
++  /** « Au poste — prête », « Au repos 1:20 »… */
++  longLabel: string;
++  /** Identifiant du service (« 9e:tv19 »). */
++  key: string;
++}
++
++export interface CardStationOptions {
++  now: number;
++  /** Point de référence des distances et délais (le joueur), null : aucun. */
++  ref: { x: number; z: number } | null;
++  travel: TravelFn;
++  /** La mission permet les renforts (`extra.renforts` ≠ false). */
++  renforts: boolean;
++  /** L'unité engagée est une voiture de patrouille (module des patrouilles). */
++  isPatrol(squadId: number): boolean;
++  /** Rue du site (données figées), sinon ''. */
++  streetOf(stationId: string): string;
++}
++
++/** Un site tel que la fiche du commissariat le lit. */
++export function cardStation(view: CommissariatView, o: CardStationOptions): CardStation {
++  const t = o.ref ? o.travel(view.id, o.ref.x, o.ref.z) : { distance: 0, eta: 0 };
++  const title = stationTitle(view, o.streetOf(view.id));
++  const entries: StationCardEntry[] = view.entries.map((e) => {
++    const st = entryCardState(e);
++    return {
++      entryId: entryNumber(e.id), key: e.id, name: e.callsign, what: entryWhat(e), state: st, stateLabel: entryShortState(st),
++      longLabel: entryStateLabel(e, o.now), eta: t.eta, defaultVerb: defaultVerbOf(e, e.squadId !== 0 && o.isPatrol(e.squadId)),
++      icon: entryIcon(e),
++    };
++  });
++  return { id: view.id, name: title.name, street: title.street, x: view.x, z: view.z, distance: t.distance, eta: t.eta, entries, renforts: o.renforts };
++}
++
++/** Article d'un site dans une phrase (« au commissariat du 9e »), d'après son nom court et son genre. */
++export function stationAt(view: Pick<CommissariatView, 'kind' | 'short'>): string {
++  if (view.kind === 'prefecture') return 'à la préfecture de police';
++  if (view.kind === 'caserne_gendarmerie') return `à la caserne des ${view.short}`;
++  return `au commissariat du ${view.short}`;
++}
++
++/** « commissariat du 9e », « préfecture de police », « caserne des Célestins ». */
++export function stationHome(view: Pick<CommissariatView, 'kind' | 'short'>): string {
++  if (view.kind === 'prefecture') return 'préfecture de police';
++  if (view.kind === 'caserne_gendarmerie') return `caserne des ${view.short}`;
++  return `commissariat du ${view.short}`;
++}
++
++/** Unité du stock proposée dans la liste Qui (« Renforts des commissariats ») : engagée seulement à l'envoi. */
++export function stationCandidate(view: CommissariatView, e: StockEntryView, travel: { distance: number; eta: number }): WhoCandidate {
++  const st = entryCardState(e);
++  return {
++    squadIds: [], label: `${e.callsign} (${stationHome(view)})`, mode: 'vehicules', eta: travel.eta, distance: travel.distance,
++    busy: entryShortState(st), fromStation: entryNumber(e.id),
++  };
++}
++
++/** Unités qu'on peut envoyer : au poste et prêtes, ou déjà en alerte. */
++export function dispatchable(e: Pick<StockEntryView, 'engageable' | 'state' | 'vehicles'>): boolean {
++  const st = entryCardState(e);
++  return st === 'pret' || st === 'alerte';
++}
++
++/** Au plus autant de notes d'état dans la fiche d'un commissariat (la fiche ne défile pas). */
++const MAX_STATE_NOTES = 6;
++
++/**
++ * Retouche la fiche du commissariat construite par intents.ts : l'unité désignée (`r.entryId`, rangée de « Plus… ›
++ * Commissariats ») a sa ligne surlignée ; quand aucune ligne « Envoyer » n'est proposée (lecture seule, chef de groupe,
++ * renforts fixés par l'ordre d'opération, aucune unité prête), l'état de chaque unité est écrit en notes.
++ */
++export function stationCard(base: Card, r: Repere, env: CardEnv): Card {
++  const s = env.stations.find((q) => q.id === r.stationId);
++  if (!s) return base;
++  let defaultLine = base.defaultLine;
++  if (r.entryId !== undefined) {
++    const i = base.lines.findIndex((l) => l.action.kind === 'engage' && l.action.entryId === r.entryId);
++    if (i >= 0) defaultLine = i;
++  }
++  const engageLines = base.lines.some((l) => l.action.kind === 'engage');
++  if (engageLines) return defaultLine === base.defaultLine ? base : { ...base, defaultLine };
++  const notes = base.notes.slice();
++  const list = s.entries as readonly (CardStationEntry & Partial<StationCardEntry>)[];
++  for (const e of list.slice(0, MAX_STATE_NOTES)) notes.push(`${e.name} — ${e.longLabel ?? e.stateLabel}`);
++  if (list.length > MAX_STATE_NOTES) notes.push(`… et ${list.length - MAX_STATE_NOTES} autre${list.length - MAX_STATE_NOTES > 1 ? 's' : ''}`);
++  return { ...base, notes, defaultLine };
++}
++
++// ───────────────────────────── « Plus… › Commissariats » ─────────────────────────────
++
++/** Ce que fait un clic sur une unité de la liste : l'envoyer (fiche du poste, sa ligne surlignée), sa fiche, rien. */
++export type StationUnitAction = 'envoyer' | 'fiche' | 'aucune';
++
++export interface StationListUnit {
++  key: string;
++  entryId: number;
++  squadId: number;
++  /** « TV 75-19 ». */
++  name: string;
++  /** « Police secours, 3 gardiens ». */
++  what: string;
++  state: StationEntryState;
++  /** « Au poste — prête ». */
++  stateText: string;
++  icon: IconName;
++  action: StationUnitAction;
++}
++
++export interface StationListPatrol {
++  squadId: number;
++  name: string;
++  /** « En patrouille », « En route (urgence) »… */
++  status: string;
++}
++
++export interface StationListRow {
++  id: string;
++  /** « Commissariat du 9e — rue Chauchat ». */
++  title: string;
++  /** « à 2,1 km · ≈ 4 min deux-tons · 3 prêtes ». */
++  sub: string;
++  distance: number;
++  ready: number;
++  units: StationListUnit[];
++  patrols: StationListPatrol[];
++}
++
++export interface RowsOptions extends Omit<CardStationOptions, 'renforts' | 'isPatrol'> {
++  /** Le joueur peut engager (commandant, renforts permis). */
++  canDispatch: boolean;
++  /** L'unité existe et le joueur peut lui donner des ordres (sa fiche s'ouvre). */
++  commandable(squadId: number): boolean;
++  /** Patrouille rattachée au site : indicatif et état (null : inconnue). */
++  patrol(squadId: number): { name: string; status: string } | null;
++}
++
++/** Les sites, du plus proche du point de référence au plus loin (à distance égale, l'ordre des données). */
++export function buildRows(views: readonly CommissariatView[], o: RowsOptions): StationListRow[] {
++  const rows = views.map((v, index) => {
++    const t = o.ref ? o.travel(v.id, o.ref.x, o.ref.z) : { distance: 0, eta: 0 };
++    const title = stationTitle(v, o.streetOf(v.id));
++    const units: StationListUnit[] = v.entries.map((e) => {
++      const st = entryCardState(e);
++      const action: StationUnitAction = o.canDispatch && dispatchable(e) ? 'envoyer'
++        : e.squadId !== 0 && o.commandable(e.squadId) ? 'fiche' : 'aucune';
++      return {
++        key: e.id, entryId: entryNumber(e.id), squadId: e.squadId, name: e.callsign, what: entryWhat(e), state: st,
++        stateText: entryStateLabel(e, o.now), icon: entryIcon(e), action,
++      };
++    });
++    const patrols: StationListPatrol[] = [];
++    for (const id of v.patrols) {
++      const p = o.patrol(id);
++      if (p) patrols.push({ squadId: id, name: p.name, status: p.status });
++    }
++    const ready = units.filter((u) => u.state === 'pret').length;
++    return {
++      row: {
++        id: v.id, title: title.street !== '' ? `${title.name} — ${title.street}` : title.name, sub: stationSub(t.distance, t.eta, ready),
++        distance: t.distance, ready, units, patrols,
++      },
++      index,
++    };
++  });
++  rows.sort((a, b) => a.row.distance - b.row.distance || a.index - b.index);
++  return rows.map((r) => r.row);
++}
 diff --git a/crs-simulation/src/ui/command/core.ts b/crs-simulation/src/ui/command/core.ts
-index 5e51c3a..7d9ff2a 100644
+index 5e51c3a..b4aaecf 100644
 --- a/crs-simulation/src/ui/command/core.ts
 +++ b/crs-simulation/src/ui/command/core.ts
-@@ -10,13 +10,16 @@ import type { IncidentsApi, MetroApi, RescueApi, TrafficControlApi, UiKit } from
+@@ -10,13 +10,20 @@ import type { IncidentsApi, MetroApi, RescueApi, TrafficControlApi, UiKit } from
  import type { MapsRuntime } from '../maps/runtime';
  import type { CommandApi, CommandScope, IssuedOrder } from './api';
  import { issueObstacle } from './obstacleOrder';
@@ -5338,10 +6228,14 @@ index 5e51c3a..7d9ff2a 100644
 +import { LegalChain } from './legalChain';
 +import { cardEnvFromCore } from './reperes';
 +import { coreLegalDeps } from './sendLine';
++import { COMMISSARIATS_SERVICE } from '@/gameplay/commissariats/api';
++import type { CommissariatsApi, RecallTarget } from '@/gameplay/commissariats/api';
++import { entryKey, stationAt } from './commissariatsModel';
++import { radioFrame } from './phrases';
  
  const ISSUED_MAX = 50;
  /** Distance (m) au-delà de laquelle un ordre de mouvement se fait en véhicules ; ordres concernés. */
-@@ -49,11 +52,23 @@ export class CommandCore implements CommandApi {
+@@ -49,11 +56,53 @@ export class CommandCore implements CommandApi {
     * ou par P (comme une proposition de l'adjoint), écartée par Échap ou Maj + P. Propre à la session.
     */
    nasse: NasseProposal | null = null;
@@ -5355,17 +6249,47 @@ index 5e51c3a..7d9ff2a 100644
  
    constructor(readonly ctx: GameContext, readonly maps: MapsRuntime, public kit: UiKit | undefined) {}
  
++  // ───────────────────────────── commissariats ─────────────────────────────
++
++  /** Service des commissariats (module gameplay/commissariats), s'il est branché et actif dans cette partie. */
++  get commissariats(): CommissariatsApi | undefined {
++    const a = this.ctx.service<CommissariatsApi>(COMMISSARIATS_SERVICE);
++    return a && typeof a.engage === 'function' && a.enabled ? a : undefined;
++  }
++
 +  /**
-+   * Engage une unité d'un commissariat (module des commissariats, qui fournit cette méthode) : elle quitte le poste et
-+   * passe sous les ordres du joueur ; l'ordre de la fiche lui est donné dans le même pas (sendLine.ts). Absente : les
-+   * lignes de renfort ne sont pas proposées.
++   * Unité d'un commissariat encore au poste, en alerte dans ses places ou au repos : écartée des propositions du jeu
++   * (Qui), de « Toute la compagnie », de la nasse et du parcours des unités (U).
 +   */
-+  engageFromCommissariat?(entryId: number): { ok: boolean; squadId: number; reason: string };
++  atPost(squadId: number): boolean {
++    const a = squadId > 0 ? this.commissariats : undefined;
++    return !!a && a.atPost(squadId);
++  }
++
++  /** Sous les ordres du joueur et pas au poste : unité que le jeu peut proposer ou parcourir. */
++  canOrder(squadId: number): boolean {
++    return this.canCommand(squadId) && !this.atPost(squadId);
++  }
++
++  /**
++   * Engage une unité d'un commissariat (numéro d'entrée des fiches, commissariatsModel.entryNumber) : l'équipage est
++   * créé à bord, « En alerte », et l'unité passe sous les ordres du joueur. L'étendue du commandement est recalculée
++   * tout de suite : l'ordre de la fiche lui est donné dans le même pas (sendLine.ts).
++   */
++  engageFromCommissariat(entryId: number): { ok: boolean; squadId: number; reason: string } {
++    const a = this.commissariats;
++    if (!a) return { ok: false, squadId: 0, reason: 'Pas de commissariat dans cette partie.' };
++    const key = entryKey(entryId);
++    if (!key) return { ok: false, squadId: 0, reason: 'Unité inconnue.' };
++    const r = a.engage(key, this.ctx.player.state.personId);
++    this.invalidateScope();
++    return { ok: r.ok, squadId: r.squadId, reason: r.reason };
++  }
 +
    // ───────────────────────────── services facultatifs ─────────────────────────────
  
    get incidents(): IncidentsApi | undefined {
-@@ -145,7 +160,7 @@ export class CommandCore implements CommandApi {
+@@ -145,7 +194,7 @@ export class CommandCore implements CommandApi {
      if (verb.force > roe.authorizedForce && !roe.underAttack) {
        return {
          ok: false, warning: '',
@@ -5374,6 +6298,128 @@ index 5e51c3a..7d9ff2a 100644
        };
      }
      let warning = '';
+@@ -166,6 +215,8 @@ export class CommandCore implements CommandApi {
+     if (!chk.ok) return { ok: false, reason: chk.reason, count: 0 };
+     // « Dégager l'obstacle » : c'est un Centaure qui pousse (le désigné, sinon le plus proche sous vos ordres)
+     if (type === 'degager_obstacle') return issueObstacle(this, squads, geoms);
++    // « Rentrer au commissariat » : retour sans deux-tons à ses places (ou à la porte), pas un ordre de la simulation
++    if (type === 'retour_poste') return this.recallSquads(squads);
+     const ctx = this.ctx;
+     const playerId = ctx.player.state.personId;
+     const maxForce = this.effectiveForce();
+@@ -189,10 +240,13 @@ export class CommandCore implements CommandApi {
+       // tout autre ordre : l'unité quitte la colonne du joueur (ses véhicules cessent de le suivre)
+       this.follow?.release(s.id);
+       const patrol = this.isPatrol(s.id);
+-      const t: OrderType = patrol && type === 'faire_mouvement' ? 'avancer' : type;
++      // BRAV-M : ses véhicules sont ses motos ; « Faire mouvement » vaut « En colonne » (elle remonte en selle d'elle-même
++      // pour un point éloigné), sans l'avis trompeur « pas de véhicule : mouvement à pied »
++      const bravm = !patrol && type === 'faire_mouvement' && !!g && this.isBravm(s);
++      const t: OrderType = patrol && type === 'faire_mouvement' ? 'avancer' : bravm ? 'colonne' : type;
+       // mouvement motorisé : demandé (« Faire mouvement ») ou implicite pour un point éloigné d'une unité qui a ses
+       // véhicules — elle embarque, roule en colonne jusqu'au point, débarque, puis exécute l'ordre donné
+-      if (g && !patrol && (type === 'faire_mouvement' || (MOTOR_AUTO.has(type) && this.farFor(s, g.x, g.z)))) {
++      if (g && !patrol && !bravm && (type === 'faire_mouvement' || (MOTOR_AUTO.has(type) && this.farFor(s, g.x, g.z)))) {
+         // une unité dont un supérieur est aussi désigné fait partie de sa colonne
+         if (squads.some((q) => q !== s && this.isAncestor(q.id, s))) { count++; continue; }
+         if (this.motorize(s, type, g, from, false, targetId)) { count++; continue; }
+@@ -219,7 +273,7 @@ export class CommandCore implements CommandApi {
+         const dist = leader ? Math.hypot(o.x - leader.x, o.z - leader.z) : 0;
+         ctx.radio.say({
+           channel: 'commandement', from, priority: verb.coercive ? 2 : 1, personId: playerId,
+-          text: orderPhrase({
++          text: bravm ? radioFrame(s.name, from, `Mouvement à moto, en colonne, sur ${this.placeName(t, o.x, o.z) || 'le point indiqué'}`) : orderPhrase({
+             type: t, unit: s.name, from, sector: g ? this.placeName(t, o.x, o.z) : '', heading: o.heading, width: o.width,
+             distance: dist, target: targetName, passersby: targetId === BARRAGE_LET_PASSERSBY,
+           }),
+@@ -372,6 +426,87 @@ export class CommandCore implements CommandApi {
+     return false;
+   }
+ 
++  /** L'unité est-elle une BRAV-M (unité spéciale du commandement, ou binômes dotés d'une moto) ? */
++  private isBravm(s: Squad): boolean {
++    const ctx = this.ctx;
++    const cmd = ctx.service<{ special(squadId: number): { kind: string } | null }>('police.command');
++    if (cmd && typeof cmd.special === 'function' && cmd.special(s.id)?.kind === 'bravm') return true;
++    const moto = (id: number): boolean => id !== 0 && ctx.vehicles.get(id)?.kind === 'moto_bravm';
++    if (s.kind === 'binome') return moto(s.vehicleId);
++    return ctx.squads.childrenOf(s.id).some((k) => k.kind === 'binome' && moto(k.vehicleId));
++  }
++
++  // ───────────────────────────── retour au commissariat ─────────────────────────────
++
++  /**
++   * « Rentrer au commissariat » : chaque unité rentre à son site (unité du stock : le sien ; patrouille : son
++   * commissariat ; compagnie de la journée : sa base ; autre : le plus proche), sans deux-tons. Une partie d'une unité
++   * du stock (binôme de la BRAV-M, groupe d'une section) ramène toute l'unité. À l'arrivée, le module des
++   * commissariats remet les interpellés, complète les réserves et met l'équipage au repos.
++   */
++  private recallSquads(squads: readonly Squad[]): IssueResult {
++    const api = this.commissariats;
++    if (!api) return { ok: false, reason: 'Aucun commissariat joignable.', count: 0 };
++    const ctx = this.ctx;
++    const playerId = ctx.player.state.personId;
++    const from = this.callsign();
++    const seen = new Set<number>();
++    let count = 0;
++    let reason = '';
++    for (const s0 of squads) {
++      if (!this.canCommand(s0.id)) continue;
++      const entry = api.entryOf(s0.id);
++      const s = entry && entry.squadId !== 0 ? ctx.squads.get(entry.squadId) ?? s0 : s0;
++      if (seen.has(s.id)) continue;
++      seen.add(s.id);
++      if (entry && (entry.state === 'au_poste' || entry.state === 'repos')) {
++        const home = api.get(entry.commissariatId);
++        reason = `${s.name} est déjà ${home ? stationAt(home) : 'au commissariat'}.`;
++        continue;
++      }
++      const alert = entry?.state === 'alerte';
++      const target = api.recall(s.id);
++      if (!target) {
++        reason = 'Aucun commissariat joignable.';
++        continue;
++      }
++      const view = api.get(target.commissariatId);
++      const where = view ? stationAt(view) : 'au commissariat';
++      this.afterConvoy.delete(s.id);
++      this.follow?.release(s.id);
++      // en alerte, l'unité est encore dans ses places : l'alerte est levée, elle ne bouge pas
++      if (!alert) this.driveHome(s, target, playerId);
++      this.trace(s, 'retour_poste' as OrderType);
++      if (count < 3) {
++        ctx.radio.say({
++          channel: 'commandement', from, priority: 1, personId: playerId,
++          text: alert ? radioFrame(s.name, from, `Alerte levée, restez ${where}`)
++            : orderPhrase({ type: 'retour_poste' as OrderType, unit: s.name, from, sector: where, heading: 0, width: 0, distance: 0, target: '' }),
++        });
++      }
++      count++;
++    }
++    if (count === 0) return { ok: false, reason: reason || 'Aucune des unités sélectionnées n’est sous vos ordres.', count: 0 };
++    ctx.audio.play('radio_bip');
++    return { ok: true, reason: '', count };
++  }
++
++  /**
++   * Mouvement de retour : une voiture de patrouille rentre seule à sa place ; une unité qui a ses véhicules embarque et
++   * roule sans urgence jusqu'au centre de sa file de places, où elle se gare sans débarquer ; à pied (ou à moto : la
++   * BRAV-M remonte en selle d'elle-même pour un point éloigné), elle va jusqu'à la porte.
++   */
++  private driveHome(s: Squad, t: RecallTarget, playerId: number): void {
++    const ctx = this.ctx;
++    const patrols = ctx.service<{ isPatrol(id: number): boolean; sendHome(id: number, at: { x: number; z: number; heading: number }, by?: number): boolean }>('police.patrols');
++    if (patrols && typeof patrols.sendHome === 'function' && patrols.isPatrol(s.id) && patrols.sendHome(s.id, { x: t.x, z: t.z, heading: t.heading }, playerId)) return;
++    const cmd = ctx.service<{ arrive(id: number, dest: Record<string, unknown>): boolean }>('police.command');
++    if (cmd && this.hasVehicles(s) && cmd.arrive(s.id, {
++      x: t.x, z: t.z, heading: t.heading, layout: 'file', boardFirst: true, stagger: true, disembark: false, urgence: false,
++    })) return;
++    ctx.squads.issue(s.id, { type: 'colonne', x: t.doorX, z: t.doorZ, heading: t.heading, width: 0, targetId: 0, maxForce: this.effectiveForce(), issuedBy: playerId });
++  }
++
+   /** Fin du débarquement d'une colonne : l'ordre donné est exécuté sur place. */
+   onConvoyStage(squadId: number, stage: string): void {
+     if (stage !== 'en_place') return;
 diff --git a/crs-simulation/src/ui/command/hud.ts b/crs-simulation/src/ui/command/hud.ts
 index fcff3b1..9c9412a 100644
 --- a/crs-simulation/src/ui/command/hud.ts
@@ -5437,10 +6483,10 @@ index fcff3b1..9c9412a 100644
      // un nouvel ordre clignote brièvement
      const key = o ? o.type + '@' + o.issuedAt : '';
 diff --git a/crs-simulation/src/ui/command/index.ts b/crs-simulation/src/ui/command/index.ts
-index 87f1057..4f0a32c 100644
+index 87f1057..4cd76e4 100644
 --- a/crs-simulation/src/ui/command/index.ts
 +++ b/crs-simulation/src/ui/command/index.ts
-@@ -22,14 +22,16 @@ import { COMMAND_SERVICE } from './api';
+@@ -22,14 +22,18 @@ import { COMMAND_SERVICE } from './api';
  import { CommandCore } from './core';
  import { IncidentHud, UnitHud } from './hud';
  import { OrderWheelScreen, WHEEL_SCREEN } from './orderWheel';
@@ -5449,6 +6495,8 @@ index 87f1057..4f0a32c 100644
  import { RADIO_SCREEN, RadioScreen } from './radioScreen';
 +import { installTacticalParts } from './tacticalParts';
  import { TacticalScreen } from './tacticalScreen';
++import { installCommissariats } from './commissariatsLink';
++import { COMMISSARIATS_SERVICE } from '@/gameplay/commissariats/api';
  
  export type { CommandApi, CommandLevel, CommandScope, IssuedOrder, TacticalOpenData, TacticalTab } from './api';
  export { COMMAND_SERVICE } from './api';
@@ -5458,7 +6506,7 @@ index 87f1057..4f0a32c 100644
  
  export const COMMAND_SYSTEM_ID = 'ui:command';
  
-@@ -40,6 +42,8 @@ interface KettleEvent { id: number; closed: boolean; inside: number; x: number;
+@@ -40,6 +44,8 @@ interface KettleEvent { id: number; closed: boolean; inside: number; x: number;
  export const UNIT_WIDGET_ID = 'command.unit';
  export const INCIDENT_WIDGET_ID = 'command.incident';
  export const QUICK_WIDGET_ID = 'command.quick';
@@ -5467,7 +6515,16 @@ index 87f1057..4f0a32c 100644
  
  export class CommandSystem implements GameSystem {
    readonly id = COMMAND_SYSTEM_ID;
-@@ -80,6 +84,7 @@ export class CommandSystem implements GameSystem {
+@@ -66,6 +72,8 @@ export class CommandSystem implements GameSystem {
+ 
+   init(ctx: GameContext): void {
+     const core = this.core!;
++    // module des commissariats branché : « Rentrer au commissariat », fiches des postes, « Plus… › Commissariats »
++    if (ctx.service(COMMISSARIATS_SERVICE)) installCommissariats();
+     const kit = (this.kit = ctx.headless ? undefined : ctx.service<UiKit>(EXT.uiKit));
+     core.kit = kit;
+     this.unsub.push(
+@@ -80,6 +88,7 @@ export class CommandSystem implements GameSystem {
          core.afterConvoy.clear();
          core.orderForce = 4;
          core.nasse = null;
@@ -5475,7 +6532,7 @@ index 87f1057..4f0a32c 100644
          this.ordersDirty = true;
        }),
        // nasse fermée (service 'police.barrages') : le commandement en est averti même carte fermée
-@@ -97,6 +102,8 @@ export class CommandSystem implements GameSystem {
+@@ -97,6 +106,8 @@ export class CommandSystem implements GameSystem {
        if (!ctx.headless) console.warn('[commandement] boîte à outils d’interface absente : ni carte tactique ni roue d’ordres');
        return;
      }
@@ -5484,7 +6541,7 @@ index 87f1057..4f0a32c 100644
      kit.registerScreen('carte_tactique', (host, data) => {
        const screen = new TacticalScreen(core, host, data);
        this.tactical = screen;
-@@ -112,7 +119,15 @@ export class CommandSystem implements GameSystem {
+@@ -112,7 +123,15 @@ export class CommandSystem implements GameSystem {
      kit.addHudWidget(UNIT_WIDGET_ID, 'top', (host) => new UnitHud(core, host));
      kit.addHudWidget(INCIDENT_WIDGET_ID, 'top', (host) => new IncidentHud(core, host));
      // carte tactique et secours en un clic, à gauche sous la mini-carte
@@ -5501,7 +6558,7 @@ index 87f1057..4f0a32c 100644
    }
  
    frame(): void {
-@@ -152,7 +167,7 @@ export class CommandSystem implements GameSystem {
+@@ -152,7 +171,7 @@ export class CommandSystem implements GameSystem {
        const s = ctx.world.sectorName(e.x, e.z);
        place = s && s !== 'secteur inconnu' ? s : '';
      }
@@ -5510,7 +6567,7 @@ index 87f1057..4f0a32c 100644
      ctx.ui.notify(`${kettleBanner({ place, inside: e.inside })}.${filter}`, 'warn', 7);
    }
  
-@@ -175,6 +190,7 @@ export class CommandSystem implements GameSystem {
+@@ -175,6 +194,7 @@ export class CommandSystem implements GameSystem {
      this.unsub.length = 0;
      this.kit?.removeHudWidget(UNIT_WIDGET_ID);
      this.kit?.removeHudWidget(INCIDENT_WIDGET_ID);
@@ -6932,6 +7989,20 @@ index 0000000..f9fcd08
 +    return this.finished;
 +  }
 +}
+diff --git a/crs-simulation/src/ui/command/nasse.ts b/crs-simulation/src/ui/command/nasse.ts
+index d5936ce..2b36a58 100644
+--- a/crs-simulation/src/ui/command/nasse.ts
++++ b/crs-simulation/src/ui/command/nasse.ts
+@@ -174,7 +174,8 @@ export function nasseCandidates(core: CommandCore, selected: readonly MapUnit[],
+   const units = core.maps.scene.units;
+   for (let i = 0; i < units.length; i++) {
+     const u = units[i]!;
+-    if (seen.has(u.key) || u.childCount > 0 || !core.canCommand(u.squadId)) continue;
++    // (une unité d'un commissariat encore au poste, en alerte ou au repos n'est pas proposée)
++    if (seen.has(u.key) || u.childCount > 0 || !core.canOrder(u.squadId)) continue;
+     // une unité dont un supérieur est déjà candidat en fait partie
+     let parent = u.parentKey;
+     let inside = false;
 diff --git a/crs-simulation/src/ui/command/orderWheel.ts b/crs-simulation/src/ui/command/orderWheel.ts
 index 78fe9e9..c91a951 100644
 --- a/crs-simulation/src/ui/command/orderWheel.ts
@@ -7493,7 +8564,7 @@ index 78fe9e9..c91a951 100644
  }
 +
 diff --git a/crs-simulation/src/ui/command/orders.ts b/crs-simulation/src/ui/command/orders.ts
-index 0cedfd2..52fad80 100644
+index 0cedfd2..68f9c51 100644
 --- a/crs-simulation/src/ui/command/orders.ts
 +++ b/crs-simulation/src/ui/command/orders.ts
 @@ -25,6 +25,22 @@ export interface OrderVerb {
@@ -7519,7 +8590,7 @@ index 0cedfd2..52fad80 100644
  }
  
  /** Consigne de l'ordre « Barrer la rue » (palette, ordre rapide, roue, aperçu). */
-@@ -66,85 +82,212 @@ export function barrageTargetId(type: OrderType, letPass: boolean, targetId = 0)
+@@ -66,85 +82,232 @@ export function barrageTargetId(type: OrderType, letPass: boolean, targetId = 0)
  
  export const ORDER_VERBS: readonly OrderVerb[] = [
    { type: 'tenir', label: 'Tenir la position', short: 'Tenir', group: 'posture', gesture: 'immediate', force: 1, coercive: false,
@@ -7647,8 +8718,26 @@ index 0cedfd2..52fad80 100644
 +    plain: 'Rentrer au commissariat', tag: 'RENTRE', explain: 'Retour sans deux-tons\u00a0; au repos puis de nouveau prête.',
 +    doing: 'rentre au commissariat',
 +  },
++};
++
++/**
++ * « Rentrer au commissariat » (`retour_poste`) : l'unité rentre sans deux-tons à ses places, remet ses interpellés,
++ * complète ses réserves, se repose, puis redevient prête. Ce n'est pas un ordre de la simulation : le noyau
++ * (core.ts) le traduit en colonne sans urgence (police.command.arrive), en retour de patrouille (police.patrols) ou en
++ * marche jusqu'à la porte. Ajouté au catalogue par ensureStationVerb, seulement quand le module des commissariats est
++ * branché (sans lui, ni la fiche ni « Tous les ordres » ne le proposent).
++ */
++export const STATION_VERB: OrderVerb = {
++  type: 'retour_poste' as OrderType, label: 'Rentrer au commissariat', short: 'Rentrer', group: 'fin', gesture: 'immediate', force: 0,
++  coercive: false, hint: '', rule: '', ...EXTRA_PLAIN['retour_poste']!,
  };
  
++/** Ajoute « Rentrer au commissariat » au catalogue (une seule fois). */
++export function ensureStationVerb(): void {
++  if (verbOf(STATION_VERB.type)) return;
++  (ORDER_VERBS as OrderVerb[]).push(STATION_VERB);
++}
++
 +/** Étiquette de « Barrer la rue, passants admis » (targetId BARRAGE_LET_PASSERSBY). */
 +export const TAG_PASSERSBY = 'BARRE (PASSANTS)';
 +
@@ -7694,11 +8783,8 @@ index 0cedfd2..52fad80 100644
 +  if (tag === '') return 'Ordre en cours';
 +  const low = tag.toLocaleLowerCase('fr-FR');
 +  return low.charAt(0).toLocaleUpperCase('fr-FR') + low.slice(1);
- }
- 
--/** Intitulés des niveaux de force, dans l'ordre de la gradation. */
--export const FORCE_LABELS: readonly string[] = [
--  'Aucune force', 'Présence, contact', 'Bâton, gazeuse', 'Lacrymogènes, canon à eau', 'GM2L, désencerclement, LBD', 'Arme à feu',
++}
++
 +/** Article devant un nom de voie ou de lieu : « la rue de Rivoli », « le boulevard Haussmann », « l’avenue Foch ». */
 +/** Mots qui ouvrent un nom de voie : écrits en minuscule au milieu d'une phrase (« barre la place de la Concorde »). */
 +const VOIE_WORDS: ReadonlySet<string> = new Set([
@@ -7718,8 +8804,11 @@ index 0cedfd2..52fad80 100644
 +  const masc = new Set(['boulevard', 'quai', 'pont', 'cours', 'passage', 'carrefour', 'faubourg', 'square', 'parvis', 'rond-point', 'jardin', 'port', 'pont-neuf']);
 +  if (masc.has(first)) return 'le ' + body;
 +  return 'la ' + body;
-+}
-+
+ }
+ 
+-/** Intitulés des niveaux de force, dans l'ordre de la gradation. */
+-export const FORCE_LABELS: readonly string[] = [
+-  'Aucune force', 'Présence, contact', 'Bâton, gazeuse', 'Lacrymogènes, canon à eau', 'GM2L, désencerclement, LBD', 'Arme à feu',
 +/** Ordres dont l'activité porte sur une rue (« barre la rue de Rivoli »). */
 +const STREET_DOING: Readonly<Record<string, string>> = { couper_circulation: 'barre', filtrer: 'filtre' };
 +
@@ -7734,6 +8823,8 @@ index 0cedfd2..52fad80 100644
 +  let text: string;
 +  const street = STREET_DOING[String(type)];
 +  if (street && p !== '') text = `${street} ${withArticle(p)}${type === 'couper_circulation' && targetId === BARRAGE_LET_PASSERSBY ? ', passants admis' : ''}`;
++  // retour : le lieu est déjà dit avec sa préposition (« au commissariat du 9e », « à la préfecture de police »)
++  else if (type === 'retour_poste' && /^(au|à) /.test(p)) text = `rentre ${p}`;
 +  else text = p !== '' ? `${w.doing} · ${p}` : w.doing;
 +  return text.charAt(0).toLocaleUpperCase('fr-FR') + text.slice(1);
 +}
@@ -7744,7 +8835,8 @@ index 0cedfd2..52fad80 100644
 + */
 +export const FORCE_WORDS: readonly string[] = [
 +  'aucune force', 'mains nues', 'bâton et gazeuse', 'gaz lacrymogène et canon à eau', 'grenades et lanceurs de balles (LBD)', 'arme à feu',
-+];
+ ];
+-export const FORCE_SHORT: readonly string[] = ['Aucune', 'Contact', 'Bâton', 'Lacrymogènes', 'LBD, GM2L', 'Arme'];
 +
 +/** Mots d'un niveau de force (« mains nues ») ; borné à 0..5, jamais un chiffre. */
 +export function forceWord(level: number): string {
@@ -7756,8 +8848,7 @@ index 0cedfd2..52fad80 100644
 +const AUTHORIZE_WORDS: readonly string[] = [
 +  'autoriser l’emploi de la force', 'autoriser les mains nues', 'autoriser le bâton et la gazeuse', 'autoriser le gaz',
 +  'autoriser les grenades et les lanceurs de balles (LBD)', 'autoriser l’arme à feu',
- ];
--export const FORCE_SHORT: readonly string[] = ['Aucune', 'Contact', 'Bâton', 'Lacrymogènes', 'LBD, GM2L', 'Arme'];
++];
 +
 +/** « autoriser le gaz » pour le niveau 3 (étapes légales des fiches). */
 +export function authorizeWord(level: number): string {
@@ -8660,12 +9751,263 @@ index 0000000..1e27ed6
 +    if (this.root.parentNode === this.host) this.host.removeChild(this.root);
 +  }
 +}
+diff --git a/crs-simulation/src/ui/command/panelCommissariats.ts b/crs-simulation/src/ui/command/panelCommissariats.ts
+new file mode 100644
+index 0000000..f01fec0
+--- /dev/null
++++ b/crs-simulation/src/ui/command/panelCommissariats.ts
+@@ -0,0 +1,245 @@
++/* =====================================================================================
++ * Carte de commandement — « PLUS… › COMMISSARIATS » : la liste complète des sept sites et de leurs unités
++ * (ouverte aussi par la ligne « Toutes les unités du poste… » de la fiche d'un commissariat, sur ce poste).
++ *
++ *   un site par rangée, du plus proche au plus loin : « Commissariat du 9e — rue Chauchat » /
++ *   « à 2,1 km · ≈ 4 min deux-tons · 3 prêtes » ; Entrée, un clic ou son numéro le déplie (ou le replie) ;
++ *   dessous, une rangée par unité : « TV 75-19 · Police secours, 3 gardiens » / « Au poste — prête », puis les
++ *   patrouilles du secteur (« En patrouille »), qui ne font pas partie du stock.
++ * Une unité prête s'envoie : la fiche du poste s'ouvre, sa ligne « Envoyer … » surlignée (Entrée, ou « Donner
++ * l'ordre », puis on montre où). Une unité partie ouvre sa fiche (« Rentrer au commissariat » y est). Sans droit
++ * d'engager (lecture seule, chef de groupe, renforts fixés), la liste ne fait que renseigner.
++ * Rangées de 44 px au moins (48 px au doigt) ; clavier : ↑↓ / chiffres / Entrée de la feuille (tacticalScreen.ts).
++ * Le DOM n'est reconstruit que lorsque la structure change (sites dépliés, unités, actions) ; les textes sont mis à
++ * jour sur place (compte à rebours du repos, distances). Attributs data-id pour les scénarios du navigateur.
++ * ===================================================================================== */
++
++import type { PatrolsApi } from '@/gameplay/patrols/api';
++import { commissariatById } from '@/world/commissariats';
++import { iconMarkup } from '../core/icons';
++import { el, setText } from '../maps/icons';
++import { commissariatIconUrl } from '../maps/symbols';
++import type { Repere } from './cardTypes';
++import { buildRows } from './commissariatsModel';
++import type { StationListRow, TravelFn } from './commissariatsModel';
++import type { CommandCore } from './core';
++import type { MoreSectionApi, MoreSectionView } from './panelMore';
++import { cardEnvFromCore, unitRepere } from './reperes';
++
++/** Note sous le titre quand le joueur ne peut pas engager. */
++export function dispatchNote(core: CommandCore): string {
++  const api = core.commissariats;
++  if (!api || api.canDispatch) return '';
++  if (core.scope().level !== 'tout') return 'Seul le commandant engage les moyens des commissariats.';
++  const cfg = core.ctx.session.config;
++  if (cfg && cfg.extra && cfg.extra['renforts'] === false) return 'Moyens fixés par l’ordre d’opération.';
++  return 'Renforts indisponibles pour l’instant.';
++}
++
++/** Lignes de la liste, lues dans la partie (distances depuis le joueur ; sans joueur, dans l'ordre des données). */
++export function commissariatRows(core: CommandCore, travel: TravelFn): StationListRow[] {
++  const api = core.commissariats;
++  if (!api) return [];
++  const ctx = core.ctx;
++  const me = core.player();
++  const patrols = ctx.service<PatrolsApi>('police.patrols');
++  return buildRows(api.list, {
++    now: ctx.clock.now,
++    ref: me ? { x: me.x, z: me.z } : null,
++    travel,
++    streetOf: (id) => commissariatById(id)?.street ?? '',
++    canDispatch: api.canDispatch,
++    commandable: (id) => core.canCommand(id),
++    patrol: (id) => {
++      const s = ctx.squads.get(id);
++      const p = patrols && typeof patrols.statusOf === 'function' ? patrols.statusOf(id) : null;
++      if (!s) return null;
++      return { name: s.name, status: p ? (p.state === 'patrouille' ? 'En patrouille' : p.label) : 'En patrouille' };
++    },
++  });
++}
++
++interface UnitEls { state: HTMLElement }
++interface SiteEls { sub: HTMLElement; units: Map<string, UnitEls> }
++
++class CommissariatsPanel implements MoreSectionView {
++  readonly root: HTMLDivElement;
++  private readonly note: HTMLDivElement;
++  private readonly list: HTMLDivElement;
++  /** Site déplié ('' : aucun). */
++  private openId = '';
++  /** Site à faire défiler jusqu'à la vue au prochain rendu. */
++  private scrollId = '';
++  private sig = '';
++  private readonly els = new Map<string, SiteEls>();
++
++  constructor(private readonly core: CommandCore, host: HTMLElement, private readonly api: MoreSectionApi, private readonly travel: TravelFn) {
++    this.root = el('div', 'cpc');
++    this.root.dataset.id = 'tac-commissariats';
++    this.note = el('div', 'cp-empty cpc-note');
++    this.list = el('div', 'cp-list ct-scroll cpc-list');
++    this.root.append(this.note, this.list);
++    host.appendChild(this.root);
++  }
++
++  /** « commissariats:9e » : la liste s'ouvre dépliée sur ce poste. */
++  open(arg: string): void {
++    this.openId = arg;
++    this.scrollId = arg;
++    this.sig = '';
++  }
++
++  refresh(force: boolean): void {
++    const rows = commissariatRows(this.core, this.travel);
++    setText(this.note, dispatchNote(this.core));
++    this.note.style.display = this.note.textContent ? '' : 'none';
++    if (this.openId === '' && rows.length > 0 && force && this.sig === '') this.openId = rows[0]!.id;
++    const sig = this.signature(rows);
++    if (force || sig !== this.sig) {
++      this.sig = sig;
++      this.build(rows);
++    } else this.update(rows);
++    if (this.scrollId !== '') {
++      const b = this.list.querySelector<HTMLElement>(`[data-id="cpc-site-${CSS.escape(this.scrollId)}"]`);
++      b?.scrollIntoView?.({ block: 'start' });
++      this.scrollId = '';
++    }
++  }
++
++  private signature(rows: readonly StationListRow[]): string {
++    return this.openId + '#' + rows.map((r) => r.id + (r.id === this.openId
++      ? ':' + r.units.map((u) => `${u.key}/${u.state}/${u.action}`).join(',') + ';' + r.patrols.map((p) => p.squadId).join(',')
++      : '')).join('|');
++  }
++
++  private build(rows: readonly StationListRow[]): void {
++    this.list.textContent = '';
++    this.els.clear();
++    rows.forEach((r, i) => {
++      const open = r.id === this.openId;
++      const site = this.row('cp-row cpc-site', `cpc-site-${r.id}`, () => this.toggle(r.id));
++      site.dataset.n = String(i + 1);
++      site.setAttribute('aria-expanded', open ? 'true' : 'false');
++      site.appendChild(el('span', 'cp-n', String(i + 1)));
++      const ic = el('span', 'cp-ic cpc-glyph');
++      const def = commissariatById(r.id);
++      const url = commissariatIconUrl(def ? def.kind : 'commissariat');
++      if (url !== '') {
++        const img = document.createElement('img');
++        img.src = url;
++        img.alt = '';
++        img.width = 22;
++        img.height = 22;
++        ic.appendChild(img);
++      }
++      const main = el('span', 'cp-main');
++      main.appendChild(el('b', 'cp-t', r.title));
++      const sub = el('small', 'cp-s', r.sub);
++      main.appendChild(sub);
++      const chev = el('span', 'cpc-chev');
++      chev.innerHTML = iconMarkup(open ? 'chevron_down' : 'chevron_right', 'cp-svg');
++      site.append(ic, main, chev);
++      this.list.appendChild(site);
++      const units = new Map<string, UnitEls>();
++      this.els.set(r.id, { sub, units });
++      if (!open) return;
++      const box = el('div', 'cpc-units');
++      for (const u of r.units) {
++        const b = this.row(`cp-row cpc-unit is-${u.state}`, `cpc-unit-${u.key}`, () => this.choose(r.id, u.entryId, u.squadId, u.action));
++        if (u.action === 'aucune') b.disabled = true;
++        const uic = el('span', 'cp-ic');
++        uic.innerHTML = iconMarkup(u.icon, 'cp-svg');
++        const m = el('span', 'cp-main');
++        m.appendChild(el('b', 'cp-t', `${u.name} · ${u.what}`));
++        const st = el('small', 'cp-s cpc-state', u.stateText);
++        m.appendChild(st);
++        b.append(uic, m);
++        if (u.action !== 'aucune') b.appendChild(el('span', 'cpc-act', u.action === 'envoyer' ? 'Envoyer…' : 'Sa fiche'));
++        box.appendChild(b);
++        units.set(u.key, { state: st });
++      }
++      if (r.patrols.length > 0) {
++        box.appendChild(el('div', 'cp-cap', 'En patrouille dans le secteur (hors réserve)'));
++        for (const p of r.patrols) {
++          const b = this.row('cp-row cpc-unit cpc-patrol', `cpc-patrol-${p.squadId}`, () => this.choose(r.id, 0, p.squadId, 'fiche'));
++          const uic = el('span', 'cp-ic');
++          uic.innerHTML = iconMarkup('car', 'cp-svg');
++          const m = el('span', 'cp-main');
++          m.appendChild(el('b', 'cp-t', p.name));
++          const st = el('small', 'cp-s cpc-state', p.status);
++          m.appendChild(st);
++          b.append(uic, m, el('span', 'cpc-act', 'Sa fiche'));
++          box.appendChild(b);
++          units.set('p' + p.squadId, { state: st });
++        }
++      }
++      this.list.appendChild(box);
++    });
++  }
++
++  /** Textes mis à jour sur place (distances, comptes à rebours). */
++  private update(rows: readonly StationListRow[]): void {
++    for (const r of rows) {
++      const e = this.els.get(r.id);
++      if (!e) continue;
++      setText(e.sub, r.sub);
++      for (const u of r.units) {
++        const ue = e.units.get(u.key);
++        if (ue) setText(ue.state, u.stateText);
++      }
++      for (const p of r.patrols) {
++        const ue = e.units.get('p' + p.squadId);
++        if (ue) setText(ue.state, p.status);
++      }
++    }
++  }
++
++  private row(className: string, id: string, onClick: () => void): HTMLButtonElement {
++    const b = document.createElement('button');
++    b.type = 'button';
++    b.tabIndex = -1;
++    b.className = className;
++    b.dataset.id = id;
++    b.addEventListener('click', (e) => {
++      e.stopPropagation();
++      onClick();
++    });
++    return b;
++  }
++
++  private toggle(id: string): void {
++    this.openId = this.openId === id ? '' : id;
++    this.sig = '';
++    this.refresh(false);
++  }
++
++  /** Une unité choisie : l'envoyer (fiche du poste, sa ligne surlignée), ou sa fiche. */
++  private choose(stationId: string, entryId: number, squadId: number, action: 'envoyer' | 'fiche' | 'aucune'): void {
++    const api = this.core.commissariats;
++    const view = api?.get(stationId);
++    if (action === 'envoyer' && view) {
++      const r: Repere = {
++        kind: 'commissariat', key: `commissariat:${stationId}#${entryId}`, x: view.x, z: view.z, stationId, entryId,
++        name: view.name.split(' — ')[0]!,
++      };
++      this.api.pick(r);
++      return;
++    }
++    if (action === 'fiche' && squadId > 0) {
++      const env = cardEnvFromCore(this.core);
++      const u = env.units.find((q) => q.squadId === squadId);
++      if (u) this.api.pick(unitRepere(u));
++      else this.core.ctx.ui.notify('Cette unité n’est pas visible sur la carte.', 'info', 3);
++    }
++  }
++
++  dispose(): void {
++    this.root.remove();
++    this.els.clear();
++  }
++}
++
++/** Monte la liste dans la section « Commissariats » de « Plus… ». */
++export function mountCommissariatsPanel(host: HTMLElement, core: CommandCore, api: MoreSectionApi, travel: TravelFn): MoreSectionView {
++  return new CommissariatsPanel(core, host, api, travel);
++}
 diff --git a/crs-simulation/src/ui/command/panelFollow.ts b/crs-simulation/src/ui/command/panelFollow.ts
 new file mode 100644
-index 0000000..2bdc984
+index 0000000..0d05e87
 --- /dev/null
 +++ b/crs-simulation/src/ui/command/panelFollow.ts
-@@ -0,0 +1,729 @@
+@@ -0,0 +1,735 @@
 +/* =====================================================================================
 + * Carte de commandement — colonne de droite au repos (téléphone : feuille « ☰ Suivi ») :
 + *   « À TRAITER »  au plus 3 rangées : une chaîne légale arrêtée qui attend le joueur, les incidents dont personne ne
@@ -8692,6 +10034,7 @@ index 0000000..2bdc984
 +import type { CardCrowd, CardEnv, CardIncident, CardProposal, CardUnit, Repere } from './cardTypes';
 +import type { CommandCore } from './core';
 +import { INCIDENT_KIND_LABELS, ageLabel } from './incidents';
++import { stationAt } from './commissariatsModel';
 +import { compareCardIncidents } from './intents';
 +import { BARRAGE_LET_PASSERSBY, doingAt } from './orders';
 +import { chainOf, watchOrderedForce } from './panelLegal';
@@ -9062,7 +10405,12 @@ index 0000000..2bdc984
 +    }
 +    const next = core.afterConvoy.get(u.squadId);
 +    let intended: FollowTrack['intended'] = null;
-+    if (next && convoy) {
++    // retour au commissariat en colonne : « Rentre au commissariat du 9e »
++    const home = convoy ? core.commissariats?.entryOf(u.squadId) : undefined;
++    const site = home && home.state === 'retour' ? core.commissariats?.get(home.commissariatId) : undefined;
++    if (site) {
++      intended = { type: 'retour_poste' as OrderType, place: stationAt(site), targetId: 0 };
++    } else if (next && convoy) {
 +      const g = next.geom;
 +      const street = next.type === 'couper_circulation' || next.type === 'filtrer' ? env.roadAt(g.x, g.z, 30) : null;
 +      intended = { type: next.type, place: street ? street.name : env.placeName(g.x, g.z), targetId: next.targetId === BARRAGE_LET_PASSERSBY ? next.targetId : 0 };
@@ -11696,6 +13044,19 @@ index d109644..e6a6251 100644
 +  if (u.total <= 0) return '';
 +  return u.squadId !== 0 ? `${u.valid}/${u.total}` : String(u.total);
  }
+diff --git a/crs-simulation/src/ui/command/phrases.ts b/crs-simulation/src/ui/command/phrases.ts
+index 6ca50a8..c968c0d 100644
+--- a/crs-simulation/src/ui/command/phrases.ts
++++ b/crs-simulation/src/ui/command/phrases.ts
+@@ -106,6 +106,8 @@ export function orderPhrase(o: OrderPhraseInput): string {
+     case 'degager_barricade': body = `Vérifiez l’obstacle, puis dégagez la barricade${at(o.sector)}`; break;
+     case 'cesser': body = 'Halte à l’action en cours'; break;
+     case 'libre': body = 'Reprenez votre mission, initiative laissée'; break;
++    // « Rentrer au commissariat » : `sector` porte la destination avec sa préposition (« au commissariat du 9e »)
++    case 'retour_poste': body = `Fin de mission, rentrez ${o.sector !== '' ? o.sector : 'au commissariat'}, sans deux-tons`; break;
+     default: body = `Exécutez\u00a0: ${String(o.type)}`;
+   }
+   return radioFrame(o.unit, o.from, body, true);
 diff --git a/crs-simulation/src/ui/command/preview.ts b/crs-simulation/src/ui/command/preview.ts
 new file mode 100644
 index 0000000..41073b7
@@ -14134,7 +15495,7 @@ index 0000000..d1c9181
 +  return `${who.mode === 'vehicules' ? 'en véhicules' : 'à pied'} · arrivée ~${Math.max(1, Math.round(who.eta / 60))} min`;
 +}
 diff --git a/crs-simulation/src/ui/command/style.ts b/crs-simulation/src/ui/command/style.ts
-index 2de0574..53f041d 100644
+index 2de0574..d09397e 100644
 --- a/crs-simulation/src/ui/command/style.ts
 +++ b/crs-simulation/src/ui/command/style.ts
 @@ -1,35 +1,154 @@
@@ -14412,7 +15773,31 @@ index 2de0574..53f041d 100644
  
  /* ── roue d'ordres ── */
  .cw-screen{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px}
-@@ -276,6 +325,7 @@ export function ensureCommandStyle(): void {
+@@ -266,6 +315,23 @@ box-shadow:0 8px 22px rgba(0,0,0,.5);will-change:transform;white-space:nowrap}
+ .ch-arrow{flex:none;width:18px;height:18px;color:var(--u,var(--cm-yellow));will-change:transform}
+ .ch-inc span{overflow:hidden;text-overflow:ellipsis}
+ .ch-inc strong{font-weight:800;color:var(--u,var(--cm-yellow))}
++
++/* ── « Plus… › Commissariats » (panelCommissariats.ts) : rangées de 44 px (48 au doigt, .cp-row), cadre jaune au clavier ── */
++.cpc{flex:1;min-height:0;display:flex;flex-direction:column}
++.cpc-note{flex:none;color:#ffcf8a}
++.cpc-list{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain}
++.cpc-glyph{background:transparent}
++.cpc-glyph img{display:block;width:22px;height:22px}
++.cpc-chev{flex:none;color:var(--cm-dim)}
++.cpc-site[aria-expanded="true"]{background:rgba(88,166,255,.1);border-color:rgba(88,166,255,.35)}
++.cpc-units{display:flex;flex-direction:column;gap:2px;padding:0 0 6px 22px}
++.cm-coarse .cpc-units{padding-left:10px}
++.cpc-act{flex:none;font-size:11.5px;font-weight:700;color:var(--cm-yellow);white-space:nowrap}
++.cpc-unit.is-pret .cpc-state{color:#8ae6a2}
++.cpc-unit.is-alerte .cpc-state{color:#ffcf8a}
++.cpc-unit.is-repos .cpc-state,.cpc-unit.is-retour .cpc-state{color:#a9d0ff}
++.cpc-unit.is-indisponible .cpc-state{color:var(--cm-orange)}
++.cpc-unit[disabled] .cpc-act{display:none}
+ `;
+ 
+ let injected = false;
+@@ -276,6 +342,7 @@ export function ensureCommandStyle(): void {
    injected = true;
    const style = document.createElement('style');
    style.id = 'crs-command-style';
@@ -15428,16 +16813,16 @@ index 3bd65bb..1521e78 100644
        if (g === 'immediate') return 'pan';
 diff --git a/crs-simulation/src/ui/command/tacticalParts.ts b/crs-simulation/src/ui/command/tacticalParts.ts
 new file mode 100644
-index 0000000..9f474ea
+index 0000000..5b08160
 --- /dev/null
 +++ b/crs-simulation/src/ui/command/tacticalParts.ts
-@@ -0,0 +1,77 @@
+@@ -0,0 +1,79 @@
 +/* =====================================================================================
 + * Carte de commandement — BRANCHEMENT des morceaux de l'écran (setTacticalParts de tacticalScreen.ts).
 + *
 + * L'écran (tacticalScreen.ts) tient la machine à états et ne connaît les autres fichiers que par des interfaces ;
 + * ce fichier lui fournit, une fois pour toutes (installTacticalParts, appelée par CommandSystem.init) :
-+ *   proposeWho / whoEnv           qui envoyer (bestUnit.ts) ;
++ *   proposeWho / whoEnv           qui envoyer (bestUnit.ts ; renforts et exclusions des commissariats, commissariatsLink.ts) ;
 + *   previewOf / sentenceOf        l'aperçu dessiné et la phrase « Ce qui va se passer » (preview.ts) ;
 + *   sendCardLine / legalPlan      l'envoi d'une ligne et les étapes légales de S3 (sendLine.ts) ;
 + *   todo                          « À traiter » dans l'ordre du panneau (panelFollow.todoItems), pour Espace ;
@@ -15451,6 +16836,7 @@ index 0000000..9f474ea
 +import { coarsePointer } from '../maps/style';
 +import { proposeWho, whoEnvFromCore } from './bestUnit';
 +import type { Repere } from './cardTypes';
++import { stationWhoExt } from './commissariatsLink';
 +import { CardPanel } from './panelCard';
 +import { FollowPanel, chainOf, todoItems } from './panelFollow';
 +import { LegalPanel } from './panelLegal';
@@ -15479,7 +16865,8 @@ index 0000000..9f474ea
 +  installed = true;
 +  setTacticalParts({
 +    proposeWho: (line, where, env) => proposeWho(line, where, env),
-+    whoEnv: (core, env, selection) => whoEnvFromCore(core, env, selection),
++    // commissariats : unités au poste ou en alerte écartées ; unités prêtes des postes en « Renforts des commissariats »
++    whoEnv: (core, env, selection) => whoEnvFromCore(core, env, selection, stationWhoExt(core)),
 +    previewOf: (line, who, where, env) => previewOf(line, who, where, env),
 +    sentenceOf: (line, who, where) => sentenceOf(line, who, where),
 +    sendCardLine: (env, line, who, where) => sendCardLine(env, line, who, where),
@@ -15978,10 +17365,10 @@ index 5fc9f51..76fc262 100644
 +
 +const W = { x: 0, z: 0 };
 diff --git a/crs-simulation/src/ui/command/tacticalScreen.ts b/crs-simulation/src/ui/command/tacticalScreen.ts
-index c5e95ca..22c3342 100644
+index c5e95ca..a71cce4 100644
 --- a/crs-simulation/src/ui/command/tacticalScreen.ts
 +++ b/crs-simulation/src/ui/command/tacticalScreen.ts
-@@ -1,192 +1,376 @@
+@@ -1,192 +1,377 @@
  /* =====================================================================================
 - * Écran « carte_tactique » : la carte de commandement. Non bloquant pour la simulation (le temps
 - * continue, avec une option « temps ralenti »). Assemble la carte interactive, l'arborescence des
@@ -16049,6 +17436,7 @@ index c5e95ca..22c3342 100644
 +import { cardEnvFromCore, collectReperes, nextInDirection, pickAt, placeRepere, unitRepere } from './reperes';
 +import type { Direction } from './reperes';
 +import { coreLegalDeps, sentDetail } from './sendLine';
++import { stationWhoAt } from './commissariatsLink';
  import { ensureCommandStyle } from './style';
  import { TacticalMap } from './tacticalMap';
 -import { MapPopover } from './tacticalPop';
@@ -16492,7 +17880,7 @@ index c5e95ca..22c3342 100644
      this.map.canvas.tabIndex = 0;
      this.map.canvas.dataset.autofocus = '';
      this.map.canvas.dataset.id = 'tac-map';
-@@ -198,178 +382,234 @@ export class TacticalScreen implements ScreenInstance {
+@@ -198,178 +383,234 @@ export class TacticalScreen implements ScreenInstance {
        const u = core.maps.scene.unitModel.get(k);
        return u !== undefined && core.canCommand(u.squadId);
      };
@@ -16878,7 +18266,7 @@ index c5e95ca..22c3342 100644
    private initialView(open: TacticalOpenData): void {
      const core = this.core;
      const scene = core.maps.scene;
-@@ -388,9 +628,13 @@ export class TacticalScreen implements ScreenInstance {
+@@ -388,9 +629,13 @@ export class TacticalScreen implements ScreenInstance {
        n++;
      };
      const any = core.scope().squadIds.size === 0;
@@ -16893,7 +18281,7 @@ index c5e95ca..22c3342 100644
      }
      if (scene.hasPlayer) take(scene.px, scene.pz);
      if (scene.hasHead) take(scene.headX, scene.headZ);
-@@ -409,21 +653,96 @@ export class TacticalScreen implements ScreenInstance {
+@@ -409,21 +654,103 @@ export class TacticalScreen implements ScreenInstance {
      this.map.invalidate();
    }
  
@@ -16917,6 +18305,13 @@ index c5e95ca..22c3342 100644
 +    const st = this.state;
 +    if (open.incidentId) {
 +      const r = this.reperes.find((q) => q.kind === 'incident' && q.incidentId === open.incidentId);
++      if (r) {
++        this.openRepere(r);
++        return;
++      }
++    }
++    if (open.commissariatId) {
++      const r = this.reperes.find((q) => q.kind === 'commissariat' && q.stationId === open.commissariatId);
 +      if (r) {
 +        this.openRepere(r);
 +        return;
@@ -16995,7 +18390,7 @@ index c5e95ca..22c3342 100644
    private droneFeed(): DroneFeedApi | undefined {
      const f = this.core.ctx.service<DroneFeedApi>(DRONE_FEED_SERVICE);
      return f && typeof f.toggle === 'function' ? f : undefined;
-@@ -436,23 +755,21 @@ export class TacticalScreen implements ScreenInstance {
+@@ -436,23 +763,21 @@ export class TacticalScreen implements ScreenInstance {
      setClass(this.droneBtn, 'is-on', feed.open);
    }
  
@@ -17023,7 +18418,7 @@ index c5e95ca..22c3342 100644
        feed!.showSquad(u.squadId);
        setClass(this.droneBtn, 'is-on', feed!.open);
      }
-@@ -469,503 +786,1530 @@ export class TacticalScreen implements ScreenInstance {
+@@ -469,503 +794,1539 @@ export class TacticalScreen implements ScreenInstance {
        this.slow = false;
      }
      setClass(this.slowBtn, 'is-on', this.slow);
@@ -17036,10 +18431,13 @@ index c5e95ca..22c3342 100644
 +    if (text.trim() === '') return;
 +    this.core.ctx.ui.notify(text, kind, seconds);
 +    if (kind === 'warn') this.core.ctx.audio.play('ui_alerte');
-+  }
-+
+   }
+ 
+-  // ───────────────────────────── ordre rapide ─────────────────────────────
 +  // ───────────────────────────── environnement des fiches ─────────────────────────────
-+
+ 
+-  private openQuick(x: number, y: number): void {
+-    this.closeQuick();
 +  private selectionIds(): number[] {
 +    return Array.from(this.state.selection).filter((k) => k > 0);
 +  }
@@ -17060,9 +18458,8 @@ index c5e95ca..22c3342 100644
 +  /** Repère à jour (position, nom) d'après sa clé ; un point ou une rue hors liste reste tel quel. */
 +  private fresh(r: Repere): Repere {
 +    return this.reperes.find((q) => q.key === r.key) ?? r;
-   }
- 
--  // ───────────────────────────── ordre rapide ─────────────────────────────
++  }
++
 +  /** Ce que T sélectionne : le nœud de commandement du joueur (compagnie, section, groupe). */
 +  private wholeOf(env: CardEnv): { squadIds: number[]; label: string } | null {
 +    // environnement de Qui branché (bestUnit.whoEnvFromCore) : un commandant sans unité propre prend ses unités du sommet
@@ -17079,9 +18476,7 @@ index c5e95ca..22c3342 100644
 +    const label = env.command === 'groupe' ? 'Tout le groupe' : env.command === 'section' ? 'Toute la section' : 'Toute la compagnie';
 +    return { squadIds: [id], label };
 +  }
- 
--  private openQuick(x: number, y: number): void {
--    this.closeQuick();
++
 +  private whoEnv(env: CardEnv): WhoEnv {
      const core = this.core;
 -    if (core.scope().level === 'lecture') return;
@@ -17121,7 +18516,7 @@ index c5e95ca..22c3342 100644
 +    }
 +    const scene = core.maps.scene;
 +    const holding = holdingSquads(scene.barrages);
-+    const can = (id: number): boolean => core.canCommand(id);
++    const can = (id: number): boolean => core.canOrder(id);
 +    return {
 +      card: env, selection: this.selectionIds(), whole: this.wholeOf(env), holding, canCommand: can,
 +      nasse: (crowdKey) => {
@@ -17213,7 +18608,8 @@ index c5e95ca..22c3342 100644
 +  private resolveWho(card: Card, line: CardLine | null, where: Repere, env: CardEnv): WhoCandidate | null {
 +    const st = this.state;
 +    this.whoList = [];
-+    if (st.where) return st.where.who;
++    // « OÙ L'ENVOYER ? » d'une unité d'un commissariat : délai recalculé pour le lieu visé
++    if (st.where) return st.where.who.fromStation !== undefined ? stationWhoAt(this.core, st.where.who, where) : st.where.who;
 +    if (card.whoFixed && card.whoFixed.length > 0) return fixedCandidate(env, card.whoFixed, where);
 +    if (!line || !line.needsWho) return null;
 +    const sel = this.selectionIds();
@@ -17332,7 +18728,7 @@ index c5e95ca..22c3342 100644
 +    if (list.length === 0) {
 +      // sans proposition : mes unités (sections d'abord), par distance
 +      const scene = this.core.maps.scene;
-+      const secs = keyboardSections(scene.units, (id) => this.core.canCommand(id));
++      const secs = keyboardSections(scene.units, (id) => this.core.canOrder(id));
 +      for (const u of secs) list.push(fixedCandidate(env, [u.squadId], where));
 +      list.sort((a, b) => a.eta - b.eta);
 +    }
@@ -17650,10 +19046,10 @@ index c5e95ca..22c3342 100644
 +        return;
 +      case 'journal':
 +        this.openMore('journal');
-+        return;
+         return;
 +      case 'slow':
 +        this.toggleSlow();
-         return;
++        return;
 +      case 'help':
 +        this.toggleHelp();
 +        return;
@@ -17779,14 +19175,10 @@ index c5e95ca..22c3342 100644
 +    if (n === 0) {
 +      this.toggleOthers();
 +      return;
-     }
++    }
 +    this.highlight(n - 1);
-   }
- 
--  /** Ordre rapide au clavier (E) : au curseur, ou au centre de la carte s'il n'est pas encore affiché. */
--  private openQuickByKey(): void {
--    if (this.tmap.selectedUnits().length === 0) {
--      this.core.ctx.ui.notify('Sélectionnez d’abord une unité : 1 à 9 (section) ou U (unité suivante).', 'warn', 3);
++  }
++
 +  private unitKey(step: 1 | -1): void {
 +    const st = this.state;
 +    if (st.card && !st.where && st.sheet !== 'qui') {
@@ -17796,17 +19188,14 @@ index c5e95ca..22c3342 100644
 +      st.whoAuto = true;
 +      st.whoIndex += step;
 +      this.lastCard = -1;
-       return;
++      return;
      }
--    const v = this.map.view;
--    const x = this.map.cursorOn ? this.map.cursorX : v.width * 0.5;
--    const y = this.map.cursorOn ? this.map.cursorY : v.height * 0.5;
--    this.openQuick(x, y);
 +    if (st.card) return;
 +    // au repos : mes unités, l'ordre le plus récent d'abord ; la fiche de l'unité s'ouvre
 +    const env = this.refreshEnv(true);
 +    const scene = this.core.maps.scene;
-+    const mine = commandableUnits(scene.units, (id) => this.core.canCommand(id));
++    // (sans les unités d'un commissariat encore au poste, en alerte ou au repos)
++    const mine = commandableUnits(scene.units, (id) => this.core.canOrder(id));
 +    const ordered = unitsByRecentOrder(mine, (u) => u.order ? u.order.issuedAt : -Infinity);
 +    if (ordered.length === 0) {
 +      this.say('Aucune unité sous vos ordres.', 'info', 3);
@@ -17821,15 +19210,22 @@ index c5e95ca..22c3342 100644
 +    this.openRepere(r);
    }
  
--  // ───────────────────────────── nasse ─────────────────────────────
+-  /** Ordre rapide au clavier (E) : au curseur, ou au centre de la carte s'il n'est pas encore affiché. */
+-  private openQuickByKey(): void {
+-    if (this.tmap.selectedUnits().length === 0) {
+-      this.core.ctx.ui.notify('Sélectionnez d’abord une unité : 1 à 9 (section) ou U (unité suivante).', 'warn', 3);
 +  private todo(step: 1 | -1): void {
 +    if (this.core.scope().level === 'lecture') return;
 +    this.refreshEnv(true);
 +    const list = this.todoList();
 +    if (list.length === 0) {
 +      this.say('Rien à traiter pour l’instant.', 'info', 3);
-+      return;
-+    }
+       return;
+     }
+-    const v = this.map.view;
+-    const x = this.map.cursorOn ? this.map.cursorX : v.width * 0.5;
+-    const y = this.map.cursorOn ? this.map.cursorY : v.height * 0.5;
+-    this.openQuick(x, y);
 +    this.todoIndex = (((this.todoIndex + step) % list.length) + list.length) % list.length;
 +    const st = this.state;
 +    st.intent = null;
@@ -17839,14 +19235,9 @@ index c5e95ca..22c3342 100644
 +    st.sheet = 'card';
 +    const r = list[this.todoIndex]!;
 +    this.openRepere(r);
-+  }
+   }
  
--  /** Point désigné au clavier (curseur) ou centre de la vue, dans le monde. */
--  private designated(out: { x: number; z: number }): { x: number; z: number } {
--    const v = this.map.view;
--    const x = this.map.cursorOn ? this.map.cursorX : v.width * 0.5;
--    const y = this.map.cursorOn ? this.map.cursorY : v.height * 0.5;
--    this.map.worldAt(x, y, out);
+-  // ───────────────────────────── nasse ─────────────────────────────
 +  /** C : la visée sur le commissariat le plus proche qui a des unités prêtes (C encore : le suivant). */
 +  private stations(): void {
 +    const env = this.refreshEnv(true);
@@ -17874,7 +19265,13 @@ index c5e95ca..22c3342 100644
 +    this.map.flyTo(r.x, r.z);
 +    this.openRepere(r);
 +  }
-+
+ 
+-  /** Point désigné au clavier (curseur) ou centre de la vue, dans le monde. */
+-  private designated(out: { x: number; z: number }): { x: number; z: number } {
+-    const v = this.map.view;
+-    const x = this.map.cursorOn ? this.map.cursorX : v.width * 0.5;
+-    const y = this.map.cursorOn ? this.map.cursorY : v.height * 0.5;
+-    this.map.worldAt(x, y, out);
 +  /** G : la visée sur « VOUS » et sa fiche. */
 +  private me(): void {
 +    this.refreshEnv(true);
@@ -17929,13 +19326,16 @@ index c5e95ca..22c3342 100644
 +    return null;
 +  }
 +
-+  /** Rangées d'une feuille (boutons visibles, dans l'ordre). */
++  /**
++   * Rangées d'une feuille (boutons visibles, dans l'ordre), sans les boutons de son bandeau (« ‹ Plus… », ✕ : Échap
++   * les remplace) : ↓ va tout de suite à la première rangée de la liste.
++   */
 +  private sheetRows(): HTMLButtonElement[] {
 +    const root = this.sheetRoot();
 +    if (!root) return [];
 +    const out: HTMLButtonElement[] = [];
 +    root.querySelectorAll('button').forEach((b) => {
-+      if (!b.disabled && b.offsetParent !== null) out.push(b);
++      if (!b.disabled && b.offsetParent !== null && !b.closest('.cp-top')) out.push(b);
 +    });
      return out;
    }
@@ -18028,9 +19428,11 @@ index c5e95ca..22c3342 100644
 -    this.state.touch();
 +  /** « Plus… » ouvert sur une section (« journal », « incidents », « circulation », « commissariats »…). */
 +  openMore(section: TacticalTab | string): void {
-+    if (this.core.scope().level === 'lecture' && section !== 'commissariats') return;
-+    this.state.tab = (section === 'ordres' || section === 'incidents' || section === 'circulation' || section === 'journal' || section === 'commissariats')
-+      ? section : this.state.tab;
++    // (« commissariats:<poste> » : la liste dépliée sur ce poste)
++    const id = String(section).split(':')[0]!;
++    if (this.core.scope().level === 'lecture' && id !== 'commissariats') return;
++    this.state.tab = (id === 'ordres' || id === 'incidents' || id === 'circulation' || id === 'journal' || id === 'commissariats')
++      ? id : this.state.tab;
 +    this.openSheet('more');
 +    this.morePanel?.open?.(section);
    }
@@ -18234,8 +19636,8 @@ index c5e95ca..22c3342 100644
 +    const line = this.currentLine();
 +    if (!line) return;
 +    this.sendLine(line);
-   }
- 
++  }
++
 +  /** Une ligne de la fiche : actions de l'écran, confirmation légale, ou envoi (sendLine.ts). */
 +  private sendLine(line: CardLine): void {
 +    const st = this.state;
@@ -18250,7 +19652,7 @@ index c5e95ca..22c3342 100644
 +        this.map.flyTo(where.x, where.z);
 +        return;
 +      case 'stationList':
-+        this.openMore('commissariats');
++        this.openMore('commissariats:' + a.stationId);
 +        return;
 +      case 'sendElsewhere': {
 +        const ids = card.whoFixed ?? (where.squadId ? [where.squadId] : []);
@@ -18514,8 +19916,8 @@ index c5e95ca..22c3342 100644
 +    if (l && l.lock === null && l.coercive) return 'anyway';
 +    if (l && l.lock && !this.confirmPlan && this.core.scope().level === 'unite' && !this.core.scope().canAuthorize) return 'request';
 +    return 'chain';
-+  }
-+
+   }
+ 
 +  private confirm(choice: ConfirmChoice): void {
 +    const st = this.state;
 +    const line = this.confirmLine;
@@ -18713,6 +20115,8 @@ index c5e95ca..22c3342 100644
 -      o.focusCrowd = st.focusCrowd !== '' ? st.focusCrowd : this.core.nasse !== null || aiming ? this.targetCrowd()?.key ?? '' : '';
 -      this.map.canvas.style.cursor = st.mode.kind !== 'idle' || st.tool === 'box' ? 'crosshair' : '';
 +      o.focusIncident = st.card?.repere.kind === 'incident' ? st.card.repere.incidentId ?? 0 : 0;
++      // fiche d'un commissariat : son nom et la rue de ses places sont écrits sur la carte
++      o.focusCommissariat = st.card?.repere.kind === 'commissariat' ? st.card.repere.stationId ?? '' : '';
        this.map.invalidate();
      }
 -    if (force || time - this.lastStatus > 0.5) {
@@ -29812,6 +31216,128 @@ index 0000000..89a2a12
 +    t.ctx.session.end(false);
 +  });
 +});
+diff --git a/crs-simulation/tests/unit/traffic.commissariats.test.ts b/crs-simulation/tests/unit/traffic.commissariats.test.ts
+new file mode 100644
+index 0000000..7253687
+--- /dev/null
++++ b/crs-simulation/tests/unit/traffic.commissariats.test.ts
+@@ -0,0 +1,116 @@
++// Circulation et stationnement réservé des commissariats (vraie carte de Paris, sans le module des commissariats) :
++// aucune voiture civile n'est garée sur une place réservée d'un commissariat (règle de la voirie, indépendante du
++// stock), et ailleurs le stationnement ne change pas : toutes les voitures garées loin des places le restent, au même
++// endroit ; quand le plafond de voitures garées est atteint, les places réservées laissées libres sont reprises plus
++// loin (au plus autant de voitures en plus) ; en tout, la ville ne perd que les places réservées (−3,6 % relevé autour
++// des sept sites, moins de 5 % exigé).
++import { afterEach, describe, expect, it, vi } from 'vitest';
++
++import type { Vehicle } from '@/core/contracts';
++import { createTestContext } from '@/core/testing';
++import { createSystems as world } from '@/world/query';
++import { createSystems as roles } from '@/sim/roles';
++import { createSystems as people } from '@/sim/people';
++import { createSystems as vehicles } from '@/sim/vehicles';
++import { createSystems as traffic } from '@/sim/traffic';
++import { TRAFFIC_SERVICE } from '@/sim/traffic/api';
++import type { TrafficApi } from '@/sim/traffic/api';
++import { Parking } from '@/sim/traffic/parking';
++import { COMMISSARIATS, reservedBays } from '@/world/commissariats';
++import { slotsOverlap } from '@/world/commissariats/layout';
++
++const SIM = [world, roles, people, vehicles, traffic];
++
++/** Sites dont les places sont sur une rue où la circulation gare des voitures (devant la porte ou au coin). */
++const SITES = ['9e', '8e', 'cite', 'celestins', '3e', '1er', '7e'];
++
++interface Parked {
++  readonly id: number;
++  readonly kind: string;
++  readonly x: number;
++  readonly z: number;
++  readonly heading: number;
++  readonly len: number;
++  readonly width: number;
++}
++
++/** Voitures garées par la circulation, une fois le voisinage du joueur garni (lieu = un commissariat). */
++async function parkedAround(siteId: string, seed: number): Promise<Parked[]> {
++  const def = COMMISSARIATS.find((c) => c.id === siteId)!;
++  // le joueur au milieu des places réservées (elles sont parfois au coin de la rue, loin de la porte)
++  let x = 0;
++  let z = 0;
++  for (const s of def.slots) { x += s.x; z += s.z; }
++  x /= def.slots.length;
++  z /= def.slots.length;
++  const t = createTestContext({ seed, strict: false, modules: SIM });
++  await t.start({ mode: 'libre', role: 'crs', place: def.name, x, z, crowdSize: 0, tension: 0.1, volatility: 0.1, duration: 'standard' } as never);
++  t.step(3);
++  const api = t.ctx.require<TrafficApi>(TRAFFIC_SERVICE);
++  return t.ctx.vehicles.list.filter((v: Vehicle) => api.isParked(v))
++    .map((v) => ({ id: v.id, kind: v.kind, x: v.x, z: v.z, heading: v.heading, len: v.def.length, width: v.def.width }));
++}
++
++/** Distance du point à la place réservée la plus proche. */
++function nearestBay(x: number, z: number): number {
++  let best = Infinity;
++  for (const b of reservedBays()) best = Math.min(best, Math.hypot(b.x - x, b.z - z));
++  return best;
++}
++
++describe('circulation — stationnement réservé des commissariats', () => {
++  afterEach(() => {
++    vi.restoreAllMocks();
++  });
++
++  it('aucune voiture civile garée ne déborde sur une place réservée ; ailleurs, le stationnement est inchangé (±3 %)', async () => {
++    let totalWith = 0;
++    let totalWithout = 0;
++    let dropped = 0;
++    let farWith = 0;
++    let farWithout = 0;
++    for (const id of SITES) {
++      const seed = 11;
++      const withRule = await parkedAround(id, seed);
++      // même partie, sans la règle (référence) : on neutralise le seul test ajouté
++      const spy = vi.spyOn(Parking.prototype, 'isReserved').mockReturnValue(false);
++      const without = await parkedAround(id, seed);
++      spy.mockRestore();
++
++      // aucune voiture garée n'empiète sur une place réservée (emprise des deux véhicules)
++      for (const p of withRule) {
++        for (const b of reservedBays()) {
++          if (Math.hypot(b.x - p.x, b.z - p.z) > 15) continue;
++          const over = slotsOverlap({ x: p.x, z: p.z, heading: p.heading, len: p.len, width: p.width }, b, 0);
++          if (over) console.log(`${id} : voiture garée ${p.kind} n° ${p.id} sur une place réservée (${b.x}, ${b.z})`);
++          expect(over).toBe(false);
++        }
++        expect(nearestBay(p.x, p.z)).toBeGreaterThanOrEqual(6);
++      }
++      // sans la règle, des voitures se garaient bien sur ces places (sinon l'essai ne prouverait rien)
++      const onBays = without.filter((p) => nearestBay(p.x, p.z) < 6).length;
++      // « ailleurs » : à plus de 30 m de toute place réservée
++      const farW = withRule.filter((p) => nearestBay(p.x, p.z) > 30);
++      const farO = without.filter((p) => nearestBay(p.x, p.z) > 30);
++      const fw = farW.length;
++      const fo = farO.length;
++      // ailleurs, rien n'est retiré ni déplacé : chaque voiture garée de la référence est encore là
++      const lost = farO.filter((o) => !farW.some((p) => p.kind === o.kind && Math.hypot(p.x - o.x, p.z - o.z) < 0.1));
++      expect(lost.length).toBe(0);
++      // au plus autant de voitures en plus que de places réservées libérées (plafond atteint : elles se garent plus loin)
++      expect(fw - fo).toBeLessThanOrEqual(onBays);
++      console.log(`${id} : ${withRule.length} voitures garées (sans la règle ${without.length}, dont ${onBays} sur les places réservées) ; à plus de 30 m des places : ${fw} contre ${fo}`);
++      totalWith += withRule.length;
++      totalWithout += without.length;
++      dropped += onBays;
++      farWith += fw;
++      farWithout += fo;
++    }
++    const pct = (totalWith / Math.max(1, totalWithout) - 1) * 100;
++    console.log(`total : ${totalWith} voitures garées avec la règle, ${totalWithout} sans (${pct.toFixed(1)} %) ; ${dropped} places réservées libérées ; ailleurs ${farWith} contre ${farWithout} (${((farWith / Math.max(1, farWithout) - 1) * 100).toFixed(1)} %)`);
++    expect(dropped).toBeGreaterThan(0);
++    // en tout, le stationnement de la ville ne perd que les places réservées (au plus 5 %, relevé ci-dessus)
++    expect(totalWithout - totalWith).toBeLessThanOrEqual(dropped);
++    expect(Math.abs(pct)).toBeLessThan(5);
++  }, 900000);
++});
 diff --git a/crs-simulation/tests/unit/ui-command.adjoint.test.ts b/crs-simulation/tests/unit/ui-command.adjoint.test.ts
 new file mode 100644
 index 0000000..7fd7109
@@ -31559,6 +33085,358 @@ index 4adf1e5..ef2c582 100644
      }
    });
  });
+diff --git a/crs-simulation/tests/unit/ui-command.commissariats.test.ts b/crs-simulation/tests/unit/ui-command.commissariats.test.ts
+new file mode 100644
+index 0000000..447b087
+--- /dev/null
++++ b/crs-simulation/tests/unit/ui-command.commissariats.test.ts
+@@ -0,0 +1,346 @@
++// Carte de commandement et commissariats (vraie carte de Paris, commandant place de la Concorde) : « Rentrer au
++// commissariat » au catalogue (« Fin d'action ») ; fiche d'un poste (« Envoyer … · prête », la ligne de l'unité
++// choisie surlignée) ; la BRAV-M FAUCON 9 engagée et envoyée « en véhicules » part en colonne, sans l'avis « à pied » ;
++// la section AQUILON 1 engagée reçoit son ordre dans le même pas (étendue du commandement recalculée), puis rentre
++// sans deux-tons au centre de sa file de places ; la voiture TV 75-19 rentre « au poste » par le module des
++// patrouilles ; un CRS ne peut rien engager mais C ouvre la fiche du poste en lecture ; les unités au poste ou en
++// alerte ne prennent pas les chiffres des sections de la compagnie ; textes et tri de « Plus… › Commissariats ».
++import { describe, expect, it } from 'vitest';
++
++import type { SessionConfig } from '@/core/contracts';
++import { createTestContext } from '@/core/testing';
++import { createSystems as world } from '@/world/query';
++import { createSystems as roles } from '@/sim/roles';
++import { createSystems as people } from '@/sim/people';
++import { createSystems as vehicles } from '@/sim/vehicles';
++import { createSystems as traffic } from '@/sim/traffic';
++import { createSystems as police } from '@/sim/police';
++import { createSystems as law } from '@/gameplay/law';
++import { createSystems as radio } from '@/gameplay/radio';
++import { createSystems as session } from '@/gameplay/session';
++import { createSystems as patrols, PATROLS_SERVICE } from '@/gameplay/patrols';
++import type { PatrolsApi } from '@/gameplay/patrols';
++import { createSystems as commissariats, COMMISSARIATS_SERVICE } from '@/gameplay/commissariats';
++import type { CommissariatView, CommissariatsApi, StockEntryView } from '@/gameplay/commissariats';
++import { createSystems as command } from '@/ui/command';
++import type { CommandCore } from '@/ui/command';
++import type { CommandApi as PoliceCommandApi } from '@/sim/police/command/api';
++import { commissariatById, fileCentre } from '@/world/commissariats';
++import { buildCard } from '@/ui/command/intents';
++import { cardEnvFromCore } from '@/ui/command/reperes';
++import { ORDER_GROUP_LABELS, verbOf } from '@/ui/command/orders';
++import { keyboardSections, mapKey } from '@/ui/command/tacticalKeys';
++import { proposeWho, whoEnvFromCore } from '@/ui/command/bestUnit';
++import { stationWhoAt, stationWhoExt } from '@/ui/command/commissariatsLink';
++import {
++  buildRows, entryNumber, entryStateLabel, entryWhat, restText, stationSub,
++} from '@/ui/command/commissariatsModel';
++import type { Repere } from '@/ui/command/cardTypes';
++
++const SIM = [world, roles, people, vehicles, traffic, police, law, radio, session, patrols, commissariats, command];
++const MEANS = { sections: 2, fourgons: 4, centaure: 0, canon_eau: 0, bravm: 0, drone: 0, pompiers: 0, samu: 0, secours_sur_appel: true };
++const REPUBLIQUE = { x: 3123, z: -208, heading: 0, width: 20 };
++
++async function start(config: Partial<SessionConfig> = {}, seed = 7) {
++  const t = createTestContext({ seed, strict: false, modules: SIM });
++  await t.start({
++    mode: 'libre', role: 'commandant', rank: 'commandant', place: 'Place de la Concorde', x: -10, z: 15, crowdSize: 0,
++    tension: 0.1, volatility: 0.1, duration: 'standard', ...config,
++    extra: { moyens: MEANS, variante: 'salle', foyers: 0, ...(config.extra ?? {}) },
++  } as Partial<SessionConfig>);
++  t.step(1);
++  const core = t.ctx.require<CommandCore>('ui.command');
++  return { t, ctx: t.ctx, core, api: t.ctx.require<CommissariatsApi>(COMMISSARIATS_SERVICE) };
++}
++
++/** Messages radio soumis (la file de la radio peut en différer ou en écarter la diffusion). */
++function spyRadio(ctx: { radio: { say: (msg: { text: string }) => void } }): string[] {
++  const out: string[] = [];
++  const orig = ctx.radio.say.bind(ctx.radio);
++  ctx.radio.say = (msg) => {
++    out.push(msg.text);
++    orig(msg);
++  };
++  return out;
++}
++
++/** Avis affichés au joueur (ctx.ui.notify). */
++function spyNotices(ctx: { ui: { notify: (text: string, ...rest: never[]) => void } }): string[] {
++  const out: string[] = [];
++  const orig = ctx.ui.notify.bind(ctx.ui);
++  ctx.ui.notify = ((text: string, ...rest: never[]) => {
++    out.push(text);
++    return orig(text, ...rest);
++  }) as typeof ctx.ui.notify;
++  return out;
++}
++
++function stationRepere(core: CommandCore, id: string, entryId?: number): Repere {
++  const env = cardEnvFromCore(core);
++  const s = env.stations.find((q) => q.id === id)!;
++  return { kind: 'commissariat', key: `commissariat:${id}${entryId !== undefined ? '#' + entryId : ''}`, x: s.x, z: s.z, stationId: id, entryId, name: s.name };
++}
++
++describe('carte de commandement — commissariats', () => {
++  it('« Rentrer au commissariat » au catalogue ; fiche du poste : une ligne « Envoyer » par unité prête, l’unité choisie surlignée', async () => {
++    const { core } = await start();
++    const v = verbOf('retour_poste')!;
++    expect(v).toBeDefined();
++    expect(v.group).toBe('fin');
++    expect(ORDER_GROUP_LABELS[v.group]).toBe('Fin d’action');
++    expect(v.plain).toBe('Rentrer au commissariat');
++
++    const env = cardEnvFromCore(core);
++    expect(env.stations.map((s) => s.id).sort()).toEqual(['1er', '3e', '7e', '8e', '9e', 'celestins', 'cite']);
++    const neuf = env.stations.find((s) => s.id === '9e')!;
++    expect(neuf.name).toBe('Commissariat du 9e');
++    expect(neuf.street).toBe('rue Chauchat');
++    expect(neuf.distance).toBeGreaterThan(1000);
++    expect(neuf.eta).toBeGreaterThan(60);
++    const faucon = neuf.entries.find((e) => e.name === 'FAUCON 9')!;
++    expect(faucon.defaultVerb).toBe('colonne');
++    expect(neuf.entries.find((e) => e.name === 'TV 75-19')!.defaultVerb).toBe('avancer');
++
++    const card = buildCard(stationRepere(core, '9e'), env, null);
++    console.log(`fiche : ${card.title} | ${card.sub}\n  ${card.lines.map((l) => l.label).join('\n  ')}`);
++    expect(card.title).toBe('COMMISSARIAT DU 9E — rue Chauchat');
++    expect(card.sub).toMatch(/^\d+,\d km · ≈ \d+ min deux-tons · 3 prêtes$/);
++    expect(card.lines.map((l) => l.label)).toEqual([
++      'Envoyer FAUCON 9 — BRAV-M (policiers à moto), 6 motos · prête',
++      'Envoyer TV 75-19 — Police secours, 3 gardiens · prête',
++      'Envoyer BAC 75-09 — voiture banalisée, 3 policiers · prête',
++      'Toutes les unités du poste…',
++    ]);
++    // rangée de « Plus… › Commissariats » choisie : la ligne de cette unité est surlignée
++    const tv = neuf.entries.find((e) => e.name === 'TV 75-19')!;
++    const picked = buildCard(stationRepere(core, '9e', tv.entryId), env, null);
++    expect(picked.lines[picked.defaultLine]!.label).toBe('Envoyer TV 75-19 — Police secours, 3 gardiens · prête');
++    // la Cité : le car et le PC mobile ne s'engagent pas (pas de ligne « Envoyer »)
++    const cite = buildCard(stationRepere(core, 'cite'), env, null);
++    expect(cite.lines.some((l) => /CAR CRS|PC MOBILE/.test(l.label))).toBe(false);
++    expect(cite.lines.filter((l) => l.action.kind === 'engage').length).toBe(4);
++  }, 300000);
++
++  it('BRAV-M : « Faire mouvement » vaut « En colonne », sans l’avis « mouvement à pied »', async () => {
++    const { t, ctx, core, api } = await start();
++    const notices = spyNotices(ctx as never);
++    const said = spyRadio(ctx as never);
++    const r = core.engageFromCommissariat(entryNumber('9e:faucon9'));
++    expect(r.ok).toBe(true);
++    const bravm = ctx.squads.get(r.squadId)!;
++    expect(api.entry('9e:faucon9')!.state).toBe('alerte');
++    const res = core.issue('faire_mouvement', [bravm], [REPUBLIQUE]);
++    expect(res.ok).toBe(true);
++    expect(bravm.order.type).toBe('colonne');
++    expect(Math.hypot(bravm.order.x - REPUBLIQUE.x, bravm.order.z - REPUBLIQUE.z)).toBeLessThan(1);
++    expect(notices.some((n) => /à pied/.test(n))).toBe(false);
++    expect(said.some((m) => /^FAUCON 9 ICI .*Mouvement à moto, en colonne/.test(m))).toBe(true);
++    expect(said.some((m) => /Équipage prêt au commissariat du 9e, en attente de destination/.test(m))).toBe(true);
++    t.step(2);
++  }, 300000);
++
++  it('AQUILON 1 : engagée puis ordre dans le même pas ; « Rentrer au commissariat » : au centre de sa file, sans deux-tons', async () => {
++    const { t, ctx, core, api } = await start();
++    const cmd = ctx.require<PoliceCommandApi>('police.command');
++    const said = spyRadio(ctx as never);
++    const arrivals: Record<string, unknown>[] = [];
++    const arrive = cmd.arrive.bind(cmd);
++    (cmd as { arrive: PoliceCommandApi['arrive'] }).arrive = (id, dest) => {
++      arrivals.push({ id, ...dest });
++      return arrive(id, dest);
++    };
++    // l'étendue du commandement est mise en cache : elle est lue juste avant l'engagement
++    expect(core.scope().level).toBe('tout');
++    const r = core.engageFromCommissariat(entryNumber('cite:aquilon1'));
++    expect(r.ok).toBe(true);
++    const section = ctx.squads.get(r.squadId)!;
++    // même pas : accepté (étendue recalculée), colonne lancée, « tenir » repris au débarquement
++    const res = core.issue('tenir', [section], [REPUBLIQUE]);
++    expect(res.ok).toBe(true);
++    expect(cmd.convoyOf(section.id)).not.toBeNull();
++    expect(core.afterConvoy.get(section.id)?.type).toBe('tenir');
++    const entry = api.entry('cite:aquilon1')!;
++    for (let k = 0; k < 90 && entry.state !== 'engage'; k++) t.step(2);
++    expect(entry.state).toBe('engage');
++
++    const vans = ctx.vehicles.list.filter((v) => entry.vehicleIds.includes(v.id));
++    expect(vans.length).toBe(3);
++    arrivals.length = 0;
++    const back = core.issue('retour_poste', [section], null);
++    expect(back.ok).toBe(true);
++    expect(entry.state).toBe('retour');
++    expect(core.afterConvoy.has(section.id)).toBe(false);
++    const cite = commissariatById('cite')!;
++    const centre = fileCentre(cite, cite.stock.find((s) => s.id === 'cite:aquilon1')!);
++    expect(arrivals.length).toBe(1);
++    const dest = arrivals[0]! as { x: number; z: number; urgence: boolean; disembark: boolean; layout: string };
++    expect(Math.hypot(dest.x - centre.x, dest.z - centre.z)).toBeLessThan(1);
++    expect(dest.urgence).toBe(false);
++    expect(dest.disembark).toBe(false);
++    expect(dest.layout).toBe('file');
++    expect(said.some((m) => /^AQUILON 1 ICI .*Fin de mission, rentrez à la préfecture de police, sans deux-tons\. PARLEZ\.$/.test(m))).toBe(true);
++    t.step(30);
++    for (const v of vans) expect(v.siren).toBe(0);
++    // la fiche de l'unité dit qu'elle rentre
++    const env = cardEnvFromCore(core);
++    const u = env.units.find((q) => q.squadId === section.id)!;
++    expect(u.order?.type).toBe('retour_poste');
++    expect(u.orderPlace).toBe('à la préfecture de police');
++    // une unité déjà au poste ne « rentre » pas une seconde fois
++    const tv = core.engageFromCommissariat(entryNumber('9e:tv19'));
++    expect(core.issue('retour_poste', [ctx.squads.get(tv.squadId)!], null).ok).toBe(true); // en alerte : alerte levée
++    expect(api.entry('9e:tv19')!.state).toBe('au_poste');
++    const again = core.issue('retour_poste', [ctx.squads.get(tv.squadId)!], null);
++    expect(again.ok).toBe(false);
++    expect(again.reason).toBe('TV 75-19 est déjà au commissariat du 9e.');
++  }, 600000);
++
++  it('TV 75-19 envoyée puis rappelée : rentre à sa place par le module des patrouilles, « Au poste » puis au repos', async () => {
++    const { t, ctx, core, api } = await start();
++    const pat = ctx.require<PatrolsApi>(PATROLS_SERVICE);
++    const r = core.engageFromCommissariat(entryNumber('9e:tv19'));
++    expect(r.ok).toBe(true);
++    const car = ctx.squads.get(r.squadId)!;
++    const road = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '', roadClass: 'residential' as const, oneway: false };
++    expect(ctx.world.nearestRoad(1650, -700, road, 120)).toBe(true);
++    expect(core.issue('avancer', [car], [{ x: road.x, z: road.z, heading: road.heading, width: 0 }]).ok).toBe(true);
++    const entry = api.entry('9e:tv19')!;
++    for (let k = 0; k < 120 && entry.state !== 'engage'; k++) t.step(2);
++    expect(entry.state).toBe('engage');
++    expect(core.issue('retour_poste', [car], null).ok).toBe(true);
++    expect(entry.state).toBe('retour');
++    const view = pat.statusOf(car.id)!;
++    const t0 = ctx.clock.now;
++    for (let k = 0; k < 300 && entry.state === 'retour'; k++) t.step(2);
++    console.log(`TV 75-19 : ${entry.state} en ${Math.round(ctx.clock.now - t0)} s (${view.state} — ${view.label})`);
++    expect(entry.state).toBe('repos');
++    expect(view.state).toBe('au_poste');
++    expect(api.atPost(car.id)).toBe(true);
++    expect(core.atPost(car.id)).toBe(true);
++  }, 900000);
++
++  it('CRS : rien à engager, mais C ouvre la fiche du poste en lecture (état de chaque unité)', async () => {
++    const { core } = await start({ role: 'crs', rank: 'gardien' } as Partial<SessionConfig>);
++    expect(core.scope().level).toBe('lecture');
++    const r = core.engageFromCommissariat(entryNumber('9e:tv19'));
++    expect(r.ok).toBe(false);
++    expect(r.reason).toBe('Seul le commandant engage les moyens des commissariats');
++    // C est lue avant le retour anticipé de la lecture seule
++    expect(mapKey('KeyC', false, { level: 'lecture', card: false })).toEqual({ kind: 'stations' });
++    const env = cardEnvFromCore(core);
++    expect(env.level).toBe('lecture');
++    const card = buildCard(stationRepere(core, '9e'), env, null);
++    expect(card.lines).toEqual([]);
++    expect(card.notes[0]).toBe('Seul le commandant engage les moyens des commissariats.');
++    expect(card.notes).toContain('TV 75-19 — Au poste — prête');
++    expect(card.notes).toContain('FAUCON 9 — Au poste — prête');
++    // personne à proposer dans la liste Qui
++    expect(stationWhoExt(core).stationCandidates({ x: 0, z: 0 })).toEqual([]);
++  }, 300000);
++
++  it('renforts fixés par l’ordre d’opération : fiche sans « Envoyer », la note le dit', async () => {
++    const { core } = await start({ extra: { renforts: false } } as Partial<SessionConfig>);
++    const env = cardEnvFromCore(core);
++    const card = buildCard(stationRepere(core, '9e'), env, null);
++    expect(card.lines.map((l) => l.label)).toEqual(['Toutes les unités du poste…']);
++    expect(card.notes[0]).toBe('Moyens fixés par l’ordre d’opération.');
++    expect(core.engageFromCommissariat(entryNumber('9e:tv19')).ok).toBe(false);
++  }, 300000);
++
++  it('exclusions : une unité en alerte ne prend ni les chiffres des sections, ni Qui ; les renforts viennent après mes unités', async () => {
++    const { core, api } = await start();
++    core.maps.scene.invalidate();
++    core.maps.scene.ensureFresh();
++    const sectionsBefore = keyboardSections(core.maps.scene.units, (id) => core.canOrder(id)).map((u) => u.squadId);
++    const r = core.engageFromCommissariat(entryNumber('9e:faucon9'));
++    expect(r.ok).toBe(true);
++    expect(api.atPost(r.squadId)).toBe(true);
++    core.maps.scene.invalidate();
++    core.maps.scene.ensureFresh();
++    const units = core.maps.scene.units;
++    expect(units.some((u) => u.squadId === r.squadId)).toBe(true);
++    // rappel : sans le filtre, la BRAV-M en alerte prendrait un chiffre à côté de la compagnie
++    const raw = keyboardSections(units, (id) => core.canCommand(id)).map((u) => u.squadId);
++    expect(raw).toContain(r.squadId);
++    const keys = keyboardSections(units, (id) => core.canOrder(id));
++    expect(sectionsBefore.length).toBeGreaterThan(1);
++    expect(keys.map((u) => u.squadId)).toEqual(sectionsBefore);
++    expect(keys.some((u) => u.squadId === r.squadId)).toBe(false);
++    // Qui : la BRAV-M en alerte n'est pas proposée d'office ; les renforts sont en fin de liste
++    const env = cardEnvFromCore(core);
++    const who = whoEnvFromCore(core, env, [], stationWhoExt(core));
++    expect(who.canCommand(r.squadId)).toBe(false);
++    const line = buildCard({ kind: 'point', key: 'point:x', x: 600, z: -300, name: 'Ici' }, env, 'envoyer').lines[0]!;
++    const list = proposeWho(line, { x: 600, z: -300 }, who);
++    expect(list.some((c) => c.squadIds.includes(r.squadId))).toBe(false);
++    const first = list.findIndex((c) => c.fromStation !== undefined);
++    expect(first).toBeGreaterThan(0);
++    expect(list.slice(first).every((c) => c.fromStation !== undefined)).toBe(true);
++    // « OÙ L'ENVOYER ? » : le délai depuis le poste suit le lieu visé
++    const tv = list.find((c) => c.label === 'TV 75-19 (commissariat du 9e)')!;
++    expect(tv).toBeDefined();
++    const near = stationWhoAt(core, tv, { x: 1352, z: -800 });
++    const far = stationWhoAt(core, tv, REPUBLIQUE);
++    expect(far.eta).toBeGreaterThan(near.eta + 60);
++    expect(far.distance).toBeGreaterThan(Math.hypot(REPUBLIQUE.x - 1352, REPUBLIQUE.z + 850));
++  }, 300000);
++});
++
++describe('commissariats — textes de la carte (pur)', () => {
++  const view = (id: string, x: number, entries: Partial<StockEntryView>[]): CommissariatView => ({
++    id, name: `Commissariat du ${id} — rue X`, short: id, kind: 'commissariat_central', x, z: 0, returnX: x, returnZ: 0, returnHeading: 0,
++    available: 0, engaged: 0, resting: 0, patrols: [],
++    entries: entries.map((e, i) => ({
++      id: `${id}:u${i}`, commissariatId: id, kind: 'police_secours', callsign: `TV 75-${i}`, label: '', vehicle: 'voiture_police', vehicles: 1,
++      crew: 3, state: 'au_poste', squadId: 0, restUntil: 0, vehicleIds: [], engageable: true, where: '', ...e,
++    })),
++  });
++
++  it('états en clair, repos, nature des unités', () => {
++    const base = { engageable: true, vehicles: 1, where: '', restUntil: 0 };
++    expect(entryStateLabel({ ...base, state: 'au_poste' }, 0)).toBe('Au poste — prête');
++    expect(entryStateLabel({ ...base, state: 'alerte' }, 0)).toBe('En alerte (équipage à bord)');
++    expect(entryStateLabel({ ...base, state: 'engage', where: 'place de la République' }, 0)).toBe('Engagée — place de la République');
++    expect(entryStateLabel({ ...base, state: 'retour' }, 0)).toBe('Retour au commissariat');
++    expect(entryStateLabel({ ...base, state: 'repos', restUntil: 180 }, 100)).toBe('Au repos 1:20');
++    expect(entryStateLabel({ ...base, state: 'indisponible' }, 0)).toBe('Indisponible');
++    expect(entryStateLabel({ ...base, state: 'au_poste', vehicles: 0 }, 0)).toBe('Indisponible');
++    expect(entryStateLabel({ ...base, state: 'au_poste', engageable: false }, 0)).toBe('Garé — hors dispositif');
++    expect(restText(65.2)).toBe('1:06');
++    expect(restText(-3)).toBe('0:00');
++    expect(entryWhat({ kind: 'bravm', crew: 12, vehicles: 6, label: '' })).toBe('BRAV-M (policiers à moto), 6 motos');
++    expect(entryWhat({ kind: 'section_crs', crew: 19, vehicles: 3, label: '' })).toBe('section de CRS, 3 fourgons, 19 agents');
++    expect(stationSub(2140, 250, 3)).toBe('à 2,1 km · ≈ 4 min deux-tons · 3 prêtes');
++    expect(stationSub(380, 60, 1)).toBe('à 380 m · ≈ 1 min deux-tons · 1 prête');
++    expect(stationSub(0, 0, 0)).toBe('aucune unité prête');
++  });
++
++  it('« Plus… › Commissariats » : du plus proche au plus loin ; envoyer, sa fiche, ou rien', () => {
++    const views = [
++      view('9e', 1400, [{}, { state: 'engage', squadId: 41, where: 'Opéra' }, { state: 'repos', squadId: 42, restUntil: 90 }]),
++      view('1er', 800, [{ state: 'alerte', squadId: 43 }]),
++      view('7e', -700, [{ engageable: false, kind: 'hors_dispositif', label: 'Car de transport CRS · hors dispositif' }]),
++    ];
++    (views[0]!.patrols as number[]).push(77);
++    const o = {
++      now: 30, ref: { x: 0, z: 0 }, travel: (id: string) => {
++        const d = Math.abs(views.find((v) => v.id === id)!.x);
++        return { distance: d, eta: d / 10 };
++      }, streetOf: () => 'Rue Chauchat',
++      canDispatch: true, commandable: (id: number) => id !== 42, patrol: (id: number) => (id === 77 ? { name: 'BAC 75-91', status: 'En patrouille' } : null),
++    };
++    const rows = buildRows(views, o);
++    expect(rows.map((r) => r.id)).toEqual(['7e', '1er', '9e']);
++    expect(rows[2]!.title).toBe('Commissariat du 9e — rue Chauchat');
++    expect(rows[2]!.sub).toBe('à 1,4 km · ≈ 2 min deux-tons · 1 prête');
++    expect(rows[2]!.units.map((u) => [u.stateText, u.action])).toEqual([
++      ['Au poste — prête', 'envoyer'], ['Engagée — Opéra', 'fiche'], ['Au repos 1:00', 'aucune'],
++    ]);
++    expect(rows[1]!.units[0]!.action).toBe('envoyer');
++    expect(rows[0]!.units[0]!.action).toBe('aucune');
++    expect(rows[2]!.patrols).toEqual([{ squadId: 77, name: 'BAC 75-91', status: 'En patrouille' }]);
++    // sans droit d'engager : la liste ne fait que renseigner (fiche des unités sous ses ordres)
++    const ro = buildRows(views, { ...o, canDispatch: false, commandable: () => false });
++    expect(ro.flatMap((r) => r.units.map((u) => u.action)).every((a) => a === 'aucune')).toBe(true);
++  });
++});
 diff --git a/crs-simulation/tests/unit/ui-command.envoi-fiche.test.ts b/crs-simulation/tests/unit/ui-command.envoi-fiche.test.ts
 new file mode 100644
 index 0000000..cfc9384
