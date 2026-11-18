@@ -4623,13 +4623,44 @@ index 3942217..6c77efd 100644
    }
  
 diff --git a/crs-simulation/src/sim/police/command/convoy.ts b/crs-simulation/src/sim/police/command/convoy.ts
-index 10eedc2..e400b9f 100644
+index 10eedc2..076251d 100644
 --- a/crs-simulation/src/sim/police/command/convoy.ts
 +++ b/crs-simulation/src/sim/police/command/convoy.ts
-@@ -173,6 +173,44 @@ export class ConvoyControl {
+@@ -173,6 +173,75 @@ export class ConvoyControl {
      for (let i = 0; i < kids.length; i++) this.disembarkRest(kids[i].id, taken, order);
    }
  
++  /**
++   * Fin de trajet des branches que le joueur a commandées (pas de « débarquez », il remplacerait leur ordre) : leurs
++   * agents encore à bord descendent quand même pour exécuter cet ordre, les conducteurs restant au volant comme au
++   * débarquement. Sans cela, un ordre à pied donné près des véhicules (« Tenir une ligne ici », barrer la rue, à moins
++   * de 250 m : sans nouveau trajet en véhicules) laissait le groupe assis dans son fourgon, l'ordre affiché, sans fin.
++   * Pas pour un ordre de rester à bord (embarquer, « Me suivre en colonne ») ni pour une unité repartie dans une autre
++   * colonne (nouvel ordre lointain, mouvement en véhicules).
++   */
++  private dismountTaken(c: Convoy, taken: ReadonlySet<number>): void {
++    const core = this.core;
++    const ctx = core.ctx;
++    const seen = new Set<number>();
++    const visit = (id: number): void => {
++      if (seen.has(id)) return;
++      seen.add(id);
++      const q = ctx.squads.get(id);
++      if (!q || q.kind === 'equipage' || q.order.type === 'embarquer') return;
++      for (let i = 0; i < q.members.length; i++) {
++        const p = ctx.people.get(q.members[i]!);
++        if (!p || p.vehicleId === 0 || p.isPlayer || p.custody !== 'free' || p.posture === 'down') continue;
++        if (p.poste === 'conducteur' || p.poste === 'pilote_moto') continue;
++        // (à bord d'un véhicule d'une autre colonne — l'unité repartie seule — : cette colonne-là la débarquera)
++        if (!c.vehicles.some((v) => v.id === p.vehicleId) && !c.solo.some((v) => v.id === p.vehicleId)) continue;
++        ctx.vehicles.exit(p);
++      }
++      const kids = ctx.squads.childrenOf(id);
++      for (let i = 0; i < kids.length; i++) visit(kids[i].id);
++    };
++    for (const id of taken) if (core.isUnder(id, c.status.squadId)) visit(id);
++  }
++
 +  /**
 +   * Conduite demandée au pilote automatique : en urgence (défaut), deux tons et allure de colonne ; sans urgence
 +   * (retour au commissariat), allure de la circulation, sans sirène.
@@ -4671,7 +4702,7 @@ index 10eedc2..e400b9f 100644
    of(squadId: number): Convoy | null {
      for (let i = 0; i < this.list.length; i++) if (this.list[i].status.squadId === squadId) return this.list[i];
      return null;
-@@ -183,6 +221,17 @@ export class ConvoyControl {
+@@ -183,6 +252,17 @@ export class ConvoyControl {
      return c ? c.status : null;
    }
  
@@ -4689,7 +4720,68 @@ index 10eedc2..e400b9f 100644
    /** Un convoi de cette unité est-il encore en route, en stationnement ou en débarquement ? */
    arriving(squadId: number): boolean {
      const c = this.of(squadId);
-@@ -382,19 +431,37 @@ export class ConvoyControl {
+@@ -222,6 +302,60 @@ export class ConvoyControl {
+     c.status.vehicles = c.vehicles.length;
+   }
+ 
++  /**
++   * Une unité part dans sa propre colonne alors que ses véhicules roulent encore dans celle d'une unité supérieure
++   * (ordre lointain donné à un groupe pendant le trajet de la compagnie, « Rentrer au commissariat »), ou l'inverse
++   * (toute la compagnie renvoyée ailleurs pendant qu'un de ses groupes roule seul) : chaque véhicule ne suit plus que
++   * la dernière colonne ordonnée. Les deux colonnes se le disputaient : le fourgon d'un groupe rappelé « sans
++   * deux-tons » restait dans la colonne de la compagnie, deux tons, jusqu'au rassemblement, pendant que sa propre
++   * colonne annonçait « Colonne arrêtée à 1 500 mètres du point » et que l'unité restait « Retour » sans fin.
++   * Une colonne qui n'a plus aucun véhicule disparaît ; la colonne restante se reforme derrière sa tête.
++   */
++  private release(c: Convoy): void {
++    const core = this.core;
++    const ap = core.autopilot;
++    for (let i = this.list.length - 1; i >= 0; i--) {
++      const o = this.list[i];
++      if (o === c) continue;
++      let lost = 0;
++      for (let k = o.vehicles.length - 1; k >= 0; k--) {
++        if (c.vehicles.indexOf(o.vehicles[k]!) < 0) continue;
++        o.vehicles.splice(k, 1);
++        if (k < o.startX.length) {
++          o.startX.splice(k, 1);
++          o.startZ.splice(k, 1);
++        }
++        if (k < o.staggerIdx) o.staggerIdx--;
++        lost++;
++      }
++      for (let k = o.solo.length - 1; k >= 0; k--) {
++        if (c.vehicles.indexOf(o.solo[k]!) < 0) continue;
++        o.solo.splice(k, 1);
++        lost++;
++      }
++      if (lost === 0) continue;
++      o.status.vehicles = o.vehicles.length;
++      // (l'unité partie seule n'est plus de ce trajet : pas de « débarquez » pour elle à l'arrivée de l'autre colonne —
++      // le rappel au commissariat ne passe pas par takeOver)
++      if (c.status.squadId !== o.status.squadId && core.isUnder(c.status.squadId, o.status.squadId)) {
++        let set = this.taken.get(o.status.squadId);
++        if (!set) this.taken.set(o.status.squadId, (set = new Set<number>()));
++        set.add(c.status.squadId);
++      }
++      const active = o.status.stage === 'route' || o.status.stage === 'stationnement';
++      if (o.vehicles.length === 0 && o.solo.length === 0) {
++        if (active) {
++          this.list.splice(i, 1);
++          this.taken.delete(o.status.squadId);
++        }
++        continue;
++      }
++      if (ap && o.status.stage === 'route' && !o.boarding && !o.dest.stagger && o.vehicles.length > 0) {
++        ap.convoy(o.vehicles, o.dest.x, o.dest.z, { gap: core.tuning.convoyGap, ...this.pace(o), avoid: this.crowdZones(o) });
++      }
++    }
++  }
++
+   /**
+    * Départ d'un stationnement : la colonne part dans l'ordre PHYSIQUE — d'abord le véhicule le plus proche de la
+    * sortie (le début de l'itinéraire vers la destination), sans quoi un fourgon attend celui qui le bloque et qui
+@@ -382,19 +516,37 @@ export class ConvoyControl {
      for (let i = c.vehicles.length - 1; i >= 0; i--) {
        const v = c.vehicles[i]!;
        if (v.seats[0] !== 0) continue;
@@ -4736,7 +4828,7 @@ index 10eedc2..e400b9f 100644
  
    /**
     * Avant le départ de la colonne : les agents restés à pied près des véhicules (places de leur groupe déjà
-@@ -425,13 +492,16 @@ export class ConvoyControl {
+@@ -425,13 +577,16 @@ export class ConvoyControl {
      if (!squad) return false;
      const c = this.obtain(squadId);
      this.taken.delete(squadId);
@@ -4754,10 +4846,11 @@ index 10eedc2..e400b9f 100644
      c.footTo = false;
      c.drvId = 0;
      c.status.awaitingDriver = false;
-@@ -440,12 +510,21 @@ export class ConvoyControl {
+@@ -440,12 +595,22 @@ export class ConvoyControl {
      c.status.alignError = -1;
      c.status.headingError = -1;
      this.gather(c);
++    this.release(c);
 +    this.quiet(c);
      const lead = c.vehicles[0];
      if (lead) {
@@ -4776,7 +4869,7 @@ index 10eedc2..e400b9f 100644
      c.boarding = false;
      c.waitSince = 0;
      if (dest.boardFirst && lead && ap) {
-@@ -486,7 +565,10 @@ export class ConvoyControl {
+@@ -486,7 +651,10 @@ export class ConvoyControl {
      const ap = core.autopilot;
      this.seatStragglers(c);
      this.manVehicles(c);
@@ -4788,7 +4881,7 @@ index 10eedc2..e400b9f 100644
      c.boarding = false;
      c.stageT = core.now;
      c.routeLen = -1;
-@@ -495,10 +577,10 @@ export class ConvoyControl {
+@@ -495,10 +663,10 @@ export class ConvoyControl {
      if (ap && c.vehicles.length > 0 && c.dest.stagger) {
        c.staggerIdx = 0;
        // (tête sans itinéraire : pas de « départ » annoncé — voir thinkStagger, point inaccessible)
@@ -4801,7 +4894,7 @@ index 10eedc2..e400b9f 100644
        if (squad) core.say(squad.name, frame('CENTRAL', squad.name, 'En route vers la zone de stationnement, ' + spell(c.vehicles.length) + ' véhicules en colonne', false), 1, 'commandement', squad.leaderId);
        return;
      }
-@@ -625,8 +707,10 @@ export class ConvoyControl {
+@@ -625,8 +793,10 @@ export class ConvoyControl {
      for (const v of list) { cx += v.x; cz += v.z; }
      cx /= list.length;
      cz /= list.length;
@@ -4813,7 +4906,7 @@ index 10eedc2..e400b9f 100644
      if (!ok) return;
      // (copie : orderForDeparture et blockerAhead réécrivent pathBuf et headBuf)
      const path = this.lineBuf;
-@@ -640,7 +724,7 @@ export class ConvoyControl {
+@@ -640,7 +810,7 @@ export class ConvoyControl {
      const probe = list.find((v) => v.seats[0] !== 0);
      if (limit !== Infinity && ap && ap.plannedPath && probe) {
        const alt = this.headBuf;
@@ -4822,7 +4915,7 @@ index 10eedc2..e400b9f 100644
          path.length = 0;
          for (const x of alt) path.push(x);
          limit = this.wallAt(path, 8);
-@@ -648,7 +732,7 @@ export class ConvoyControl {
+@@ -648,7 +818,7 @@ export class ConvoyControl {
        ap.stop(probe);
      }
      limit -= WALL_ROOM;
@@ -4831,7 +4924,7 @@ index 10eedc2..e400b9f 100644
      const p = { x: 0, z: 0 };
      const near: Vehicle[] = [];
      let s = 8;
-@@ -715,7 +799,8 @@ export class ConvoyControl {
+@@ -715,7 +885,8 @@ export class ConvoyControl {
      const order = c.staggerIdx;
      c.startX[order] = v.x;
      c.startZ[order] = v.z;
@@ -4841,7 +4934,7 @@ index 10eedc2..e400b9f 100644
      c.staggerIdx++;
      c.staggerAt = core.now;
      return ok;
-@@ -735,11 +820,15 @@ export class ConvoyControl {
+@@ -735,11 +906,15 @@ export class ConvoyControl {
      c.noRoute = true;
      let foot = false;
      try { foot = core.ctx.world.findPath(lead.x, lead.z, c.dest.x, c.dest.z, 'foot', this.headBuf) && this.headBuf.length >= 4; } catch { foot = false; }
@@ -4858,7 +4951,7 @@ index 10eedc2..e400b9f 100644
    }
  
    /** Colonne échelonnée en route : départs successifs, puis débarquement quand tous sont arrivés (ou arrêtés). */
-@@ -779,7 +868,8 @@ export class ConvoyControl {
+@@ -779,7 +954,8 @@ export class ConvoyControl {
            c.vehicles.splice(k, 1);
            c.vehicles.splice(c.staggerIdx, 0, ov);
            this.launchNext(c);
@@ -4868,7 +4961,7 @@ index 10eedc2..e400b9f 100644
            const driver = ov.seats[0] !== 0 ? core.ctx.people.get(ov.seats[0]!) : undefined;
            if (!driver || !driver.isPlayer) core.ctx.vehicles.remove(ov.id);
          }
-@@ -795,8 +885,14 @@ export class ConvoyControl {
+@@ -795,8 +971,14 @@ export class ConvoyControl {
      }
      // (le véhicule que conduit le joueur, au repos tant qu'il n'a pas démarré : la colonne l'attend — voir awaitDriver)
      const pv = this.playerWheel(c);
@@ -4885,7 +4978,7 @@ index 10eedc2..e400b9f 100644
      const max = this.routeMax(c, 600);
      if (done < n && now - c.stageT < max) return;
      for (let i = 0; i < n; i++) if (Math.abs(c.vehicles[i]!.speed) > 0.4 && now - c.stageT < max + 20) return;
-@@ -842,9 +938,9 @@ export class ConvoyControl {
+@@ -842,9 +1024,9 @@ export class ConvoyControl {
          if (blocked || dropped) {
            const v = c.vehicles.splice(i, 1)[0]!;
            // (il s'arrêtera à sa place derrière la tête, pas sur le point même : pas d'embouteillage à l'arrivée)
@@ -4897,7 +4990,7 @@ index 10eedc2..e400b9f 100644
            c.unstuckAt = now + 10;
            break;
          }
-@@ -853,16 +949,16 @@ export class ConvoyControl {
+@@ -853,16 +1035,16 @@ export class ConvoyControl {
        for (const v of c.solo) {
          const vs = ap.status(v);
          if (!this.isPlayerWheel(v) && vs.mode === 'idle' && Math.abs(v.speed) < 0.3 && Math.hypot(v.x - c.dest.x, v.z - c.dest.z) > 90) {
@@ -4917,7 +5010,7 @@ index 10eedc2..e400b9f 100644
          c.unstuckAt = now + 15;
          return;
        }
-@@ -890,7 +986,7 @@ export class ConvoyControl {
+@@ -890,7 +1072,7 @@ export class ConvoyControl {
        c.unstuckAt = now + 10;
        for (const v of c.solo) if (c.vehicles.indexOf(v) < 0) c.vehicles.push(v);
        c.solo.length = 0;
@@ -4926,7 +5019,7 @@ index 10eedc2..e400b9f 100644
      }
      // tête arrivée à quelques dizaines de mètres du point mais arrêtée là (mobilier, véhicule, manœuvre sans fin sur
      // ses derniers mètres) : la colonne est arrivée, elle se gare — sans attendre qu'un demi-tour sur la place la
-@@ -929,7 +1025,7 @@ export class ConvoyControl {
+@@ -929,7 +1111,7 @@ export class ConvoyControl {
        for (const v of c.vehicles) {
          if (rowList.indexOf(v) >= 0) continue;
          const st = ap.status(v);
@@ -4935,7 +5028,7 @@ index 10eedc2..e400b9f 100644
          k++;
        }
      }
-@@ -944,7 +1040,7 @@ export class ConvoyControl {
+@@ -944,7 +1126,7 @@ export class ConvoyControl {
  
    /**
     * Colonne arrêtée en route loin du point : les véhicules loin du point (à plus de 90 m) qui ne sont ni hors d'usage ni
@@ -4944,7 +5037,7 @@ index 10eedc2..e400b9f 100644
     * la file d'arrivée. La colonne est rangée du plus proche au plus éloigné du point : le débarquement se fait devant
     * celui qui en est le plus près. false si aucun véhicule ne repart.
     */
-@@ -962,7 +1058,7 @@ export class ConvoyControl {
+@@ -962,7 +1144,7 @@ export class ConvoyControl {
        const there = dist(v) < 90;
        const hopeless = st.state === 'echec' || ((st.state === 'bloque' || st.state === 'attente') && st.mode === 'drive' && st.blockedFor > 40);
        if (!there && !hopeless && core.usable(v)
@@ -4953,12 +5046,20 @@ index 10eedc2..e400b9f 100644
        k++;
      }
      return moved > 0;
-@@ -1084,6 +1180,8 @@ export class ConvoyControl {
+@@ -1084,6 +1266,8 @@ export class ConvoyControl {
      const core = this.core;
      const d = c.dest;
      if (d.disembark === false) {
 +      // (pas de « débarquez » : les ordres que le joueur a donnés en route tiennent d'eux-mêmes)
 +      this.taken.delete(c.status.squadId);
+       this.setStage(c, 'en_place');
+       return;
+     }
+@@ -1120,6 +1304,7 @@ export class ConvoyControl {
+     if (taken && taken.size > 0) {
+       // le joueur a déjà commandé une partie de la colonne : le reste débarque, ses ordres tiennent
+       this.disembarkRest(c.status.squadId, taken, order);
++      this.dismountTaken(c, taken);
        this.setStage(c, 'en_place');
        return;
      }
@@ -10623,6 +10724,339 @@ index 0000000..1a33414
 +    }
 +  }, 600_000);
 +});
+diff --git a/crs-simulation/tests/unit/integration.commissariats-commandant.test.ts b/crs-simulation/tests/unit/integration.commissariats-commandant.test.ts
+new file mode 100644
+index 0000000..803c741
+--- /dev/null
++++ b/crs-simulation/tests/unit/integration.commissariats-commandant.test.ts
+@@ -0,0 +1,327 @@
++// Commissariats et ordres du commandant (vraie carte de Paris), après la fusion avec « commandant-mission » et
++// « colonne-tete-bloquee » : le commandant joue comme au clavier (fiche du commissariat, carte de commandement).
++//   (b) il engage la section de réserve de la Cité (même chemin que la fiche du commissariat), l'envoie en véhicules,
++//       et lui donne un autre ordre à l'arrivée, pendant que la colonne se gare : cet ordre tient, aucun « débarquez »
++//       de fin de trajet ne le remplace, et ses agents descendent l'exécuter (b2 : même chose pour la compagnie) ;
++//   (c) « Rentrer au commissariat » donné pendant que la colonne roule encore vers le point : elle fait demi-tour sans
++//       deux-tons, sans débarquer au point, rentre, se gare dans ses places et se repose ; (c2) même ordre à un groupe
++//       de la compagnie pendant le trajet de la journée : son fourgon quitte la colonne de la compagnie (qui continue
++//       sans lui et arrive), rentre à la caserne sans deux-tons et ne reçoit pas le « débarquez » de la compagnie ;
++//   (e) puis une deuxième partie dans le même processus : aucun reste de la première (convoi, retour sans urgence,
++//       unité, véhicule tenu).
++import { describe, expect, it } from 'vitest';
++
++import type { GameContext, OrderType, RoadSample, SessionConfig, SquadOrder, Vehicle } from '@/core/contracts';
++import { createTestContext } from '@/core/testing';
++import { createSystems as world } from '@/world/query';
++import { createSystems as roles } from '@/sim/roles';
++import { createSystems as people } from '@/sim/people';
++import { createSystems as vehicles } from '@/sim/vehicles';
++import { createSystems as traffic } from '@/sim/traffic';
++import { createSystems as crowd } from '@/sim/crowd';
++import { createSystems as police } from '@/sim/police';
++import { createSystems as items } from '@/sim/items';
++import { createSystems as props } from '@/sim/props';
++import { createSystems as hazards } from '@/sim/hazards';
++import { createSystems as law } from '@/gameplay/law';
++import { createSystems as radio } from '@/gameplay/radio';
++import { createSystems as session, JOURNEE_SERVICE, SERVICE_BASE } from '@/gameplay/session';
++import type { JourneeApi } from '@/gameplay/session';
++import { createSystems as patrols } from '@/gameplay/patrols';
++import { createSystems as commissariats, COMMISSARIATS_SERVICE } from '@/gameplay/commissariats';
++import type { CommissariatsApi } from '@/gameplay/commissariats';
++import { createSystems as command } from '@/ui/command';
++import type { CommandCore } from '@/ui/command';
++import { entryNumber } from '@/ui/command/commissariatsModel';
++import { COMMISSARIATS, isHeldVehicle } from '@/world/commissariats';
++
++const SIM = [world, roles, people, vehicles, traffic, crowd, police, items, props, hazards, law, radio, session, patrols, commissariats, command];
++const MEANS = { sections: 1, fourgons: 3, centaure: 0, canon_eau: 0, bravm: 0, drone: 0, pompiers: 0, samu: 0, secours_sur_appel: true };
++const ROAD = (): RoadSample => ({ edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '', roadClass: 'residential', oneway: false });
++const CONFIG = {
++  mode: 'libre', role: 'commandant', rank: 'commandant', place: 'Place de la Concorde', x: -10, z: 15, crowdSize: 0,
++  tension: 0.1, volatility: 0.1, duration: 'standard', extra: { moyens: MEANS, variante: 'terrain', foyers: 0 },
++} as Partial<SessionConfig>;
++
++interface ConvoyLike {
++  convoyOf(id: number): { stage: string; vehicles: number } | null;
++  quietRun?(vehicleId: number): boolean;
++}
++
++/** Ordres reçus par les unités (type), relevés à la source : ctx.squads.issue. */
++function recordOrders(ctx: GameContext): { squadId: number; type: string; at: number }[] {
++  const out: { squadId: number; type: string; at: number }[] = [];
++  const issue = ctx.squads.issue.bind(ctx.squads);
++  (ctx.squads as { issue: typeof issue }).issue = (id: number, o: Partial<SquadOrder> & { type: OrderType }) => {
++    out.push({ squadId: id, type: String(o.type), at: ctx.clock.now });
++    return issue(id, o as never);
++  };
++  return out;
++}
++
++/** L'unité et toutes ses subordonnées. */
++function subtree(ctx: GameContext, id: number): Set<number> {
++  const out = new Set<number>([id]);
++  for (let grew = true; grew;) {
++    grew = false;
++    for (const s of ctx.squads.list) if (!out.has(s.id) && out.has(s.parentId)) { out.add(s.id); grew = true; }
++  }
++  return out;
++}
++
++/** L'unité est-elle sous `root` (ou `root` elle-même) ? */
++function rootIs(ctx: GameContext, id: number, root: number): boolean {
++  for (let q = ctx.squads.get(id), g = 0; q && g < 8; q = q.parentId ? ctx.squads.get(q.parentId) : undefined, g++) if (q.id === root) return true;
++  return false;
++}
++
++/** Point sur la chaussée à `dist` m de la sortie du site, vers l'intérieur de la carte. */
++function roadFrom(ctx: GameContext, siteId: string, dist: number): RoadSample {
++  const def = COMMISSARIATS.find((c) => c.id === siteId)!;
++  const ang = Math.atan2(1500 - def.exit.x, 0 - def.exit.z);
++  const road = ROAD();
++  expect(ctx.world.nearestRoad(def.exit.x + Math.sin(ang) * dist, def.exit.z + Math.cos(ang) * dist, road, 200)).toBe(true);
++  return road;
++}
++
++async function start(seed: number) {
++  const t = createTestContext({ seed, strict: false, modules: SIM });
++  await t.start(CONFIG);
++  t.step(1);
++  const ctx = t.ctx;
++  for (const c of COMMISSARIATS) await ctx.world.whenLoaded(c.door.x, c.door.z, 260);
++  return { t, ctx, api: ctx.require<CommissariatsApi>(COMMISSARIATS_SERVICE), core: ctx.require<CommandCore>('ui.command'), cmd: ctx.require<ConvoyLike>('police.command') };
++}
++
++describe('commissariats et ordres du commandant', () => {
++  it('(b) section de réserve de la Cité engagée, ordre donné à l’arrivée : il tient, pas de « débarquez »', async () => {
++    const { t, ctx, api, core, cmd } = await start(11);
++    const orders = recordOrders(ctx);
++    const r = core.engageFromCommissariat(entryNumber('cite:aquilon1'));
++    expect(r.ok, r.reason).toBe(true);
++    const sq = ctx.squads.get(r.squadId)!;
++    const road = roadFrom(ctx, 'cite', 520);
++    expect(core.issue('faire_mouvement', [sq], [{ x: road.x, z: road.z, heading: road.heading, width: 0 }]).ok).toBe(true);
++    // la colonne roule ; le commandant donne son ordre quand elle arrive (stationnement, ou tête à moins de 120 m)
++    let at = -1;
++    let stageAt = '';
++    for (let s = 0; s < 600 && at < 0; s++) {
++      t.step(1);
++      const st = cmd.convoyOf(sq.id);
++      const lead = api.entry('cite:aquilon1')!.vehicleIds.map((id) => ctx.vehicles.get(id)!).filter(Boolean)
++        .reduce((m, v) => Math.min(m, Math.hypot(v.x - road.x, v.z - road.z)), Infinity);
++      if (st && (st.stage === 'stationnement' || (st.stage === 'route' && lead < 120))) { at = ctx.clock.now; stageAt = `${st.stage}, tête à ${lead.toFixed(0)} m`; }
++    }
++    expect(at, 'la colonne arrive').toBeGreaterThan(0);
++    // « Tenir une ligne » 35 m plus loin, au même endroit pour toute la section
++    const tx = road.x + Math.sin(road.heading) * 35, tz = road.z + Math.cos(road.heading) * 35;
++    expect(core.issue('ligne', [sq], [{ x: tx, z: tz, heading: road.heading, width: 20 }]).ok).toBe(true);
++    for (let s = 0; s < 150; s++) {
++      t.step(1);
++      const st = cmd.convoyOf(sq.id);
++      if (st && st.stage === 'en_place' && s > 40) break;
++    }
++    t.step(30);
++    const tree = subtree(ctx, sq.id);
++    const after = orders.filter((o) => o.at >= at && tree.has(o.squadId));
++    const disembark = after.filter((o) => o.type === 'debarquer');
++    const members = [...tree].flatMap((id) => ctx.squads.get(id)!.members).map((id) => ctx.people.get(id)!).filter((p) => p && !p.isPlayer);
++    const near = members.filter((p) => p.vehicleId === 0 && Math.hypot(p.x - tx, p.z - tz) < 45).length;
++    console.log(`(b) ordre donné à l'arrivée (${stageAt}) ; ordres reçus ensuite : ${after.map((o) => o.type).join(', ')} ; `
++      + `colonne ${cmd.convoyOf(sq.id)?.stage} ; section ${sq.order.type} ; ${near}/${members.length} agents à pied à moins de 45 m de la ligne`);
++    for (const id of tree) {
++      const q = ctx.squads.get(id)!;
++      const ps = q.members.map((m) => ctx.people.get(m)!).filter(Boolean);
++      console.log(`   ${q.name} (${q.kind}) ordre ${q.order.type} : ${ps.map((p) => `${p.vehicleId ? 'à bord' : 'à pied'} ${Math.hypot(p.x - tx, p.z - tz).toFixed(0)} m`).join(', ')}`);
++    }
++    expect(disembark.map((o) => ctx.squads.get(o.squadId)!.name)).toEqual([]);
++    expect(sq.order.type).toBe('ligne');
++    expect(near).toBeGreaterThanOrEqual(Math.ceil(members.length * 0.6));
++    expect(api.entry('cite:aquilon1')!.state).toBe('engage');
++  }, 900000);
++
++  it('(b2) section de la compagnie : ordre à pied donné à ses groupes près des fourgons pendant l’arrivée — ils descendent l’exécuter', async () => {
++    // (même défaut sans commissariat : « commandant-mission » ne remplaçait plus l'ordre par le « débarquez », mais les
++    // agents restaient assis dans leurs fourgons, l'ordre « Tenir une ligne » affiché — « ils ne suivaient pas »)
++    const { t, ctx, cmd, core } = await start(11);
++    const sq = ctx.squads.list.find((s) => s.kind === 'section' && s.faction === 'police' && s.parentId === 0)
++      ?? ctx.squads.list.find((s) => s.kind === 'section' && s.faction === 'police')!;
++    const groups = ctx.squads.list.filter((q) => q.parentId === sq.id);
++    expect(groups.length).toBeGreaterThan(1);
++    const lead0 = ctx.people.get(groups[0]!.leaderId)!;
++    const road = ROAD();
++    expect(ctx.world.nearestRoad(lead0.x + 450, lead0.z - 150, road, 200)).toBe(true);
++    expect(core.issue('faire_mouvement', [sq], [{ x: road.x, z: road.z, heading: road.heading, width: 0 }]).ok).toBe(true);
++    const vs = (): Vehicle[] => ctx.vehicles.list.filter((v) => v.seats.some((id) => id !== 0 && groups.some((q) => q.members.includes(id))));
++    let arrived = false;
++    for (let s = 0; s < 600 && !arrived; s++) {
++      t.step(1);
++      const st = cmd.convoyOf(sq.id);
++      const d = Math.min(...vs().map((v) => Math.hypot(v.x - road.x, v.z - road.z)));
++      arrived = !!st && (st.stage === 'stationnement' || (st.stage === 'route' && d < 50));
++    }
++    expect(arrived).toBe(true);
++    // « Tenir une ligne » 25 m devant le fourgon de tête : à moins de 250 m, sans nouveau trajet en véhicules
++    const lv = vs().sort((a, b) => Math.hypot(a.x - road.x, a.z - road.z) - Math.hypot(b.x - road.x, b.z - road.z))[0]!;
++    const tx = lv.x + Math.sin(lv.heading) * 25, tz = lv.z + Math.cos(lv.heading) * 25;
++    const direct = groups.filter((q) => { const l = ctx.people.get(q.leaderId); return !!l && Math.hypot(l.x - tx, l.z - tz) < 200; });
++    expect(direct.length).toBeGreaterThan(0);
++    expect(core.issue('ligne', direct, [{ x: tx, z: tz, heading: lv.heading, width: 20 }]).ok).toBe(true);
++    t.step(150);
++    const out: string[] = [];
++    let aboard = 0;
++    for (const q of direct) {
++      const ps = q.members.map((id) => ctx.people.get(id)!).filter((p) => p && p.poste !== 'conducteur');
++      const on = ps.filter((p) => p.vehicleId !== 0).length;
++      aboard += on;
++      out.push(`${q.name} ${q.order.type} : ${on}/${ps.length} encore à bord, à ${(ps.reduce((a, p) => a + Math.hypot(p.x - tx, p.z - tz), 0) / Math.max(1, ps.length)).toFixed(0)} m de la ligne`);
++      expect(q.order.type).toBe('ligne');
++    }
++    console.log(`(b2) ${out.join(' ; ')}`);
++    expect(aboard).toBe(0);
++  }, 900000);
++
++  it('(c2) journée de service : « Rentrer au commissariat » à un groupe pendant le trajet de la compagnie', async () => {
++    const t = createTestContext({ seed: 5, strict: false, modules: SIM });
++    await t.start({
++      mode: 'libre', role: 'commandant', rank: 'commandant', place: 'Place de la République', x: 3123, z: -208, crowdSize: 100, tension: 0.2,
++      volatility: 0.2, duration: 'standard', extra: { moyens: { ...MEANS, sections: 2, fourgons: 6 }, journee: true },
++    } as never);
++    const ctx = t.ctx;
++    const j = ctx.require<JourneeApi>(JOURNEE_SERVICE);
++    const core = ctx.require<CommandCore>('ui.command');
++    const cmd = ctx.require<ConvoyLike>('police.command');
++    const api = ctx.require<CommissariatsApi>(COMMISSARIATS_SERVICE);
++    const orders = recordOrders(ctx);
++    const me = ctx.player.person()!;
++    const company = ctx.squads.list.find((s) => s.kind === 'compagnie')!;
++    // le commandant monte dans son VL, la colonne part
++    for (let i = 0; i < 40 && me.vehicleId === 0; i++) {
++      t.step(3);
++      const vl = ctx.vehicles.list.find((v) => v.faction === 'police' && v.kind === 'vl_commandement' && v.seats[0] !== 0 && v.seats.some((id, k) => id === 0 && k > 0));
++      if (vl) { me.x = vl.x + 2.5; me.z = vl.z; ctx.vehicles.enter(me, vl, 'passenger'); }
++    }
++    for (let i = 0; i < 300 && j.stage !== 'route'; i++) t.step(1);
++    expect(j.stage).toBe('route');
++    t.step(60);
++    const n0 = cmd.convoyOf(company.id)!.vehicles;
++    const g = ctx.squads.list.find((s) => s.kind === 'groupe' && rootIs(ctx, s.id, company.id) && /1 ALFA$/.test(s.name))!;
++    const van = ctx.vehicles.get(g.vehicleId)!;
++    const dest = j.destination!;
++    const d0 = Math.hypot(van.x - SERVICE_BASE.x, van.z - SERVICE_BASE.z);
++    const res = core.issue('retour_poste' as OrderType, [g], null);
++    expect(res.ok, res.reason).toBe(true);
++    const recallAt = ctx.clock.now;
++    let sirens = 0;
++    let closest = Infinity;
++    for (let s = 0; s < 400 && !['repos', 'au_poste'].includes(api.entryOf(g.id)?.state ?? ''); s++) {
++      t.step(1);
++      if (van.siren !== 0) sirens++;
++      closest = Math.min(closest, Math.hypot(van.x - dest.x, van.z - dest.z));
++    }
++    const back = Math.hypot(van.x - SERVICE_BASE.x, van.z - SERVICE_BASE.z);
++    const st = api.entryOf(g.id)?.state;
++    const n1 = cmd.convoyOf(company.id)?.vehicles ?? -1;
++    console.log(`(c2) ${g.name} rappelé à ${d0.toFixed(0)} m de la caserne : ${st} après ${(ctx.clock.now - recallAt).toFixed(0)} s, fourgon à ${back.toFixed(0)} m de la caserne ; `
++      + `deux-tons ${sirens} relevés ; au plus près du rassemblement ${closest.toFixed(0)} m ; colonne de la compagnie ${n0} → ${n1} véhicules`);
++    expect(['repos', 'au_poste']).toContain(st);
++    expect(back).toBeLessThan(120);
++    expect(sirens).toBe(0);
++    expect(n1).toBe(n0 - 1);
++    // la compagnie continue sans lui et arrive ; le groupe rentré ne reçoit pas son « débarquez »
++    for (let i = 0; i < 200 && j.stage === 'route'; i++) t.step(5);
++    t.step(30);
++    expect(j.stage).toBe('sur_place');
++    const ownDisembark = orders.filter((o) => o.at >= recallAt && o.squadId === g.id && o.type === 'debarquer');
++    const others = ctx.squads.list.filter((s) => s.kind === 'groupe' && s.id !== g.id && rootIs(ctx, s.id, company.id));
++    const othersAboard = others.flatMap((s) => s.members.map((id) => ctx.people.get(id)!)).filter((p) => p && p.vehicleId !== 0 && p.poste !== 'conducteur').length;
++    console.log(`(c2) compagnie ${j.stage} ; « débarquez » reçus par ${g.name} : ${ownDisembark.length} ; agents des autres groupes encore à bord : ${othersAboard}`);
++    expect(ownDisembark).toEqual([]);
++    expect(othersAboard).toBe(0);
++  }, 1500000);
++
++  it('(c)+(e) « Rentrer au commissariat » en route vers le point : demi-tour sans deux-tons, garée, au repos ; puis une partie propre', async () => {
++    const { t, ctx, api, core, cmd } = await start(13);
++    const orders = recordOrders(ctx);
++    const r = core.engageFromCommissariat(entryNumber('cite:aquilon1'));
++    expect(r.ok, r.reason).toBe(true);
++    const sq = ctx.squads.get(r.squadId)!;
++    const road = roadFrom(ctx, 'cite', 900);
++    expect(core.issue('faire_mouvement', [sq], [{ x: road.x, z: road.z, heading: road.heading, width: 0 }]).ok).toBe(true);
++    const vs = (): Vehicle[] => api.entry('cite:aquilon1')!.vehicleIds.map((id) => ctx.vehicles.get(id)!).filter(Boolean);
++    // en route : la colonne a quitté la Cité depuis 30 s (tous à bord, tête partie de plus de 120 m)
++    const def = COMMISSARIATS.find((c) => c.id === 'cite')!;
++    let rolling = -1;
++    for (let s = 0; s < 400; s++) {
++      t.step(1);
++      const st = cmd.convoyOf(sq.id);
++      const far = vs().some((v) => Math.hypot(v.x - def.door.x, v.z - def.door.z) > 120);
++      if (st && st.stage === 'route' && far && rolling < 0) rolling = ctx.clock.now;
++      if (rolling > 0 && ctx.clock.now - rolling > 30) break;
++    }
++    expect(rolling, 'la colonne roule vers le point').toBeGreaterThan(0);
++    const toPoint = Math.min(...vs().map((v) => Math.hypot(v.x - road.x, v.z - road.z)));
++    expect(toPoint).toBeGreaterThan(150);
++    const res = core.issue('retour_poste' as OrderType, [sq], null);
++    expect(res.ok, res.reason).toBe(true);
++    expect(api.entry('cite:aquilon1')!.state).toBe('retour');
++    const recallAt = ctx.clock.now;
++    let sirens = 0;
++    let quiet = 0;
++    let nearPoint = Infinity;
++    for (let s = 0; s < 900 && api.entry('cite:aquilon1')!.state === 'retour'; s++) {
++      t.step(1);
++      for (const v of vs()) {
++        if (v.siren !== 0) sirens++;
++        if (cmd.quietRun && cmd.quietRun(v.id)) quiet++;
++        nearPoint = Math.min(nearPoint, Math.hypot(v.x - road.x, v.z - road.z));
++      }
++    }
++    const tree = subtree(ctx, sq.id);
++    const disembark = orders.filter((o) => o.at >= recallAt && tree.has(o.squadId) && o.type === 'debarquer');
++    const st = api.entry('cite:aquilon1')!.state;
++    console.log(`(c) rappel à ${toPoint.toFixed(0)} m du point ; état ${st} après ${(ctx.clock.now - recallAt).toFixed(0)} s ; `
++      + `au plus près du point ensuite ${nearPoint.toFixed(0)} m ; deux-tons ${sirens} relevés ; trajet sans urgence ${quiet} relevés ; débarquez ${disembark.length}`);
++    expect(['repos', 'au_poste']).toContain(st);
++    expect(sirens).toBe(0);
++    expect(quiet).toBeGreaterThan(0);
++    expect(disembark).toEqual([]);
++    // (sans contresens ni demi-tour sur place, elle va jusqu'au prochain carrefour qui la ramène : jamais jusqu'au point)
++    expect(nearPoint).toBeGreaterThan(150);
++    for (const v of vs()) expect(def.slots.some((s) => Math.hypot(s.x - v.x, s.z - v.z) < 1.5), `${v.kind}#${v.id} sur une place`).toBe(true);
++
++    // (e) une autre unité en plein retour sans urgence, puis une nouvelle partie
++    const r2 = core.engageFromCommissariat(entryNumber('celestins:epervier9'));
++    expect(r2.ok, r2.reason).toBe(true);
++    const sq2 = ctx.squads.get(r2.squadId)!;
++    const road2 = roadFrom(ctx, 'celestins', 600);
++    expect(core.issue('faire_mouvement', [sq2], [{ x: road2.x, z: road2.z, heading: road2.heading, width: 0 }]).ok).toBe(true);
++    t.step(90);
++    expect(core.issue('retour_poste' as OrderType, [sq2], null).ok).toBe(true);
++    t.step(20);
++    const old = [sq.id, sq2.id];
++    await t.start(CONFIG);
++    t.step(2);
++    const ctx2 = t.ctx;
++    const api2 = ctx2.require<CommissariatsApi>(COMMISSARIATS_SERVICE);
++    const cmd2 = ctx2.require<ConvoyLike>('police.command');
++    const entries = api2.list.flatMap((c) => c.entries);
++    expect(entries.every((e) => e.state === 'au_poste' && e.squadId === 0)).toBe(true);
++    expect(ctx2.vehicles.list.filter((v) => isHeldVehicle(ctx2, v.id)).length).toBe(32);
++    for (const id of old) expect(cmd2.convoyOf(id)).toBeNull();
++    expect(ctx2.vehicles.list.filter((v) => cmd2.quietRun && cmd2.quietRun(v.id)).map((v) => v.id)).toEqual([]);
++    // et la section se réengage et repart en urgence (deux-tons)
++    const core2 = ctx2.require<CommandCore>('ui.command');
++    const again = core2.engageFromCommissariat(entryNumber('cite:aquilon1'));
++    expect(again.ok).toBe(true);
++    const road3 = roadFrom(ctx2, 'cite', 520);
++    expect(core2.issue('faire_mouvement', [ctx2.squads.get(again.squadId)!], [{ x: road3.x, z: road3.z, heading: road3.heading, width: 0 }]).ok).toBe(true);
++    let siren2 = 0;
++    for (let s = 0; s < 120; s++) {
++      t.step(1);
++      for (const id of api2.entry('cite:aquilon1')!.vehicleIds) if (ctx2.vehicles.get(id)?.siren !== 0) siren2++;
++    }
++    console.log(`(e) deuxième partie : stock complet, aucun convoi ni retour sans urgence restés ; réengagée : deux-tons ${siren2} relevés`);
++    expect(siren2).toBeGreaterThan(0);
++  }, 1500000);
++});
 diff --git a/crs-simulation/tests/unit/integration.commissariats-fusion.test.ts b/crs-simulation/tests/unit/integration.commissariats-fusion.test.ts
 new file mode 100644
 index 0000000..e80a91e
@@ -10918,6 +11352,133 @@ index 0000000..e80a91e
 +    // (jamais repassée « engagée » par ses propres relances de retour)
 +    expect(['retour', 'repos', 'au_poste']).toContain(entry.state);
 +  }, 900000);
++});
+diff --git a/crs-simulation/tests/unit/integration.commissariats-journee-depart.test.ts b/crs-simulation/tests/unit/integration.commissariats-journee-depart.test.ts
+new file mode 100644
+index 0000000..ddf6621
+--- /dev/null
++++ b/crs-simulation/tests/unit/integration.commissariats-journee-depart.test.ts
+@@ -0,0 +1,121 @@
++// Journée de service partie d'un commissariat qui a ses propres véhicules garés en réserve (vraie carte de Paris, partie
++// complète avec patrouilles et commissariats, comme dans main.ts) : 1er (place du Marché-Saint-Honoré) et 8e (avenue
++// du Général-Eisenhower). La colonne de la compagnie est garée à côté des places réservées sans les prendre ni les
++// chevaucher, elle part sans pousser ni attendre derrière les véhicules garés du commissariat (qui ne bougent pas et
++// restent dans la réserve), et elle arrive au lieu du rassemblement.
++import { describe, expect, it } from 'vitest';
++
++import type { GameContext, Person, Squad, Vehicle } from '@/core/contracts';
++import { createTestContext } from '@/core/testing';
++import { createSystems as world } from '@/world/query';
++import { createSystems as roles } from '@/sim/roles';
++import { createSystems as people } from '@/sim/people';
++import { createSystems as vehicles } from '@/sim/vehicles';
++import { createSystems as traffic } from '@/sim/traffic';
++import { createSystems as crowd } from '@/sim/crowd';
++import { createSystems as police } from '@/sim/police';
++import { createSystems as items } from '@/sim/items';
++import { createSystems as props } from '@/sim/props';
++import { createSystems as hazards } from '@/sim/hazards';
++import { createSystems as law } from '@/gameplay/law';
++import { createSystems as radio } from '@/gameplay/radio';
++import { createSystems as session, JOURNEE_SERVICE, SERVICE_BASES } from '@/gameplay/session';
++import type { JourneeApi } from '@/gameplay/session';
++import { createSystems as patrols } from '@/gameplay/patrols';
++import { createSystems as commissariats } from '@/gameplay/commissariats';
++import { COMMISSARIATS, isHeldVehicle } from '@/world/commissariats';
++
++const SIM = [world, roles, people, vehicles, traffic, crowd, police, items, props, hazards, law, radio, session, patrols, commissariats];
++const PLACES: Record<string, [string, number, number]> = {
++  concorde: ['Place de la Concorde', -10, 15], hotel: ['Hôtel de Ville', 2211, 993],
++};
++
++function rootOf(ctx: GameContext, s: Squad): Squad {
++  let q = s;
++  for (let g = 0; q.parentId !== 0 && g < 8; g++) q = ctx.squads.get(q.parentId) ?? q;
++  return q;
++}
++
++/** Les emprises de deux véhicules se chevauchent-elles (rectangles orientés) ? */
++function overlap(a: Vehicle, b: Vehicle, margin = 0.1): boolean {
++  for (const h of [a.heading, a.heading + Math.PI / 2, b.heading, b.heading + Math.PI / 2]) {
++    const ax = Math.sin(h), az = Math.cos(h);
++    const ext = (v: Vehicle): number => {
++      const fx = Math.sin(v.heading), fz = Math.cos(v.heading);
++      return Math.abs(fx * ax + fz * az) * v.def.length * 0.5 + Math.abs(-fz * ax + fx * az) * v.def.width * 0.5;
++    };
++    if (Math.abs((b.x - a.x) * ax + (b.z - a.z) * az) >= ext(a) + ext(b) + margin) return false;
++  }
++  return true;
++}
++
++const CASES = [
++  { site: '1er', base: 1, role: 'commandant', seed: 3, where: 'hotel', means: { sections: 2, fourgons: 6 }, crowd: 150 },
++  { site: '8e', base: 4, role: 'crs', seed: 7, where: 'concorde', means: {}, crowd: 120 },
++];
++
++describe('journée de service au départ d’un commissariat garni', () => {
++  for (const k of CASES) {
++    it(`${k.site} (${k.role}) : la colonne se gare à côté de la réserve, part sans la pousser ni l’attendre, et arrive`, async () => {
++      const t = createTestContext({ seed: k.seed, strict: false, modules: SIM });
++      const [place, x, z] = PLACES[k.where]!;
++      const base = SERVICE_BASES[k.base]!;
++      const MEANS = { sections: 1, fourgons: 3, centaure: 0, canon_eau: 0, bravm: 0, drone: 0, pompiers: 0, samu: 0, secours_sur_appel: true, ...k.means };
++      await t.start({
++        mode: 'libre', role: k.role as never, place, x, z, crowdSize: k.crowd, tension: 0.2, volatility: 0.2, duration: 'standard',
++        extra: { moyens: MEANS, journee: true, base: { x: base.x, z: base.z, name: base.name } },
++      } as never);
++      const ctx = t.ctx;
++      const j = ctx.service<JourneeApi>(JOURNEE_SERVICE)!;
++      const me: Person = ctx.player.person()!;
++      const def = COMMISSARIATS.find((c) => c.id === k.site)!;
++      const held = ctx.vehicles.list.filter((v) => isHeldVehicle(ctx, v.id) && Math.hypot(v.x - def.door.x, v.z - def.door.z) < 300);
++      const heldAt = new Map(held.map((v) => [v.id, { x: v.x, z: v.z }]));
++      const company = rootOf(ctx, ctx.squads.get(me.squadId)!);
++      const col = ctx.vehicles.list.filter((v) => v.faction === 'police' && !v.def.flying && !isHeldVehicle(ctx, v.id)
++        && v.seats.concat(v.seats).some((id) => id !== 0 && (() => { const p = ctx.people.get(id); const s = p ? ctx.squads.get(p.squadId) : undefined; return !!s && rootOf(ctx, s).id === company.id; })()));
++      const crews = ctx.squads.list.filter((s) => s.vehicleId !== 0 && rootOf(ctx, s).id === company.id).map((s) => ctx.vehicles.get(s.vehicleId)!).filter(Boolean);
++      for (const v of crews) if (col.indexOf(v) < 0 && !isHeldVehicle(ctx, v.id)) col.push(v);
++      const from = new Map(col.map((v) => [v.id, { x: v.x, z: v.z }]));
++      const bad: string[] = [];
++      for (const v of col) for (const h of held) if (overlap(v, h)) bad.push(`${v.kind}#${v.id} sur la place de ${h.kind}#${h.id}`);
++      const gap = Math.min(...col.map((v) => Math.min(...held.map((h) => Math.hypot(v.x - h.x, v.z - h.z)))));
++      console.log(`${k.site} : réserve ${held.length} véhicules garés, colonne ${col.length} véhicules (plus proche d'une place réservée : ${gap.toFixed(1)} m)`);
++      expect(held.length).toBeGreaterThan(0);
++      expect(col.length).toBeGreaterThan(2);
++      expect(bad).toEqual([]);
++      // le joueur embarque dans le véhicule de la compagnie le plus proche où il reste une place, comme dans la partie
++      for (let i = 0; i < 20 && me.vehicleId === 0; i++) {
++        t.step(3);
++        const seat = col.filter((v) => v.seats[0] !== 0 && v.seats.some((id, s) => id === 0 && s > 0)).sort((a, b) => Math.hypot(a.x - me.x, a.z - me.z) - Math.hypot(b.x - me.x, b.z - me.z))[0];
++        if (seat) { me.x = seat.x + 2.5; me.z = seat.z; ctx.vehicles.enter(me, seat, 'passenger'); }
++      }
++      expect(me.vehicleId).not.toBe(0);
++      for (let i = 0; i < 300 && j.stage !== 'route'; i++) t.step(1);
++      expect(j.stage).toBe('route');
++      // quatre minutes plus tard : chacun est parti, et aucun n'est resté arrêté contre un véhicule de la réserve
++      const blockedByHeld = new Map<number, number>();
++      const ap = ctx.require<{ status(v: Vehicle): { state: string; blockedFor: number } }>('vehicles.autopilot');
++      for (let s = 0; s < 240; s++) {
++        t.step(1);
++        for (const v of col) {
++          const st = ap.status(v);
++          if ((st.state === 'attente' || st.state === 'bloque') && Math.abs(v.speed) < 0.3
++            && held.some((h) => Math.hypot(h.x - v.x, h.z - v.z) < (h.def.length + v.def.length) * 0.5 + 2.5)) blockedByHeld.set(v.id, (blockedByHeld.get(v.id) ?? 0) + 1);
++        }
++      }
++      const stay = col.filter((v) => Math.hypot(v.x - from.get(v.id)!.x, v.z - from.get(v.id)!.z) < 15).map((v) => `${v.kind}#${v.id}`);
++      const longBlocked = [...blockedByHeld].filter(([, n]) => n > 20).map(([id, n]) => `${ctx.vehicles.get(id)!.kind}#${id} ${n} s`);
++      const moved = held.filter((h) => Math.hypot(h.x - heldAt.get(h.id)!.x, h.z - heldAt.get(h.id)!.z) > 0.3 || !isHeldVehicle(ctx, h.id)).map((h) => `${h.kind}#${h.id}`);
++      console.log(`${k.site} : 4 min après le départ, restés sur place : ${stay.join(', ') || 'aucun'} ; arrêtés contre la réserve : ${longBlocked.join(', ') || 'aucun'} ; réserve déplacée : ${moved.join(', ') || 'rien'}`);
++      expect(stay).toEqual([]);
++      expect(longBlocked).toEqual([]);
++      expect(moved).toEqual([]);
++      for (let i = 0; i < 160 && j.stage === 'route'; i++) t.step(5);
++      const dest = j.destination!;
++      console.log(`${k.site} : étape ${j.stage} ; joueur à ${Math.hypot(me.x - dest.x, me.z - dest.z).toFixed(0)} m du rassemblement`);
++      expect(j.stage).toBe('sur_place');
++      expect(Math.hypot(me.x - dest.x, me.z - dest.z)).toBeLessThan(150);
++    }, 1500000);
++  }
 +});
 diff --git a/crs-simulation/tests/unit/integration.commissariats.test.ts b/crs-simulation/tests/unit/integration.commissariats.test.ts
 new file mode 100644
@@ -11512,10 +12073,21 @@ index 0000000..697258b
 +  }, 300000);
 +});
 diff --git a/crs-simulation/tests/unit/playtest.commandant-mission-colonne.test.ts b/crs-simulation/tests/unit/playtest.commandant-mission-colonne.test.ts
-index a33c4af..3b4a1b8 100644
+index a33c4af..b1e0ecc 100644
 --- a/crs-simulation/tests/unit/playtest.commandant-mission-colonne.test.ts
 +++ b/crs-simulation/tests/unit/playtest.commandant-mission-colonne.test.ts
-@@ -90,7 +90,16 @@ describe('commandant en mission : à l’arrivée de « Nuit des vitrines »', (
+@@ -68,6 +68,10 @@ describe('commandant en mission : à l’arrivée de « Nuit des vitrines »', (
+     const stage1 = cmd.convoyOf(own.id)?.stage ?? '-';
+     expect(after).toBeGreaterThanOrEqual(0);
+     expect(own.order.type).toBe('ligne');
++    // et la compagnie est descendue l'exécuter (sans « débarquez », les agents restaient assis dans leurs fourgons)
++    const seated = ctx.squads.list.filter((q) => q.faction === 'police' && core.scope().ownSquadId !== 0 && q.parentId !== 0 && /MISTRAL/.test(q.name))
++      .flatMap((q) => q.members.map((id) => ctx.people.get(id)!)).filter((p) => p && !p.isPlayer && p.vehicleId !== 0 && p.poste !== 'conducteur');
++    expect(seated.map((p) => p.poste)).toEqual([]);
+     const groups = ctx.squads.list.filter((q) => q.faction === 'police' && q.kind === 'groupe' && /FAUCON/.test(q.name) && q.parentId === 0);
+     expect(groups.length).toBeGreaterThan(1);
+     const opsOf = (b: { id: number }): Person[] => ctx.squads.list.filter((q) => q.parentId === b.id).flatMap((q) => q.members.map((id) => ctx.people.get(id)!))
+@@ -90,7 +94,17 @@ describe('commandant en mission : à l’arrivée de « Nuit des vitrines »', (
      t.step(60);
      const y60 = meanAt(near, tx, tz);
      console.log(`${near.name} « Y aller » de l'autre côté de la foule : ${y0.toFixed(0)} → ${y60.toFixed(0)} m du point`);
@@ -11523,16 +12095,42 @@ index a33c4af..3b4a1b8 100644
 +    if (!(y60 < 30 || y0 - y60 >= 30)) {
 +      // (avec les commissariats, le stationnement réservé des sites reste libre : la colonne de la journée ne roule plus
 +      // dans la même circulation et la BRAV-M arrive ailleurs, ici à plus de 200 m du point, la tête de ses motos arrêtée
-+      // au pas devant le mobilier jeté sur la chaussée — « Itinéraire barré » : pied à terre, la suite à pied. Au bout
-+      // de deux minutes et demie, elle y est.)
-+      for (let s = 0; s < 90 && meanAt(near, tx, tz) >= 30; s++) t.step(1);
++      // au pas devant le mobilier jeté sur la chaussée — « Itinéraire barré » : pied à terre, la suite à pied, 190 m au pas
++      // à travers la foule (la compagnie, descendue former sa ligne, n'est plus assise dans ses fourgons : la foule ne
++      // s'écarte plus de la même façon). Au bout de trois minutes au plus, elle y est.)
++      for (let s = 0; s < 120 && meanAt(near, tx, tz) >= 30; s++) t.step(1);
 +      const y150 = meanAt(near, tx, tz);
-+      console.log(`${near.name} … ${y150.toFixed(0)} m du point au bout de ${(60 + 90).toFixed(0)} s au plus`);
++      console.log(`${near.name} … ${y150.toFixed(0)} m du point au bout de ${(60 + 120).toFixed(0)} s au plus`);
 +      expect(y150, `${near.name} ${y0.toFixed(0)} → ${y60.toFixed(0)} → ${y150.toFixed(0)} m du point`).toBeLessThan(40);
 +    }
      // (c) une autre BRAV-M, la plus éloignée du commandant, choisie sur la carte, puis la fiche « VOUS » : « Suivez-moi à pied »
      const bravm = groups.filter((q) => q !== near).sort((a, b) => meanOf(b) - meanOf(a))[0]!;
      const meanTo = (): number => meanOf(bravm);
+diff --git a/crs-simulation/tests/unit/playtest.commandant-mission.lib.ts b/crs-simulation/tests/unit/playtest.commandant-mission.lib.ts
+index 2bca13f..19049b2 100644
+--- a/crs-simulation/tests/unit/playtest.commandant-mission.lib.ts
++++ b/crs-simulation/tests/unit/playtest.commandant-mission.lib.ts
+@@ -34,6 +34,8 @@ import { createSystems as rescue } from '@/sim/roles/rescue';
+ import { createSystems as medics } from '@/sim/roles/medics';
+ import { createSystems as session, JOURNEE_SERVICE } from '@/gameplay/session';
+ import type { JourneeApi } from '@/gameplay/session';
++import { createSystems as patrols } from '@/gameplay/patrols';
++import { createSystems as commissariats } from '@/gameplay/commissariats';
+ import { createSystems as missions, missionConfig } from '@/gameplay/missions';
+ import type { MissionsApi } from '@/gameplay/missions';
+ import { MISSIONS } from '@/gameplay/missions/catalog';
+@@ -58,7 +60,10 @@ import { TacticalState } from '@/ui/command/tacticalState';
+ 
+ const objectives: ModuleFactory = () => [{ id: 'test.objectives', order: 0, provide(ctx: GameContext) { ctx.provide(EXT.objectives, createObjectives()); } } as GameSystem];
+ const world: ModuleFactory = () => createWorldQuerySystems({ source: 'paris' });
+-export const SIM = [env, world, roles, people, vehicles, traffic, crowd, police, items, props, hazards, law, radio, incidents, rescue, medics, session, missions, objectives, maps, command];
++// PLAYTEST_STATIONS=1 : partie complète comme dans main.ts — patrouilles et commissariats (véhicules garés en réserve,
++// places réservées) entre la session et les missions
++const STATIONS = process.env.PLAYTEST_STATIONS === '1' ? [patrols, commissariats] : [];
++export const SIM = [env, world, roles, people, vehicles, traffic, crowd, police, items, props, hazards, law, radio, incidents, rescue, medics, session, ...STATIONS, missions, objectives, maps, command];
+ 
+ export type Arrival = 'passager' | 'volant' | 'devant';
+ export const ARRIVALS: readonly Arrival[] = ['passager', 'volant', 'devant'];
 diff --git a/crs-simulation/tests/unit/playtest.commissariats.test.ts b/crs-simulation/tests/unit/playtest.commissariats.test.ts
 new file mode 100644
 index 0000000..29cf160
