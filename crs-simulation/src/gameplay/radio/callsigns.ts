@@ -16,6 +16,7 @@
  *   liaison                 LIAISON
  *   SAMU, secouristes       SANTÉ 1
  *   sapeurs-pompiers        SAPEUR 1            (ajout du jeu : la bible ne prévoit que « SANTÉ » pour les secours)
+ *   équipages de patrouille BAC 75N, TV 75-09   (indicatif du secteur ou du commissariat ; voir gameplay/patrols)
  *
  * Squad.name est, d'après le contrat, l'indicatif radio de l'unité : un nom déjà écrit dans ce plan d'indicatifs
  * (« Tramontane 2 », « ÉPERVIER 3 », « Mistral 1 Alfa ») est repris tel quel, en capitales. Les autres unités
@@ -24,6 +25,7 @@
 
 import type { GameContext, Person, Squad } from '@/core/contracts';
 import { hashString } from '@/core/rng';
+import { readVacation } from '@/gameplay/patrols/model';
 import type { CallsignBook } from './api';
 import { spokenCallsign } from './text';
 
@@ -70,6 +72,14 @@ export function createCallsigns(ctx: GameContext): CallsignBook {
     const extra = ctx.session.config?.extra;
     const name = extra && typeof extra['compagnie'] === 'string' ? (extra['compagnie'] as string).trim() : '';
     return name ? name.toUpperCase() : DEFAULT_COMPANY;
+  }
+
+  /** Indicatif de l'équipage de patrouille du joueur : celui de son départ en vacation, sinon celui de sa variante. */
+  function patrolCallsign(): string {
+    const config = ctx.session.config;
+    const v = readVacation(config);
+    if (v) return v.depart.callsign.toUpperCase();
+    return config?.extra?.['variante'] === 'police_secours' ? 'TV 75' : 'BAC 75';
   }
 
   /** Rang (à partir de 1) d'une unité parmi celles de même nature et de même faction, dans l'ordre de création. */
@@ -180,6 +190,8 @@ export function createCallsigns(ctx: GameContext): CallsignBook {
       const squad = ctx.squads.get(person.squadId);
       if (squad) return ofSquad(squad);
     }
+    // le joueur équipier d'une voiture de patrouille, même hors de son unité : l'indicatif de son équipage
+    if (person.isPlayer && ctx.session.config?.role === 'patrouille') return patrolCallsign();
     switch (person.kind) {
       case 'telepilote':
         return SPECIAL_DEFAULTS.drone;

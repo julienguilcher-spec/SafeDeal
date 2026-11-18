@@ -1,6 +1,6 @@
 /* =====================================================================================
- * Interface — feuille de style des écrans : accueil, paramètres, pause, chargement, compte rendu,
- * crédits. Écran bas (téléphone en paysage, hauteur < 520 px) : onglets en bandeau horizontal,
+ * Interface — feuille de style des écrans : accueil (hub, Patrouille, Missions spéciales, briefing, éditeur),
+ * paramètres, pause, chargement, compte rendu, crédits. Écran bas (téléphone en paysage, hauteur < 520 px) : onglets en bandeau horizontal,
  * résumé resserré, marges réduites.
  * ===================================================================================== */
 
@@ -89,6 +89,72 @@ export const CSS_SCREENS = `
 .ui-saved__sub { font-size: 12.5px; color: var(--ui-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ui-saved__actions { grid-row: 1 / span 2; grid-column: 2; display: flex; gap: 4px; align-items: center; }
 .ui-empty { padding: 22px 12px; text-align: center; color: var(--ui-text-mute); font-size: 13.5px; }
+
+/* ── accueil : vues exclusives (hub, patrouille, missions, briefing, éditeur) ── */
+.ui-home__stage { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); min-height: 0; min-width: 0; }
+.ui-view { min-height: 0; min-width: 0; }
+.ui-view__head { display: flex; align-items: center; gap: 12px; padding: 4px 0 8px; min-width: 0; }
+.ui-view__head > .ui-btn { flex: none; }
+.ui-view__titles { display: grid; gap: 2px; min-width: 0; }
+.ui-view__titles .ui-title { font-size: 20px; }
+.ui-view__titles .ui-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ui-home__back { width: 100%; justify-content: flex-start; margin-bottom: 6px; }
+
+/* hub : quatre tuiles, « Continuer » dessous */
+.ui-hub { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 18px; padding: 10px 22px 24px; overflow-y: auto; }
+.ui-hub__grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; width: min(1180px, 100%); }
+.ui-card.ui-hub__tile { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr); align-items: start; align-content: start; row-gap: 10px;
+  min-height: 236px; padding: 22px 20px 20px; border-radius: var(--ui-radius); background: rgba(18, 28, 48, .82); }
+.ui-card.ui-hub__tile:hover { border-color: var(--ui-blue-hi); }
+.ui-hub__tile .ui-card__icon { grid-row: auto; width: 58px; height: 58px; border-radius: 14px; background: var(--ui-blue); color: #fff; }
+.ui-hub__tile .ui-card__icon .ui-ic { width: 34px; height: 34px; }
+.ui-hub__tile .ui-card__title { align-self: start; font-size: 19px; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }
+.ui-hub__tile .ui-card__desc { font-size: 14px; line-height: 1.45; }
+.ui-hub__foot { display: flex; justify-content: center; width: min(1180px, 100%); }
+.ui-hub__continue { max-width: min(680px, 100%); }
+.ui-hub__continue .ui-lbl { min-width: 0; }
+
+/* vue Patrouille : une colonne défilante, « Prendre la vacation » collé en bas */
+.ui-pat { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 8px; padding: 0 22px 18px; width: min(1000px, 100%); justify-self: center; }
+.ui-pat__scroll { min-height: 0; padding: 6px 20px 18px; }
+.ui-pat__col > .ui-section-title:first-child { margin-top: 4px; }
+.ui-cards.ui-pat__crews { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.ui-pat__depart { grid-template-columns: minmax(0, 1fr) minmax(0, 300px); }
+.ui-pat__foot { display: flex; align-items: center; gap: 14px; padding: 10px 12px 10px 18px; }
+.ui-pat__recap { flex: 1; min-width: 0; font-size: 13.5px; color: var(--ui-text-dim); line-height: 1.35; }
+.ui-pat__foot .ui-btn { flex: none; }
+
+/* Missions spéciales : postes, liste, fiche */
+.ui-spec { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 4px; padding: 0 22px 18px; }
+.ui-spec__body { display: grid; grid-template-columns: 224px minmax(0, 1fr) minmax(0, 420px); gap: 14px; min-height: 0; }
+.ui-spec__postes { display: flex; flex-direction: column; gap: 2px; padding: 8px; min-height: 0; overflow-x: hidden; overflow-y: auto; touch-action: pan-y; }
+.ui-spec__poste { appearance: none; -webkit-appearance: none; display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: center; column-gap: 10px;
+  min-height: var(--ui-hit); padding: 0 12px; border-radius: var(--ui-radius-s); border: 1px solid transparent; background: transparent; color: var(--ui-text-dim);
+  cursor: pointer; touch-action: manipulation; text-align: left; font-size: 14px; font-weight: 600; white-space: nowrap; transition: background-color .12s, border-color .12s; }
+.ui-spec__poste:hover { background: rgba(160, 180, 215, .1); color: var(--ui-text); }
+.ui-spec__poste[aria-pressed="true"] { background: var(--ui-blue-soft); border-color: var(--ui-blue-hi); color: #fff; }
+.ui-spec__poste .ui-ic { width: 18px; height: 18px; }
+.ui-spec__poste-name { overflow: hidden; text-overflow: ellipsis; }
+.ui-spec__count { font-size: 12px; font-weight: 700; color: var(--ui-text-mute); }
+.ui-spec__list { padding: 8px; min-height: 0; }
+.ui-spec__card { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.ui-spec__card > .ui-brief { flex: 1; }
+.ui-spec__close { display: none; }
+
+/* fiche de briefing */
+.ui-brief { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; }
+.ui-brief__head { padding: 16px 18px 8px; display: grid; gap: 3px; }
+.ui-brief__title { font-size: 19px; }
+.ui-brief__body { padding: 0 18px 10px; min-height: 0; display: grid; gap: 8px; align-content: start; }
+.ui-brief__body > .ui-section-title { margin: 6px 0 0; }
+.ui-brief__pitch { font-size: 14px; line-height: 1.5; color: #dfe6f2; }
+.ui-brief__objs { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 13.5px; line-height: 1.4; color: var(--ui-text); }
+.ui-brief__objs li.is-secondary { color: var(--ui-text-mute); }
+.ui-brief__facts { margin-top: 4px; }
+.ui-brief__foot { display: grid; gap: 8px; padding: 10px 18px 14px; border-top: 1px solid var(--ui-line); }
+.ui-briefview { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 4px; padding: 0 22px 18px; width: min(780px, 100%); justify-self: center; }
+.ui-briefview__box { display: flex; flex-direction: column; min-height: 0; }
+.ui-briefview__box > .ui-brief { flex: 1; }
 
 /* ── fenêtre centrée (paramètres, crédits, compte rendu) ── */
 .ui-window-wrap { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
@@ -189,6 +255,22 @@ export const CSS_SCREENS = `
   .ui-tab__note { display: none; }
   .ui-brand__tag { display: none; }
 }
+/* ── accueil : écran étroit ou bas (téléphone) — hub en 2 × 2, Missions spéciales sur une colonne ── */
+@media (max-width: 900px), (max-height: 500px) {
+  .ui-hub__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ui-card.ui-hub__tile { min-height: 150px; }
+}
+@media (max-width: 900px), (max-height: 520px) {
+  .ui-spec__body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); gap: 6px; }
+  .ui-spec__postes { flex-direction: row; overflow-x: auto; overflow-y: hidden; touch-action: pan-x; scrollbar-width: none; padding: 3px; }
+  .ui-spec__poste { flex: none; grid-template-columns: 18px auto auto; padding: 0 11px; }
+  .ui-spec__card { display: none; }
+  .ui-spec.is-detail .ui-view__head, .ui-spec.is-detail .ui-spec__postes, .ui-spec.is-detail .ui-spec__list { display: none; }
+  .ui-spec.is-detail .ui-spec__body { grid-template-rows: minmax(0, 1fr); }
+  .ui-spec.is-detail .ui-spec__card { display: flex; }
+  .ui-spec__close { display: inline-flex; align-self: flex-start; margin: 4px 0 0 6px; }
+  .ui-brief__foot { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+}
 /* ── écran bas : téléphone en paysage ── */
 @media (max-height: 520px) {
   .ui-home__top { padding: 8px 12px 2px; gap: 10px; }
@@ -244,11 +326,39 @@ export const CSS_SCREENS = `
   .ui-tile span { font-size: 16px; }
   .ui-tile { padding: 6px 9px; }
   .ui-title { font-size: 19px; }
+  /* accueil : en-tête de 44 px (cibles de 44 px), tuiles de 120 px au plus, tout tient sans défiler dans 390 px */
+  .ui-home__top { padding: 0 12px; }
+  .ui-view__head { padding: 2px 0 4px; gap: 8px; }
+  .ui-view__head > .ui-btn { padding: 0 10px; }
+  .ui-view__titles .ui-title { font-size: 17px; }
+  .ui-view__titles .ui-sub { font-size: 12.5px; }
+  .ui-home__rail { display: flex; align-items: center; gap: 2px; }
+  .ui-home__back { width: auto; flex: none; margin: 0; padding: 0 10px; }
+  .ui-home__back .ui-lbl { display: none; }
+  .ui-hub { justify-content: flex-start; gap: 8px; padding: 4px 12px 8px; }
+  .ui-hub__grid { gap: 8px; }
+  .ui-card.ui-hub__tile { grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); column-gap: 12px; row-gap: 4px;
+    min-height: 0; height: min(120px, calc((100vh - 44px - 72px - var(--ui-safe-t) - var(--ui-safe-b)) / 2)); padding: 10px 12px; overflow: hidden; }
+  .ui-hub__tile .ui-card__icon { grid-row: 1 / span 2; width: 44px; height: 44px; border-radius: 10px; align-self: center; }
+  .ui-hub__tile .ui-card__icon .ui-ic { width: 26px; height: 26px; }
+  .ui-hub__tile .ui-card__title { font-size: 15px; align-self: end; }
+  .ui-hub__tile .ui-card__desc { font-size: 12.5px; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .ui-pat, .ui-spec, .ui-briefview { padding: 0 12px 8px; gap: 4px; }
+  .ui-pat__scroll { padding: 2px 12px 12px; }
+  .ui-pat__depart { grid-template-columns: minmax(0, 1fr) minmax(0, 220px); gap: 10px; }
+  .ui-pat__foot { padding: 6px 8px 6px 12px; gap: 10px; }
+  .ui-pat__recap { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ui-brief__head { padding: 8px 14px 4px; }
+  .ui-brief__title { font-size: 17px; }
+  .ui-brief__body { padding: 0 14px 8px; }
+  .ui-brief__foot { padding: 6px 12px 8px; gap: 6px; }
+  .ui-brief__foot .ui-btn { min-height: 44px; }
 }
-/* téléphone en paysage : sans pictogrammes, les entrées du bandeau laissent la place au nom du jeu
-   (sur 844 px, « CRS SIMULATION FRANCE » passait sous « Carrière ») */
-@media (max-height: 520px) and (max-width: 900px) {
+/* téléphone en paysage : barre réduite aux pictogrammes (libellé en infobulle et pour les lecteurs d'écran), le nom
+   du jeu garde sa place (sur 844 px, « CRS SIMULATION FRANCE » passait sous « Carrière ») */
+@media (max-height: 520px) {
   .ui-home__nav { gap: 0; }
-  .ui-home__nav .ui-btn .ui-ic { display: none; }
+  .ui-home__nav .ui-btn { padding: 0; width: var(--ui-hit); }
+  .ui-home__nav .ui-btn .ui-lbl { display: none; }
 }
 `;

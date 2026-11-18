@@ -5,8 +5,9 @@ import { PART_WHEEL, PART_WHEEL_STEER, PART_BIKE_WHEEL } from '@/render/vehicles
 import { MODEL_KINDS, buildModel, modelKey, triBudget } from '@/render/vehicles/models/index';
 import { REFERENCE_DEFS, referenceDef } from '@/render/vehicles/refdefs';
 
+// (les 22 types du contrat et la voiture banalisée de la BAC, 'voiture_bac')
 const CONTRACT_KINDS = [
-  'fourgon_crs', 'car_crs', 'vl_commandement', 'voiture_police', 'fourgon_cellulaire', 'centaure', 'canon_eau', 'moto_bravm',
+  'fourgon_crs', 'car_crs', 'vl_commandement', 'voiture_police', 'voiture_bac', 'fourgon_cellulaire', 'centaure', 'canon_eau', 'moto_bravm',
   'camion_pompiers', 'ambulance', 'voiture', 'citadine', 'suv', 'taxi', 'utilitaire', 'camion', 'bus', 'scooter', 'camion_sono',
   'drone', 'helicoptere', 'velo',
 ];

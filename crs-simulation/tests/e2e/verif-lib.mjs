@@ -1,7 +1,7 @@
 // Outillage du testeur indépendant (préfixe verif-). N'écrit rien dans le code du jeu.
 import path from 'node:path';
 import { OUT } from './lib.mjs';
-export { startServer, waitFor, OUT } from './lib.mjs';
+export { startServer, waitFor, OUT, ouvrirEditeur } from './lib.mjs';
 import { createRequire } from 'node:module';
 const require_ = createRequire(import.meta.url);
 const { chromium } = require_('playwright');

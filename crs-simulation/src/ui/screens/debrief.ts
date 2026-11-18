@@ -7,16 +7,22 @@
  * Après une mission jouée en mode carrière, un encart reprend le bilan de carrière ('career' :
  * promotion, chapitre terminé, missions restant à réussir, sanction inscrite).
  * Une ligne rappelle que la partie est inscrite dans l'historique ('history'), avec un accès à l'écran.
+ * Fin d'une vacation (mode Patrouille, service 'patrol.mode') : titre « Fin de vacation — <indicatif> », puis le
+ * bilan de la vacation (durée, appels reçus, pris, réglés, confiés, interpellations, blessés) et la liste des appels,
+ * avant les sections habituelles. « Rejouer » relance la même vacation (même configuration, même graine).
  * ===================================================================================== */
 
 import type { ForceVerdictKind, GameContext } from '@/core/contracts';
 import type { ScreenInstance } from '@/core/extensions';
 import type { LawRecords, LawStats, SanctionLevel } from '@/gameplay/law/api';
+import { PATROL_MODE_SERVICE, readVacation } from '@/gameplay/patrols/model';
+import type { PatrolModeApi } from '@/gameplay/patrols/model';
 import type { MissionResultLike } from '../core/api';
 import { el, h } from '../core/dom';
 import { capitalize, durationLabel, hourLabel, int } from '../core/format';
 import type { UiEnv } from '../core/kit';
 import { sortObjectives } from '../hud/objectives';
+import { callOutcome, callRecap, debriefTitle, summaryLines } from '../patrol/format';
 import { isPoliceRole } from '../hud/model';
 import { rankLabel } from './catalog';
 import { readHistory } from './history';
@@ -89,6 +95,9 @@ export function createDebrief(env: UiEnv): (host: HTMLElement) => ScreenInstance
     const police = isPoliceRole(role);
     const records = ctx.service<LawRecords>('law.records');
     const mission: MissionResultLike | null = readMissionResult(ctx.service('missions'));
+    // vacation (mode Patrouille) : compte rendu du répartiteur de CENTRAL
+    const patrol = config && readVacation(config) ? ctx.service<PatrolModeApi>(PATROL_MODE_SERVICE) : undefined;
+    const vacation = patrol && typeof patrol.summary === 'function' && patrol.active ? patrol : null;
 
     const wrap = h('div', 'ui-window-wrap');
     const win = h('div', 'ui-panel ui-panel--flag ui-window ui-debrief');
@@ -97,9 +106,10 @@ export function createDebrief(env: UiEnv): (host: HTMLElement) => ScreenInstance
     // ── en-tête ──
     const place = config ? capitalize(config.place || 'Paris') : 'Paris';
     const who = config ? identityLabel(draftFromConfig(config)) : '';
-    const title = mission && mission.title ? mission.title : place;
-    const subParts = [who, mission && mission.title ? place : '', config ? `début à ${hourLabel(config.timeOfDay)}` : '', `${durationLabel(ctx.clock.now)} de jeu`];
-    const titles = el('div', 'ui-debrief__titles', h('div', 'ui-kicker', 'Compte rendu d’opération'), h('h2', 'ui-title', title), h('p', 'ui-sub', subParts.filter((x) => x).join(' · ')));
+    const title = vacation ? debriefTitle(vacation.callsign) : mission && mission.title ? mission.title : place;
+    const subParts = [who, mission && mission.title ? place : vacation ? `départ : ${place}` : '', config ? `début à ${hourLabel(config.timeOfDay)}` : '', `${durationLabel(ctx.clock.now)} de jeu`];
+    const kicker = vacation ? 'Compte rendu de vacation' : 'Compte rendu d’opération';
+    const titles = el('div', 'ui-debrief__titles', h('div', 'ui-kicker', kicker), h('h2', 'ui-title', title), h('p', 'ui-sub', subParts.filter((x) => x).join(' · ')));
     const head = el('div', 'ui-debrief__head', titles);
 
     let stats: LawStats | null = null;
@@ -131,18 +141,38 @@ export function createDebrief(env: UiEnv): (host: HTMLElement) => ScreenInstance
     const left = h('div', 'ui-debrief__col');
     const right = h('div', 'ui-debrief__col');
 
-    // bilan de la manifestation
+    // bilan de la vacation (mode Patrouille) : avant les sections habituelles
+    if (vacation) {
+      left.append(widgets.sectionTitle('Bilan de la vacation'));
+      const recap = h('div', 'ui-lines');
+      recap.dataset.id = 'debrief-vacation';
+      for (const l of summaryLines(vacation.summary())) recap.append(line(l.label, l.value, l.note || undefined));
+      left.append(recap);
+      const calls = vacation.calls;
+      if (calls.length > 0) {
+        left.append(widgets.sectionTitle('Appels de la vacation'));
+        const list = h('div', 'ui-lines');
+        list.dataset.id = 'debrief-appels';
+        for (const call of calls) list.append(line(callRecap(call), '', callOutcome(call, vacation.callsign)));
+        left.append(list);
+      }
+    }
+
+    // bilan de la manifestation principale ; pas en vacation : sans cortège principal (foule en veille), ses compteurs
+    // resteraient à zéro, et le bilan de la vacation donne déjà durée, interpellations et blessés
     const c = ctx.director.stats;
-    const tiles = h('div', 'ui-tiles');
-    tiles.append(
-      tile('Durée', durationLabel(ctx.clock.now)),
-      tile('Manifestants', int(c.total)),
-      tile('Dispersés', int(c.dispersed)),
-      tile('Blessés', int(c.injured)),
-      tile('Interpellés', int(stats ? stats.arrests : c.arrested)),
-      tile('Radicaux', int(c.radicals)),
-    );
-    left.append(widgets.sectionTitle('Bilan de la manifestation'), tiles);
+    if (!vacation) {
+      const tiles = h('div', 'ui-tiles');
+      tiles.append(
+        tile('Durée', durationLabel(ctx.clock.now)),
+        tile('Manifestants', int(c.total)),
+        tile('Dispersés', int(c.dispersed)),
+        tile('Blessés', int(c.injured)),
+        tile('Interpellés', int(stats ? stats.arrests : c.arrested)),
+        tile('Radicaux', int(c.radicals)),
+      );
+      left.append(widgets.sectionTitle('Bilan de la manifestation'), tiles);
+    }
     if (mission && mission.summary) {
       const p = h('p', 'ui-para', mission.summary);
       p.style.marginTop = '10px';
@@ -251,7 +281,7 @@ export function createDebrief(env: UiEnv): (host: HTMLElement) => ScreenInstance
     body.append(left, right);
 
     // ── pied ──
-    const again = widgets.button('Rejouer ce scénario', () => {
+    const again = widgets.button(vacation ? 'Reprendre la même vacation' : 'Rejouer ce scénario', () => {
       const cfg = ctx.session.config;
       if (!cfg) return;
       ctx.session.start({ ...cfg }).catch((err: unknown) => {

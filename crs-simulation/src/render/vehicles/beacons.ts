@@ -57,10 +57,13 @@ export function indicatorOn(t: number): boolean {
   return frac(t * INDICATOR_HZ) < 0.5;
 }
 
-/** Motif de gyrophare adapté à un type de véhicule. */
+/**
+ * Motif de gyrophare adapté à un type de véhicule. Voiture banalisée de la BAC : gyrophare aimanté à LED et feux à
+ * éclats de calandre, en éclats simples alternés (le dôme et le feu de calandre gauche, puis le feu de droite).
+ */
 export function beaconPatternFor(kind: string): BeaconPattern {
   if (kind === 'camion_pompiers' || kind === 'centaure' || kind === 'canon_eau') return 'gyro';
-  if (kind === 'moto_bravm' || kind === 'helicoptere' || kind === 'drone') return 'strobe';
+  if (kind === 'moto_bravm' || kind === 'helicoptere' || kind === 'drone' || kind === 'voiture_bac') return 'strobe';
   return 'rampe';
 }
 

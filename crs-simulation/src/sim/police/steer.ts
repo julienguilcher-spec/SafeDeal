@@ -215,6 +215,17 @@ export function refreshLimits(k: Kernel, a: Agent): void {
 }
 
 /**
+ * Ligne droite praticable à pied de (ax, az) à (bx, bz) : en vue ET sans obstacle du décor. Une grille (balustrade de la
+ * Concorde, enclos) laisse passer le regard mais pas l'agent : jugé « en vue », l'itinéraire qui la contournait était
+ * abandonné aussitôt calculé, et l'agent restait collé contre elle (l'opérateur du drone, à 15 m du fourgon où il devait
+ * monter, laissé à pied quand la colonne est partie).
+ */
+function walkable(k: Kernel, ax: number, az: number, bx: number, bz: number): boolean {
+  const world = k.ctx.world;
+  return world.lineOfSight(ax, az, bx, bz) && !world.raycast(ax, az, bx, bz, k.hit);
+}
+
+/**
  * Navigation (quelques fois par seconde) vers (tx, tz) : itinéraire de contournement si un bâtiment
  * masque le but, abandon de l'itinéraire dès que le but est en vue, pas de côté si l'agent piétine.
  * `interval` : temps écoulé depuis le dernier appel.
@@ -234,8 +245,8 @@ export function navigate(k: Kernel, a: Agent, tx: number, tz: number, interval: 
     const ez = a.pathGz - tz;
     // un contournement de véhicule (un ou deux coins, puis le but) est suivi jusqu'au bout
     const detour = (a.pathN === 4 && last === 6) || (a.pathN === 6 && last === 8);
-    if (ex * ex + ez * ez > 36 || (!detour && d2 < 900 && world.lineOfSight(p.x, p.z, tx, tz))) a.pathN = 0;
-  } else if (d2 > 25 && k.now - a.pathAt >= T.REPATH_INTERVAL && !world.lineOfSight(p.x, p.z, tx, tz)) {
+    if (ex * ex + ez * ez > 36 || (!detour && d2 < 900 && walkable(k, p.x, p.z, tx, tz))) a.pathN = 0;
+  } else if (d2 > 25 && k.now - a.pathAt >= T.REPATH_INTERVAL && !walkable(k, p.x, p.z, tx, tz)) {
     a.pathAt = k.now;
     if (world.findPath(p.x, p.z, tx, tz, 'foot', a.path) && a.path.length >= 4) {
       a.pathN = a.path.length;

@@ -10,6 +10,8 @@
  *   &mode=carriere|libre|monde_ouvert|editeur|test   mode de jeu (défaut : monde_ouvert pour paris, test sinon)
  *   &journee=1                                  journée de service (caserne de la Cité, trajet en colonne)
  *   &role=… &rank=… &time=… &weather=… &crowd=… &tension=… &volatility=… &mission=… &duration=…
+ *   &premier=…             essais : délai (s) du premier appel de CENTRAL d'une vacation de patrouille, recopié par
+ *                          la vue Patrouille de l'accueil dans VacationConfig.premier (sans effet sur ?autostart=…)
  * Exemple, mode libre en commandant d'emblée :
  *   ?autostart=paris&mode=libre&role=commandant&mission=…&crowd=800&tension=0.4
  * Sans &rank=, le grade est celui du rôle (defaultRankForRole).
@@ -51,6 +53,8 @@ export interface LaunchParams {
   volatility: number | null;
   mission: string | null;
   duration: DurationPreset | null;
+  /** Délai (s, ≥ 0) du premier appel d'une vacation de patrouille, pour les essais (null : tirage normal). */
+  premier: number | null;
   /** Tous les paramètres bruts de l'URL. */
   raw: Readonly<Record<string, string>>;
 }
@@ -59,7 +63,7 @@ const QUALITIES: readonly string[] = ['bas', 'moyen', 'haut', 'ultra'];
 const MODES: readonly string[] = ['carriere', 'libre', 'monde_ouvert', 'editeur', 'test'];
 const ROLES: readonly string[] = [
   'crs', 'chef_groupe', 'commandant', 'commissaire', 'bravm', 'gendarme_centaure', 'operateur_canon_eau',
-  'telepilote', 'street_medic', 'secouriste', 'journaliste', 'manifestant',
+  'telepilote', 'patrouille', 'street_medic', 'secouriste', 'journaliste', 'manifestant',
 ];
 const RANKS: readonly string[] = [
   'gardien_stagiaire', 'gardien', 'brigadier', 'brigadier_chef', 'major', 'capitaine', 'commandant', 'commissaire',
@@ -105,6 +109,7 @@ export function parseLaunchParams(search: string): LaunchParams {
     seed = Number.isFinite(n) ? n : hashString(raw.seed);
   }
   const time = num(raw.time);
+  const premier = num(raw.premier);
 
   return {
     autostart: auto === undefined || auto === '0' || auto === 'false' ? null : auto === 'paris' ? 'paris' : 'test',
@@ -125,6 +130,7 @@ export function parseLaunchParams(search: string): LaunchParams {
     volatility: num(raw.volatility),
     mission: raw.mission ? raw.mission : null,
     duration: oneOf<DurationPreset>(raw.duration, DURATIONS),
+    premier: premier !== null && premier >= 0 ? premier : null,
     raw: Object.freeze(raw),
   };
 }

@@ -19,6 +19,13 @@ try {
   await installPad(page); await frames(page, 6);
   await safe('accueil', async () => {
     await tap(PAD.RIGHT);
+    // hub : tuile « Mode libre » à la croix, ouverte par A
+    const hubTrail = [await focused()];
+    for (let i = 0; i < 4 && (await focused()) !== 'accueil-libre'; i++) { await tap(PAD.RIGHT); hubTrail.push(await focused()); }
+    C.check((await focused()) === 'accueil-libre', 'hub : tuile « Mode libre » atteinte à la croix', hubTrail.join(' > '));
+    await tap(PAD.A);
+    await frames(page, 3);
+    await tap(PAD.RIGHT);
     // aller sur la tuile du rôle voulu
     const trail = [await focused()];
     for (let i = 0; i < 12 && (await focused()) !== `role-${role}`; i++) { await tap(PAD.RIGHT); trail.push(await focused()); }
@@ -38,6 +45,9 @@ try {
     const sel = async () => page.evaluate(() => document.querySelector('[role="tab"][aria-selected="true"]')?.getAttribute('data-id'));
     for (let i = 0; i < 9 && (await sel()) !== 'tab-foule'; i++) await tap(PAD.RB);
     await tap(PAD.RIGHT);
+    // la rubrique commence par le nom et les organisateurs de la manifestation : l'affluence est plus bas
+    // appui d'une seule image (sous WebGL logiciel, trois images déclencheraient la répétition de la croix)
+    for (let i = 0; i < 10 && (await focused()) !== 'affluence'; i++) { await padButton(page, PAD.DOWN, 1); await frames(page, 1); await padButton(page, PAD.DOWN, 0); await frames(page, 3); }
     if ((await focused()) === 'affluence') { await padButton(page, PAD.LEFT, 1); await page.waitForTimeout(2500); await padButton(page, PAD.LEFT, 0); await frames(page, 3); }
     await tap(PAD.START);
     C.check((await focused()) === 'lancer', 'Start : focus sur « Lancer »', await focused());

@@ -73,7 +73,8 @@ describe('patrouilles de police dans Paris', () => {
     const start0 = new Map<number, { x: number; z: number }>();
     for (const p of list) {
       const v = vehicleOf(ctx, p.vehicleId);
-      expect(v.kind).toBe('voiture_police');
+      // Police secours en voiture sérigraphiée, BAC en voiture banalisée
+      expect(v.kind).toBe(p.kind === 'bac' ? 'voiture_bac' : 'voiture_police');
       expect(v.faction).toBe('police');
       const sq = ctx.squads.get(p.squadId)!;
       expect(sq.faction).toBe('police');

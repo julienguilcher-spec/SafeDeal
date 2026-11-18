@@ -1204,9 +1204,16 @@ export interface EnvApi {
 // 14. Joueur, entrées, caméra
 // ─────────────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Rôles jouables. 'patrouille' : équipage d'une voiture de patrouille (trois policiers), en BAC (en civil, voiture
+ * banalisée) ou en Police secours (en tenue, voiture sérigraphiée) selon extra.variante ('bac' | 'police_secours') ;
+ * le joueur est le conducteur (poste 'conducteur') ou le chef de bord (poste 'interpellation'). Ce rôle n'entre pas
+ * dans la carrière ; une vraie vacation (appels de CENTRAL) est signalée par extra.vacation
+ * (voir src/gameplay/patrols/model.ts).
+ */
 export type PlayableRole =
   | 'crs' | 'chef_groupe' | 'commandant' | 'commissaire' | 'bravm' | 'gendarme_centaure'
-  | 'operateur_canon_eau' | 'telepilote' | 'street_medic' | 'secouriste' | 'journaliste' | 'manifestant';
+  | 'operateur_canon_eau' | 'telepilote' | 'patrouille' | 'street_medic' | 'secouriste' | 'journaliste' | 'manifestant';
 
 export type CameraMode = 'fps' | 'tps' | 'vehicle_int' | 'vehicle_ext' | 'turret' | 'drone' | 'tactical' | 'viewfinder' | 'free';
 

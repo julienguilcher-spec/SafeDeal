@@ -1,13 +1,14 @@
-/* Voitures : berline, citadine, SUV, taxi, voiture de police sérigraphiée. Noms génériques, aucune marque. */
+/* Voitures : berline, citadine, SUV, taxi, voiture de police sérigraphiée, voiture banalisée de la BAC. Noms génériques,
+ * aucune marque. */
 
 import type { VehicleDef } from '@/core/contracts';
 import {
-  LIGHT_BRAKE, LIGHT_HEAD, LIGHT_IND_L, LIGHT_IND_R, LIGHT_NONE, LIGHT_REVERSE, LIGHT_SIGN, LIGHT_TAIL, SURF_FIXED,
-  SURF_LAMP, SURF_METAL,
+  LIGHT_BEACON_A, LIGHT_BEACON_B, LIGHT_BRAKE, LIGHT_HEAD, LIGHT_IND_L, LIGHT_IND_R, LIGHT_NONE, LIGHT_REVERSE, LIGHT_SIGN,
+  LIGHT_TAIL, PART_DOME, SURF_DARK, SURF_FIXED, SURF_LAMP, SURF_METAL,
 } from '../geo';
 import type { Geo } from '../geo';
 import {
-  COL, EDGE_SIDE, arch, bumper, cabin, decal, decalFree, door, grille, lamp, lightbar, patch, plate, policeBand,
+  COL, EDGE_SIDE, arch, bumper, cabin, decal, decalFree, door, grille, lamp, lampBox, lightbar, patch, plate, policeBand,
   shell, sideMirror, wheel, antenna,
 } from '../kit';
 import type { CabinSpec, Station, WheelStyle } from '../kit';
@@ -33,7 +34,16 @@ export interface CarStyle {
   cladding?: boolean;
   taxi?: boolean;
   police?: boolean;
+  /**
+   * Voiture banalisée (BAC) : aucune inscription ni rampe ; vitres arrière surteintées ; gyrophare aimanté sur le toit,
+   * côté conducteur, posé seulement quand les gyrophares sont en service (pièce PART_DOME) ; feux à éclats bleus dans
+   * la calandre.
+   */
+  unmarked?: boolean;
 }
+
+/** Vitrage surteinté (vitres arrière d'une voiture banalisée). */
+const TINTED_GLASS = 0x07090b;
 
 export const CAR_STYLES: Readonly<Record<string, CarStyle>> = {
   voiture: { hood: 0.25, deck: 0.13, rakeF: 0.62, rakeR: 0.5, clearance: 0.16, wheelR: 0.32, wheelW: 0.21, belt: 0.57, rim: 'alu' },
@@ -41,6 +51,7 @@ export const CAR_STYLES: Readonly<Record<string, CarStyle>> = {
   suv: { hood: 0.24, deck: 0, rakeF: 0.55, rakeR: 0.3, clearance: 0.21, wheelR: 0.36, wheelW: 0.24, belt: 0.6, rim: 'alu', cladding: true },
   taxi: { hood: 0.24, deck: 0.12, rakeF: 0.64, rakeR: 0.52, clearance: 0.15, wheelR: 0.32, wheelW: 0.21, belt: 0.58, rim: 'alu', taxi: true },
   voiture_police: { hood: 0.24, deck: 0, rakeF: 0.55, rakeR: 0.3, clearance: 0.2, wheelR: 0.35, wheelW: 0.23, belt: 0.6, rim: 'tole', cladding: true, police: true },
+  voiture_bac: { hood: 0.26, deck: 0.13, rakeF: 0.64, rakeR: 0.52, clearance: 0.15, wheelR: 0.33, wheelW: 0.22, belt: 0.58, rim: 'alu', unmarked: true },
 };
 
 export function buildCar(g: Geo, far: boolean, def: VehicleDef, st: CarStyle): ModelMeta {
@@ -92,6 +103,7 @@ export function buildCar(g: Geo, far: boolean, def: VehicleDef, st: CarStyle): M
     zA, zB, zC, zD, yBelt, yRoof: H, wBelt: hw - 0.035, wRoof: hw - 0.2,
     side: [],
   };
+  if (st.unmarked) cab.rearGlassColor = TINTED_GLASS;
   const zMid = (zB + zC) / 2 + 0.12;
   const frontDoor = { z0: zMid, z1: Math.min(zA - 0.02, zF - r * 1.28) };
   const rearDoorZ0 = Math.max(zR + r * 0.6, zD + 0.12);
@@ -115,8 +127,10 @@ export function buildCar(g: Geo, far: boolean, def: VehicleDef, st: CarStyle): M
       if (!st.police) return;
       policeBand(g, side, x, sill + (yBelt - sill) * 0.5, rearDoorZ0 + 0.02, zMid - 0.04, (yBelt - sill) * 0.3, zMid - 0.04);
     };
-    door(g, far, { index: 2, side: 'L', z0: rearDoorZ0, z1: zMid - 0.02, y0: sill, y1: yBelt, hw, window: 'glass', extra: band('L') }, cab, body);
-    door(g, far, { index: 3, side: 'R', z0: rearDoorZ0, z1: zMid - 0.02, y0: sill, y1: yBelt, hw, window: 'glass', extra: band('R') }, cab, body);
+    // vitres des portes arrière : surteintées sur une voiture banalisée
+    const rearCab = st.unmarked ? { ...cab, glassColor: TINTED_GLASS } : cab;
+    door(g, far, { index: 2, side: 'L', z0: rearDoorZ0, z1: zMid - 0.02, y0: sill, y1: yBelt, hw, window: 'glass', extra: band('L') }, rearCab, body);
+    door(g, far, { index: 3, side: 'R', z0: rearDoorZ0, z1: zMid - 0.02, y0: sill, y1: yBelt, hw, window: 'glass', extra: band('R') }, rearCab, body);
     meta.doors.push({ index: 2, x: hw, z: (rearDoorZ0 + zMid) / 2 }, { index: 3, x: -hw, z: (rearDoorZ0 + zMid) / 2 });
   }
 
@@ -224,6 +238,30 @@ export function buildCar(g: Geo, far: boolean, def: VehicleDef, st: CarStyle): M
       decal(g, 'police', 'L', hw + 0.01, ty, tz, th);
       decal(g, 'police', 'R', -hw - 0.01, ty, tz, th);
     }
+  }
+  if (st.unmarked) {
+    // gyrophare aimanté : sur le pavillon, au-dessus du conducteur (côté gauche, +x), posé par le chef de bord à la
+    // fenêtre ; le vertex shader ne le montre que lorsque les gyrophares sont en service
+    const dx = Math.min(0.32, hw - 0.42), dz = zB - 0.3, dr = 0.085;
+    g.part(PART_DOME, dx, H, dz).tile(null);
+    if (far) {
+      g.paint(COL.blueLens, SURF_LAMP).light(LIGHT_BEACON_A).box(dx - dr, dx + dr, H, H + dr * 1.5, dz - dr, dz + dr);
+    } else {
+      // socle aimanté noir, puis cloche bleue
+      g.paint(COL.dark, SURF_DARK).light(LIGHT_NONE).tube(dx, H - 0.004, dz, dx, H + 0.022, dz, dr * 1.15, dr * 1.1, 10, false, true);
+      g.paint(COL.blueLens, SURF_LAMP).light(LIGHT_BEACON_A);
+      g.tube(dx, H + 0.022, dz, dx, H + 0.022 + dr * 0.8, dz, dr, dr * 0.92, 10, false, false);
+      g.dome(dx, H + 0.022 + dr * 0.8, dz, dr * 0.92, 10, 2, 0.6);
+    }
+    g.light(LIGHT_NONE).noPart();
+    meta.beaconA.push(dx, H + 0.12, dz);
+    if (!far) {
+      // feux à éclats dans la calandre, de part et d'autre (groupe A à gauche, B à droite)
+      const gy = capY0 + (capY1 - capY0) * 0.6;
+      lampBox(g, hw * 0.3, hw * 0.42, gy - 0.02, gy + 0.02, fz - 0.004, fz + 0.012, COL.blueLens, LIGHT_BEACON_A);
+      lampBox(g, -hw * 0.42, -hw * 0.3, gy - 0.02, gy + 0.02, fz - 0.004, fz + 0.012, COL.blueLens, LIGHT_BEACON_B);
+    }
+    meta.beaconB.push(-hw * 0.36, capY0 + (capY1 - capY0) * 0.6, hl);
   }
   body();
 

@@ -271,8 +271,11 @@ describe('le robot joue un atelier par rôle, jusqu’au compte rendu', () => {
 
   it('canon à eau « Dix mille litres » : jet droit, cuve au-dessus de quatre mille litres', async () => {
     const { t, ctx, m } = await lancer('canon-01-dix-mille-litres');
-    const { v } = enSelle(ctx, 0);
+    // la fiche fait jouer l'opérateur (« le conducteur reste à son poste ») : place de tireur, canon gauche
+    expect(ctx.player.person()!.poste).toBe('operateur');
+    const { v } = enSelle(ctx, 1);
     expect(v.kind).toBe('canon_eau');
+    expect(v.def.seats[1]!.role).toBe('gunner');
     const water = () => v.def.turrets.reduce((s, d, i) => s + (d.kind === 'canon_eau' ? v.turretAmmo[i] ?? 0 : 0), 0);
     const w0 = water();
     t.step(72);

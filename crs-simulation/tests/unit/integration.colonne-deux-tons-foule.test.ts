@@ -41,9 +41,15 @@ describe('colonne du joueur : deux-tons d’un suivant arrêté par la foule', (
     for (let i = 1; i < vl.seats.length; i++) if (vl.seats[i] === 0 && ctx.vehicles.enter(drv, vl, i)) break;
     expect(ctx.vehicles.enter(me, vl, 'driver')).toBe(true);
     expect(core.issue('avec_moi', [unit], null).ok).toBe(true);
-    // la colonne se forme derrière lui (fourgons garés, en « follow »)
+    // il démarre : la colonne se forme derrière lui (tant qu'il reste à l'arrêt, les fourgons restent garés)
     let follower: Vehicle | undefined;
     for (let i = 0; i < 60 && !follower; i++) {
+      if (i < 12) {
+        vl.x += Math.sin(vl.heading) * 3; vl.z += Math.cos(vl.heading) * 3; vl.speed = 3;
+        me.x = vl.x; me.z = vl.z;
+      } else {
+        vl.speed = 0; vl.vx = 0; vl.vz = 0;
+      }
       t.step(2);
       follower = ctx.vehicles.list.find((v) => v !== vl && ap.status(v).mode === 'follow' && ap.status(v).leaderId === vl.id);
     }

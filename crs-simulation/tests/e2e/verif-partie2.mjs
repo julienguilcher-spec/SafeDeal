@@ -3,7 +3,7 @@
 // puis passage sous l'Arc de Triomphe.
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { startServer, openPage, waitFor, frames, step, snap, log, J, install, OUT, rss } from './verif-lib.mjs';
+import { startServer, openPage, waitFor, ouvrirEditeur, frames, step, snap, log, J, install, OUT, rss } from './verif-lib.mjs';
 const args = Object.fromEntries(process.argv.slice(2).map((a) => { const i = a.indexOf('='); return [a.slice(2, i), a.slice(i + 1)]; }));
 const tag = args.tag ?? 'p2';
 const only = (args.only ?? 'ABCDE').toUpperCase();
@@ -137,6 +137,7 @@ try {
 
   // ═══ D. seconde session depuis l'accueil : Étoile, nuit ═══
   if (only.includes('D')) await section('D', async () => {
+    await ouvrirEditeur(page); // l'accueil s'ouvre sur le hub : tuile « Mode libre »
     await click('[data-id="tab-role"]'); await frames(page, 2);
     await click('[data-id="role-crs"]'); await frames(page, 2);
     await click('[data-value="bouclier"]'); await frames(page, 2);

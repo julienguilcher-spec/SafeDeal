@@ -62,6 +62,13 @@
  *   manifs.vitesse        number   allure de marche des manifestations supplémentaires (× ; 0,5 à 2,2 ; essais)
  *   crowd.destination     (aussi) destination déclarée : sert de but aux détours quand des rues sont fermées
  *   crowd.noDetour        boolean  le cortège ne se détourne jamais (il attend devant le barrage)
+ *   crowd.veille          boolean  mode veille : cœur actif sans manifestation principale (mode Patrouille, voir core.ts)
+ *   imprevus              objet    { sauvages, premier?, ecart? } : manifestations SAUVAGES qui naissent en cours de partie
+ *                                  (curseur « Imprévu » du Mode libre ; voir ImprevusConfig et manifs.ts)
+ *
+ * Déclarations à la volée (mode Patrouille, imprévus) : FoyersApi.declare (rassemblement, casseurs, blocage qui se
+ * déclarent tout de suite) et ManifsApi.declare (manifestation déclarée ou sauvage) ; elles fonctionnent en veille
+ * comme dans une session normale et renvoient null quand rien n'est possible (pas de lieu, foule au plafond).
  * ===================================================================================== */
 
 import type {
@@ -216,6 +223,35 @@ export interface FoyersApi {
   readonly started: number;
   /** Foyer auquel appartient une personne (null : aucun, ou foyer terminé). */
   foyerOf(id: EntityId): FoyerView | null;
+  /**
+   * Déclare un foyer TOUT DE SUITE (mode Patrouille) : composition, famille et durée de vie comme pour un foyer
+   * programmé, lieu choisi dans l'anneau `near` s'il est donné (sinon comme d'ordinaire), annonce CENTRAL et événement
+   * 'crowd:foyer' début. Null : cœur inactif, trop de foyers en cours, ou aucun lieu trouvé.
+   */
+  declare(spec: FoyerDeclareSpec): FoyerView | null;
+}
+
+/** Anneau autour d'un point (m) : là où l'on cherche le lieu d'une déclaration. */
+export interface NearRing {
+  x: number;
+  z: number;
+  min: number;
+  max: number;
+}
+
+/** Réglage d'un foyer déclaré à la volée (FoyersApi.declare). */
+export interface FoyerDeclareSpec {
+  kind: FoyerKind;
+  /** Lieu imposé (sinon choisi par le module) et son nom (sinon le nom du secteur). */
+  x?: number;
+  z?: number;
+  name?: string;
+  /** Effectif (3 à 300 ; sinon tiré comme pour un foyer programmé). */
+  size?: number;
+  /** Durée de vie (s de jeu ; sinon tirée). */
+  life?: number;
+  /** Lieu cherché dans cet anneau (ignoré si x et z sont donnés). */
+  near?: NearRing;
 }
 
 // ───────────────────────────── manifestations simultanées ─────────────────────────────
@@ -266,6 +302,43 @@ export interface ManifView {
   squadId: number;
   /** Compagnie chargée de cette manifestation (0 : aucune). */
   companyId: number;
+  /**
+   * Manifestation SAUVAGE (non déclarée, née en cours de partie) : ni service d'ordre ni organisateurs, deux fois plus
+   * de radicaux, rassemblement bref (1 à 2 min), marche vers un lieu à 0,8 – 1,8 km.
+   */
+  sauvage: boolean;
+}
+
+/** Réglage d'une manifestation déclarée à la volée (ManifsApi.declare) : tout est facultatif. */
+export interface ManifDeclareSpec {
+  /** Lieu de rassemblement : nom d'une place, ou coordonnées (sinon choisi par le module, dans `near` s'il est donné). */
+  place?: string;
+  x?: number | null;
+  z?: number | null;
+  /** Effectif annoncé (avant l'échelle de foule des réglages ; 1 500 personnes simulées au plus). */
+  crowdSize?: number;
+  /** Identifiant de cause (sinon tirée) et libellé affiché. */
+  cause?: string;
+  causeLabel?: string;
+  /** Destination : nom d'une place ou point (sinon choisie : 0,9 – 2,6 km, 0,8 – 1,8 km pour une sauvage). */
+  destination?: string | { x: number; z: number } | null;
+  tension?: number;
+  volatility?: number;
+  /** Manifestation sauvage (voir ManifView.sauvage). */
+  sauvage?: boolean;
+  /** Lieu de rassemblement cherché dans cet anneau. */
+  near?: NearRing;
+}
+
+/**
+ * Clé extra['imprevus'] (curseur « Imprévu » du Mode libre) : `sauvages` manifestations sauvages (0 à 3) naissent en
+ * cours de partie à 600 – 1 800 m du cortège principal ; la première à `premier` s (sinon entre 600 et 900 s), les
+ * suivantes espacées de `ecart` s (sinon 300 à 600 s). Tirages : fork 'foule:imprevus' (manifs.ts).
+ */
+export interface ImprevusConfig {
+  sauvages: number;
+  premier?: number;
+  ecart?: number;
 }
 
 /** Événement libre 'crowd:manif'. */
@@ -286,6 +359,13 @@ export interface ManifsApi {
   manifOf(id: EntityId): ManifView | null;
   /** Rattache une compagnie à une manifestation (affichage, commandement). */
   assign(manifId: number, companyId: number): void;
+  /**
+   * Déclare une manifestation TOUT DE SUITE (mode Patrouille, imprévus) : vrai cortège (rassemblement, départ, marche,
+   * dispersion), annonce CENTRAL et 'crowd:manif' annonce. Budget : 4 000 personnes simulées moins celles déjà
+   * présentes, 1 500 au plus (réduite à ce qui reste). Null : cœur inactif, plus de place sous le plafond, ou aucun
+   * lieu, aucune destination, aucun parcours trouvé.
+   */
+  declare(spec: ManifDeclareSpec): ManifView | null;
 }
 
 /** Évacuation filtrée d'une nasse (service 'crowd.evacuations', voir evacuation.ts). */
@@ -470,8 +550,13 @@ export interface SpawnOptions extends Omit<PersonInit, 'kind' | 'x' | 'z' | 'pro
 
 /** Service 'crowd.core'. */
 export interface CrowdCoreApi {
-  /** Une manifestation est en cours dans cette session. */
+  /** Une manifestation est en cours dans cette session (ou le cœur est en veille : voir `veille`). */
   readonly active: boolean;
+  /**
+   * Mode veille (extra['crowd.veille'] = true) : cœur actif sans manifestation principale — pas de cortège, phase
+   * 'aucune', aucun parcours (ctx.director.route vide) ; seuls les foyers et manifestations déclarés ont des personnes.
+   */
+  readonly veille: boolean;
   /** Personnes pilotées par le module (tableau interne : ne pas le modifier ni le conserver). */
   readonly members: readonly Person[];
   readonly groups: readonly CrowdGroup[];

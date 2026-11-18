@@ -128,6 +128,8 @@ export interface CabinSpec {
   /** Grille de protection rabattue devant le pare-brise. */
   grilleFront?: boolean;
   glassColor?: number;
+  /** Teinte de la lunette arrière (vitres surteintées d'une voiture banalisée) ; défaut : glassColor. */
+  rearGlassColor?: number;
   /** Hauteur relative du bas de la lunette arrière (fourgons : vitres de portes hautes). */
   rearT0?: number;
 }
@@ -258,8 +260,8 @@ export function cabin(g: Geo, far: boolean, c: CabinSpec, bodyStyle: () => void)
     bodyStyle();
     g.face(q(4, 5, 6, 7), ref);
     const sideGlass = c.side.length > 0;
-    const paintFace = (glass: boolean): void => { if (glass) g.paint(glassCol, SURF_GLASS); else bodyStyle(); };
-    paintFace(c.rearGlass !== false); g.face(q(0, 1, 5, 4), ref);
+    const paintFace = (glass: boolean, col = glassCol): void => { if (glass) g.paint(col, SURF_GLASS); else bodyStyle(); };
+    paintFace(c.rearGlass !== false, c.rearGlassColor ?? glassCol); g.face(q(0, 1, 5, 4), ref);
     paintFace(c.windshield !== false); g.face(q(2, 3, 7, 6), ref);
     if (sideGlass) {
       // flancs : peinture, puis une seule bande vitrée couvrant l'étendue des vitres
@@ -323,7 +325,7 @@ export function cabin(g: Geo, far: boolean, c: CabinSpec, bodyStyle: () => void)
       }
     }
     glass = offsetPts(glass, n, GLASS_OFF);
-    g.paint(glassCol, SURF_GLASS).tile(tile('verre')).face(glass, null, n);
+    g.paint(c.rearGlassColor ?? glassCol, SURF_GLASS).tile(tile('verre')).face(glass, null, n);
   }
   // vitres latérales fixes
   const n = sideNormal(c);

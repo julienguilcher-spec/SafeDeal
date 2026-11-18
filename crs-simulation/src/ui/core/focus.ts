@@ -73,7 +73,9 @@ export function pickNeighbor(cur: NavRect, candidates: readonly NavRect[], dir: 
       const offset = Math.abs((c0 + c1) * 0.5 - curCMid);
       score = primary + Math.min(offset, 400) * 0.15;
     } else {
-      const secondary = c0 >= curC1 ? c0 - curC1 : curC0 - c1;
+      // écart sur l'axe perpendiculaire ; jamais négatif (un recouvrement d'une fraction de pixel, bord contre bord,
+      // donnait un écart négatif qui faisait gagner un élément lointain : « bas » sautait toute une rubrique)
+      const secondary = Math.max(0, c0 >= curC1 ? c0 - curC1 : curC0 - c1);
       if (secondary > primary * 2 + 24) continue;
       score = primary + secondary * 2.5 + 30;
     }

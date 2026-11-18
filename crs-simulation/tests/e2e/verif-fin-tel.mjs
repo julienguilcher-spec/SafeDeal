@@ -2,7 +2,7 @@
 // accueil au doigt → CRS lanceur → Concorde → Lancer → joystick (marche, course) → regard au doigt → caméra → objet → lancer
 // → carte → carte tactique → pause → compte rendu → accueil.
 // Usage : node tests/e2e/verif-fin-tel.mjs [--size=844x390]
-import { startServer, openPage, waitFor, frames, step, state, snap, notices, sysErrors, census, makeChecker, args, J, R, fingers, rects, overlap } from './verif-fin-lib.mjs';
+import { startServer, openPage, waitFor, ouvrirEditeur, frames, step, state, snap, notices, sysErrors, census, makeChecker, args, J, R, fingers, rects, overlap } from './verif-fin-lib.mjs';
 const tag = 'verif-fin-tel';
 const C = makeChecker(tag);
 const [W, H] = (args.size ?? '844x390').split('x').map(Number);
@@ -25,6 +25,7 @@ const tapCtl = async (key) => { const r = await ctl(key); if (!r) return false; 
 try {
   await waitFor(page, 'window.__CRS && window.__CRS.ready === true', 300000);
   await waitFor(page, 'window.__CRS.ctx.ui.current === "menu_principal"', 60000);
+  await ouvrirEditeur(page);
   await frames(page, 4);
   await snap(page, tag + '-01-accueil');
   const q = await page.evaluate(() => ({ q: window.__CRS.ctx.view ? window.__CRS.ctx.view.quality : null, dpr: devicePixelRatio, docW: document.documentElement.scrollWidth, docH: document.documentElement.scrollHeight }));

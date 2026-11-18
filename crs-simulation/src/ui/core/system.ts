@@ -271,8 +271,8 @@ export class UiSystem implements GameSystem {
     // En jeu, un écran bloquant (pause, plan, carte tactique, roue d'ordres) passe DEVANT les notifications déjà
     // affichées : une « Faute » relevée juste avant ne recouvre ni le menu de pause ni l'en-tête de la carte.
     this.notices.setCovered(screens.modal && (phase === 'playing' || phase === 'paused'));
-    // en pause, les sous-titres radio encore affichés ne passent pas sur le menu
-    this.notices.setPaused(phase === 'paused');
+    // en pause et au compte rendu, les sous-titres radio encore affichés ne passent pas sur le menu ni sur ses boutons
+    this.notices.setPaused(phase === 'paused' || phase === 'debrief');
     this.notices.update(dt);
   }
 

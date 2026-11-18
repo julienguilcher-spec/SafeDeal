@@ -94,7 +94,7 @@ function symbolOfVehicle(kind: string): UnitSymbol {
     case 'camion_pompiers': return 'pompiers';
     case 'ambulance': return 'samu';
     case 'moto_bravm': return 'bravm';
-    case 'voiture_police': return 'patrouille';
+    case 'voiture_police': case 'voiture_bac': return 'patrouille';
     default: return 'vehicule';
   }
 }

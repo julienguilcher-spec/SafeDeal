@@ -5,6 +5,7 @@
 //
 // Paramètres d'URL :
 //   ?screen=menu_principal|hud|pause|parametres|chargement|debrief|credits   &section=…  &tab=…
+//   &accueil=hub|patrouille|missions|libre (vue de la page d'accueil ; &section=… ouvre l'éditeur du Mode libre)
 //   &role=…  &situation=calme|tension|affrontement  &vehicle=centaure|canon_eau|fourgon_crs|moto_bravm
 //   &camera=tps|fps|drone|viewfinder  &gas=0..1  &hour=0..24  &touch=1 (surcouche tactile forcée)
 //   &view=0 (pas de ctx.view : effets d'écran de repli, pas de marqueurs)  &missions=1  &records=1  &extras=1
@@ -589,7 +590,8 @@ async function openScreen(screen: string): Promise<void> {
   const phase = ctx.session.phase;
   if (screen === 'menu_principal') {
     if (phase !== 'menu') ctx.session.end(false);
-    if (params.get('section')) ctx.ui.open('menu_principal', { section: params.get('section') });
+    const accueil = params.get('accueil');
+    if (params.get('section') || accueil) ctx.ui.open('menu_principal', { view: accueil ?? undefined, section: params.get('section') ?? undefined });
     return;
   }
   if (screen === 'credits' && phase === 'menu') {
@@ -755,7 +757,7 @@ async function main(): Promise<void> {
   game.run();
   if (flag('touch')) ctx.service<InputTouchApi>('input.touch')?.setForced(true);
   const screen = params.get('screen') ?? 'menu_principal';
-  if (screen !== 'menu_principal' || params.get('section')) await openScreen(screen);
+  if (screen !== 'menu_principal' || params.get('section') || params.get('accueil')) await openScreen(screen);
   window.__ready = true;
 }
 main().catch((err: unknown) => {

@@ -48,6 +48,15 @@ const REGROUP_DONE = 45;
 const REGROUP_MAX = 40;
 /** Regroupements par trajet : au-delà, une moto coincée pour de bon ne retient plus l'unité (elle la rejoint seule). */
 const REGROUP_TRIES = 2;
+/** Tête arrêtée à plus de tant de mètres de son point d'arrêt : le compte rendu le dit (m). */
+const SHORT_OF_POINT = 40;
+/**
+ * Après l'arrivée, une moto à plus de REJOIN_SPREAD m de la tête dont le pilote automatique ne roule plus est relancée
+ * vers elle, toutes les REJOIN_GAP s, au plus REJOIN_MAX fois (m, s).
+ */
+const REJOIN_SPREAD = 60;
+const REJOIN_GAP = 10;
+const REJOIN_MAX = 12;
 /** Opérateurs à moins de tant de mètres de leurs machines : ils y montent directement (embarquement), sans colonne à pied (m). */
 const MOUNT_REACH = 40;
 
@@ -89,6 +98,9 @@ export class BravmUnit extends SpecialUnit {
   /** Trajet en urgence (voir URGENT_BEYOND). */
   private urgent = false;
   private relaunchZ = 0;
+  /** Retardataires de l'arrivée relancés vers la tête (voir rejoin) : nombre de relances, prochaine revue (s ; −1 : aucune). */
+  private rejoinTries = 0;
+  private rejoinAt = -1;
   /** Motos dans l'ordre de départ du trajet en cours (identifiants), vide : ordre des binômes. */
   private readonly departOrder: number[] = [];
   /** Dernière position et instant où chaque moto a bougé (voir les retardataires dans thinkRide). */
@@ -334,6 +346,7 @@ export class BravmUnit extends SpecialUnit {
       return;
     }
     this.relaunches = 0;
+    this.rejoinAt = -1;
     // trajet à travers la ville : en urgence, les fermetures de rue de la police sont franchies (arrêtée devant un
     // barrage à 600 m du point, la colonne s'y déclarait « en position » et n'arrivait jamais) ; manœuvre courte : au pas
     // de la colonne, en file serrée. Décidé au départ, gardé pour tout le trajet (relances, changements d'allure)
@@ -546,12 +559,45 @@ export class BravmUnit extends SpecialUnit {
         if (Math.hypot(m.x - lead.x, m.z - lead.z) > 40 && m.seats[0] !== 0) ap.driveTo(m, lead.x, lead.z, { speed: this.core.tuning.bravmSpeed, stopBefore: 4 + i * 3.5 });
       }
     }
+    this.rejoinTries = 0;
+    this.rejoinAt = this.core.now + REJOIN_GAP;
     if (!o || o.type === 'avancer' || o.type === 'colonne' || o.type === 'repli') {
-      this.say(report(this.superior(), this.squad.name, 'En position, ' + spell(this.motos.length) + (this.motos.length > 1 ? ' motos' : ' moto')));
+      // arrêtée loin de son point d'arrêt (route coupée, mur du bord de la carte, foule en travers) : elle le dit, avec la
+      // distance qui reste — « En position » à 130 m du point trompait celui qui l'y avait envoyée
+      const short = lead ? Math.hypot(this.standX - lead.x, this.standZ - lead.z) : 0;
+      const motos = spell(this.motos.length) + (this.motos.length > 1 ? ' motos' : ' moto');
+      this.say(report(this.superior(), this.squad.name, short > SHORT_OF_POINT
+        ? 'Arrêtés à ' + Math.round(short / 10) * 10 + ' mètres du point, accès bloqué, ' + motos
+        : 'En position, ' + motos));
       this.complete(true, '');
       return;
     }
     this.setStage('arret');
+  }
+
+  /**
+   * Après l'arrivée : les motos restées loin de la tête (relancées une fois vers elle par arrived) dont le pilote
+   * automatique s'est arrêté — itinéraire impossible, bloquées, rendues au repos — repartent vers la tête, tant
+   * qu'elles ne l'ont pas rejointe (REJOIN_MAX relances au plus). Sans cela, une moto arrêtée en chemin y restait.
+   */
+  private rejoin(): void {
+    const core = this.core;
+    const ap = core.autopilot;
+    const lead = this.motos[0];
+    if (!ap || !lead || this.rejoinAt < 0 || core.now < this.rejoinAt || this.rejoinTries >= REJOIN_MAX) return;
+    this.rejoinAt = core.now + REJOIN_GAP;
+    for (let i = 1; i < this.motos.length; i++) {
+      const m = this.motos[i];
+      const pilot = m.seats[0] !== 0 ? core.ctx.people.get(m.seats[0]) : undefined;
+      if (!pilot || pilot.isPlayer) continue;
+      const d = Math.hypot(m.x - lead.x, m.z - lead.z);
+      if (d <= REJOIN_SPREAD) continue;
+      const st = ap.status(m);
+      // (une moto qui roule vers la tête n'est pas relancée)
+      if (st.mode !== 'idle' && st.state !== 'bloque' && st.state !== 'echec' && !(st.state === 'attente' && st.blockedFor > 20)) continue;
+      ap.driveTo(m, lead.x, lead.z, { speed: core.tuning.bravmSpeed, stopBefore: 4 + i * 3.5, urgence: d > URGENT_BEYOND });
+      this.rejoinTries++;
+    }
   }
 
   // ───────────────────────────── pied à terre ─────────────────────────────
@@ -838,6 +884,7 @@ export class BravmUnit extends SpecialUnit {
       return;
     }
     const stage = this.status.stage;
+    if (stage === 'repos' || stage === 'a_pied') this.rejoin();
     switch (stage) {
       case 'route':
         this.thinkRide();

@@ -447,8 +447,9 @@ export class FollowLeaderSystem implements GameSystem {
     const ctx = this.ctx!;
     const out = new Set<number>();
     const role = ctx.player.state.role;
-    // (seulement au volant d'un véhicule de police : une voiture civile ne fait pas partir la compagnie)
-    if (role === 'gendarme_centaure' || lead.def.flying || me.squadId === 0 || (!POLICE_FLEET.has(lead.kind) && !TROOP_KINDS.has(lead.kind))) return out;
+    // (seulement au volant d'un véhicule de police : une voiture civile ne fait pas partir la compagnie ; jamais derrière
+    // la voiture d'un équipage de patrouille, qui n'appartient à aucune compagnie)
+    if (role === 'gendarme_centaure' || role === 'patrouille' || lead.def.flying || me.squadId === 0 || (!POLICE_FLEET.has(lead.kind) && !TROOP_KINDS.has(lead.kind))) return out;
     const own = this.rootOf(me.squadId);
     if (own !== 0) out.add(own);
     const root = ctx.squads.get(own);
@@ -716,11 +717,19 @@ export class FollowLeaderSystem implements GameSystem {
         const p = ctx.people.get(id);
         if (!p || p.isPlayer) continue;
         if (p.vehicleId !== 0) {
-          if (p.poste !== 'conducteur' && q.kind !== 'equipage') aboard++;
+          // (l'équipage d'un engin reste à son poste ; celui d'une voiture de patrouille descend avec le joueur, le
+          // conducteur compris : personne ne garde la voiture)
+          if (this.patrolCrew(q) || (p.poste !== 'conducteur' && q.kind !== 'equipage')) aboard++;
         } else if (p.custody === 'free' && p.posture !== 'down') onFoot++;
       }
     }
     return { onFoot, aboard };
+  }
+
+  /** Équipage de la voiture de patrouille du joueur (rôle 'patrouille') : il met pied à terre avec lui. */
+  private patrolCrew(q: Squad): boolean {
+    const ctx = this.ctx!;
+    return q.kind === 'equipage' && ctx.session.config?.role === 'patrouille' && q.id === ctx.player.person()?.squadId;
   }
 
   /** Mouvement motorisé de l'unité encore en cours (police.command : elle vient de loin rejoindre le joueur). */
@@ -834,11 +843,16 @@ export class FollowLeaderSystem implements GameSystem {
     return false;
   }
 
+  /** Le meneur a-t-il quitté sa place (DEPART_MOVE m depuis le début de sa trace) ? */
+  private departed(lead: Vehicle): boolean {
+    const trail = this.trails.get(lead.id);
+    return !!trail && Math.hypot(lead.x - trail[0]!, lead.z - trail[1]!) >= DEPART_MOVE;
+  }
+
   /** Le meneur est-il parti de sa place (DEPART_MOVE m) ? On ordonne alors une fois la sortie du stationnement. */
   private sortExit(ids: EntityId[], lead: Vehicle): void {
     if (this.exitSorted) return;
-    const trail = this.trails.get(lead.id);
-    if (!trail || Math.hypot(lead.x - trail[0]!, lead.z - trail[1]!) < DEPART_MOVE) return;
+    if (!this.departed(lead)) return;
     this.exitSorted = true;
     this.exitOrder(ids, lead);
   }
@@ -847,7 +861,13 @@ export class FollowLeaderSystem implements GameSystem {
    * Le véhicule peut-il prendre (ou garder) la suite de `prev` ? Le premier, s'il est garé en bloc (un véhicule juste
    * devant lui), attend que le meneur se soit dégagé : il le rejoindra par les rues.
    */
-  private mayFollow(v: Vehicle, prev: EntityId, lead: Vehicle, st: Readonly<{ mode: string; leaderId: EntityId }> | null): boolean {
+  private mayFollow(v: Vehicle, prev: EntityId, lead: Vehicle, st: Readonly<{ mode: string; leaderId: EntityId }> | null, hold = false): boolean {
+    // `hold` (le joueur conduit) : encore garé près du meneur qui n'est pas parti, il reste à sa place jusqu'au départ (la
+    // sortie du stationnement se fait alors dans l'ordre, voir sortExit). À République, un fourgon de l'autre file du bloc, garé 50 m plus
+    // loin, venait se ranger derrière le VL arrêté du joueur — en travers de la sortie du fourgon garé à côté du VL,
+    // qui le suivait : chacun attendait l'autre, et la colonne restait au stationnement.
+    if (hold && (!st || st.mode !== 'follow') && Math.abs(v.speed) < 0.5 && !this.departed(lead)
+      && Math.hypot(v.x - lead.x, v.z - lead.z) < FLEET_RADIUS) return false;
     if (prev !== lead.id || (st && st.mode === 'follow' && st.leaderId === prev)) return true;
     return Math.hypot(v.x - lead.x, v.z - lead.z) > FIRST_ENGAGE || !this.boxed(v, lead);
   }
@@ -1221,7 +1241,7 @@ export class FollowLeaderSystem implements GameSystem {
       if (pilot) {
         const st = pilot.status ? pilot.status(v) : null;
         // (garé en bloc, il attend que le meneur se dégage : feux et sirène déjà comme lui)
-        if (this.mayFollow(v, prev, lead, st) && (!st || st.mode !== 'follow' || st.leaderId !== prev)) pilot.follow(v, prev, COLUMN_GAP, this.trails.get(prev));
+        if (this.mayFollow(v, prev, lead, st, true) && (!st || st.mode !== 'follow' || st.leaderId !== prev)) pilot.follow(v, prev, COLUMN_GAP, this.trails.get(prev));
         // (après la reprise de « follow », qui remet à zéro toute manœuvre en cours)
         if (v.id === this.yielder) {
           this.yielder = 0;

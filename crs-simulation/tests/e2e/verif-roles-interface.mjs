@@ -4,7 +4,7 @@
 // reçoivent le doigt), carte tactique (ouverture, fermeture), plan, pause (tous les boutons atteignables), zéro erreur console.
 // Code de sortie : 0 seulement si toutes les vérifications passent. Résumé par rôle à la fin.
 // Usage : node tests/e2e/verif-roles-interface.mjs [--device=tel|pc|tous] [--roles=crs:bouclier,manifestant:pacifique] [--accueil=0]
-import { startServer, openPage, waitFor, frames, step, snap, fingers, rects, overlap, args, J } from './verif-fin-lib.mjs';
+import { startServer, openPage, waitFor, ouvrirEditeur, frames, step, snap, fingers, rects, overlap, args, J } from './verif-fin-lib.mjs';
 import { makeChecker } from './verif-fin-lib.mjs';
 
 const tag = 'verif-roles-interface';
@@ -25,6 +25,8 @@ const ALL = [
   ['gendarme_centaure', 'conducteur', '', 'place de la Nation'],
   ['operateur_canon_eau', 'conducteur', '', 'place de la Concorde'],
   ['telepilote', 'telepilote', '', 'place de la République'],
+  ['patrouille', 'conducteur', 'bac', 'place de l’Opéra'],
+  ['patrouille', 'interpellation', 'police_secours', 'place de la République'],
   ['street_medic', '', '', 'place de la Bastille'],
   ['secouriste', '', 'pompier', 'place de la République'],
   ['secouriste', '', 'samu', 'place de la République'],
@@ -80,6 +82,7 @@ try {
       current = `${device}/accueil`;
       await waitFor(page, 'window.__CRS && window.__CRS.ready === true', 300000);
       await waitFor(page, 'window.__CRS.ctx.ui.current === "menu_principal"', 60000);
+      await ouvrirEditeur(page);
       await frames(page, 3);
       await snap(page, `${tag}-${device}-accueil`);
       const dims = await page.evaluate(() => ({ w: document.documentElement.scrollWidth, h: document.documentElement.scrollHeight }));

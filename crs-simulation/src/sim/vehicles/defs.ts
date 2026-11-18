@@ -145,6 +145,17 @@ function voiturePolice(): VehicleDef {
     carSeats(1.84, 0.62, 0.35, -0.6, 2), [], { siren: true });
 }
 
+/**
+ * Voiture banalisée de la BAC : grande berline sans aucune inscription, gris foncé, 4,70 × 1,83 × 1,47 m, 1,45 t,
+ * 5 places (l'équipage de trois et deux places pour un interpellé et son escorte). Deux-tons et feux bleus discrets :
+ * gyrophare aimanté posé sur le toit côté conducteur et feux à éclats dans la calandre (rendu : src/render/vehicles).
+ */
+function voitureBac(): VehicleDef {
+  return def('voiture_bac', 'Voiture banalisée (BAC)', 'police', 0x2e3238,
+    { length: 4.7, width: 1.83, height: 1.47, mass: 1450, wheelbase: 2.8, top: 190, reverse: 25, accel: 3.4, brake: 8.8, steer: 0.58 },
+    carSeats(1.83, 0.52, 0.33, -0.62, 3), [], { siren: true, beacons: true });
+}
+
 /** Fourgon cellulaire : 2 agents + 8 retenus (estimé) ; les cellules s'ouvrent par l'arrière. */
 function fourgonCellulaire(): VehicleDef {
   const w = 2.05;
@@ -360,18 +371,21 @@ function helicoptere(): VehicleDef {
     [turret('camera', 0, 0.5, 3.4, -PI, PI, -1.5708, 0.2, 0, 0)], { flying: true, beacons: true });
 }
 
-/** Toutes les définitions, dans l'ordre des VehicleKind du contrat. */
+/** Toutes les définitions, dans l'ordre de VEHICLE_KINDS. */
 export function createVehicleDefs(): VehicleDef[] {
   return [
-    fourgonCrs(), carCrs(), vlCommandement(), voiturePolice(), fourgonCellulaire(), centaure(), canonEau(), motoBravm(),
+    fourgonCrs(), carCrs(), vlCommandement(), voiturePolice(), voitureBac(), fourgonCellulaire(), centaure(), canonEau(), motoBravm(),
     camionPompiers(), ambulance(), voiture(), citadine(), suv(), taxi(), utilitaire(), camion(), bus(), scooter(),
     camionSono(), drone(), helicoptere(), velo(),
   ];
 }
 
-/** Les 22 types du contrat (pour les tests et les boucles). */
+/**
+ * Les 23 types de véhicules (pour les tests et les boucles) : les 22 du contrat, plus la voiture banalisée de la BAC
+ * ('voiture_bac' : VehicleKind est un type ouvert, le contrat n'a pas à la nommer).
+ */
 export const VEHICLE_KINDS: readonly VehicleKind[] = [
-  'fourgon_crs', 'car_crs', 'vl_commandement', 'voiture_police', 'fourgon_cellulaire', 'centaure', 'canon_eau',
+  'fourgon_crs', 'car_crs', 'vl_commandement', 'voiture_police', 'voiture_bac', 'fourgon_cellulaire', 'centaure', 'canon_eau',
   'moto_bravm', 'camion_pompiers', 'ambulance', 'voiture', 'citadine', 'suv', 'taxi', 'utilitaire', 'camion', 'bus',
   'scooter', 'camion_sono', 'drone', 'helicoptere', 'velo',
 ];

@@ -6,8 +6,10 @@
  *   - 'session.setup' (ordre SystemOrder.RULES − 100) : sur 'session:started' il choisit l'emplacement des forces
  *     (à l'écart de la manifestation quand il y en a une), fait construire la compagnie et les « moyens engagés » par
  *     le module de police quand il est branché (sinon crée le joueur et son unité directement), gare les véhicules
- *     nez vers la sortie, incarne le joueur, puis applique vent / circulation / métro du scénario.
- *     Service : ctx.service<SessionSetupApi>('session.setup'). Événements libres : 'ui:loading', 'session:setup'.
+ *     nez vers la sortie, incarne le joueur, puis applique vent / circulation / métro du scénario. Rôle 'patrouille' :
+ *     le joueur part à bord de sa voiture de BAC ou de Police secours, garée au bord de la chaussée (equipage.ts).
+ *     Services : ctx.service<SessionSetupApi>('session.setup'), ctx.service<EquipageApi>('session.equipage').
+ *     Événements libres : 'ui:loading', 'session:setup'.
  *   - 'session.timewarp' (ordre INPUT + 10) : avance rapide ×4 par le bouton « fast_forward ».
  *     Service : ctx.service<TimeWarpApi>('session.timewarp').
  *
@@ -29,7 +31,7 @@ export { ManifestationsForcesSystem, SESSION_MANIFS_SYSTEM_ID, sectionsFor } fro
 export { FollowLeaderSystem } from './follow';
 export { ORDER_OBJECTIVE_ID, ORDERS_SERVICE, PlayerOrdersSystem } from './orders';
 export type { PlayerOrdersApi } from './orders';
-export { JOURNEE_OBJECTIVE_ID, JOURNEE_SERVICE, JourneeSystem } from './journee';
+export { JOURNEE_OBJECTIVE_ID, JOURNEE_SERVICE, JourneeSystem, manifestationBrief } from './journee';
 export type { JourneeApi, JourneeStage } from './journee';
 export { SERVICE_BASE, SERVICE_BASES, basePreload, baseOf, serviceBaseFor, isJournee } from './journee-data';
 export type { ServiceBase } from './journee-data';
@@ -56,6 +58,8 @@ export type { TimeWarpApi } from './timewarp';
 export { installLoadingGate } from './loading';
 export type { LoadingGateOptions } from './loading';
 export { castFor, isPoliceRole, meansOf, rankOf } from './roster';
+export { EQUIPAGE_SERVICE, buildPatrolCrew, curbSpot, patrolCallsign } from './equipage';
+export type { EquipageApi, EquipageInfo, PatrolCrew, PatrolCrewOptions } from './equipage';
 export type { Cast, CastSlot, CastSquad, RequestedMeans } from './roster';
 export { chooseStand, chooseStandOffCrowd, distanceToRoute, parkingRoom, parkingSpot, settle, supportSpot } from './placement';
 export type { Stand } from './placement';

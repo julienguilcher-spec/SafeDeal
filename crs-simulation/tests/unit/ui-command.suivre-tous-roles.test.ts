@@ -19,6 +19,7 @@ import { createSystems as command, ordersButtonVisible } from '@/ui/command';
 import type { CommandCore } from '@/ui/command';
 import { FOLLOW_WHEEL, WHEEL, wheelOrders } from '@/ui/command/orderWheel';
 import { followButtonsShown } from '@/ui/command/quickActions';
+import { sanitizePatrolSetup, vacationSessionConfig } from '@/gameplay/patrols/model';
 
 const SIM = [world, roles, people, vehicles, police, law, radio, session, command];
 
@@ -89,6 +90,42 @@ describe('ordres « me suivre » : tout policier', () => {
       expect(core.callFollow(true).ok).toBe(true);
     }, 300000);
   }
+
+  it('équipage de patrouille à bord : « en colonne » le laisse à bord sans ordre radio ; « à pied », le joueur descendu, il suit', async () => {
+    const t = createTestContext({ seed: 21, strict: false, modules: SIM });
+    await t.start(vacationSessionConfig(sanitizePatrolSetup({ seed: 21, crew: 'bac', seat: 'conducteur' })));
+    t.step(3);
+    const ctx = t.ctx;
+    const core = ctx.service<CommandCore>('ui.command')!;
+    const me = ctx.player.person()!;
+    expect(me.vehicleId).not.toBe(0);
+    const unit = core.followUnit()!;
+    expect(unit).toBeTruthy();
+    expect(followButtonsShown(core)).toBe(true);
+    const before = ctx.radio.log.length;
+    expect(core.callFollow(true).ok).toBe(true);
+    for (let i = 0; i < 10; i++) t.step(1);
+    // ni « Me suivre en colonne » dans l'habitacle, ni « Pas de véhicule disponible, je vous suis à pied »
+    const said = ctx.radio.log.slice(before).map((m) => m.text);
+    expect(said.filter((x) => /Me suivre en colonne|Pas de véhicule disponible/.test(x))).toEqual([]);
+    expect(crewOf(ctx, unit).every((p) => p.vehicleId === me.vehicleId)).toBe(true);
+    // le joueur descend, puis « Me suivre à pied » : ses deux collègues descendent et le suivent
+    ctx.vehicles.exit(me);
+    t.step(1);
+    expect(core.callFollow(false).ok).toBe(true);
+    for (let i = 0; i < 30 && crewOf(ctx, unit).some((p) => p.vehicleId !== 0); i++) t.step(2);
+    expect(unit.order.type).toBe('suivre');
+    expect(crewOf(ctx, unit).filter((p) => p.vehicleId !== 0).length).toBe(0);
+    // retour à la voiture : le joueur remonte, « en colonne » fait remonter l'équipage avec lui
+    const car = ctx.vehicles.get(unit.vehicleId)!;
+    expect(car).toBeTruthy();
+    expect(ctx.vehicles.enter(me, car, 0)).toBe(true);
+    const mark = ctx.radio.log.length;
+    expect(core.callFollow(true).ok).toBe(true);
+    for (let i = 0; i < 40 && crewOf(ctx, unit).some((p) => p.vehicleId !== car.id); i++) t.step(1);
+    console.log('remontée :', crewOf(ctx, unit).map((p) => p.vehicleId === car.id), ctx.radio.log.slice(mark).map((m) => m.text).join(' | '));
+    expect(crewOf(ctx, unit).every((p) => p.vehicleId === car.id)).toBe(true);
+  }, 300000);
 
   it('hors police : ni roue, ni boutons « me suivre »', async () => {
     const { core } = await start('journaliste');

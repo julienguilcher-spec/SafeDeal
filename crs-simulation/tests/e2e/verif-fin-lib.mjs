@@ -1,9 +1,9 @@
 // Testeur indépendant — CONTRÔLE FINAL (préfixe verif-fin). N'écrit rien dans le code du jeu : scripts et captures seulement.
 import path from 'node:path';
 import { writeFileSync } from 'node:fs';
-import { startServer, openPage, waitFor, OUT, ROOT } from './lib.mjs';
+import { startServer, openPage, waitFor, OUT, ROOT, ouvrirEditeur } from './lib.mjs';
 import { frames, step, state, installPad, PAD, padButton, padAxes, fingers, rects, overlap } from './verif-tpm-lib.mjs';
-export { startServer, openPage, waitFor, OUT, ROOT, frames, step, state, installPad, PAD, padButton, padAxes, fingers, rects, overlap };
+export { startServer, openPage, waitFor, OUT, ROOT, ouvrirEditeur, frames, step, state, installPad, PAD, padButton, padAxes, fingers, rects, overlap };
 
 export const args = Object.fromEntries(process.argv.slice(2).map((a) => { const s = a.replace(/^--/, ''); const i = s.indexOf('='); return i < 0 ? [s, '1'] : [s.slice(0, i), s.slice(i + 1)]; }));
 export const R = (v, d = 2) => (typeof v === 'number' ? Math.round(v * 10 ** d) / 10 ** d : v);

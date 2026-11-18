@@ -163,6 +163,10 @@ describe('radio — bibliothèque de phrases', () => {
     expect(spokenNumber(200)).toBe('DEUX-ZÉRO-ZÉRO');
     expect(spokenNumber(NaN)).toBe('ZÉRO');
     expect(spokenCallsign('Mistral 12 bravo')).toBe('MISTRAL UN-DEUX BRAVO');
+    // secteur de la BAC collé au numéro, et indicatif de commissariat
+    expect(spokenCallsign('BAC 75N')).toBe('BAC SEPT-CINQ NORD');
+    expect(spokenCallsign('BAC 75O')).toBe('BAC SEPT-CINQ OUEST');
+    expect(spokenCallsign('TV 75-09')).toBe('TV SEPT-CINQ-ZÉRO-NEUF');
     expect(spokenTime(17.07)).toBe('UNE-SEPT heures ZÉRO-QUATRE');
     expect(spokenTime(8.5)).toBe('ZÉRO-HUIT heures TROIS-ZÉRO');
     // devant « heures », le chiffre 1 s'accorde : vingt et une heures, onze heures, une heure

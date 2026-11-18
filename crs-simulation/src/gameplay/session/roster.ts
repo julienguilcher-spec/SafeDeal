@@ -9,6 +9,7 @@ import type {
   Faction, PersonKind, PlayableRole, PolicePoste, PoliceRank, ProtestProfile, SessionConfig, SquadKind, VehicleKind,
 } from '@/core/contracts';
 import type { SpawnHelperApi, UnitSlot, UnitType } from '@/sim/roles/archetypes/api';
+import { readVacation } from '@/gameplay/patrols/model';
 
 /** Un poste à pourvoir : case d'unité des archétypes, complétée pour les rôles hors unité. */
 export interface CastSlot extends UnitSlot {
@@ -36,6 +37,7 @@ export interface Cast {
 
 const POLICE_ROLES: readonly PlayableRole[] = [
   'crs', 'chef_groupe', 'commandant', 'commissaire', 'bravm', 'gendarme_centaure', 'operateur_canon_eau', 'telepilote',
+  'patrouille',
 ];
 
 export function isPoliceRole(role: PlayableRole): boolean {
@@ -77,6 +79,11 @@ function posteOf(config: SessionConfig): PolicePoste | null {
 function varianteOf(config: SessionConfig): string {
   const v = config.extra ? config.extra['variante'] : undefined;
   return typeof v === 'string' ? v : '';
+}
+
+/** Indicatif de l'équipage de patrouille (extra.vacation.depart.callsign, voir src/gameplay/patrols/model.ts) ; '' hors vacation. */
+function vacationCallsign(config: SessionConfig): string {
+  return readVacation(config)?.depart.callsign ?? '';
 }
 
 function slot(kind: PersonKind, poste: PolicePoste | null, rank: PoliceRank | null, label: string, leads: UnitSlot['leads'] = ''): UnitSlot {
@@ -157,6 +164,24 @@ function find(slots: readonly CastSlot[], poste: PolicePoste | null, leads?: Uni
     if (leads !== undefined ? s.leads === leads : s.poste === poste) return i;
   }
   return -1;
+}
+
+/**
+ * Place du joueur dans l'équipage d'un engin selon son poste : 'operateur' → l'opérateur de tourelle (il prend la
+ * place de tireur en montant, voir sim/vehicles/seats.ts) ; 'chef_groupe' → le chef d'engin, dont le poste devient
+ * 'chef_groupe' ; sinon le conducteur.
+ */
+function crewPlayer(slots: CastSlot[], poste: PolicePoste | null): number {
+  if (poste === 'operateur') {
+    for (let i = 0; i < slots.length; i++) if (slots[i]!.poste === 'operateur' && slots[i]!.leads === '') return i;
+  } else if (poste === 'chef_groupe') {
+    const i = find(slots, null, 'unite');
+    if (i >= 0) {
+      slots[i] = { ...slots[i]!, poste: 'chef_groupe' };
+      return i;
+    }
+  }
+  return Math.max(0, find(slots, 'conducteur'));
 }
 
 /**
@@ -249,17 +274,16 @@ export function castFor(config: SessionConfig, helper: SpawnHelperApi | undefine
     case 'gendarme_centaure': {
       const g = group('Centaure 1', 'equipage');
       cast.slots = attach(unit(helper, 'equipage_centaure'), g);
-      // un seul poste jouable : le conducteur pilote et sert le lance-grenades (l'ancien poste « operateur » y mène)
-      void poste;
-      cast.player = Math.max(0, find(cast.slots, 'conducteur'));
+      // pilote (défaut : il conduit et sert le lance-grenades quand il est seul), opérateur du lance-grenades, ou chef d'engin
+      cast.player = crewPlayer(cast.slots, poste);
       cast.vehicles = ['centaure'];
       break;
     }
     case 'operateur_canon_eau': {
       const g = group('Lanceur d’eau 1', 'equipage');
       cast.slots = attach(unit(helper, 'equipage_canon_eau'), g);
-      // un seul poste jouable : le conducteur pilote et tient les deux canons
-      cast.player = Math.max(0, find(cast.slots, 'conducteur'));
+      // conducteur (défaut : il conduit et tient les canons quand personne ne les sert) ou opérateur des canons
+      cast.player = crewPlayer(cast.slots, poste === 'chef_groupe' ? null : poste);
       cast.vehicles = ['canon_eau'];
       break;
     }
@@ -268,6 +292,22 @@ export function castFor(config: SessionConfig, helper: SpawnHelperApi | undefine
       cast.slots = attach(unit(helper, 'equipe_drone'), g);
       cast.player = Math.max(0, find(cast.slots, 'telepilote'));
       cast.vehicles = ['voiture_police'];
+      break;
+    }
+    case 'patrouille': {
+      // équipage de trois, comme les voitures de patrouille de l'IA : chef de bord, conducteur, équipier.
+      // BAC : en civil, voiture banalisée ; Police secours : en tenue (archétype des voitures TV), voiture sérigraphiée.
+      const bac = variante !== 'police_secours';
+      const g = group(vacationCallsign(config) || (bac ? 'BAC 75' : 'TV 75'), 'equipage');
+      const body: PersonKind = bac ? 'policier_civil' : 'crs';
+      cast.slots = attach([
+        slot(body, 'interpellation', 'brigadier_chef', 'Chef de bord', 'unite'),
+        slot(body, 'conducteur', 'gardien', 'Conducteur'),
+        slot(body, 'interpellation', 'gardien', 'Équipier'),
+      ], g);
+      // poste 'conducteur' (défaut) : au volant ; 'interpellation' (affiché « Chef de bord ») : chef de bord
+      cast.player = poste === 'interpellation' ? 0 : 1;
+      cast.vehicles = [bac ? 'voiture_bac' : 'voiture_police'];
       break;
     }
     case 'secouriste': {
@@ -301,6 +341,9 @@ export function castFor(config: SessionConfig, helper: SpawnHelperApi | undefine
   // le grade choisi sur la page d'accueil s'applique au joueur
   const mine = cast.slots[cast.player];
   if (mine && config.rank && isPoliceRole(role)) mine.rank = config.rank;
+  // équipage de patrouille : le chef de bord n'est jamais moins gradé que le conducteur (un major au volant a un
+  // major pour chef de bord)
+  if (role === 'patrouille' && cast.player !== 0 && config.rank === 'major' && cast.slots[0]) cast.slots[0].rank = 'major';
   return cast;
 }
 

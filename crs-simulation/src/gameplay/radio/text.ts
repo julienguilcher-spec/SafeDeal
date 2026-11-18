@@ -29,9 +29,15 @@ export function spokenNumber(value: number): string {
   return spokenDigits(String(n));
 }
 
+/** Lettre de secteur d'un indicatif (BAC 75N, 75E, 75S, 75O). */
+const SECTOR_WORDS: Readonly<Record<string, string>> = { N: 'NORD', E: 'EST', S: 'SUD', O: 'OUEST' };
+
 /** Indicatif tel qu'on le prononce : chaque suite de chiffres est épelée, le reste en capitales. */
 export function spokenCallsign(callsign: string): string {
-  return callsign.toUpperCase().replace(/\d+/g, (run) => spokenDigits(run));
+  // un secteur collé au numéro (« BAC 75N ») se dit en toutes lettres : « BAC SEPT-CINQ NORD »
+  return callsign.toUpperCase()
+    .replace(/(\d)([NESO])\b/g, (_m, d: string, s: string) => `${d} ${SECTOR_WORDS[s] ?? s}`)
+    .replace(/\d+/g, (run) => spokenDigits(run));
 }
 
 /**

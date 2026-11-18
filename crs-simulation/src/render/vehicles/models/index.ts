@@ -21,6 +21,7 @@ const BUILDERS: Record<string, ModelBuilder> = {
   ambulance: (g, far, def) => buildVan(g, far, def, VAN_STYLES.ambulance!),
   utilitaire: (g, far, def) => buildVan(g, far, def, VAN_STYLES.utilitaire!),
   voiture_police: (g, far, def) => buildCar(g, far, def, CAR_STYLES.voiture_police!),
+  voiture_bac: (g, far, def) => buildCar(g, far, def, CAR_STYLES.voiture_bac!),
   voiture: (g, far, def) => buildCar(g, far, def, CAR_STYLES.voiture!),
   citadine: (g, far, def) => buildCar(g, far, def, CAR_STYLES.citadine!),
   suv: (g, far, def) => buildCar(g, far, def, CAR_STYLES.suv!),

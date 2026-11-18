@@ -4,7 +4,7 @@
 //   6. perte puis restauration du contexte WebGL.
 // Usage : node tests/e2e/verif-tpm-robuste.mjs [--only=1,2,3,4,5,6]
 import { createRequire } from 'node:module';
-import { startServer, waitFor, frames, step, state, snap, J, R, makeChecker } from './verif-tpm-lib.mjs';
+import { startServer, waitFor, ouvrirEditeur, frames, step, state, snap, J, R, makeChecker } from './verif-tpm-lib.mjs';
 const require = createRequire(import.meta.url);
 const { chromium } = require('playwright');
 
@@ -34,6 +34,7 @@ const safe = async (name, fn) => {
   C.check(errors.length === n0, `« ${name} » : aucune erreur console`, errors.slice(n0, n0 + 3).join(' | ').slice(0, 700));
 };
 const launchFromHome = async (page) => {
+  await ouvrirEditeur(page);
   await page.locator('[data-id="role-crs"]').first().click();
   await page.locator('[data-id="tab-foule"]').first().click();
   await page.locator('[data-id="affluence"]').focus();
@@ -60,7 +61,7 @@ if (only(1)) await safe('rechargement en cours de partie', async () => {
   const after = await page.evaluate(() => {
     const c = window.__CRS.ctx;
     const btn = [...document.querySelectorAll('.crs-ui button')].filter((e) => e.getBoundingClientRect().width > 0).map((e) => (e.getAttribute('data-id') || '') + ':' + (e.textContent || '').trim().slice(0, 30));
-    return { phase: c.session.phase, screen: c.ui.current, people: c.people.list.length, buttons: btn, summary: (document.querySelector('.ui-home__summary')?.textContent || '').replace(/\s+/g, ' ').slice(0, 200), quality: c.settings.values.quality };
+    return { phase: c.session.phase, screen: c.ui.current, people: c.people.list.length, buttons: btn, summary: (document.querySelector('.ui-home__summary, [data-id="continuer"]')?.textContent || '').replace(/\s+/g, ' ').slice(0, 200), quality: c.settings.values.quality };
   });
   report.reload = { before: { t: before.t, place: before.cfg.place, crowd: before.cfg.crowdSize, role: before.cfg.role }, after, ms: Date.now() - t0, storedBytes: stored0 ? stored0.length : 0 };
   console.log('  après rechargement : ' + J({ phase: after.phase, screen: after.screen, people: after.people, ms: Date.now() - t0 }));
@@ -73,7 +74,7 @@ if (only(1)) await safe('rechargement en cours de partie', async () => {
   // relancer une partie après rechargement
   if (cont) { await page.locator(`[data-id="${cont.split(':')[0]}"]`).first().click().catch(() => {}); await frames(page, 4); }
   const ph = await page.evaluate(() => window.__CRS.ctx.session.phase);
-  if (ph === 'menu') await page.locator('[data-id="lancer"]').first().click();
+  if (ph === 'menu') { await ouvrirEditeur(page); await page.locator('[data-id="lancer"]').first().click(); }
   await waitFor(page, 'window.__CRS.ctx.session.phase === "playing"', 400000);
   const again = await page.evaluate(() => ({ people: window.__CRS.ctx.people.list.length, player: !!window.__CRS.ctx.player.person(), cfg: { place: window.__CRS.ctx.session.config.place, crowd: window.__CRS.ctx.session.config.crowdSize, role: window.__CRS.ctx.session.config.role } }));
   C.check(again.player, 'une partie se relance après le rechargement', J(again));
@@ -108,7 +109,8 @@ if (only(2)) await safe('sauvegarde corrompue', async () => {
     let launched = false, detail = '';
     if (st.boot) {
       try {
-        // ouvrir « Mes scénarios » (les éléments enregistrés corrompus y sont lus), puis lancer
+        // ouvrir l'éditeur, puis « Mes scénarios » (les éléments enregistrés corrompus y sont lus), puis lancer
+        await ouvrirEditeur(page, 30000);
         await page.locator('[data-id="tab-scenarios"]').first().click({ timeout: 5000 }).catch(() => {});
         await frames(page, 3);
         const saved = await page.evaluate(() => [...document.querySelectorAll('.crs-ui [data-id^="saved-"], .crs-ui .ui-list__item')].map((e) => (e.textContent || '').trim().slice(0, 40)).slice(0, 8));

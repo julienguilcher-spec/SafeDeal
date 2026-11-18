@@ -15,8 +15,11 @@
  * Les cortèges se détournent devant les rues fermées (detour.ts).
  * Services publiés : ctx.director (DirectorApi), EXT.metro (MetroApi), 'crowd.core' (CrowdCoreApi : registre de
  * contrôleurs de comportement par profil — point d'extension des groupes radicaux, voir docs dans api.ts),
- * 'crowd.foyers' (FoyersApi : foyers secondaires en cours).
+ * 'crowd.foyers' (FoyersApi : foyers secondaires en cours, déclaration à la volée), 'crowd.manifs' (ManifsApi :
+ * manifestations simultanées, déclaration à la volée, manifestations sauvages des imprévus).
  * La manifestation est mise en place à 'session:started' d'après ctx.session.config.
+ * Mode veille (extra['crowd.veille'] = true, mode Patrouille) : le cœur est actif sans manifestation principale —
+ * phase 'aucune', aucun parcours, aucun aléa du cortège ; seuls vivent les foyers et les manifestations déclarés.
  * ===================================================================================== */
 
 import type { GameContext, GameSystem, ModuleFactory } from '@/core/contracts';
@@ -32,9 +35,9 @@ import type { RadicalSystem } from './radical';
 
 export * from './api';
 export { S as CROWD_STATE, A as CROWD_ACT, F as CROWD_FLAG, STATE_NAMES, brainOf, isCrowdBrain } from './brain';
-export { CrowdCore } from './core';
-export { FoyersSystem, placeInSentence } from './foyers';
-export { MANIF_PLACES, ManifsSystem, readManifSpecs } from './manifs';
+export { CrowdCore, CROWD_VEILLE_KEY } from './core';
+export { FoyersSystem, PARIS_PLACES, placeInSentence } from './foyers';
+export { MANIF_PLACES, ManifsSystem, readImprevus, readManifSpecs } from './manifs';
 export type { ManifSpec } from './manifs';
 export { EvacuationSystem } from './evacuation';
 export { Rerouter, RoadBlocks, closureAhead, enclosedAt, planDetour } from './detour';

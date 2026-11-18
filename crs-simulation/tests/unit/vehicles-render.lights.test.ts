@@ -98,6 +98,7 @@ describe('gyrophares', () => {
     expect(beaconPatternFor('fourgon_crs')).toBe('rampe');
     expect(beaconPatternFor('camion_pompiers')).toBe('gyro');
     expect(beaconPatternFor('moto_bravm')).toBe('strobe');
+    expect(beaconPatternFor('voiture_bac')).toBe('strobe'); // gyrophare aimanté et feux de calandre
     expect(beaconPatternFor('type_inconnu')).toBe('rampe');
   });
 

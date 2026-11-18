@@ -60,7 +60,9 @@ describe('BRAV-M à pied : retour aux machines', () => {
     for (let i = 0; i < 60 && cmd.special(group.id)?.stage !== 'repos'; i++) t.step(5);
     // (le compte rendu part sur le réseau un instant après le changement d'étape)
     t.step(3);
-    const said = ctx.radio.log.map((l: { text: string }) => l.text).filter((x: string) => /En position/.test(x));
+    // (le point, à l'est de la place, est au-delà du bord de la carte : la colonne s'arrête au plus près et le dit —
+    // « Arrêtés à … mètres du point, accès bloqué » — au lieu de « En position » : voir bravm.colonne-arrivee.test.ts)
+    const said = ctx.radio.log.map((l: { text: string }) => l.text).filter((x: string) => /En position|mètres du point/.test(x));
     console.log(`  compte rendu : ${said.join(' / ')}`);
     expect(said.length).toBeGreaterThan(0);
     for (const x of said) expect(x).not.toMatch(/FAUCON UN-UN ICI FAUCON UN/);

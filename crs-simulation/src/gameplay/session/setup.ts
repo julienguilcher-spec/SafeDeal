@@ -17,6 +17,9 @@
  *
  * Quand une manifestation se tient au lieu choisi, les forces de l'ordre sont placées À L'ÉCART :
  * hors du rassemblement et du couloir du parcours, à une centaine de mètres, face au lieu.
+ *
+ * Rôle 'patrouille' (équipage d'une voiture de BAC ou de Police secours) : le joueur part À BORD de sa voiture, garée
+ * au bord de la chaussée, ses deux collègues avec lui (equipage.ts) ; service 'session.equipage'.
  * ===================================================================================== */
 
 import type {
@@ -37,6 +40,9 @@ import type {
 import { FILE_SPACING, RANK_DEPTH, chooseStand, chooseStandOffCrowd, parkingSpot, roadSpot, settle, supportSpot } from './placement';
 import type { Stand } from './placement';
 import { castFor, isPoliceRole, meansOf, rankOf } from './roster';
+import { EQUIPAGE_SERVICE, buildPatrolCrew } from './equipage';
+import type { EquipageApi, EquipageInfo } from './equipage';
+import { readVacation } from '@/gameplay/patrols/model';
 import type { Cast, CastSlot, RequestedMeans } from './roster';
 import { baseOf, bravmBaseOf, isJournee } from './journee-data';
 
@@ -47,6 +53,13 @@ const COMPANY_LAYOUT: 'colonne' | 'ligne' = 'ligne';
 const LEADER_ROLES: ReadonlySet<string> = new Set(['chef_groupe', 'bravm', 'gendarme_centaure', 'operateur_canon_eau', 'telepilote']);
 /** Véhicules de l'unité que l'on gare nez vers la sortie (les engins à équipage restent face au front). */
 const PARKED_KINDS: readonly string[] = ['fourgon_crs', 'car_crs', 'vl_commandement', 'fourgon_cellulaire', 'voiture_police', 'moto_bravm'];
+/** Longueur (m) du début d'itinéraire où une sortie ne doit croiser aucun véhicule arrêté hors du bloc (voir crossesParked). */
+const CROSS_CHECK = 45;
+/**
+ * Fourgon cellulaire rangé derrière le bloc (voir cellToRear) : places essayées autour de chaque véhicule (recul, écart
+ * latéral, m) — juste derrière lui, en biais derrière, à côté de lui (file voisine), deux rangs derrière.
+ */
+const CELL_SPOTS: readonly number[] = [7.6, 0, 7.6, 3.6, 7.6, -3.6, 0, 3.6, 0, -3.6, 15.2, 0];
 const isProtester = (p: { faction: string }): boolean => p.faction === 'protest';
 
 const DEFAULT_BYSTANDERS = 10;
@@ -60,12 +73,14 @@ export class SessionSetupSystem implements GameSystem {
 
   private ctx!: GameContext;
   private summary_: SessionSetupSummary | null = null;
+  private equipage_: EquipageInfo | null = null;
   private readonly people: EntityId[] = [];
   private readonly offs: Unsubscribe[] = [];
   private readonly progressEvent: LoadingProgress = { progress: 0, label: '' };
   private readonly pos: Vec2 = { x: 0, z: 0 };
   private readonly hit: RayHit = { hit: false, t: 0, x: 0, z: 0, nx: 0, nz: 0, kind: 'none', id: 0, height: 0 };
   private readonly spot = { x: 0, z: 0, heading: 0 };
+  private readonly routeScratch: number[] = [];
 
   provide(ctx: GameContext): void {
     this.ctx = ctx;
@@ -77,6 +92,12 @@ export class SessionSetupSystem implements GameSystem {
       people: this.people,
     };
     ctx.provide<SessionSetupApi>(SESSION_SETUP_SERVICE, api);
+    const equipage: EquipageApi = {
+      get current(): EquipageInfo | null {
+        return self.equipage_;
+      },
+    };
+    ctx.provide<EquipageApi>(EQUIPAGE_SERVICE, equipage);
   }
 
   init(ctx: GameContext): void {
@@ -85,6 +106,7 @@ export class SessionSetupSystem implements GameSystem {
 
   reset(): void {
     this.summary_ = null;
+    this.equipage_ = null;
     this.people.length = 0;
   }
 
@@ -132,7 +154,22 @@ export class SessionSetupSystem implements GameSystem {
         means: { agents: 0, sections: 0, fourgons: 0, centaure: 0, canon_eau: 0, bravm: 0, drone: 0 },
       };
 
-      let player = this.buildWithPoliceUnits(config, cast, forces, meansOf(config), crowd, summary);
+      // équipage de patrouille : la compagnie du Mode libre (moyens engagés, manifestation en cours) est construite
+      // d'abord, sans le joueur ; puis la voiture de l'équipage se gare à l'écart, ses collègues à bord. En vacation,
+      // aucune compagnie : une voiture seule.
+      const patrol = config.role === 'patrouille';
+      let player: Person | null = null;
+      if (patrol) {
+        if (!readVacation(config)) this.buildWithPoliceUnits(config, cast, forces, meansOf(config), crowd, summary);
+        const crew = buildPatrolCrew(ctx, config, cast, summary, helper, rand, { crowd, people: this.people });
+        if (crew) {
+          player = crew.player;
+          stand = crew.stand;
+          this.equipage_ = crew.info;
+        }
+      } else {
+        player = this.buildWithPoliceUnits(config, cast, forces, meansOf(config), crowd, summary);
+      }
       if (!player) {
         // l'équipe du joueur est créée directement ; si une compagnie tient déjà l'emplacement, elle se range à côté
         if (summary.usedPoliceUnits && withForces) stand = this.besideForces(forces);
@@ -174,7 +211,8 @@ export class SessionSetupSystem implements GameSystem {
           if (own && (config.role === 'operateur_canon_eau' || config.role === 'gendarme_centaure')) this.attachEscort(player, own);
         }
         // le joueur chef d'une unité (groupe, section) : son unité le suit tant qu'il ne lui donne pas d'autre ordre
-        if (config.role !== 'commandant' && config.role !== 'commissaire' && !bravmPassenger) {
+        // (pas l'équipage de patrouille : il est à bord avec lui, et descend sur son ordre)
+        if (config.role !== 'commandant' && config.role !== 'commissaire' && !bravmPassenger && !patrol) {
           for (const s of ctx.squads.list) {
             if (s.faction === 'police' && s.leaderId === player.id && s.members.length > 1) {
               ctx.squads.issue(s.id, { type: 'suivre', targetId: player.id, issuedBy: player.id });
@@ -310,11 +348,13 @@ export class SessionSetupSystem implements GameSystem {
    * Vue de départ : celle que demande le scénario (extra.camera) ; sinon à hauteur d'homme, SAUF si le joueur tient
    * un second rang — trois dos casqués à deux mètres bouchaient alors toute l'image de départ : il commence en vue à
    * la troisième personne, d'où il lit le dispositif (la touche de caméra bascule à tout moment).
+   * À bord d'un véhicule : la caméra du véhicule (poursuite ; intérieur si le scénario demande la vue à la première
+   * personne).
    */
   private cameraOf(config: SessionConfig, player: Person, heading: number): CameraMode {
     const v = config.extra ? config.extra['camera'] : undefined;
+    if (player.vehicleId !== 0) return v === 'fps' ? 'vehicle_int' : 'vehicle_ext';
     if (v === 'tps' || v === 'fps') return v;
-    if (player.vehicleId !== 0) return 'fps';
     const ctx = this.ctx;
     const fx = Math.sin(heading);
     const fz = Math.cos(heading);
@@ -377,6 +417,8 @@ export class SessionSetupSystem implements GameSystem {
         const person = this.pickPlayer(handles, role, mine.poste);
         if (!person) return null;
         if (mine.rank) person.rank = mine.rank;
+        // (commandant, commissaire : le VL est le premier véhicule garé, déjà en tête du bloc — on ne le déplace pas)
+        if (!commander) this.ownVehicleOut(person);
         summary.squadId = person.squadId;
         summary.teammates = this.people.length - 1;
         return person;
@@ -539,17 +581,273 @@ export class SessionSetupSystem implements GameSystem {
   }
 
   /**
-   * Véhicules de l'unité garés nez vers la sortie (dos à l'unité) : prêts à repartir, et celui qui prend le volant
-   * et roule tout droit s'éloigne de ses collègues au lieu de leur passer dessus. Demi-tour sur place (même emprise).
+   * Véhicules de l'unité garés nez vers la sortie réelle de leur bloc (côté unité ou à l'opposé, voir plus bas) : prêts
+   * à repartir, et celui qui prend le volant et roule tout droit sort du bloc au lieu de passer sur ses collègues.
+   * Demi-tour sur place (même emprise).
    */
-  private faceExit(handle: PoliceUnitHandleLike): void {
+  private faceExit(handle: Pick<PoliceUnitHandleLike, 'vehicles'>): void {
     const ctx = this.ctx;
+    const list: Vehicle[] = [];
     for (const ref of handle.vehicles) {
       const v = ctx.vehicles.get(ref.id);
       if (!v || PARKED_KINDS.indexOf(v.kind) < 0 || Math.abs(v.speed) > 0.1) continue;
-      let h = (v.heading + Math.PI) % (Math.PI * 2);
-      if (h > Math.PI) h -= Math.PI * 2;
-      v.heading = h;
+      list.push(v);
+    }
+    // Sortie RÉELLE de chaque bloc (véhicules rangés dans le même axe) : les têtes de file — aucun véhicule du bloc
+    // devant elles dans leur voie — doivent avoir devant le pare-chocs une fois et demie leur longueur de place libre.
+    // Le bloc est garé derrière l'unité, nez vers elle : le premier rang (VL, fourgon du 1er groupe) est alors en tête.
+    // Tourné systématiquement « dos à l'unité », c'était le DERNIER rang qui menait — souvent contre un mur, là où la
+    // place avait manqué — et le véhicule du joueur, au premier rang, avait tout le bloc devant son capot (Bastille,
+    // République : il passait plus d'une minute à manœuvrer, et les fourgons restaient pris dans le bloc). Demi-tour
+    // seulement si la sortie côté unité est barrée et l'autre libre (ou moins barrée). Motos : file sur la chaussée,
+    // dos à l'unité comme avant.
+    const done = new Set<Vehicle>();
+    for (const v of list) {
+      if (done.has(v)) continue;
+      const group = list.filter((o) => !done.has(o) && Math.abs(Math.sin(o.heading - v.heading)) < 0.35);
+      for (const o of group) done.add(o);
+      let flip = true;
+      if (v.kind !== 'moto_bravm') {
+        const keep = this.exitCount(group, 0);
+        const turn = this.exitCount(group, Math.PI);
+        // à égalité (les deux bouts du bloc dégagés) : le sens d'où partent les rues — sens unique, impasse, place ;
+        // égalité parfaite : le cap du bloc, premier rang en tête (dos à l'unité, des membres de
+        // l'état-major restaient à pied au départ du commandant, et la section décrochait du VL)
+        flip = turn > keep || (turn === keep && this.forwardRoutes(group, Math.PI) > this.forwardRoutes(group, 0));
+      }
+      if (flip) {
+        for (const o of group) {
+          let h = (o.heading + Math.PI) % (Math.PI * 2);
+          if (h > Math.PI) h -= Math.PI * 2;
+          o.heading = h;
+        }
+      }
+      this.cellToRear(group);
+    }
+  }
+
+  /**
+   * Itinéraires qui partent droit devant la tête du bloc `group`, tourné de `turn` (rad) : vers huit points à 300 m
+   * alentour, en partant du cap du bloc (un demi-tour sur place coûte), combien s'éloignent d'abord vers l'avant ? Sur
+   * une voie à sens unique prise à contresens, ou nez vers une impasse, tous commencent par revenir en arrière — à
+   * travers le bloc.
+   */
+  private forwardRoutes(group: readonly Vehicle[], turn: number): number {
+    const h = group[0]!.heading + turn;
+    const fx = Math.sin(h);
+    const fz = Math.cos(h);
+    let head = group[0]!;
+    for (const o of group) if ((o.x - head.x) * fx + (o.z - head.z) * fz > 0) head = o;
+    return this.routesFrom(head, h, group);
+  }
+
+  /** Itinéraires qui partent droit devant `head`, au cap `h`, sans traverser de véhicule arrêté hors de `ignore`. */
+  private routesFrom(head: Vehicle, h: number, ignore: readonly Vehicle[]): number {
+    const ctx = this.ctx;
+    const fx = Math.sin(h);
+    const fz = Math.cos(h);
+    const sx = head.x + fx * (head.def.length * 0.5 + 3);
+    const sz = head.z + fz * (head.def.length * 0.5 + 3);
+    const path = this.routeScratch;
+    let n = 0;
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2;
+      path.length = 0;
+      if (!ctx.world.findPath(sx, sz, sx + Math.sin(a) * 300, sz + Math.cos(a) * 300, 'vehicle', path, { heading: h, uturn: 60 })) continue;
+      let i = 2;
+      while (i < path.length - 2 && Math.hypot(path[i]! - sx, path[i + 1]! - sz) < 15) i += 2;
+      if (i < path.length && (path[i]! - sx) * fx + (path[i + 1]! - sz) * fz > 0 && !this.crossesParked(path, ignore)) n++;
+    }
+    return n;
+  }
+
+  /**
+   * Les premiers mètres de l'itinéraire `path` passent-ils sur un véhicule arrêté hors de `group` (le reste du bloc de la
+   * compagnie, pour une machine d'appui garée à côté) ? Ce n'est pas une sortie : il faudrait traverser le bloc.
+   */
+  private crossesParked(path: readonly number[], group: readonly Vehicle[]): boolean {
+    const ctx = this.ctx;
+    let run = 0;
+    for (let i = 2; i < path.length && run < CROSS_CHECK; i += 2) {
+      const ax = path[i - 2]!, az = path[i - 1]!;
+      const l = Math.hypot(path[i]! - ax, path[i + 1]! - az);
+      for (let d = 0; d < l && run + d < CROSS_CHECK; d += 1.5) {
+        const x = ax + (path[i]! - ax) * (d / l);
+        const z = az + (path[i + 1]! - az) * (d / l);
+        for (const o of ctx.vehicles.list) {
+          if (group.indexOf(o) >= 0 || Math.abs(o.speed) > 0.5 || o.def.flying) continue;
+          const dx = x - o.x, dz = z - o.z;
+          if (dx * dx + dz * dz > 64) continue;
+          const ofx = Math.sin(o.heading), ofz = Math.cos(o.heading);
+          if (Math.abs(dx * ofx + dz * ofz) < o.def.length * 0.5 + 1 && Math.abs(-dx * ofz + dz * ofx) < o.def.width * 0.5 + 1.2) return true;
+        }
+      }
+      run += l;
+    }
+    return false;
+  }
+
+  /**
+   * Fourgon cellulaire (sans équipage : il reste au stationnement quand la compagnie part), une fois le sens de sortie
+   * choisi : au dernier rang du bloc, où il ne barre la sortie à personne. police/units.ts le range à côté du premier
+   * rang, en prévision d'un demi-tour du bloc ; quand le bloc garde son cap, il se retrouvait en tête, devant les
+   * fourgons (et il gênait le passage de celui qui sortait de la file voisine). Pas de place libre derrière : il reste.
+   */
+  private cellToRear(group: readonly Vehicle[]): void {
+    const cell = group.find((o) => o.kind === 'fourgon_cellulaire');
+    if (!cell) return;
+    const others = group.filter((o) => o !== cell);
+    if (others.length === 0) return;
+    const fx = Math.sin(cell.heading);
+    const fz = Math.cos(cell.heading);
+    const atRear = (x: number, z: number): boolean => others.every((o) => Math.hypot(o.x - x, o.z - z) >= 30 || (o.x - x) * fx + (o.z - z) * fz > -0.5);
+    if (atRear(cell.x, cell.z)) return;
+    let cx = 0;
+    let cz = 0;
+    for (const o of others) { cx += o.x; cz += o.z; }
+    cx /= others.length;
+    cz /= others.length;
+    let best = Infinity;
+    let bx = 0;
+    let bz = 0;
+    for (const o of others) {
+      for (let c = 0; c < CELL_SPOTS.length; c += 2) {
+        const back = CELL_SPOTS[c]!;
+        const lat = CELL_SPOTS[c + 1]!;
+        const x = o.x - fx * back - fz * lat;
+        const z = o.z - fz * back + fx * lat;
+        const d = Math.hypot(x - cx, z - cz);
+        if (d >= best || !atRear(x, z) || !this.cellFits(cell, x, z)) continue;
+        best = d;
+        bx = x;
+        bz = z;
+      }
+    }
+    if (best === Infinity) return;
+    cell.x = bx;
+    cell.z = bz;
+  }
+
+  /** Le cellulaire tient-il en (x, z), à son cap : décor libre sur toute sa longueur, aucun autre véhicule à moins d'une portière ? */
+  private cellFits(cell: Vehicle, x: number, z: number): boolean {
+    const ctx = this.ctx;
+    const fx = Math.sin(cell.heading);
+    const fz = Math.cos(cell.heading);
+    const half = cell.def.length * 0.5;
+    const r = cell.def.width * 0.5;
+    for (let d = -half - 0.5; d <= half + 0.5; d += 0.5) if (!ctx.world.isFree(x + fx * d, z + fz * d, r)) return false;
+    const surf = ctx.world.surfaceAt(x, z);
+    if (surf === 'water' || surf === 'building' || surf === 'interior' || surf === 'park') return false;
+    for (const o of ctx.vehicles.list) {
+      if (o === cell) continue;
+      const dx = o.x - x, dz = o.z - z;
+      if (Math.abs(dx * fx + dz * fz) < (cell.def.length + o.def.length) * 0.5 + 0.6 && Math.abs(-dx * fz + dz * fx) < (cell.def.width + o.def.width) * 0.5 + 0.8) return false;
+    }
+    return true;
+  }
+
+  /**
+   * Véhicules du bloc `group`, tourné de `turn` (rad), qui en sortent l'un après l'autre en marche avant : à chaque
+   * tour, ceux qui n'ont plus aucun véhicule du bloc juste devant eux dans leur voie et devant le pare-chocs une fois et
+   * demie leur longueur de place libre (décor, autres véhicules arrêtés) s'en vont. Le cellulaire, rangé ensuite au
+   * dernier rang (voir cellToRear), ne compte pas.
+   */
+  private exitCount(group: readonly Vehicle[], turn: number): number {
+    const ctx = this.ctx;
+    const rest = group.filter((v) => v.kind !== 'fourgon_cellulaire');
+    const total = rest.length;
+    for (let gone = true; gone && rest.length > 0;) {
+      gone = false;
+      for (let i = rest.length - 1; i >= 0; i--) {
+        const v = rest[i]!;
+        const fx = Math.sin(v.heading + turn);
+        const fz = Math.cos(v.heading + turn);
+        const half = v.def.length * 0.5;
+        let head = true;
+        for (const o of rest) {
+          if (o === v) continue;
+          const dx = o.x - v.x, dz = o.z - v.z;
+          const ahead = dx * fx + dz * fz - half - o.def.length * 0.5;
+          if (ahead > -0.5 && ahead < 12 && Math.abs(-dx * fz + dz * fx) < (v.def.width + o.def.width) * 0.5 + 0.3) { head = false; break; }
+        }
+        if (!head) continue;
+        const need = v.def.length * 1.5;
+        const r = v.def.width * 0.5;
+        let ok = true;
+        for (let d = 0.5; d <= need && ok; d += 0.5) {
+          const x = v.x + fx * (half + d), z = v.z + fz * (half + d);
+          if (!ctx.world.isFree(x, z, r)) ok = false;
+          for (let k = 0; k < ctx.vehicles.list.length && ok; k++) {
+            const o = ctx.vehicles.list[k]!;
+            if (o === v || group.indexOf(o) >= 0 || Math.abs(o.speed) > 0.5) continue;
+            const ox = x - o.x, oz = z - o.z;
+            const ofx = Math.sin(o.heading), ofz = Math.cos(o.heading);
+            if (Math.abs(ox * ofx + oz * ofz) < o.def.length * 0.5 + 0.3 && Math.abs(-ox * ofz + oz * ofx) < (o.def.width + v.def.width) * 0.5 + 0.3) ok = false;
+          }
+        }
+        if (!ok) continue;
+        rest.splice(i, 1);
+        gone = true;
+      }
+    }
+    return total - rest.length;
+  }
+
+  /**
+   * Véhicule de l'unité du joueur garé derrière un autre dans sa file (fourgon du 2e groupe, de la 2e section…) : il
+   * prend la place de la tête de file, qui prend la sienne (même cap, mêmes équipages). Sans cela le joueur qui prenait
+   * le volant avait le fourgon de tête contre son capot — et celui-ci, qui le suit, attendait qu'il parte : il
+   * n'avançait que de quelques mètres, et toute la colonne restait au stationnement.
+   */
+  private ownVehicleOut(me: Person): void {
+    const ctx = this.ctx;
+    let q = me.squadId !== 0 ? ctx.squads.get(me.squadId) : undefined;
+    for (let g = 0; q && q.vehicleId === 0 && g < 8; g++) q = q.parentId !== 0 ? ctx.squads.get(q.parentId) : undefined;
+    const v = q && q.vehicleId !== 0 ? ctx.vehicles.get(q.vehicleId) : undefined;
+    // (déjà au volant, poste de conducteur : son groupe s'est rangé près de lui, à sa place ; on ne le déplace pas)
+    if (!v || me.vehicleId === v.id || PARKED_KINDS.indexOf(v.kind) < 0 || v.kind === 'moto_bravm' || Math.abs(v.speed) > 0.1) return;
+    const parked = (o: Vehicle): boolean => o.faction === 'police' && PARKED_KINDS.indexOf(o.kind) >= 0 && o.kind !== 'moto_bravm'
+      && Math.abs(o.speed) <= 0.1 && Math.cos(o.heading - v.heading) >= 0.94;
+    /** Véhicule garé juste devant `h`, dans sa voie (null : `h` est en tête de sa file). */
+    const before = (h: Vehicle): Vehicle | null => {
+      const fx = Math.sin(h.heading);
+      const fz = Math.cos(h.heading);
+      let next: Vehicle | null = null;
+      let best = Infinity;
+      for (const o of ctx.vehicles.list) {
+        if (o === h || o === v || !parked(o)) continue;
+        const dx = o.x - h.x, dz = o.z - h.z;
+        const along = dx * fx + dz * fz;
+        const gap = along - (h.def.length + o.def.length) * 0.5;
+        if (gap < -0.5 || gap > 4 || Math.abs(-dx * fz + dz * fx) > (h.def.width + o.def.width) * 0.5 + 0.3) continue;
+        if (along < best) { best = along; next = o; }
+      }
+      return next;
+    };
+    let head = v;
+    for (let guard = 0; guard < 12; guard++) {
+      const next = before(head);
+      if (!next) break;
+      head = next;
+    }
+    // La tête de sa file n'est pas forcément la bonne sortie : bloc garé en travers (une rangée de véhicules côte à côte,
+    // République), file nez à contresens sur une chaussée à sens unique (rue du Temple) — ses itinéraires commencent par
+    // traverser les voisins ou par un demi-tour au milieu de la colonne. Il prend la tête de file du bloc d'où partent le
+    // plus d'itinéraires dégagés, droit devant (à égalité, celle de sa file).
+    let best = this.routesFrom(head, head.heading, [head, v]);
+    const own = head;
+    for (const o of ctx.vehicles.list) {
+      if (best >= 8) break;
+      if (o === own || o === v || !parked(o) || o.kind === 'fourgon_cellulaire' || Math.hypot(o.x - v.x, o.z - v.z) > 40 || before(o)) continue;
+      const n = this.routesFrom(o, o.heading, [o, v]);
+      if (n > best) { best = n; head = o; }
+    }
+    if (head !== v) {
+      const x = v.x, z = v.z;
+      v.x = head.x;
+      v.z = head.z;
+      head.x = x;
+      head.z = z;
     }
   }
 
@@ -745,6 +1043,11 @@ export class SessionSetupSystem implements GameSystem {
       vehicles.push(v);
       summary.vehicleIds.push(v.id);
     }
+    // garé nez vers la sortie par parkingSpot (dos à l'unité) — mais le bloc de la compagnie, garé plus loin derrière
+    // l'unité, est alors droit devant lui (République : la voiture de l'équipe drone n'en sortait qu'en le traversant,
+    // et la colonne, qui l'attendait garée, ne partait jamais) : même choix du sens de sortie que pour les véhicules
+    // de la compagnie (faceExit)
+    for (const v of vehicles) if (PARKED_KINDS.indexOf(v.kind) >= 0 && v.kind !== 'moto_bravm') this.faceExit({ vehicles: [v] });
     if (vehicles.length > 0 && squads.length > 0) {
       // un véhicule par unité, dans l'ordre : groupes d'abord quand il y en a, sinon l'unité de tête
       const leaf = squads.filter((s) => ctx.squads.childrenOf(s.id).length === 0);

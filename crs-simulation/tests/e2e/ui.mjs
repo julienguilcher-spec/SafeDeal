@@ -8,7 +8,7 @@
 //   3. Parcours complet à la manette simulée (navigator.getGamepads remplacé) : accueil → réglages → lancer.
 //   4. Intégration (informatif) : sous-modules cartes et commandement agrégés, vraies données de Paris.
 // Usage : node tests/e2e/ui.mjs [--only=menus|hud|parcours|manette|integration] [--size=1280x720]
-import { startServer, openPage, shot, waitFor, finish } from './lib.mjs';
+import { startServer, openPage, shot, waitFor, finish, ouvrirEditeur } from './lib.mjs';
 
 const args = Object.fromEntries(process.argv.slice(2).map((a) => a.replace(/^--/, '').split('=')));
 const SIZES = [
@@ -184,6 +184,11 @@ try {
       const { page } = s;
       check((await stack(page)).join() === 'menu_principal', `accueil affiché au démarrage [${size.key}]`);
       check(await page.evaluate(() => window.__uiTest.debug().hudVisible) === false, `HUD masqué sur l'accueil [${size.key}]`);
+      // hub : quatre tuiles (Patrouille, Carrière, Missions spéciales, Mode libre), puis l'éditeur du Mode libre
+      check(await page.locator('[data-id^="accueil-"]').count() === 4, `hub : quatre tuiles [${size.key}]`);
+      await shot(page, `ui-accueil-hub-${size.key}`);
+      await checkScreen(page, 'accueil, hub', size);
+      await ouvrirEditeur(page);
       for (const section of ['role', 'mode', 'lieu', 'meteo', 'foule', 'tension', 'moyens', 'options', 'scenarios']) {
         const tab = page.locator(`[data-id="tab-${section}"]`);
         await tab.scrollIntoViewIfNeeded();
@@ -371,6 +376,7 @@ try {
     const size = { key: '1280x720', width: 1280, height: 720, mobile: false };
     const s = await open('', size);
     const { page } = s;
+    await ouvrirEditeur(page);
     // commandant unique (BRIEF §1) : pas de tuile « Commissaire » ; rôle → commandant, résumé mis à jour
     check((await page.locator('[data-id="role-commissaire"]').count()) === 0, 'pas de tuile « Commissaire » sur la page d’accueil');
     await page.locator('[data-id="role-commandant"]').click();
@@ -507,8 +513,8 @@ try {
     await page.locator('[data-id="debrief-accueil"]').click();
     await settle(page, 200);
     check((await stack(page)).join() === 'menu_principal' && (await phase(page)) === 'menu', 'retour à l’accueil');
-    check(/Place de la Bastille/.test(await text(page, '.ui-home__summary')), 'l’accueil retrouve le dernier scénario réglé');
-    check(await page.locator('[data-id="continuer"]').count() === 1, 'bouton « Continuer » proposé après une première partie');
+    check(await page.locator('[data-id="continuer"]').count() === 1, 'bouton « Continuer » proposé sur le hub après une première partie');
+    check(/Place de la Bastille/.test(await text(page, '[data-id="continuer"]')), `« Continuer » nomme la dernière partie (${await text(page, '[data-id="continuer"]')})`);
     await shot(page, 'ui-accueil-continuer-1280x720');
     await page.locator('[data-id="continuer"]').click();
     await waitFor(page, 'window.__uiTest.ctx.session.phase === "playing"', 30000);
@@ -547,6 +553,7 @@ try {
     await close(e, 'sauvegarde');
     const noExtras = await open('', size);
     check(await noExtras.page.locator('[data-id="nav-carriere"]').count() === 0, 'entrée « Carrière » absente quand son écran n’est pas enregistré');
+    await ouvrirEditeur(noExtras.page);
     // infobulle au survol
     await noExtras.page.locator('[data-id="surprise"]').hover();
     await noExtras.page.waitForTimeout(250);
@@ -565,9 +572,20 @@ try {
     // sans module d'entrées : services neutres, navigation au clavier lue par l'interface elle-même
     const n = await open('noinput=1', size);
     check((await stack(n.page)).join() === 'menu_principal', 'sans module d’entrées : accueil affiché, aucune erreur');
+    // navigation au clavier depuis le hub : focus initial sur la première tuile, flèches, Entrée ouvre la tuile
+    check((await n.page.evaluate(() => window.__uiTest.debug().focused())) === 'accueil-patrouille', `sans module d’entrées : focus initial sur la tuile Patrouille (${await n.page.evaluate(() => window.__uiTest.debug().focused())})`);
+    await n.page.keyboard.press('ArrowRight');
+    await frames(n.page, 2);
+    check((await n.page.evaluate(() => window.__uiTest.debug().focused())) === 'accueil-carriere', `sans module d’entrées : flèche droite déplace le focus (${await n.page.evaluate(() => window.__uiTest.debug().focused())})`);
+    await n.page.keyboard.press('ArrowRight');
+    await n.page.keyboard.press('ArrowRight');
+    await frames(n.page, 2);
+    await n.page.keyboard.press('Enter');
+    await frames(n.page, 3);
+    check(await n.page.locator('[data-id="lancer"]').count() === 1, `sans module d’entrées : Entrée ouvre la tuile « Mode libre » (focus ${await n.page.evaluate(() => window.__uiTest.debug().focused())})`);
     await n.page.keyboard.press('ArrowDown');
     await frames(n.page, 2);
-    check((await n.page.evaluate(() => window.__uiTest.debug().focused())) === 'tab-mode', `sans module d’entrées : flèche bas déplace le focus (${await n.page.evaluate(() => window.__uiTest.debug().focused())})`);
+    check((await n.page.evaluate(() => window.__uiTest.debug().focused())) === 'tab-mode', `sans module d’entrées : flèche bas déplace le focus dans l’éditeur (${await n.page.evaluate(() => window.__uiTest.debug().focused())})`);
     await n.page.keyboard.press('Enter');
     await frames(n.page, 2);
     check((await n.page.evaluate(() => document.querySelector('[data-id="tab-mode"]').getAttribute('aria-selected'))) === 'true', 'sans module d’entrées : Entrée valide');
@@ -590,6 +608,7 @@ try {
     const size = { key: '1280x720', width: 1280, height: 720, mobile: false };
     const s = await open('', size);
     const { page } = s;
+    await ouvrirEditeur(page);
     await page.evaluate(() => {
       const pad = {
         id: 'Manette d\'essai (STANDARD GAMEPAD Vendor: 045e Product: 02ea)', index: 0, connected: true, mapping: 'standard', timestamp: 0,
@@ -650,7 +669,10 @@ try {
     await tap(B);
     await tap(RB);
     await tap(RIGHT);
-    check((await focused()) === 'affluence', `focus sur le curseur d'affluence (focus : ${await focused()})`);
+    // la rubrique « La manifestation » commence par son nom et ses organisateurs : l'affluence est plus bas
+    const trailFoule = [await focused()];
+    for (let i = 0; i < 10 && (await focused()) !== 'affluence'; i++) { await tap(DOWN); trailFoule.push(await focused()); }
+    check((await focused()) === 'affluence', `focus sur le curseur d'affluence (parcours : ${trailFoule.join(' > ')})`);
     await page.evaluate((b) => { window.__pad.buttons[b] = { pressed: true, touched: true, value: 1 }; }, RIGHT);
     await page.waitForTimeout(900);
     await page.evaluate((b) => { window.__pad.buttons[b] = { pressed: false, touched: false, value: 0 }; }, RIGHT);

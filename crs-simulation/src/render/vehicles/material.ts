@@ -9,7 +9,8 @@
  *   iAnim   angle des roues, braquage (repère Three), angle des rotors, emplacement de plaque + graine (partie fractionnaire)
  *   iTurret gisement et site des tourelles 0 et 1 (repère Three)
  *   iState  dégâts 0..1, carbonisation 0..1, lueur d'incendie 0..1, affaissement (m)
- *   iLight  phares/feux arrière, stop/recul, clignotants G/D, gyrophares A/B (deux niveaux de 4 bits par composante)
+ *   iLight  phares/feux arrière, stop/recul, clignotants G/D, gyrophares A/B (deux niveaux de 4 bits par composante ;
+ *           w + 256 : gyrophares en service, ce qui pose sur le toit le gyrophare aimanté des voitures banalisées)
  */
 
 import * as THREE from 'three';
@@ -97,10 +98,14 @@ if ( crsType > 0.5 ) {
 			rel.yz *= shrink;
 		}
 		rel = crsRotAxis( rel, k, iAnim.y ); objectNormal = crsRotAxis( objectNormal, k, iAnim.y );
-	} else {
+	} else if ( crsType < 13.5 ) {
 		// volant de l'habitacle : rotation autour de la colonne de direction (angle transmis dans iAnim.z)
 		vec3 k = vec3( 0.0, sin( aPart.y ), - cos( aPart.y ) );
 		rel = crsRotAxis( rel, k, iAnim.z ); objectNormal = crsRotAxis( objectNormal, k, iAnim.z );
+	} else {
+		// gyrophare aimanté : réduit à son pivot (triangles dégénérés, invisibles) tant que les gyrophares ne sont pas
+		// en service (drapeau + 256 sur iLight.w)
+		rel *= step( 255.5, iLight.w );
 	}
 	crsPos = piv + rel;
 }
@@ -161,7 +166,7 @@ const VERT_AFTER_UV = /* glsl */`
 		else if ( lc < 5.5 ) lv = crsLo( iLight.z );
 		else if ( lc < 6.5 ) lv = crsHi( iLight.z );
 		else if ( lc < 7.5 ) lv = crsLo( iLight.w );
-		else if ( lc < 8.5 ) lv = crsHi( iLight.w );
+		else if ( lc < 8.5 ) lv = crsHi( mod( iLight.w, 256.0 ) );
 		else lv = max( head, tail );
 	}
 	vCrsEmis = c * lv * uLampGain;

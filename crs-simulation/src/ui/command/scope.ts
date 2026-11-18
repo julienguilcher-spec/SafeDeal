@@ -19,11 +19,12 @@ const RANK_LEVEL: Readonly<Record<PoliceRank, number>> = {
 const ROLE_LABELS: Readonly<Record<PlayableRole, string>> = {
   crs: 'CRS', chef_groupe: 'Chef de groupe', commandant: 'Commandant', commissaire: 'Commissaire', bravm: 'BRAV-M',
   gendarme_centaure: 'Équipage du Centaure', operateur_canon_eau: 'Opérateur du canon à eau', telepilote: 'Télépilote',
-  street_medic: 'Secouriste de rue', secouriste: 'Secours', journaliste: 'Journaliste', manifestant: 'Manifestant',
+  patrouille: 'Équipage de patrouille', street_medic: 'Secouriste de rue', secouriste: 'Secours', journaliste: 'Journaliste', manifestant: 'Manifestant',
 };
 
 const POLICE_ROLES: ReadonlySet<PlayableRole> = new Set<PlayableRole>([
   'crs', 'chef_groupe', 'commandant', 'commissaire', 'bravm', 'gendarme_centaure', 'operateur_canon_eau', 'telepilote',
+  'patrouille',
 ]);
 
 export function roleLabel(role: PlayableRole): string {

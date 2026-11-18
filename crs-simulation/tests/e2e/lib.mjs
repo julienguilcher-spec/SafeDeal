@@ -64,6 +64,20 @@ export async function waitFor(page, expression, timeout = 180000) {
   await page.waitForFunction(expression, null, { timeout, polling: 250 });
 }
 
+/**
+ * Page d'accueil en quatre modes : ouvre l'éditeur du Mode libre (tuile « Mode libre » du hub) et attend « Lancer ».
+ * Sans effet si l'éditeur est déjà monté. Le clic est programmatique : il vaut pour la souris, le doigt et le clavier
+ * (les scénarios qui testent la tuile elle-même la touchent ou la valident à la manette).
+ */
+export async function ouvrirEditeur(page, timeout = 120000) {
+  await page.waitForFunction(() => !!document.querySelector('[data-id="accueil-libre"], [data-id="lancer"]'), null, { timeout, polling: 250 });
+  await page.evaluate(() => {
+    if (document.querySelector('[data-id="lancer"]')) return;
+    document.querySelector('[data-id="accueil-libre"]').click();
+  });
+  await page.waitForSelector('[data-id="lancer"]', { timeout });
+}
+
 /** Capture d'écran dans tests/e2e/out/<name>.png ; retourne le chemin absolu. */
 export async function shot(page, name) {
   const file = path.join(OUT, name.endsWith('.png') ? name : name + '.png');

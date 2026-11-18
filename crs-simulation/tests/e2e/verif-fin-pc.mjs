@@ -2,7 +2,7 @@
 // accueil → rôle CRS lanceur → place de la Concorde → affluence → « Moyens engagés » MODIFIÉS → Lancer → marche (allures, souffle)
 // → caméras → mobilier → grenade → plan → carte tactique → pause → paramètres → compte rendu → accueil → SECONDE partie.
 // Usage : node tests/e2e/verif-fin-pc.mjs [--size=1280x720] [--quality=bas]
-import { startServer, openPage, waitFor, frames, step, state, snap, hold, notices, sysErrors, census, makeChecker, args, J, R } from './verif-fin-lib.mjs';
+import { startServer, openPage, waitFor, ouvrirEditeur, frames, step, state, snap, hold, notices, sysErrors, census, makeChecker, args, J, R } from './verif-fin-lib.mjs';
 
 const tag = 'verif-fin-pc';
 const C = makeChecker(tag);
@@ -17,6 +17,7 @@ try {
   await waitFor(page, 'window.__CRS && window.__CRS.ready === true', 300000);
   await waitFor(page, 'window.__CRS.ctx.ui.current === "menu_principal"', 60000);
   report.bootMs = Date.now() - tBoot;
+  await ouvrirEditeur(page);
   C.note(`accueil prêt en ${(report.bootMs / 1000).toFixed(1)} s`);
   await snap(page, tag + '-01-accueil');
   C.check(await page.evaluate(() => document.querySelector('[data-id="role-commissaire"]') === null && document.querySelector('[data-id="role-commandant"]') !== null), 'accueil : un seul chef (tuile Commandant, pas de Commissaire)');
@@ -314,6 +315,7 @@ try {
 
   // ── SECONDE partie depuis l'accueil (mêmes réglages) : démarre-t-elle proprement ? ──
   const t1 = Date.now();
+  await ouvrirEditeur(page); // le retour à l'accueil ouvre le hub : tuile « Mode libre », mêmes réglages
   await click('[data-id="lancer"]');
   await waitFor(page, 'window.__CRS.ctx.session.phase === "playing"', 400000);
   report.load2Ms = Date.now() - t1;

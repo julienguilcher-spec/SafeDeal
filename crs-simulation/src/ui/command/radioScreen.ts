@@ -2,6 +2,8 @@
  * Écran « radio » : journal des messages (ctx.radio.log) et messages rapides par canal — compte
  * rendu de situation, demande de renfort, demande d'autorisation d'emploi de la force, demande de
  * secours — émis par ctx.radio.say avec la phraséologie d'usage.
+ * Pendant une vacation (mode Patrouille), une section « Appel en cours » en tête (src/ui/patrol/dispatch.ts) : prendre,
+ * décliner, renforts, fin d'intervention — le chemin manette et clavier de la carte d'appel du HUD.
  * ===================================================================================== */
 
 import type { InputState, Person, RadioChannel } from '@/core/contracts';
@@ -10,6 +12,7 @@ import { button, el, setClass } from '../maps/icons';
 import type { IconName } from '../maps/icons';
 import { coarsePointer } from '../maps/style';
 import { isPoliceRole } from '../maps/visibility';
+import { CallPanel, patrolMode } from '../patrol/dispatch';
 import type { CommandCore } from './core';
 import { forceRequest, radioFrame, reinforcementRequest, rescueRequest, situationReport } from './phrases';
 import { CHANNEL_LABELS, RadioLogView } from './radioLog';
@@ -41,6 +44,8 @@ export class RadioScreen implements ScreenInstance {
   private ticks = 0;
   private lastRefresh = -1;
   private readonly found: Person[] = [];
+  /** Appel de CENTRAL en cours (vacation seulement). */
+  private readonly call: CallPanel | null;
 
   constructor(private readonly core: CommandCore, host: HTMLElement) {
     ensureCommandStyle();
@@ -76,6 +81,10 @@ export class RadioScreen implements ScreenInstance {
       this.root.appendChild(chans);
     }
 
+    // vacation : l'appel de CENTRAL en tête, focalisé à l'ouverture s'il attend une réponse
+    this.call = patrolMode(ctx) ? new CallPanel(ctx, 'radio') : null;
+    if (this.call) this.root.appendChild(this.call.root);
+
     this.log = new RadioLogView(core, this.root, 'ct-scroll');
     this.log.root.style.flex = '1';
 
@@ -108,6 +117,11 @@ export class RadioScreen implements ScreenInstance {
     }
     quick.appendChild(grid);
     this.root.appendChild(quick);
+    if (this.call) {
+      this.call.refresh();
+      const first = this.call.primaryButton();
+      if (first) first.dataset.autofocus = '';
+    }
     this.focus = core.kit ? core.kit.focusGroup(this.root) : { dispose(): void {} };
     this.refresh();
   }
@@ -197,6 +211,7 @@ export class RadioScreen implements ScreenInstance {
 
   private refresh(): void {
     this.log.refresh();
+    if (this.call) this.call.refresh();
     for (let i = 0; i < this.chanBtns.length; i++) setClass(this.chanBtns[i]!.b, 'is-on', this.chanBtns[i]!.channel === this.log.filter);
     const off = this.cooldown > 0;
     for (let i = 0; i < this.quickBtns.length; i++) if (this.quickBtns[i]!.disabled !== off) this.quickBtns[i]!.disabled = off;

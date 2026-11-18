@@ -37,12 +37,23 @@ import * as T from './tuning';
 
 export interface Schedule { gather: number; depart: number; march: number; disperse: number; after: number; total: number }
 
+/**
+ * Clé de configuration du mode « veille » (extra['crowd.veille'] = true) : pas de manifestation principale, mais un cœur
+ * de foule actif pour les foyers et les manifestations qui se déclarent en cours de partie (mode Patrouille).
+ */
+export const CROWD_VEILLE_KEY = 'crowd.veille';
+
 const NO_CAUSE: CrowdCause = { id: '', label: '', summary: '', index: -1, chants: [], orgs: [], color: 0 };
 const NO_ROUTE: ChosenRoute = { points: [], id: '', label: '', length: 0 };
 
 export class CrowdCore {
   ctx!: GameContext;
   active = false;
+  /**
+   * Mode veille : le cœur est actif (personnes pilotées, émotions, tension locale, issues) sans cortège principal —
+   * plan vide, formation vide, parcours statique réduit au point de la session, directeur figé en phase 'aucune'.
+   */
+  veille = false;
   now = 0;
 
   // ── configuration de la session ──
@@ -122,6 +133,7 @@ export class CrowdCore {
 
   reset(): void {
     this.active = false;
+    this.veille = false;
     this.now = 0;
     this.size = 0;
     this.plan = null;
@@ -169,14 +181,21 @@ export class CrowdCore {
     this.closeStationsAtStart(extra);
     const scale = ctx.settings.values.crowdScale;
     const size = Math.max(0, Math.min(4000, Math.round(config.crowdSize * (scale > 0 ? scale : 1))));
-    if (size <= 0 || extra['crowd.none'] === true) return;
-    this.size = size;
+    if (extra['crowd.none'] === true) return;
+    const veille = extra[CROWD_VEILLE_KEY] === true;
+    if (size <= 0 && !veille) return;
     this.tension0 = Math.min(1, Math.max(0, config.tension));
     this.volatility = Math.min(1, Math.max(0, config.volatility));
+    // horaire et échelle de temps : aussi en veille, où ils règlent les manifestations nées en cours de partie
     const total = T.totalDuration(config.duration);
     this.timeScale = Math.min(2.5, Math.max(0.4, total / T.STANDARD_DURATION));
     const sh = config.duration === 'temps_reel' ? T.REAL_PHASES : T.PHASE_SHARE.map((s) => s * total);
     this.schedule = { gather: sh[0]!, depart: sh[1]!, march: sh[2]!, disperse: sh[3]!, after: sh[4]!, total };
+    if (veille) {
+      this.startVeille();
+      return;
+    }
+    this.size = size;
     this.isStatic = extra['crowd.static'] === true;
 
     this.cause = resolveCause(ctx, extra, this.rngSetup);
@@ -202,6 +221,36 @@ export class CrowdCore {
     this.sono.setup();
     this.spawnBystanders();
     this.aleas.draw();
+    this.nav.exitsDirty = true;
+  }
+
+  /**
+   * Mise en place du mode veille (la taille demandée est ignorée) : aucune personne du plan, aucun badaud du cortège,
+   * pas de sono, pas d'aléa du cortège. Le parcours est réduit à deux points confondus au lieu de la session, pour que
+   * le couloir et la formation (vide) restent définis ; le directeur reste en phase 'aucune' et n'expose aucun parcours.
+   */
+  private startVeille(): void {
+    const ctx = this.ctx;
+    this.veille = true;
+    this.size = 0;
+    this.isStatic = false;
+    this.cause = NO_CAUSE;
+    this.plan = { entries: [], groups: [], scenario: 'marche_calme' };
+    const x = this.rallyX;
+    const z = this.rallyZ;
+    this.route = { points: [x, z, x, z], id: 'veille', label: '', length: 0 };
+    this.corridor.build(ctx, this.route.points);
+    this.destX = x;
+    this.destZ = z;
+    this.destName = ctx.world.sectorName(x, z);
+    const f = this.formation;
+    f.reset();
+    f.corridor = this.corridor;
+    f.halfUse = this.corridor.refWidth * 0.55;
+    this.entrySlot = new Int32Array(0);
+    this.entryPerson = new Int32Array(0);
+    this.active = true;
+    this.director.beginVeille();
     this.nav.exitsDirty = true;
   }
 
@@ -504,6 +553,15 @@ export class CrowdCore {
       const p = this.ctx.people.get(q[i]!);
       if (!p || p.brain !== null || p.faction !== 'protest' || p.kind !== 'manifestant') continue;
       if (p.profile === null) p.profile = 'pacifique';
+      if (this.veille) {
+        // en veille, pas de cortège à rejoindre ni de manifestation à compter : la personne reste sur place
+        const lone = this.addMember(p, F.ADOPTED | F.LATE | F.UNCOUNTED);
+        lone.state = S.LINGER;
+        lone.speed = T.WALK_MAX;
+        lone.tx = p.x;
+        lone.tz = p.z;
+        continue;
+      }
       const b = this.addMember(p, F.ADOPTED | F.LATE);
       const phase = this.director.base;
       if (phase === 'rassemblement' || phase === 'depart' || phase === 'cortege') b.slot = this.formation.allocTail(this.rngArrive);
@@ -566,7 +624,8 @@ export class CrowdCore {
     } finally {
       this.spawning = false;
     }
-    const counted = opts?.counted !== false;
+    // en veille, aucune manifestation principale à compter
+    const counted = opts?.counted !== false && !this.veille;
     const b = this.addMember(p, F.LATE | (counted ? 0 : F.UNCOUNTED));
     b.state = S.LINGER;
     b.tx = x;

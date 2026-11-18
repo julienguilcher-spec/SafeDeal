@@ -80,11 +80,12 @@ const KBM_CODE = /^[A-Z][A-Za-z0-9]{1,24}$/;
 
 /**
  * Touches lues directement par l'interface, hors de cette table : O = retour vidéo du drone (Maj + O : taille, Alt + O : zoom)
- * (ui/drone/index.ts, DRONE_FEED_KEY), P / Maj + P = proposition de l'adjoint (ui/command/quickActions.ts).
+ * (ui/drone/index.ts, DRONE_FEED_KEY), P / Maj + P = proposition de l'adjoint (ui/command/quickActions.ts),
+ * Y / Maj + Y = prendre ou décliner un appel de CENTRAL pendant une vacation (ui/patrol/dispatch.ts, CALL_KEY).
  * Les affecter à une action ferait agir un seul appui deux fois : elles sont refusées.
  */
 export const RESERVED_KBM: Readonly<Record<string, string>> = {
-  KeyO: 'retour vidéo du drone', KeyP: 'propositions de l’adjoint',
+  KeyO: 'retour vidéo du drone', KeyP: 'propositions de l’adjoint', KeyY: 'appels de CENTRAL',
 };
 
 export function isValidCode(device: BindDevice, code: unknown): code is string {

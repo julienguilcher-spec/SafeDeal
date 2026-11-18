@@ -60,10 +60,20 @@ describe('mission en journée de service', () => {
     expect(['embarquement', 'route']).toContain(j.stage);
     expect(m.current).toBeTruthy();
     expect(m.phaseIndex).toBe(-1); // la mission attend l'arrivée
-    for (let i = 0; i < 200 && j.stage !== 'sur_place'; i++) t.step(5);
+    // (le joueur reste à pied à la base : la colonne l'attend, puis part sans lui ; la sortie du commissariat du 1er est
+    // longue — voir le cas connu de playtest.colonne-ia — : la colonne débarquait alors à la base, à 1,8 km du lieu, et
+    // la journée la disait « sur place » ; elle finit désormais le trajet)
+    for (let i = 0; i < 400 && j.stage !== 'sur_place'; i++) t.step(5);
     t.step(2);
-    console.log(`arrivée à ${ctx.clock.now.toFixed(0)} s : ${j.stage} ; phase de mission ${m.phaseIndex}`);
+    const vans = ctx.vehicles.list.filter((v) => v.kind === 'fourgon_crs' && v.seats[0] !== 0);
+    const near = vans.filter((v) => Math.hypot(v.x - 2211, v.z - 993) < 250).length;
+    console.log(`arrivée à ${ctx.clock.now.toFixed(0)} s : ${j.stage} ; phase de mission ${m.phaseIndex} ; fourgons à moins de 250 m du lieu : ${near}/${vans.length}`);
     expect(j.stage).toBe('sur_place');
+    expect(near).toBeGreaterThan(vans.length / 2);
+    // la compagnie débarque au lieu (la ligne se forme devant le fourgon le plus proche, pas devant le VL resté à la base)
+    const company = ctx.squads.list.find((q) => q.kind === 'compagnie')!;
+    console.log(`ordre de la compagnie : ${company.order.type} (${Math.round(company.order.x)}, ${Math.round(company.order.z)})`);
+    expect(Math.hypot(company.order.x - 2211, company.order.z - 993)).toBeLessThan(300);
     expect(m.phaseIndex).toBeGreaterThanOrEqual(0);
-  }, 600000);
+  }, 900000);
 });

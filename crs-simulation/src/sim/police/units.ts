@@ -101,8 +101,11 @@ function letter(group: string): string {
   return RADIO_LETTERS[group] ?? group;
 }
 
-/** Place un véhicule derrière le point de mise en place : deux files, le long du cap, à 22 m et au-delà. */
-function parkSpot(k: Kernel, b: Build, n: number, out: { x: number; z: number; heading: number }): boolean {
+/**
+ * Place un véhicule derrière le point de mise en place : deux files, le long du cap, à 22 m et au-delà. `len` : longueur
+ * du véhicule (m) — il lui faut de la place libre au-delà de chaque pare-chocs (voir parkBody).
+ */
+function parkSpot(k: Kernel, b: Build, n: number, out: { x: number; z: number; heading: number }, len: number = PARK_LEN): boolean {
   const fx = Math.sin(b.heading);
   const fz = Math.cos(b.heading);
   const rx = -fz;
@@ -115,8 +118,7 @@ function parkSpot(k: Kernel, b: Build, n: number, out: { x: number; z: number; h
     const back = 24 + row * 7.6;
     const x = b.x - fx * back + rx * file * 1.8;
     const z = b.z - fz * back + rz * file * 1.8;
-    if (world.isFree(x, z, 1.3) && world.isFree(x + fx * 2.4, z + fz * 2.4, 1.2) && world.isFree(x - fx * 2.4, z - fz * 2.4, 1.2) && !parkTaken(b, x, z)
-      && parkReach(k, b, x, z)) {
+    if (parkBody(k, x, z, fx, fz, len) && !parkTaken(b, x, z) && !acrossRoad(k, x, z, b.heading) && parkReach(k, b, x, z)) {
       out.x = x;
       out.z = z;
       return true;
@@ -128,7 +130,7 @@ function parkSpot(k: Kernel, b: Build, n: number, out: { x: number; z: number; h
   // caserne de la Cité, les rangs de 24 à 84 m tombaient dans les cours fermées du Palais, de l'autre côté du mur — les
   // équipages, arrêtés contre ce mur, n'embarquaient jamais (et le fourgon n'en serait pas sorti). En tout dernier
   // recours seulement (aucune place accessible), l'ancienne recherche, sans cette condition.
-  return parkAround(k, b, out, true) || parkAround(k, b, out, false);
+  return parkAround(k, b, out, true, undefined, len) || parkAround(k, b, out, false, undefined, len);
 }
 
 /**
@@ -136,7 +138,7 @@ function parkSpot(k: Kernel, b: Build, n: number, out: { x: number; z: number; h
  * `accept` : condition supplémentaire sur la place (x, z, cap).
  */
 function parkAround(k: Kernel, b: Build, out: { x: number; z: number; heading: number }, reach: boolean,
-  accept?: (x: number, z: number, h: number) => boolean): boolean {
+  accept?: (x: number, z: number, h: number) => boolean, len: number = PARK_LEN): boolean {
   const fx = Math.sin(b.heading);
   const fz = Math.cos(b.heading);
   const rx = -fz;
@@ -147,7 +149,8 @@ function parkAround(k: Kernel, b: Build, out: { x: number; z: number; heading: n
     for (const file of PARK_FILES) {
       const x = b.x - fx * back + rx * file * 1.8;
       const z = b.z - fz * back + rz * file * 1.8;
-      if (!parkClear(k, x, z, b.heading) || (reach && !parkReach(k, b, x, z)) || (accept && !accept(x, z, b.heading))) continue;
+      if (!parkClear(k, x, z, b.heading, len) || acrossRoad(k, x, z, b.heading) || (reach && !parkReach(k, b, x, z))
+        || (accept && !accept(x, z, b.heading))) continue;
       out.x = x;
       out.z = z;
       return true;
@@ -168,7 +171,7 @@ function parkAround(k: Kernel, b: Build, out: { x: number; z: number; heading: n
       const along = (lane === 0 ? j : j - PARK_ROAD_RANKS) * 7.6;
       const x = head.x + hx * along - Math.cos(h) * lane * 3.6;
       const z = head.z + hz * along + Math.sin(h) * lane * 3.6;
-      if (!parkClear(k, x, z, h) || (reach && !parkReach(k, b, x, z)) || (accept && !accept(x, z, h))) continue;
+      if (!parkClear(k, x, z, h, len) || (reach && !parkReach(k, b, x, z)) || (accept && !accept(x, z, h))) continue;
       out.x = x;
       out.z = z;
       out.heading = h;
@@ -186,7 +189,7 @@ function parkAround(k: Kernel, b: Build, out: { x: number; z: number; heading: n
       for (const f of PARK_OFFSETS) {
         const x = parkRoad.x + Math.cos(h) * edge * f;
         const z = parkRoad.z - Math.sin(h) * edge * f;
-        if (!parkClear(k, x, z, h) || (reach && (Math.hypot(x - b.x, z - b.z) < PARK_ROAD_MIN || !parkReach(k, b, x, z)))
+        if (!parkClear(k, x, z, h, len) || (reach && (Math.hypot(x - b.x, z - b.z) < PARK_ROAD_MIN || !parkReach(k, b, x, z)))
           || (accept && !accept(x, z, h))) continue;
         out.x = x;
         out.z = z;
@@ -225,6 +228,24 @@ function parkReach(k: Kernel, b: Build, x: number, z: number): boolean {
   return len <= Math.hypot(x - b.x, z - b.z) * PARK_DETOUR + PARK_DETOUR_SLACK;
 }
 const PARK_OFFSETS: readonly number[] = [1, 0.5, 0];
+/** Largeur de chaussée (m) en deçà de laquelle un véhicule garé en travers barre la rue (voir acrossRoad). */
+const ACROSS_WIDTH = 12;
+
+/**
+ * Place en travers d'une rue étroite (sur sa chaussée, cap à plus de 30° de son axe) ? Les rangs du bloc, deux de front
+ * (parkSpot) et jusqu'à sept de front (parkAround), la barraient alors toute : à République, une rangée de quatre en
+ * travers de la rue Béranger — l'itinéraire du VL, garé au bout, passait à travers ses voisins, qui ne pouvaient
+ * reculer que d'un mètre et demi, et la colonne ne sortait pas. Ces véhicules se garent ailleurs, ou le long de la
+ * chaussée (suite de parkAround). Une large chaussée (pourtour de la place) n'est pas barrée pour autant.
+ */
+function acrossRoad(k: Kernel, x: number, z: number, h: number): boolean {
+  if (k.ctx.world.surfaceAt(x, z) !== 'road' || !k.ctx.world.nearestRoad(x, z, parkRoad, 12)) return false;
+  if (parkRoad.width >= ACROSS_WIDTH || parkRoad.dist > parkRoad.width * 0.5 + 2.5) return false;
+  return Math.abs(Math.sin(h - parkRoad.heading)) > 0.5;
+}
+/** Longueur d'un fourgon (m) : véhicule garé par défaut. Place libre exigée au-delà de chaque pare-chocs (m). */
+const PARK_LEN = 5.8;
+const PARK_BUMPER = 1.5;
 /** Écart latéral minimal entre l'axe d'un véhicule garé et le flanc de son voisin : sa demi-largeur et une portière (m). */
 const PARK_SIDE = 1.1 + 1.3;
 /** Sur la chaussée, distance minimale au point de mise en place : les véhicules ne se garent pas dans les rangs (m). */
@@ -234,13 +255,26 @@ const PARK_ROAD_RANKS = 10;
 const parkRoad = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '' } as RoadSample;
 const parkProps: Prop[] = [];
 
-/** Une caisse tient-elle ici, au cap `h` : ni mur, ni bâti, ni eau, ni pelouse, ni mobilier, ni autre véhicule ? */
-function parkClear(k: Kernel, x: number, z: number, h: number): boolean {
+/**
+ * Caisse de longueur `len` (m) garée en (x, z), axe (fx, fz) : décor libre sur toute sa longueur ET au-delà de chaque
+ * pare-chocs (PARK_BUMPER) — de quoi sortir en marche avant ou arrière. On ne vérifiait que ±2,4 m autour du centre,
+ * quelle que soit la longueur : un VL de 6,5 m (demi-longueur 3,25) pouvait avoir le pare-chocs contre une façade, et
+ * un fourgon garé à République avait un obstacle à moins d'un mètre derrière lui.
+ */
+function parkBody(k: Kernel, x: number, z: number, fx: number, fz: number, len: number): boolean {
+  const world = k.ctx.world;
+  if (!(world.isFree(x, z, 1.3) && world.isFree(x + fx * 2.4, z + fz * 2.4, 1.2) && world.isFree(x - fx * 2.4, z - fz * 2.4, 1.2))) return false;
+  const end = len * 0.5 + PARK_BUMPER;
+  return world.isFree(x + fx * end, z + fz * end, 1.0) && world.isFree(x - fx * end, z - fz * end, 1.0);
+}
+
+/** Une caisse de longueur `len` tient-elle ici, au cap `h` : ni mur, ni bâti, ni eau, ni pelouse, ni mobilier, ni autre véhicule ? */
+function parkClear(k: Kernel, x: number, z: number, h: number, len: number = PARK_LEN): boolean {
   const ctx = k.ctx;
   const world = ctx.world;
   const fx = Math.sin(h);
   const fz = Math.cos(h);
-  if (!(world.isFree(x, z, 1.3) && world.isFree(x + fx * 2.4, z + fz * 2.4, 1.2) && world.isFree(x - fx * 2.4, z - fz * 2.4, 1.2))) return false;
+  if (!parkBody(k, x, z, fx, fz, len)) return false;
   const surf = world.surfaceAt(x, z);
   if (surf === 'water' || surf === 'building' || surf === 'interior' || surf === 'park') return false;
   // (liste complète : l'index spatial ne connaît pas encore les véhicules créés à l'instant)
@@ -258,7 +292,7 @@ function parkClear(k: Kernel, x: number, z: number, h: number): boolean {
     if (!parallel) return false;
     const along = Math.abs(dx * fx + dz * fz);
     const lat = Math.abs(dx * fz - dz * fx);
-    if (along < 2.9 + o.def.length * 0.5 && lat < PARK_SIDE + o.def.width * 0.5) return false;
+    if (along < len * 0.5 + o.def.length * 0.5 && lat < PARK_SIDE + o.def.width * 0.5) return false;
   }
   return ctx.props.queryRadius(x, z, 3.2, parkProps, (q) => q.blocksMove) === 0;
 }
@@ -275,7 +309,8 @@ const spot = { x: 0, z: 0, heading: 0 };
 /**
  * Fourgon cellulaire (sans équipage : il reste au stationnement quand la compagnie part), garé dans le bloc en tête de
  * file : il est rangé à côté du premier rang (celui du VL), sur une troisième file — une fois les véhicules tournés nez
- * vers la sortie (session/setup.ts, faceExit), c'est le dernier rang du bloc, où il ne barre la sortie à personne. En
+ * vers la sortie côté opposé à l'unité (session/setup.ts, faceExit), c'est le dernier rang du bloc, où il ne barre la
+ * sortie à personne (si faceExit garde le cap du bloc, setup.ts — cellToRear — le ramène au dernier rang). En
  * tête de file, il enfermait le fourgon garé derrière lui (aucune place pour reculer) : celui-ci le poussait en sortant,
  * ou restait bloqué, et la colonne avec lui. Pas de place libre là : il reste où il est.
  */
@@ -290,7 +325,7 @@ function parkCellAtRear(k: Kernel, b: Build, cell: Vehicle): void {
   const ox = cell.x, oz = cell.z;
   cell.x = 1e6;
   cell.z = 1e6;
-  const free = parkClear(k, x, z, b.heading) && Math.hypot(x - lead.x, z - lead.z) < 8;
+  const free = parkClear(k, x, z, b.heading, cell.def.length) && Math.hypot(x - lead.x, z - lead.z) < 8;
   cell.x = free ? x : ox;
   cell.z = free ? z : oz;
   if (free) {
@@ -302,7 +337,7 @@ function parkCellAtRear(k: Kernel, b: Build, cell: Vehicle): void {
   if (cellAtRear(b, cell, ox, oz, cell.heading)) return;
   cell.x = 1e6;
   cell.z = 1e6;
-  const moved = parkAround(k, b, spot, true, (px, pz, h) => cellAtRear(b, cell, px, pz, h));
+  const moved = parkAround(k, b, spot, true, (px, pz, h) => cellAtRear(b, cell, px, pz, h), cell.def.length);
   cell.x = moved ? spot.x : ox;
   cell.z = moved ? spot.z : oz;
   if (moved) cell.heading = spot.heading;
@@ -326,7 +361,8 @@ function cellAtRear(b: Build, cell: Vehicle, x: number, z: number, h: number): b
 }
 
 function spawnVehicle(k: Kernel, b: Build, kind: VehicleKind, squad: Squad | null, color?: number): Vehicle | null {
-  if (!parkSpot(k, b, b.handle.vehicles.length, spot)) return null;
+  const def = k.ctx.vehicles.def(kind);
+  if (!parkSpot(k, b, b.handle.vehicles.length, spot, def ? def.length : PARK_LEN)) return null;
   if (!b.road && spot.heading !== b.heading) b.road = { x: spot.x, z: spot.z, heading: spot.heading };
   const v = k.ctx.vehicles.spawn(kind, spot.x, spot.z, spot.heading, { faction: 'police', color });
   b.handle.vehicles.push(v);

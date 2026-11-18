@@ -32,9 +32,10 @@ import { EXT } from '@/core/extensions';
 import type { IncidentKind, IncidentsApi } from '@/core/extensions';
 import { isPoliceRole } from '@/gameplay/session/roster';
 import type { SessionSetupApi } from '@/gameplay/session/api';
+import { readVacation } from './model';
 import { PATROLS_SERVICE, PATROLS_SYSTEM_ID, PATROL_REPORT_EVENT } from './api';
 import type { PatrolKind, PatrolReport, PatrolState, PatrolView, PatrolsApi } from './api';
-import { approx, chooseSites, distanceWords, mood, moodLevel, people, radioFrame } from './sites';
+import { BAC_SITES, TV_SITES, approx, chooseSites, distanceWords, mood, moodLevel, people, radioFrame } from './sites';
 import type { Avoid, PatrolSite } from './sites';
 
 // ───────────────────────────── formes attendues des services (facultatifs) ─────────────────────────────
@@ -90,6 +91,8 @@ const THINK = 1;
 const OBSERVE = 3;
 /** Sur place ou en mission : reprise d'office de la patrouille (s). */
 const ON_SCENE_TIMEOUT = 600;
+/** Vacation du joueur : aucune voiture de l'IA à moins de cette distance de son point de départ (m). */
+const OWN_SITE_CLEAR = 300;
 /** Débit radio : écart minimal entre deux comptes rendus d'une voiture, de toutes les voitures, R.A.S. (s). */
 const REPORT_GAP = 40;
 const GLOBAL_GAP = 9;
@@ -294,7 +297,13 @@ export class PatrolsSystem implements GameSystem {
     const me = ctx.player.person();
     if (me) avoid.push({ x: me.x, z: me.z, radius: AVOID_FORCES });
     const b = ctx.world.bounds;
-    const sites = chooseSites(count, avoid, this.rand, (x, z) => x > b.minX + 150 && x < b.maxX - 150 && z > b.minZ + 150 && z < b.maxZ - 150);
+    // vacation du joueur (mode Patrouille) : son propre site n'a pas de voiture de l'IA (même indicatif, ou trop près)
+    const vacation = readVacation(cfg);
+    const own: { x: number; z: number }[] = vacation
+      ? [{ x: vacation.depart.x, z: vacation.depart.z }, ...[...TV_SITES, ...BAC_SITES].filter((s) => s.callsign === vacation.depart.callsign)]
+      : [];
+    const mine = (x: number, z: number): boolean => own.some((s) => Math.hypot(s.x - x, s.z - z) < OWN_SITE_CLEAR);
+    const sites = chooseSites(count, avoid, this.rand, (x, z) => x > b.minX + 150 && x < b.maxX - 150 && z > b.minZ + 150 && z < b.maxZ - 150 && !mine(x, z));
     for (const s of sites) {
       try {
         this.spawn(s);
@@ -346,7 +355,9 @@ export class PatrolsSystem implements GameSystem {
       x += Math.sin(bh) * 9;
       z += Math.cos(bh) * 9;
     }
-    const v = ctx.vehicles.spawn('voiture_police', x, z, bh, { faction: 'police' });
+    // la BAC roule en voiture banalisée (repli sur la voiture sérigraphiée si la définition manque)
+    const kindV = site.kind === 'bac' && ctx.vehicles.def('voiture_bac') ? 'voiture_bac' : 'voiture_police';
+    const v = ctx.vehicles.spawn(kindV, x, z, bh, { faction: 'police' });
     v.y = world.heightAt(x, z);
     const squad = ctx.squads.create('equipage', 'police', site.callsign);
     squad.vehicleId = v.id;

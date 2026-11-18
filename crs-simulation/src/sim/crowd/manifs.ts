@@ -19,6 +19,13 @@
  * supplémentaires tient dans ce que laisse le cortège principal sous le plafond du module (4 000 personnes simulées),
  * chacune à 1 500 au plus, réduites au prorata.
  *
+ * Déclarations à la volée (ManifsApi.declare) : une manifestation naît en cours de partie (mode Patrouille, en veille
+ * comme dans une session normale) ; budget : 4 000 moins les personnes déjà présentes, 1 500 au plus. Une manifestation
+ * SAUVAGE n'a ni service d'ordre ni organisateurs (ni sono), deux fois plus de radicaux, se rassemble 1 à 2 min puis
+ * marche vers un lieu à 0,8 – 1,8 km ; CENTRAL l'annonce comme un « cortège non déclaré ».
+ * Imprévus du Mode libre : extra['imprevus'] = { sauvages, premier?, ecart? } — ce système programme lui-même les
+ * manifestations sauvages (fork 'foule:imprevus'), à 600 – 1 800 m du cortège principal.
+ *
  * Annonces : CENTRAL sur le canal commandement (déclaration, départ, détour, arrivée, dispersion, fin), événement
  * libre 'crowd:manif' ; service 'crowd.manifs' (ManifsApi) pour l'interface, la mise en place et le commandement.
  * ===================================================================================== */
@@ -29,12 +36,14 @@ import type {
 import { SystemOrder } from '@/core/contracts';
 import { CROWD_MANIFS, CROWD_MANIFS_SYSTEM, MANIF_EVENT } from './api';
 import type {
-  BehaviorController, CrowdCause, CrowdGroup, GroupKind, ManifEvent, ManifPhase, ManifView, ManifsApi, RoutePoint,
+  BehaviorController, CrowdCause, CrowdGroup, GroupKind, ImprevusConfig, ManifDeclareSpec, ManifEvent, ManifPhase, ManifView,
+  ManifsApi, NearRing, RoutePoint,
 } from './api';
 import { A, F, S, brainOf } from './brain';
 import type { CrowdBrain } from './brain';
 import type { CrowdCore } from './core';
 import { Rerouter, closureAhead, detourText, enclosedAt, spliceDetour } from './detour';
+import { placeInSentence } from './foyers';
 import { buildPlan, resolveCause } from './population';
 import type { PlanEntry } from './population';
 import type { RadicalSystem } from './radical';
@@ -78,6 +87,14 @@ export const MANIF_PLACES: readonly { name: string; x: number; z: number }[] = [
 const CAUSES: readonly string[] = ['climat', 'logement', 'hopital', 'education', 'retraites', 'pouvoir_achat', 'libertes', 'agricole'];
 
 const DEPART_TEXT = 'On y va ! On reste groupés derrière la banderole !';
+const WILD_DEPART_TEXT = 'On y va ! On reste groupés, on ne se laisse pas disperser !';
+/** Manifestation sauvage : destination à 0,8 – 1,8 km, rassemblement de 60 à 120 s, départ en 60 s au plus. */
+const WILD_DEST_MIN = 800;
+const WILD_DEST_MAX = 1800;
+/** Imprévus : anneau autour du cortège principal (m), premier et écart par défaut (s), relance après un échec. */
+const IMPREVU_RING = { min: 600, max: 1800 };
+const IMPREVU_RETRY = 60;
+const IMPREVU_TRIES = 5;
 const DISPERSAL_TEXT = 'La manifestation est terminée. Merci à toutes et à tous, dispersez-vous dans le calme.';
 
 /** Réglage d'une manifestation supplémentaire (lu dans extra['manifestations']). */
@@ -97,6 +114,10 @@ interface Manif {
   readonly id: number;
   view: ManifView;
   spec: ManifSpec;
+  /** Manifestation sauvage (voir ManifView.sauvage). */
+  sauvage: boolean;
+  /** Durée de la phase de départ (s) : celle de l'horaire, 60 s au plus pour une sauvage. */
+  departSpan: number;
   cause: CrowdCause;
   rng: Rng;
   phase: ManifPhase;
@@ -171,6 +192,70 @@ function lower(name: string): string {
   return name === '' ? name : name.charAt(0).toLowerCase() + name.slice(1);
 }
 
+const FEMININE = ['place', 'rue', 'avenue', 'esplanade', 'porte', 'gare', 'allée', 'cité', 'villa', 'impasse'];
+
+/** « de la place de la Bastille », « du boulevard Saint-Denis », « de l’esplanade des Invalides », « du secteur Opéra ». */
+function ofPlace(name: string): string {
+  const n = lower(name.trim());
+  if (n === '') return 'du secteur';
+  const first = (n.split(/[\s'’-]/)[0] ?? '').toLowerCase();
+  if (/^[aeiouyéèh]/.test(first)) return 'de l’' + n;
+  return (FEMININE.indexOf(first) >= 0 ? 'de la ' : 'du ') + n;
+}
+
+/** Le point est-il dans l'anneau ? */
+function inRing(r: NearRing, x: number, z: number): boolean {
+  const d = Math.hypot(x - r.x, z - r.z);
+  return d >= r.min && d <= r.max;
+}
+
+/**
+ * Composition d'une manifestation sauvage : ni service d'ordre (ses membres deviennent des militants), et deux fois
+ * plus de radicaux (des pacifiques tirés au sort le deviennent). Les entrées modifiées perdent leur case du service
+ * 'roles.spawn' : elles sont habillées par défaut, selon leur nouveau profil.
+ */
+function wildPlan(entries: PlanEntry[], rng: Rng): void {
+  let radicals = 0;
+  const calm: number[] = [];
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i]!;
+    if (e.profile === 'service_ordre') {
+      entries[i] = { ...e, profile: 'militant', ref: null };
+      continue;
+    }
+    if (e.profile === 'radical') radicals++;
+    else if (e.profile === 'pacifique' && !e.child && !e.banner) calm.push(i);
+  }
+  // au moins une poignée de radicaux dans un cortège sauvage
+  let add = Math.max(radicals, Math.min(3, Math.floor(entries.length / 40)));
+  while (add > 0 && calm.length > 0) {
+    const k = rng.int(0, calm.length);
+    const i = calm[k]!;
+    calm[k] = calm[calm.length - 1]!;
+    calm.pop();
+    entries[i] = { ...entries[i]!, profile: 'radical', ref: null };
+    add--;
+  }
+}
+
+/** Lit extra['imprevus'] (curseur « Imprévu » du Mode libre) : null quand aucune manifestation sauvage n'est prévue. */
+export function readImprevus(config: SessionConfig): ImprevusConfig | null {
+  const extra = (config.extra ?? {}) as Record<string, unknown>;
+  const raw = extra['imprevus'];
+  let o: Record<string, unknown>;
+  if (typeof raw === 'number' || typeof raw === 'string') o = { sauvages: raw };
+  else if (typeof raw === 'object' && raw !== null && !Array.isArray(raw)) o = raw as Record<string, unknown>;
+  else return null;
+  const sauvages = clamp(Math.round(num(o['sauvages'], 0)), 0, MAX_MANIFS);
+  if (sauvages === 0) return null;
+  const out: ImprevusConfig = { sauvages };
+  const premier = num(o['premier'], NaN);
+  const ecart = num(o['ecart'], NaN);
+  if (Number.isFinite(premier) && premier >= 0) out.premier = premier;
+  if (Number.isFinite(ecart) && ecart > 0) out.ecart = ecart;
+  return out;
+}
+
 /** Lit extra['manifestations'] : liste de réglages, ou nombre de manifestations à tirer. */
 export function readManifSpecs(config: SessionConfig): { specs: ManifSpec[]; auto: number } {
   const extra = (config.extra ?? {}) as Record<string, unknown>;
@@ -219,6 +304,10 @@ export class ManifsSystem implements GameSystem {
   private nextReview = 0;
   /** Allure de marche (extra['manifs.vitesse'], 0,5 à 2,2 ; essais). */
   private pace = 1;
+  /** Déclarations à la volée de la session (chacune son flux 'foule:manifestations:declare:<n>'). */
+  private declared = 0;
+  /** Imprévus du Mode libre : sauvages restantes, prochaine échéance, écart, échecs de suite, flux. */
+  private imprevus: { left: number; nextAt: number; ecart: number; fails: number; rng: Rng } | null = null;
   private readonly api: ManifsApi;
   private readonly controller: BehaviorController;
   private readonly rp: RoutePoint = { x: 0, z: 0, tx: 0, tz: 1, center: 0, half: 8, stretch: 1 };
@@ -236,6 +325,14 @@ export class ManifsSystem implements GameSystem {
       },
       assign(manifId: number, companyId: number): void {
         for (const m of self.manifs) if (m.id === manifId) m.view.companyId = companyId;
+      },
+      declare(spec: ManifDeclareSpec): ManifView | null {
+        try {
+          return self.declare(spec);
+        } catch (err) {
+          console.error('[crowd] déclaration de manifestation impossible', err);
+          return null;
+        }
       },
     };
     this.controller = {
@@ -261,6 +358,7 @@ export class ManifsSystem implements GameSystem {
       } catch (err) {
         console.error('[crowd] manifestations supplémentaires impossibles', err);
       }
+      if (this.core.active) this.armImprevus(config);
     });
   }
 
@@ -270,6 +368,9 @@ export class ManifsSystem implements GameSystem {
     this.ties.clear();
     this.nextTick = 0;
     this.nextReview = 0;
+    this.pace = 1;
+    this.declared = 0;
+    this.imprevus = null;
   }
 
   // ───────────────────────────── mise en place ─────────────────────────────
@@ -310,8 +411,13 @@ export class ManifsSystem implements GameSystem {
     }
   }
 
-  /** Lieu de rassemblement : celui du réglage, sinon une place réelle à plus de 1,2 km des autres. */
-  private pickStart(spec: ManifSpec, taken: readonly { x: number; z: number }[], rng: Rng): { x: number; z: number; name: string } | null {
+  /**
+   * Lieu de rassemblement : celui du réglage, sinon une place réelle à plus de 1,2 km des autres ; avec un anneau
+   * (déclaration à la volée), une place réelle de l'anneau, à défaut un point de rue de l'anneau.
+   */
+  private pickStart(
+    spec: ManifSpec, taken: readonly { x: number; z: number }[], rng: Rng, near: NearRing | null = null,
+  ): { x: number; z: number; name: string } | null {
     const world = this.ctx.world;
     if (spec.x !== null && spec.z !== null) return { x: spec.x, z: spec.z, name: spec.place || world.sectorName(spec.x, spec.z) };
     if (spec.place !== '') {
@@ -328,17 +434,47 @@ export class ManifsSystem implements GameSystem {
       const z = info && Math.hypot(info.x - pl.x, info.z - pl.z) < 400 ? info.z : pl.z;
       if (x < b.minX + 80 || x > b.maxX - 80 || z < b.minZ + 80 || z > b.maxZ - 80) continue;
       if (!world.nearestRoad(x, z, this.road, 120)) continue;
+      if (near && !inRing(near, x, z)) continue;
       cands.push({ x, z, name: pl.name });
     }
+    if (near === null) {
+      for (const apart of [MIN_APART, MIN_APART * 0.75, MIN_APART * 0.5]) {
+        const ok = cands.filter((c) => taken.every((t) => Math.hypot(t.x - c.x, t.z - c.z) >= apart));
+        if (ok.length > 0) return ok[rng.int(0, ok.length)]!;
+      }
+      return null;
+    }
+    // dans l'anneau : les places connues d'abord, à défaut des points de rue (nommés d'après le secteur)
+    const streets: { x: number; z: number; name: string }[] = [];
+    for (let i = 0; i < 16; i++) {
+      const a = rng.next() * Math.PI * 2;
+      const d = near.min + rng.next() * (near.max - near.min);
+      const x = near.x + Math.sin(a) * d;
+      const z = near.z + Math.cos(a) * d;
+      if (x < b.minX + 80 || x > b.maxX - 80 || z < b.minZ + 80 || z > b.maxZ - 80) continue;
+      if (!world.nearestRoad(x, z, this.road, 80) || !inRing(near, this.road.x, this.road.z)) continue;
+      streets.push({ x: this.road.x, z: this.road.z, name: '' });
+    }
     for (const apart of [MIN_APART, MIN_APART * 0.75, MIN_APART * 0.5]) {
-      const ok = cands.filter((c) => taken.every((t) => Math.hypot(t.x - c.x, t.z - c.z) >= apart));
+      const far = (c: { x: number; z: number }): boolean => taken.every((t) => Math.hypot(t.x - c.x, t.z - c.z) >= apart);
+      const ok = cands.filter(far);
       if (ok.length > 0) return ok[rng.int(0, ok.length)]!;
+      const st = streets.filter(far);
+      if (st.length > 0) {
+        const c = st[rng.int(0, st.length)]!;
+        return { x: c.x, z: c.z, name: placeInSentence(world.sectorName(c.x, c.z)) };
+      }
     }
     return null;
   }
 
-  /** Destination : celle du réglage, sinon une autre place à 0,9 – 2,6 km, loin des autres manifestations. */
-  private pickDestination(spec: ManifSpec, sx: number, sz: number, rng: Rng): { x: number; z: number; name: string } | null {
+  /**
+   * Destination : celle du réglage, sinon une autre place à `min` – `max` m (0,9 – 2,6 km, de préférence vers `mid`),
+   * loin des autres manifestations ; `streets` : à défaut de place, un point de rue à cette distance (sauvage).
+   */
+  private pickDestination(
+    spec: ManifSpec, sx: number, sz: number, rng: Rng, min = 900, max = 2600, mid = 1500, streets = false,
+  ): { x: number; z: number; name: string } | null {
     const world = this.ctx.world;
     const d = spec.destination;
     if (d !== null && typeof d === 'object') return { x: d.x, z: d.z, name: world.sectorName(d.x, d.z) };
@@ -348,7 +484,7 @@ export class ManifsSystem implements GameSystem {
       if (info) return { x: info.x, z: info.z, name: d };
       if (known) return { ...known };
     }
-    const others: { x: number; z: number }[] = [{ x: this.core.rallyX, z: this.core.rallyZ }];
+    const others: { x: number; z: number }[] = this.core.veille ? [] : [{ x: this.core.rallyX, z: this.core.rallyZ }];
     for (const m of this.manifs) others.push({ x: m.view.x, z: m.view.z }, { x: m.destX, z: m.destZ });
     const b = world.bounds;
     let best: { x: number; z: number; name: string } | null = null;
@@ -359,19 +495,33 @@ export class ManifsSystem implements GameSystem {
       const z = info && Math.hypot(info.x - pl.x, info.z - pl.z) < 400 ? info.z : pl.z;
       if (x < b.minX + 80 || x > b.maxX - 80 || z < b.minZ + 80 || z > b.maxZ - 80) continue;
       const dist = Math.hypot(x - sx, z - sz);
-      if (dist < 900 || dist > 2600) continue;
+      if (dist < min || dist > max) continue;
       let near = Infinity;
       for (const o of others) near = Math.min(near, Math.hypot(o.x - x, o.z - z));
-      const score = Math.min(near, 1500) - Math.abs(dist - 1500) * 0.3 + rng.next() * 300;
+      const score = Math.min(near, 1500) - Math.abs(dist - mid) * 0.3 + rng.next() * 300;
       if (score > bestScore) {
         bestScore = score;
         best = { x, z, name: pl.name };
       }
     }
-    return best;
+    if (best !== null || !streets) return best;
+    for (let i = 0; i < 16; i++) {
+      const a = rng.next() * Math.PI * 2;
+      const d = min + rng.next() * (max - min);
+      const x = sx + Math.sin(a) * d;
+      const z = sz + Math.cos(a) * d;
+      if (x < b.minX + 80 || x > b.maxX - 80 || z < b.minZ + 80 || z > b.maxZ - 80) continue;
+      if (!world.nearestRoad(x, z, this.road, 80)) continue;
+      const dist = Math.hypot(this.road.x - sx, this.road.z - sz);
+      if (dist < min || dist > max) continue;
+      return { x: this.road.x, z: this.road.z, name: placeInSentence(world.sectorName(this.road.x, this.road.z)) };
+    }
+    return null;
   }
 
-  private create(config: SessionConfig, spec: ManifSpec, where: { x: number; z: number; name: string }, size: number, rng: Rng): void {
+  private create(
+    config: SessionConfig, spec: ManifSpec, where: { x: number; z: number; name: string }, size: number, rng: Rng, sauvage = false,
+  ): Manif | null {
     const ctx = this.ctx;
     const core = this.core;
     const id = this.manifs.length + 2;
@@ -379,39 +529,46 @@ export class ManifsSystem implements GameSystem {
     const cause = resolveCause(ctx, extra, rng.fork('cause'));
     const tension0 = Number.isFinite(spec.tension) ? spec.tension : clamp(config.tension * (0.6 + 0.6 * rng.next()), 0, 1);
     const volatility = Number.isFinite(spec.volatility) ? spec.volatility : clamp(config.volatility * (0.5 + 0.7 * rng.next()), 0, 1);
-    // parcours déclaré : vers la destination, par les rues
-    const dest = this.pickDestination(spec, where.x, where.z, rng);
+    // parcours déclaré : vers la destination, par les rues (une sauvage va moins loin, au besoin vers un carrefour)
+    const dest = sauvage
+      ? this.pickDestination(spec, where.x, where.z, rng, WILD_DEST_MIN, WILD_DEST_MAX, (WILD_DEST_MIN + WILD_DEST_MAX) * 0.5, true)
+      : this.pickDestination(spec, where.x, where.z, rng);
+    if (sauvage && dest === null) return null;
     const routeExtra: Record<string, unknown> = dest ? { 'crowd.destination': { x: dest.x, z: dest.z } } : {};
     const route = chooseRoute(ctx, { ...config, x: where.x, z: where.z, extra: routeExtra } as SessionConfig, rng.fork('parcours'));
     const points = route.points.slice();
-    if (points.length < 4) return;
+    if (points.length < 4) return null;
     const corridor = new Corridor();
     corridor.build(ctx, points);
     const destX = points[points.length - 2]!;
     const destZ = points[points.length - 1]!;
     const destName = dest ? dest.name : ctx.world.sectorName(destX, destZ);
     // composition : celle de la cause (plan de population.ts), organisateurs et banderoles en tête
-    const plan = buildPlan(ctx, cause, size, {}, tension0, volatility, rng.fork('plan'));
+    const plan = buildPlan(ctx, cause, size, sauvage ? { 'crowd.scenario': 'samedi_sans_organisateur' } : {}, tension0, volatility, rng.fork('plan'));
     const entries = plan.entries.slice();
+    if (sauvage) wildPlan(entries, rng.fork('sauvage'));
     const rank = (e: PlanEntry): number => (e.banner ? 0 : e.profile === 'service_ordre' || e.profile === 'meneur' ? 1 : e.profile === 'radical' || e.profile === 'pilleur' ? 2 : 3);
     entries.sort((a, b) => rank(a) - rank(b));
     const perRow = clamp(Math.floor((corridor.refWidth * 0.85) / COL), 3, 14);
     const colLen = Math.ceil(entries.length / perRow) * ROW + 2;
     const sch = core.schedule;
     const now = ctx.clock.now;
-    const gather = num(core.extra['manifs.rassemblement'], sch.gather * (0.8 + 0.5 * rng.next()));
-    const march = num(core.extra['manifs.cortege'], sch.march * (0.9 + 0.2 * rng.next()));
-    const label = `Manifestation ${lower(cause.label)} — ${where.name} → ${destName}`;
-    const squadId = ctx.squads.create('cortege', 'protest', `Manifestation ${lower(cause.label)} (${where.name})`).id;
+    // une sauvage se forme vite (1 à 2 min) et ne marche pas des heures, même en temps réel
+    const gather = num(core.extra['manifs.rassemblement'], sauvage ? 60 + 60 * rng.next() : sch.gather * (0.8 + 0.5 * rng.next()));
+    const march = num(core.extra['manifs.cortege'], (sauvage ? Math.min(sch.march, 1800) : sch.march) * (0.9 + 0.2 * rng.next()));
+    const departSpan = sauvage ? Math.min(sch.depart, 60) : sch.depart;
+    const label = sauvage ? `Manifestation sauvage — ${where.name}` : `Manifestation ${lower(cause.label)} — ${where.name} → ${destName}`;
+    const squadId = ctx.squads.create('cortege', 'protest', sauvage ? `Manifestation sauvage (${where.name})` : `Manifestation ${lower(cause.label)} (${where.name})`).id;
     // la queue (entrée par la fin) : dépilée par la fin, les premiers arrivés en dernier
     const queue = entries.slice().reverse();
     const view: ManifView = {
       id, label, cause: cause.id, causeLabel: spec.causeLabel || cause.label, from: where.name, to: destName, phase: 'rassemblement',
       declared: spec.crowdSize, planned: entries.length, people: 0, x: where.x, z: where.z, headX: where.x, headZ: where.z, headHeading: 0,
       route: points, headS: 0, tailS: 0, detours: 0, enclosed: false, tension: tension0, kettled: false, startedAt: now, squadId, companyId: 0,
+      sauvage,
     };
     const m: Manif = {
-      id, view, spec, cause, rng, phase: 'rassemblement', departAt: now + gather, marchEnd: now + gather + sch.depart + march,
+      id, view, spec, sauvage, departSpan, cause, rng, phase: 'rassemblement', departAt: now + gather, marchEnd: now + gather + departSpan + march,
       disperseEnd: Infinity, endAt: Infinity, phaseAt: now, corridor, points, headS: Math.min(colLen + 4, Math.max(6, corridor.length * 0.35)),
       speed: 0, stopS: Infinity, blocked: false, colLen, perRow, queue, planned: entries.length, spawned: 0,
       early: clamp(num(core.extra['crowd.present'], 0.45), 0, 1), ids: [], groups: [], forming: [], formSize: 3, exits: [], exitsX: where.x,
@@ -430,6 +587,88 @@ export class ManifsSystem implements GameSystem {
     this.flushGroup(m);
     this.refreshView(m);
     this.announce(m, 'annonce');
+    return m;
+  }
+
+  // ───────────────────────────── déclarations à la volée ─────────────────────────────
+
+  /** ManifsApi.declare : une manifestation qui naît en cours de partie (voir api.ts). */
+  private declare(d: ManifDeclareSpec): ManifView | null {
+    const ctx = this.ctx;
+    const core = this.core;
+    const config = ctx.session.config;
+    if (!core.active || !config) return null;
+    const n = this.declared++;
+    const rng = ctx.rng.fork('foule:manifestations:declare:' + n);
+    const sauvage = d.sauvage === true;
+    const hasXz = typeof d.x === 'number' && typeof d.z === 'number' && Number.isFinite(d.x) && Number.isFinite(d.z);
+    const spec: ManifSpec = {
+      place: typeof d.place === 'string' ? d.place : '',
+      x: hasXz ? d.x! : null,
+      z: hasXz ? d.z! : null,
+      crowdSize: clamp(Math.round(num(d.crowdSize, sauvage ? 250 + 350 * rng.next() : 600)), 20, 20000),
+      cause: typeof d.cause === 'string' && d.cause !== '' ? d.cause : CAUSES[rng.int(0, CAUSES.length)]!,
+      causeLabel: typeof d.causeLabel === 'string' ? d.causeLabel : '',
+      destination: d.destination ?? null,
+      tension: clamp(num(d.tension, NaN), 0, 1),
+      volatility: clamp(num(d.volatility, NaN), 0, 1),
+    };
+    // budget : ce qui reste sous le plafond du module, 1 500 par manifestation au plus
+    const scale = ctx.settings.values.crowdScale > 0 ? ctx.settings.values.crowdScale : 1;
+    // (les personnes présentes, ou ce qui est déjà promis si c'est plus : le cortège principal et les manifestations
+    // en cours n'ont pas toutes leurs personnes arrivées)
+    let promised = core.veille ? 0 : core.size;
+    for (const m of this.manifs) if (m.phase !== 'terminee') promised += m.planned;
+    const room = CROWD_CAP - Math.max(core.members.length, promised);
+    const size = Math.min(clamp(Math.round(spec.crowdSize * scale), PER_MANIF_MIN, PER_MANIF_MAX), room);
+    if (size < PER_MANIF_MIN) return null;
+    // lieux déjà pris : le rassemblement principal (hors veille) et les manifestations en cours
+    const taken: { x: number; z: number }[] = core.veille ? [] : [{ x: core.rallyX, z: core.rallyZ }];
+    for (const m of this.manifs) if (m.phase !== 'terminee') taken.push({ x: m.view.x, z: m.view.z });
+    const r = d.near;
+    const near = r && [r.x, r.z, r.min, r.max].every((v) => typeof v === 'number' && Number.isFinite(v)) && r.max > Math.max(0, r.min)
+      ? { x: r.x, z: r.z, min: Math.max(0, r.min), max: r.max } : null;
+    const where = this.pickStart(spec, taken, rng, near);
+    if (!where) return null;
+    this.pace = clamp(num(core.extra['manifs.vitesse'], 1), 0.5, 2.2);
+    const m = this.create(config, spec, where, size, rng.fork('manif'), sauvage);
+    return m ? m.view : null;
+  }
+
+  /** Imprévus du Mode libre (extra['imprevus']) : calendrier des manifestations sauvages. */
+  private armImprevus(config: SessionConfig): void {
+    const imp = readImprevus(config);
+    if (!imp) return;
+    const rng = this.ctx.rng.fork('foule:imprevus');
+    const first = imp.premier ?? 600 + 300 * rng.next();
+    this.imprevus = { left: imp.sauvages, nextAt: this.ctx.clock.now + first, ecart: imp.ecart ?? NaN, fails: 0, rng };
+  }
+
+  /** Une manifestation sauvage imprévue naît à 600 – 1 800 m du cortège principal (relance dans 1 min si nul lieu). */
+  private imprevuTick(now: number): void {
+    const imp = this.imprevus;
+    if (!imp || now < imp.nextAt) return;
+    const core = this.core;
+    let cx = core.rallyX;
+    let cz = core.rallyZ;
+    if (!core.veille && core.size > 0 && core.corridor.length > 0) {
+      core.corridor.at(core.formation.headS, this.rp);
+      cx = this.rp.x;
+      cz = this.rp.z;
+    }
+    const rng = imp.rng;
+    const view = this.declare({ sauvage: true, crowdSize: Math.round(150 + 350 * rng.next()), near: { x: cx, z: cz, ...IMPREVU_RING } });
+    if (view === null && ++imp.fails < IMPREVU_TRIES) {
+      imp.nextAt = now + IMPREVU_RETRY;
+      return;
+    }
+    imp.fails = 0;
+    imp.left--;
+    if (imp.left <= 0) {
+      this.imprevus = null;
+      return;
+    }
+    imp.nextAt = now + (Number.isFinite(imp.ecart) ? imp.ecart : 300 + 300 * rng.next());
   }
 
   // ───────────────────────────── personnes ─────────────────────────────
@@ -536,8 +775,10 @@ export class ManifsSystem implements GameSystem {
   // ───────────────────────────── boucle ─────────────────────────────
 
   update(dt: number): void {
-    if (this.manifs.length === 0 || !this.core.active) return;
+    if (!this.core.active) return;
     const now = this.ctx.clock.now;
+    if (this.imprevus !== null) this.imprevuTick(now);
+    if (this.manifs.length === 0) return;
     for (const m of this.manifs) if (m.phase !== 'terminee') this.advance(m, dt, now);
     if (now >= this.nextTick) {
       this.nextTick = now + TICK;
@@ -651,17 +892,16 @@ export class ManifsSystem implements GameSystem {
 
   private phases(m: Manif, now: number): void {
     const few = m.peak > 0 && m.present <= Math.max(3, m.peak * T.END_SHARE) && m.queue.length === 0;
-    const sch = this.core.schedule;
     switch (m.phase) {
       case 'rassemblement':
         if (now >= m.departAt) {
           this.setPhase(m, 'depart', now);
-          this.voice(m, 'depart', DEPART_TEXT);
+          this.voice(m, 'depart', m.sauvage ? WILD_DEPART_TEXT : DEPART_TEXT);
           this.announce(m, 'depart');
         }
         break;
       case 'depart':
-        if (now >= m.departAt + sch.depart) this.setPhase(m, 'cortege', now);
+        if (now >= m.departAt + m.departSpan) this.setPhase(m, 'cortege', now);
         break;
       case 'cortege': {
         const arrived = m.headS >= m.corridor.length - 3;
@@ -713,7 +953,7 @@ export class ManifsSystem implements GameSystem {
       m.view.detours = r.count;
       if (!d.toDestination) m.view.to = d.name + ' (détour)';
       this.voice(m, 'consigne', d.via !== '' ? `On ne nous laisse pas passer : on prend ${d.via} !` : 'On ne nous laisse pas passer : on change de parcours !');
-      this.ctx.radio.say({ channel: 'commandement', from: 'CENTRAL', priority: 2, text: detourText(`le cortège « ${lower(m.cause.label)} »`, d) });
+      this.ctx.radio.say({ channel: 'commandement', from: 'CENTRAL', priority: 2, text: detourText(this.who(m), d) });
       this.emit(m, 'detour');
       this.ctx.events.emitAny('crowd:detour', { id: m.id, x: this.rp.x, z: this.rp.z, toDestination: d.toDestination, name: d.name, via: d.via });
     } else if (res === 'stuck') {
@@ -721,7 +961,7 @@ export class ManifsSystem implements GameSystem {
       if (r.enclosed) {
         this.ctx.radio.say({
           channel: 'commandement', from: 'CENTRAL', priority: 2,
-          text: `CENTRAL : le cortège « ${lower(m.cause.label)} » est bloqué, toutes les issues sont fermées. Rassemblement statique, tension en hausse.`,
+          text: `CENTRAL : ${this.who(m)} est bloqué, toutes les issues sont fermées. Rassemblement statique, tension en hausse.`,
         });
       }
     }
@@ -784,7 +1024,8 @@ export class ManifsSystem implements GameSystem {
     m.exitsAt = -1e9;
     m.exitsX = m.exitsZ = 1e9;
     this.refreshExits(m, now);
-    this.voice(m, 'dispersion', DISPERSAL_TEXT);
+    // une sauvage n'a pas d'organisateurs pour annoncer la fin : chacun s'en va à son heure
+    if (!m.sauvage) this.voice(m, 'dispersion', DISPERSAL_TEXT);
     for (const id of m.ids) {
       const p = ctx.people.get(id);
       const b = p ? brainOf(p) : null;
@@ -852,7 +1093,16 @@ export class ManifsSystem implements GameSystem {
     this.core.voices.announce(kind, text, m.view.headX, m.view.headZ);
   }
 
+  /** Désignation à la radio : « le cortège « climat » », « le cortège sauvage ». */
+  private who(m: Manif): string {
+    return m.sauvage ? 'le cortège sauvage' : `le cortège « ${lower(m.cause.label)} »`;
+  }
+
   private announce(m: Manif, state: ManifEvent['state']): void {
+    if (m.sauvage) {
+      this.announceWild(m, state);
+      return;
+    }
     const v = m.view;
     const cause = lower(m.cause.label);
     let text: string;
@@ -871,6 +1121,31 @@ export class ManifsSystem implements GameSystem {
         break;
       default:
         text = `CENTRAL : fin de la manifestation « ${cause} » : les derniers manifestants se sont dispersés.`;
+        break;
+    }
+    this.ctx.radio.say({ channel: 'commandement', from: 'CENTRAL', priority: state === 'annonce' || state === 'depart' ? 2 : 1, text });
+    this.emit(m, state);
+  }
+
+  /** Annonces CENTRAL d'une manifestation sauvage : un cortège non déclaré, sans organisateurs. */
+  private announceWild(m: Manif, state: ManifEvent['state']): void {
+    const v = m.view;
+    let text: string;
+    switch (state) {
+      case 'annonce':
+        text = `À toutes les unités de CENTRAL : cortège non déclaré en formation, ${lower(v.from)}, ${approx(v.declared)} personnes. Pas de service d’ordre. Direction probable ${lower(v.to)}.`;
+        break;
+      case 'depart':
+        text = `CENTRAL : le cortège sauvage s’élance ${ofPlace(v.from)} en direction ${ofPlace(v.to)}, ${approx(Math.max(m.present, 1) * (v.declared / Math.max(1, v.planned)))} personnes.`;
+        break;
+      case 'arrivee':
+        text = `CENTRAL : la tête du cortège sauvage arrive ${lower(m.destName)}.`;
+        break;
+      case 'dispersion':
+        text = `CENTRAL : le cortège sauvage commence à se disperser, ${this.ctx.world.sectorName(v.headX, v.headZ)}.`;
+        break;
+      default:
+        text = `CENTRAL : fin de la manifestation sauvage partie ${ofPlace(v.from)} : les derniers manifestants se sont dispersés.`;
         break;
     }
     this.ctx.radio.say({ channel: 'commandement', from: 'CENTRAL', priority: state === 'annonce' || state === 'depart' ? 2 : 1, text });

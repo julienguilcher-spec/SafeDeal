@@ -5,7 +5,7 @@
 // Personne de valide n'est laissé à pied.
 import { describe, expect, it } from 'vitest';
 
-import type { GameContext, Person, Squad, Vehicle } from '@/core/contracts';
+import type { GameContext, Person, RayHit, Squad, Vehicle } from '@/core/contracts';
 import { createTestContext } from '@/core/testing';
 import { createSystems as world } from '@/world/query';
 import { createSystems as roles } from '@/sim/roles';
@@ -45,14 +45,57 @@ function treeOf(ctx: GameContext, root: Squad): Squad[] {
   return ctx.squads.list.filter((q) => rootOf(ctx, q).id === root.id);
 }
 
-/** Itinéraire routier d'au moins 450 m depuis le véhicule, sans revenir sur le bloc garé. */
+const aimHit = { hit: false, t: 0, x: 0, z: 0, nx: 0, nz: 0, kind: 'none', id: 0, height: 0 } as RayHit;
+const endHit = { hit: false, t: 0, x: 0, z: 0, nx: 0, nz: 0, kind: 'none', id: 0, height: 0 } as RayHit;
+
+/** Les 45 premiers mètres de l'itinéraire passent-ils sur un véhicule de police arrêté (autre que `v`) ? */
+function crossesParked(ctx: GameContext, v: Vehicle, path: readonly number[]): boolean {
+  let run = 0;
+  for (let i = 2; i < path.length && run < 45; i += 2) {
+    const ax = path[i - 2]!, az = path[i - 1]!;
+    const l = Math.hypot(path[i]! - ax, path[i + 1]! - az);
+    for (let d = 0; d < l && run + d < 45; d += 1.5) {
+      const x = ax + (path[i]! - ax) * (d / l), z = az + (path[i + 1]! - az) * (d / l);
+      for (const o of ctx.vehicles.list) {
+        if (o === v || o.faction !== 'police' || Math.abs(o.speed) > 0.5 || o.def.flying) continue;
+        const dx = x - o.x, dz = z - o.z;
+        const ofx = Math.sin(o.heading), ofz = Math.cos(o.heading);
+        if (Math.abs(dx * ofx + dz * ofz) < o.def.length * 0.5 + 1 && Math.abs(-dx * ofz + dz * ofx) < o.def.width * 0.5 + 1.2) return true;
+      }
+    }
+    run += l;
+  }
+  return false;
+}
+
+/**
+ * Itinéraire routier d'au moins 450 m depuis le véhicule, sans revenir sur le bloc garé. De préférence un itinéraire qui
+ * part droit devant lui (le joueur sort du bloc par l'avant puis tourne où il veut, il ne fait pas demi-tour au milieu
+ * de sa colonne garée), puis un itinéraire dont les premiers mètres ne traversent pas la colonne garée (la voiture de
+ * l'équipe drone, garée à côté du bloc) ; à défaut, n'importe lequel.
+ */
 function pickPath(ctx: GameContext, v: Vehicle): number[] {
   const path: number[] = [];
-  for (const r of [520, 480, 600, 450]) {
+  // (sortie par l'avant : l'itinéraire part d'un point à SORTIE m devant le véhicule, s'il y a la place d'y aller tout droit)
+  const fx = Math.sin(v.heading), fz = Math.cos(v.heading);
+  const SORTIE = 20;
+  const sx = v.x + fx * SORTIE, sz = v.z + fz * SORTIE;
+  const room = [0, 1, -1].every((s) => !ctx.world.raycast(v.x - fz * 1.2 * s, v.z + fx * 1.2 * s, sx - fz * 1.2 * s, sz + fx * 1.2 * s, endHit));
+  // (passe 3 : en dernier recours, le choix d'origine, sans exiger de tronçons franchissables — à la Concorde, la moto de
+  // la BRAV-M ne trouvait sinon aucun itinéraire)
+  for (const pass of room ? [0, 1, 2, 3] : [1, 2, 3]) for (const r of [520, 480, 600, 450]) {
+    const ahead = pass === 0;
     for (let k = 0; k < 16; k++) {
       const a = (k / 16) * Math.PI * 2;
       path.length = 0;
-      if (!ctx.world.findPath(v.x, v.z, v.x + Math.sin(a) * r, v.z + Math.cos(a) * r, 'vehicle', path) || path.length < 4) continue;
+      if (ahead) {
+        if (!ctx.world.findPath(sx, sz, v.x + Math.sin(a) * r, v.z + Math.cos(a) * r, 'vehicle', path, { heading: v.heading, uturn: 60 }) || path.length < 4) continue;
+        let i = 2;
+        while (i < path.length - 2 && Math.hypot(path[i]! - sx, path[i + 1]! - sz) < 15) i += 2;
+        if ((path[i]! - sx) * fx + (path[i + 1]! - sz) * fz < 0) continue;
+        path.unshift(v.x, v.z);
+      } else if (!ctx.world.findPath(v.x, v.z, v.x + Math.sin(a) * r, v.z + Math.cos(a) * r, 'vehicle', path) || path.length < 4) continue;
+      if (pass < 2 && crossesParked(ctx, v, path)) continue;
       let len = 0;
       let away = false;
       let ok = true;
@@ -62,6 +105,27 @@ function pickPath(ctx: GameContext, v: Vehicle): number[] {
         if (d > 60) away = true;
         else if (away && d < 45) ok = false;
       }
+      // (le dernier tronçon d'un itinéraire file en ligne droite de la chaussée au point demandé : il doit rester
+      // franchissable — à la Bastille, à l'est, le point tiré au hasard tombait hors de la carte, derrière des
+      // immeubles, et le joueur s'y arrêtait à 380 m sans jamais atteindre les 400 m de la mesure stricte)
+      // Le premier tronçon, lui, file en ligne droite du bloc garé jusqu'à la chaussée : à la Concorde, il traversait
+      // l'enclos de l'obélisque ; le joueur s'y faufilait entre les grilles et le VL qui le suivait restait coincé contre
+      // elles. Un joueur le contourne : on remplace ce tronçon par le chemin qui en fait le tour (celui d'un piéton, dont
+      // les tronçons hors des rues évitent murs et grilles), et on n'y garde que des tronçons franchissables par un
+      // fourgon (axe et flancs).
+      if (pass < 3 && ctx.world.raycast(path[0]!, path[1]!, path[2]!, path[3]!, endHit)) {
+        const leg: number[] = [];
+        if (ctx.world.findPath(path[0]!, path[1]!, path[2]!, path[3]!, 'foot', leg) && leg.length >= 4) path.splice(0, 4, ...leg);
+      }
+      let open = true;
+      for (let i = 2; i < path.length && open; i += 2) {
+        const ax = path[i - 2]!, az = path[i - 1]!, bx = path[i]!, bz = path[i + 1]!;
+        const l = Math.hypot(bx - ax, bz - az);
+        if (l < 0.5) continue;
+        const nx = -(bz - az) / l * 1.4, nz = (bx - ax) / l * 1.4;
+        for (const s of [0, 1, -1]) if (ctx.world.raycast(ax + nx * s, az + nz * s, bx + nx * s, bz + nz * s, endHit)) open = false;
+      }
+      if (!open && pass < 3) continue;
       if (ok && len < r * 1.6 && Math.hypot(path[path.length - 2]! - v.x, path[path.length - 1]! - v.z) > 440) return path;
     }
   }
@@ -76,7 +140,36 @@ function driveKeys(t: T, v: Vehicle, path: number[]): void {
   let back = 0;
   for (let k = 0; k < 1500; k++) {
     while (idx < path.length - 2 && Math.hypot(path[idx]! - v.x, path[idx + 1]! - v.z) < 12) idx += 2;
-    const dx = path[idx]! - v.x, dz = path[idx + 1]! - v.z;
+    let dx = path[idx]! - v.x, dz = path[idx + 1]! - v.z;
+    // obstacle sur la ligne droite jusqu'au point visé (le premier tronçon traverse parfois toute une place, à la
+    // Concorde la grille de l'obélisque) : le joueur le contourne — on vise à côté du point d'impact, en le longeant
+    // du côté du point visé
+    if (t.ctx.world.raycast(v.x, v.z, path[idx]!, path[idx + 1]!, aimHit) && aimHit.t * Math.hypot(dx, dz) < 25) {
+      let tx = -aimHit.nz, tz = aimHit.nx;
+      if (tx * (path[idx]! - aimHit.x) + tz * (path[idx + 1]! - aimHit.z) < 0) { tx = -tx; tz = -tz; }
+      dx = aimHit.x + aimHit.nx * 7 + tx * 8 - v.x;
+      dz = aimHit.z + aimHit.nz * 7 + tz * 8 - v.z;
+    }
+    // véhicule arrêté sur la ligne droite (sa propre colonne garée en travers de l'itinéraire) : le joueur passe à côté,
+    // du côté du point visé, en s'écartant tant que la ligne reste barrée
+    {
+      const l = Math.hypot(dx, dz) || 1;
+      const ux = dx / l, uz = dz / l;
+      const nose = v.def.length * 0.5 + 0.3;
+      let shift = 0;
+      for (let k = 0; k < 4; k++) {
+        const ax = v.x + ux * nose, az = v.z + uz * nose;
+        const bx = v.x + dx, bz = v.z + dz;
+        if (!t.ctx.vehicles.raycast(ax, az, bx, bz, aimHit, 'move') || !aimHit.hit || aimHit.kind !== 'vehicle' || aimHit.id === v.id
+          || aimHit.t * Math.hypot(bx - ax, bz - az) > 15) break;
+        const o = t.ctx.vehicles.get(aimHit.id);
+        if (!o || Math.abs(o.speed) > 0.5) break;
+        if (shift === 0) shift = (o.x - v.x) * -uz + (o.z - v.z) * ux > 0 ? -1 : 1;
+        const side = (o.def.width + v.def.width) * 0.5 + 1.5 + k * 3;
+        dx = o.x + -uz * shift * side + ux * (o.def.length * 0.5 + 3) - v.x;
+        dz = o.z + ux * shift * side + uz * (o.def.length * 0.5 + 3) - v.z;
+      }
+    }
     if (idx >= path.length - 2 && Math.hypot(dx, dz) < 8) break;
     const fwd = dx * Math.sin(v.heading) + dz * Math.cos(v.heading);
     const right = -dx * Math.cos(v.heading) + dz * Math.sin(v.heading);

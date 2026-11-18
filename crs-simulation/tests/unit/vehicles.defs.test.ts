@@ -8,15 +8,16 @@ const defs = createVehicleDefs();
 const byKind = new Map(defs.map((d) => [d.kind, d]));
 
 describe('définitions des véhicules', () => {
-  it('couvre les 22 types du contrat, une seule fois chacun', () => {
-    expect(defs.length).toBe(22);
-    expect(new Set(defs.map((d) => d.kind)).size).toBe(22);
+  it('couvre les 22 types du contrat et la voiture banalisée de la BAC, une seule fois chacun', () => {
+    expect(defs.length).toBe(23);
+    expect(new Set(defs.map((d) => d.kind)).size).toBe(23);
+    expect(VEHICLE_KINDS.length).toBe(23);
     for (const kind of VEHICLE_KINDS) expect(byKind.has(kind), kind).toBe(true);
   });
 
   it('enregistre les définitions dans le magasin du cœur et les expose par ctx.vehicles', async () => {
     const b = await createVehicleBench();
-    expect(b.ctx.vehicles.defs.length).toBe(22);
+    expect(b.ctx.vehicles.defs.length).toBe(23);
     for (const kind of VEHICLE_KINDS) {
       const def = b.ctx.vehicles.def(kind);
       expect(def, kind).toBeDefined();

@@ -82,12 +82,13 @@ export class Director implements DirectorApi {
 
   constructor(private readonly core: CrowdCore) {}
 
+  /** Parcours du cortège principal ; aucun en veille (le parcours interne n'est qu'un point, sans cortège). */
   get route(): readonly number[] {
-    return this.core.active ? this.core.route.points : NO_ROUTE;
+    return this.core.active && !this.core.veille ? this.core.route.points : NO_ROUTE;
   }
 
   get headProgress(): number {
-    return this.core.active ? this.core.formation.headS : 0;
+    return this.core.active && !this.core.veille ? this.core.formation.headS : 0;
   }
 
   reset(): void {
@@ -139,6 +140,30 @@ export class Director implements DirectorApi {
     this.nextHalt = this.departAt + sch.depart + core.rngEmo.range(T.HALT_EVERY_MIN, T.HALT_EVERY_MAX) * core.timeScale * 0.6;
     core.emotions.begin();
     this.setBase('rassemblement');
+  }
+
+  /**
+   * Début du mode veille (appelé à la mise en place) : aucune manifestation principale. Phase et phase de base restent
+   * 'aucune' (aucune transition, aucune fin), statistiques à zéro, pas de tension de fond ni de pression de la
+   * volatilité : la tension globale est le maximum des tensions locales (foyers, manifestations nées en cours de partie).
+   */
+  beginVeille(): void {
+    const core = this.core;
+    this.t0 = core.now;
+    this.phaseAt = core.now;
+    this.departAt = Infinity;
+    this.marchEnd = Infinity;
+    this.disperseEnd = Infinity;
+    this.afterEnd = Infinity;
+    this.nextHalt = Infinity;
+    this.ambient = 0;
+    this.tension = 0;
+    this.noPressure = true;
+    const s = this.stats;
+    s.total = s.present = s.dispersed = s.radicals = s.injured = s.arrested = 0;
+    this.centerX = this.homeX = core.rallyX;
+    this.centerZ = this.homeZ = core.rallyZ;
+    core.emotions.begin();
   }
 
   /** Retarde le départ (aléa). */
@@ -204,7 +229,8 @@ export class Director implements DirectorApi {
   /** Variation de la tension de fond, pour toute la manifestation (rumeur, vidéo virale, blessé grave). */
   addGlobal(amount: number, reason: string): void {
     const core = this.core;
-    if (!core.active || amount === 0) return;
+    // en veille, pas de manifestation principale dont la tension de fond pourrait varier
+    if (!core.active || core.veille || amount === 0) return;
     const a = amount > 0 ? amount * (0.5 + core.volatility) * (this.liaison ? 0.7 : 1) : amount;
     if (a < 0) this.soothe(-a);
     this.ambient = Math.min(1, Math.max(0, this.ambient + a));
@@ -244,7 +270,7 @@ export class Director implements DirectorApi {
   /** Les organisateurs annoncent la fin de la manifestation. */
   announceDispersal(reason: string): void {
     const core = this.core;
-    if (!core.active || this.base === 'dispersion' || this.base === 'apres_manif' || this.base === 'terminee') return;
+    if (!core.active || core.veille || this.base === 'dispersion' || this.base === 'apres_manif' || this.base === 'terminee') return;
     const now = core.now;
     const f = core.formation;
     f.marching = false;
@@ -269,6 +295,19 @@ export class Director implements DirectorApi {
     const core = this.core;
     if (!core.active) return;
     const now = core.now;
+    if (core.veille) {
+      // veille : relevé, tension (maximum local) et décroissance seulement ; ni cortège, ni phases, ni pression
+      if (now >= this.nextCount) {
+        this.nextCount = now + 0.5;
+        this.count();
+        this.veilleTension(0.5);
+      }
+      if (now >= this.nextSlow) {
+        this.nextSlow = now + 1;
+        this.decay();
+      }
+      return;
+    }
     if (now >= this.nextCount) {
       this.nextCount = now + 0.5;
       this.count();
@@ -370,6 +409,18 @@ export class Director implements DirectorApi {
     }
   }
 
+  /** Tension globale en veille : le maximum des tensions locales, lissé ; aucun état superposé n'est publié. */
+  private veilleTension(h: number): void {
+    const map = this.map;
+    const data = map.data;
+    let max = 0;
+    for (let i = 0; i < map.count; i++) {
+      const v = data[map.slot(i) * 2]!;
+      if (v > max) max = v;
+    }
+    this.tension += (max - this.tension) * (1 - Math.exp(-h / T.TENSION_SMOOTH));
+  }
+
   /** Décroissance : 0,01 par 10 s en durée standard, doublée quand l'équipe de liaison est au contact. */
   private decay(): void {
     const core = this.core;
@@ -396,7 +447,7 @@ export class Director implements DirectorApi {
   private pressure(): void {
     const core = this.core;
     const v = core.volatility;
-    if (!(v > 0) || this.noPressure) return;
+    if (!(v > 0) || this.noPressure || core.veille) return;
     const b = this.base;
     if (b === 'aucune' || b === 'rassemblement' || b === 'terminee') return;
     const since = core.now - this.departAt;

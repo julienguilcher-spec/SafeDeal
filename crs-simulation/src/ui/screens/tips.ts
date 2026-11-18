@@ -11,7 +11,7 @@ export interface Tip {
   roles?: readonly PlayableRole[];
 }
 
-const POLICE: readonly PlayableRole[] = ['crs', 'chef_groupe', 'commandant', 'commissaire', 'bravm', 'gendarme_centaure', 'operateur_canon_eau', 'telepilote'];
+const POLICE: readonly PlayableRole[] = ['crs', 'chef_groupe', 'commandant', 'commissaire', 'bravm', 'gendarme_centaure', 'operateur_canon_eau', 'telepilote', 'patrouille'];
 
 export const TIPS: readonly Tip[] = [
   { text: 'Une manifestation est déclarée, jamais « autorisée » : un cortège calme n’est pas une cible.' },
@@ -34,6 +34,8 @@ export const TIPS: readonly Tip[] = [
   { text: 'Canon à eau : jamais avant la dernière sommation, jamais à la tête, jamais à bout portant. Éteindre un feu est toujours permis.', roles: ['operateur_canon_eau'] },
   { text: 'Le drone voit, ne juge pas : pas de son, pas de reconnaissance des visages, pas d’intérieur des logements. Désignez sans erreur.', roles: ['telepilote'] },
   { text: 'BRAV-M : la moto amène, le passager intervient à pied. La moto n’est jamais une arme.', roles: ['bravm'] },
+  { text: 'En patrouille, CENTRAL ne voit que ce que vous lui dites : arrivé sur place, évaluez, rendez compte, puis demandez les renforts dont vous avez besoin.', roles: ['patrouille'] },
+  { text: 'BAC : en civil, on enfile le brassard « POLICE » avant d’intervenir. Deux-tons et gyrophare seulement en urgence.', roles: ['patrouille'] },
   { text: 'Triez avant de soigner : l’urgence absolue d’abord. Passez la main aux secours dès que cela dépasse le premier geste.', roles: ['street_medic', 'secouriste'] },
   { text: 'Une bonne image montre les deux camps. Au viseur, vous voyez mieux — et beaucoup moins autour de vous.', roles: ['journaliste'] },
   { text: 'Manifester est un droit. Après la dernière sommation, rester sur place devient un délit.', roles: ['manifestant'] },

@@ -233,9 +233,12 @@ describe('ordres « Me suivre à pied » et « Me suivre en colonne (véhicules)
     });
     const end = along(path, vl.x, vl.z);
     // frein tenu à l'arrêt ; la colonne finit de se ranger derrière
-    (ctx.input as { moveY: number }).moveY = -1;
+    // (à l'arrêt, la touche de frein tenue enclenche la marche arrière : le VL reculait de 25 m dans sa propre colonne
+    // pendant qu'elle finissait de se ranger — on ne freine que tant qu'il roule)
+    const brake = (): void => { (ctx.input as { moveY: number }).moveY = vl.speed > 0.3 ? -1 : 0; };
+    brake();
     for (let i = 0; i < 30; i++) {
-      t.step(2);
+      for (let k = 0; k < 20; k++) { t.step(0.1); brake(); }
       for (const v of fleet) minGap = Math.min(minGap, Math.hypot(v.x - vl.x, v.z - vl.z));
       if (fleet.every((v) => Math.hypot(v.x - vl.x, v.z - vl.z) < 110 && Math.abs(v.speed) < 0.3)) break;
     }
@@ -308,6 +311,9 @@ describe('ordres « Me suivre à pied » et « Me suivre en colonne (véhicules)
     driver.x = vl.x + 3; driver.z = vl.z;
     expect(ctx.vehicles.enter(driver, vl, 'driver')).toBe(true);
     me.x = vl.x + 3; me.z = vl.z;
+    // VL complet (l'état-major de la compagnie a pris les places libres quand le joueur a pris le volant) : un officier
+    // descend et laisse la sienne à son commandant
+    if (vl.seats.every((id) => id !== 0)) ctx.vehicles.exit(ctx.people.get(vl.seats[vl.seats.length - 1]!)!);
     expect(ctx.vehicles.enter(me, vl, 'passenger')).toBe(true);
     expect(vl.seats[0]).toBe(driver.id);
     expect(ap.driveTo(vl, path[path.length - 2]!, path[path.length - 1]!)).toBe(true);

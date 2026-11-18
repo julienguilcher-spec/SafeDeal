@@ -1,7 +1,7 @@
 // Testeur indépendant — TACTILE, seconde passe (compléments) : bande d'onglets au doigt, mini-plan, paramètres,
 // lancer de grenade au bouton « Action », saut, masque, roue d'ordres, tiroirs de la carte tactique, doigt annulé,
 // compte rendu et retour à l'accueil.  Usage : node tests/e2e/verif-tpm-tel2.mjs [--size=844x390] [--role=crs|chef_groupe] [--dpr=1]
-import { startServer, openPage, waitFor, frames, step, state, snap, J, R, makeChecker, fingers, rects } from './verif-tpm-lib.mjs';
+import { startServer, openPage, waitFor, ouvrirEditeur, frames, step, state, snap, J, R, makeChecker, fingers, rects } from './verif-tpm-lib.mjs';
 
 const args = Object.fromEntries(process.argv.slice(2).map((a) => a.replace(/^--/, '').split('=')));
 const [W, H] = (args.size ?? '844x390').split('x').map(Number);
@@ -31,6 +31,8 @@ const topButtons = () => page.evaluate(() => { const W = window.innerWidth, H = 
 try {
   await waitFor(page, 'window.__CRS && window.__CRS.ready === true', 400000);
   await waitFor(page, 'window.__CRS.ctx.ui.current === "menu_principal"', 60000);
+  // accueil en quatre modes : l'éditeur est la vue « Mode libre »
+  await ouvrirEditeur(page);
   await frames(page, 4);
 
   // ═════════════ accueil : bande d'onglets, mini-plan, paramètres ═════════════
@@ -103,6 +105,8 @@ try {
   });
   await safe('affluence', async () => {
     await tapSel('[data-id="tab-foule"]'); await frames(page, 3);
+    // nom et organisateurs de la manifestation précèdent l'affluence : le curseur est amené dans l'écran
+    await page.evaluate(() => document.querySelector('[data-id="affluence"]')?.scrollIntoView({ block: 'center' })); await frames(page, 2);
     const sl = (await rects(page, '[data-id="affluence"]'))[0];
     if (sl) await F.drag(2, sl.x + sl.w * 0.5, sl.y + sl.h / 2, sl.x + sl.w * 0.1, sl.y + sl.h / 2, 8);
     await frames(page, 3);

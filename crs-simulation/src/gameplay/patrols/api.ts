@@ -68,3 +68,9 @@ export interface PatrolsApi {
   /** Reprise de la patrouille (ordre « libre »). */
   resume(squadId: number, issuedBy?: EntityId): boolean;
 }
+
+// ── mode Patrouille (vacation du joueur) : types du répartiteur d'appels, définis dans model.ts ──
+export { PATROL_CALL_EVENT, PATROL_MODE_SERVICE, PATROL_MODE_SYSTEM_ID } from './model';
+export type {
+  BackupKind, CallKind, CallState, DispatchCall, PatrolCallEvent, PatrolModeApi, VacationConfig, VacationSummary,
+} from './model';

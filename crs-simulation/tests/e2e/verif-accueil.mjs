@@ -1,11 +1,14 @@
 // Testeur indépendant — page d'accueil : chaque rubrique, « Surprends-moi », inventaire des éléments.
-import { startServer, openPage, waitFor, frames, snap, log, J } from './verif-lib.mjs';
+import { startServer, openPage, waitFor, frames, snap, log, J, ouvrirEditeur } from './verif-lib.mjs';
 const server = await startServer();
 const { browser, page, errors } = await openPage(`${server.url}?quality=bas`, { width: 1280, height: 720 });
 try {
   await waitFor(page, 'window.__CRS && window.__CRS.ready === true', 300000);
   await waitFor(page, 'window.__CRS.ctx.ui.current === "menu_principal"', 60000);
   await snap(page, 'verif-accueil-0');
+  // accueil en quatre modes : le hub d'abord, puis l'éditeur du Mode libre (ses rubriques)
+  await ouvrirEditeur(page);
+  await snap(page, 'verif-accueil-libre');
   const inventory = () => page.evaluate(() => [...document.querySelectorAll('[data-id]')].filter((e) => {
     const b = e.getBoundingClientRect();
     return b.width > 0 && b.height > 0;

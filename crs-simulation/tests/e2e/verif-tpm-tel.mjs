@@ -1,6 +1,6 @@
 // Testeur indépendant — TÉLÉPHONE 844×390 et TABLETTE 1180×820 (émulation tactile), vrai jeu.
 // Usage : node tests/e2e/verif-tpm-tel.mjs [--size=844x390|1180x820] [--quality=bas|auto]
-import { startServer, openPage, waitFor, frames, step, state, snap, J, R, makeChecker, fingers, rects, overlap } from './verif-tpm-lib.mjs';
+import { startServer, openPage, waitFor, ouvrirEditeur, frames, step, state, snap, J, R, makeChecker, fingers, rects, overlap } from './verif-tpm-lib.mjs';
 
 const args = Object.fromEntries(process.argv.slice(2).map((a) => a.replace(/^--/, '').split('=')));
 const [W, H] = (args.size ?? '844x390').split('x').map(Number);
@@ -30,6 +30,8 @@ try {
   await waitFor(page, 'window.__CRS && window.__CRS.ready === true', 300000);
   await waitFor(page, 'window.__CRS.ctx.ui.current === "menu_principal"', 60000);
   report.bootMs = Date.now() - t0;
+  // accueil en quatre modes : l'éditeur est la vue « Mode libre »
+  await ouvrirEditeur(page);
   await frames(page, 4);
   await snap(page, `${tag}-accueil`);
 
@@ -82,7 +84,10 @@ try {
     // rôle CRS au doigt, poste lanceur
     C.check(await tapSel('[data-id="role-crs"]'), 'tuile « CRS » touchée');
     await frames(page, 3);
-    const postes = await rects(page, '[data-value="lanceur"]');
+    // la grille des rôles (13 tuiles) repousse les postes sous le pli : on les amène dans l'écran avant de toucher
+    await page.evaluate(() => document.querySelector('[data-value="lanceur"]')?.scrollIntoView({ block: 'center' }));
+    await frames(page, 2);
+    const postes = (await rects(page, '[data-value="lanceur"]')).filter((r) => r.visible && r.y >= 0 && r.y + r.h <= H);
     if (postes.length) { await F.tap(...center(postes[0])); await frames(page, 3); } else {
       // le poste peut être sous le pli : faire défiler la section au doigt
       await page.evaluate(() => document.querySelector('[data-value="lanceur"]')?.scrollIntoView({ block: 'center' }));
@@ -104,11 +109,14 @@ try {
     report.homeScroll = scr;
     if (scr) {
       const dy = Math.min(120, scr.h * 0.6);
-      await F.drag(1, scr.x, scr.y + dy / 2, scr.x, scr.y - dy / 2, 8);
+      // (le poste a pu être amené à l'écran en bas de la section : on glisse alors vers le haut de la liste)
+      const down = scr.max - scr.top > 20;
+      if (down) await F.drag(1, scr.x, scr.y + dy / 2, scr.x, scr.y - dy / 2, 8);
+      else await F.drag(1, scr.x, scr.y - dy / 2, scr.x, scr.y + dy / 2, 8);
       await page.waitForTimeout(500);
       await frames(page, 3);
       const top2 = await page.evaluate(() => document.querySelector('[data-verif-scroll]').scrollTop);
-      C.check(top2 > scr.top + 10, 'accueil : la section défile au doigt', `scrollTop ${scr.top} → ${top2} (max ${scr.max}, ${scr.cls})`);
+      C.check(down ? top2 > scr.top + 10 : top2 < scr.top - 10, 'accueil : la section défile au doigt', `scrollTop ${scr.top} → ${top2} (max ${scr.max}, ${scr.cls})`);
       await page.evaluate(() => { document.querySelector('[data-verif-scroll]').scrollTop = 0; });
     } else C.note('accueil : aucune zone défilante dans la section « Rôle »');
 
@@ -133,6 +141,9 @@ try {
     await page.evaluate(() => document.querySelector('[data-id="tab-foule"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
     C.check(await tapSel('[data-id="tab-foule"]'), 'onglet « Foule » touché');
     await frames(page, 4);
+    // nom et organisateurs de la manifestation précèdent l'affluence : le curseur est amené dans l'écran
+    await page.evaluate(() => document.querySelector('[data-id="affluence"]')?.scrollIntoView({ block: 'center' }));
+    await frames(page, 2);
     const sl = (await rects(page, '[data-id="affluence"]'))[0];
     const v0 = await page.evaluate(() => Number(document.querySelector('[data-id="affluence"]')?.getAttribute('aria-valuenow')));
     if (sl) {

@@ -2,8 +2,8 @@
 // N'écrit rien dans le code du jeu : scripts et captures seulement.
 import path from 'node:path';
 import { writeFileSync } from 'node:fs';
-import { startServer, openPage, waitFor, OUT, ROOT } from './lib.mjs';
-export { startServer, openPage, waitFor, OUT, ROOT };
+import { startServer, openPage, waitFor, OUT, ROOT, ouvrirEditeur } from './lib.mjs';
+export { startServer, openPage, waitFor, OUT, ROOT, ouvrirEditeur };
 
 export const frames = (page, n = 3) => page.evaluate((count) => new Promise((resolve) => {
   let k = 0;

@@ -31,6 +31,7 @@ const VIEWS: Readonly<Record<PlayableRole, MapVisibility>> = {
   gendarme_centaure: POLICE_VIEW,
   operateur_canon_eau: POLICE_VIEW,
   telepilote: POLICE_VIEW,
+  patrouille: POLICE_VIEW,
   secouriste: {
     police: true, rescue: true, crowd: 'full', hazards: 'full', incidents: 'secours', closures: true, metro: true,
     route: true, objectives: true, nearRadius: NEAR_RADIUS, radio: ['secours'],

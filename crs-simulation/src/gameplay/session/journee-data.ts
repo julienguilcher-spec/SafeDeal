@@ -96,7 +96,10 @@ export function baseOf(config: Pick<SessionConfig, 'extra'> | null | undefined):
   return SERVICE_BASE;
 }
 
-/** La session est-elle une journée de service (rôle de police, `extra.journee`) ? */
+/**
+ * La session est-elle une journée de service (rôle de police, `extra.journee`) ? Jamais pour l'équipage de patrouille :
+ * une voiture seule part de son secteur, sans prise de service à la caserne ni trajet en colonne.
+ */
 export function isJournee(config: Pick<SessionConfig, 'role' | 'extra'> | null | undefined): boolean {
-  return !!config && !!config.extra && config.extra['journee'] === true && isPoliceRole(config.role);
+  return !!config && !!config.extra && config.extra['journee'] === true && isPoliceRole(config.role) && config.role !== 'patrouille';
 }

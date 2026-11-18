@@ -63,6 +63,7 @@ export function defaultRankForRole(role: PlayableRole): PoliceRank | null {
     case 'crs':
     case 'bravm':
     case 'gendarme_centaure':
+    case 'patrouille':
       return 'gardien';
     case 'operateur_canon_eau':
     case 'telepilote':

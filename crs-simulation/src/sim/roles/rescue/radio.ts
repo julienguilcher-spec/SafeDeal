@@ -194,7 +194,8 @@ export class RescueRadio {
       return;
     }
     const p = this.phrases();
-    if (p && p.has('secours_en_route') && p.say('secours_en_route', { duree: `${minutes} minute${minutes > 1 ? 's' : ''}` }, { at: call })) return;
+    // (les phrases disent « {duree} minutes » : pour une seule minute, la formule au singulier ci-dessous)
+    if (minutes > 1 && p && p.has('secours_en_route') && p.say('secours_en_route', { duree: minutes }, { at: call })) return;
     const where = this.sector(call.x, call.z);
     const who = call.kind === 'pompiers' ? 'Sapeurs-pompiers' : 'Équipe médicale';
     this.say('CENTRAL', `ICI CENTRAL. ${who} en route${where !== '' ? ` vers ${where}` : ''}. Délai : ${minutes === 1 ? 'UNE' : DIGITS[minutes] ?? minutes} `

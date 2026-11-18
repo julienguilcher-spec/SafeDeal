@@ -229,7 +229,8 @@ export class Aleas {
   draw(): void {
     const core = this.core;
     const extra = core.extra;
-    if (extra['crowd.noAleas'] === true) return;
+    // en veille, pas de cortège : aucun aléa de cortège n'est tiré
+    if (core.veille || extra['crowd.noAleas'] === true) return;
     const rng = core.rngAlea;
     const sch = core.schedule;
     const t0 = core.now;
@@ -283,7 +284,7 @@ export class Aleas {
   /** Déclenche un aléa tout de suite (script de mission, essais). */
   trigger(id: string): boolean {
     const e = this.entries.find((x) => x.def.id === id);
-    if (!e || !this.core.active || e.info.status === 'en_cours') return false;
+    if (!e || !this.core.active || this.core.veille || e.info.status === 'en_cours') return false;
     return this.begin(e);
   }
 
@@ -325,7 +326,7 @@ export class Aleas {
   update(): void {
     const core = this.core;
     const now = core.now;
-    if (now < this.next) return;
+    if (core.veille || now < this.next) return;
     this.next = now + 1;
     const base = core.director.base;
     for (const e of this.entries) {

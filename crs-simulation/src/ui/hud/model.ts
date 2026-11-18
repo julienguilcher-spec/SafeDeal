@@ -10,6 +10,7 @@ import { compassBearing } from '@/core/math';
 
 export const POLICE_ROLES: readonly PlayableRole[] = [
   'crs', 'chef_groupe', 'commandant', 'commissaire', 'bravm', 'gendarme_centaure', 'operateur_canon_eau', 'telepilote',
+  'patrouille',
 ];
 
 export function isPoliceRole(role: PlayableRole): boolean {

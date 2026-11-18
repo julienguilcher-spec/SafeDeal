@@ -12,6 +12,7 @@
 import type { GameContext, GameMode } from '@/core/contracts';
 import type { ScreenInstance } from '@/core/extensions';
 import { HISTORY_SERVICE } from '@/gameplay/history/api';
+import { migrateLegacyPatrol } from '@/gameplay/patrols/model';
 import type { HistoryApi, HistoryEntry, HistoryOutcome } from '@/gameplay/history/api';
 import { clear, el, h } from '../core/dom';
 import { capitalize, dateLabel, durationLabel, hourLabel, int } from '../core/format';
@@ -30,7 +31,8 @@ export function readHistory(ctx: Pick<GameContext, 'service'>): HistoryApi | nul
 const MODE_LABELS: Readonly<Record<GameMode, string>> = {
   carriere: 'Carrière',
   libre: 'Mode libre',
-  monde_ouvert: 'Monde ouvert',
+  // identifiant interne de la patrouille (vacation d'équipage) ; les anciennes parties « Monde ouvert » s'y rangent
+  monde_ouvert: 'Patrouille',
   editeur: 'Éditeur',
   test: 'Partie d’essai',
 };
@@ -128,8 +130,10 @@ export function createHistoryScreen(env: UiEnv): (host: HTMLElement) => ScreenIn
 
     const replay = widgets.button('Rejouer ce scénario', () => {
       if (!history || !picked || ctx.session.phase !== 'menu') return;
-      const cfg = history.replayConfig(picked);
-      if (!cfg) return;
+      const raw = history.replayConfig(picked);
+      if (!raw) return;
+      // une ancienne partie « Monde ouvert » de l'accueil se rejoue en vacation de patrouille (comme « Continuer »)
+      const cfg = migrateLegacyPatrol(raw);
       // « Continuer » de la page d'accueil reprendra cette configuration
       new ScenarioStore(ctx.save).setLast(cfg);
       ctx.ui.close('historique');

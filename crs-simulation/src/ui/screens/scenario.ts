@@ -7,17 +7,35 @@
  *   draftFromConfig(c)        SessionConfig → brouillon (scénarios enregistrés, « Continuer », missions)
  *   surpriseDraft(rng, …)     « Surprends-moi » : tirage aléatoire cohérent
  *   summarize(d)              résumé du scénario en une ou deux phrases
+ *   suggestManifName(d)       nom de manifestation proposé d'après la cause et les organisateurs
+ *   columnsPreview(d)         colonnes engagées en journée de service, celle du joueur marquée
+ *
+ * Mode libre : nom et organisateurs de la manifestation, curseur « Imprévu » (0 à 3), lieu tiré au hasard, point de
+ * départ des colonnes. Chaque réglage laissé à sa valeur par défaut n'écrit AUCUNE clé : un brouillon par défaut
+ * produit exactement la configuration des versions précédentes.
+ * Mode « Patrouille » (identifiant interne 'monde_ouvert') : la configuration lancée est toujours une vacation
+ * (src/gameplay/patrols/model.ts) ; les anciennes configurations « Monde ouvert » y sont converties.
  * ===================================================================================== */
 
-import { basePreload, bravmBasePreload } from '@/gameplay/session/journee-data';
+import { createRng } from '@/core/rng';
+import {
+  RYTHME_AMBIANCE, crewInfo, migrateLegacyPatrol, nearestDepart, readImprevus, readVacation, sanitizePatrolSetup,
+  vacationSessionConfig,
+} from '@/gameplay/patrols/model';
+import type { PatrolCrew, PatrolRythme, PatrolSetup } from '@/gameplay/patrols/model';
+import { BASE_MAX_DIST, BASE_MIN_DIST, SERVICE_BASES, basePreload, bravmBasePreload, isJournee } from '@/gameplay/session/journee-data';
+import type { ServiceBase } from '@/gameplay/session/journee-data';
 import { sectionsFor } from '@/gameplay/session/manifestations';
 import type {
   DurationPreset, GameMode, PlayableRole, PolicePoste, PoliceRank, Rng, SessionConfig, ViolenceLevel, WeatherKind,
 } from '@/core/contracts';
-import type { CauseLike, CrowdFamily, Derapage, ScenarioExtra, ScenarioManif, ScenarioMeans, ScenarioOptions } from '../core/api';
+import type {
+  CauseLike, CrowdFamily, Derapage, Organisateurs, ScenarioExtra, ScenarioManif, ScenarioMeans, ScenarioOptions,
+} from '../core/api';
 import {
-  BLACK_BLOC_MAX, CROWD_MAX, CROWD_MIN, CROWD_STOPS, DEFAULT_CAUSES, DEFAULT_PLACES, DURATIONS, FAMILIES, FAMILY_IDS,
-  MEANS_LIMITS, POSTE_LABELS, WEATHERS, rankLabel, roleInfo, weatherLabel,
+  BLACK_BLOC_MAX, COLUMN_DEPARTS, CROWD_MAX, CROWD_MIN, CROWD_STOPS, DEFAULT_CAUSES, DEFAULT_PLACES, DURATIONS, FAMILIES,
+  FAMILY_IDS, IMPREVU_LEVELS, MEANS_LIMITS, ORGANISATEURS, ORGANISATEUR_IDS, ROLE_IDS, WEATHERS, posteLabel, rankLabel,
+  roleInfo, weatherLabel,
 } from './catalog';
 import { cardinalName, hourLabel, int, plural } from '../core/format';
 
@@ -56,7 +74,21 @@ export interface ScenarioDraft {
   seed: number;
   /** Manifestations déclarées supplémentaires, simultanées (0 à 3 ; la principale est celle du lieu choisi). */
   manifestations: ScenarioManif[];
+  /** Nom de la manifestation ('' : aucun ; l'écran propose suggestManifName). */
+  manifNom: string;
+  organisateurs: Organisateurs;
+  /** Curseur « Imprévu » : 0 « Comme annoncé », 1 « Quelques débordements » (défaut), 2 « Agité », 3 « Imprévisible ». */
+  imprevu: ImprevuLevel;
+  /** Lieu tiré au hasard au lancement (dans DEFAULT_PLACES, d'après la graine). */
+  lieuHasard: boolean;
+  /** Point de départ des colonnes (identifiant de COLUMN_DEPARTS). */
+  depart: string;
 }
+
+export type ImprevuLevel = 0 | 1 | 2 | 3;
+
+/** Longueur maximale du nom de la manifestation. */
+export const MANIF_NOM_MAX = 60;
 
 /** Nombre maximal de manifestations simultanées (la principale comprise). */
 export const MANIFS_MAX = 4;
@@ -67,10 +99,15 @@ const MODES: readonly ScenarioMode[] = ['carriere', 'libre', 'monde_ouvert'];
 const DERAPAGE_IDS: readonly Derapage[] = ['personne', 'foule', 'forces', 'les_deux', 'hasard'];
 const DURATION_IDS: readonly DurationPreset[] = ['courte', 'standard', 'longue', 'temps_reel'];
 const WEATHER_IDS: readonly WeatherKind[] = WEATHERS.map((w) => w.id);
-const ROLE_IDS: readonly PlayableRole[] = [
+/**
+ * Rôles tirés par « Surprends-moi » (ordre figé : même graine, même tirage qu'avant l'ajout de l'équipage de patrouille,
+ * qui se choisit lui-même : une voiture seule n'a pas sa place dans une manifestation tirée au hasard).
+ */
+const SURPRISE_ROLES: readonly PlayableRole[] = [
   'crs', 'chef_groupe', 'commandant', 'commissaire', 'bravm', 'gendarme_centaure', 'operateur_canon_eau', 'telepilote',
   'street_medic', 'secouriste', 'journaliste', 'manifestant',
 ];
+const COLUMN_DEPART_IDS: readonly string[] = COLUMN_DEPARTS.map((c) => c.id);
 
 function clamp(v: number, min: number, max: number): number {
   return v < min ? min : v > max ? max : v;
@@ -120,7 +157,18 @@ export function defaultDraft(violence: ViolenceLevel = 'realiste'): ScenarioDraf
     options: { sanctions: true, violence, circulation: 'ouverte', metro: 'ouvert', journee: true },
     seed: 1,
     manifestations: [],
+    manifNom: '',
+    organisateurs: 'intersyndicale',
+    imprevu: 1,
+    lieuHasard: false,
+    depart: 'auto',
   };
+}
+
+/** Nom assaini : une ligne, espaces resserrés, sans caractère de contrôle, MANIF_NOM_MAX caractères au plus. */
+export function cleanManifName(v: unknown): string {
+  if (typeof v !== 'string') return '';
+  return v.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, MANIF_NOM_MAX).trim();
 }
 
 /** Borne toutes les valeurs et rétablit la cohérence entre rôle, grade, poste et variante. */
@@ -188,6 +236,20 @@ export function sanitizeDraft(input: Partial<ScenarioDraft> | null | undefined, 
   const seed = num(d.seed, 1);
   out.seed = Math.abs(Math.trunc(seed)) % 1000000 || 1;
   out.manifestations = sanitizeManifs(d.manifestations);
+
+  out.manifNom = cleanManifName(d.manifNom);
+  out.organisateurs = ORGANISATEUR_IDS.indexOf(d.organisateurs) >= 0 ? d.organisateurs : 'intersyndicale';
+  const level = Math.round(num(d.imprevu, 1));
+  out.imprevu = (level < 0 ? 0 : level > 3 ? 3 : level) as ImprevuLevel;
+  out.lieuHasard = d.lieuHasard === true;
+  // départ des colonnes et case « journée de service » vont ensemble : « Déjà sur place » = pas de journée de service
+  const depart = typeof d.depart === 'string' && COLUMN_DEPART_IDS.indexOf(d.depart) >= 0 ? d.depart : 'auto';
+  if (depart === 'sur_place') {
+    out.depart = 'sur_place';
+    out.options = { ...out.options, journee: false };
+  } else {
+    out.depart = out.options.journee ? depart : 'sur_place';
+  }
   return out;
 }
 
@@ -315,9 +377,37 @@ export function causeLabelOf(id: string, causes: readonly CauseLike[]): string {
   return id;
 }
 
+/** Nombre de foyers « automatique » du module de foule (même règle que FoyersSystem.count, src/sim/crowd/foyers.ts). */
+export function autoFoyers(crowdSize: number, volatility: number): number {
+  if (crowdSize < 250 || volatility < 0.3) return 0;
+  const k = ((volatility - 0.25) / 0.75) * 4 * Math.min(1, crowdSize / 1800);
+  return clamp(Math.round(k + 0.2), 0, 4);
+}
+
+/** Lieu effectif d'un brouillon « lieu tiré au hasard » : un lieu de DEFAULT_PLACES d'après la graine, loin des autres manifestations. */
+export function randomPlace(d: Pick<ScenarioDraft, 'seed' | 'manifestations'>): typeof DEFAULT_PLACES[number] {
+  const free = DEFAULT_PLACES.filter((p) => d.manifestations.every((m) => Math.hypot(m.x - p.x, m.z - p.z) >= MANIF_APART));
+  return createRng(d.seed).fork('accueil:lieu').pick(free.length > 0 ? free : DEFAULT_PLACES);
+}
+
+/** Base imposée par le point de départ des colonnes (null : automatique ou déjà sur place). */
+function departBase(id: string): ServiceBase | null {
+  return COLUMN_DEPARTS.find((c) => c.id === id)?.base ?? null;
+}
+
 /** Construit la configuration de session lancée par le bouton « Lancer ». */
 export function buildSessionConfig(draft: ScenarioDraft): SessionConfig {
   const d = sanitizeDraft(draft, draft);
+  // Patrouille : toujours une vacation d'équipage (aucune manifestation fantôme)
+  if (d.mode === 'monde_ouvert') return patrolConfigOf(d);
+  const free = d.missionId === '';
+  // lieu tiré au hasard (scénario libre seulement : une mission a son lieu)
+  if (free && d.lieuHasard) {
+    const p = randomPlace(d);
+    d.place = p.name;
+    d.x = p.x;
+    d.z = p.z;
+  }
   const extra: ScenarioExtra = {
     scenario: 1,
     poste: d.poste,
@@ -330,15 +420,23 @@ export function buildSessionConfig(draft: ScenarioDraft): SessionConfig {
     moyens: { ...d.moyens },
     options: { ...d.options },
     // journée de service : départ d'une caserne ou d'un commissariat, trajet en colonne jusqu'au lieu — aussi en
-    // mission (la mission commence à l'arrivée sur place, voir missions/system.ts)
-    journee: d.options.journee && d.mode !== 'monde_ouvert',
+    // mission (la mission commence à l'arrivée sur place, voir missions/system.ts). Jamais pour l'équipage de
+    // patrouille : une voiture seule part de son secteur (journee-data.ts, isJournee).
+    journee: d.options.journee && d.role !== 'patrouille',
   };
-  // manifestations simultanées : jamais en mission (scénario propre) ni en patrouille libre
-  if (d.manifestations.length > 0 && d.missionId === '' && d.mode !== 'monde_ouvert') {
+  // manifestations simultanées : jamais en mission (scénario propre)
+  if (d.manifestations.length > 0 && free) {
     extra.manifestations = d.manifestations.map((m) => ({ ...m, tension: m.tension ?? d.tension, volatility: m.volatility ?? d.volatility }));
   }
-  // la caserne est loin du rassemblement : ses données sont chargées aussi avant la mise en place
-  if (extra.journee) (extra as unknown as Record<string, unknown>)['preload'] = d.moyens.bravm > 0 || d.role === 'bravm' ? [basePreload(), bravmBasePreload()] : [basePreload()];
+  if (free) applyLibre(d, extra);
+  if (extra.journee) {
+    // la caserne est loin du rassemblement : ses données sont chargées aussi avant la mise en place ; un point de
+    // départ choisi limite le choix de la session à cette seule base
+    const base = departBase(d.depart);
+    const main = base ? { candidates: [{ ...base }], minDist: 0, maxDist: 1e6, as: 'base' } : basePreload();
+    extra.preload = d.moyens.bravm > 0 || d.role === 'bravm' ? [main, bravmBasePreload()] : [main];
+    if (base) extra.depart = d.depart;
+  }
   const config: SessionConfig = {
     mode: d.mode as GameMode,
     missionId: d.missionId,
@@ -359,6 +457,79 @@ export function buildSessionConfig(draft: ScenarioDraft): SessionConfig {
     config.z = d.z;
   }
   return config;
+}
+
+/** Réglages du scénario libre : nom, organisateurs, imprévu, lieu tiré au hasard (aucune clé pour une valeur par défaut). */
+function applyLibre(d: ScenarioDraft, extra: ScenarioExtra): void {
+  if (d.manifNom !== '') extra['manif.nom'] = d.manifNom;
+  if (d.organisateurs !== 'intersyndicale' || d.manifNom !== '') extra['manif.organisateurs'] = d.organisateurs;
+  if (d.organisateurs === 'aucun') {
+    // appel lancé sur les réseaux : ni camion sono ni service d'ordre (type de journée du module de foule)
+    extra['crowd.sono'] = false;
+    extra['crowd.scenario'] = 'samedi_sans_organisateur';
+  }
+  if (d.lieuHasard) extra['lieu.hasard'] = true;
+  switch (d.imprevu) {
+    case 0:
+      extra.foyers = 0;
+      break;
+    case 2:
+      extra.foyers = Math.max(2, autoFoyers(d.crowdSize, d.volatility));
+      extra['foyers.delai'] = 240;
+      // (partie courte, 10 min : la manifestation sauvage tombe à 6 min, avant la fin — sinon de 10 à 15 min)
+      extra.imprevus = d.duration === 'courte' ? { sauvages: 1, premier: 360 } : { sauvages: 1 };
+      break;
+    case 3:
+      extra.foyers = 5;
+      extra['foyers.delai'] = 150;
+      extra['foyers.ecart'] = 120;
+      // (partie courte : les deux manifestations sauvages tombent à 4 et 7 min, avant la fin)
+      extra.imprevus = d.duration === 'courte' ? { sauvages: 2, premier: 240, ecart: 180 } : { sauvages: 2, premier: 300 };
+      break;
+    default:
+      break; // cran 1 : comportement du module de foule (foyers « automatique »)
+  }
+}
+
+/** Rythme de patrouille le plus proche d'une tension de départ. */
+function rythmeOf(tension: number): PatrolRythme {
+  let best: PatrolRythme = 'normal';
+  let bestD = Infinity;
+  for (const [id, amb] of Object.entries(RYTHME_AMBIANCE) as [PatrolRythme, { tension: number }][]) {
+    const dd = Math.abs(amb.tension - tension);
+    if (dd < bestD - 1e-9) { bestD = dd; best = id; }
+  }
+  return best;
+}
+
+/**
+ * Brouillon en mode Patrouille → vacation. Un brouillon d'équipage de patrouille garde équipage, place, grade, départ
+ * (celui du lieu, sinon le plus proche) et rythme (d'après la tension) ; tout autre rôle devient, comme une ancienne
+ * configuration « Monde ouvert », une vacation BAC au secteur le plus proche (migrateLegacyPatrol).
+ */
+function patrolConfigOf(d: ScenarioDraft): SessionConfig {
+  if (d.role !== 'patrouille') {
+    const legacy: SessionConfig = {
+      mode: 'monde_ouvert', missionId: '', role: d.role, rank: d.rank, place: d.place, timeOfDay: d.timeOfDay, weather: d.weather,
+      crowdSize: d.crowdSize, tension: d.tension, volatility: d.volatility, duration: d.duration, seed: d.seed,
+      extra: { scenario: 1, vent: { direction: d.windDir, vitesse: d.windSpeed }, options: { ...d.options } },
+    };
+    if (d.x !== null && d.z !== null) {
+      legacy.x = d.x;
+      legacy.z = d.z;
+    }
+    return migrateLegacyPatrol(legacy);
+  }
+  const crew: PatrolCrew = d.variante === 'police_secours' ? 'police_secours' : 'bac';
+  const departs = crewInfo(crew).departs();
+  const exact = departs.find((p) => (d.x !== null && d.z !== null ? Math.hypot(p.x - d.x, p.z - d.z) < 1 : p.name === d.place));
+  const depart = exact ?? (d.x !== null && d.z !== null ? nearestDepart(crew, d.x, d.z) : departs[0]!);
+  const setup: Partial<PatrolSetup> = {
+    crew, seat: d.poste === 'interpellation' ? 'chef_bord' : 'conducteur', rank: d.rank ?? 'gardien', departId: depart.id,
+    rythme: rythmeOf(d.tension), timeOfDay: d.timeOfDay, weather: d.weather, windDir: d.windDir, windSpeed: d.windSpeed,
+    duration: d.duration, seed: d.seed, violence: d.options.violence,
+  };
+  return vacationSessionConfig(sanitizePatrolSetup(setup));
 }
 
 /** Relit une configuration (enregistrée, ou préréglage de mission) comme brouillon. Tolère toute valeur absente. */
@@ -403,6 +574,28 @@ export function draftFromConfig(config: Partial<SessionConfig> | null | undefine
   if (isRecord(extra.moyens)) partial.moyens = extra.moyens as unknown as ScenarioMeans;
   if (isRecord(extra.options)) partial.options = extra.options as unknown as ScenarioOptions;
   partial.manifestations = Array.isArray(extra.manifestations) ? (extra.manifestations as ScenarioManif[]) : [];
+
+  // Mode libre : nom, organisateurs, imprévu, lieu tiré au hasard, départ des colonnes (absents : valeurs par défaut)
+  partial.manifNom = typeof extra['manif.nom'] === 'string' ? extra['manif.nom'] : '';
+  partial.organisateurs = typeof extra['manif.organisateurs'] === 'string' ? extra['manif.organisateurs'] as Organisateurs : 'intersyndicale';
+  partial.lieuHasard = extra['lieu.hasard'] === true;
+  const imprevus = readImprevus({ extra });
+  partial.imprevu = imprevus ? (imprevus.sauvages >= 2 ? 3 : 2) : extra.foyers === 0 ? 0 : 1;
+  partial.depart = typeof extra.depart === 'string' ? extra.depart : 'auto';
+
+  // vacation : l'équipage, sa place et son grade, son secteur ou commissariat de départ
+  const vacation = readVacation({ role: partial.role ?? base.role, extra });
+  if (vacation) {
+    partial.role = 'patrouille';
+    partial.rank = vacation.rank;
+    partial.variante = vacation.crew;
+    partial.poste = vacation.seat === 'chef_bord' ? 'interpellation' : 'conducteur';
+    partial.place = vacation.depart.name;
+    partial.x = vacation.depart.x;
+    partial.z = vacation.depart.z;
+    partial.tension = RYTHME_AMBIANCE[vacation.rythme].tension;
+    partial.volatility = RYTHME_AMBIANCE[vacation.rythme].volatility;
+  }
   return sanitizeDraft(partial, base);
 }
 
@@ -524,19 +717,33 @@ export function meansSummary(m: ScenarioMeans): string {
   return parts.length ? parts.join(' · ') : 'aucun moyen engagé';
 }
 
-/** Qui vous êtes : « Gardien de la paix, porte-bouclier ». */
+/** Qui vous êtes : « Gardien de la paix, porte-bouclier » ; « Gardien de la paix, chef de bord (BAC) ». */
 export function identityLabel(d: Pick<ScenarioDraft, 'role' | 'rank' | 'poste' | 'variante'>): string {
   const info = roleInfo(d.role);
   if (info.police) {
     const rank = rankLabel(d.rank, d.role);
-    const poste = d.poste ? POSTE_LABELS[d.poste] : '';
-    if (rank && poste && rank.toLowerCase() !== poste.toLowerCase()) return `${rank}, ${poste.toLowerCase()}`;
-    return rank || poste || info.name;
+    const poste = d.poste ? posteLabel(d.role, d.poste) : '';
+    const label = rank && poste && rank.toLowerCase() !== poste.toLowerCase() ? `${rank}, ${poste.toLowerCase()}` : rank || poste || info.name;
+    if (d.role === 'patrouille') {
+      const crew = info.variantes.find((v) => v.id === d.variante) ?? info.variantes[0];
+      return crew ? `${label} (${crew.label})` : label;
+    }
+    return label;
   }
   const v = info.variantes.find((x) => x.id === d.variante);
   if (d.role === 'secouriste' && v) return v.label;
   if (v) return `${info.name}, ${v.label.toLowerCase()}`;
   return info.name;
+}
+
+/** Libellé du cran du curseur « Imprévu ». */
+export function imprevuLabel(level: number): string {
+  return (IMPREVU_LEVELS.find((x) => x.level === level) ?? IMPREVU_LEVELS[1]!).label;
+}
+
+/** Libellé des organisateurs. */
+export function organisateursLabel(id: Organisateurs): string {
+  return (ORGANISATEURS.find((o) => o.id === id) ?? ORGANISATEURS[0]!).label;
 }
 
 /** Résumé du scénario en clair, pour le panneau « Votre scénario ». */
@@ -545,15 +752,25 @@ export function summarize(d: ScenarioDraft): string {
   const top = dominantFamily(d.composition);
   const topInfo = FAMILIES.find((f) => f.id === top)!;
   const bloc = Math.round(shares.black_bloc * 100);
-  const lieu = d.place || 'Paris';
+  const free = d.missionId === '';
+  const lieu = free && d.lieuHasard && d.mode !== 'monde_ouvert' ? 'Lieu tiré au hasard' : d.place || 'Paris';
   const where = `${lieu}, ${hourLabel(d.timeOfDay)}, temps ${weatherLabel(d.weather).toLowerCase()}.`;
   if (d.mode === 'monde_ouvert') {
-    return `${where} Patrouille libre, sans objectif imposé. Vous êtes ${withArticle(identityLabel(d))}.`;
+    // ce qui sera lancé : la vacation (un autre rôle devient un équipage BAC au secteur le plus proche)
+    const v = draftFromConfig(patrolConfigOf(d), d);
+    const crew = v.variante === 'police_secours' ? 'Police secours' : 'BAC';
+    const start = `Départ ${v.place}, ${hourLabel(v.timeOfDay)}, temps ${weatherLabel(v.weather).toLowerCase()}.`;
+    return `${start} Patrouille en ${crew} : la radio vous envoie sur ce qui se déclare dans Paris. Vous êtes ${withArticle(identityLabel(v))}.`;
   }
-  const crowd = `${int(d.crowdSize)} manifestants — ${d.causeLabel.toLowerCase()} —, ${topInfo.label.toLowerCase()} en tête`
+  const named = free && d.manifNom !== '' ? `« ${d.manifNom} » : ` : '';
+  const who = free && (d.manifNom !== '' || d.organisateurs !== 'intersyndicale')
+    ? (d.organisateurs === 'aucun' ? ', sans organisateur' : `, à l’appel : ${organisateursLabel(d.organisateurs).toLowerCase()}`)
+    : '';
+  const crowd = `${named}${int(d.crowdSize)} manifestants — ${d.causeLabel.toLowerCase()} —${who}, ${topInfo.label.toLowerCase()} en tête`
     + (bloc > 0 ? `, ${bloc} % de black bloc.` : ', sans black bloc.');
-  const mood = `Ambiance ${tensionLabel(d.tension)}, risque de débordement ${volatilityLabelMasc(d.volatility)}.`;
-  const others = d.manifestations.length > 0 && d.missionId === ''
+  const mood = `Ambiance ${tensionLabel(d.tension)}, risque de débordement ${volatilityLabelMasc(d.volatility)}.`
+    + (free ? ` Imprévu : ${imprevuLabel(d.imprevu).toLowerCase()}.` : '');
+  const others = d.manifestations.length > 0 && free
     ? ` En même temps : ${d.manifestations.map((m) => `${int(m.crowdSize)} manifestants (${m.causeLabel.toLowerCase()}) ${m.place}`).join(', ')}.`
     : '';
   return `${where} ${crowd}${others} ${mood} Vous êtes ${withArticle(identityLabel(d))}.`;
@@ -563,6 +780,108 @@ function withArticle(label: string): string {
   const lower = label.charAt(0).toLowerCase() + label.slice(1);
   if (/^(crs|brav|samu)/i.test(label)) return label;
   return lower;
+}
+
+/** Complément de la cause pour le nom proposé (« de l’hôpital », « des retraites », « pour le climat »). */
+function ofCause(label: string): string {
+  const l = label.charAt(0).toLowerCase() + label.slice(1);
+  if (/^[aeiouyhéèêâîôû]/i.test(l)) return 'pour l’' + l;
+  if (/s$/.test(l.split(' ')[0]!)) return 'pour les ' + l;
+  return 'pour le ' + l;
+}
+
+/** Nom de manifestation proposé d'après la cause et les organisateurs (MANIF_NOM_MAX caractères au plus). */
+export function suggestManifName(d: Pick<ScenarioDraft, 'causeLabel' | 'organisateurs'>): string {
+  const cause = d.causeLabel || 'Retraites';
+  const lower = cause.charAt(0).toLowerCase() + cause.slice(1);
+  let name: string;
+  switch (d.organisateurs) {
+    case 'collectif': name = `Marche citoyenne ${ofCause(cause)}`; break;
+    case 'coordination_etudiante': name = `Mobilisation étudiante — ${lower}`; break;
+    case 'aucun': name = `Appel à manifester — ${lower}`; break;
+    default: name = `Journée de mobilisation — ${lower}`; break;
+  }
+  return cleanManifName(name);
+}
+
+/** Colonne engagée (aperçu de la rubrique « Moyens engagés »). */
+export interface ColumnPreview {
+  id: string;
+  /** « Compagnie — 4 sections, 12 fourgons ». */
+  label: string;
+  /** D'où elle part : « depuis caserne de la Cité », « déjà sur place », « sur appel radio ». */
+  from: string;
+  /** Colonne du joueur. */
+  mine: boolean;
+}
+
+/** Base la mieux placée parmi des candidats (même règle que la session : écart à l'anneau min–max, voir core/session.ts). */
+function pickBase(candidates: readonly ServiceBase[], minDist: number, maxDist: number, x: number, z: number): ServiceBase | null {
+  let best: ServiceBase | null = null;
+  let bestGap = Infinity;
+  for (const c of candidates) {
+    const dd = Math.hypot(c.x - x, c.z - z);
+    const gap = dd < minDist ? minDist - dd : dd > maxDist ? dd - maxDist : 0;
+    if (gap < bestGap) {
+      bestGap = gap;
+      best = c;
+    }
+    if (gap === 0) break;
+  }
+  return best;
+}
+
+/**
+ * Colonnes engagées, déduites des moyens et du point de départ : la compagnie (sections et fourgons), la BRAV-M (depuis
+ * son propre commissariat), les engins (Centaure, canon à eau), l'équipe du drone, les secours. La colonne du joueur est
+ * marquée (une seule ; aucune pour un rôle civil). Hors journée de service, les forces sont déjà sur place.
+ */
+export function columnsPreview(draft: ScenarioDraft): ColumnPreview[] {
+  const d = sanitizeDraft(draft, draft);
+  const m = d.moyens;
+  const cfg = buildSessionConfig(d);
+  const journee = isJournee(cfg);
+  const x = typeof cfg.x === 'number' ? cfg.x : null;
+  const z = typeof cfg.z === 'number' ? cfg.z : null;
+  const chosen = departBase(d.depart);
+  const main = !journee ? null : chosen ?? (x !== null && z !== null ? pickBase(SERVICE_BASES, BASE_MIN_DIST, BASE_MAX_DIST, x, z) : null);
+  const mainFrom = !journee ? 'déjà sur place' : main ? 'depuis ' + main.name : 'depuis la base la mieux placée';
+  let bravmFrom = mainFrom;
+  if (journee && main && x !== null && z !== null) {
+    const b = bravmBasePreload();
+    const pick = pickBase(b.candidates, b.minDist, b.maxDist, x, z);
+    if (pick && Math.hypot(pick.x - main.x, pick.z - main.z) >= 300) bravmFrom = 'depuis ' + pick.name;
+  }
+  const role = d.role;
+  const out: ColumnPreview[] = [];
+  const add = (id: string, label: string, from: string, mine: boolean): void => {
+    out.push({ id, label, from, mine });
+  };
+  if (role === 'patrouille') {
+    const crew = roleInfo(role).variantes.find((v) => v.id === d.variante);
+    add('equipage', `Équipage ${crew ? crew.label : 'de patrouille'} — une voiture, trois policiers`, 'déjà sur place, à l’écart du rassemblement', true);
+  }
+  // un rôle à pied de la compagnie l'engage toujours (une section au moins, comme la mise en place)
+  const foot = role === 'crs' || role === 'chef_groupe' || role === 'commandant' || role === 'commissaire';
+  const sections = foot ? Math.max(1, m.sections) : m.sections;
+  if (sections > 0) {
+    const vans = m.fourgons > 0 ? `, ${plural(m.fourgons, 'fourgon', 'fourgons')}` : ', à pied';
+    add('compagnie', `Compagnie — ${plural(sections, 'section', 'sections')}${vans}`, mainFrom, foot);
+  }
+  const bravm = role === 'bravm' ? Math.max(1, m.bravm) : m.bravm;
+  if (bravm > 0) add('bravm', `BRAV-M — ${plural(bravm, 'groupe', 'groupes')} de motos`, bravmFrom, role === 'bravm');
+  const centaure = role === 'gendarme_centaure' ? Math.max(1, m.centaure) : m.centaure;
+  if (centaure > 0) add('centaure', centaure > 1 ? `${centaure} Centaure (gendarmerie)` : 'Centaure (gendarmerie)', mainFrom, role === 'gendarme_centaure');
+  const canon = role === 'operateur_canon_eau' ? Math.max(1, m.canon_eau) : m.canon_eau;
+  if (canon > 0) add('canon_eau', canon > 1 ? `${canon} engins lanceurs d’eau` : 'Engin lanceur d’eau', mainFrom, role === 'operateur_canon_eau');
+  const drone = role === 'telepilote' ? Math.max(1, m.drone) : m.drone;
+  if (drone > 0) add('drone', `Équipe drone — ${plural(drone, 'appareil', 'appareils')}`, mainFrom, role === 'telepilote');
+  const pompier = role === 'secouriste' && d.variante !== 'samu';
+  const samu = role === 'secouriste' && d.variante === 'samu';
+  const rescueFrom = (mine: boolean): string => (m.secours_sur_appel && !mine ? 'sur appel radio' : 'déjà sur place');
+  if (m.pompiers > 0 || pompier) add('pompiers', `Sapeurs-pompiers — ${plural(Math.max(1, m.pompiers), 'engin', 'engins')}`, rescueFrom(pompier), pompier);
+  if (m.samu > 0 || samu) add('samu', `SAMU — ${plural(Math.max(1, m.samu), 'équipe', 'équipes')}`, rescueFrom(samu), samu);
+  return out;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────
@@ -624,7 +943,7 @@ export function surpriseDraft(rng: Rng, sources: SurpriseSources = {}): Scenario
   const d: ScenarioDraft = { ...base, mode: 'libre', missionId: '' };
 
   // rôle, grade, poste
-  d.role = rng.pick(ROLE_IDS);
+  d.role = rng.pick(SURPRISE_ROLES);
   const info = roleInfo(d.role);
   d.rank = info.ranks.length ? rng.pick(info.ranks) : null;
   d.poste = info.postes.length ? rng.pick(info.postes) : null;
@@ -717,11 +1036,16 @@ export function surpriseDraft(rng: Rng, sources: SurpriseSources = {}): Scenario
     journee: true,
   };
   d.seed = rng.int(1, 1000000);
+  // un samedi sans organisateur n'a ni service d'ordre ni sono ; l'imprévu est tiré en dernier, pour que les tirages
+  // précédents restent ceux des versions antérieures (même graine, même scénario)
+  d.organisateurs = arch.id === 'samedi_sans_organisateur' ? 'aucun' : 'intersyndicale';
+  d.imprevu = rng.int(1, 4) as ImprevuLevel;
   return sanitizeDraft(d, base);
 }
 
 /** Nom proposé pour un scénario enregistré : « République — 600 manifestants — 14 h 30 ». */
 export function suggestName(d: ScenarioDraft): string {
+  if (d.mode !== 'monde_ouvert' && d.missionId === '' && d.manifNom !== '') return `${d.manifNom} — ${hourLabel(d.timeOfDay)}`;
   const lieu = d.place.replace(/^(place|esplanade|parvis) (de la |de l’|de l'|des |du |de )?/i, '');
   const short = lieu.charAt(0).toUpperCase() + lieu.slice(1);
   if (d.mode === 'monde_ouvert') return `${short} — patrouille — ${hourLabel(d.timeOfDay)}`;

@@ -78,6 +78,8 @@ const ROW_REACH = 160;
 /** Attente maximale du stationnement (s) ; et tant qu'un véhicule décroché finit le trajet seul, loin du point. */
 const PARK_WAIT = 300;
 const PARK_WAIT_JOINING = 720;
+/** Voiture civile arrêtée devant un véhicule de la colonne en urgence : au-delà de tant de secondes, elle est dégagée. */
+const CIVIL_CLEAR = 20;
 const PLAYER_REMIND = 30;
 
 /**
@@ -541,6 +543,7 @@ export class ConvoyControl {
     for (let i = 0; i < n; i++) if (Math.abs(c.vehicles[i]!.speed) > 0.4 && now - c.stageT < max + 20) return;
     // les véhicules arrêtés : plus de pilote automatique (ils ne cherchent plus à se faufiler pendant le débarquement)
     for (const v of c.vehicles) ap.stop(v);
+    this.reportShort(c);
     this.beginDisembark(c);
   }
 
@@ -561,6 +564,8 @@ export class ConvoyControl {
       return;
     }
     const now = core.now;
+    for (const v of c.vehicles) this.clearCivilian(v);
+    for (const v of c.solo) this.clearCivilian(v);
     // un véhicule bloqué (garé en travers, embouteillage) ne doit pas immobiliser toute la colonne : il la quitte et
     // rejoint le point seul, en urgence ; les autres reforment la colonne et repartent
     if (now >= c.unstuckAt) {
@@ -638,10 +643,17 @@ export class ConvoyControl {
     // les véhicules partis seuls reprennent leur place pour le stationnement
     for (const v of c.solo) if (c.vehicles.indexOf(v) < 0) c.vehicles.push(v);
     c.solo.length = 0;
-    // toute la colonne à l'arrêt avant de se garer
-    for (let i = 0; i < c.vehicles.length; i++) if (Math.abs(c.vehicles[i].speed) > 0.4 && now - c.stageT < max + 20) return;
     const d = c.dest;
     const near = Math.hypot(lead.x - d.x, lead.z - d.z) < 60;
+    // colonne défaite loin du point (délai du trajet dépassé, tête arrêtée pour de bon) : chaque véhicule qui peut
+    // encore avancer finit le trajet seul et s'arrête à sa place derrière les autres — on ne débarquait pas où l'on
+    // était, à des centaines de mètres du point, pendant qu'un fourgon roulait encore vers lui, le joueur à bord
+    if (!near && this.finishAlone(c)) {
+      this.setStage(c, 'stationnement');
+      return;
+    }
+    // toute la colonne à l'arrêt avant de se garer
+    for (let i = 0; i < c.vehicles.length; i++) if (Math.abs(c.vehicles[i].speed) > 0.4 && now - c.stageT < max + 20) return;
     // véhicules encore loin (partis seuls par un autre chemin) : ils finissent le trajet et s'arrêtent derrière la file
     // (les garer d'ici, à des centaines de mètres, les ferait manœuvrer à travers la ville)
     const rowList = near ? c.vehicles.filter((v) => Math.hypot(v.x - d.x, v.z - d.z) < ROW_REACH) : c.vehicles;
@@ -658,8 +670,59 @@ export class ConvoyControl {
       this.setStage(c, 'stationnement');
     } else {
       // colonne arrêtée en route (rue coupée, obstacle) : on débarque où l'on est
+      this.reportShort(c);
       this.beginDisembark(c);
     }
+  }
+
+  /**
+   * Colonne arrêtée en route loin du point : les véhicules loin du point (à plus de 90 m) qui ne sont ni hors d'usage ni
+   * arrêtés pour de bon (plus de 40 s devant un obstacle) repartent seuls, en urgence, le plus proche du point en tête de
+   * la file d'arrivée. La colonne est rangée du plus proche au plus éloigné du point : le débarquement se fait devant
+   * celui qui en est le plus près. false si aucun véhicule ne repart.
+   */
+  private finishAlone(c: Convoy): boolean {
+    const core = this.core;
+    const ap = core.autopilot;
+    if (!ap || c.vehicles.length === 0) return false;
+    const d = c.dest;
+    const dist = (v: Vehicle): number => Math.hypot(v.x - d.x, v.z - d.z);
+    c.vehicles.sort((a, b) => dist(a) - dist(b));
+    let k = 0;
+    let moved = 0;
+    for (const v of c.vehicles) {
+      const st = ap.status(v);
+      const there = dist(v) < 90;
+      const hopeless = st.state === 'echec' || ((st.state === 'bloque' || st.state === 'attente') && st.mode === 'drive' && st.blockedFor > 40);
+      if (!there && !hopeless && core.usable(v)
+        && ap.driveTo(v, d.x, d.z, { urgence: true, speed: urgentSpeed(core), stopBefore: 4 + k * 9, avoid: this.crowdZones(c) })) moved++;
+      k++;
+    }
+    return moved > 0;
+  }
+
+  /**
+   * Voiture civile arrêtée qui barre la route à un véhicule de la colonne en urgence (deux-tons) depuis plus de
+   * CIVIL_CLEAR s, conducteur au volant ou non : elle se range — retirée de la chaussée, comme au départ échelonné. Une
+   * voiture « qui se range » pour la sirène restait sinon à l'arrêt, à deux mètres du VL de tête, et la colonne derrière
+   * elle, dix minutes durant, à plus d'un kilomètre du point. Jamais le véhicule du joueur. true si la voie est dégagée.
+   */
+  private clearCivilian(v: Vehicle): boolean {
+    const core = this.core;
+    const ap = core.autopilot;
+    if (!ap || v.siren === 0 || Math.abs(v.speed) > 0.3) return false;
+    const st = ap.status(v);
+    if ((st.state !== 'attente' && st.state !== 'bloque') || st.blockedFor < CIVIL_CLEAR || st.mode === 'idle') return false;
+    const o = obstacleOf(ap, v);
+    const ov = o !== 0 ? core.ctx.vehicles.get(o) : undefined;
+    if (!ov || ov.faction !== 'civil' || Math.abs(ov.speed) >= 0.3) return false;
+    const driver = ov.seats[0] !== 0 ? core.ctx.people.get(ov.seats[0]!) : undefined;
+    if (driver && driver.isPlayer) return false;
+    // (ni la voiture où le joueur est assis en passager : il serait éjecté sur la chaussée)
+    const me = core.ctx.player.person();
+    if (me && me.vehicleId === ov.id) return false;
+    core.ctx.vehicles.remove(ov.id);
+    return true;
   }
 
   private measure(c: Convoy): void {
@@ -696,9 +759,15 @@ export class ConvoyControl {
     let joining = false;
     const now = this.core.now;
     if (c.stallAt < c.stageT) c.stallAt = c.stageT;
+    const d = c.dest;
     for (let i = 0; i < c.vehicles.length; i++) {
       const v = c.vehicles[i];
       const st = ap.status(v);
+      // (véhicule qui finit le trajet seul, arrêté tout près du point derrière les autres : il est arrivé — il
+      // attendait sinon, à trente mètres du point, qu'un fourgon déjà garé lui laisse sa place, dix minutes durant)
+      if (st.mode === 'drive' && Math.abs(v.speed) < 0.5 && st.blockedFor > 6 && (st.state === 'attente' || st.state === 'bloque')
+        && Math.hypot(v.x - d.x, v.z - d.z) < 60 + c.vehicles.length * 10) ap.stop(v);
+      else if (st.mode === 'drive') this.clearCivilian(v);
       if (st.state === 'arrive' || st.mode === 'idle') parked++;
       else if (st.state === 'echec') failed++;
       // (un véhicule qui roule ou manœuvre réellement : le stationnement avance)
@@ -707,7 +776,9 @@ export class ConvoyControl {
       // il manœuvre, attend un passage, prend un autre itinéraire ; on l'attend jusqu'à ce qu'il s'arrête derrière la
       // file. Compté comme « plus rien ne bouge », ou au bout des cinq minutes du stationnement, il était arrêté là où il
       // était et son équipage débarquait à des centaines de mètres du point — le joueur passager avec lui)
-      if (st.mode === 'drive' && !(st.state === 'bloque' && st.blockedFor > 60)) {
+      // (arrêté depuis plus d'une minute — obstacle, personne qui ne s'écarte pas — : il ne rejoint plus ; en « attente »
+      // comme « bloqué », il retenait sinon tout le débarquement douze minutes)
+      if (st.mode === 'drive' && !((st.state === 'bloque' || st.state === 'attente') && st.blockedFor > 60)) {
         joining = true;
         c.stallAt = now;
       }
@@ -719,7 +790,27 @@ export class ConvoyControl {
     if (parked + failed < c.vehicles.length && now - c.stageT < (joining ? PARK_WAIT_JOINING : PARK_WAIT) && !deadlock) return;
     if (parked + failed < c.vehicles.length) for (const v of c.vehicles) ap.stop(v);
     this.measure(c);
+    // (tête restée en route, d'autres véhicules arrivés au point — partis seuls, voir finishAlone — : la ligne se forme
+    // devant celui qui en est le plus près, pas devant la tête, à des centaines de mètres de là)
+    const dist = (v: Vehicle): number => Math.hypot(v.x - c.dest.x, v.z - c.dest.z);
+    let best = 0;
+    for (let i = 1; i < c.vehicles.length; i++) if (dist(c.vehicles[i]) < dist(c.vehicles[best])) best = i;
+    if (best > 0 && dist(c.vehicles[0]) - dist(c.vehicles[best]) > 60) c.vehicles.unshift(c.vehicles.splice(best, 1)[0]);
+    this.reportShort(c);
     this.beginDisembark(c);
+  }
+
+  /**
+   * Fin du trajet : colonne arrêtée loin du point (rue coupée, place inaccessible) — elle le dit, avec la distance qui
+   * reste ; elle débarquait sinon en silence à des centaines de mètres du point, le chef la croyant sur place.
+   */
+  private reportShort(c: Convoy): void {
+    const core = this.core;
+    const lead = c.vehicles[0];
+    const squad = core.ctx.squads.get(c.status.squadId);
+    if (!squad || !lead || !c.hasDest) return;
+    const far = Math.hypot(lead.x - c.dest.x, lead.z - c.dest.z);
+    if (far > 120) core.say(squad.name, frame('CENTRAL', squad.name, 'Colonne arrêtée à ' + Math.round(far / 10) * 10 + ' mètres du point, accès bloqué. On débarque ici', false), 1, 'commandement', squad.leaderId);
   }
 
   private beginDisembark(c: Convoy): void {

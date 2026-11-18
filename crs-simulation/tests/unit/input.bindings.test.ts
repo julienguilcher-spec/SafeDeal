@@ -214,8 +214,9 @@ describe('entrées — réaffectation et persistance', () => {
   it('persistance par ctx.save (section « bindings ») à travers le contexte factice', () => {
     const { ctx, controls } = createFakeContext({ headless: true });
     const s = new BindingStore(ctx.save);
-    s.set('kbm', 'radio', 0, 'KeyY');
-    expect(controls.saved('bindings')).toEqual({ v: 1, kbm: { radio: ['KeyY'] }, gamepad: {} });
-    expect(new BindingStore(ctx.save).get('kbm', 'radio')).toEqual(['KeyY']);
+    // (KeyK : touche libre ; KeyY est réservée aux appels de CENTRAL, mode Patrouille)
+    s.set('kbm', 'radio', 0, 'KeyK');
+    expect(controls.saved('bindings')).toEqual({ v: 1, kbm: { radio: ['KeyK'] }, gamepad: {} });
+    expect(new BindingStore(ctx.save).get('kbm', 'radio')).toEqual(['KeyK']);
   });
 });

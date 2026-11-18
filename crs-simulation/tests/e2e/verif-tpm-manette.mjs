@@ -30,6 +30,14 @@ try {
     await tap(PAD.RIGHT);
     const dev = await page.evaluate(() => window.__CRS.ctx.input.device);
     C.check(dev === 'gamepad', 'la manette devient le périphérique actif', dev);
+    // hub : la croix va jusqu'à la tuile « Mode libre », Start ouvre la tuile focalisée
+    const hubTrail = [await focused()];
+    for (let i = 0; i < 4 && (await focused()) !== 'accueil-libre'; i++) { await tap(PAD.RIGHT); hubTrail.push(await focused()); }
+    C.check((await focused()) === 'accueil-libre', 'hub : tuile « Mode libre » atteinte à la croix', hubTrail.join(' > '));
+    await tap(PAD.START);
+    await frames(page, 3);
+    C.check(await page.evaluate(() => !!document.querySelector('[data-id="lancer"]')), 'Start ouvre la tuile focalisée (éditeur du Mode libre)', await focused());
+    await tap(PAD.RIGHT);
     const f1 = await focused();
     C.check(f1 === 'role-crs', 'croix droite : focus sur la première tuile de rôle', f1);
     await tap(PAD.A);
@@ -37,10 +45,12 @@ try {
     // chercher le poste « lanceur » à la croix
     const trail = [];
     let found = false;
+    // les postes forment une grille (deux par rangée sur cet écran) : bas jusqu'à « Porte-bouclier », puis droite
     for (let i = 0; i < 14 && !found; i++) {
       await tap(PAD.DOWN);
       const f = await focused(); trail.push(f);
       if (f === 'lanceur') found = true;
+      if (f === 'bouclier') { await tap(PAD.RIGHT); const g = await focused(); trail.push('→' + g); if (g === 'lanceur') found = true; else break; }
     }
     if (!found) for (let i = 0; i < 8 && !found; i++) { await tap(PAD.RIGHT); const f = await focused(); trail.push('→' + f); if (f === 'lanceur') found = true; }
     if (!found) for (let i = 0; i < 8 && !found; i++) { await tap(PAD.LEFT); const f = await focused(); trail.push('←' + f); if (f === 'lanceur') found = true; }
@@ -73,6 +83,14 @@ try {
     const tabFoule = await page.evaluate(() => document.querySelector('[data-id="tab-foule"]')?.getAttribute('aria-selected'));
     C.check(tabFoule === 'true', 'RB ×2 : section « Foule »', String(tabFoule));
     await tap(PAD.RIGHT);
+    // la rubrique commence par le nom et les organisateurs de la manifestation : l'affluence est plus bas
+    // appui d'une seule image : sous WebGL logiciel, une image dure ~0,4 s et un appui de trois images déclencherait la
+    // répétition automatique de la croix (un pas de plus que voulu)
+    const nudge = async (index) => { await padButton(page, index, 1); await frames(page, 1); await padButton(page, index, 0); await frames(page, 3); };
+    const trailFoule = [await focused()];
+    for (let i = 0; i < 10 && (await focused()) !== 'affluence'; i++) { await nudge(PAD.DOWN); trailFoule.push(await focused()); }
+    report.trailFoule = trailFoule;
+    console.log('  parcours vers l’affluence : ' + trailFoule.join(' > '));
     const f3 = await focused();
     const v0 = await page.evaluate(() => Number(document.querySelector('[data-id="affluence"]')?.getAttribute('aria-valuenow')));
     if (f3 === 'affluence') {

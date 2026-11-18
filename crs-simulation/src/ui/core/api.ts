@@ -132,12 +132,44 @@ export interface ScenarioExtra {
   options: ScenarioOptions;
   /** Journée de service effective (option cochée, rôle et mode qui s'y prêtent) : lue par src/gameplay/session. */
   journee: boolean;
+  /** Bases chargées avant la mise en place (journée de service : voir basePreload, src/gameplay/session/journee-data.ts). */
+  preload?: unknown[];
   /**
    * Manifestations déclarées SUPPLÉMENTAIRES, simultanées (absent : aucune) : lieu, effectif, cause, ambiance. Lu par le
    * module de foule (src/sim/crowd/manifs.ts) ; une compagnie est engagée sur chacune (src/gameplay/session/manifestations.ts).
    */
   manifestations?: ScenarioManif[];
+  /** Nom de la manifestation principale (60 caractères au plus ; absent : aucun nom donné). Repris par le briefing radio. */
+  'manif.nom'?: string;
+  /**
+   * Organisateurs de la manifestation principale (absent : intersyndicale, comportement par défaut). 'aucun' s'accompagne
+   * de crowd.sono = false et du type de journée « samedi sans organisateur ».
+   */
+  'manif.organisateurs'?: Organisateurs;
+  /** Lieu tiré au hasard au lancement (createRng(graine)) : relu par l'accueil pour garder la case cochée. */
+  'lieu.hasard'?: true;
+  /**
+   * Imprévus du Mode libre : manifestations sauvages programmées par le module de foule (src/sim/crowd/manifs.ts ;
+   * forme ImprevusConfig de src/gameplay/patrols/model.ts).
+   */
+  imprevus?: { sauvages: number; premier?: number; ecart?: number };
+  /** Foyers secondaires (curseur « Imprévu » : 0 au cran « Comme annoncé », imposé aux crans 2 et 3 ; voir src/sim/crowd/api.ts). */
+  foyers?: number;
+  'foyers.delai'?: number;
+  'foyers.ecart'?: number;
+  /** Camion sono interdit (manifestation sans organisateur). */
+  'crowd.sono'?: false;
+  /** Type de journée imposé à la foule (manifestation sans organisateur). */
+  'crowd.scenario'?: string;
+  /**
+   * Point de départ des colonnes choisi (identifiant de COLUMN_DEPARTS, ui/screens/catalog.ts) ; absent : automatique, ou
+   * déjà sur place quand la journée de service est décochée. Traduit en extra.preload limité à cette base.
+   */
+  depart?: string;
 }
+
+/** Organisateurs de la manifestation (libellés génériques : aucune organisation réelle n'est nommée). */
+export type Organisateurs = 'intersyndicale' | 'collectif' | 'coordination_etudiante' | 'aucun';
 
 /** Manifestation supplémentaire du scénario. */
 export interface ScenarioManif {

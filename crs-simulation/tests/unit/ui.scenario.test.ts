@@ -207,10 +207,24 @@ describe('ui/scénario — libellés', () => {
     expect(text).not.toMatch(/undefined|NaN|null/);
   });
 
-  it('résumé du monde ouvert sans manifestation', () => {
+  it('résumé de la patrouille (monde ouvert) : la vacation qui sera lancée, sans manifestation', () => {
     const text = summarize(sanitizeDraft({ ...defaultDraft(), mode: 'monde_ouvert' }));
-    expect(text).toContain('Patrouille libre');
+    expect(text).toContain('Patrouille en BAC');
+    expect(text).toContain('secteur');
+    expect(text).toContain('gardien de la paix, conducteur (BAC)');
     expect(text).not.toContain('manifestants');
+    expect(text).not.toMatch(/undefined|NaN|null/);
+  });
+
+  it('le mode monde ouvert se lance toujours en vacation (migration des anciennes configurations)', () => {
+    const c = buildSessionConfig(sanitizeDraft({ ...defaultDraft(), mode: 'monde_ouvert' }));
+    expect(c.mode).toBe('monde_ouvert');
+    expect(c.role).toBe('patrouille');
+    expect(c.crowdSize).toBe(0);
+    expect((c.extra as Record<string, unknown>)['crowd.veille']).toBe(true);
+    expect((c.extra as Record<string, unknown>)['journee']).toBe(false);
+    expect((c.extra as Record<string, unknown>)['vacation']).toBeTruthy();
+    expect(sanitizeSessionConfig({ ...c })).toEqual([]);
   });
 
   it('identité selon le rôle', () => {

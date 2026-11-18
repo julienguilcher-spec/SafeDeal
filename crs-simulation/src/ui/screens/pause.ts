@@ -11,6 +11,7 @@ import { clear, el, h } from '../core/dom';
 import { capitalize, hourLabel, stopwatch } from '../core/format';
 import type { UiEnv } from '../core/kit';
 import { isPoliceRole } from '../hud/model';
+import { readVacation } from '@/gameplay/patrols/model';
 import { sortObjectives } from '../hud/objectives';
 
 const KEY_ROWS: readonly { label: string; button: Button }[] = [
@@ -70,9 +71,13 @@ export function createPause(env: UiEnv): (host: HTMLElement) => ScreenInstance {
     }, 'secondary', 'restart');
     b3.dataset.id = 'pause-recommencer';
     const b4 = widgets.button('Terminer et voir le compte rendu', () => {
+      // vacation de patrouille (mode Patrouille) : on termine la vacation, pas une mission
+      const vacation = !!readVacation(ctx.session.config);
       widgets.confirm(host, {
-        title: 'Terminer la mission ?',
-        text: 'La partie s’arrête ici et le compte rendu d’opération est établi sur ce qui a été fait.',
+        title: vacation ? 'Terminer la vacation ?' : 'Terminer la mission ?',
+        text: vacation
+          ? 'La vacation s’arrête ici et le compte rendu de vacation est établi sur ce qui a été fait.'
+          : 'La partie s’arrête ici et le compte rendu d’opération est établi sur ce qui a été fait.',
         confirm: 'Terminer',
         onConfirm: () => ctx.session.end(true),
       });

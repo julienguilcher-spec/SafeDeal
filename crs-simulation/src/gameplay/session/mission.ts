@@ -641,6 +641,7 @@ export class MissionBriefSystem implements GameSystem {
       case 'gendarme_centaure': return 'Équipage Centaure';
       case 'operateur_canon_eau': return 'Canon à eau';
       case 'telepilote': return 'Télépilote';
+      case 'patrouille': return 'Équipage de patrouille';
       case 'secouriste': return 'Secours';
       case 'street_medic': return 'Street medic';
       case 'journaliste': return 'Journaliste';

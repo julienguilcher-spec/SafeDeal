@@ -2,7 +2,7 @@
 // cartes, roue d'ordres, radio, pause, paramètres (qualité en jeu), compte rendu, accueil, SECONDE session (Étoile, nuit).
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { startServer, openPage, waitFor, frames, step, snap, log, J, install, OUT, rss } from './verif-lib.mjs';
+import { startServer, openPage, waitFor, ouvrirEditeur, frames, step, snap, log, J, install, OUT, rss } from './verif-lib.mjs';
 const args = Object.fromEntries(process.argv.slice(2).map((a) => a.replace(/^--/, '').split('=')));
 const tag = args.tag ?? 'partie';
 const [W, H] = (args.size ?? '1280x720').split('x').map(Number);
@@ -37,6 +37,8 @@ const hudOverlaps = () => page.evaluate(() => {
   return { rects, over, horsEcran: out };
 });
 const launchFromHome = async ({ poste, lieu, hourSteps, meteo, affluence }) => {
+  // accueil en quatre modes : l'éditeur est la vue « Mode libre »
+  await ouvrirEditeur(page);
   await click('[data-id="tab-role"]');
   await click('[data-id="role-crs"]');
   if (poste) await click(`[data-value="${poste}"]`);

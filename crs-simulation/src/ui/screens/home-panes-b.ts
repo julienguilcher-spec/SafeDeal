@@ -1,21 +1,25 @@
 /* =====================================================================================
- * Page d'accueil — panneaux de réglages (2/2) : manifestation (affluence, cause, composition),
- * tension et durée, moyens engagés, options, scénarios enregistrés.
+ * Page d'accueil — panneaux de réglages (2/2) : manifestation (nom, organisateurs, affluence, cause, composition,
+ * curseur « Imprévu », lieu tiré au hasard), tension et durée, moyens engagés (point de départ et aperçu des
+ * colonnes), options, scénarios enregistrés.
  * ===================================================================================== */
 
 import type { DurationPreset, ViolenceLevel } from '@/core/contracts';
-import type { CrowdFamily, Derapage, SavedScenario, ScenarioMeans } from '../core/api';
+import type { CrowdFamily, Derapage, Organisateurs, SavedScenario, ScenarioMeans } from '../core/api';
 import { Txt, clear, el, h } from '../core/dom';
 import { dateLabel, decimal, hourLabel, int, percent, times } from '../core/format';
 import { icon } from '../core/icons';
 import {
-  BLACK_BLOC_MAX, CROWD_STOPS, DERAPAGES, DURATIONS, FAMILIES, MEANS_LABELS, MEANS_LIMITS,
+  BLACK_BLOC_MAX, COLUMN_DEPARTS, CROWD_STOPS, DERAPAGES, DURATIONS, FAMILIES, IMPREVU_LEVELS, MEANS_LABELS, MEANS_LIMITS,
+  ORGANISATEURS,
 } from './catalog';
 import type { HomeModel } from './home';
 import {
-  MANIFS_MAX, buildSessionConfig, compositionShares, defaultDraft, draftFromConfig, forceRatio, identityLabel, manifPlaces, recommendedMeans,
-  respaceManifs, simulatedCrowd, suggestName, tensionLabel, totalCrowd, volatilityLabel, withManifCount,
+  MANIFS_MAX, MANIF_NOM_MAX, buildSessionConfig, columnsPreview, compositionShares, defaultDraft, draftFromConfig,
+  forceRatio, identityLabel, imprevuLabel, manifPlaces, recommendedMeans, respaceManifs, simulatedCrowd, suggestManifName,
+  suggestName, tensionLabel, totalCrowd, volatilityLabel, withManifCount,
 } from './scenario';
+import type { ImprevuLevel } from './scenario';
 import { MAX_NAME_LENGTH } from './scenarios-store';
 
 function note(text: string, warn = false): HTMLElement {
@@ -28,9 +32,12 @@ export function buildFoule(model: HomeModel): HTMLElement {
   const { widgets, ctx } = model.env;
   const root = h('div');
   const d = model.draft;
-  if (d.mode === 'monde_ouvert') {
-    root.append(note('En monde ouvert, aucune manifestation n’est déclarée au départ : ces réglages servent si un rassemblement se forme en cours de patrouille.'));
-    (root.lastElementChild as HTMLElement).style.marginBottom = '12px';
+  const free = d.missionId === '';
+  if (free) root.append(buildIdentity(model));
+  else {
+    const p = note('La mission impose son scénario : nom, organisateurs, imprévus et lieu sont ceux de sa fiche. Affluence, cause et composition restent réglables.');
+    p.style.marginBottom = '12px';
+    root.append(p);
   }
 
   // affluence
@@ -55,7 +62,7 @@ export function buildFoule(model: HomeModel): HTMLElement {
   crowdSlider.el.dataset.id = 'affluence';
   crowdField.el.insertBefore(crowdSlider.el, crowdField.el.lastElementChild);
   root.append(crowdField.el);
-  if (d.mode !== 'monde_ouvert' && d.missionId === '') root.append(buildManifs(model));
+  if (free) root.append(buildManifs(model));
 
   // cause
   const chips = h('div', 'ui-chips');
@@ -122,7 +129,112 @@ export function buildFoule(model: HomeModel): HTMLElement {
   const compoHint = h('p', 'ui-field__hint', `Le black bloc se règle en part réelle du cortège (${BLACK_BLOC_MAX} % au plus) ; les autres familles se partagent le reste selon leur poids.`);
   compoHint.style.marginTop = '6px';
   root.append(compoHint);
+  if (free) root.append(buildImprevu(model));
   return root;
+}
+
+// ───────────────────────────── nom, organisateurs ─────────────────────────────
+
+/** Nom de la manifestation (avec un nom proposé) et organisateurs. */
+function buildIdentity(model: HomeModel): HTMLElement {
+  const { widgets } = model.env;
+  const box = h('div');
+  const d = model.draft;
+
+  const nameField = widgets.field('Nom de la manifestation', null, {
+    hint: 'Repris par la radio au briefing et dans le résumé. Laissé vide : la manifestation n’a pas de nom.',
+  });
+  const input = h('input', 'ui-input');
+  input.type = 'text';
+  input.maxLength = MANIF_NOM_MAX;
+  input.value = d.manifNom;
+  input.placeholder = suggestManifName(d);
+  input.setAttribute('aria-label', 'Nom de la manifestation');
+  input.setAttribute('autocomplete', 'off');
+  input.dataset.id = 'manif-nom';
+  input.addEventListener('input', () => model.update({ manifNom: input.value }));
+  input.addEventListener('change', () => {
+    input.value = model.draft.manifNom;
+  });
+  input.addEventListener('keydown', (e) => {
+    // Entrée valide le nom sans relancer la partie ; Échap rend la main à la navigation de la page
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      input.value = model.draft.manifNom;
+      input.blur();
+    }
+  });
+  const suggest = widgets.button('Proposer un nom', () => {
+    const name = suggestManifName(model.draft);
+    model.update({ manifNom: name });
+    input.value = model.draft.manifNom;
+  }, 'secondary', 'edit');
+  suggest.dataset.id = 'manif-nom-proposer';
+  nameField.el.insertBefore(el('div', 'ui-inline', input, suggest), nameField.el.lastElementChild);
+  box.append(nameField.el);
+
+  // organisateurs
+  const current = ORGANISATEURS.find((o) => o.id === d.organisateurs) ?? ORGANISATEURS[0]!;
+  const orgField = widgets.field('Organisateurs', null, { value: current.label, hint: current.desc });
+  const chips = h('div', 'ui-chips');
+  chips.setAttribute('role', 'group');
+  chips.setAttribute('aria-label', 'Organisateurs');
+  const buttons = new Map<Organisateurs, HTMLButtonElement>();
+  for (const o of ORGANISATEURS) {
+    const b = widgets.chip({
+      label: o.label,
+      selected: o.id === d.organisateurs,
+      onClick: () => {
+        model.update({ organisateurs: o.id });
+        orgField.setValue(o.label);
+        orgField.setHint(o.desc);
+        input.placeholder = suggestManifName(model.draft);
+        for (const [id, btn] of buttons) btn.setAttribute('aria-pressed', String(id === o.id));
+      },
+    });
+    b.dataset.id = 'org-' + o.id;
+    buttons.set(o.id, b);
+    chips.append(b);
+  }
+  orgField.el.insertBefore(chips, orgField.el.lastElementChild);
+  box.append(orgField.el);
+  return box;
+}
+
+// ───────────────────────────── imprévu, lieu tiré au hasard ─────────────────────────────
+
+/** Curseur « Imprévu » à quatre crans et case « Lieu tiré au hasard ». */
+function buildImprevu(model: HomeModel): HTMLElement {
+  const { widgets } = model.env;
+  const box = h('div');
+  const d = model.draft;
+  const level = (v: number): typeof IMPREVU_LEVELS[number] => IMPREVU_LEVELS.find((x) => x.level === v) ?? IMPREVU_LEVELS[1]!;
+  box.append(widgets.sectionTitle('Imprévu'));
+  const field = widgets.field('Imprévu', null, { value: level(d.imprevu).label, hint: level(d.imprevu).tip });
+  const slider = widgets.slider({
+    label: 'Imprévu',
+    min: 0, max: 3, step: 1, value: d.imprevu, variant: 'heat',
+    format: (v: number) => imprevuLabel(v),
+    onInput: (v: number) => {
+      const imprevu = Math.round(v) as ImprevuLevel;
+      model.update({ imprevu });
+      field.setValue(level(imprevu).label);
+      field.setHint(level(imprevu).tip);
+    },
+  });
+  slider.el.dataset.id = 'imprevu';
+  field.el.insertBefore(slider.el, field.el.lastElementChild);
+  box.append(field.el);
+
+  const hasard = widgets.toggle({
+    label: 'Lieu tiré au hasard',
+    hint: 'Le lieu du rassemblement est tiré parmi les grandes places au lancement, d’après la graine du hasard : vous le découvrez en arrivant.',
+    value: d.lieuHasard,
+    onChange: (lieuHasard: boolean) => model.update({ lieuHasard }),
+  });
+  hasard.el.dataset.id = 'lieu-hasard';
+  box.append(hasard.el);
+  return box;
 }
 
 // ───────────────────────────── manifestations simultanées ─────────────────────────────
@@ -281,10 +393,6 @@ export function buildMoyens(model: HomeModel): HTMLElement {
     clear(ratioEl);
     const d = model.draft;
     const { agents, per100 } = forceRatio(d);
-    if (d.mode === 'monde_ouvert') {
-      ratioEl.append(note(`${int(agents)} agents à pied engagés pour la patrouille.`));
-      return;
-    }
     const extra = d.manifestations.length > 0 ? ` (dont ${d.manifestations.length} compagnie${d.manifestations.length > 1 ? 's' : ''} sur les autres manifestations)` : '';
     const text = `${int(agents)} agents à pied${extra} pour ${int(totalCrowd(d))} manifestants, soit ${decimal(per100, 1)} pour 100. À Paris, on compte d’ordinaire 3 à 10 policiers et gendarmes pour 100 manifestants.`;
     const low = agents > 0 && (d.moyens.sections < 2 || per100 < 2);
@@ -300,6 +408,7 @@ export function buildMoyens(model: HomeModel): HTMLElement {
         const moyens: ScenarioMeans = { ...model.draft.moyens, [key]: value };
         model.update({ moyens });
         paintRatio();
+        paintColumns();
       },
     });
     stepper.el.dataset.id = 'moyen-' + key;
@@ -309,8 +418,63 @@ export function buildMoyens(model: HomeModel): HTMLElement {
     label: 'Secours sur appel',
     hint: 'Pompiers et SAMU ne sont pas sur place : on les demande par radio, ils arrivent après un délai réaliste.',
     value: model.draft.moyens.secours_sur_appel,
-    onChange: (value: boolean) => model.update({ moyens: { ...model.draft.moyens, secours_sur_appel: value } }),
+    onChange: (value: boolean) => {
+      model.update({ moyens: { ...model.draft.moyens, secours_sur_appel: value } });
+      paintColumns();
+    },
   });
+
+  // point de départ des colonnes et aperçu des colonnes engagées (la vôtre en gras)
+  const departField = widgets.field('Point de départ des colonnes', null);
+  const departChips = h('div', 'ui-chips');
+  departChips.setAttribute('role', 'group');
+  departChips.setAttribute('aria-label', 'Point de départ des colonnes');
+  const departButtons = new Map<string, HTMLButtonElement>();
+  const paintDepart = (): void => {
+    const cur = COLUMN_DEPARTS.find((c) => c.id === model.draft.depart) ?? COLUMN_DEPARTS[0]!;
+    departField.setValue(cur.label);
+    departField.setHint(cur.desc);
+    for (const [id, btn] of departButtons) btn.setAttribute('aria-pressed', String(id === cur.id));
+  };
+  for (const c of COLUMN_DEPARTS) {
+    const b = widgets.chip({
+      label: c.label,
+      selected: c.id === model.draft.depart,
+      onClick: () => {
+        // « Déjà sur place » = sans journée de service ; tout autre départ la rétablit
+        model.update({ depart: c.id, options: { ...model.draft.options, journee: c.id !== 'sur_place' } });
+        paintDepart();
+        paintColumns();
+      },
+    });
+    b.dataset.id = 'colonne-depart-' + c.id;
+    departButtons.set(c.id, b);
+    departChips.append(b);
+  }
+  departField.el.insertBefore(departChips, departField.el.lastElementChild);
+  const columns = h('ul', 'ui-columns');
+  columns.dataset.id = 'colonnes';
+  columns.setAttribute('aria-label', 'Colonnes engagées');
+  columns.style.cssText = 'list-style:none;margin:8px 0 0;padding:0;display:grid;gap:6px';
+  function paintColumns(): void {
+    clear(columns);
+    const list = columnsPreview(model.draft);
+    if (list.length === 0) {
+      columns.append(h('li', 'ui-sub', 'Aucune colonne engagée.'));
+      return;
+    }
+    for (const c of list) {
+      const li = h('li', 'ui-mean');
+      li.dataset.id = 'colonne-' + c.id;
+      if (c.mine) li.setAttribute('aria-current', 'true');
+      const title = h('div', 'ui-mean__label', c.mine ? `${c.label} — votre colonne` : c.label);
+      if (c.mine) title.style.fontWeight = '800';
+      li.append(el('div', undefined, title, h('div', 'ui-mean__hint', c.from.charAt(0).toUpperCase() + c.from.slice(1))));
+      columns.append(li);
+    }
+  }
+  paintDepart();
+  paintColumns();
   paintRatio();
   ratioEl.style.margin = '12px 0 4px';
   // moyens proportionnés à la manifestation (affluence, propension à dégénérer, black bloc)
@@ -321,7 +485,7 @@ export function buildMoyens(model: HomeModel): HTMLElement {
   adapt.dataset.id = 'moyens-adapter';
   const adaptRow = el('div', 'ui-inline', adapt);
   adaptRow.style.margin = '0 0 12px';
-  root.append(adaptRow, grid, ratioEl, onCall.el);
+  root.append(adaptRow, grid, ratioEl, onCall.el, widgets.sectionTitle('Colonnes'), departField.el, columns);
   return root;
 }
 
@@ -344,7 +508,11 @@ export function buildOptions(model: HomeModel): HTMLElement {
     label: 'Journée de service (départ de la caserne)',
     hint: 'Prise de service à la caserne de la Cité, puis trajet en colonne de fourgons, sirènes, jusqu’à la manifestation ; retour à la fin. Désactivé : vous commencez déjà sur place.',
     value: d.options.journee,
-    onChange: (value: boolean) => model.update({ options: { ...model.draft.options, journee: value } }),
+    // synchronisée avec le point de départ des colonnes : décochée = « Déjà sur place »
+    onChange: (value: boolean) => model.update({
+      options: { ...model.draft.options, journee: value },
+      depart: value ? (model.draft.depart === 'sur_place' ? 'auto' : model.draft.depart) : 'sur_place',
+    }),
   });
   journee.el.dataset.id = 'opt-journee';
 

@@ -83,6 +83,8 @@ const TABLE: Record<string, SpecInit> = {
   car_crs: { engine: LOURD(15), handling: H_LOURD, fire: F_LOURD, boardTime: 2.2 },
   vl_commandement: { engine: DIESEL(27), handling: H_FOURGON, fire: F_FOURGON, boardTime: 1.5 },
   voiture_police: { engine: ESSENCE(70, '4x4'), handling: H_SUV, fire: F_VOITURE, flippable: true },
+  // voiture banalisée de la BAC : berline puissante (≈ 80 W/kg), tenue de route de berline
+  voiture_bac: { engine: ESSENCE(80), handling: H_VOITURE, fire: F_VOITURE, flippable: true },
   fourgon_cellulaire: { engine: DIESEL(26), handling: H_FOURGON, fire: F_FOURGON, boardTime: 1.8 },
   centaure: {
     engine: LOURD(15.2, '4x4'), handling: H_BLINDE, fire: F_BLINDE, toughness: 0.12, boardTime: 2.0,

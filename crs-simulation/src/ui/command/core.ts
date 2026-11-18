@@ -330,6 +330,13 @@ export class CommandCore implements CommandApi {
     const far = me.vehicleId === 0 && this.farFor(s, me.x, me.z);
     // l'ordre est dit avant d'être exécuté : l'accusé de réception de l'unité vient après lui
     const say = (text: string): void => ctx.radio.say({ channel: 'commandement', from, priority: 1, personId: playerId, text });
+    // équipage sans unité subordonnée déjà à bord du véhicule du joueur (voiture de patrouille) : pas d'ordre à la radio
+    // dans l'habitacle, il reste à bord
+    if (column && me.vehicleId !== 0 && s.members.length > 0 && !ctx.squads.list.some((q) => q.parentId === s.id)
+      && s.members.every((id) => id === playerId || ctx.people.get(id)?.vehicleId === me.vehicleId)) {
+      ctx.ui.notify(`${s.name} : l’équipage est déjà à bord avec vous.`, 'info', 4);
+      return true;
+    }
     if (column && follow) {
       // loin d'un joueur à pied : la colonne vient jusqu'à lui (deux tons) et y reste à bord, prête à le suivre
       if (!far) say(`${s.name} ICI ${caller}. Me suivre en colonne : embarquez, prenez place derrière mon véhicule. PARLEZ.`);

@@ -17,6 +17,8 @@ const MASK = '<path d="M6 10a6 6 0 0 1 12 0v2.500a6 6 0 0 1-12 0z"/><circle cx="
 const FLAG = '<path d="M5 21.500V3.500"/><path d="M5 4.500h13l-3 4.250 3 4.250H5"/>';
 const GRENADE = '<rect x="8" y="8" width="8" height="12" rx="2"/><path d="M10 8V5.500h4V8M14 5.500l3 3"/>';
 const STAR = 'M12 3.500l2.500 5.200 5.700.700-4.200 4 1 5.700L12 16.400l-5 2.700 1-5.700-4.200-4 5.700-.700z';
+/** Berline vue de côté (base des pictogrammes de patrouille). */
+const CAR_BODY = '<path d="M2.500 17.500v-4l2.300-4.500h14.400l2.300 4.500v4M2.500 17.500h19M5 13h14"/><circle cx="7" cy="18" r="1.800"/><circle cx="17" cy="18" r="1.800"/>';
 
 export const ICONS = {
   // ── interface générale ──
@@ -109,6 +111,14 @@ export const ICONS = {
   role_secouriste: '<path d="M4 16a8 8 0 0 1 16 0"/><path d="M2.500 16h19v2.800h-19z"/><path d="M12 8V4.500M9.500 4.500h5"/><path d="M12 10.500v3.500M10.200 12.200h3.600"/>',
   role_journaliste: CAMERA,
   role_manifestant: PLACARD,
+  // équipage de patrouille : voiture banalisée, gyrophare aimanté sur le toit
+  role_patrouille: `${CAR_BODY}<path d="M11 7.500V5.500h2.500v2"/><path d="M8.500 4.500l-1-1M16 4.500l1-1"/>`,
+
+  // ── modes de jeu (tuiles de l'accueil) ──
+  mode_patrouille: `${CAR_BODY}<path d="M10.500 7.500V5h3v2.500"/><path d="M8 4l-1.200-1.200M16 4l1.200-1.200M12 2.500v-1"/>`,
+  mode_carriere: '<path d="M6 21.500l2-6.500M18 21.500l-2-6.500"/><circle cx="12" cy="9" r="6"/><path d="M12 5.800l1 2.100 2.300.300-1.700 1.600.400 2.300-2-1.100-2 1.100.400-2.300-1.700-1.600 2.300-.300z"/>',
+  mode_missions: '<rect x="4.500" y="3.500" width="15" height="18" rx="2"/><path d="M9 3.500V2h6v1.500M8 9h8M8 13h8M8 17h5"/>',
+  mode_libre: '<path d="M4 6.500h9M17 6.500h3M4 12h3M11 12h9M4 17.500h11M19 17.500h1"/><circle cx="15" cy="6.500" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="17.500" r="2"/><path d="M19.500 2.500l.700 1.300 1.300.700-1.300.700-.700 1.300-.700-1.300-1.300-.700 1.300-.700z"/>',
 
   // ── objets ──
   item_bouclier: SHIELD,

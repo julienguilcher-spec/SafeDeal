@@ -16,7 +16,7 @@
 // attendre le temps réel (et le cœur borne le temps réel par image à 0,1 s).
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { startServer, openPage, waitFor, finish, OUT } from './lib.mjs';
+import { startServer, openPage, waitFor, finish, ouvrirEditeur, OUT } from './lib.mjs';
 
 const args = Object.fromEntries(process.argv.slice(2).map((a) => a.replace(/^--/, '').split('=')));
 const only = (name) => !args.only || args.only === name;
@@ -74,6 +74,8 @@ async function launchFromHome(page, { poste, tap }) {
     if (tap) await loc.first().tap(options);
     else await loc.first().click(options);
   };
+  // accueil en quatre modes : l'éditeur est la vue « Mode libre »
+  await ouvrirEditeur(page);
   await click('[data-id="role-crs"]');
   if (poste) await click(`[data-value="${poste}"]`);
   await click('[data-id="tab-lieu"]');
@@ -120,6 +122,7 @@ async function bureau(server) {
     r.bootMs = Date.now() - tBoot;
     await waitFor(page, 'window.__CRS.ctx.ui.current === "menu_principal"', 60000);
     check(await page.evaluate(() => document.querySelector('.diag') === null), 'le panneau de diagnostic a disparu');
+    await ouvrirEditeur(page);
     check(await page.evaluate(() => document.querySelector('[data-id="role-commissaire"]') === null), 'pas de tuile « Commissaire » (commandant unique)');
     check(await page.evaluate(() => document.querySelector('[data-id="role-commandant"]') !== null), 'tuile « Commandant » présente');
     await capture('game-accueil');

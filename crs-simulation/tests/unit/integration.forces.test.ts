@@ -113,13 +113,18 @@ describe('intégration : forces de l’ordre réelles (assemblage 2)', () => {
     const toward = Math.atan2(CONCORDE.x - s.x, CONCORDE.z - s.z);
     expect(Math.abs(Math.atan2(Math.sin(toward - s.heading), Math.cos(toward - s.heading)))).toBeLessThan(0.05);
     expect(sc.stuck).toBe(0);
-    // véhicules garés DERRIÈRE l'unité et NEZ VERS LA SORTIE : rouler tout droit éloigne des collègues
+    // véhicules garés DERRIÈRE l'unité, dans l'axe du dispositif, NEZ VERS LA SORTIE RÉELLE de leur bloc
+    // (session/setup.ts, faceExit) : dos à l'unité si c'est de ce côté que le bloc sort le mieux, sinon (et à égalité)
+    // face à elle — le premier rang, celui du VL, mène alors la sortie
     const fx = Math.sin(s.heading), fz = Math.cos(s.heading);
     for (const v of ctx.vehicles.list) {
       if (v.kind !== 'fourgon_crs' && v.kind !== 'vl_commandement' && v.kind !== 'fourgon_cellulaire') continue;
       expect((v.x - s.x) * fx + (v.z - s.z) * fz).toBeLessThan(-10);
-      expect(Math.sin(v.heading) * fx + Math.cos(v.heading) * fz).toBeLessThan(-0.95);
-      // 60 m droit devant le capot : aucun collègue à pied dans le couloir du véhicule
+      const axis = Math.sin(v.heading) * fx + Math.cos(v.heading) * fz;
+      expect(Math.abs(axis)).toBeGreaterThan(0.95);
+      // dos à l'unité : 60 m droit devant le capot, aucun collègue à pied dans le couloir du véhicule (face à l'unité,
+      // les équipages en rang devant le bloc embarquent avant le départ)
+      if (axis > 0) continue;
       for (const p of ctx.people.list) {
         if (p.faction !== 'police' || p.vehicleId !== 0) continue;
         const along = (p.x - v.x) * Math.sin(v.heading) + (p.z - v.z) * Math.cos(v.heading);

@@ -20,12 +20,15 @@ function side(role: SeatRole, x: number, y: number, z: number, width: number): S
   return seat(role, x, y, z, (x < 0 ? -1 : 1) * (width / 2 + DOOR_GAP), z);
 }
 
-function carSeats(width: number, y: number, frontZ: number, rearZ: number): SeatDef[] {
+function carSeats(width: number, y: number, frontZ: number, rearZ: number, rear: 2 | 3 = 2): SeatDef[] {
   const off = width * 0.21;
-  return [
+  const seats = [
     side('driver', -off, y, frontZ, width), side('passenger', off, y, frontZ, width),
     side('passenger', -off, y, rearZ, width), side('passenger', off, y, rearZ, width),
   ];
+  // place du milieu de la banquette : elle sort par la portière droite (côté trottoir)
+  if (rear === 3) seats.push(seat('passenger', 0, y, rearZ, width / 2 + DOOR_GAP, rearZ - 0.5));
+  return seats;
 }
 
 function turret(kind: TurretDef['kind'], x: number, y: number, z: number, yawMin: number, yawMax: number, pitchMin: number, pitchMax: number, capacity: number, interval: number): TurretDef {
@@ -69,6 +72,8 @@ function build(): VehicleDef[] {
       [], { siren: true }));
   }
   out.push(def('voiture_police', 'Voiture de police', 'police', 0x8e949a, { l: 4.64, w: 1.84, h: 1.65, mass: 1600, wb: 2.73, top: 150, accel: 3.4, brake: 8.5, steer: 0.58 }, carSeats(1.84, 0.62, 0.35, -0.6), [], { siren: true }));
+  // voiture banalisée de la BAC : berline sans inscription, gyrophare aimanté et feux de calandre
+  out.push(def('voiture_bac', 'Voiture banalisée (BAC)', 'police', 0x2e3238, { l: 4.7, w: 1.83, h: 1.47, mass: 1450, wb: 2.8, top: 190, accel: 3.4, brake: 8.8, steer: 0.58 }, carSeats(1.83, 0.52, 0.33, -0.62, 3), [], { siren: true, beacons: true }));
   { // fourgon cellulaire : les cellules s'ouvrent par l'arrière
     const w = 2.05, len = 6.0, s = [side('driver', -0.5, 1.05, 1.65, w), side('passenger', 0.5, 1.05, 1.65, w)];
     rearRows(s, 8, 0.5, 1.0, 0.45, 0.8, 0, -(len / 2 + 0.9));

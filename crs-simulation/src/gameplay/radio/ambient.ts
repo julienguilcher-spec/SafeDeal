@@ -225,6 +225,12 @@ export class RadioAmbient {
       return;
     }
     const facts = this.observe();
+    // équipage de patrouille sans compagnie sur le terrain (vacation) : aucune unité ne rend compte à la voix ; un
+    // message d'ambiance serait prêté à une compagnie qui n'existe pas (les patrouilles de l'IA parlent d'elles-mêmes)
+    if (this.speakers.length === 0 && this.ctx.session.config?.role === 'patrouille') {
+      this.nextAt = now + this.rng.range(AMBIENT_MIN, AMBIENT_MAX);
+      return;
+    }
     const key = this.pickTopic(facts);
     // le canal est encombré : on réessaie bientôt plutôt que d'empiler de l'ambiance
     const channel = this.phrases.info(key)?.channel ?? 'unite';

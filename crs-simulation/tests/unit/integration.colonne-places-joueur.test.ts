@@ -322,14 +322,10 @@ describe('« Me suivre en colonne » : le joueur prend une place dans un véhicu
   it('commandant, au volant du VL, ordre donné à une section', async () => { await scenario({ role: 'commandant', seed: 37, seat: 'driver', ride: 'vl', before: false, section: true }); }, 900000);
   it('commandant, au volant du VL, part aussitôt l’ordre donné : la colonne embarque et le rattrape', async () => { await scenario({ role: 'commandant', seed: 38, seat: 'driver', ride: 'vl', before: true, wait: false }); }, 900000);
   it('République : commandant au volant du VL, attend puis part', async () => { await scenario({ role: 'commandant', seed: 41, seat: 'driver', ride: 'vl', before: false, where: 'republique' }); }, 900000);
-  // DÉFAUT HORS DE CE MODULE (signalé à part) — à réactiver quand il sera corrigé :
-  //  - République, joueur passager : le bloc est garé dans l'angle nord-ouest de la place, tourné « vers la sortie »,
-  //    c'est-à-dire nez à 6–8 m de l'angle de la rue Béranger, un fourgon de chaque côté du VL (3,6 m d'axe en axe).
-  //    L'itinéraire de son chauffeur part par la rue Béranger (sens unique, 68° sur sa droite) : le VL avance en
-  //    braquant, se coince en biais entre le mur et le fourgon voisin (« bloqué/mur »), et ni les demi-tours en
-  //    plusieurs temps ni un autre départ (essayé : rue du Temple, derrière lui) ne l'en sortent — seule une marche
-  //    arrière droite, prise avant de braquer, le dégagerait.
-  it.skip('République : commandant passager du VL resté dans le bloc', async () => { await scenario({ role: 'commandant', seed: 42, seat: 'passenger', ride: 'vl', before: true, where: 'republique' }); }, 900000);
+  // République, joueur passager : le bloc était garé en travers de la rue Béranger, quatre de front, le VL au bout ;
+  // l'itinéraire de son chauffeur traversait ses voisins (qui ne pouvaient reculer que d'un mètre et demi) et le VL
+  // restait coincé en biais. Les véhicules ne se garent plus en travers d'une rue étroite (police/units.ts, acrossRoad).
+  it('République : commandant passager du VL resté dans le bloc', async () => { await scenario({ role: 'commandant', seed: 42, seat: 'passenger', ride: 'vl', before: true, where: 'republique' }); }, 900000);
   // caserne de la Cité (là où commence chaque rôle de police) : les fourgons ne sont plus garés dans les cours fermées du
   // Palais, derrière le mur, mais en file sur le boulevard du Palais ; tout le monde embarque et suit
   it('caserne de la Cité : commandant au volant du VL, attend puis part', async () => { await scenario({ role: 'commandant', seed: 43, seat: 'driver', ride: 'vl', before: false, where: 'cite' }); }, 900000);

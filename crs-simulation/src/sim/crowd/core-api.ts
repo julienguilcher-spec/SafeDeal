@@ -12,6 +12,7 @@ import * as T from './tuning';
 export function createCoreApi(core: CrowdCore): CrowdCoreApi {
   return {
     get active(): boolean { return core.active; },
+    get veille(): boolean { return core.veille; },
     get members(): readonly Person[] { return core.members; },
     get groups(): readonly CrowdGroup[] { return core.groups; },
     get basePhase(): CrowdPhase { return core.director.base; },

@@ -2,7 +2,7 @@
 // (2) « Quitter vers l'accueil » ; (3) « Surprends-moi » puis « Lancer », deux fois : la partie démarre-t-elle sans erreur ?
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { startServer, openPage, waitFor, frames, step, snap, log, J, install, OUT, rss } from './verif-lib.mjs';
+import { startServer, openPage, waitFor, ouvrirEditeur, frames, step, snap, log, J, install, OUT, rss } from './verif-lib.mjs';
 const tag = 'surp';
 const R = { tag, runs: [] };
 const server = await startServer();
@@ -31,6 +31,8 @@ try {
     const n0 = errors.length;
     const r = { run };
     try {
+      // accueil en quatre modes : l'éditeur est la vue « Mode libre » (le hub s'affiche au retour)
+      await ouvrirEditeur(page);
       if (run > 0) { await click('[data-id="surprise"]'); await frames(page, 3); }
       r.resume = await resume(); log(`── partie ${run} :`, r.resume);
       const t0 = Date.now();

@@ -22,6 +22,10 @@
  * ou jusqu'à sa dispersion. Lieux : places réelles de Paris (routes-data.ts, lieux du catalogue), places de la
  * carte, à défaut points du réseau de rues, à 600–2 500 m du parcours déclaré (moins dans un petit quartier).
  *
+ * Déclaration à la volée (FoyersApi.declare, mode Patrouille) : un foyer qui commence tout de suite, dans un anneau
+ * demandé ; en veille (pas de manifestation principale), la distance au parcours ne compte pas et la fin de journée
+ * n'arrête rien. Ses tirages ont leur propre flux ('foule:foyers:declare') : le calendrier ne bouge pas.
+ *
  * Annonce : CENTRAL sur le canal commandement, événement libre 'crowd:foyer' (début, fin) ; service
  * 'crowd.foyers' (FoyersApi) pour l'interface et le commandement.
  *
@@ -35,7 +39,7 @@ import type {
 import { SystemOrder } from '@/core/contracts';
 import { CROWD_FOYERS, CROWD_FOYERS_SYSTEM, FOYER_EVENT } from './api';
 import type {
-  BehaviorController, CrowdFamily, CrowdGroup, FoyerEvent, FoyerKind, FoyerView, FoyersApi, GroupKind,
+  BehaviorController, CrowdFamily, CrowdGroup, FoyerDeclareSpec, FoyerEvent, FoyerKind, FoyerView, FoyersApi, GroupKind, NearRing,
 } from './api';
 import { A, F, S, brainOf } from './brain';
 import type { CrowdBrain } from './brain';
@@ -66,7 +70,7 @@ const DETAIL_RADIUS = 130;
 const DETAIL_EVERY = 30;
 
 /** Places de Paris où l'on se rassemble (nom tel que la carte le connaît, coordonnées de secours). */
-const PARIS_PLACES: readonly { name: string; x: number; z: number }[] = [
+export const PARIS_PLACES: readonly { name: string; x: number; z: number }[] = [
   { name: "Place de l'Hôtel de Ville", x: 2188, z: 982 },
   { name: 'Place du Châtelet', x: 1903, z: 916 },
   { name: 'Place de la République', x: 3133, z: -211 },
@@ -88,6 +92,8 @@ const GENERIC_WORDS: readonly string[] = [
   'allée', 'passage', 'porte', 'gare', 'parc', 'port', 'impasse', 'villa', 'cité', 'secteur', 'quartier',
 ];
 
+/** Slogans d'un rassemblement sans cause connue (mode veille : pas de manifestation du jour). */
+const RALLY_CHANTS: readonly string[] = ['Tous ensemble, tous ensemble !', 'Et la rue, elle est à qui ?', 'On ne lâche rien !'];
 const HOSTILE: readonly string[] = ['Hou ! Hou !', 'Honte à vous !', 'Laissez-nous tranquilles !', 'On est là ! On est là !'];
 const BLOCK_CHANTS: readonly string[] = ['On bloque tout !', 'Ici, on ne passe pas !', 'Tous ensemble ! Tous ensemble !'];
 
@@ -97,6 +103,15 @@ interface Foyer {
   readonly id: number;
   kind: FoyerKind;
   state: State;
+  /**
+   * Tirages du foyer : le flux 'foule:foyers' pour un foyer programmé (partagé, comme toujours), le flux
+   * 'foule:foyers:declare' pour un foyer déclaré à la volée — une déclaration ne décale jamais le calendrier.
+   */
+  rng: Rng;
+  rand: () => number;
+  /** Déclaré à la volée : lieu imposé, ou anneau où le chercher. */
+  fixed: { x: number; z: number; name: string } | null;
+  near: NearRing | null;
   /** Instant prévu, durée de vie, début effectif, fin prévue. */
   at: number;
   life: number;
@@ -191,6 +206,8 @@ export class FoyersSystem implements GameSystem {
   private nextReview = 0;
   private lastBase = '';
   private nextId = 1;
+  /** Flux des foyers déclarés à la volée (créé à la première déclaration de la session). */
+  private declareRng: Rng | null = null;
   private readonly rand = (): number => this.rng.next();
   private readonly v2: Vec2 = { x: 0, z: 0 };
   private readonly road: RoadSample = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '', roadClass: 'residential', oneway: false };
@@ -207,6 +224,9 @@ export class FoyersSystem implements GameSystem {
       foyerOf(id: EntityId): FoyerView | null {
         const t = self.ties.get(id);
         return t && t.f.state === State.ACTIVE ? t.f.view : null;
+      },
+      declare(spec: FoyerDeclareSpec): FoyerView | null {
+        return self.declare(spec);
       },
     };
     this.controller = {
@@ -242,6 +262,7 @@ export class FoyersSystem implements GameSystem {
     this.nextReview = 0;
     this.lastBase = '';
     this.nextId = 1;
+    this.declareRng = null;
   }
 
   update(): void {
@@ -261,9 +282,11 @@ export class FoyersSystem implements GameSystem {
     }
     if (now < this.nextTick) return;
     this.nextTick = now + TICK;
+    // la journée finie arrête les foyers ; en veille, il n'y a pas de journée (la phase reste 'aucune')
+    const over = base === 'terminee' && !core.veille;
     for (const f of this.foyers) {
       if (f.state === State.PENDING && now >= f.at) {
-        if (base === 'terminee' || !this.begin(f)) f.state = State.ENDED;
+        if (over || !this.begin(f)) f.state = State.ENDED;
       }
       if (f.state !== State.ACTIVE) continue;
       if (f.queue.length > 0) this.spawnSome(f, now);
@@ -274,7 +297,7 @@ export class FoyersSystem implements GameSystem {
     }
     if (now < this.nextReview) return;
     this.nextReview = now + REVIEW;
-    for (const f of this.foyers) if (f.state === State.ACTIVE) this.review(f, now, base === 'terminee');
+    for (const f of this.foyers) if (f.state === State.ACTIVE) this.review(f, now, over);
   }
 
   // ───────────────────────────── calendrier ─────────────────────────────
@@ -297,7 +320,8 @@ export class FoyersSystem implements GameSystem {
     const extra = core.extra;
     this.rng = this.ctx.rng.fork('foule:foyers');
     const n = FoyersSystem.count(config, core.size, core.volatility);
-    this.planned = n;
+    // (une déclaration à la volée a pu précéder le calendrier : elle reste comptée)
+    this.planned += n;
     if (n === 0) return;
     const k = clamp(core.timeScale, 0.6, 1.3);
     const rng = this.rng;
@@ -319,33 +343,83 @@ export class FoyersSystem implements GameSystem {
         // le premier foyer est d'ordinaire un rassemblement : la casse vient ensuite
         kind = i === 0 && rng.chance(0.6) ? 'rassemblement' : r < 0.55 ? 'rassemblement' : r < 0.8 ? 'blocage' : 'casseurs';
       }
-      const v = core.volatility;
-      let size: number;
-      if (Number.isFinite(forcedSize) && forcedSize > 0) size = Math.round(clamp(forcedSize, 3, 300));
-      else if (kind === 'rassemblement') size = Math.round(40 + 110 * Math.min(1, core.size / 2500) * (0.35 + 0.65 * rng.next()));
-      else if (kind === 'casseurs') size = Math.round(15 + 25 * rng.next());
-      else size = Math.round(25 + 35 * rng.next());
-      const span = Number.isFinite(life) && life > 0 ? life
-        : (kind === 'rassemblement' ? 480 + 420 * rng.next() : kind === 'casseurs' ? 300 + 300 * rng.next() : 360 + 360 * rng.next()) * k;
-      const f: Foyer = {
-        id: this.nextId++, kind, state: State.PENDING, at, life: span, startedAt: -1, endAt: Infinity, name: '', label: '',
-        ox: 0, oz: 0, cx: 0, cz: 0, queue: this.composition(kind, size, v), family: this.family(kind), planned: size, spawned: 0,
-        early: kind === 'casseurs' ? 0.6 : 0.4, ids: [], squadId: 0, groups: [], forming: [], formSize: 4, exits: [],
-        peak: 0, present: 0, nextTension: 0, nextChant: 0, response: '', responseAt: -1, chantUntil: -1,
-        shopId: 0, shopSince: 0, arrivedAt: -1, brokenAt: -1, done: [], detailAt: -1e9,
-        view: {
-          id: 0, kind, name: '', label: '', x: 0, z: 0, people: 0, startedAt: 0, tension: 0, kettled: false, squadId: 0,
-        },
-      };
-      (f.view as { id: number }).id = f.id;
-      this.foyers.push(f);
+      const size = Number.isFinite(forcedSize) && forcedSize > 0 ? Math.round(clamp(forcedSize, 3, 300)) : this.drawSize(kind, rng);
+      const span = Number.isFinite(life) && life > 0 ? life : this.drawLife(kind, k, rng);
+      this.foyers.push(this.build(kind, at, span, size, rng, this.rand));
       at += Number.isFinite(gap) && gap >= 0 ? gap : (150 + 210 * rng.next()) * k;
     }
   }
 
+  /**
+   * Effectif tiré selon la nature (un rassemblement grossit avec la manifestation du jour ; en veille, sans
+   * manifestation, on prend la référence d'une manifestation moyenne).
+   */
+  private drawSize(kind: FoyerKind, rng: Rng): number {
+    const ref = this.core.veille ? 1200 : this.core.size;
+    if (kind === 'rassemblement') return Math.round(40 + 110 * Math.min(1, ref / 2500) * (0.35 + 0.65 * rng.next()));
+    if (kind === 'casseurs') return Math.round(15 + 25 * rng.next());
+    return Math.round(25 + 35 * rng.next());
+  }
+
+  /** Durée de vie tirée selon la nature (s de jeu ; `k` : échelle de temps de la session). */
+  private drawLife(kind: FoyerKind, k: number, rng: Rng): number {
+    return (kind === 'rassemblement' ? 480 + 420 * rng.next() : kind === 'casseurs' ? 300 + 300 * rng.next() : 360 + 360 * rng.next()) * k;
+  }
+
+  /** Nouveau foyer en attente (composition puis famille tirées sur `rng`, dans cet ordre). */
+  private build(kind: FoyerKind, at: number, span: number, size: number, rng: Rng, rand: () => number): Foyer {
+    const f: Foyer = {
+      id: this.nextId++, kind, state: State.PENDING, rng, rand, fixed: null, near: null, at, life: span, startedAt: -1, endAt: Infinity,
+      name: '', label: '', ox: 0, oz: 0, cx: 0, cz: 0, queue: this.composition(kind, size, this.core.volatility, rng),
+      family: this.family(kind, rng), planned: size, spawned: 0, early: kind === 'casseurs' ? 0.6 : 0.4, ids: [], squadId: 0, groups: [],
+      forming: [], formSize: 4, exits: [], peak: 0, present: 0, nextTension: 0, nextChant: 0, response: '', responseAt: -1,
+      chantUntil: -1, shopId: 0, shopSince: 0, arrivedAt: -1, brokenAt: -1, done: [], detailAt: -1e9,
+      view: {
+        id: 0, kind, name: '', label: '', x: 0, z: 0, people: 0, startedAt: 0, tension: 0, kettled: false, squadId: 0,
+      },
+    };
+    (f.view as { id: number }).id = f.id;
+    return f;
+  }
+
+  // ───────────────────────────── déclaration à la volée ─────────────────────────────
+
+  /** FoyersApi.declare : un foyer qui se déclare tout de suite (voir api.ts). */
+  private declare(spec: FoyerDeclareSpec): FoyerView | null {
+    const core = this.core;
+    if (!core.active || !this.ctx) return null;
+    const kind = spec.kind;
+    if (kind !== 'rassemblement' && kind !== 'casseurs' && kind !== 'blocage') return null;
+    let running = 0;
+    for (const o of this.foyers) if (o.state === State.ACTIVE) running++;
+    if (running >= MAX_FOYERS) return null;
+    if (this.declareRng === null) this.declareRng = this.ctx.rng.fork('foule:foyers:declare');
+    const rng = this.declareRng;
+    const rand = (): number => rng.next();
+    const k = clamp(core.timeScale, 0.6, 1.3);
+    const size = typeof spec.size === 'number' && Number.isFinite(spec.size) && spec.size > 0 ? Math.round(clamp(spec.size, 3, 300)) : this.drawSize(kind, rng);
+    const span = typeof spec.life === 'number' && Number.isFinite(spec.life) && spec.life > 0 ? spec.life : this.drawLife(kind, k, rng);
+    const f = this.build(kind, this.ctx.clock.now, span, size, rng, rand);
+    const fx = spec.x;
+    const fz = spec.z;
+    if (typeof fx === 'number' && typeof fz === 'number' && Number.isFinite(fx) && Number.isFinite(fz)) {
+      const name = typeof spec.name === 'string' && spec.name.trim() !== '' ? spec.name.trim() : placeInSentence(this.ctx.world.sectorName(fx, fz));
+      f.fixed = { x: fx, z: fz, name };
+    } else if (spec.near) {
+      const r = spec.near;
+      if ([r.x, r.z, r.min, r.max].every((v) => typeof v === 'number' && Number.isFinite(v)) && r.max > r.min && r.max > 0) {
+        f.near = { x: r.x, z: r.z, min: Math.max(0, r.min), max: r.max };
+      }
+    }
+    // retiré si aucun lieu : l'identifiant consommé n'apparaît nulle part
+    if (!this.begin(f)) return null;
+    this.foyers.push(f);
+    this.planned++;
+    return f.view;
+  }
+
   /** Profils, dans l'ordre d'apparition (le tableau est dépilé par la fin : les premiers venus en dernier). */
-  private composition(kind: FoyerKind, size: number, v: number): ProtestProfile[] {
-    const rng = this.rng;
+  private composition(kind: FoyerKind, size: number, v: number, rng: Rng): ProtestProfile[] {
     const out: ProtestProfile[] = [];
     for (let i = 0; i < size; i++) {
       const r = rng.next();
@@ -366,8 +440,7 @@ export class FoyersSystem implements GameSystem {
     return out;
   }
 
-  private family(kind: FoyerKind): CrowdFamily {
-    const rng = this.rng;
+  private family(kind: FoyerKind, rng: Rng): CrowdFamily {
     if (kind === 'casseurs') return 'black_bloc';
     if (kind === 'blocage') return rng.pick<CrowdFamily>(['climat', 'etudiants', 'divers', 'agriculteurs']);
     return rng.pick<CrowdFamily>(['divers', 'divers', 'etudiants', 'gilets_jaunes', 'syndical']);
@@ -378,7 +451,7 @@ export class FoyersSystem implements GameSystem {
   private begin(f: Foyer): boolean {
     const core = this.core;
     const ctx = this.ctx;
-    const spot = this.pickPlace(f);
+    const spot = f.fixed ?? this.pickPlace(f);
     if (!spot) return false;
     const now = ctx.clock.now;
     f.state = State.ACTIVE;
@@ -390,11 +463,11 @@ export class FoyersSystem implements GameSystem {
     f.label = (f.kind === 'rassemblement' ? 'Rassemblement non déclaré — ' : f.kind === 'casseurs' ? 'Groupe de casseurs — ' : 'Blocage — ') + spot.name;
     f.squadId = ctx.squads.create('cortege', 'protest', f.label).id;
     f.nextTension = now + 10;
-    f.nextChant = now + 6 + 8 * this.rng.next();
+    f.nextChant = now + 6 + 8 * f.rng.next();
     f.shopSince = now;
     this.keepDetail(f, now);
     // issues propres au foyer : on repart par les rues voisines, pas vers le cortège
-    const first = core.nav.addExitsAround(spot.x, spot.z, this.rand);
+    const first = core.nav.addExitsAround(spot.x, spot.z, f.rand);
     for (let i = first; i < core.nav.exits.length; i++) f.exits.push(i);
     // les premiers sont déjà là quand la salle donne l'alerte
     const early = Math.max(1, Math.round(f.planned * f.early));
@@ -413,12 +486,15 @@ export class FoyersSystem implements GameSystem {
     return true;
   }
 
-  /** Choisit le lieu : loin du parcours déclaré et des autres foyers, dans la carte. */
+  /**
+   * Choisit le lieu : loin du parcours déclaré et des autres foyers, dans la carte ; dans l'anneau demandé pour un foyer
+   * déclaré à la volée. En veille, le parcours est réduit au point de la session : sa distance ne compte pas.
+   */
   private pickPlace(f: Foyer): { x: number; z: number; name: string } | null {
     const ctx = this.ctx;
     const world = ctx.world;
     const core = this.core;
-    const rng = this.rng;
+    const rng = f.rng;
     const b = world.bounds;
     const margin = 60;
     const inside = (x: number, z: number): boolean => x > b.minX + margin && x < b.maxX - margin && z > b.minZ + margin && z < b.maxZ - margin;
@@ -442,23 +518,33 @@ export class FoyersSystem implements GameSystem {
         cands.push({ x: pl.x, z: pl.z, name: pl.kind === 'square' || pl.kind === 'garden' ? pl.name : '', w, named: false });
       }
     }
-    // points du réseau de rues, tout autour du rassemblement
+    // points du réseau de rues, tout autour du rassemblement (dans l'anneau demandé : tout autour de son centre)
+    const near = f.near;
     const span = Math.min(DIST_MAX, Math.max(b.maxX - b.minX, b.maxZ - b.minZ) * 0.5);
+    const ox = near ? near.x : core.rallyX;
+    const oz = near ? near.z : core.rallyZ;
     for (let i = 0; i < 16; i++) {
       const a = rng.next() * Math.PI * 2;
-      const d = 150 + rng.next() * Math.max(100, span - 150);
-      const x = core.rallyX + Math.sin(a) * d;
-      const z = core.rallyZ + Math.cos(a) * d;
+      const d = near ? near.min + rng.next() * (near.max - near.min) : 150 + rng.next() * Math.max(100, span - 150);
+      const x = ox + Math.sin(a) * d;
+      const z = oz + Math.cos(a) * d;
       if (!world.nearestRoad(x, z, this.road, 80)) continue;
       cands.push({ x: this.road.x, z: this.road.z, name: '', w: f.kind === 'casseurs' ? 2 : 0.8, named: false });
     }
     // distance au parcours, une fois pour toutes (les plus proches du rassemblement d'abord écartées à vue)
     const kept: (Cand & { d: number })[] = [];
     const reach = DIST_MAX + this.routeSpan();
+    const veille = core.veille;
     for (const c of cands) {
-      if (!inside(c.x, c.z) || Math.hypot(c.x - core.rallyX, c.z - core.rallyZ) > reach) continue;
-      const d = this.distToRoute(c.x, c.z);
-      if (d >= DIST_MIN_TIERS[DIST_MIN_TIERS.length - 1]! && d <= DIST_MAX) kept.push({ ...c, d });
+      if (!inside(c.x, c.z)) continue;
+      if (near) {
+        const r = Math.hypot(c.x - near.x, c.z - near.z);
+        if (r < near.min || r > near.max) continue;
+      } else if (Math.hypot(c.x - core.rallyX, c.z - core.rallyZ) > reach) continue;
+      // en veille, pas de parcours : tous les paliers acceptent le lieu ; dans un anneau demandé, l'éloignement du
+      // parcours n'a pas de plafond (c'est l'appelant qui a choisi le secteur)
+      const d = veille ? DIST_MAX : Math.min(DIST_MAX, this.distToRoute(c.x, c.z));
+      if (d >= DIST_MIN_TIERS[DIST_MIN_TIERS.length - 1]! && (near !== null || d <= DIST_MAX)) kept.push({ ...c, d });
     }
     // les grandes places connues d'abord (un rassemblement sauvage s'y tient d'ordinaire)
     const pNamed = f.kind === 'rassemblement' ? 0.65 : f.kind === 'blocage' ? 0.35 : 0.3;
@@ -504,7 +590,7 @@ export class FoyersSystem implements GameSystem {
           if (cross.name !== '') name = cross.name;
         }
       }
-      if (!world.isFree(x, z, 0.4) && world.randomFreePoint(x, z, 25, 'any', this.rand, this.v2)) {
+      if (!world.isFree(x, z, 0.4) && world.randomFreePoint(x, z, 25, 'any', f.rand, this.v2)) {
         x = this.v2.x;
         z = this.v2.z;
       }
@@ -589,7 +675,7 @@ export class FoyersSystem implements GameSystem {
     const k = f.spawned++;
     // place personnelle : en spirale autour du centre (le meneur au milieu), ramenée vers le centre si elle tombe dans un mur
     const spacing = f.kind === 'blocage' ? 0.85 : f.kind === 'casseurs' ? 1.5 : 1.15;
-    const a = k * 2.39996 + this.rng.next() * 0.3;
+    const a = k * 2.39996 + f.rng.next() * 0.3;
     let r = spacing * Math.sqrt(k + 0.5);
     let ox = Math.sin(a) * r;
     let oz = Math.cos(a) * r;
@@ -602,17 +688,17 @@ export class FoyersSystem implements GameSystem {
     let z = f.cz + oz;
     if (!there) {
       // arrivée : d'une rue voisine, à 40–90 m
-      const b = this.rng.next() * Math.PI * 2;
-      const d = 40 + 50 * this.rng.next();
+      const b = f.rng.next() * Math.PI * 2;
+      const d = 40 + 50 * f.rng.next();
       x = f.cx + Math.sin(b) * d;
       z = f.cz + Math.cos(b) * d;
-      if (!world.randomFreePoint(x, z, 15, 'sidewalk', this.rand, this.v2) && !world.randomFreePoint(x, z, 25, 'any', this.rand, this.v2)) {
+      if (!world.randomFreePoint(x, z, 15, 'sidewalk', f.rand, this.v2) && !world.randomFreePoint(x, z, 25, 'any', f.rand, this.v2)) {
         this.v2.x = f.cx + ox;
         this.v2.z = f.cz + oz;
       }
       x = this.v2.x;
       z = this.v2.z;
-    } else if (!world.isFree(x, z, 0.3) && world.randomFreePoint(x, z, 6, 'any', this.rand, this.v2)) {
+    } else if (!world.isFree(x, z, 0.3) && world.randomFreePoint(x, z, 6, 'any', f.rand, this.v2)) {
       x = this.v2.x;
       z = this.v2.z;
     }
@@ -625,11 +711,11 @@ export class FoyersSystem implements GameSystem {
     b.anchorX = f.cx + ox;
     b.anchorZ = f.cz + oz;
     b.leaveAt = Infinity;
-    b.nextThink = core.now + this.rng.next() * 0.6;
+    b.nextThink = core.now + f.rng.next() * 0.6;
     if (!there) core.steering.goTo(p, b, b.anchorX, b.anchorZ, T.WALK_MAX * b.pace, false);
     this.ties.set(p.id, { f, ox, oz, settled: false });
     f.ids.push(p.id);
-    if (f.kind === 'casseurs' && profile === 'radical') this.equip(p);
+    if (f.kind === 'casseurs' && profile === 'radical') this.equip(p, f.rng);
     // groupes d'affinité de 3 à 6 : ils arrivent et repartent ensemble
     f.forming.push(p);
     if (f.forming.length >= f.formSize) this.flushGroup(f);
@@ -641,26 +727,26 @@ export class FoyersSystem implements GameSystem {
     const kind: GroupKind = f.kind === 'casseurs' ? 'noyau' : 'amis';
     const g = core.createGroup(kind, f.forming);
     f.forming.length = 0;
-    f.formSize = 3 + this.rng.int(0, 4);
+    f.formSize = 3 + f.rng.int(0, 4);
     g.family = f.family;
-    if (f.exits.length > 0) g.exit = f.exits[this.rng.int(0, f.exits.length)]!;
+    if (f.exits.length > 0) g.exit = f.exits[f.rng.int(0, f.exits.length)]!;
     const sq = this.ctx.squads.get(g.squadId);
     if (sq) sq.parentId = f.squadId;
     f.groups.push(g);
   }
 
   /** Outils d'un casseur, s'il n'en a pas déjà : marteau ou barre, pavés, bombe de peinture. */
-  private equip(p: Person): void {
+  private equip(p: Person, rng: Rng): void {
     const actions = this.ctx.actions;
     if (actions.defs.length === 0) return;
     const give = (id: 'marteau' | 'barre' | 'pave' | 'bombe_peinture', n = 1): void => {
       if (actions.def(id) !== undefined && actions.has(p, id) === 0) actions.give(p, id, n);
     };
-    const r = this.rng.next();
+    const r = rng.next();
     if (r < 0.45) give('marteau');
     else if (r < 0.7) give('barre');
-    if (this.rng.chance(0.45)) give('pave', 2);
-    if (this.rng.chance(0.3)) give('bombe_peinture');
+    if (rng.chance(0.45)) give('pave', 2);
+    if (rng.chance(0.3)) give('bombe_peinture');
   }
 
   // ───────────────────────────── bilan ─────────────────────────────
@@ -700,18 +786,18 @@ export class FoyersSystem implements GameSystem {
     }
     // slogans
     if (now >= f.nextChant && present >= 6 && f.kind !== 'casseurs') {
-      f.nextChant = now + (14 + 14 * this.rng.next()) * (1.2 - 0.5 * Math.min(1, tension));
+      f.nextChant = now + (14 + 14 * f.rng.next()) * (1.2 - 0.5 * Math.min(1, tension));
       const hostile = police < 50 && tension > 0.35;
       const chants = core.cause.chants;
       let call: string;
       let response = '';
-      if (hostile) call = this.rng.pick(HOSTILE);
-      else if (f.kind === 'blocage' && this.rng.chance(0.5)) call = this.rng.pick(BLOCK_CHANTS);
+      if (hostile) call = f.rng.pick(HOSTILE);
+      else if (f.kind === 'blocage' && f.rng.chance(0.5)) call = f.rng.pick(BLOCK_CHANTS);
       else if (chants.length > 0) {
-        const c = this.rng.pick(chants);
+        const c = f.rng.pick(chants);
         call = c.call;
         response = c.response;
-      } else call = this.rng.pick(BLOCK_CHANTS);
+      } else call = f.rng.pick(f.kind === 'rassemblement' ? RALLY_CHANTS : BLOCK_CHANTS);
       this.ctx.events.emit('crowd:chant', { x: f.cx, z: f.cz, text: call, intensity: Math.min(1, 0.4 + present / 200) });
       f.response = response;
       f.responseAt = response !== '' ? now + 2.2 : -1;
@@ -732,7 +818,7 @@ export class FoyersSystem implements GameSystem {
       for (const id of f.ids) {
         const p = ctx.people.get(id);
         const b = p ? brainOf(p) : null;
-        if (b && b.leaveAt === Infinity && b.docility < 0.5 && core.sense.kettleAt(p!.x, p!.z) === null) b.leaveAt = now + 3 * this.rng.next();
+        if (b && b.leaveAt === Infinity && b.docility < 0.5 && core.sense.kettleAt(p!.x, p!.z) === null) b.leaveAt = now + 3 * f.rng.next();
       }
       return;
     }
@@ -764,7 +850,7 @@ export class FoyersSystem implements GameSystem {
       const w = R.SHOP_WEIGHT[c.category] ?? 1;
       if (w <= 0) continue;
       // un rideau baissé décourage : on préfère une vitrine nue
-      const score = w * (c.shutter < 0.5 ? 1 : 0.45) * (0.6 + 0.8 * this.rng.next()) - Math.hypot(c.x - f.cx, c.z - f.cz) / 20;
+      const score = w * (c.shutter < 0.5 ? 1 : 0.45) * (0.6 + 0.8 * f.rng.next()) - Math.hypot(c.x - f.cx, c.z - f.cz) / 20;
       if (score > bestScore) {
         bestScore = score;
         best = c;
@@ -780,8 +866,8 @@ export class FoyersSystem implements GameSystem {
       if (Math.hypot(f.cx - f.ox, f.cz - f.oz) > DETAIL_RADIUS * 0.5) this.keepDetail(f, now);
     } else {
       // rien à casser ici : un autre coin du quartier
-      const a = this.rng.next() * Math.PI * 2;
-      const d = 50 + 60 * this.rng.next();
+      const a = f.rng.next() * Math.PI * 2;
+      const d = 50 + 60 * f.rng.next();
       let x = f.cx + Math.sin(a) * d;
       let z = f.cz + Math.cos(a) * d;
       if (Math.hypot(x - f.ox, z - f.oz) > ROAM) {
@@ -832,7 +918,7 @@ export class FoyersSystem implements GameSystem {
       const b = p ? brainOf(p) : null;
       if (!p || !b || b.index < 0) continue;
       b.flags &= ~F.PINNED;
-      const at = now + (dispersed ? 2 : 5 + 40 * b.docility) * this.rng.next();
+      const at = now + (dispersed ? 2 : 5 + 40 * b.docility) * f.rng.next();
       if (at < b.leaveAt) b.leaveAt = at;
       b.nextThink = Math.min(b.nextThink, now + 0.5);
     }

@@ -84,12 +84,14 @@ export function bindEvents(core: CrowdCore): void {
       core.start(e.config);
     } catch (err) {
       core.active = false;
+      core.veille = false;
       console.error('[crowd] mise en place de la manifestation impossible', err);
       throw err;
     }
   });
   ev.on('session:ended', () => {
     core.active = false;
+    core.veille = false;
   });
   ev.on('person:spawned', (e) => core.onSpawned(e.id));
   ev.on('person:removed', (e) => {

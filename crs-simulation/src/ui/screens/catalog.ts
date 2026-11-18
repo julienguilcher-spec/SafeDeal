@@ -7,7 +7,9 @@
 import type {
   DurationPreset, PlayableRole, PolicePoste, PoliceRank, WeatherKind,
 } from '@/core/contracts';
-import type { CauseLike, CrowdFamily, Derapage } from '../core/api';
+import { CREWS } from '@/gameplay/patrols/model';
+import { SERVICE_BASES, type ServiceBase } from '@/gameplay/session/journee-data';
+import type { CauseLike, CrowdFamily, Derapage, Organisateurs } from '../core/api';
 
 export interface Variante {
   id: string;
@@ -32,6 +34,12 @@ export interface RoleInfo {
   variantes: readonly Variante[];
   /** Les grades sont affichés avec leurs équivalents de la gendarmerie. */
   gendarmerie?: boolean;
+  /** Libellés de poste propres au rôle (« Chef de bord » pour le poste 'interpellation' de l'équipage de patrouille). */
+  posteLabels?: Readonly<Partial<Record<PolicePoste, string>>>;
+  /** Précisions de poste propres au rôle (remplacent POSTE_NOTES). */
+  posteNotes?: Readonly<Partial<Record<PolicePoste, string>>>;
+  /** Rôle hors carrière : sa carte est masquée en mode carrière (aucune mission de carrière ne s'y joue). */
+  horsCarriere?: boolean;
 }
 
 export const ROLES: readonly RoleInfo[] = [
@@ -67,17 +75,40 @@ export const ROLES: readonly RoleInfo[] = [
   {
     id: 'gendarme_centaure', name: 'Centaure', desc: 'Blindé : pilotez, tirez au lance-grenades, ouvrez les barricades.', police: true,
     ranks: ['gardien', 'brigadier_chef', 'major'], defaultRank: 'gardien',
-    postes: ['conducteur'], defaultPoste: 'conducteur', variantes: [], gendarmerie: true,
+    postes: ['conducteur', 'operateur', 'chef_groupe'], defaultPoste: 'conducteur', variantes: [], gendarmerie: true,
+    posteLabels: { operateur: 'Opérateur du lance-grenades', chef_groupe: 'Chef d’engin' },
+    posteNotes: {
+      conducteur: 'Vous pilotez le blindé : lame, barricades, et le lance-grenades quand vous êtes seul à bord.',
+      operateur: 'Vous servez le lance-grenades depuis la tourelle ; le pilote conduit.',
+      chef_groupe: 'Vous commandez l’équipage : où aller, quand tirer.',
+    },
   },
   {
     id: 'operateur_canon_eau', name: 'Canon à eau', desc: 'Pilotez l’engin et tenez le jet : à distance, éteignez les feux.', police: true,
     ranks: ['gardien', 'brigadier', 'brigadier_chef'], defaultRank: 'gardien',
-    postes: ['conducteur'], defaultPoste: 'conducteur', variantes: [],
+    postes: ['conducteur', 'operateur'], defaultPoste: 'conducteur', variantes: [],
+    posteLabels: { operateur: 'Opérateur des canons' },
+    posteNotes: {
+      conducteur: 'Vous conduisez l’engin et tenez les canons quand personne d’autre ne les sert.',
+      operateur: 'Vous tenez les canons depuis le poste de tir ; le conducteur reste à son poste.',
+    },
   },
   {
     id: 'telepilote', name: 'Télépilote', desc: 'Drone : observez d’en haut, désignez.', police: true,
     ranks: ['gardien', 'brigadier', 'brigadier_chef'], defaultRank: 'gardien',
     postes: ['telepilote'], defaultPoste: 'telepilote', variantes: [],
+  },
+  {
+    id: 'patrouille', name: 'Patrouille', desc: 'Équipage de trois en voiture : BAC en civil ou Police secours.', police: true,
+    ranks: ['gardien', 'brigadier_chef', 'major'], defaultRank: 'gardien',
+    postes: ['conducteur', 'interpellation'], defaultPoste: 'conducteur',
+    variantes: CREWS.map((c) => ({ id: c.id, label: c.label, desc: c.desc })),
+    posteLabels: { interpellation: 'Chef de bord' },
+    posteNotes: {
+      conducteur: 'Vous êtes au volant ; le chef de bord et l’équipier sont à bord avec vous.',
+      interpellation: 'Vous dirigez l’équipage depuis le siège passager ; un collègue conduit.',
+    },
+    horsCarriere: true,
   },
   {
     id: 'street_medic', name: 'Street medic', desc: 'Dans la foule : rincez, pansez.', police: false,
@@ -110,6 +141,9 @@ export function roleInfo(role: PlayableRole): RoleInfo {
   for (const r of ROLES) if (r.id === role) return r;
   return ROLES[0]!;
 }
+
+/** Identifiants de tous les rôles du catalogue, dans l'ordre d'affichage. */
+export const ROLE_IDS: readonly PlayableRole[] = ROLES.map((r) => r.id);
 
 export const RANK_LABELS: Readonly<Record<PoliceRank, string>> = {
   gardien_stagiaire: 'Gardien stagiaire',
@@ -178,10 +212,74 @@ export const POSTE_NOTES: Readonly<Partial<Record<PolicePoste, string>>> = {
   passager_moto: 'Vous mettez pied à terre et intervenez.',
 };
 
+/** Libellé d'un poste dans un rôle (libellé propre au rôle, sinon le libellé commun). */
+export function posteLabel(role: PlayableRole, poste: PolicePoste): string {
+  return roleInfo(role).posteLabels?.[poste] ?? POSTE_LABELS[poste];
+}
+
+/** Précision affichée sous le sélecteur de poste ('' si aucune). */
+export function posteNote(role: PlayableRole, poste: PolicePoste): string {
+  return roleInfo(role).posteNotes?.[poste] ?? POSTE_NOTES[poste] ?? '';
+}
+
+/**
+ * Modes de jeu. L'identifiant interne 'monde_ouvert' s'appelle « Patrouille » à l'écran : une vacation d'équipage
+ * (src/gameplay/patrols/model.ts) ; les anciennes configurations « Monde ouvert » y sont converties au lancement.
+ */
 export const MODES: readonly { id: 'carriere' | 'libre' | 'monde_ouvert'; label: string; desc: string }[] = [
-  { id: 'libre', label: 'Mode libre', desc: 'Choisissez tout : rôle, grade, lieu, foule, moyens.' },
+  { id: 'libre', label: 'Mode libre', desc: 'Vous réglez tout : rôle, manifestation, lieu, colonnes, imprévu.' },
   { id: 'carriere', label: 'Carrière', desc: 'Progressez de grade en grade ; chaque mission compte.' },
-  { id: 'monde_ouvert', label: 'Monde ouvert', desc: 'Patrouille libre dans Paris, sans objectif imposé.' },
+  { id: 'monde_ouvert', label: 'Patrouille', desc: 'En BAC ou en Police secours dans Paris : la radio vous envoie sur ce qui se déclare.' },
+];
+
+/** Organisateurs de la manifestation (libellés génériques, aucune organisation réelle). */
+export const ORGANISATEURS: readonly { id: Organisateurs; label: string; desc: string }[] = [
+  { id: 'intersyndicale', label: 'Intersyndicale', desc: 'Manifestation déclarée : service d’ordre, camion sono, parcours négocié.' },
+  { id: 'collectif', label: 'Collectif citoyen', desc: 'Déclarée par un collectif : encadrement léger, cortège plus mêlé.' },
+  { id: 'coordination_etudiante', label: 'Coordination étudiante', desc: 'Étudiants et lycéens : cortège jeune et mobile.' },
+  { id: 'aucun', label: 'Sans organisateur', desc: 'Appel lancé sur les réseaux : ni service d’ordre ni sono, personne à qui parler.' },
+];
+export const ORGANISATEUR_IDS: readonly Organisateurs[] = ORGANISATEURS.map((o) => o.id);
+
+/** Crans du curseur « Imprévu » (0 à 3) : ce qui se déclare en marge de la manifestation annoncée. */
+export const IMPREVU_LEVELS: readonly { level: 0 | 1 | 2 | 3; label: string; tip: string }[] = [
+  { level: 0, label: 'Comme annoncé', tip: 'La manifestation se déroule comme déclarée : aucun rassemblement ni groupe en marge.' },
+  { level: 1, label: 'Quelques débordements', tip: 'Selon l’affluence et la propension à dégénérer : parfois un rassemblement ou un groupe de casseurs en marge.' },
+  { level: 2, label: 'Agité', tip: 'Au moins deux foyers en marge dès la quatrième minute, et une manifestation sauvage dans l’après-coup.' },
+  { level: 3, label: 'Imprévisible', tip: 'Cinq foyers rapprochés et deux manifestations sauvages : des gens surgissent là où on ne les attend pas.' },
+];
+
+/** Point de départ des colonnes en journée de service. */
+export interface ColumnDepart {
+  /** 'auto' : base la mieux placée selon le lieu ; 'sur_place' : forces déjà en place ; sinon une base de SERVICE_BASES. */
+  id: string;
+  label: string;
+  desc: string;
+  base: ServiceBase | null;
+}
+
+/** Identifiant stable d'une base de prise de service (« cite », « arr-9 »). */
+function baseId(b: ServiceBase, index: number): string {
+  const m = /du (\d+)(?:er|e) arrondissement/.exec(b.name);
+  return m ? 'arr-' + m[1] : index === 0 ? 'cite' : 'base-' + index;
+}
+
+function baseLabel(b: ServiceBase): string {
+  const m = /^commissariat du (\d+(?:er|e)) arrondissement/.exec(b.name);
+  if (!m) return b.name.charAt(0).toUpperCase() + b.name.slice(1);
+  return `Commissariat du ${m[1]}`;
+}
+
+function baseDesc(b: ServiceBase): string {
+  const m = /\((.+)\)$/.exec(b.name);
+  return m ? m[1]!.charAt(0).toUpperCase() + m[1]!.slice(1) : 'Préfecture de police, île de la Cité';
+}
+
+/** Choix « Point de départ des colonnes » de la rubrique « Moyens engagés ». */
+export const COLUMN_DEPARTS: readonly ColumnDepart[] = [
+  { id: 'auto', label: 'Automatique', desc: 'La base la mieux placée : entre 1,2 et 3,2 km du rassemblement, un vrai trajet en colonne.', base: null },
+  ...SERVICE_BASES.map((b, i) => ({ id: baseId(b, i), label: baseLabel(b), desc: baseDesc(b), base: b })),
+  { id: 'sur_place', label: 'Déjà sur place', desc: 'Pas de journée de service : les forces sont en place près du rassemblement.', base: null },
 ];
 
 export interface PlaceChoice {

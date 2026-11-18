@@ -7,8 +7,8 @@
  *
  * Le système principal (id 'ui', ordre SystemOrder.UI) publie ctx.ui, EXT.uiKit et
  * EXT.objectives (voir src/ui/core/api.ts). Les sous-modules facultatifs src/ui/maps (cartes)
- * et src/ui/command (carte tactique, roue d'ordres, radio) et src/ui/drone (retour vidéo du drone)
- * sont agrégés ici s'ils existent :
+ * et src/ui/command (carte tactique, roue d'ordres, radio), src/ui/drone (retour vidéo du drone) et
+ * src/ui/patrol (carte d'appel de CENTRAL pendant une vacation) sont agrégés ici s'ils existent :
  * leur index.ts doit exporter `createSystems: ModuleFactory`. Leurs systèmes viennent APRÈS le
  * système principal : ils trouvent donc EXT.uiKit dès leur init().
  * ===================================================================================== */
@@ -21,7 +21,7 @@ interface SubModule {
 }
 
 /** Sous-modules présents dans le dépôt au moment de la construction (objet vide s'il n'y en a aucun). */
-const SUB_MODULES = import.meta.glob<SubModule>(['./maps/index.ts', './command/index.ts', './drone/index.ts'], { eager: true });
+const SUB_MODULES = import.meta.glob<SubModule>(['./maps/index.ts', './command/index.ts', './drone/index.ts', './patrol/index.ts'], { eager: true });
 
 export const createSystems: ModuleFactory = () => {
   const systems: GameSystem[] = [new UiSystem()];

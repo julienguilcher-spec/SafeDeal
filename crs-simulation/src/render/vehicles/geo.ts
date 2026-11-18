@@ -37,6 +37,7 @@ export const PART_ROTOR_X = 10;    // rotor d'axe transversal (anticouple)
 export const PART_FORK = 11;       // fourche et guidon de deux-roues (braquage autour du pivot)
 export const PART_BIKE_WHEEL = 12; // roue avant de deux-roues : essieu au pivot, puis direction autour de l'axe de fourche
 export const PART_STEERING = 13;   // volant (habitacle) : rotation autour de la colonne ; param = inclinaison de la colonne (rad)
+export const PART_DOME = 14;       // gyrophare aimanté (voiture banalisée) : posé sur le toit seulement quand les gyrophares sont en service
 
 /** Codes de feu. */
 export const LIGHT_NONE = 0;

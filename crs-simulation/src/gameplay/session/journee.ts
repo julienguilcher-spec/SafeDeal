@@ -31,6 +31,7 @@ import type { SessionSetupSummary } from './api';
 import { SERVICE_BASE, baseOf, isJournee } from './journee-data';
 import type { ServiceBase } from './journee-data';
 import { chooseStandOffCrowd } from './placement';
+import { isPoliceRole } from './roster';
 import { pointOnPolyline } from '@/core/math';
 
 export type JourneeStage =
@@ -86,6 +87,34 @@ const BRAVM_PARKED = 250;
 const CONVOY_KINDS: ReadonlySet<string> = new Set(['fourgon_crs', 'car_crs', 'vl_commandement', 'fourgon_cellulaire', 'canon_eau', 'centaure']);
 /** Engins à équipage : on n'y monte que si l'on en fait partie. */
 const ENGINE_KINDS: ReadonlySet<string> = new Set(['canon_eau', 'centaure']);
+
+/** Organisateurs de la manifestation (extra['manif.organisateurs']) tels que CENTRAL les annonce. */
+const ORGANISATEURS: Readonly<Record<string, string>> = {
+  intersyndicale: 'à l’appel de l’intersyndicale',
+  collectif: 'à l’appel d’un collectif',
+  coordination_etudiante: 'à l’appel de la coordination étudiante',
+};
+
+/**
+ * Manifestation du jour telle que CENTRAL l'annonce à la prise de service : son nom (extra['manif.nom'], 60 caractères au
+ * plus), sa cause (extra.causeLabel) et ses organisateurs (extra['manif.organisateurs']) quand ils sont connus.
+ * « Manifestation déclarée « Retraites : on lâche rien » (retraites), à l'appel de l'intersyndicale » ; sans organisateur
+ * (« aucun »), la manifestation n'est pas déclarée.
+ */
+export function manifestationBrief(extra: Readonly<Record<string, unknown>> | undefined): string {
+  const raw = extra ? extra['manif.nom'] : undefined;
+  const nom = typeof raw === 'string' ? raw.replace(/\s+/g, ' ').trim().slice(0, 60) : '';
+  const causeRaw = extra ? extra['causeLabel'] : undefined;
+  const cause = typeof causeRaw === 'string' && causeRaw.trim() ? ` (${causeRaw.trim().toLowerCase()})` : '';
+  const org = extra ? extra['manif.organisateurs'] : undefined;
+  const aucun = org === 'aucun';
+  let text = aucun ? 'Manifestation non déclarée' : 'Manifestation déclarée';
+  if (nom) text += ` « ${nom} »`;
+  text += cause;
+  if (aucun) text += ', sans organisateur ni service d’ordre';
+  else if (typeof org === 'string' && ORGANISATEURS[org]) text += `, ${ORGANISATEURS[org]}`;
+  return text;
+}
 
 export class JourneeSystem implements GameSystem {
   readonly id = 'session.journee';
@@ -153,7 +182,10 @@ export class JourneeSystem implements GameSystem {
   private onSetup(summary: SessionSetupSummary): void {
     const ctx = this.ctx!;
     this.reset();
-    if (!isJournee(ctx.session.config) || !summary.usedPoliceUnits || summary.rootSquadId === 0) return;
+    if (!isJournee(ctx.session.config) || !summary.usedPoliceUnits || summary.rootSquadId === 0) {
+      this.announceManifestation();
+      return;
+    }
     this.base = baseOf(ctx.session.config);
     this.mission = (ctx.session.config?.missionId ?? '') !== '';
     this.companyId = this.companyOf(summary.rootSquadId);
@@ -165,6 +197,22 @@ export class JourneeSystem implements GameSystem {
     // l'ordre de mouvement part tout de suite (avant la première décision du commandement IA, qui sinon déploierait
     // ses groupes à pied depuis la caserne) ; la radio l'annonce au fil des premières secondes
     this.dispatch();
+  }
+
+  /**
+   * Sans journée de service (forces déjà sur place, rôle civil) : la manifestation nommée du Mode libre (extra['manif.nom'],
+   * extra['manif.organisateurs']) est annoncée au début de la partie — à la radio pour les forces de l'ordre, à l'écran
+   * pour tous —, comme le briefing de prise de service l'aurait fait.
+   */
+  private announceManifestation(): void {
+    const ctx = this.ctx!;
+    const cfg = ctx.session.config;
+    const extra = cfg?.extra;
+    if (!cfg || !extra || cfg.crowdSize <= 0 || extra['vacation'] !== undefined) return;
+    if (extra['manif.nom'] === undefined && extra['manif.organisateurs'] === undefined) return;
+    const text = `${manifestationBrief(extra)}, rassemblement ${cfg.place || 'en ville'}.`;
+    if (isPoliceRole(cfg.role)) ctx.radio.say({ channel: 'commandement', from: 'CENTRAL', priority: 1, text: `CENTRAL : ${text}` });
+    ctx.ui.notify(text, 'info', 8);
   }
 
   /** Compagnie (racine) de l'unité. */
@@ -270,10 +318,9 @@ export class JourneeSystem implements GameSystem {
     const ctx = this.ctx!;
     this.briefed = true;
     const cfg = ctx.session.config!;
-    const cause = typeof cfg.extra?.['causeLabel'] === 'string' ? ` (${String(cfg.extra['causeLabel']).toLowerCase()})` : '';
     const hour = this.hourIn(15 * 60);
     ctx.radio.say({ channel: 'commandement', from: 'CENTRAL', priority: 2,
-      text: `${this.companyName()} de CENTRAL. Prise de service ${this.atBase()}. Manifestation déclarée${cause}, rassemblement ${cfg.place || 'en ville'} vers ${hour}. Préparez-vous au départ.` });
+      text: `${this.companyName()} de CENTRAL. Prise de service ${this.atBase()}. ${manifestationBrief(cfg.extra)}, rassemblement ${cfg.place || 'en ville'} vers ${hour}. Préparez-vous au départ.` });
     ctx.ui.notify(`Prise de service ${this.atBase()} : écoutez la radio.`, 'info', 6);
   }
 

@@ -420,7 +420,8 @@ export class VehiclesRenderer {
           pool.light[o] = pack2(head, head);
           pool.light[o + 1] = pack2(brake, v.speed < -0.25 && !dead ? 1 : 0);
           pool.light[o + 2] = pack2(indOn && v.indicator < 0 ? 1 : 0, indOn && v.indicator > 0 ? 1 : 0);
-          pool.light[o + 3] = pack2(bA, bB);
+          // (+ 256 : gyrophares en service, même entre deux éclats : le gyrophare aimanté reste posé sur le toit)
+          pool.light[o + 3] = pack2(bA, bB) + (v.beacons && !dead ? 256 : 0);
         }
       }
 

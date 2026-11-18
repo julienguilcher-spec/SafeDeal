@@ -41,6 +41,7 @@ const EXPECTED: Record<string, { accel: [number, number]; brake: [number, number
   car_crs: { accel: [12, 20], brake: [12, 20] },
   vl_commandement: { accel: [6, 9.5], brake: [10, 16] },
   voiture_police: { accel: [3.5, 6], brake: [9, 14] },
+  voiture_bac: { accel: [3, 5.5], brake: [9, 14] },
   fourgon_cellulaire: { accel: [6.5, 10], brake: [10, 16] },
   centaure: { accel: [9, 15], brake: [12, 20] },
   canon_eau: { accel: [14, 24], brake: [13, 22] },

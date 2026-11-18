@@ -1,9 +1,11 @@
 /* =====================================================================================
- * Page d'accueil — panneaux de réglages (1/2) : rôle, mode et mission, lieu, heure et météo.
+ * Page d'accueil — panneaux de réglages (1/2) : rôle, mission, lieu, heure et météo.
  * Chaque fonction construit le contenu d'une section à partir du brouillon et appelle
  * model.update() à chaque réglage.
  * En mode carrière (service 'career' branché) : rôles verrouillés au-delà du grade de carrière, grade
- * imposé, missions verrouillées grisées avec leur raison ; dans les autres modes, rien ne change.
+ * imposé, missions verrouillées grisées avec leur raison, rôles hors carrière (équipage de patrouille) masqués ;
+ * dans les autres modes, rien ne change. Le mode de jeu se choisit sur l'accueil (Patrouille, Carrière, Missions
+ * spéciales, Mode libre) : l'éditeur ne propose plus que la mission.
  * ===================================================================================== */
 
 import type { PolicePoste, PoliceRank, WeatherKind } from '@/core/contracts';
@@ -13,7 +15,7 @@ import type { MissionLike } from '../core/api';
 import { clear, el, h } from '../core/dom';
 import { cardinal8, hourLabel } from '../core/format';
 import { icon, roleIconName, weatherIconName } from '../core/icons';
-import { MODES, POSTE_LABELS, POSTE_NOTES, RANK_NOTES, ROLES, WEATHERS, fold, rankLabel, roleInfo, weatherLabel } from './catalog';
+import { RANK_NOTES, ROLES, WEATHERS, fold, posteLabel, posteNote, rankLabel, roleInfo, weatherLabel } from './catalog';
 import type { PlaceChoice } from './catalog';
 import type { HomeModel } from './home';
 import { drawMiniPlan, nearestPlace } from './miniplan';
@@ -68,24 +70,27 @@ export function buildRole(model: HomeModel): HTMLElement {
       sub.append(widgets.field('Grade', null, { value: rankLabel(info.ranks[0]!, d.role), hint: RANK_NOTES[info.ranks[0]!] ?? '' }).el);
     }
     if (info.postes.length > 1) {
-      const field = widgets.field('Poste', null, { value: d.poste ? POSTE_LABELS[d.poste] : '', hint: d.poste ? POSTE_NOTES[d.poste] ?? '' : '' });
+      const role = d.role;
+      const label = role === 'patrouille' ? 'Votre place' : 'Poste';
+      const field = widgets.field(label, null, { value: d.poste ? posteLabel(role, d.poste) : '', hint: d.poste ? posteNote(role, d.poste) : '' });
       const seg = widgets.segmented<PolicePoste>({
-        label: 'Poste',
-        options: info.postes.map((p) => ({ value: p, label: POSTE_LABELS[p] })),
+        label,
+        options: info.postes.map((p) => ({ value: p, label: posteLabel(role, p) })),
         value: d.poste ?? info.postes[0]!,
         wrap: true,
         onChange: (poste: PolicePoste) => {
           model.update({ poste });
-          field.setValue(POSTE_LABELS[poste]);
-          field.setHint(POSTE_NOTES[poste] ?? '');
+          field.setValue(posteLabel(role, poste));
+          field.setHint(posteNote(role, poste));
         },
       });
+      seg.el.dataset.id = 'poste';
       field.el.insertBefore(seg.el, field.el.lastElementChild);
       sub.append(field.el);
     }
     if (info.variantes.length > 0) {
       const current = info.variantes.find((v) => v.id === d.variante) ?? info.variantes[0]!;
-      const label = d.role === 'secouriste' ? 'Service' : 'Façon de jouer';
+      const label = d.role === 'secouriste' ? 'Service' : d.role === 'patrouille' ? 'Équipage' : 'Façon de jouer';
       const field = widgets.field(label, null, { value: current.label, hint: current.desc });
       const seg = widgets.segmented<string>({
         label,
@@ -105,6 +110,11 @@ export function buildRole(model: HomeModel): HTMLElement {
     if (d.role === 'manifestant' && d.variante === 'radical') {
       sub.append(note('Ce profil se joue au niveau des gestes de jeu ; la partie se termine par un bilan humain et judiciaire.', true));
     }
+    if (d.role === 'patrouille') {
+      const p = note('En Mode libre, l’équipage part en voiture à l’écart de la manifestation, sans journée de service. Pour être envoyé par la radio sur ce qui se déclare dans Paris, choisissez « Patrouille » sur l’accueil.');
+      p.style.marginTop = '10px';
+      sub.append(p);
+    }
   }
 
   const career = careerOf(model);
@@ -112,6 +122,8 @@ export function buildRole(model: HomeModel): HTMLElement {
   for (const r of ROLES) {
     // commandant unique : « commissaire » est un alias du commandant, sans tuile propre (docs/BRIEF.md §1)
     if (r.id === 'commissaire') continue;
+    // carrière : un rôle hors carrière (équipage de patrouille) n'a aucune mission de carrière, sa tuile est masquée
+    if (career && r.horsCarriere) continue;
     const b = widgets.card({
       icon: roleIconName(r.id),
       title: r.name,
@@ -178,15 +190,22 @@ export function pickMission(model: HomeModel, m: MissionLike): void {
 export function buildMode(model: HomeModel): HTMLElement {
   const { widgets, kit, ctx } = model.env;
   const root = h('div');
-  const cards = h('div', 'ui-cards');
   const body = h('div');
-  const modeButtons = new Map<string, HTMLButtonElement>();
 
   function buildBody(): void {
     clear(body);
     const d = model.draft;
     if (d.mode === 'monde_ouvert') {
-      body.append(widgets.sectionTitle('Mission'), note('Monde ouvert : patrouille libre dans Paris. Aucune mission ni manifestation n’est imposée ; l’heure, la météo, le lieu et les moyens restent réglables.'));
+      // ancien scénario « Monde ouvert » rechargé : il se lance en Patrouille ; l'éditeur ramène au Mode libre
+      body.append(widgets.sectionTitle('Patrouille'), note('Ce scénario est une patrouille : il se lance en vacation BAC au secteur le plus proche du lieu, sans manifestation déclarée. Pour régler une manifestation, passez en Mode libre.'));
+      const back = widgets.button('Passer en Mode libre', () => {
+        model.update({ mode: 'libre' });
+        model.rebuild();
+      }, 'secondary', 'chevrons');
+      back.dataset.id = 'mode-libre';
+      const row = el('div', 'ui-inline', back);
+      row.style.marginTop = '10px';
+      body.append(row);
       return;
     }
     const career = careerOf(model);
@@ -202,8 +221,16 @@ export function buildMode(model: HomeModel): HTMLElement {
           rank.style.marginBottom = '8px';
           body.append(rank);
         }
-        body.append(note('En carrière, votre grade et les missions proposées dépendent de votre progression. Seules les missions jouées en mode carrière comptent.'), el('div', 'ui-inline', open));
-        (body.lastElementChild as HTMLElement).style.marginTop = '10px';
+        body.append(note('En carrière, votre grade et les missions proposées dépendent de votre progression. Seules les missions jouées en mode carrière comptent.'));
+        const leave = widgets.button('Jouer hors carrière', () => {
+          model.update({ mode: 'libre' });
+          model.rebuild();
+        }, 'ghost');
+        leave.dataset.id = 'mode-libre';
+        leave.setAttribute('data-tip', 'Mode libre : tous les rôles et tous les réglages, rien n’est enregistré dans la carrière');
+        const row = el('div', 'ui-inline', open, leave);
+        row.style.marginTop = '10px';
+        body.append(row);
       } else {
         body.append(widgets.sectionTitle('Carrière'), note('Le suivi de carrière (grades, évaluations, sanctions) n’est pas installé dans cette version : la partie se joue avec les réglages de cette page, sans progression enregistrée.', true));
       }
@@ -273,25 +300,8 @@ export function buildMode(model: HomeModel): HTMLElement {
     }
   }
 
-  for (const m of MODES) {
-    const b = widgets.card({
-      title: m.label,
-      desc: m.desc,
-      selected: m.id === model.draft.mode,
-      onClick: () => {
-        if (model.draft.mode === m.id) return;
-        model.update({ mode: m.id, missionId: m.id === 'monde_ouvert' ? '' : model.draft.missionId });
-        // la liste se refait : en carrière, le rôle a pu changer et une mission verrouillée être retirée
-        for (const [id, btn] of modeButtons) btn.setAttribute('aria-pressed', String(id === model.draft.mode));
-        buildBody();
-      },
-    });
-    b.dataset.id = 'mode-' + m.id;
-    modeButtons.set(m.id, b);
-    cards.append(b);
-  }
   buildBody();
-  root.append(cards, body);
+  root.append(body);
   return root;
 }
 
@@ -319,7 +329,10 @@ export function buildLieu(model: HomeModel): HTMLElement {
     return all.findIndex((p) => fold(p.name) === name);
   }
 
+  let hasardNote: HTMLElement | null = null;
+
   function paint(): void {
+    if (hasardNote && !model.draft.lieuHasard) hasardNote.hidden = true;
     const sel = selectedIndex();
     for (let i = 0; i < buttons.length; i++) buttons[i]!.setAttribute('aria-pressed', String(i === sel));
     view = drawMiniPlan(canvas, ctx, all, sel);
@@ -340,7 +353,8 @@ export function buildLieu(model: HomeModel): HTMLElement {
       b.append(h('span', 'ui-list__title', p.name));
       if (p.note) b.append(h('span', 'ui-list__sub', p.note));
       b.addEventListener('click', () => {
-        model.update({ place: p.name, x: p.x, z: p.z });
+        // choisir un lieu, c'est renoncer au tirage au hasard
+        model.update({ place: p.name, x: p.x, z: p.z, lieuHasard: false });
         paint();
       });
       buttons[offset + i] = b;
@@ -357,10 +371,16 @@ export function buildLieu(model: HomeModel): HTMLElement {
     const i = nearestPlace(all, w.x, w.z);
     if (i < 0) return;
     const p = all[i]!;
-    model.update({ place: p.name, x: p.x, z: p.z });
+    model.update({ place: p.name, x: p.x, z: p.z, lieuHasard: false });
     paint();
     buttons[i]?.scrollIntoView({ block: 'nearest' });
   });
+  if (model.draft.lieuHasard && model.draft.missionId === '') {
+    // case « Lieu tiré au hasard » cochée (rubrique « La manifestation ») : choisir ici la décoche
+    hasardNote = note('Le lieu sera tiré au hasard au lancement. Choisissez un lieu ci-dessous pour le fixer vous-même.');
+    hasardNote.style.marginBottom = '10px';
+    listCol.append(hasardNote);
+  }
   addList('Lieux de manifestation', model.places, 0);
   addList('Autres places', model.otherPlaces, model.places.length);
   root.append(listCol, side);

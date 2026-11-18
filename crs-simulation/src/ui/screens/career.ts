@@ -3,8 +3,8 @@
  *
  * En-tête : grade tenu et chapitre en cours. Colonne de gauche : le chapitre choisi (par défaut le
  * chapitre en cours), son exigence et son avancement, ses missions avec leur meilleure note ; une
- * mission ouverte se choisit puis se lance par « Jouer la mission », qui rouvre la page d'accueil en
- * mode carrière avec cette mission choisie. Colonne de droite : les chapitres et leur état, les
+ * mission ouverte se choisit puis se lance par « Jouer la mission », qui rouvre la page d'accueil sur
+ * la fiche de briefing de la mission, en mode carrière (« Lancer la mission », « Ajuster les réglages »). Colonne de droite : les chapitres et leur état, les
  * déblocages obtenus, le dossier disciplinaire. « Recommencer la carrière » efface la progression
  * après confirmation.
  * ===================================================================================== */
@@ -73,7 +73,7 @@ export function createCareerScreen(env: UiEnv): (host: HTMLElement) => ScreenIns
       if (!picked || !career || !career.isMissionAvailable(picked)) return;
       const missionId = picked;
       ctx.ui.close('carriere');
-      ctx.ui.open('menu_principal', { section: 'mode', mode: 'carriere', missionId });
+      ctx.ui.open('menu_principal', { view: 'briefing', mode: 'carriere', missionId });
     }, 'primary', 'play');
     play.dataset.id = 'carriere-jouer';
     const restart = widgets.button('Recommencer la carrière', () => {
@@ -103,7 +103,7 @@ export function createCareerScreen(env: UiEnv): (host: HTMLElement) => ScreenIns
       const ok = !!career && picked !== '' && career.isMissionAvailable(picked) && ctx.session.phase === 'menu';
       play.disabled = !ok;
       const def = picked ? missionById(picked) : undefined;
-      play.setAttribute('data-tip', ok && def ? `Choisit « ${def.title} » sur la page d’accueil, en mode carrière` : 'Choisissez une mission ouverte du chapitre');
+      play.setAttribute('data-tip', ok && def ? `Ouvre la fiche de briefing de « ${def.title} », en mode carrière` : 'Choisissez une mission ouverte du chapitre');
     }
 
     function renderHead(c: CareerApi): void {

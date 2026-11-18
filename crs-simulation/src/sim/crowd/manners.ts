@@ -139,7 +139,8 @@ export class Manners {
       // sinon près de la tête
       if ((b.flags & F.FOYER) !== 0) {
         // rien : le foyer tient anchorX, anchorZ à jour
-      } else if (core.director.base === 'apres_manif' || core.director.base === 'dispersion') {
+      } else if (core.veille || core.director.base === 'apres_manif' || core.director.base === 'dispersion') {
+        // (en veille, pas de cortège : on reste là où l'on est, et non au point de départ de la session)
         b.anchorX = p.x;
         b.anchorZ = p.z;
       } else {
@@ -171,7 +172,8 @@ export class Manners {
       if (b.leaveAt === Infinity) b.leaveAt = now + 5 + 40 * b.docility * core.timeScale;
       return;
     }
-    if (now < b.timer) return;
+    // en veille, pas de cortège à regarder passer : le badaud reste où il est
+    if (now < b.timer || core.veille) return;
     b.timer = now + 15 + 30 * core.rngThink.next();
     // se replace à hauteur du cortège, contre les façades
     const f = core.formation;
