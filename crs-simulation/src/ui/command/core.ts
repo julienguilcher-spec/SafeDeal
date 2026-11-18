@@ -20,6 +20,10 @@ import type { NasseProposal } from './nasse';
 import { LegalChain } from './legalChain';
 import { cardEnvFromCore } from './reperes';
 import { coreLegalDeps } from './sendLine';
+import { COMMISSARIATS_SERVICE } from '@/gameplay/commissariats/api';
+import type { CommissariatsApi, RecallTarget } from '@/gameplay/commissariats/api';
+import { entryKey, stationAt } from './commissariatsModel';
+import { radioFrame } from './phrases';
 
 const ISSUED_MAX = 50;
 /** Distance (m) au-delà de laquelle un ordre de mouvement se fait en véhicules ; ordres concernés. */
@@ -62,12 +66,48 @@ export class CommandCore implements CommandApi {
 
   constructor(readonly ctx: GameContext, readonly maps: MapsRuntime, public kit: UiKit | undefined) {}
 
+  // ───────────────────────────── commissariats ─────────────────────────────
+
+  /** Service des commissariats (module gameplay/commissariats), s'il est branché et actif dans cette partie. */
+  get commissariats(): CommissariatsApi | undefined {
+    const a = this.ctx.service<CommissariatsApi>(COMMISSARIATS_SERVICE);
+    return a && typeof a.engage === 'function' && a.enabled ? a : undefined;
+  }
+
   /**
-   * Engage une unité d'un commissariat (module des commissariats, qui fournit cette méthode) : elle quitte le poste et
-   * passe sous les ordres du joueur ; l'ordre de la fiche lui est donné dans le même pas (sendLine.ts). Absente : les
-   * lignes de renfort ne sont pas proposées.
+   * Unité d'un commissariat encore au poste, en alerte dans ses places ou au repos : écartée des propositions du jeu
+   * (Qui), de « Toute la compagnie », de la nasse et du parcours des unités (U).
    */
-  engageFromCommissariat?(entryId: number): { ok: boolean; squadId: number; reason: string };
+  atPost(squadId: number): boolean {
+    const a = squadId > 0 ? this.commissariats : undefined;
+    return !!a && a.atPost(squadId);
+  }
+
+  /** Sous les ordres du joueur et pas au poste : unité que le jeu peut proposer ou parcourir. */
+  canOrder(squadId: number): boolean {
+    return this.canCommand(squadId) && !this.atPost(squadId);
+  }
+
+  /**
+   * Engage une unité d'un commissariat (numéro d'entrée des fiches, commissariatsModel.entryNumber) : l'équipage est
+   * créé à bord, « En alerte », et l'unité passe sous les ordres du joueur. L'étendue du commandement est recalculée
+   * tout de suite : l'ordre de la fiche lui est donné dans le même pas (sendLine.ts).
+   */
+  engageFromCommissariat(entryId: number): { ok: boolean; squadId: number; reason: string } {
+    const a = this.commissariats;
+    if (!a) return { ok: false, squadId: 0, reason: 'Pas de commissariat dans cette partie.' };
+    const key = entryKey(entryId);
+    if (!key) return { ok: false, squadId: 0, reason: 'Unité inconnue.' };
+    const r = a.engage(key, this.ctx.player.state.personId);
+    this.invalidateScope();
+    if (r.ok) {
+      // la carte ne relit ses unités que deux fois par seconde : sans relecture, l'unité tout juste créée n'y est pas
+      // encore et l'ordre de la fiche, donné dans le même pas, partait sans elle (« Sélectionnez d'abord une unité »)
+      this.maps.scene.invalidate();
+      this.maps.scene.ensureFresh();
+    }
+    return { ok: r.ok, squadId: r.squadId, reason: r.reason };
+  }
 
   // ───────────────────────────── services facultatifs ─────────────────────────────
 
@@ -181,6 +221,8 @@ export class CommandCore implements CommandApi {
     if (!chk.ok) return { ok: false, reason: chk.reason, count: 0 };
     // « Dégager l'obstacle » : c'est un Centaure qui pousse (le désigné, sinon le plus proche sous vos ordres)
     if (type === 'degager_obstacle') return issueObstacle(this, squads, geoms);
+    // « Rentrer au commissariat » : retour sans deux-tons à ses places (ou à la porte), pas un ordre de la simulation
+    if (type === 'retour_poste') return this.recallSquads(squads);
     const ctx = this.ctx;
     const playerId = ctx.player.state.personId;
     const maxForce = this.effectiveForce();
@@ -206,14 +248,17 @@ export class CommandCore implements CommandApi {
       // tout autre ordre : l'unité quitte la colonne du joueur (ses véhicules cessent de le suivre)
       this.follow?.release(s.id);
       const patrol = this.isPatrol(s.id);
-      const t: OrderType = patrol && type === 'faire_mouvement' ? 'avancer' : type;
+      // BRAV-M : ses véhicules sont ses motos ; « Faire mouvement » vaut « En colonne » (elle remonte en selle d'elle-même
+      // pour un point éloigné), sans l'avis trompeur « pas de véhicule : mouvement à pied »
+      const bravm = !patrol && type === 'faire_mouvement' && !!g && this.isBravm(s);
+      const t: OrderType = patrol && type === 'faire_mouvement' ? 'avancer' : bravm ? 'colonne' : type;
       // un seul nom de lieu pour tout l'ordre : celui de la fiche s'il y en a un, sinon la rue ou le secteur du point ;
       // il part avec l'ordre (SquadOrder.place) : la radio, l'accusé de réception et le suivi disent le même
       const place = g ? (g.place || this.placeHint || this.placeName(t, g.x, g.z)) : '';
       const gp: OrderGeom | undefined = g && place !== '' && g.place !== place ? { ...g, place } : g;
       // mouvement motorisé : demandé (« Faire mouvement ») ou implicite pour un point éloigné d'une unité qui a ses
       // véhicules — elle embarque, roule en colonne jusqu'au point, débarque, puis exécute l'ordre donné
-      if (g && !patrol && (type === 'faire_mouvement' || (MOTOR_AUTO.has(type) && this.farFor(s, g.x, g.z)))) {
+      if (g && !patrol && !bravm && (type === 'faire_mouvement' || (MOTOR_AUTO.has(type) && this.farFor(s, g.x, g.z)))) {
         // une unité dont un supérieur est aussi désigné fait partie de sa colonne
         if (squads.some((q) => q !== s && this.isAncestor(q.id, s))) { count++; continue; }
         if (this.motorize(s, type, gp!, from, false, targetId)) { count++; continue; }
@@ -240,7 +285,7 @@ export class CommandCore implements CommandApi {
         const dist = leader ? Math.hypot(o.x - leader.x, o.z - leader.z) : 0;
         ctx.radio.say({
           channel: 'commandement', from, priority: verb.coercive ? 2 : 1, personId: playerId,
-          text: orderPhrase({
+          text: bravm ? radioFrame(s.name, from, `Mouvement à moto, en colonne, sur ${place || 'le point indiqué'}`) : orderPhrase({
             type: t, unit: s.name, from, sector: place, heading: o.heading, width: o.width,
             distance: dist, target: targetName, passersby: targetId === BARRAGE_LET_PASSERSBY,
           }),
@@ -405,6 +450,94 @@ export class CommandCore implements CommandApi {
       if (v && !v.def.flying && v.kind !== 'moto_bravm' && v.state !== 'wrecked' && v.state !== 'burnt') return true;
     }
     return false;
+  }
+
+  /** L'unité est-elle une BRAV-M (unité spéciale du commandement, ou binômes dotés d'une moto) ? */
+  private isBravm(s: Squad): boolean {
+    const ctx = this.ctx;
+    const cmd = ctx.service<{ special(squadId: number): { kind: string } | null }>('police.command');
+    if (cmd && typeof cmd.special === 'function' && cmd.special(s.id)?.kind === 'bravm') return true;
+    const moto = (id: number): boolean => id !== 0 && ctx.vehicles.get(id)?.kind === 'moto_bravm';
+    if (s.kind === 'binome') return moto(s.vehicleId);
+    return ctx.squads.childrenOf(s.id).some((k) => k.kind === 'binome' && moto(k.vehicleId));
+  }
+
+  // ───────────────────────────── retour au commissariat ─────────────────────────────
+
+  /**
+   * « Rentrer au commissariat » : chaque unité rentre à son site (unité du stock : le sien ; patrouille : son
+   * commissariat ; compagnie de la journée : sa base ; autre : le plus proche), sans deux-tons. Une partie d'une unité
+   * du stock (binôme de la BRAV-M, groupe d'une section) ramène toute l'unité. À l'arrivée, le module des
+   * commissariats remet les interpellés, complète les réserves et met l'équipage au repos.
+   */
+  private recallSquads(squads: readonly Squad[]): IssueResult {
+    const api = this.commissariats;
+    if (!api) return { ok: false, reason: 'Aucun commissariat joignable.', count: 0 };
+    const ctx = this.ctx;
+    const playerId = ctx.player.state.personId;
+    const from = this.callsign();
+    const seen = new Set<number>();
+    let count = 0;
+    let reason = '';
+    for (const s0 of squads) {
+      if (!this.canCommand(s0.id)) continue;
+      const entry = api.entryOf(s0.id);
+      const s = entry && entry.squadId !== 0 ? ctx.squads.get(entry.squadId) ?? s0 : s0;
+      if (seen.has(s.id)) continue;
+      seen.add(s.id);
+      if (entry && (entry.state === 'au_poste' || entry.state === 'repos')) {
+        const home = api.get(entry.commissariatId);
+        reason = `${s.name} est déjà ${home ? stationAt(home) : 'au commissariat'}.`;
+        continue;
+      }
+      const alert = entry?.state === 'alerte';
+      const target = api.recall(s.id);
+      if (!target) {
+        reason = 'Aucun commissariat joignable.';
+        continue;
+      }
+      const view = api.get(target.commissariatId);
+      const where = view ? stationAt(view) : 'au commissariat';
+      this.afterConvoy.delete(s.id);
+      this.follow?.release(s.id);
+      // l'ordre est dit avant le départ : l'accusé de réception de l'unité (« Je rentre… ») vient après lui
+      if (count < 3) {
+        ctx.radio.say({
+          channel: 'commandement', from, priority: 1, personId: playerId,
+          text: alert ? radioFrame(s.name, from, `Alerte levée, restez ${where}`)
+            : orderPhrase({ type: 'retour_poste' as OrderType, unit: s.name, from, sector: where, heading: 0, width: 0, distance: 0, target: '' }),
+        });
+      }
+      // en alerte, l'unité est encore dans ses places : l'alerte est levée, elle ne bouge pas
+      if (!alert) this.driveHome(s, target, playerId);
+      this.trace(s, 'retour_poste' as OrderType);
+      count++;
+    }
+    if (count === 0) return { ok: false, reason: reason || 'Aucune des unités sélectionnées n’est sous vos ordres.', count: 0 };
+    ctx.audio.play('radio_bip');
+    return { ok: true, reason: '', count };
+  }
+
+  /**
+   * Mouvement de retour : une voiture de patrouille rentre seule à sa place ; une unité qui a ses véhicules embarque et
+   * roule sans urgence jusqu'au centre de sa file de places, où elle se gare sans débarquer ; à pied (ou à moto : la
+   * BRAV-M remonte en selle d'elle-même pour un point éloigné), elle va jusqu'à la porte.
+   */
+  private driveHome(s: Squad, t: RecallTarget, playerId: number): void {
+    const ctx = this.ctx;
+    const patrols = ctx.service<{ isPatrol(id: number): boolean; sendHome(id: number, at: { x: number; z: number; heading: number }, by?: number): boolean }>('police.patrols');
+    if (patrols && typeof patrols.sendHome === 'function' && patrols.isPatrol(s.id) && patrols.sendHome(s.id, { x: t.x, z: t.z, heading: t.heading }, playerId)) return;
+    const cmd = ctx.service<{ arrive(id: number, dest: Record<string, unknown>): boolean }>('police.command');
+    if (cmd && this.hasVehicles(s) && cmd.arrive(s.id, {
+      x: t.x, z: t.z, heading: t.heading, layout: 'file', boardFirst: true, stagger: true, disembark: false, urgence: false,
+    })) return;
+    // la BRAV-M rentre à moto jusqu'à ses places (souvent dans une autre rue que la porte : au 9e, boulevard Haussmann) ;
+    // envoyée à la porte, elle s'arrêtait à 100 m de ses places et restait « Retour » sans fin
+    const bravm = this.isBravm(s);
+    ctx.squads.issue(s.id, {
+      type: 'colonne', x: bravm ? t.x : t.doorX, z: bravm ? t.z : t.doorZ, heading: t.heading, width: 0, targetId: 0,
+      maxForce: this.effectiveForce(), issuedBy: playerId,
+    });
   }
 
   /** Fin du débarquement d'une colonne : l'ordre donné est exécuté sur place. */

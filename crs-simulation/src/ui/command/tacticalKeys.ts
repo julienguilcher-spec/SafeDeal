@@ -42,6 +42,8 @@ export const HELP_LINES: readonly string[] = HELP_TEXT.split(' · ');
 
 /** Ligne d'indication sous la fiche (clavier seulement). */
 export const CARD_HINT = '↑↓ autre action · ←→ autre endroit · U autre unité';
+/** La même, en lecture seule (seules C, G, H, Échap et Tab agissent : mapKey). */
+export const CARD_HINT_READONLY = 'C commissariats · G moi · Échap revenir';
 
 // ───────────────────────────── délais ─────────────────────────────
 

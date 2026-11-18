@@ -24,6 +24,7 @@ import type { Cars } from './cars';
 import { CP_BOX } from './route';
 import type { TrafficKernel } from './shared';
 import { makeRoadSample } from './shared';
+import { isHeldVehicle } from '@/world/commissariats';
 
 /** Portée du deux-tons d'un véhicule arrêté : les véhicules arrêtés devant lui à moins de … m dégagent (m). */
 export const CLEAR_SIREN_RANGE = 25;
@@ -425,7 +426,8 @@ export class CarClearer {
       const along = rx * dx + rz * dz;
       const lat = -rx * dz + rz * dx;
       if (o.siren !== 0 && along < b.halfL + 3) wait = true;
-      else if (o.faction === 'police' && along < 0 && along > -(b.halfL + 20) && lat < 1 && lat > -6) wait = true;
+      // (un véhicule garé en réserve d'un commissariat ne bouge pas : il ne retient pas la voiture rangée)
+      else if (o.faction === 'police' && along < 0 && along > -(b.halfL + 20) && lat < 1 && lat > -6 && !isHeldVehicle(ctx, o.id)) wait = true;
     }
     list.length = 0;
     if (wait) return true;

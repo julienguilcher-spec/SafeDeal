@@ -116,6 +116,12 @@ export interface UnitPlacement {
   x?: number;
   z?: number;
   heading?: number;
+  /**
+   * Places de stationnement réservées (commissariat) : le n-ième véhicule créé est posé exactement sur la n-ième place
+   * (x, z, cap), au lieu d'être rangé derrière le point de mise en place. Les véhicules en surnombre sont rangés par la
+   * recherche habituelle, sans chevaucher aucun autre véhicule ; le cellulaire n'est alors pas déplacé en fin de bloc.
+   */
+  parking?: readonly { x: number; z: number; heading: number }[];
 }
 
 export interface CompanyOptions extends UnitPlacement {
@@ -176,7 +182,11 @@ export interface PelotonOptions extends UnitPlacement {
   seed?: number;
 }
 
-export type CrewKind = 'centaure' | 'canon_eau' | 'fourgon_crs' | 'vl_commandement' | 'voiture_police' | 'fourgon_cellulaire';
+/**
+ * 'voiture_bac' : voiture banalisée de la BAC (trois policiers en civil). Sans définition 'voiture_bac' dans le module
+ * des véhicules, l'équipage prend une 'voiture_police'.
+ */
+export type CrewKind = 'centaure' | 'canon_eau' | 'fourgon_crs' | 'vl_commandement' | 'voiture_police' | 'fourgon_cellulaire' | 'voiture_bac';
 
 export interface CrewOptions extends UnitPlacement {
   callsign?: string;
@@ -224,6 +234,11 @@ export interface PoliceUnitsApi {
   reserveOf(vehicleId: EntityId): VehicleReserve | null;
   /** Réapprovisionne la réserve d'un véhicule à sa dotation complète. */
   refillReserve(vehicleId: EntityId): void;
+  /**
+   * Repos complet de l'unité et de sa descendance (retour au commissariat) : fatigue à zéro, plus de demande de relève,
+   * moral remonté à 0,8 au moins.
+   */
+  rest(squadId: number): void;
 }
 
 // ───────────────────────────── état des unités ─────────────────────────────

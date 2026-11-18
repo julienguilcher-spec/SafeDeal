@@ -14,6 +14,7 @@
  * ===================================================================================== */
 
 import type { Person } from '@/core/contracts';
+import { isHeldVehicle } from '@/world/commissariats';
 import { isPolice } from './kernel';
 import type { RadKernel } from './kernel';
 import { isAble } from './model';
@@ -180,6 +181,8 @@ export function assess(k: RadKernel, g: RadGroup): Assessment {
   for (let i = 0; i < nv; i++) {
     const v = vs[i]!;
     if (v.faction !== 'police' || v.dormant || v.def.flying || v.state === 'wrecked' || v.state === 'burnt') continue;
+    // véhicule garé en réserve d'un commissariat (sans équipage) : ni menace ni cible du groupe
+    if (isHeldVehicle(ctx, v.id)) continue;
     const d = Math.hypot(v.x - gx, v.z - gz);
     if (v.kind === 'canon_eau') {
       if (d < a.water) a.water = d;

@@ -295,7 +295,7 @@ export function proposeWho(line: CardLine, where: { x: number; z: number } | Rep
   if (kind === 'station') {
     const a = line.action;
     const entry = a.kind === 'engage' ? a.entryId : -1;
-    for (const c of env.stationCandidates?.() ?? []) if (c.fromStation === entry) add(c);
+    for (const c of env.stationCandidates?.(r) ?? []) if (c.fromStation === entry) add(c);
     return out;
   }
   if (env.selection.length > 0 && kind !== 'nasse') add(selectionCandidate(r, env));
@@ -353,7 +353,7 @@ export function proposeWho(line: CardLine, where: { x: number; z: number } | Rep
   }
   // renforts des commissariats : après mes unités, jamais d'office
   if (kind === 'troupe' || kind === 'interpeller' || kind === 'any') {
-    for (const c of env.stationCandidates?.() ?? []) add(c);
+    for (const c of env.stationCandidates?.(r) ?? []) add(c);
   }
   return out;
 }
@@ -434,7 +434,7 @@ export function nasseSections(core: CommandCore, canCommand: (squadId: number) =
  */
 export function whoEnvFromCore(
   core: CommandCore, card: CardEnv, selection: readonly number[],
-  ext: { exclude?: (squadId: number) => boolean; stationCandidates?: () => WhoCandidate[] } = {},
+  ext: { exclude?: (squadId: number) => boolean; stationCandidates?: (where?: { x: number; z: number }) => WhoCandidate[] } = {},
 ): WhoEnv {
   const scene = core.maps.scene;
   const canCommand = (id: number): boolean => core.canCommand(id) && !(ext.exclude && ext.exclude(id));

@@ -317,6 +317,11 @@ export interface ConvoyDestination {
    * stationnement en bloc (ordre de mouvement donné par le joueur).
    */
   stagger?: boolean;
+  /**
+   * false : trajet sans urgence (retour au commissariat) — ni deux tons ni gyrophares, allure de la circulation, et les
+   * voitures civiles arrêtées devant la colonne ne sont pas retirées de la chaussée. Défaut true (deux tons).
+   */
+  urgence?: boolean;
 }
 
 export interface ConvoyStatus {
@@ -480,6 +485,11 @@ export interface CommandApi {
    * partie ne lui donnera plus l'ordre de débarquer en fin de trajet (il remplacerait le sien).
    */
   takeOver?(squadId: number): void;
+  /**
+   * Le véhicule roule-t-il dans une colonne sans urgence (retour au commissariat) encore en route ? Les autres systèmes
+   * n'y allument pas les deux-tons (l'avertisseur seul).
+   */
+  quietRun?(vehicleId: EntityId): boolean;
 }
 
 export type { Squad };

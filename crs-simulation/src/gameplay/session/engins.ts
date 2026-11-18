@@ -16,6 +16,7 @@
 
 import type { EntityId, GameContext, GameSystem, Squad, Vehicle } from '@/core/contracts';
 import { SystemOrder } from '@/core/contracts';
+import { isHeldVehicle } from '@/world/commissariats';
 
 interface Autopilot {
   status(v: Vehicle): Readonly<{ mode: string; state: string; reason: string; blockedFor: number; remaining: number; leaderId?: number; urgence?: boolean }>;
@@ -178,6 +179,7 @@ export class EnginsSystem implements GameSystem {
     if (!ap) return;
     const crowd = ctx.service<CrowdCore>('crowd.core');
     const ext = ctx.service<VehiclesExt>('vehicles.ext');
+    const quiet = ctx.service<{ quietRun?(vehicleId: number): boolean }>('police.command');
     for (const v of ctx.vehicles.list) {
       if (v.faction !== 'police' || v.def.flying || v.seats[0] === 0) continue;
       const st = ap.status(v);
@@ -210,11 +212,12 @@ export class EnginsSystem implements GameSystem {
       }
       let b = this.blocked.get(v.id);
       if (!b) { b = { since: now, rerouted: false, hornAt: now, firstAt: now }; this.blocked.set(v.id, b); }
-      // avertisseur, deux tons : la foule devant l'engin s'écarte
+      // avertisseur, deux tons : la foule devant l'engin s'écarte (trajet sans urgence — retour au commissariat — :
+      // l'avertisseur seul, les deux tons restent coupés)
       const fx = Math.sin(v.heading), fz = Math.cos(v.heading);
       const ax = v.x + fx * (v.def.length * 0.5 + 4), az = v.z + fz * (v.def.length * 0.5 + 4);
       if (crowd) crowd.stir(ax, az, 6, 0.55, 0.04);
-      if (v.def.hasSiren && v.siren === 0) {
+      if (v.def.hasSiren && v.siren === 0 && !(quiet && quiet.quietRun && quiet.quietRun(v.id))) {
         if (ext && ext.setSiren) ext.setSiren(v, 1);
         else v.siren = 1;
         b.siren = true;
@@ -540,6 +543,8 @@ export class EnginsSystem implements GameSystem {
     const used = new Set<number>(this.escorts.values());
     for (const v of ctx.vehicles.list) {
       if (v.faction !== 'police' || !ARMORED.has(v.kind) || v.state === 'wrecked' || v.state === 'burnt') continue;
+      // engin garé en réserve d'un commissariat (sans équipage) : pas d'escorte à pied
+      if (isHeldVehicle(ctx, v.id)) continue;
       // l'escorte en place tient-elle toujours ?
       const cur = this.escorts.get(v.id);
       if (cur !== undefined) {

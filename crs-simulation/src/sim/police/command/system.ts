@@ -125,6 +125,7 @@ export class CommandSystem implements GameSystem {
       depart: (id, exit) => this.convoy.depart(id, exit),
       convoyOf: (id) => this.convoy.statusOf(id),
       takeOver: (id) => this.convoy.takeOver(id),
+      quietRun: (id) => this.convoy.quietRun(id),
     };
     const post: CommandPost = {
       get atVehicle(): boolean { return self.postState(0); },

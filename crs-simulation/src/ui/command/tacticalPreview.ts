@@ -17,7 +17,7 @@ import type { MapTransform } from '../maps/transform';
 import type { MapUnit } from '../maps/units';
 import type { CardPreview, Repere } from './cardTypes';
 import type { CommandCore } from './core';
-import { MIN_LINE, areaToOrder, barrerHint, lineToOrder } from './orders';
+import { MIN_LINE, areaToOrder, barrerHint, lineToOrder, upperTitle } from './orders';
 import type { OrderGeom, OrderVerb } from './orders';
 import type { TacticalState } from './tacticalState';
 
@@ -236,7 +236,7 @@ export function viseeHint(input: 'keys' | 'pointer' | 'touch', readOnly: boolean
 
 /** Libellé de la visée : « ◎ RUE DE RIVOLI ». */
 export function viseeTitle(r: Pick<Repere, 'name'>): string {
-  return `◎ ${r.name.toLocaleUpperCase('fr-FR')}`;
+  return `◎ ${upperTitle(r.name)}`;
 }
 
 /** Pastille de texte (fond sombre, liseré) centrée en (x, y) ; renvoie sa hauteur. */

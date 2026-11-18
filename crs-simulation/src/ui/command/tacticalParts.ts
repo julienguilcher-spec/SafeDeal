@@ -3,7 +3,7 @@
  *
  * L'écran (tacticalScreen.ts) tient la machine à états et ne connaît les autres fichiers que par des interfaces ;
  * ce fichier lui fournit, une fois pour toutes (installTacticalParts, appelée par CommandSystem.init) :
- *   proposeWho / whoEnv           qui envoyer (bestUnit.ts) ;
+ *   proposeWho / whoEnv           qui envoyer (bestUnit.ts ; renforts et exclusions des commissariats, commissariatsLink.ts) ;
  *   previewOf / sentenceOf        l'aperçu dessiné et la phrase « Ce qui va se passer » (preview.ts) ;
  *   sendCardLine / legalPlan      l'envoi d'une ligne et les étapes légales de S3 (sendLine.ts) ;
  *   todo                          « À traiter » dans l'ordre du panneau (panelFollow.todoItems), pour Espace ;
@@ -17,6 +17,7 @@
 import { coarsePointer } from '../maps/style';
 import { proposeWho, whoEnvFromCore } from './bestUnit';
 import type { Repere } from './cardTypes';
+import { stationWhoExt } from './commissariatsLink';
 import { CardPanel } from './panelCard';
 import { FollowPanel, chainOf, todoItems } from './panelFollow';
 import { LegalPanel } from './panelLegal';
@@ -45,7 +46,8 @@ export function installTacticalParts(): void {
   installed = true;
   setTacticalParts({
     proposeWho: (line, where, env) => proposeWho(line, where, env),
-    whoEnv: (core, env, selection) => whoEnvFromCore(core, env, selection),
+    // commissariats : unités au poste ou en alerte écartées ; unités prêtes des postes en « Renforts des commissariats »
+    whoEnv: (core, env, selection) => whoEnvFromCore(core, env, selection, stationWhoExt(core)),
     previewOf: (line, who, where, env) => previewOf(line, who, where, env),
     sentenceOf: (line, who, where) => sentenceOf(line, who, where),
     sendCardLine: (env, line, who, where) => sendCardLine(env, line, who, where),

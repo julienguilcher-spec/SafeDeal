@@ -18,7 +18,7 @@ export const createSystems: ModuleFactory = () => [new PatrolsSystem(), new Patr
 export { PatrolsSystem } from './system';
 export { PatrolModeSystem } from './mode';
 export { PATROLS_SERVICE, PATROLS_SYSTEM_ID, PATROL_REPORT_EVENT } from './api';
-export type { PatrolKind, PatrolReport, PatrolState, PatrolView, PatrolsApi } from './api';
+export type { PatrolKind, PatrolPose, PatrolReport, PatrolState, PatrolView, PatrolsApi } from './api';
 export { PATROL_CALL_EVENT, PATROL_MODE_SERVICE, PATROL_MODE_SYSTEM_ID } from './api';
 export type {
   BackupKind, CallKind, CallState, DispatchCall, PatrolCallEvent, PatrolModeApi, VacationConfig, VacationSummary,

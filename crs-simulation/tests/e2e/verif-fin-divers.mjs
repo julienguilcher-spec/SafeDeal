@@ -36,7 +36,9 @@ const tp = (page, x, z) => page.evaluate(async ([x, z]) => {
     // véhicules de l'unité : nez vers la sortie, aucun collègue devant
     const vans = await page.evaluate(() => {
       const c = window.__CRS.ctx; const s = c.service('session.setup').summary; const fx = Math.sin(s.heading), fz = Math.cos(s.heading);
-      return c.vehicles.list.filter((v) => v.faction === 'police').map((v) => {
+      // (sans les véhicules garés en réserve des commissariats : ils ne sont pas ceux de l'unité)
+      const held = c.service('police.commissariats');
+      return c.vehicles.list.filter((v) => v.faction === 'police' && !(held && held.holds(v.id))).map((v) => {
         const vfx = Math.sin(v.heading), vfz = Math.cos(v.heading); let ahead = 0;
         for (const p of c.people.list) { if (p.faction !== 'police' || p.vehicleId !== 0) continue; const dx = p.x - v.x, dz = p.z - v.z; const a = dx * vfx + dz * vfz, l = Math.abs(dx * vfz - dz * vfx); if (a > 2 && a < 30 && l < 1.6) ahead++; }
         return { kind: v.kind, facing: Math.sin(v.heading) * fx + Math.cos(v.heading) * fz, behind: -((v.x - s.x) * fx + (v.z - s.z) * fz), ahead, free: c.world.isFree(v.x, v.z, 0.8), bh: c.world.buildingHeightAt(v.x, v.z) };

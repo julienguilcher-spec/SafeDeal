@@ -22,6 +22,9 @@
  *                   gyrophares), s'arrête, rend compte (« sur place, … ») et y reste ; « libre » : reprise de la
  *                   patrouille ; tenir / cesser : arrêt sur place ; autres ordres : exécutés par le module de police.
  *                   Sur place ou en mission, elle reprend d'elle-même la patrouille au bout de 10 min.
+ *   commissariats   deploy() : voiture engagée depuis un commissariat (src/gameplay/commissariats), posée à sa place
+ *                   réservée, équipage à bord, « Au poste » (immobile, silencieuse) jusqu'au premier ordre — dans tous
+ *                   les modes, missions comprises ; sendHome() : retour sans urgence à sa place, puis « Au poste ».
  * ===================================================================================== */
 
 import type {
@@ -34,7 +37,7 @@ import { isPoliceRole } from '@/gameplay/session/roster';
 import type { SessionSetupApi } from '@/gameplay/session/api';
 import { readVacation } from './model';
 import { PATROLS_SERVICE, PATROLS_SYSTEM_ID, PATROL_REPORT_EVENT } from './api';
-import type { PatrolKind, PatrolReport, PatrolState, PatrolView, PatrolsApi } from './api';
+import type { PatrolKind, PatrolPose, PatrolReport, PatrolState, PatrolView, PatrolsApi } from './api';
 import { BAC_SITES, TV_SITES, approx, chooseSites, distanceWords, mood, moodLevel, people, radioFrame } from './sites';
 import type { Avoid, PatrolSite } from './sites';
 
@@ -43,6 +46,8 @@ import type { Avoid, PatrolSite } from './sites';
 interface AutopilotLike {
   driveTo(v: Vehicle, x: number, z: number, options?: { urgence?: boolean; speed?: number; stopBefore?: number }): boolean;
   stop(v: Vehicle): void;
+  park(v: Vehicle, x: number, z: number, heading: number): boolean;
+  convoy?(list: readonly Vehicle[], x: number, z: number, options?: { urgence?: boolean; stopBefore?: number }): boolean;
   status(v: Vehicle): Readonly<{ mode: string; state: string; reason: string; remaining: number; blockedFor: number; urgence: boolean }>;
 }
 interface VehiclesExtLike {
@@ -109,6 +114,9 @@ const SEE_CROWD = 140;
 const STOP_BEFORE = 12;
 /** Une voiture proche d'un foyer qui se déclare se signale après l'annonce de CENTRAL (s). */
 const FOYER_REPLY_DELAY = 14;
+/** Retour au commissariat : arrivée à moins de cette distance de sa place (m) ; relance de la conduite perdue (s). */
+const HOME_ARRIVE = 15;
+const HOME_RELAUNCH = 1.5;
 
 /** Ordres qui envoient la voiture sur un point (conduite en urgence). */
 const MOVE_ORDERS: ReadonlySet<string> = new Set([
@@ -161,6 +169,19 @@ interface Patrol {
   boardAt: number;
   arrivedReported: boolean;
   subjects: Map<string, Subject>;
+  /** Retour au commissariat en cours (sendHome) vers `homeSlot`, sans urgence. */
+  homing: boolean;
+  /** Place réservée au commissariat (deploy, sendHome), null pour une patrouille ordinaire. */
+  homeSlot: PatrolPose | null;
+  /** État quitté en passant hors service (pour y revenir : une voiture au poste y reste). */
+  beforeOut: PatrolState;
+}
+
+/** Lieu d'attache avec sa préposition : « au commissariat du 9e », « à la préfecture de police ». */
+function homeAt(home: string): string {
+  if (/^(préfecture|caserne)/.test(home)) return 'à la ' + home;
+  if (/^commissariat/.test(home)) return 'au ' + home;
+  return 'à ' + home;
 }
 
 export class PatrolsSystem implements GameSystem {
@@ -176,6 +197,8 @@ export class PatrolsSystem implements GameSystem {
   private readonly replies: { patrol: Patrol; at: number; text: string }[] = [];
   private globalAt = -1e9;
   private rand: () => number = Math.random;
+  /** Générateur de la session en place (sinon Math.random, avant toute mise en place). */
+  private seeded = false;
   private readonly road: RoadSample = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '', roadClass: 'residential', oneway: false };
   /** Ordre donné par ce système lui-même (embarquer) : ignoré par l'écoute des ordres. */
   private selfIssue = false;
@@ -201,6 +224,8 @@ export class PatrolsSystem implements GameSystem {
         ctx.squads.issue(id, { type: 'libre', issuedBy: by ?? 0 });
         return true;
       },
+      deploy: (kind, callsign, home, at, homeAt) => self.deploy(kind, callsign, home, at, homeAt),
+      sendHome: (id, at, by) => self.sendHome(id, at, by),
     };
     ctx.provide<PatrolsApi>(PATROLS_SERVICE, api);
   }
@@ -224,6 +249,8 @@ export class PatrolsSystem implements GameSystem {
     this.replies.length = 0;
     this.pending = false;
     this.globalAt = -1e9;
+    this.rand = Math.random;
+    this.seeded = false;
   }
 
   dispose(): void {
@@ -287,8 +314,7 @@ export class PatrolsSystem implements GameSystem {
     const cfg = ctx.session.config!;
     const count = PatrolsSystem.count(cfg);
     if (count === 0 || ctx.world.edgeCount === 0) return;
-    const rng = ctx.rng.fork('patrouilles');
-    this.rand = () => rng.next();
+    this.seed();
     const avoid: Avoid[] = [];
     if (typeof cfg.x === 'number' && typeof cfg.z === 'number') avoid.push({ x: cfg.x, z: cfg.z, radius: AVOID_DEMO });
     const setup = ctx.service<SessionSetupApi>('session.setup');
@@ -314,11 +340,20 @@ export class PatrolsSystem implements GameSystem {
     ctx.people.rebuildIndex();
   }
 
-  private spawn(site: PatrolSite): void {
-    const ctx = this.ctx!;
-    const world = ctx.world;
-    // points de rue carrossables du secteur, et le plus proche du commissariat pour la garer
-    const points: number[] = [];
+  /** Générateur de la session (tirages des points de patrouille), une fois par session. */
+  private seed(): void {
+    if (this.seeded) return;
+    const rng = this.ctx!.rng.fork('patrouilles');
+    this.rand = () => rng.next();
+    this.seeded = true;
+  }
+
+  /**
+   * Points de rue carrossables du secteur (x, z à la suite, dans `points`) autour de (sx, sz) ; renvoie le milieu de
+   * tronçon le plus proche où garer une voiture (null si aucun).
+   */
+  private sector(sx: number, sz: number, points: number[]): { x: number; z: number; heading: number; width: number; oneway: boolean } | null {
+    const world = this.ctx!.world;
     let bestD = Infinity, bx = 0, bz = 0, bh = 0, bw = 0, oneway = false;
     const r2 = SECTOR_RADIUS * SECTOR_RADIUS;
     for (let id = 0; id < world.edgeCount; id++) {
@@ -330,7 +365,7 @@ export class PatrolsSystem implements GameSystem {
       const k = Math.max(0, Math.min(n - 2, (n >> 1) - 1));
       const ax = pts[k * 2]!, az = pts[k * 2 + 1]!, cx = pts[k * 2 + 2]!, cz = pts[k * 2 + 3]!;
       const mx = (ax + cx) * 0.5, mz = (az + cz) * 0.5;
-      const d2 = (mx - site.x) * (mx - site.x) + (mz - site.z) * (mz - site.z);
+      const d2 = (mx - sx) * (mx - sx) + (mz - sz) * (mz - sz);
       if (d2 > r2) continue;
       if (e.roadClass !== 'service') points.push(mx, mz);
       if (d2 < bestD && e.width >= 5 && e.roadClass !== 'service') {
@@ -342,51 +377,172 @@ export class PatrolsSystem implements GameSystem {
         oneway = e.oneway;
       }
     }
-    if (bestD === Infinity || points.length < 8) {
+    return bestD === Infinity ? null : { x: bx, z: bz, heading: bh, width: bw, oneway };
+  }
+
+  private spawn(site: PatrolSite): void {
+    const ctx = this.ctx!;
+    // points de rue carrossables du secteur, et le plus proche du commissariat pour la garer
+    const points: number[] = [];
+    const best = this.sector(site.x, site.z, points);
+    if (!best || points.length < 8) {
       console.warn(`[patrouilles] pas de rue pour ${site.callsign} (${site.home})`);
       return;
     }
+    const bh = best.heading;
     // sur la voie de droite (droite = (−cos h, sin h) dans le repère du jeu ; voir contracts SeatDef)
-    const lateral = oneway ? 0 : Math.min(2.5, bw * 0.22);
-    let x = bx - Math.cos(bh) * lateral;
-    let z = bz + Math.sin(bh) * lateral;
+    const lateral = best.oneway ? 0 : Math.min(2.5, best.width * 0.22);
+    let x = best.x - Math.cos(bh) * lateral;
+    let z = best.z + Math.sin(bh) * lateral;
     // une place libre de tout autre véhicule
     for (let tries = 0; tries < 6 && ctx.vehicles.queryRadius(x, z, 6, this.near) > 0; tries++) {
       x += Math.sin(bh) * 9;
       z += Math.cos(bh) * 9;
     }
-    // la BAC roule en voiture banalisée (repli sur la voiture sérigraphiée si la définition manque)
-    const kindV = site.kind === 'bac' && ctx.vehicles.def('voiture_bac') ? 'voiture_bac' : 'voiture_police';
-    const v = ctx.vehicles.spawn(kindV, x, z, bh, { faction: 'police' });
-    v.y = world.heightAt(x, z);
-    const squad = ctx.squads.create('equipage', 'police', site.callsign);
+    this.spawnCar(site.kind, site.callsign, site.home, site.x, site.z, { x, z, heading: bh }, points);
+  }
+
+  /**
+   * Crée une voiture et son équipage de trois à bord, posée exactement à `at`, et la suit (état 'patrouille').
+   * Police secours : voiture sérigraphiée ; BAC : voiture banalisée quand le module des véhicules la définit.
+   */
+  private spawnCar(kind: PatrolKind, callsign: string, home: string, homeX: number, homeZ: number, at: PatrolPose, points: number[]): Patrol {
+    const ctx = this.ctx!;
+    const { x, z, heading: bh } = at;
+    const vehicleKind = kind === 'bac' && ctx.vehicles.def('voiture_bac') ? 'voiture_bac' : 'voiture_police';
+    const v = ctx.vehicles.spawn(vehicleKind, x, z, bh, { faction: 'police' });
+    v.y = ctx.world.heightAt(x, z);
+    const squad = ctx.squads.create('equipage', 'police', callsign);
     squad.vehicleId = v.id;
-    const kind = site.kind === 'bac' ? 'policier_civil' : 'crs';
-    const roster: [PolicePoste, PoliceRank, 'driver' | 'passenger'][] = site.kind === 'bac'
+    const person = kind === 'bac' ? 'policier_civil' : 'crs';
+    const roster: [PolicePoste, PoliceRank, 'driver' | 'passenger'][] = kind === 'bac'
       ? [['interpellation', 'brigadier_chef', 'passenger'], ['conducteur', 'gardien', 'driver'], ['interpellation', 'gardien', 'passenger']]
       : [['operateur', 'brigadier_chef', 'passenger'], ['conducteur', 'gardien', 'driver'], ['operateur', 'gardien', 'passenger']];
     const seed = (ctx.session.config?.seed ?? 1) * 977 + squad.id * 31;
     for (let i = 0; i < roster.length; i++) {
       const [poste, rank, seat] = roster[i]!;
-      const p = ctx.archetypes.spawn(kind, x + 3, z + i, { heading: bh, seed: seed + i * 7, poste, rank, profile: null });
+      const p = ctx.archetypes.spawn(person, x + 3, z + i, { heading: bh, seed: seed + i * 7, poste, rank, profile: null });
       p.faction = 'police';
       ctx.squads.addMember(squad.id, p.id);
       if (i === 0) ctx.squads.setLeader(squad.id, p.id);
       if (!ctx.vehicles.enter(p, v, seat)) ctx.vehicles.enter(p, v, 'passenger');
     }
     const view: PatrolView = {
-      squadId: squad.id, vehicleId: v.id, name: site.callsign, kind: site.kind, state: 'patrouille', label: 'Patrouille',
-      home: site.home, homeX: site.x, homeZ: site.z, tx: x, tz: z, target: '',
+      squadId: squad.id, vehicleId: v.id, name: callsign, kind, state: 'patrouille', label: 'Patrouille',
+      home, homeX, homeZ, tx: x, tz: z, target: '',
     };
     const now = ctx.clock.now;
     const p: Patrol = {
-      view, squadId: squad.id, vehicleId: v.id, kind: site.kind, homeX: site.x, homeZ: site.z, home: site.home, points,
+      view, squadId: squad.id, vehicleId: v.id, kind, homeX, homeZ, home, points,
       state: 'patrouille', since: now, orderAt: -1, orderType: '', tx: x, tz: z, target: '', urgent: false, driveAt: -1e9,
       thinkAt: now + 0.5 + this.patrols.length * 0.37, observeAt: now + 8 + this.patrols.length * 1.3,
       reportAt: -1e9, rasAt: now + 120 + this.patrols.length * 45, boardAt: -1e9, arrivedReported: true, subjects: new Map(),
+      homing: false, homeSlot: null, beforeOut: 'patrouille',
     };
     this.patrols.push(p);
     this.views.push(view);
+    return p;
+  }
+
+  // ───────────────────────────── commissariats ─────────────────────────────
+
+  /** Voiture engagée depuis un commissariat : posée à sa place, équipage à bord, « Au poste ». */
+  private deploy(kind: PatrolKind, callsign: string, home: string, at: PatrolPose, homeAt?: { x: number; z: number }): number {
+    const ctx = this.ctx;
+    if (!ctx || ctx.world.edgeCount === 0) return 0;
+    this.seed();
+    const hx = homeAt ? homeAt.x : at.x;
+    const hz = homeAt ? homeAt.z : at.z;
+    const points: number[] = [];
+    this.sector(hx, hz, points);
+    const p = this.spawnCar(kind, callsign, home, hx, hz, { x: at.x, z: at.z, heading: at.heading }, points);
+    p.homeSlot = { x: at.x, z: at.z, heading: at.heading };
+    this.setState(p, 'au_poste', ctx.clock.now);
+    const v = ctx.vehicles.get(p.vehicleId);
+    if (v) {
+      // garée : moteur au ralenti, frein serré (le pilote automatique reprend la main au premier ordre)
+      v.cmd.throttle = 0;
+      v.cmd.brake = 1;
+      v.cmd.handbrake = true;
+    }
+    this.syncView(p);
+    ctx.people.rebuildIndex();
+    return p.squadId;
+  }
+
+  /** Retour sans urgence à sa place du commissariat. */
+  private sendHome(squadId: number, at: PatrolPose, by?: EntityId): boolean {
+    const ctx = this.ctx;
+    const p = ctx ? this.of(squadId) : null;
+    if (!ctx || !p) return false;
+    const v = ctx.vehicles.get(p.vehicleId);
+    if (!v || p.state === 'hors_service') return false;
+    const now = ctx.clock.now;
+    p.homeSlot = { x: at.x, z: at.z, heading: at.heading };
+    p.tx = at.x;
+    p.tz = at.z;
+    p.target = p.home;
+    p.urgent = false;
+    p.arrivedReported = false;
+    p.homing = true;
+    p.driveAt = -1e9;
+    this.lightsOff(v);
+    // l'ordre en cours est levé (la carte ne trace plus de flèche vers l'ancien point) ; la conduite est reprise ici
+    this.issueSelf(squadId, { type: 'libre', issuedBy: by ?? 0 });
+    this.setState(p, 'en_route', now);
+    this.say(p, 'retour', radioFrame(this.superiorOf(by ?? 0), p.view.name, `Je rentre ${homeAt(p.home)}, sans urgence`), 1, true);
+    this.syncView(p);
+    // première relance à la réflexion suivante (le module de police prend d'abord l'ordre « libre »)
+    p.thinkAt = Math.min(p.thinkAt, now + 0.2);
+    return true;
+  }
+
+  private driveHome(p: Patrol, v: Vehicle, now: number): void {
+    const ap = this.autopilot();
+    const slot = p.homeSlot;
+    if (!ap || !slot) return;
+    p.driveAt = now;
+    // « colonne d'un seul véhicule » (comme le retour des fourgons, police/command/convoy.ts) : sans deux-tons, mais elle
+    // contourne une voiture arrêtée sur sa voie — en simple conduite, elle l'attendait sans fin (place de la Concorde)
+    const go = (x: number, z: number): boolean => (typeof ap.convoy === 'function'
+      ? ap.convoy([v], x, z, { urgence: false, stopBefore: 2 })
+      : ap.driveTo(v, x, z, { urgence: false, stopBefore: 2 }));
+    if (!go(slot.x, slot.z)) {
+      // place injoignable par les rues : au point de rue le plus proche
+      const world = this.ctx!.world;
+      if (world.nearestRoad(slot.x, slot.z, this.road, 60)) go(this.road.x, this.road.z);
+    }
+    this.lightsOff(v);
+  }
+
+  /** Retour en cours : arrivée (garée à sa place, « Au poste »), ou conduite relancée. */
+  private thinkHome(p: Patrol, v: Vehicle, now: number): void {
+    const ap = this.autopilot()!;
+    const slot = p.homeSlot!;
+    const st = ap.status(v);
+    const d = Math.hypot(slot.x - v.x, slot.z - v.z);
+    // (« arrivé » : seulement au bout de la conduite de retour, pas l'état laissé par un trajet précédent)
+    const driven = p.driveAt >= p.since && now - p.driveAt > 0.5;
+    if (d < HOME_ARRIVE || (st.state === 'arrive' && driven)) {
+      // les derniers mètres : manœuvre jusqu'à sa place, dans son cap (nez vers la sortie)
+      if (d < 30 && (d > 0.6 || Math.abs(Math.atan2(Math.sin(v.heading - slot.heading), Math.cos(v.heading - slot.heading))) > 0.1)) {
+        ap.park(v, slot.x, slot.z, slot.heading);
+      } else if (st.mode === 'drive') ap.stop(v);
+      p.homing = false;
+      p.tx = slot.x;
+      p.tz = slot.z;
+      p.arrivedReported = true;
+      this.setState(p, 'au_poste', now);
+      this.lightsOff(v);
+      // (pas « équipage disponible » : le commissariat met l'équipage au repos et l'annonce juste après)
+      this.say(p, 'arrivee', radioFrame('CENTRAL', p.view.name, `Au poste, ${p.home}`), 1, true);
+      return;
+    }
+    if (!this.crewAboard(p, v, now)) return;
+    // conduite perdue (ordre « libre » pris par le module de police, blocage durable) ou reprise en urgence : relance
+    const lost = st.mode !== 'drive' || st.urgence || (st.state === 'bloque' && st.blockedFor > 30) || st.state === 'echec';
+    if (lost && now - p.driveAt > (st.state === 'echec' ? 10 : HOME_RELAUNCH)) this.driveHome(p, v, now);
+    if (!st.urgence && (v.siren !== 0 || v.beacons)) this.lightsOff(v);
   }
 
   // ───────────────────────────── ordres ─────────────────────────────
@@ -396,6 +552,8 @@ export class PatrolsSystem implements GameSystem {
     const now = ctx.clock.now;
     p.orderAt = o.issuedAt;
     p.orderType = o.type;
+    // tout ordre du joueur interrompt un retour au commissariat ; depuis « au poste », mêmes suites qu'en patrouille
+    p.homing = false;
     const v = ctx.vehicles.get(p.vehicleId);
     if (o.type === 'libre') {
       if (p.state !== 'patrouille') {
@@ -438,9 +596,13 @@ export class PatrolsSystem implements GameSystem {
   }
 
   private superior(o: SquadOrder): string {
+    return this.superiorOf(o.issuedBy);
+  }
+
+  private superiorOf(issuedBy: EntityId): string {
     const ctx = this.ctx!;
-    if (o.issuedBy !== 0) {
-      const by = ctx.people.get(o.issuedBy);
+    if (issuedBy !== 0) {
+      const by = ctx.people.get(issuedBy);
       const s = by && by.squadId !== 0 ? ctx.squads.get(by.squadId) : undefined;
       if (s && s.name !== '') return s.name.toUpperCase();
     }
@@ -458,15 +620,15 @@ export class PatrolsSystem implements GameSystem {
     p.since = now;
     const v = p.view;
     v.state = state;
-    v.label = state === 'patrouille' ? 'Patrouille' : state === 'en_route' ? 'En route (urgence)' : state === 'sur_place' ? 'Sur place'
-      : state === 'mission' ? 'En mission' : 'Hors service';
+    v.label = state === 'patrouille' ? 'Patrouille' : state === 'en_route' ? (p.homing ? 'Retour au poste' : 'En route (urgence)')
+      : state === 'sur_place' ? 'Sur place' : state === 'mission' ? 'En mission' : state === 'au_poste' ? 'Au poste' : 'Hors service';
   }
 
   private syncView(p: Patrol): void {
     const v = p.view;
     v.tx = p.tx;
     v.tz = p.tz;
-    v.target = p.state === 'patrouille' ? '' : p.target;
+    v.target = p.state === 'patrouille' || p.state === 'au_poste' ? '' : p.target;
   }
 
   private lightsOff(v: Vehicle): void {
@@ -545,7 +707,7 @@ export class PatrolsSystem implements GameSystem {
     if (!v || !ap) return;
     const pts = p.points;
     const n = pts.length >> 1;
-    for (let tries = 0; tries < 8; tries++) {
+    for (let tries = 0; tries < 8 && n > 0; tries++) {
       const k = Math.floor(this.rand() * n) % n;
       const x = pts[k * 2]!, z = pts[k * 2 + 1]!;
       const d = Math.hypot(x - v.x, z - v.z);
@@ -572,6 +734,8 @@ export class PatrolsSystem implements GameSystem {
     const squad = ctx.squads.get(p.squadId);
     if (!v || !squad || v.state === 'wrecked' || v.state === 'burnt' || !this.crewFit(squad.members)) {
       if (p.state !== 'hors_service') {
+        p.beforeOut = p.state;
+        p.homing = false;
         this.setState(p, 'hors_service', now);
         // équipage hors de combat (blessé, menotté, interpellé) : la voiture ne roule plus d'elle-même
         if (v) {
@@ -582,11 +746,20 @@ export class PatrolsSystem implements GameSystem {
       this.syncView(p);
       return;
     }
-    if (p.state === 'hors_service') this.setState(p, 'patrouille', now);
+    // de nouveau en état : une voiture au poste y reste, les autres reprennent la patrouille
+    if (p.state === 'hors_service') this.setState(p, p.beforeOut === 'au_poste' ? 'au_poste' : 'patrouille', now);
     const ap = this.autopilot();
     if (!ap) return;
+    if (p.homing) {
+      this.thinkHome(p, v, now);
+      this.syncView(p);
+      return;
+    }
     const st = ap.status(v);
     switch (p.state) {
+      case 'au_poste':
+        // garée à sa place, équipage à bord : en attente d'ordre
+        break;
       case 'patrouille': {
         if (!this.crewAboard(p, v, now)) break;
         // une patrouille roule sans deux-tons : après un dégagement (deux-tons pour passer une foule, session/engins.ts),
@@ -701,7 +874,7 @@ export class PatrolsSystem implements GameSystem {
   private observe(p: Patrol, now: number): void {
     const ctx = this.ctx!;
     const v = ctx.vehicles.get(p.vehicleId);
-    if (!v || p.state === 'hors_service') return;
+    if (!v || p.state === 'hors_service' || p.state === 'au_poste') return;
     if (now - p.reportAt < REPORT_GAP || now - this.globalAt < GLOBAL_GAP) return;
     const name = p.view.name;
     // 1. foyers secondaires à portée de vue

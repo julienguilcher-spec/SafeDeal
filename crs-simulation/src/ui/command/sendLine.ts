@@ -193,6 +193,12 @@ function sendVerb(
   const named = where.kind === 'rue' || where.kind === 'fermeture';
   const before = core.placeHint;
   if (named) core.placeHint = where.name.split(' — ')[0]!.trim();
+  else if (where.kind === 'point') {
+    // point quelconque « Ici : près de Rue Halévy » : la radio et le suivi disent la rue de la fiche, pas le secteur du
+    // point (la radio disait « place Jacques Rouché » quand la fiche disait « près de Rue Halévy »)
+    const m = /^Ici\s*:\s*(?:près de\s+)?(.+)$/u.exec(where.name.replace(/ /g, ' '));
+    if (m && m[1]!.trim() !== '') core.placeHint = m[1]!.trim();
+  }
   try {
     return sendVerbAt(core, issuer, card, line, squads, where, trace);
   } finally {

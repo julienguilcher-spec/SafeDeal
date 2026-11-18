@@ -349,3 +349,124 @@ export function symbolIcon(symbol: UnitSymbol, faction: Faction, sizePx: number,
   }
   return canvas;
 }
+
+// ───────────────────────────── commissariats ─────────────────────────────
+
+/** Couleurs du symbole de commissariat. */
+export const COMMISSARIAT_COLORS = {
+  fill: '#17337c',
+  edge: '#ffffff',
+  focus: '#ffd60a',
+  bleu: '#1f4fd1',
+  blanc: '#f4f7fd',
+  rouge: '#e1252e',
+  badge: '#22a447',
+  badgeEmpty: '#6b7486',
+} as const;
+
+/** Lettres du symbole : « PP » préfecture de police, « G » gendarmerie, « P » commissariat. */
+export function commissariatLetters(kind: string): string {
+  if (kind === 'prefecture') return 'PP';
+  if (kind === 'caserne_gendarmerie') return 'G';
+  return 'P';
+}
+
+export interface CommissariatGlyphOptions {
+  /** Demi-côté du cadre (px). */
+  radius: number;
+  /** Unités engageables au poste : badge vert, gris à 0 ; −1 = pas de badge. */
+  available: number;
+  /** Site mis en avant (sélection au clavier, survol) : anneau jaune. */
+  focus: boolean;
+  /** Dessin réduit (mini-carte) : ni barre tricolore, ni chiffre dans le badge. */
+  compact: boolean;
+}
+
+/**
+ * Symbole de commissariat centré sur (x, y) : cadre bleu marine aux coins arrondis, lettres blanches (« P », « PP »,
+ * « G »), barre tricolore sous les lettres et pastille du nombre d'unités disponibles en haut à droite (verte, grise à 0).
+ */
+export function drawCommissariatGlyph(
+  g: CanvasRenderingContext2D, letters: string, x: number, y: number, o: CommissariatGlyphOptions,
+): void {
+  const r = o.radius;
+  g.save();
+  g.translate(Math.round(x), Math.round(y));
+  if (o.focus) {
+    g.lineWidth = 2.5;
+    g.strokeStyle = COMMISSARIAT_COLORS.focus;
+    roundRect(g, -r - 4, -r - 4, r * 2 + 8, r * 2 + 8, Math.max(2, r * 0.45));
+    g.stroke();
+  }
+  g.fillStyle = COMMISSARIAT_COLORS.fill;
+  g.strokeStyle = COMMISSARIAT_COLORS.edge;
+  g.lineWidth = Math.max(1.2, r * 0.16);
+  roundRect(g, -r, -r, r * 2, r * 2, Math.max(1.5, r * 0.3));
+  g.fill();
+  g.stroke();
+  // lettres (remontées pour laisser la place à la barre tricolore)
+  const two = letters.length > 1;
+  g.font = `800 ${Math.max(6, r * (two ? 0.95 : 1.2))}px ${FONT}`;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillStyle = COMMISSARIAT_COLORS.edge;
+  g.fillText(letters, 0, o.compact ? r * 0.06 : -r * 0.14);
+  if (!o.compact) {
+    const bw = r * 1.3;
+    const bh = Math.max(1.6, r * 0.2);
+    const by = r * 0.52;
+    const third = bw / 3;
+    g.fillStyle = COMMISSARIAT_COLORS.bleu;
+    g.fillRect(-bw / 2, by, third, bh);
+    g.fillStyle = COMMISSARIAT_COLORS.blanc;
+    g.fillRect(-bw / 2 + third, by, third, bh);
+    g.fillStyle = COMMISSARIAT_COLORS.rouge;
+    g.fillRect(-bw / 2 + third * 2, by, third, bh);
+  }
+  if (o.available >= 0) {
+    const br = o.compact ? Math.max(2.2, r * 0.42) : Math.max(5.5, r * 0.62);
+    const bx = r * 0.95;
+    const byc = -r * 0.95;
+    g.beginPath();
+    g.arc(bx, byc, br, 0, Math.PI * 2);
+    g.fillStyle = o.available > 0 ? COMMISSARIAT_COLORS.badge : COMMISSARIAT_COLORS.badgeEmpty;
+    g.fill();
+    g.lineWidth = 1.2;
+    g.strokeStyle = UNIT_COLORS.halo;
+    g.stroke();
+    if (!o.compact) {
+      const text = o.available > 9 ? '9+' : String(o.available);
+      g.font = `800 ${Math.max(7, br * (text.length > 1 ? 1.05 : 1.35))}px ${FONT}`;
+      g.fillStyle = '#ffffff';
+      g.fillText(text, bx, byc + 0.5);
+    }
+  }
+  g.restore();
+}
+
+const commissariatIcons = new Map<string, string>();
+
+/**
+ * Image (URL de données PNG) du symbole de commissariat sans badge, pour les listes et la légende ; mise en cache par
+ * lettres et taille. Chaîne vide hors navigateur.
+ */
+export function commissariatIconUrl(kind: string, sizePx = 20, pixelRatio = 2): string {
+  const letters = commissariatLetters(kind);
+  const key = letters + ':' + sizePx + ':' + pixelRatio;
+  const cached = commissariatIcons.get(key);
+  if (cached !== undefined) return cached;
+  let url = '';
+  if (typeof document !== 'undefined') {
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(sizePx * pixelRatio);
+    canvas.height = Math.round(sizePx * pixelRatio);
+    const g = canvas.getContext('2d');
+    if (g) {
+      g.scale(pixelRatio, pixelRatio);
+      drawCommissariatGlyph(g, letters, sizePx / 2, sizePx / 2, { radius: sizePx * 0.42, available: -1, focus: false, compact: false });
+      try { url = canvas.toDataURL('image/png'); } catch { url = ''; }
+    }
+  }
+  commissariatIcons.set(key, url);
+  return url;
+}

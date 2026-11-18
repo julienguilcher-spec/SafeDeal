@@ -181,6 +181,33 @@ export const EXTRA_PLAIN: Readonly<Record<string, PlainWords>> = {
   },
 };
 
+/**
+ * « Rentrer au commissariat » (`retour_poste`) : l'unité rentre sans deux-tons à ses places, remet ses interpellés,
+ * complète ses réserves, se repose, puis redevient prête. Ce n'est pas un ordre de la simulation : le noyau
+ * (core.ts) le traduit en colonne sans urgence (police.command.arrive), en retour de patrouille (police.patrols) ou en
+ * marche jusqu'à la porte. Ajouté au catalogue par ensureStationVerb, seulement quand le module des commissariats est
+ * branché (sans lui, ni la fiche ni « Tous les ordres » ne le proposent).
+ */
+export const STATION_VERB: OrderVerb = {
+  type: 'retour_poste' as OrderType, label: 'Rentrer au commissariat', short: 'Rentrer', group: 'fin', gesture: 'immediate', force: 0,
+  coercive: false, hint: '', rule: '', ...EXTRA_PLAIN['retour_poste']!,
+};
+
+/** Ajoute « Rentrer au commissariat » au catalogue (une seule fois). */
+export function ensureStationVerb(): void {
+  if (verbOf(STATION_VERB.type)) return;
+  (ORDER_VERBS as OrderVerb[]).push(STATION_VERB);
+}
+
+/**
+ * Majuscules d'un titre (fiches, visée de la carte) qui gardent les ordinaux en exposant : « Commissariat du 9e » →
+ * « COMMISSARIAT DU 9ᵉ », « 1er » → « 1ᵉʳ » (et non « 9E », « 1ER ») ; les lettres en exposant n'ont pas de majuscule,
+ * elles restent telles quelles sous text-transform: uppercase.
+ */
+export function upperTitle(s: string): string {
+  return s.replace(/\b(\d+)(er|e)\b/g, (_m, n: string, suf: string) => n + (suf === 'er' ? '\u1d49\u02b3' : '\u1d49')).toLocaleUpperCase('fr-FR');
+}
+
 /** Étiquette de « Barrer la rue, passants admis » (targetId BARRAGE_LET_PASSERSBY). */
 export const TAG_PASSERSBY = 'BARRE (PASSANTS)';
 
@@ -259,6 +286,8 @@ export function doingAt(type: OrderType, place: string, targetId = 0): string {
   let text: string;
   const street = STREET_DOING[String(type)];
   if (street && p !== '') text = `${street} ${withArticle(p)}${type === 'couper_circulation' && targetId === BARRAGE_LET_PASSERSBY ? ', passants admis' : ''}`;
+  // retour : le lieu est déjà dit avec sa préposition (« au commissariat du 9e », « à la préfecture de police »)
+  else if (type === 'retour_poste' && /^(au|à) /.test(p)) text = `rentre ${p}`;
   else text = p !== '' ? `${w.doing} · ${p}` : w.doing;
   return text.charAt(0).toLocaleUpperCase('fr-FR') + text.slice(1);
 }

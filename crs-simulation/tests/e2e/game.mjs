@@ -149,7 +149,9 @@ async function bureau(server) {
       let nearest = Infinity;
       for (const m of protesters) for (const q of police) nearest = Math.min(nearest, Math.hypot(m.x - q.x, m.z - q.z));
       const fx = Math.sin(s.heading), fz = Math.cos(s.heading);
-      const vans = c.vehicles.list.filter((v) => v.faction === 'police' && (v.kind === 'fourgon_crs' || v.kind === 'vl_commandement'));
+      // (sans les véhicules garés en réserve des commissariats, ailleurs dans Paris)
+      const held = c.service('police.commissariats');
+      const vans = c.vehicles.list.filter((v) => v.faction === 'police' && (v.kind === 'fourgon_crs' || v.kind === 'vl_commandement') && !(held && held.holds(v.id)));
       const squad = c.squads.get(p.squadId);
       const section = squad ? c.squads.get(squad.parentId) : undefined;
       const company = section ? c.squads.get(section.parentId) : undefined;

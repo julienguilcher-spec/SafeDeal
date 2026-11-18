@@ -12,6 +12,9 @@ import type {
   TrafficControlApi,
 } from '@/core/extensions';
 import { pointOnPolyline } from '@/core/math';
+import type { CommissariatsApi } from '@/gameplay/commissariats/api';
+import { commissariatById } from '@/world/commissariats';
+import type { CommissariatKind } from '@/world/commissariats';
 import type { MapVisibility } from './api';
 import { barragesApi } from './barrages';
 import type { SceneBarrage, SceneCrowdExits, SceneExit } from './barrages';
@@ -73,6 +76,34 @@ export interface SceneManif {
   company: string;
 }
 
+/**
+ * Commissariat (service 'police.commissariats') tel que la carte l'affiche : un symbole bleu à la porte, avec le nombre
+ * d'unités engageables au poste.
+ */
+export interface SceneCommissariat {
+  id: string;
+  /** Nom court (« 9e », « Préfecture ») et nom complet (« Commissariat du 9e — rue Chauchat »). */
+  short: string;
+  name: string;
+  kind: CommissariatKind;
+  /** Porte. */
+  x: number;
+  z: number;
+  /** Unités engageables au poste (badge vert), engagées ou en retour, au repos ; nombre d'unités du stock. */
+  available: number;
+  engaged: number;
+  resting: number;
+  total: number;
+  /** Rue des places réservées quand ce n'est pas celle du commissariat (« Boulevard Haussmann »), sinon ''. */
+  bayStreet: string;
+}
+
+/** Lecture du service 'police.commissariats' (forme attendue, sans dépendre du module de jeu). */
+type CommissariatsLike = Pick<CommissariatsApi, 'enabled' | 'list'>;
+
+/** Clé du service des commissariats (même valeur que COMMISSARIATS_SERVICE, src/gameplay/commissariats/api.ts). */
+const COMMISSARIATS_SERVICE = 'police.commissariats';
+
 interface ManifsLike {
   readonly list: readonly {
     id: number; label: string; causeLabel: string; from: string; to: string; phase: string; people: number; declared: number; x: number; z: number;
@@ -91,6 +122,8 @@ const CROWD_PERIOD = 0.5;
 const HAZARD_PERIOD = 0.5;
 /** Issues autour des foules : interrogées deux fois par seconde (calcul de graphe côté simulation). */
 const EXITS_PERIOD = 0.5;
+/** Commissariats : stock relu deux fois par seconde. */
+const COMMISSARIATS_PERIOD = 0.5;
 /** Rayon de recherche des issues autour d'un cortège (m) ; marge d'appartenance d'une foule à une nasse (m). */
 const MARCH_EXIT_RADIUS = 90;
 const KETTLE_MARGIN = 20;
@@ -181,6 +214,8 @@ export class MapScene {
   /** Issues autour de chaque foule (nasses, foyers, cortèges) : commandement seulement. Vide sans le service. */
   crowdExits: SceneCrowdExits[] = [];
   stations: MetroStation[] = [];
+  /** Commissariats et leur stock (rôles de police seulement ; vide sans le service ou module inactif). */
+  commissariats: SceneCommissariat[] = [];
   calls: RescueCall[] = [];
   objectives: Objective[] = [];
   trackedObjective = '';
@@ -197,6 +232,7 @@ export class MapScene {
   private tCrowd = -1;
   private tHazard = -1;
   private tExits = -1;
+  private tCommissariats = -1;
   private readonly crowdPts: DensityPoint[] = [];
   private densityData: ImageData | null = null;
   private gasData: ImageData | null = null;
@@ -245,6 +281,7 @@ export class MapScene {
     this.tCrowd = -1;
     this.tHazard = -1;
     this.tExits = -1;
+    this.tCommissariats = -1;
     this.gasRev = -1;
   }
 
@@ -267,6 +304,10 @@ export class MapScene {
     if (this.tExits < 0 || t - this.tExits >= EXITS_PERIOD) {
       this.tExits = t;
       this.refreshExits();
+    }
+    if (this.tCommissariats < 0 || t - this.tCommissariats >= COMMISSARIATS_PERIOD) {
+      this.tCommissariats = t;
+      this.refreshCommissariats();
     }
   }
 
@@ -468,6 +509,42 @@ export class MapScene {
     if (this.hasHead) {
       const sector = this.ctx.world.sectorName(this.headX, this.headZ);
       around('c', sector && sector !== 'secteur inconnu' ? sector : 'tête du cortège', this.headX, this.headZ, MARCH_EXIT_RADIUS, this.crowdCount);
+    }
+  }
+
+  private readonly commissariatPool: SceneCommissariat[] = [];
+
+  /** Commissariats (copie : le service met ses vues à jour sur place), connus des seuls rôles de police. */
+  private refreshCommissariats(): void {
+    const out = this.commissariats;
+    out.length = 0;
+    if (!this.vis.police) return;
+    const api = this.ctx.service<CommissariatsLike>(COMMISSARIATS_SERVICE);
+    if (!api || api.enabled !== true || !Array.isArray(api.list)) return;
+    for (let i = 0; i < api.list.length; i++) {
+      const c = api.list[i]!;
+      if (!Number.isFinite(c.x) || !Number.isFinite(c.z)) continue;
+      let slot = this.commissariatPool[out.length];
+      if (!slot) {
+        slot = { id: '', short: '', name: '', kind: 'commissariat', x: 0, z: 0, available: 0, engaged: 0, resting: 0, total: 0, bayStreet: '' };
+        this.commissariatPool.push(slot);
+      }
+      slot.id = c.id;
+      slot.short = c.short;
+      slot.name = c.name;
+      slot.kind = c.kind;
+      slot.x = c.x;
+      slot.z = c.z;
+      slot.available = Math.max(0, c.available | 0);
+      slot.engaged = Math.max(0, c.engaged | 0);
+      slot.resting = Math.max(0, c.resting | 0);
+      // unités du stock que l'on peut engager (le car et le PC mobile « hors dispositif » ne comptent pas)
+      let total = 0;
+      for (let k = 0; k < c.entries.length; k++) if (c.entries[k]!.engageable) total++;
+      slot.total = total;
+      const def = commissariatById(c.id);
+      slot.bayStreet = def && def.bayStreet ? def.bayStreet : '';
+      out.push(slot);
     }
   }
 

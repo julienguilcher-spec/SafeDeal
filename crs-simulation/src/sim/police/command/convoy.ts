@@ -173,6 +173,75 @@ export class ConvoyControl {
     for (let i = 0; i < kids.length; i++) this.disembarkRest(kids[i].id, taken, order);
   }
 
+  /**
+   * Fin de trajet des branches que le joueur a commandées (pas de « débarquez », il remplacerait leur ordre) : leurs
+   * agents encore à bord descendent quand même pour exécuter cet ordre, les conducteurs restant au volant comme au
+   * débarquement. Sans cela, un ordre à pied donné près des véhicules (« Tenir une ligne ici », barrer la rue, à moins
+   * de 250 m : sans nouveau trajet en véhicules) laissait le groupe assis dans son fourgon, l'ordre affiché, sans fin.
+   * Pas pour un ordre de rester à bord (embarquer, « Me suivre en colonne ») ni pour une unité repartie dans une autre
+   * colonne (nouvel ordre lointain, mouvement en véhicules).
+   */
+  private dismountTaken(c: Convoy, taken: ReadonlySet<number>): void {
+    const core = this.core;
+    const ctx = core.ctx;
+    const seen = new Set<number>();
+    const visit = (id: number): void => {
+      if (seen.has(id)) return;
+      seen.add(id);
+      const q = ctx.squads.get(id);
+      if (!q || q.kind === 'equipage' || q.order.type === 'embarquer') return;
+      for (let i = 0; i < q.members.length; i++) {
+        const p = ctx.people.get(q.members[i]!);
+        if (!p || p.vehicleId === 0 || p.isPlayer || p.custody !== 'free' || p.posture === 'down') continue;
+        if (p.poste === 'conducteur' || p.poste === 'pilote_moto') continue;
+        // (à bord d'un véhicule d'une autre colonne — l'unité repartie seule — : cette colonne-là la débarquera)
+        if (!c.vehicles.some((v) => v.id === p.vehicleId) && !c.solo.some((v) => v.id === p.vehicleId)) continue;
+        ctx.vehicles.exit(p);
+      }
+      const kids = ctx.squads.childrenOf(id);
+      for (let i = 0; i < kids.length; i++) visit(kids[i].id);
+    };
+    for (const id of taken) if (core.isUnder(id, c.status.squadId)) visit(id);
+  }
+
+  /**
+   * Conduite demandée au pilote automatique : en urgence (défaut), deux tons et allure de colonne ; sans urgence
+   * (retour au commissariat), allure de la circulation, sans sirène.
+   */
+  private pace(c: Convoy): { urgence: boolean; speed: number | undefined } {
+    const urgent = c.dest.urgence !== false;
+    return { urgence: urgent, speed: urgent ? urgentSpeed(this.core) : undefined };
+  }
+
+  /**
+   * Un véhicule de la colonne roule seul jusqu'au point. En urgence : conduite d'intervention (il double ce qui l'arrête).
+   * Sans urgence : « colonne d'un seul véhicule » — sans deux tons, mais il contourne comme une colonne une voiture
+   * garée, accidentée ou arrêtée sur sa voie ; en simple conduite, il l'attendait indéfiniment (le pilote automatique
+   * ne double un véhicule arrêté qu'en urgence ou en colonne).
+   */
+  private driveOne(c: Convoy, v: Vehicle, x: number, z: number, stopBefore: number): boolean {
+    const ap = this.core.autopilot;
+    if (!ap) return false;
+    if (c.dest.urgence !== false) return ap.driveTo(v, x, z, { ...this.pace(c), stopBefore, avoid: this.crowdZones(c) });
+    return ap.convoy([v], x, z, { gap: this.core.tuning.convoyGap, ...this.pace(c), stopBefore, avoid: this.crowdZones(c) });
+  }
+
+  /** Trajet sans urgence : sirène et gyrophares éteints (restés allumés d'une intervention précédente). */
+  private quiet(c: Convoy): void {
+    if (c.dest.urgence !== false) return;
+    const ext = this.core.ctx.service<{ setSiren?(v: Vehicle, mode: 0 | 1 | 2): void; setBeacons?(v: Vehicle, on: boolean): void }>('vehicles.ext');
+    for (const v of c.vehicles) {
+      if (v.siren !== 0) {
+        if (ext && ext.setSiren) ext.setSiren(v, 0);
+        else v.siren = 0;
+      }
+      if (v.beacons) {
+        if (ext && ext.setBeacons) ext.setBeacons(v, false);
+        else v.beacons = false;
+      }
+    }
+  }
+
   of(squadId: number): Convoy | null {
     for (let i = 0; i < this.list.length; i++) if (this.list[i].status.squadId === squadId) return this.list[i];
     return null;
@@ -181,6 +250,17 @@ export class ConvoyControl {
   statusOf(squadId: number): ConvoyStatus | null {
     const c = this.of(squadId);
     return c ? c.status : null;
+  }
+
+  /** Le véhicule roule-t-il dans une colonne sans urgence encore en route ? */
+  quietRun(vehicleId: number): boolean {
+    for (let i = 0; i < this.list.length; i++) {
+      const c = this.list[i];
+      if (c.dest.urgence !== false || c.status.stage !== 'route') continue;
+      for (const v of c.vehicles) if (v.id === vehicleId) return true;
+      for (const v of c.solo) if (v.id === vehicleId) return true;
+    }
+    return false;
   }
 
   /** Un convoi de cette unité est-il encore en route, en stationnement ou en débarquement ? */
@@ -220,6 +300,60 @@ export class ConvoyControl {
     }
     c.vehicles.sort((a, b) => columnRank(a) - columnRank(b) || a.id - b.id);
     c.status.vehicles = c.vehicles.length;
+  }
+
+  /**
+   * Une unité part dans sa propre colonne alors que ses véhicules roulent encore dans celle d'une unité supérieure
+   * (ordre lointain donné à un groupe pendant le trajet de la compagnie, « Rentrer au commissariat »), ou l'inverse
+   * (toute la compagnie renvoyée ailleurs pendant qu'un de ses groupes roule seul) : chaque véhicule ne suit plus que
+   * la dernière colonne ordonnée. Les deux colonnes se le disputaient : le fourgon d'un groupe rappelé « sans
+   * deux-tons » restait dans la colonne de la compagnie, deux tons, jusqu'au rassemblement, pendant que sa propre
+   * colonne annonçait « Colonne arrêtée à 1 500 mètres du point » et que l'unité restait « Retour » sans fin.
+   * Une colonne qui n'a plus aucun véhicule disparaît ; la colonne restante se reforme derrière sa tête.
+   */
+  private release(c: Convoy): void {
+    const core = this.core;
+    const ap = core.autopilot;
+    for (let i = this.list.length - 1; i >= 0; i--) {
+      const o = this.list[i];
+      if (o === c) continue;
+      let lost = 0;
+      for (let k = o.vehicles.length - 1; k >= 0; k--) {
+        if (c.vehicles.indexOf(o.vehicles[k]!) < 0) continue;
+        o.vehicles.splice(k, 1);
+        if (k < o.startX.length) {
+          o.startX.splice(k, 1);
+          o.startZ.splice(k, 1);
+        }
+        if (k < o.staggerIdx) o.staggerIdx--;
+        lost++;
+      }
+      for (let k = o.solo.length - 1; k >= 0; k--) {
+        if (c.vehicles.indexOf(o.solo[k]!) < 0) continue;
+        o.solo.splice(k, 1);
+        lost++;
+      }
+      if (lost === 0) continue;
+      o.status.vehicles = o.vehicles.length;
+      // (l'unité partie seule n'est plus de ce trajet : pas de « débarquez » pour elle à l'arrivée de l'autre colonne —
+      // le rappel au commissariat ne passe pas par takeOver)
+      if (c.status.squadId !== o.status.squadId && core.isUnder(c.status.squadId, o.status.squadId)) {
+        let set = this.taken.get(o.status.squadId);
+        if (!set) this.taken.set(o.status.squadId, (set = new Set<number>()));
+        set.add(c.status.squadId);
+      }
+      const active = o.status.stage === 'route' || o.status.stage === 'stationnement';
+      if (o.vehicles.length === 0 && o.solo.length === 0) {
+        if (active) {
+          this.list.splice(i, 1);
+          this.taken.delete(o.status.squadId);
+        }
+        continue;
+      }
+      if (ap && o.status.stage === 'route' && !o.boarding && !o.dest.stagger && o.vehicles.length > 0) {
+        ap.convoy(o.vehicles, o.dest.x, o.dest.z, { gap: core.tuning.convoyGap, ...this.pace(o), avoid: this.crowdZones(o) });
+      }
+    }
   }
 
   /**
@@ -382,17 +516,35 @@ export class ConvoyControl {
     for (let i = c.vehicles.length - 1; i >= 0; i--) {
       const v = c.vehicles[i]!;
       if (v.seats[0] !== 0) continue;
-      let moved = false;
-      for (let s = 1; s < v.seats.length && !moved; s++) {
-        const p = v.seats[s] !== 0 ? ctx.people.get(v.seats[s]!) : undefined;
-        if (!p || p.isPlayer || p.custody !== 'free' || p.faction !== 'police') continue;
-        ctx.vehicles.exit(p);
-        moved = ctx.vehicles.enter(p, v, 0);
-        if (!moved) ctx.vehicles.enter(p, v, s);
-      }
-      if (!moved) c.vehicles.splice(i, 1);
+      if (!this.takeWheel(v)) c.vehicles.splice(i, 1);
     }
     c.status.vehicles = c.vehicles.length;
+  }
+
+  /** Volant libre : un passager de l'IA (policier libre) passe au volant. true s'il a pu le prendre. */
+  private takeWheel(v: Vehicle): boolean {
+    const ctx = this.core.ctx;
+    for (let s = 1; s < v.seats.length; s++) {
+      const p = v.seats[s] !== 0 ? ctx.people.get(v.seats[s]!) : undefined;
+      if (!p || p.isPlayer || p.custody !== 'free' || p.faction !== 'police') continue;
+      ctx.vehicles.exit(p);
+      if (ctx.vehicles.enter(p, v, 0)) return true;
+      ctx.vehicles.enter(p, v, s);
+    }
+    return false;
+  }
+
+  /**
+   * Le joueur a quitté le volant d'un véhicule déjà parti de la colonne échelonnée (il l'avait pris, la colonne
+   * l'attendait) : un équipier reprend le volant et le véhicule repart vers le point. Sans cela, le véhicule restait
+   * sans conducteur là où le joueur l'avait laissé, et l'unité n'arrivait jamais (« Rentrer au commissariat »).
+   */
+  private remanLaunched(c: Convoy): void {
+    for (let i = 0; i < c.staggerIdx && i < c.vehicles.length; i++) {
+      const v = c.vehicles[i]!;
+      if (v.seats[0] !== 0 || Math.hypot(v.x - c.dest.x, v.z - c.dest.z) < 6) continue;
+      if (this.takeWheel(v)) this.driveOne(c, v, c.dest.x, c.dest.z, 2 + i * 11);
+    }
   }
 
 
@@ -425,13 +577,16 @@ export class ConvoyControl {
     if (!squad) return false;
     const c = this.obtain(squadId);
     this.taken.delete(squadId);
+    // même retour sans débarquement relancé vers le même point (commissariat qui relance une unité arrêtée en route) :
+    // « point inaccessible » n'est pas redit à chaque relance
+    const again = c.hasDest && dest.disembark === false && c.dest.disembark === false && Math.hypot(dest.x - c.dest.x, dest.z - c.dest.z) < 5;
     c.dest = { ...dest };
     c.hasDest = true;
     c.routeLen = -1;
     c.orderDone = false;
     c.stallAt = 0;
     c.restarts = 0;
-    c.noRoute = false;
+    c.noRoute = again && c.noRoute;
     c.footTo = false;
     c.drvId = 0;
     c.status.awaitingDriver = false;
@@ -440,12 +595,22 @@ export class ConvoyControl {
     c.status.alignError = -1;
     c.status.headingError = -1;
     this.gather(c);
+    this.release(c);
+    this.quiet(c);
     const lead = c.vehicles[0];
     if (lead) {
       c.fromX = lead.x;
       c.fromZ = lead.z;
     }
     const ap = core.autopilot;
+    // retour sans urgence donné en plein trajet d'urgence : le véhicule s'arrête au lieu de finir l'ancien trajet deux
+    // tons pendant l'embarquement
+    if (ap && dest.urgence === false) {
+      for (const v of c.vehicles) {
+        const st = ap.status(v);
+        if (st.mode === 'drive' && st.urgence) ap.stop(v);
+      }
+    }
     c.boarding = false;
     c.waitSince = 0;
     if (dest.boardFirst && lead && ap) {
@@ -486,7 +651,10 @@ export class ConvoyControl {
     const ap = core.autopilot;
     this.seatStragglers(c);
     this.manVehicles(c);
-    this.orderForDeparture(c, c.dest.x, c.dest.z);
+    this.orderForDeparture(c, c.dest.x, c.dest.z, true, c.dest.urgence !== false);
+    // retour sans urgence donné pendant un trajet en urgence : les gyrophares que la conduite d'urgence tenait
+    // allumés pendant l'embarquement sont éteints au départ
+    this.quiet(c);
     c.boarding = false;
     c.stageT = core.now;
     c.routeLen = -1;
@@ -495,10 +663,10 @@ export class ConvoyControl {
     if (ap && c.vehicles.length > 0 && c.dest.stagger) {
       c.staggerIdx = 0;
       // (tête sans itinéraire : pas de « départ » annoncé — voir thinkStagger, point inaccessible)
-      if (this.launchNext(c) && squad) core.say(squad.name, frame('CENTRAL', squad.name, 'Départ en colonne, ' + spell(c.vehicles.length) + ' véhicules, deux tons', false), 1, 'commandement', squad.leaderId);
+      if (this.launchNext(c) && squad) core.say(squad.name, frame('CENTRAL', squad.name, 'Départ en colonne, ' + spell(c.vehicles.length) + ' véhicules' + (c.dest.urgence === false ? ', sans urgence' : ', deux tons'), false), 1, 'commandement', squad.leaderId);
       return;
     }
-    if (ap && c.vehicles.length > 0 && ap.convoy(c.vehicles, c.dest.x, c.dest.z, { gap: core.tuning.convoyGap, speed: urgentSpeed(core), urgence: true, avoid: this.crowdZones(c) })) {
+    if (ap && c.vehicles.length > 0 && ap.convoy(c.vehicles, c.dest.x, c.dest.z, { gap: core.tuning.convoyGap, ...this.pace(c), avoid: this.crowdZones(c) })) {
       if (squad) core.say(squad.name, frame('CENTRAL', squad.name, 'En route vers la zone de stationnement, ' + spell(c.vehicles.length) + ' véhicules en colonne', false), 1, 'commandement', squad.leaderId);
       return;
     }
@@ -625,8 +793,10 @@ export class ConvoyControl {
     for (const v of list) { cx += v.x; cz += v.z; }
     cx /= list.length;
     cz /= list.length;
+    // (itinéraire de la conduite demandée : sans contresens sur un retour sans urgence au commissariat)
+    const urgent = c.dest.urgence !== false;
     let ok = false;
-    try { ok = this.departRoute(c, cx, cz, tx, tz, this.pathBuf) && this.pathBuf.length >= 4; } catch { ok = false; }
+    try { ok = this.departRoute(c, cx, cz, tx, tz, this.pathBuf, urgent) && this.pathBuf.length >= 4; } catch { ok = false; }
     if (!ok) return;
     // (copie : orderForDeparture et blockerAhead réécrivent pathBuf et headBuf)
     const path = this.lineBuf;
@@ -640,7 +810,7 @@ export class ConvoyControl {
     const probe = list.find((v) => v.seats[0] !== 0);
     if (limit !== Infinity && ap && ap.plannedPath && probe) {
       const alt = this.headBuf;
-      if (ap.driveTo(probe, tx, tz, { urgence: true, avoid: this.crowdZones(c) }) && ap.plannedPath(probe, alt) && alt.length >= 4 && this.wallAt(alt, 8) > limit) {
+      if (ap.driveTo(probe, tx, tz, { urgence: urgent, avoid: this.crowdZones(c) }) && ap.plannedPath(probe, alt) && alt.length >= 4 && this.wallAt(alt, 8) > limit) {
         path.length = 0;
         for (const x of alt) path.push(x);
         limit = this.wallAt(path, 8);
@@ -648,7 +818,7 @@ export class ConvoyControl {
       ap.stop(probe);
     }
     limit -= WALL_ROOM;
-    this.orderForDeparture(c, tx, tz, false);
+    this.orderForDeparture(c, tx, tz, false, urgent);
     const p = { x: 0, z: 0 };
     const near: Vehicle[] = [];
     let s = 8;
@@ -715,7 +885,8 @@ export class ConvoyControl {
     const order = c.staggerIdx;
     c.startX[order] = v.x;
     c.startZ[order] = v.z;
-    const ok = ap.driveTo(v, c.dest.x, c.dest.z, { urgence: true, speed: urgentSpeed(core), stopBefore: 2 + order * 11, avoid: this.crowdZones(c) });
+    // (en urgence ou sans urgence selon la colonne — retour au commissariat sans deux-tons, voir driveOne)
+    const ok = this.driveOne(c, v, c.dest.x, c.dest.z, 2 + order * 11);
     c.staggerIdx++;
     c.staggerAt = core.now;
     return ok;
@@ -735,11 +906,15 @@ export class ConvoyControl {
     c.noRoute = true;
     let foot = false;
     try { foot = core.ctx.world.findPath(lead.x, lead.z, c.dest.x, c.dest.z, 'foot', this.headBuf) && this.headBuf.length >= 4; } catch { foot = false; }
+    // retour au commissariat (pas de débarquement à l'arrivée) : l'unité reste à ses véhicules
+    if (c.dest.disembark === false) foot = false;
     c.footTo = foot;
     const parent = squad.parentId !== 0 ? core.ctx.squads.get(squad.parentId) : undefined;
     const to = parent ? parent.name : 'CENTRAL';
     core.say(squad.name, frame(to, squad.name, 'Point inaccessible en véhicule, aucun itinéraire par la route. '
-      + (foot ? 'On débarque et on s\'y rend à pied' : 'Inaccessible à pied aussi : on débarque et on reste ici, en attente d\'ordres'), true), 1, 'commandement', squad.leaderId);
+      + (foot ? 'On débarque et on s\'y rend à pied'
+        : c.dest.disembark === false ? 'On reste ici avec les véhicules, en attente d\'ordres'
+          : 'Inaccessible à pied aussi : on débarque et on reste ici, en attente d\'ordres'), true), 1, 'commandement', squad.leaderId);
   }
 
   /** Colonne échelonnée en route : départs successifs, puis débarquement quand tous sont arrivés (ou arrêtés). */
@@ -779,7 +954,8 @@ export class ConvoyControl {
           c.vehicles.splice(k, 1);
           c.vehicles.splice(c.staggerIdx, 0, ov);
           this.launchNext(c);
-        } else if (k < 0 && ov.faction !== 'police' && st.blockedFor > 8 && Math.abs(ov.speed) < 0.3) {
+        } else if (k < 0 && c.dest.urgence !== false && ov.faction !== 'police' && st.blockedFor > 8 && Math.abs(ov.speed) < 0.3) {
+          // (sans urgence, la colonne attend dans la circulation comme tout le monde)
           const driver = ov.seats[0] !== 0 ? core.ctx.people.get(ov.seats[0]!) : undefined;
           if (!driver || !driver.isPlayer) core.ctx.vehicles.remove(ov.id);
         }
@@ -795,8 +971,14 @@ export class ConvoyControl {
     }
     // (le véhicule que conduit le joueur, au repos tant qu'il n'a pas démarré : la colonne l'attend — voir awaitDriver)
     const pv = this.playerWheel(c);
-    if (!pv) c.status.awaitingDriver = false;
-    else if (this.awaitDriver(c, pv)) return;
+    if (!pv) {
+      c.status.awaitingDriver = false;
+      if (c.drvId !== 0) {
+        // il vient de rendre le volant : un équipier le reprend
+        c.drvId = 0;
+        this.remanLaunched(c);
+      }
+    } else if (this.awaitDriver(c, pv)) return;
     const max = this.routeMax(c, 600);
     if (done < n && now - c.stageT < max) return;
     for (let i = 0; i < n; i++) if (Math.abs(c.vehicles[i]!.speed) > 0.4 && now - c.stageT < max + 20) return;
@@ -842,9 +1024,9 @@ export class ConvoyControl {
         if (blocked || dropped) {
           const v = c.vehicles.splice(i, 1)[0]!;
           // (il s'arrêtera à sa place derrière la tête, pas sur le point même : pas d'embouteillage à l'arrivée)
-          ap.driveTo(v, c.dest.x, c.dest.z, { urgence: true, speed: urgentSpeed(core), stopBefore: 4 + (c.vehicles.length + c.solo.length) * 9, avoid: this.crowdZones(c) });
+          this.driveOne(c, v, c.dest.x, c.dest.z, 4 + (c.vehicles.length + c.solo.length) * 9);
           c.solo.push(v);
-          if (c.vehicles.length > 0) ap.convoy(c.vehicles, c.dest.x, c.dest.z, { gap: core.tuning.convoyGap, speed: urgentSpeed(core), urgence: true, avoid: this.crowdZones(c) });
+          if (c.vehicles.length > 0) ap.convoy(c.vehicles, c.dest.x, c.dest.z, { gap: core.tuning.convoyGap, ...this.pace(c), avoid: this.crowdZones(c) });
           c.unstuckAt = now + 10;
           break;
         }
@@ -853,16 +1035,16 @@ export class ConvoyControl {
       for (const v of c.solo) {
         const vs = ap.status(v);
         if (!this.isPlayerWheel(v) && vs.mode === 'idle' && Math.abs(v.speed) < 0.3 && Math.hypot(v.x - c.dest.x, v.z - c.dest.z) > 90) {
-          ap.driveTo(v, c.dest.x, c.dest.z, { urgence: true, speed: urgentSpeed(core), stopBefore: 4 + (c.vehicles.length + c.solo.indexOf(v)) * 9, avoid: this.crowdZones(c) });
+          this.driveOne(c, v, c.dest.x, c.dest.z, 4 + (c.vehicles.length + c.solo.indexOf(v)) * 9);
         }
       }
     }
     // tête bloquée au départ par un véhicule de sa propre colonne (garés en bloc) : nouvel ordre, strictement physique
     const ls = ap.status(lead);
     if ((ls.state === 'attente' || ls.state === 'bloque') && ls.blockedFor > 15 && Math.abs(lead.speed) < 0.3 && now >= c.unstuckAt) {
-      this.orderForDeparture(c, c.dest.x, c.dest.z, false);
+      this.orderForDeparture(c, c.dest.x, c.dest.z, false, c.dest.urgence !== false);
       if (c.vehicles[0] !== lead) {
-        ap.convoy(c.vehicles, c.dest.x, c.dest.z, { gap: core.tuning.convoyGap, speed: urgentSpeed(core), urgence: true, avoid: this.crowdZones(c) });
+        ap.convoy(c.vehicles, c.dest.x, c.dest.z, { gap: core.tuning.convoyGap, ...this.pace(c), avoid: this.crowdZones(c) });
         c.unstuckAt = now + 15;
         return;
       }
@@ -890,7 +1072,7 @@ export class ConvoyControl {
       c.unstuckAt = now + 10;
       for (const v of c.solo) if (c.vehicles.indexOf(v) < 0) c.vehicles.push(v);
       c.solo.length = 0;
-      if (ap.convoy(c.vehicles, c.dest.x, c.dest.z, { gap: core.tuning.convoyGap, speed: urgentSpeed(core), urgence: true, avoid: this.crowdZones(c) })) return;
+      if (ap.convoy(c.vehicles, c.dest.x, c.dest.z, { gap: core.tuning.convoyGap, ...this.pace(c), avoid: this.crowdZones(c) })) return;
     }
     // tête arrivée à quelques dizaines de mètres du point mais arrêtée là (mobilier, véhicule, manœuvre sans fin sur
     // ses derniers mètres) : la colonne est arrivée, elle se gare — sans attendre qu'un demi-tour sur la place la
@@ -929,7 +1111,7 @@ export class ConvoyControl {
       for (const v of c.vehicles) {
         if (rowList.indexOf(v) >= 0) continue;
         const st = ap.status(v);
-        if (st.mode !== 'drive') ap.driveTo(v, d.x, d.z, { urgence: true, speed: urgentSpeed(core), stopBefore: 4 + k * 9, avoid: this.crowdZones(c) });
+        if (st.mode !== 'drive') this.driveOne(c, v, d.x, d.z, 4 + k * 9);
         k++;
       }
     }
@@ -944,7 +1126,7 @@ export class ConvoyControl {
 
   /**
    * Colonne arrêtée en route loin du point : les véhicules loin du point (à plus de 90 m) qui ne sont ni hors d'usage ni
-   * arrêtés pour de bon (plus de 40 s devant un obstacle) repartent seuls, en urgence, le plus proche du point en tête de
+   * arrêtés pour de bon (plus de 40 s devant un obstacle) repartent seuls (en urgence, sauf retour sans urgence), le plus proche du point en tête de
    * la file d'arrivée. La colonne est rangée du plus proche au plus éloigné du point : le débarquement se fait devant
    * celui qui en est le plus près. false si aucun véhicule ne repart.
    */
@@ -962,7 +1144,7 @@ export class ConvoyControl {
       const there = dist(v) < 90;
       const hopeless = st.state === 'echec' || ((st.state === 'bloque' || st.state === 'attente') && st.mode === 'drive' && st.blockedFor > 40);
       if (!there && !hopeless && core.usable(v)
-        && ap.driveTo(v, d.x, d.z, { urgence: true, speed: urgentSpeed(core), stopBefore: 4 + k * 9, avoid: this.crowdZones(c) })) moved++;
+        && this.driveOne(c, v, d.x, d.z, 4 + k * 9)) moved++;
       k++;
     }
     return moved > 0;
@@ -1084,6 +1266,8 @@ export class ConvoyControl {
     const core = this.core;
     const d = c.dest;
     if (d.disembark === false) {
+      // (pas de « débarquez » : les ordres que le joueur a donnés en route tiennent d'eux-mêmes)
+      this.taken.delete(c.status.squadId);
       this.setStage(c, 'en_place');
       return;
     }
@@ -1120,6 +1304,7 @@ export class ConvoyControl {
     if (taken && taken.size > 0) {
       // le joueur a déjà commandé une partie de la colonne : le reste débarque, ses ordres tiennent
       this.disembarkRest(c.status.squadId, taken, order);
+      this.dismountTaken(c, taken);
       this.setStage(c, 'en_place');
       return;
     }

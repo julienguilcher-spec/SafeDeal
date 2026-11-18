@@ -24,6 +24,7 @@ import {
 import { spell } from './radio';
 import { formStreetBarrage, markBarrage } from './barrages';
 import { fleetOf } from './tree';
+import { isHeldVehicle } from '@/world/commissariats';
 import * as T from './tuning';
 
 // ───────────────────────────── relève ─────────────────────────────
@@ -275,6 +276,8 @@ function seatFor(k: Kernel, u: Unit, a: Agent): EntityId {
   for (let i = 0; i < n; i++) {
     const v = nearby[i];
     if (!usable(v) || (!TROOP_SEATS.has(v.kind) && v.kind !== 'fourgon_cellulaire') || seatsLeft(u, v, a) <= 0) continue;
+    // véhicule garé en réserve d'un commissariat : il n'appartient qu'à son unité du stock
+    if (isHeldVehicle(ctx, v.id)) continue;
     const key = (v.kind === 'fourgon_cellulaire' ? 4000 : 0) + (v.seats[0] === 0 ? 2000 : 0) + (top !== u && fleet.indexOf(v.id) < 0 ? 1000 : 0)
       + Math.hypot(v.x - p.x, v.z - p.z);
     if (key < bestKey) {
@@ -488,6 +491,19 @@ export function startCrewOrder(k: Kernel, u: Unit, o: SquadOrder): boolean {
     }
     setPhase(k, u, type === 'embarquer' ? 'embarque' : 'en_place');
     u.reported = true;
+    // l'équipage monte (ou descend) d'un coup : l'ordre est exécuté tout de suite. Sans ce compte rendu, une colonne
+    // d'un équipage (cellulaire, engin engagé depuis un commissariat, « Rentrer au commissariat ») attendait la fin de
+    // l'embarquement deux minutes avant de partir, et deux minutes de plus avant d'être « en place » à l'arrivée.
+    let aboard = 0;
+    let afoot = 0;
+    for (let i = 0; i < u.agents.length; i++) {
+      const p = u.agents[i].p;
+      if (p.squadId !== u.squad.id || p.isPlayer || !isAble(k.ctx, p)) continue;
+      if (p.vehicleId !== 0) aboard++;
+      else afoot++;
+    }
+    if (type === 'debarquer') done(k, u, type, true, '');
+    else done(k, u, type, aboard > 0 || afoot === 0, aboard > 0 || afoot === 0 ? '' : 'Places insuffisantes.');
     return true;
   }
   if (!ap) {

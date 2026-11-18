@@ -26,6 +26,8 @@ import { QuickActionsHud, quickBanner } from './quickActions';
 import { RADIO_SCREEN, RadioScreen } from './radioScreen';
 import { installTacticalParts } from './tacticalParts';
 import { TacticalScreen } from './tacticalScreen';
+import { installCommissariats } from './commissariatsLink';
+import { COMMISSARIATS_SERVICE } from '@/gameplay/commissariats/api';
 
 export type { CommandApi, CommandLevel, CommandScope, IssuedOrder, TacticalOpenData, TacticalTab } from './api';
 export { COMMAND_SERVICE } from './api';
@@ -70,6 +72,8 @@ export class CommandSystem implements GameSystem {
 
   init(ctx: GameContext): void {
     const core = this.core!;
+    // module des commissariats branché : « Rentrer au commissariat », fiches des postes, « Plus… › Commissariats »
+    if (ctx.service(COMMISSARIATS_SERVICE)) installCommissariats();
     const kit = (this.kit = ctx.headless ? undefined : ctx.service<UiKit>(EXT.uiKit));
     core.kit = kit;
     this.unsub.push(

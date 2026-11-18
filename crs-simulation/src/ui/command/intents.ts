@@ -32,7 +32,7 @@ import type {
 import { INCIDENT_KIND_LABELS, MEANS_ADVICE, MEANS_FOR, ageLabel } from './incidents';
 import { proposalTitle } from './adjointPlays';
 import {
-  BARRAGE_LET_PASSERSBY, EXTRA_PLAIN, ORDER_GROUP_LABELS, ORDER_VERBS, authorizeWord, doingAt, forceWord, plainOf, verbOf,
+  BARRAGE_LET_PASSERSBY, EXTRA_PLAIN, ORDER_GROUP_LABELS, ORDER_VERBS, authorizeWord, doingAt, forceWord, plainOf, upperTitle, verbOf,
 } from './orders';
 import type { OrderGroup, OrderVerb } from './orders';
 import {
@@ -646,7 +646,7 @@ function commissariatCard(r: Repere, env: CardEnv): Built {
   const km = s.distance >= 1000 ? `${(s.distance / 1000).toFixed(1).replace('.', ',')}\u00a0km` : `${Math.round(s.distance / 10) * 10}\u00a0m`;
   const nReady = s.entries.filter((e) => e.state === 'pret').length;
   return {
-    title: `${s.name.toLocaleUpperCase('fr-FR')}${s.street ? ' — ' + s.street : ''}`, name: capFirst(s.name),
+    title: `${upperTitle(s.name)}${s.street ? ' — ' + s.street : ''}`, name: capFirst(s.name),
     sub: `${km} · ≈\u00a0${minutesText(s.eta)} deux-tons · ${nReady} prête${nReady > 1 ? 's' : ''}`, notes, lines,
     others: [plainLine('Centrer la carte', 'La carte se centre sur le commissariat.', 'eye', { kind: 'centre' })],
   };

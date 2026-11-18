@@ -34,6 +34,8 @@ import { createSystems as rescue } from '@/sim/roles/rescue';
 import { createSystems as medics } from '@/sim/roles/medics';
 import { createSystems as session, JOURNEE_SERVICE } from '@/gameplay/session';
 import type { JourneeApi } from '@/gameplay/session';
+import { createSystems as patrols } from '@/gameplay/patrols';
+import { createSystems as commissariats } from '@/gameplay/commissariats';
 import { createSystems as missions, missionConfig } from '@/gameplay/missions';
 import type { MissionsApi } from '@/gameplay/missions';
 import { MISSIONS } from '@/gameplay/missions/catalog';
@@ -58,7 +60,10 @@ import { TacticalState } from '@/ui/command/tacticalState';
 
 const objectives: ModuleFactory = () => [{ id: 'test.objectives', order: 0, provide(ctx: GameContext) { ctx.provide(EXT.objectives, createObjectives()); } } as GameSystem];
 const world: ModuleFactory = () => createWorldQuerySystems({ source: 'paris' });
-export const SIM = [env, world, roles, people, vehicles, traffic, crowd, police, items, props, hazards, law, radio, incidents, rescue, medics, session, missions, objectives, maps, command];
+// PLAYTEST_STATIONS=1 : partie complète comme dans main.ts — patrouilles et commissariats (véhicules garés en réserve,
+// places réservées) entre la session et les missions
+const STATIONS = process.env.PLAYTEST_STATIONS === '1' ? [patrols, commissariats] : [];
+export const SIM = [env, world, roles, people, vehicles, traffic, crowd, police, items, props, hazards, law, radio, incidents, rescue, medics, session, ...STATIONS, missions, objectives, maps, command];
 
 export type Arrival = 'passager' | 'volant' | 'devant';
 export const ARRIVALS: readonly Arrival[] = ['passager', 'volant', 'devant'];

@@ -106,6 +106,8 @@ export function orderPhrase(o: OrderPhraseInput): string {
     case 'degager_barricade': body = `Vérifiez l’obstacle, puis dégagez la barricade${at(o.sector)}`; break;
     case 'cesser': body = 'Halte à l’action en cours'; break;
     case 'libre': body = 'Reprenez votre mission, initiative laissée'; break;
+    // « Rentrer au commissariat » : `sector` porte la destination avec sa préposition (« au commissariat du 9e »)
+    case 'retour_poste': body = `Fin de mission, rentrez ${o.sector !== '' ? o.sector : 'au commissariat'}, sans deux-tons`; break;
     default: body = `Exécutez\u00a0: ${String(o.type)}`;
   }
   return radioFrame(o.unit, o.from, body, true);

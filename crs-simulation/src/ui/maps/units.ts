@@ -5,6 +5,7 @@
  * ===================================================================================== */
 
 import type { Faction, GameContext, Person, Squad, SquadOrder, Vehicle } from '@/core/contracts';
+import { isHeldVehicle } from '@/world/commissariats';
 import type { MapVisibility } from './api';
 
 export type UnitSymbol =
@@ -86,7 +87,8 @@ export function unitCode(name: string): string {
   return tokens.map((t) => t.charAt(0)).join('').slice(0, 3);
 }
 
-function symbolOfVehicle(kind: string): UnitSymbol {
+/** Symbole d'un véhicule selon son type (voiture de police ou banalisée de la BAC : « patrouille »). */
+export function symbolOfVehicle(kind: string): UnitSymbol {
   switch (kind) {
     case 'centaure': return 'centaure';
     case 'canon_eau': return 'canon_eau';
@@ -186,11 +188,12 @@ export class UnitModel {
     const roots = children.get(0);
     if (roots) for (let i = 0; i < roots.length; i++) this.visit(ctx, roots[i]!, 0, 0, playerId, stamp);
 
-    // véhicules de service qui ne sont le véhicule d'aucune unité
+    // véhicules de service qui ne sont le véhicule d'aucune unité (sauf ceux garés en réserve d'un commissariat : le
+    // symbole du commissariat les compte déjà)
     const vehicles = ctx.vehicles.list;
     for (let i = 0; i < vehicles.length; i++) {
       const v = vehicles[i]!;
-      if (v.dormant || squadVehicles.has(v.id) || !factionShown(v.faction, vis)) continue;
+      if (v.dormant || squadVehicles.has(v.id) || !factionShown(v.faction, vis) || isHeldVehicle(ctx, v.id)) continue;
       const u = this.slot(-v.id, stamp);
       let occupants = 0;
       for (let k = 0; k < v.seats.length; k++) if (v.seats[k] !== 0) occupants++;

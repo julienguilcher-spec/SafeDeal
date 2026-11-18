@@ -37,6 +37,8 @@ interface Build {
   heading: number;
   /** Premier véhicule de l'unité rangé sur la chaussée (filet de parkSpot) : tête de la file des suivants. */
   road: { x: number; z: number; heading: number } | null;
+  /** Places réservées données par l'appelant (commissariat), dans l'ordre de création des véhicules ; null sinon. */
+  parking: readonly { x: number; z: number; heading: number }[] | null;
 }
 
 function origin(k: Kernel, o: UnitPlacement | undefined): { x: number; z: number; heading: number } {
@@ -56,6 +58,7 @@ function begin(k: Kernel, squad: Squad, o: UnitPlacement | undefined, seed: numb
     seed: seed !== undefined ? seed : k.rng.int(1, 1 << 30),
     company: company !== undefined ? company : 70 + (k.callsigns % 10),
     x: at.x, z: at.z, heading: at.heading, road: null,
+    parking: o && o.parking && o.parking.length > 0 ? o.parking : null,
   };
 }
 
@@ -315,6 +318,8 @@ const spot = { x: 0, z: 0, heading: 0 };
  * ou restait bloqué, et la colonne avec lui. Pas de place libre là : il reste où il est.
  */
 function parkCellAtRear(k: Kernel, b: Build, cell: Vehicle): void {
+  // places réservées : le cellulaire reste sur la sienne (ou là où la recherche de repli l'a rangé)
+  if (b.parking) return;
   const lead = b.handle.vehicles[0];
   if (!lead || lead === cell || Math.hypot(cell.x - lead.x, cell.z - lead.z) > 40) return;
   const fx = Math.sin(b.heading);
@@ -360,11 +365,31 @@ function cellAtRear(b: Build, cell: Vehicle, x: number, z: number, h: number): b
   return true;
 }
 
+/**
+ * Place du n-ième véhicule de l'unité : la place réservée correspondante quand l'appelant en a donné (posée telle
+ * quelle : elle a été validée sur le plan réel), sinon la recherche habituelle. Véhicule en surnombre des places
+ * réservées : recherche qui contrôle TOUS les véhicules alentour (parkClear) — le premier essai de parkSpot ne vérifie
+ * que l'écart aux véhicules de l'unité rangés sur ses deux files, pas aux places réservées, posées en file le long
+ * d'un trottoir. `len` : longueur du véhicule (m), voir parkSpot.
+ */
+function placeVehicle(k: Kernel, b: Build, n: number, out: { x: number; z: number; heading: number }, len: number = PARK_LEN): boolean {
+  const reserved = b.parking ? b.parking[n] : undefined;
+  if (reserved) {
+    out.x = reserved.x;
+    out.z = reserved.z;
+    out.heading = reserved.heading;
+    return true;
+  }
+  if (b.parking) return parkAround(k, b, out, true, undefined, len) || parkAround(k, b, out, false, undefined, len);
+  return parkSpot(k, b, n, out, len);
+}
+
 function spawnVehicle(k: Kernel, b: Build, kind: VehicleKind, squad: Squad | null, color?: number): Vehicle | null {
   const def = k.ctx.vehicles.def(kind);
-  if (!parkSpot(k, b, b.handle.vehicles.length, spot, def ? def.length : PARK_LEN)) return null;
+  if (!placeVehicle(k, b, b.handle.vehicles.length, spot, def ? def.length : PARK_LEN)) return null;
   if (!b.road && spot.heading !== b.heading) b.road = { x: spot.x, z: spot.z, heading: spot.heading };
   const v = k.ctx.vehicles.spawn(kind, spot.x, spot.z, spot.heading, { faction: 'police', color });
+  if (b.parking) v.y = k.ctx.world.heightAt(spot.x, spot.z);
   b.handle.vehicles.push(v);
   if (squad) squad.vehicleId = v.id;
   k.reserveOf(v);
@@ -627,8 +652,17 @@ export function createBravm(k: Kernel, binomes: number, options: BravmOptions = 
 
 const CREW_CALLSIGN: Readonly<Record<CrewKind, string>> = {
   centaure: 'CENTAURE', canon_eau: 'NEPTUNE', fourgon_crs: 'FOURGON', vl_commandement: 'COMMANDEMENT',
-  voiture_police: 'PATROUILLE', fourgon_cellulaire: 'CELLULAIRE',
+  voiture_police: 'PATROUILLE', fourgon_cellulaire: 'CELLULAIRE', voiture_bac: 'BAC',
 };
+
+/**
+ * Engin réellement créé pour un équipage : la voiture banalisée de la BAC n'existe que si le module des véhicules la
+ * définit ; à défaut, l'équipage prend une voiture de police sérigraphiée.
+ */
+function crewVehicleKind(k: Kernel, kind: CrewKind): VehicleKind {
+  if (kind === 'voiture_bac') return k.ctx.vehicles.def('voiture_bac') ? 'voiture_bac' : 'voiture_police';
+  return kind;
+}
 
 /** Équipage d'un engin, créé à bord : conducteur au volant, opérateur à la tourelle, chef d'engin à côté. */
 export function createEquipage(k: Kernel, kind: CrewKind, options: CrewOptions = {}): UnitHandle {
@@ -639,13 +673,23 @@ export function createEquipage(k: Kernel, kind: CrewKind, options: CrewOptions =
   const parent = options.parentId ? ctx.squads.get(options.parentId) : undefined;
   const squad = ctx.squads.create('equipage', 'police', callsign, parent ? parent.id : 0);
   const b = begin(k, squad, options, options.seed, undefined);
-  const v = ctx.vehicles.spawn(kind, b.x, b.z, b.heading, { faction: 'police' });
+  // place réservée donnée par l'appelant (commissariat) : l'engin y est posé exactement ; sinon au point de mise en place
+  const slot = b.parking ? b.parking[0] : undefined;
+  if (slot) {
+    // l'équipage est créé près de son engin (il y monte aussitôt)
+    b.x = slot.x;
+    b.z = slot.z;
+    b.heading = slot.heading;
+  }
+  const v = ctx.vehicles.spawn(crewVehicleKind(k, kind), b.x, b.z, b.heading, { faction: 'police' });
+  if (slot) v.y = ctx.world.heightAt(b.x, b.z);
   b.handle.vehicles.push(v);
   squad.vehicleId = v.id;
   k.reserveOf(v);
   const type = kind === 'centaure' ? 'equipage_centaure' : kind === 'canon_eau' ? 'equipage_canon_eau' : '';
   const slots = type !== '' ? composition(k, type, {}, () => crewRoster([], kind)) : crewRoster([], kind);
   let gunner = false;
+  const standing: Person[] = [];
   for (let i = 0; i < slots.length; i++) {
     const p = spawnSlot(k, b, slots[i], squad);
     if (slots[i].leads !== '') {
@@ -659,8 +703,12 @@ export function createEquipage(k: Kernel, kind: CrewKind, options: CrewOptions =
       seated = ctx.vehicles.enter(p, v, 'gunner');
       gunner = seated;
     }
-    if (!seated) ctx.vehicles.enter(p, v, 'passenger');
+    if (!seated && !ctx.vehicles.enter(p, v, 'passenger')) standing.push(p);
   }
+  // engin d'un commissariat sans place passager (engin lanceur d'eau : le chef d'engin tient le second canon) : la place
+  // qui reste — l'équipage part au complet de ses places, sans personne à pied dans la cour. (Les engins de la compagnie
+  // gardent leur mise en place : le chef d'engin à pied, près de son engin.)
+  if (b.parking) for (const p of standing) ctx.vehicles.enter(p, v);
   syncTree(k, true);
   const u = unitOf(squad);
   if (u) u.phase = 'embarque';

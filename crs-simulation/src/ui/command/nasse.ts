@@ -174,7 +174,8 @@ export function nasseCandidates(core: CommandCore, selected: readonly MapUnit[],
   const units = core.maps.scene.units;
   for (let i = 0; i < units.length; i++) {
     const u = units[i]!;
-    if (seen.has(u.key) || u.childCount > 0 || !core.canCommand(u.squadId)) continue;
+    // (une unité d'un commissariat encore au poste, en alerte ou au repos n'est pas proposée)
+    if (seen.has(u.key) || u.childCount > 0 || !core.canOrder(u.squadId)) continue;
     // une unité dont un supérieur est déjà candidat en fait partie
     let parent = u.parentKey;
     let inside = false;

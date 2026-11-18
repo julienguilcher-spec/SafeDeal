@@ -9,6 +9,7 @@
  * occupée ou non selon un tirage figé par la graine de session : une rue garde ses voitures quand on y
  * revient. Un véhicule garé est une entité ordinaire de ctx.vehicles, endormie (coût nul) ; dès qu'on y
  * touche (déplacé, endommagé, incendié, occupé), il n'appartient plus à ce module et reste où il est.
+ * Le stationnement réservé des commissariats (places de leurs véhicules, src/world/commissariats) reste libre.
  * ===================================================================================== */
 
 import type { EntityId, Prop, RoadSample, Vehicle, VehicleKind } from '@/core/contracts';
@@ -19,6 +20,8 @@ import type { EdgePoint } from './graph';
 import { E_BRIDGE, E_ONEWAY, N_CROSSING, N_DEADEND, N_JUNCTION, N_SIGNAL } from './graph';
 import type { TrafficKernel } from './shared';
 import { makeRoadSample } from './shared';
+import { COMMISSARIATS, reservedBays } from '@/world/commissariats';
+import type { ReservedBay } from '@/world/commissariats';
 import {
   CAR_COLORS, PARKED_MIX, PARK_CLEAR_CROSSING, PARK_CLEAR_JUNCTION, PARK_MIN_ONEWAY, PARK_MIN_TWOWAY, PARK_SLOT,
 } from './tuning';
@@ -28,6 +31,22 @@ class ParkedCar {
   x = 0;
   z = 0;
   constructor(readonly v: Vehicle) {}
+}
+
+/**
+ * Stationnement réservé des commissariats : aucune voiture civile garée (ni au tirage, ni en se garant) à moins de
+ * cette distance (m) du centre d'une place réservée (src/world/commissariats), que le module des commissariats soit
+ * chargé ou non — la règle est celle de la voirie, pas celle du stock.
+ */
+const RESERVED_CLEAR = 6;
+
+/** Places réservées des commissariats, avec leur emprise globale (pré-filtre), si la carte chargée les contient. */
+interface ReservedZone {
+  readonly bays: readonly ReservedBay[];
+  readonly minX: number;
+  readonly maxX: number;
+  readonly minZ: number;
+  readonly maxZ: number;
 }
 
 /** Taux d'occupation des places à densité normale. */
@@ -41,6 +60,12 @@ export class Parking {
   /** Places déjà tirées (occupées, laissées libres ou impraticables) et places prises. */
   private readonly decided = new Set<number>();
   private readonly taken = new Set<number>();
+  /**
+   * Places réservées des commissariats tirées « occupées » : aucune voiture n'y apparaît, mais elles comptent dans le
+   * plafond comme si elles l'étaient — le stationnement ailleurs dans la ville reste exactement le même, avec ou sans
+   * places réservées (une voiture en moins ici ne fait pas apparaître une voiture de plus dans une autre rue).
+   */
+  private readonly ghosts: { slot: number; x: number; z: number }[] = [];
   private scanT = 0;
   private ring = 0;
   private prewarm = true;
@@ -52,6 +77,8 @@ export class Parking {
   private readonly road: RoadSample = makeRoadSample();
   // géométrie de la dernière arête examinée
   private slotStart = 0;
+  /** Places réservées des commissariats (undefined : pas encore calculé ; null : carte sans commissariat). */
+  private reserved: ReservedZone | null | undefined = undefined;
   private poseX = 0;
   private poseZ = 0;
   private poseH = 0;
@@ -63,10 +90,12 @@ export class Parking {
     this.byVehicle.clear();
     this.decided.clear();
     this.taken.clear();
+    this.ghosts.length = 0;
     this.scanT = 0;
     this.ring = 0;
     this.prewarm = true;
     this.seed = seed | 0;
+    this.reserved = undefined;
   }
 
   /** Retire tous les véhicules garés encore intacts (clearAmbient). */
@@ -79,6 +108,7 @@ export class Parking {
     this.list.length = 0;
     this.byVehicle.clear();
     this.taken.clear();
+    this.ghosts.length = 0;
   }
 
   isParked(v: Vehicle): boolean {
@@ -153,7 +183,7 @@ export class Parking {
     if (!k.cache.ready || !k.hasFocus) return;
     this.sweep();
     const cap = this.cap();
-    if (this.list.length >= cap) {
+    if (this.list.length + this.ghosts.length >= cap) {
       this.prewarm = false;
       return;
     }
@@ -187,6 +217,14 @@ export class Parking {
       this.byVehicle.delete(v.id);
       this.list[i] = this.list[this.list.length - 1]!;
       this.list.pop();
+    }
+    // places réservées loin du joueur : tirées de nouveau (même résultat) à son retour, comme les voitures retirées
+    for (let i = this.ghosts.length - 1; i >= 0; i--) {
+      const g = this.ghosts[i]!;
+      if (k.distToFocus2(g.x, g.z) <= far * far) continue;
+      this.decided.delete(g.slot);
+      this.ghosts[i] = this.ghosts[this.ghosts.length - 1]!;
+      this.ghosts.pop();
     }
   }
 
@@ -230,7 +268,7 @@ export class Parking {
             this.decided.add(key);
             continue;
           }
-          if (this.list.length >= cap || spawned >= budget) return;
+          if (this.list.length + this.ghosts.length >= cap || spawned >= budget) return;
           const kind = this.kindFor(h);
           const def = ctx.vehicles.def(kind);
           const halfW = (def ? def.width : 1.8) * 0.5;
@@ -241,7 +279,13 @@ export class Parking {
           // pas d'apparition sous les yeux du joueur une fois la partie lancée
           if (!this.prewarm && k.distToFocus2(x, z) < 110 * 110 && k.visible(x, z)) continue;
           this.decided.add(key);
-          if (!this.free(x, z, halfW)) continue;
+          if (!this.placeable(x, z, halfW)) continue;
+          if (this.isReserved(x, z)) {
+            // stationnement réservé d'un commissariat : la place reste vide, mais compte comme garnie
+            this.ghosts.push({ slot: key, x, z });
+            spawned++;
+            continue;
+          }
           const v = ctx.vehicles.spawn(kind, x, z, this.poseH, { color: CAR_COLORS[(h >>> 10) % CAR_COLORS.length]! });
           this.register(v, key);
           spawned++;
@@ -261,8 +305,57 @@ export class Parking {
     return 'voiture';
   }
 
-  /** La place est-elle praticable et libre ? (chaussée, pas dans un obstacle, ni véhicule ni mobilier) */
+  /**
+   * Places réservées des commissariats, retenues seulement quand la carte chargée est celle de Paris (toutes les
+   * portes dans l'emprise) : sur le quartier d'essai, les coordonnées de Paris ne veulent rien dire.
+   */
+  private reservedZone(): ReservedZone | null {
+    if (this.reserved !== undefined) return this.reserved;
+    const b = this.k.ctx.world.bounds;
+    let inside = !!b && b.maxX - b.minX >= 3000;
+    for (const c of COMMISSARIATS) {
+      if (!inside) break;
+      inside = c.door.x >= b.minX && c.door.x <= b.maxX && c.door.z >= b.minZ && c.door.z <= b.maxZ;
+    }
+    if (!inside) {
+      this.reserved = null;
+      return null;
+    }
+    const bays = reservedBays();
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    for (const r of bays) {
+      if (r.x < minX) minX = r.x;
+      if (r.x > maxX) maxX = r.x;
+      if (r.z < minZ) minZ = r.z;
+      if (r.z > maxZ) maxZ = r.z;
+    }
+    this.reserved = { bays, minX: minX - RESERVED_CLEAR, maxX: maxX + RESERVED_CLEAR, minZ: minZ - RESERVED_CLEAR, maxZ: maxZ + RESERVED_CLEAR };
+    return this.reserved;
+  }
+
+  /** Le point est-il sur le stationnement réservé d'un commissariat (à moins de RESERVED_CLEAR d'une place) ? */
+  isReserved(x: number, z: number): boolean {
+    const r = this.reservedZone();
+    if (!r || x < r.minX || x > r.maxX || z < r.minZ || z > r.maxZ) return false;
+    const lim = RESERVED_CLEAR * RESERVED_CLEAR;
+    for (const bay of r.bays) {
+      const dx = bay.x - x;
+      const dz = bay.z - z;
+      if (dx * dx + dz * dz < lim) return true;
+    }
+    return false;
+  }
+
+  /** La place est-elle praticable et libre ? (chaussée, pas dans un obstacle, ni véhicule ni mobilier, ni réservée) */
   private free(x: number, z: number, halfW: number): boolean {
+    return !this.isReserved(x, z) && this.placeable(x, z, halfW);
+  }
+
+  /** La place est-elle praticable et libre, stationnement réservé mis à part ? */
+  private placeable(x: number, z: number, halfW: number): boolean {
     const ctx = this.k.ctx;
     const surface = ctx.world.surfaceAt(x, z);
     if (surface !== 'road' && surface !== 'sett' && surface !== 'void') return false;

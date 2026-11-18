@@ -119,6 +119,11 @@ export class Assembler {
   /** Devanture d'un commerce dans son état courant. Gère la cellule d'enseigne (prise de près, rendue au loin). */
   shop(dst: MeshBuf, rec: ShopRec, lod: number, ox: number, oz: number): void {
     const s = rec.shop;
+    // (devanture sur la façade habillée d'un commissariat : la façade montre l'habillage du site)
+    if (rec.masked) {
+      this.releaseSign(rec);
+      return;
+    }
     const m = matIdentity(this.m1);
     matTranslate(m, s.x - ox, s.y + this.lift(s.x, s.z), s.z - oz);
     matRotY(m, s.heading);
@@ -137,6 +142,7 @@ export class Assembler {
 
   /** Traînées de suie d'une boutique (lot fondu), en coordonnées monde. */
   shopSoot(blend: MeshBuf, rec: ShopRec): void {
+    if (rec.masked) return;
     const s = rec.shop;
     const m = matIdentity(this.m1);
     matTranslate(m, s.x, s.y + this.lift(s.x, s.z), s.z);

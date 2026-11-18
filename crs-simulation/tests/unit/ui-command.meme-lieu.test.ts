@@ -28,7 +28,7 @@ import type { CardEnv, Repere, SendEnv } from '@/ui/command/cardTypes';
 import { buildCard, intentCandidates } from '@/ui/command/intents';
 import { withArticle } from '@/ui/command/orders';
 import { readTracks } from '@/ui/command/panelFollow';
-import { cardEnvFromCore } from '@/ui/command/reperes';
+import { cardEnvFromCore, pointRepere } from '@/ui/command/reperes';
 import { sendCardLine } from '@/ui/command/sendLine';
 import { TacticalMap } from '@/ui/command/tacticalMap';
 import { TacticalState } from '@/ui/command/tacticalState';
@@ -106,5 +106,35 @@ describe('un ordre, un nom de lieu : fiche, radio, accusé de réception, suivi'
     for (let i = 0; i < 80 && acks().length === 0; i++) t.step(0.5);
     expect(acks().length, ctx.radio.log.slice(logBefore).map((m) => `${m.from} : ${m.text}`).join('\n')).toBeGreaterThan(0);
     for (const a of acks()) expect(a).toContain(name);
+  }, 300000);
+
+  it('point quelconque « Ici : près de <rue> » : l’ordre garde cette rue, pas le secteur', async () => {
+    const { t, ctx, core, sendEnv } = await concorde();
+    const card = cardEnvFromCore(core);
+    // un point hors chaussée, près d'une rue nommée (fiche « Ici : près de … »), dont le secteur porte un autre nom
+    let where: Repere | null = null;
+    const nearOf = (p: Repere): string => /près de (.+)$/u.exec(p.name.replace(/ /g, ' '))?.[1]?.trim() ?? '';
+    for (let r = 60; r < 400 && !where; r += 20) {
+      for (let a = 0; a < 16 && !where; a++) {
+        const x = card.player!.x + Math.sin(a * 0.39) * r, z = card.player!.z + Math.cos(a * 0.39) * r;
+        if (card.roadAt(x, z, 8)) continue;
+        const p = pointRepere(x, z, card);
+        const n = nearOf(p);
+        if (n !== '' && n.toLocaleLowerCase('fr-FR') !== ctx.world.sectorName(x, z).toLocaleLowerCase('fr-FR')) where = p;
+      }
+    }
+    expect(where, 'aucun point « près de » trouvé').toBeTruthy();
+    const name = nearOf(where!);
+    const fiche = buildCard(where!, card, 'envoyer');
+    const line = fiche.lines.find((l) => l.action.kind === 'verb' && l.action.type === 'tenir') ?? fiche.lines[fiche.defaultLine]!;
+    expect(line.action.kind).toBe('verb');
+    const who = defaultWho(proposeWho(line, where!, whoEnvFromCore(core, card, [])))!;
+    const r = sendCardLine(sendEnv(card), line, who, where!);
+    expect(r.ok, r.text).toBe(true);
+    t.step(1);
+    for (const id of who.squadIds) {
+      const later = core.afterConvoy.get(id);
+      expect(later ? later.geom.place : ctx.squads.get(id)!.order.place).toBe(name);
+    }
   }, 300000);
 });

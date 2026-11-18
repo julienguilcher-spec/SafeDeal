@@ -29,6 +29,8 @@ export interface TacticalOpenData {
   incidentId?: number;
   /** Unité à mettre en avant : sa fiche s'ouvre. */
   squadId?: number;
+  /** Commissariat à mettre en avant (identifiant du site, « 9e ») : sa fiche s'ouvre. */
+  commissariatId?: string;
   /** Section de « Plus… » à ouvrir d'emblée (« Tous les incidents et secours », « Circulation et métro »…). */
   tab?: TacticalTab;
 }

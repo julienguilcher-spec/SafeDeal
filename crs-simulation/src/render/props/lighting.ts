@@ -129,7 +129,7 @@ export class LightRig {
   /** (Re)crée les lumières d'une devanture d'après son état. */
   shop(rec: ShopRec, hidden: boolean): void {
     this.free(rec);
-    if (hidden) return;
+    if (hidden || rec.masked) return;
     const s = rec.shop;
     const glows = this.glows;
     shopGlows(glows, s.width, rec.style, rec.state);

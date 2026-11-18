@@ -57,6 +57,10 @@ interface CommandLike {
   stateOf(companyId: number): { phase: string; missionEnded: boolean } | null;
   special?(squadId: number): { kind: string; stage?: string; x?: number; z?: number } | null;
 }
+/** Vue minimale du service des commissariats (police.commissariats, src/gameplay/commissariats). */
+interface StationsLike {
+  isStationUnit(squadId: number): boolean;
+}
 interface VehiclesExt {
   setSiren?(v: Vehicle, mode: 0 | 1 | 2): void;
   setBeacons?(v: Vehicle, on: boolean): void;
@@ -316,8 +320,11 @@ export class JourneeSystem implements GameSystem {
   private engageOthers(x: number, z: number, heading: number, back: boolean): void {
     const ctx = this.ctx!;
     const command = ctx.service<CommandLike>('police.command');
+    const stations = ctx.service<StationsLike>('police.commissariats');
     for (const s of ctx.squads.list) {
       if (s.faction !== 'police' || s.parentId !== 0 || s.id === this.companyId) continue;
+      // unité d'un commissariat (engagée par le commandant ou rentrée à ses places) : elle n'est pas de la journée
+      if (stations?.isStationUnit(s.id)) continue;
       // (une BRAV-M n'a pas de membres propres : ses binômes sont des sous-unités)
       if (this.isBravm(s.id)) {
         ctx.squads.issue(s.id, { type: 'colonne', x, z, heading, width: 0, issuedBy: s.leaderId });

@@ -86,6 +86,13 @@ export function pelotonRoster(out: RosterSlot[], s: number, drivers: boolean): R
 
 /** Équipage d'un engin : chef d'engin, conducteur, opérateur de tourelle (engins armés). */
 export function crewRoster(out: RosterSlot[], kind: CrewKind): RosterSlot[] {
+  if (kind === 'voiture_bac') {
+    // brigade anticriminalité : trois policiers en civil, le chef de bord est aussi interpellateur
+    add(out, 'policier_civil', 'interpellation', 'brigadier_chef', 0, '', 'Chef de bord (BAC)', 'unite');
+    add(out, 'policier_civil', 'conducteur', 'gardien', 0, '', 'Conducteur');
+    add(out, 'policier_civil', 'interpellation', 'gardien', 0, '', 'Interpellateur');
+    return out;
+  }
   const person: PersonKind = kind === 'centaure' ? 'gendarme' : 'crs';
   if (kind === 'centaure' || kind === 'canon_eau') {
     add(out, person, 'operateur', kind === 'centaure' ? 'major' : 'brigadier_chef', 0, '', 'Chef d’engin', 'unite');

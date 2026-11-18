@@ -8,6 +8,7 @@ import type { Person, Vehicle } from '@/core/contracts';
 import type { HandoverPoint, LawHandover } from './api';
 import { LAW_HANDOVER_SERVICE } from './api';
 import type { Kernel } from './kernel';
+import { isHeldVehicle } from '@/world/commissariats';
 
 /** Destination d'une remise. */
 export interface HandoverDest {
@@ -43,6 +44,8 @@ export class Handover {
       const v = vs[i]!;
       if (v.faction !== 'police' || v.def.flying || v.kind === 'moto_bravm') continue;
       if (v.state !== 'ok' && v.state !== 'damaged') continue;
+      // véhicule garé en réserve d'un commissariat (verrouillé, sans équipage) : pas une destination de remise
+      if (isHeldVehicle(ctx, v.id)) continue;
       let seat = -1;
       for (let s = 0; s < v.seats.length; s++) {
         const def = v.def.seats[s];

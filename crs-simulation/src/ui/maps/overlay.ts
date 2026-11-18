@@ -13,7 +13,8 @@ import { LABEL_PRIORITY } from './labelLayout';
 import type { LabelBoard } from './labelLayout';
 import { drawExecutantFrame, drawOrders, drawUnits } from './overlay-units';
 import type { ExecutantFrame, UnitLayerOptions } from './overlay-units';
-import type { MapScene } from './scene';
+import type { MapScene, SceneCommissariat } from './scene';
+import { commissariatLetters, drawCommissariatGlyph } from './symbols';
 import type { MapTransform, ScreenPoint } from './transform';
 
 export interface LayerMask {
@@ -24,6 +25,8 @@ export interface LayerMask {
   /** Barrages de rue tenus par la police, issues ouvertes autour des foules, nasses. */
   barrages: boolean;
   metro: boolean;
+  /** Commissariats : symbole bleu à la porte et nombre d'unités disponibles. */
+  commissariats: boolean;
   incidents: boolean;
   rescue: boolean;
   objectives: boolean;
@@ -34,7 +37,7 @@ export interface LayerMask {
 }
 
 export const ALL_LAYERS: Readonly<LayerMask> = {
-  crowd: true, hazards: true, route: true, closures: true, barrages: true, metro: true, incidents: true, rescue: true,
+  crowd: true, hazards: true, route: true, closures: true, barrages: true, metro: true, commissariats: true, incidents: true, rescue: true,
   objectives: true, units: true, orders: true, player: true, gps: true,
 };
 
@@ -49,6 +52,8 @@ export interface OverlayOptions extends UnitLayerOptions {
   /** Station de métro et fermeture mises en avant. */
   focusStation: number;
   focusClosure: number;
+  /** Commissariat mis en avant (identifiant de site, « 9e ») : anneau jaune et nom affiché à toute échelle. */
+  focusCommissariat?: string;
   /**
    * Foule dont on montre les issues (clé de `scene.crowdExits`) : celle qui est sous la visée ou dans la fiche ouverte.
    * Ses rues de sortie sont marquées d'un petit trait à leur débouché (gris : ouverte, vert : tenue). Les autres foules
@@ -516,6 +521,63 @@ function drawMetro(g: CanvasRenderingContext2D, t: MapTransform, scene: MapScene
   }
 }
 
+// ───────────────────────────── commissariats ─────────────────────────────
+
+/** Demi-côté du symbole de commissariat (px) : carte tactique et plan, mini-carte. */
+export const COMMISSARIAT_RADIUS = 9;
+export const COMMISSARIAT_RADIUS_COMPACT = 5.5;
+/** Au-dessous de cette échelle (m par pixel), les noms des commissariats s'affichent. */
+export const COMMISSARIAT_LABEL_MPP = 2.5;
+
+/** Nom affiché sous le symbole : « Commissariat du 9e », « Préfecture de police » (sans l'adresse). */
+export function commissariatLabel(c: Pick<SceneCommissariat, 'name' | 'short'>): string {
+  const cut = c.name.indexOf(' — ');
+  const head = cut > 0 ? c.name.slice(0, cut) : c.name;
+  return head !== '' ? head : c.short;
+}
+
+/**
+ * Commissariat sous le point écran (sx, sy), à moins de `tolPx` pixels du symbole (le plus proche) ; null sinon.
+ * Même géométrie que le dessin : à utiliser pour la désignation à la souris, au doigt ou au curseur clavier.
+ */
+export function commissariatAt(scene: MapScene, t: MapTransform, sx: number, sy: number, tolPx: number): SceneCommissariat | null {
+  let best: SceneCommissariat | null = null;
+  let bestD = tolPx * tolPx;
+  const list = scene.commissariats;
+  for (let i = 0; i < list.length; i++) {
+    const c = list[i]!;
+    t.worldToScreen(c.x, c.z, SP);
+    const d = (SP.x - sx) * (SP.x - sx) + (SP.y - sy) * (SP.y - sy);
+    if (d <= bestD) {
+      bestD = d;
+      best = c;
+    }
+  }
+  return best;
+}
+
+function drawCommissariats(g: CanvasRenderingContext2D, t: MapTransform, scene: MapScene, o: OverlayOptions): void {
+  const list = scene.commissariats;
+  const r = o.compact ? COMMISSARIAT_RADIUS_COMPACT : COMMISSARIAT_RADIUS;
+  for (let i = 0; i < list.length; i++) {
+    const c = list[i]!;
+    if (!t.contains(c.x, c.z, 40)) continue;
+    const focus = o.focusCommissariat !== undefined && o.focusCommissariat !== '' && o.focusCommissariat === c.id;
+    t.worldToScreen(c.x, c.z, SP);
+    const x = SP.x, y = SP.y;
+    drawCommissariatGlyph(g, commissariatLetters(c.kind), x, y, { radius: r, available: c.available, focus, compact: o.compact });
+    // symbole et pastille du nombre d'unités (en haut à droite, symbols.ts) : les étiquettes de la planche les évitent
+    if (BOARD) {
+      const br = Math.max(5.5, r * 0.62);
+      BOARD.avoid(x - r - 4, y - r * 0.95 - br, x + r * 0.95 + br, y + r + 4);
+    }
+    if (o.compact || !(t.mpp < COMMISSARIAT_LABEL_MPP || focus)) continue;
+    label(g, commissariatLabel(c), x, y + r + 9, focus ? '#ffe27a' : '#c9d6f2', 9.5, 700);
+    // véhicules garés dans une autre rue que celle du commissariat : on le dit (site mis en avant ou vue rapprochée)
+    if (c.bayStreet !== '' && (focus || t.mpp < 1.2)) label(g, 'véhicules : ' + c.bayStreet, x, y + r + 21, '#9fb3d9', 9, 600);
+  }
+}
+
 // ───────────────────────────── incidents, secours, objectifs ─────────────────────────────
 
 /** Pictogramme d'incident dans un disque de rayon r centré sur l'origine. */
@@ -879,6 +941,7 @@ export function drawOverlay(g: CanvasRenderingContext2D, t: MapTransform, scene:
   if (L.barrages) drawExits(g, t, scene, o);
   if (L.barrages) drawBarrages(g, t, scene, o);
   if (L.metro && vis.metro) drawMetro(g, t, scene, o);
+  if (L.commissariats && vis.police) drawCommissariats(g, t, scene, o);
   if (L.gps) drawGps(g, t, o);
   if (L.orders && vis.police) drawOrders(g, t, scene, o);
   if (o.executant) drawExecutantFrame(g, t, scene, o.executant, o.time);

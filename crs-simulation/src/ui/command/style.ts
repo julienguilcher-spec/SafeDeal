@@ -315,6 +315,23 @@ box-shadow:0 8px 22px rgba(0,0,0,.5);will-change:transform;white-space:nowrap}
 .ch-arrow{flex:none;width:18px;height:18px;color:var(--u,var(--cm-yellow));will-change:transform}
 .ch-inc span{overflow:hidden;text-overflow:ellipsis}
 .ch-inc strong{font-weight:800;color:var(--u,var(--cm-yellow))}
+
+/* ── « Plus… › Commissariats » (panelCommissariats.ts) : rangées de 44 px (48 au doigt, .cp-row), cadre jaune au clavier ── */
+.cpc{flex:1;min-height:0;display:flex;flex-direction:column}
+.cpc-note{flex:none;color:#ffcf8a}
+.cpc-list{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+.cpc-glyph{background:transparent}
+.cpc-glyph img{display:block;width:22px;height:22px}
+.cpc-chev{flex:none;color:var(--cm-dim)}
+.cpc-site[aria-expanded="true"]{background:rgba(88,166,255,.1);border-color:rgba(88,166,255,.35)}
+.cpc-units{display:flex;flex-direction:column;gap:2px;padding:0 0 6px 22px}
+.cm-coarse .cpc-units{padding-left:10px}
+.cpc-act{flex:none;font-size:11.5px;font-weight:700;color:var(--cm-yellow);white-space:nowrap}
+.cpc-unit.is-pret .cpc-state{color:#8ae6a2}
+.cpc-unit.is-alerte .cpc-state{color:#ffcf8a}
+.cpc-unit.is-repos .cpc-state,.cpc-unit.is-retour .cpc-state{color:#a9d0ff}
+.cpc-unit.is-indisponible .cpc-state{color:var(--cm-orange)}
+.cpc-unit[disabled] .cpc-act{display:none}
 `;
 
 let injected = false;

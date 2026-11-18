@@ -10,6 +10,8 @@
 
 import * as THREE from 'three';
 import type { EntityId, GameContext, Prop, Shop, Unsubscribe, ViewApi } from '@/core/contracts';
+import { stationOverShop } from '@/render/commissariats/dress';
+import { COMMISSARIATS } from '@/world/commissariats';
 import { PROPS_EXT_KEY, RENDER_LIGHTS_KEY, RENDER_UNIFORMS_KEY } from './api';
 import type { LightsLike, PropsExtLike, PropsRenderStats, PropViewLike, ShopViewLike, UniformsLike } from './api';
 import { Assembler } from './assemble';
@@ -332,6 +334,8 @@ export class PropsRenderer {
     // habillage tiré de la position : la même boutique garde son aspect d'une session à l'autre
     const seed = (Math.round(s.x * 10) * 73856093) ^ (Math.round(s.z * 10) * 19349663);
     const rec = new ShopRec(s, s.id, shopStyle(String(s.category), seed), seed & 0x7fffffff);
+    // vitrine de la carte sur la façade habillée d'un commissariat (9e, Célestins, 3e) : pas de devanture dessinée
+    rec.masked = stationOverShop(s, COMMISSARIATS) !== null;
     this.shopRecs.set(s.id, rec);
     rec.li = this.shopList.length;
     this.shopList.push(rec);

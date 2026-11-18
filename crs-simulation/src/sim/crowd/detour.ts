@@ -23,6 +23,7 @@ import { EXT } from '@/core/extensions';
 import type { CordonsApi, TrafficControlApi } from '@/core/extensions';
 import type { RoutePoint } from './api';
 import type { Corridor } from './route';
+import { isHeldVehicle } from '@/world/commissariats';
 
 const sample: RoadSample = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '', roadClass: 'residential', oneway: false };
 const rp: RoutePoint = { x: 0, z: 0, tx: 0, tz: 1, center: 0, half: 8, stretch: 1 };
@@ -67,6 +68,8 @@ export class RoadBlocks {
     }
     for (const v of ctx.vehicles.list) {
       if (v.faction !== 'police' || v.def.flying || Math.abs(v.speed) > 0.5) continue;
+      // véhicules garés le long du trottoir, dans les places réservées d'un commissariat : la rue reste ouverte
+      if (isHeldVehicle(ctx, v.id)) continue;
       if (!world.nearestRoad(v.x, v.z, sample, 5) || sample.edgeId < 0) continue;
       count.set(sample.edgeId, (count.get(sample.edgeId) ?? 0) + LINE_AGENTS);
     }

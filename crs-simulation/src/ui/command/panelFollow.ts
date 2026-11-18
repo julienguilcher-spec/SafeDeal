@@ -24,6 +24,7 @@ import { proposalTitle } from './adjointPlays';
 import type { CardCrowd, CardEnv, CardIncident, CardProposal, CardUnit, Repere } from './cardTypes';
 import type { CommandCore } from './core';
 import { INCIDENT_KIND_LABELS, ageLabel } from './incidents';
+import { stationAt } from './commissariatsModel';
 import { compareCardIncidents } from './intents';
 import { BARRAGE_LET_PASSERSBY, doingAt } from './orders';
 import { chainOf, watchOrderedForce } from './panelLegal';
@@ -404,7 +405,12 @@ export function readTracks(
     }
     const next = core.afterConvoy.get(u.squadId);
     let intended: FollowTrack['intended'] = null;
-    if (next && convoy) {
+    // retour au commissariat en colonne : « Rentre au commissariat du 9e »
+    const home = convoy ? core.commissariats?.entryOf(u.squadId) : undefined;
+    const site = home && home.state === 'retour' ? core.commissariats?.get(home.commissariatId) : undefined;
+    if (site) {
+      intended = { type: 'retour_poste' as OrderType, place: stationAt(site), targetId: 0 };
+    } else if (next && convoy) {
       const g = next.geom;
       const street = next.type === 'couper_circulation' || next.type === 'filtrer' ? env.roadAt(g.x, g.z, 30) : null;
       intended = { type: next.type, place: g.place || (street ? street.name : env.placeName(g.x, g.z)), targetId: next.targetId === BARRAGE_LET_PASSERSBY ? next.targetId : 0 };

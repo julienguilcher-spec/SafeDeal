@@ -28,6 +28,7 @@
 
 import type { EntityId, GameContext, GameSystem, Person, RayHit, Squad, Vehicle } from '@/core/contracts';
 import { SystemOrder } from '@/core/contracts';
+import { isHeldVehicle } from '@/world/commissariats';
 
 interface Autopilot {
   follow(v: Vehicle, leaderId: EntityId, distance?: number, trail?: readonly number[]): boolean;
@@ -106,7 +107,7 @@ const ARMORED: ReadonlySet<string> = new Set(['centaure', 'canon_eau']);
 const FREE_ORDERS: ReadonlySet<string> = new Set(['libre', 'suivre', 'cesser', 'embarquer', 'debarquer', 'colonne', 'escorter']);
 /** Véhicules qui emmènent la compagnie : quand le joueur en conduit un, toute la colonne suit. */
 const TROOP_KINDS: ReadonlySet<string> = new Set(['fourgon_crs', 'car_crs', 'vl_commandement', 'canon_eau', 'centaure', 'fourgon_cellulaire']);
-const POLICE_FLEET: ReadonlySet<string> = new Set(['moto_bravm', 'fourgon_crs', 'car_crs', 'voiture_police', 'vl_commandement', 'fourgon_cellulaire']);
+const POLICE_FLEET: ReadonlySet<string> = new Set(['moto_bravm', 'fourgon_crs', 'car_crs', 'voiture_police', 'voiture_bac', 'vl_commandement', 'fourgon_cellulaire']);
 /**
  * « Tout le monde me suit » (demande du commanditaire : « c'est obligatoire ») : quel que soit son rôle de police — sauf
  * l'équipage du Centaure, que seul l'engin apparié accompagne —, quand le joueur conduit un véhicule de police (ou est
@@ -338,6 +339,8 @@ export class FollowLeaderSystem implements GameSystem {
     const rank = new Map<Vehicle, number>();
     for (const v of ctx.vehicles.list) {
       if (v === lead || v.state === 'wrecked' || v.state === 'burnt' || v.def.flying || !POLICE_FLEET.has(v.kind)) continue;
+      // véhicules garés en réserve d'un commissariat : ils n'appartiennent qu'à leur unité du stock
+      if (isHeldVehicle(ctx, v.id)) continue;
       if (v.seats.some((id) => id !== 0)) continue;
       const d = Math.hypot(v.x - lead.x, v.z - lead.z);
       if (d > FLEET_RADIUS) continue;
@@ -568,6 +571,7 @@ export class FollowLeaderSystem implements GameSystem {
       const tree = this.tree(rootId, []);
       for (const v of ctx.vehicles.list) {
         if (v.kind !== 'moto_bravm' || owned.has(v.id) || out.indexOf(v) >= 0 || v.state === 'wrecked' || v.state === 'burnt') continue;
+        if (isHeldVehicle(ctx, v.id)) continue;
         if (!out.some((o) => o.kind === 'moto_bravm' && Math.hypot(o.x - v.x, o.z - v.z) < FLEET_RADIUS)) continue;
         if (v.seats.some((id) => id !== 0 && !tree.some((q) => q.members.indexOf(id) >= 0))) continue;
         out.push(v);

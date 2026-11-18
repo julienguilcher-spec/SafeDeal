@@ -41,6 +41,7 @@ import { createSystems as rescue } from '@/sim/roles/rescue';        // pompiers
 import { createSystems as medics } from '@/sim/roles/medics';        // médecins de rue
 import { createSystems as session, installLoadingGate } from '@/gameplay/session'; // mise en place de la session
 import { createSystems as patrols } from '@/gameplay/patrols';         // voitures de police en patrouille dans Paris
+import { createSystems as commissariats } from '@/gameplay/commissariats'; // stock des commissariats, engagement, retour
 import { createSystems as missions, missionById, missionConfig } from '@/gameplay/missions'; // cadre de mission
 import { createSystems as career } from '@/gameplay/career';         // carrière : grades, chapitres, sanctions
 import { createSystems as history } from '@/gameplay/history';       // historique des parties jouées
@@ -50,6 +51,7 @@ import { createSystems as monuments } from '@/world/monuments';      // monument
 import { createSystems as renderPeople } from '@/render/people';     // personnages
 import { createSystems as renderVehicles } from '@/render/vehicles'; // véhicules
 import { createSystems as renderProps } from '@/render/props';       // mobilier urbain, vitrines, barricades
+import { createSystems as renderCommissariats } from '@/render/commissariats'; // habillage des commissariats
 import { createSystems as renderFx } from '@/render/fx';             // gaz, fumée, feu, eau, projectiles, décalques
 import { createSystems as ui } from '@/ui';                          // accueil, HUD, cartes, commandement
 import { createSystems as audio } from '@/audio';                    // sons, ambiances, voix
@@ -181,10 +183,11 @@ const MODULES: ModuleFactory[] = [
   // simulation
   // (la circulation après les véhicules : elle attend leur pilote automatique)
   // (la police après la foule : à ordre égal, les manifestants décident avant les unités qui leur répondent)
+  // (les commissariats après la session et les patrouilles : ils garnissent les places à la mise en place)
   input, env, worldQuery, simRoles, simPeople, simVehicles, simTraffic, simCrowd, simPolice, simItems, simProps, simHazards,
-  law, radio, incidents, rescue, medics, session, patrols, missions, career, history,
+  law, radio, incidents, rescue, medics, session, patrols, commissariats, missions, career, history,
   // présentation — le rendu de base d'abord
-  renderBase, worldView, map2dAdapter, monuments, monumentsClearAir, renderPeople, renderVehicles, renderProps, renderFx, ui, audio,
+  renderBase, worldView, map2dAdapter, monuments, monumentsClearAir, renderPeople, renderVehicles, renderProps, renderCommissariats, renderFx, ui, audio,
 ];
 
 // ───────────────────────────── démarrage ─────────────────────────────

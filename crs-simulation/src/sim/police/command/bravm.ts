@@ -19,6 +19,7 @@ import type { Picture } from './picture';
 import { recentOffender } from './picture';
 import { SpecialUnit, locate } from './special';
 import { received, refused, report, spell } from './texts';
+import { isReturningHome } from '@/world/commissariats';
 
 /** Au-delà, un ordre à pied commence par un trajet à moto (m) ; arrêt avant le point (m). */
 const RIDE_BEYOND = 60;
@@ -67,6 +68,14 @@ const MOUNT_REACH = 40;
 const CROWD_RADIUS = 15;
 const CROWD_AROUND = 6;
 const CROWD_STUCK = 8;
+/**
+ * Tête de colonne qui n'a pas gagné 5 m vers son point d'arrêt depuis STALL_STUCK s, dont PUSH_STUCK s à l'arrêt alors que
+ * le pilote automatique la dit « en route » (elle pousse au pas contre une barricade ou le mobilier jeté par la foule :
+ * une moto ne les renverse pas), à moins de WALK_LIMIT m du point, sur un ordre du joueur : pied à terre, la suite à pied.
+ * La BRAV-M restait là, à 190 m du point, sans fin. (Une attente dans la circulation, annoncée comme telle, n'y compte pas.)
+ */
+const STALL_STUCK = 20;
+const PUSH_STUCK = 12;
 
 /** L'unité est-elle un groupe de BRAV-M (au moins un binôme subordonné doté d'une moto, ou binôme isolé) ? */
 export function isBravmGroup(core: CommandCore, s: Squad): boolean {
@@ -121,6 +130,12 @@ export class BravmUnit extends SpecialUnit {
   /** Tête de colonne au milieu de la foule : distance au point d'arrêt quand elle avançait encore, et depuis quand (voir CROWD_STUCK). */
   private crowdD = 0;
   private crowdAt = -1;
+  /** Même relevé pour une tête arrêtée sans foule autour (voir STALL_STUCK) ; remis à zéro à chaque regroupement. */
+  private stallD = 0;
+  private stallAt = -1;
+  /** Temps passé à l'arrêt « en route » depuis stallAt (s), et instant du dernier relevé. */
+  private pushT = 0;
+  private pushSeen = -1;
   /** Point d'arrêt du déplacement en cours ramené en arrière par la foule (ride : jamais d'arrêt dans un rassemblement). */
   private crowdBack = false;
   /** Interception loin d'opérateurs à pied : ils remontent d'abord en selle, puis la colonne roule vers l'objectif. */
@@ -310,7 +325,9 @@ export class BravmUnit extends SpecialUnit {
       case 'repli': {
         // à pied, point à moins de trois minutes de marche : on y va à pied, directement (le retour aux machines,
         // garées au milieu de la foule, puis la remontée en selle, laissaient la BRAV-M sur place une minute et plus)
-        const walk = !mounted && this.footOperators() > 0 && Math.hypot(this.tx - this.people[0].x, this.tz - this.people[0].z) <= WALK_LIMIT;
+        // (sauf retour au commissariat : elle y rentre à moto, ses machines avec elle)
+        const walk = !mounted && this.footOperators() > 0 && Math.hypot(this.tx - this.people[0].x, this.tz - this.people[0].z) <= WALK_LIMIT
+          && !isReturningHome(this.core.ctx, this.squad.id);
         this.say(received(this.squad.name, o.type === 'repli' ? 'je me replie en colonne' : walk ? 'à pied vers le point' : 'en colonne vers le point'));
         if (mounted) this.ride(this.tx, this.tz, 0);
         else if (walk) this.defer(() => this.walkTo(this.tx, this.tz));
@@ -397,6 +414,7 @@ export class BravmUnit extends SpecialUnit {
       return;
     }
     this.crowdAt = -1;
+    this.stallAt = -1;
     this.relaunches = 0;
     this.rejoinAt = -1;
     // trajet à travers la ville : en urgence, les fermetures de rue de la police sont franchies (arrêtée devant un
@@ -516,6 +534,8 @@ export class BravmUnit extends SpecialUnit {
       if (m.seats[0] !== 0) spread = Math.max(spread, Math.hypot(m.x - lead.x, m.z - lead.z));
     }
     if (this.regroupAt >= 0) {
+      // (la tête attend les siennes : ce n'est pas un arrêt)
+      this.stallAt = -1;
       if (spread < REGROUP_DONE || now - this.regroupAt > REGROUP_MAX) {
         this.regroupAt = -1;
         this.still.clear();
@@ -568,6 +588,17 @@ export class BravmUnit extends SpecialUnit {
       this.crowdAt = now;
     } else if (this.byPlayer() && now - this.crowdAt > CROWD_STUCK && d > RIDE_STANDOFF && core.ctx.people.countIn(lead.x, lead.z, CROWD_RADIUS, isProtester) >= CROWD_AROUND) {
       this.crowdDismount();
+      return;
+    }
+    // tête qui n'avance plus, sans foule autour (barricade, mobilier jeté sur la chaussée), le point à distance de marche
+    if (this.stallAt < 0 || d < this.stallD - 5) {
+      this.stallD = d;
+      this.stallAt = now;
+      this.pushT = 0;
+    } else if (st.state === 'en_route' && stopped && this.pushSeen >= 0) this.pushT += Math.min(1, now - this.pushSeen);
+    this.pushSeen = now;
+    if (this.byPlayer() && now - this.stallAt > STALL_STUCK && this.pushT > PUSH_STUCK && d > RIDE_STANDOFF && d <= WALK_LIMIT && this.mountedOperators() > 0) {
+      this.crowdDismount('Itinéraire barré, les motos ne passent pas. Pied à terre, je continue à pied');
       return;
     }
     // tête arrêtée loin du point (circulation, rue encombrée, pilote automatique arrêté) : la colonne n'est pas
@@ -687,10 +718,11 @@ export class BravmUnit extends SpecialUnit {
    * Colonne prise dans la foule : les motos s'arrêtent, les opérateurs mettent pied à terre et l'ordre continue à pied
    * (déplacement : colonne à pied jusqu'au point ; interception : approche à pied), annoncé à la radio.
    */
-  private crowdDismount(): void {
+  private crowdDismount(text = 'Foule sur l’itinéraire, les motos ne passent pas. Pied à terre, je continue à pied'): void {
     this.stopMotos();
     this.crowdAt = -1;
-    this.say(report(this.superior(), this.squad.name, 'Foule sur l’itinéraire, les motos ne passent pas. Pied à terre, je continue à pied'));
+    this.stallAt = -1;
+    this.say(report(this.superior(), this.squad.name, text));
     this.dismount();
   }
 

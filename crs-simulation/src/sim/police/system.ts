@@ -106,6 +106,7 @@ export class PoliceSystem implements GameSystem {
         k.reserves.delete(id);
         k.reserveOf(ctx.vehicles.get(id));
       },
+      rest: (id) => this.rest(id),
     };
     const status: PoliceStatusApi = {
       of: (id): UnitStatus | null => {
@@ -183,6 +184,29 @@ export class PoliceSystem implements GameSystem {
     const k = this.k;
     k.now = this.ctx.clock.now;
     syncTree(k, false);
+  }
+
+  /** Repos complet de l'unité et de sa descendance (retour au commissariat). */
+  private rest(squadId: number): void {
+    const ctx = this.ctx;
+    this.sync();
+    const visit = (id: number, depth: number): void => {
+      const s = ctx.squads.get(id);
+      if (!s || depth > 8) return;
+      s.morale = Math.max(s.morale, 0.8);
+      const u = unitOf(s);
+      if (u) {
+        u.fatigue = 0;
+        u.pressure = 0;
+        u.disorder = 0;
+        u.needsRelief = false;
+        // état publié recalculé à la prochaine lecture
+        u.statusAt = -100;
+      }
+      const kids = ctx.squads.childrenOf(id);
+      for (let i = 0; i < kids.length; i++) visit(kids[i]!.id, depth + 1);
+    };
+    visit(squadId, 0);
   }
 
   private onHurt(id: number, sourceId: number, kind: string): void {

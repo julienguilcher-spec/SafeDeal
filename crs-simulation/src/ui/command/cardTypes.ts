@@ -446,8 +446,8 @@ export interface WhoEnv {
   canCommand(squadId: number): boolean;
   /** Unités à écarter (au poste, en alerte : module des commissariats). */
   exclude?(squadId: number): boolean;
-  /** Renforts des commissariats pour la liste Qui. */
-  stationCandidates?(): WhoCandidate[];
+  /** Renforts des commissariats pour la liste Qui ; `where` : lieu visé (délai d'arrivée de chacun). */
+  stationCandidates?(where?: { x: number; z: number }): WhoCandidate[];
   /** Unités choisies pour une nasse autour de la foule (nasse.ts), null si impossible. */
   nasse?(crowdKey: string): { squadIds: number[]; label: string } | null;
   /**

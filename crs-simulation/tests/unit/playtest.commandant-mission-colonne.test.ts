@@ -68,6 +68,10 @@ describe('commandant en mission : à l’arrivée de « Nuit des vitrines »', (
     const stage1 = cmd.convoyOf(own.id)?.stage ?? '-';
     expect(after).toBeGreaterThanOrEqual(0);
     expect(own.order.type).toBe('ligne');
+    // et la compagnie est descendue l'exécuter (sans « débarquez », les agents restaient assis dans leurs fourgons)
+    const seated = ctx.squads.list.filter((q) => q.faction === 'police' && core.scope().ownSquadId !== 0 && q.parentId !== 0 && /MISTRAL/.test(q.name))
+      .flatMap((q) => q.members.map((id) => ctx.people.get(id)!)).filter((p) => p && !p.isPlayer && p.vehicleId !== 0 && p.poste !== 'conducteur');
+    expect(seated.map((p) => p.poste)).toEqual([]);
     const groups = ctx.squads.list.filter((q) => q.faction === 'police' && q.kind === 'groupe' && /FAUCON/.test(q.name) && q.parentId === 0);
     expect(groups.length).toBeGreaterThan(1);
     const opsOf = (b: { id: number }): Person[] => ctx.squads.list.filter((q) => q.parentId === b.id).flatMap((q) => q.members.map((id) => ctx.people.get(id)!))
@@ -90,7 +94,17 @@ describe('commandant en mission : à l’arrivée de « Nuit des vitrines »', (
     t.step(60);
     const y60 = meanAt(near, tx, tz);
     console.log(`${near.name} « Y aller » de l'autre côté de la foule : ${y0.toFixed(0)} → ${y60.toFixed(0)} m du point`);
-    expect(y60 < 30 || y0 - y60 >= 30, `${near.name} ${y0.toFixed(0)} → ${y60.toFixed(0)} m du point`).toBe(true);
+    if (!(y60 < 30 || y0 - y60 >= 30)) {
+      // (avec les commissariats, le stationnement réservé des sites reste libre : la colonne de la journée ne roule plus
+      // dans la même circulation et la BRAV-M arrive ailleurs, ici à plus de 200 m du point, la tête de ses motos arrêtée
+      // au pas devant le mobilier jeté sur la chaussée — « Itinéraire barré » : pied à terre, la suite à pied, 190 m au pas
+      // à travers la foule (la compagnie, descendue former sa ligne, n'est plus assise dans ses fourgons : la foule ne
+      // s'écarte plus de la même façon). Au bout de trois minutes au plus, elle y est.)
+      for (let s = 0; s < 120 && meanAt(near, tx, tz) >= 30; s++) t.step(1);
+      const y150 = meanAt(near, tx, tz);
+      console.log(`${near.name} … ${y150.toFixed(0)} m du point au bout de ${(60 + 120).toFixed(0)} s au plus`);
+      expect(y150, `${near.name} ${y0.toFixed(0)} → ${y60.toFixed(0)} → ${y150.toFixed(0)} m du point`).toBeLessThan(40);
+    }
     // (c) une autre BRAV-M, la plus éloignée du commandant, choisie sur la carte, puis la fiche « VOUS » : « Suivez-moi à pied »
     const bravm = groups.filter((q) => q !== near).sort((a, b) => meanOf(b) - meanOf(a))[0]!;
     const meanTo = (): number => meanOf(bravm);

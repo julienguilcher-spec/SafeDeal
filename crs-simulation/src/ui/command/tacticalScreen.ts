@@ -50,10 +50,13 @@ import { forceWord } from './orders';
 import { cardEnvFromCore, collectReperes, nextInDirection, pickAt, placeRepere, unitRepere } from './reperes';
 import type { Direction } from './reperes';
 import { coreLegalDeps, sentDetail } from './sendLine';
+import { stationWhoAt } from './commissariatsLink';
+import { cycleStation } from './commissariatsModel';
+import type { StationCycle } from './commissariatsModel';
 import { ensureCommandStyle } from './style';
 import { TacticalMap } from './tacticalMap';
 import {
-  CARD_HINT, HELP_LINES, HELP_MODEL, SENT_SECONDS, UNDO_SECONDS, backStep, commandableUnits, enterAllowed, isSticky, keyboardSections,
+  CARD_HINT, CARD_HINT_READONLY, HELP_LINES, HELP_MODEL, SENT_SECONDS, UNDO_SECONDS, backStep, commandableUnits, enterAllowed, isSticky, keyboardSections,
   mapKey, stickyNext, unitsByRecentOrder,
 } from './tacticalKeys';
 import type { KeyCommand, Sheet } from './tacticalKeys';
@@ -301,8 +304,8 @@ export class TacticalScreen implements ScreenInstance {
   /** Ordre donné non collant : la fiche « ✓ ORDRE DONNÉ » se referme à cet instant. */
   private restAt = -1;
   private todoIndex = -1;
-  private stationIndex = -1;
-  private stationFrom = '';
+  /** C : parcours des commissariats (même liste d'une pression à l'autre). */
+  private readonly stationCycle: StationCycle = { order: [], index: -1 };
   /** Maj + flèches : la visée suit le curseur libre de la carte. */
   private freeAim = false;
   private freeAt = -1;
@@ -692,6 +695,13 @@ export class TacticalScreen implements ScreenInstance {
         return;
       }
     }
+    if (open.commissariatId) {
+      const r = this.reperes.find((q) => q.kind === 'commissariat' && q.stationId === open.commissariatId);
+      if (r) {
+        this.openRepere(r);
+        return;
+      }
+    }
     if (open.squadId) {
       const u = env.units.find((q) => q.squadId === open.squadId);
       if (u) {
@@ -874,7 +884,7 @@ export class TacticalScreen implements ScreenInstance {
     }
     const scene = core.maps.scene;
     const holding = holdingSquads(scene.barrages);
-    const can = (id: number): boolean => core.canCommand(id);
+    const can = (id: number): boolean => core.canOrder(id);
     return {
       card: env, selection: this.selectionIds(), whole: this.wholeOf(env), holding, canCommand: can,
       nasse: (crowdKey) => {
@@ -914,7 +924,8 @@ export class TacticalScreen implements ScreenInstance {
   private resolveWho(card: Card, line: CardLine | null, where: Repere, env: CardEnv): WhoCandidate | null {
     const st = this.state;
     this.whoList = [];
-    if (st.where) return st.where.who;
+    // « OÙ L'ENVOYER ? » d'une unité d'un commissariat : délai recalculé pour le lieu visé
+    if (st.where) return st.where.who.fromStation !== undefined ? stationWhoAt(this.core, st.where.who, where) : st.where.who;
     if (card.whoFixed && card.whoFixed.length > 0) return fixedCandidate(env, card.whoFixed, where);
     if (!line || !line.needsWho) return null;
     const sel = this.selectionIds();
@@ -993,7 +1004,7 @@ export class TacticalScreen implements ScreenInstance {
     const ident = `${r.key}|${card.lines.length}|${s.othersOpen ? 1 : 0}|${card.notes.length}`;
     const opts = {
       othersOpen: s.othersOpen, explainAll: !this.compact && !this.short && this.tightCard !== ident,
-      hint: st.lastInput === 'keys' && !this.compact ? CARD_HINT : '',
+      hint: st.lastInput === 'keys' && !this.compact ? (env.level === 'lecture' ? CARD_HINT_READONLY : CARD_HINT) : '',
       position: pos, stackIndex: Math.max(0, s.stack.findIndex((q) => q.key === r.key)), sticky, wholeLabel, whole: st.whole,
       whoFixed: !!st.where || (card.whoFixed !== null && card.whoFixed.length > 0),
     };
@@ -1031,7 +1042,7 @@ export class TacticalScreen implements ScreenInstance {
     if (list.length === 0) {
       // sans proposition : mes unités (sections d'abord), par distance
       const scene = this.core.maps.scene;
-      const secs = keyboardSections(scene.units, (id) => this.core.canCommand(id));
+      const secs = keyboardSections(scene.units, (id) => this.core.canOrder(id));
       for (const u of secs) list.push(fixedCandidate(env, [u.squadId], where));
       list.sort((a, b) => a.eta - b.eta);
     }
@@ -1458,7 +1469,8 @@ export class TacticalScreen implements ScreenInstance {
     // au repos : mes unités, l'ordre le plus récent d'abord ; la fiche de l'unité s'ouvre
     const env = this.refreshEnv(true);
     const scene = this.core.maps.scene;
-    const mine = commandableUnits(scene.units, (id) => this.core.canCommand(id));
+    // (sans les unités d'un commissariat encore au poste, en alerte ou au repos)
+    const mine = commandableUnits(scene.units, (id) => this.core.canOrder(id));
     const ordered = unitsByRecentOrder(mine, (u) => u.order ? u.order.issuedAt : -Infinity);
     if (ordered.length === 0) {
       this.say('Aucune unité sous vos ordres.', 'info', 3);
@@ -1503,13 +1515,8 @@ export class TacticalScreen implements ScreenInstance {
       return;
     }
     const from = st.visee ?? { x: this.map.view.cx, z: this.map.view.cz };
-    const sorted = all.slice().sort((a, b) => Math.hypot(a.x - from.x, a.z - from.z) - Math.hypot(b.x - from.x, b.z - from.z));
-    const key = sorted.map((s) => s.id).join('|');
-    if (key !== this.stationFrom || !(st.visee?.kind === 'commissariat')) {
-      this.stationFrom = key;
-      this.stationIndex = 0;
-    } else this.stationIndex = (this.stationIndex + 1) % sorted.length;
-    const s = sorted[this.stationIndex]!;
+    const id = cycleStation(this.stationCycle, all, from, st.visee?.kind === 'commissariat');
+    const s = all.find((q) => q.id === id)!;
     const r = this.reperes.find((q) => q.kind === 'commissariat' && q.stationId === s.id)
       ?? { kind: 'commissariat' as const, key: `commissariat:${s.id}`, x: s.x, z: s.z, stationId: s.id, name: s.name };
     st.intent = null;
@@ -1574,13 +1581,16 @@ export class TacticalScreen implements ScreenInstance {
     return null;
   }
 
-  /** Rangées d'une feuille (boutons visibles, dans l'ordre). */
+  /**
+   * Rangées d'une feuille (boutons visibles, dans l'ordre), sans les boutons de son bandeau (« ‹ Plus… », ✕ : Échap
+   * les remplace) : ↓ va tout de suite à la première rangée de la liste.
+   */
   private sheetRows(): HTMLButtonElement[] {
     const root = this.sheetRoot();
     if (!root) return [];
     const out: HTMLButtonElement[] = [];
     root.querySelectorAll('button').forEach((b) => {
-      if (!b.disabled && b.offsetParent !== null) out.push(b);
+      if (!b.disabled && b.offsetParent !== null && !b.closest('.cp-top')) out.push(b);
     });
     return out;
   }
@@ -1637,9 +1647,11 @@ export class TacticalScreen implements ScreenInstance {
 
   /** « Plus… » ouvert sur une section (« journal », « incidents », « circulation », « commissariats »…). */
   openMore(section: TacticalTab | string): void {
-    if (this.core.scope().level === 'lecture' && section !== 'commissariats') return;
-    this.state.tab = (section === 'ordres' || section === 'incidents' || section === 'circulation' || section === 'journal' || section === 'commissariats')
-      ? section : this.state.tab;
+    // (« commissariats:<poste> » : la liste dépliée sur ce poste)
+    const id = String(section).split(':')[0]!;
+    if (this.core.scope().level === 'lecture' && id !== 'commissariats') return;
+    this.state.tab = (id === 'ordres' || id === 'incidents' || id === 'circulation' || id === 'journal' || id === 'commissariats')
+      ? id : this.state.tab;
     this.openSheet('more');
     this.morePanel?.open?.(section);
   }
@@ -1774,7 +1786,7 @@ export class TacticalScreen implements ScreenInstance {
         this.map.flyTo(where.x, where.z);
         return;
       case 'stationList':
-        this.openMore('commissariats');
+        this.openMore('commissariats:' + a.stationId);
         return;
       case 'sendElsewhere': {
         const ids = card.whoFixed ?? (where.squadId ? [where.squadId] : []);
@@ -2184,6 +2196,8 @@ export class TacticalScreen implements ScreenInstance {
       const o = this.map.overlay;
       o.hoverKey = st.dropKey !== 0 ? st.dropKey : st.hoverKey;
       o.focusIncident = st.card?.repere.kind === 'incident' ? st.card.repere.incidentId ?? 0 : 0;
+      // fiche d'un commissariat : son nom et la rue de ses places sont écrits sur la carte
+      o.focusCommissariat = st.card?.repere.kind === 'commissariat' ? st.card.repere.stationId ?? '' : '';
       this.map.invalidate();
     }
     if (force || this.lastCard < 0 || this.time - this.lastCard > 0.1) {
