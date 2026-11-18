@@ -759,10 +759,10 @@ index 0000000..7b9eab7
 +}
 diff --git a/crs-simulation/src/ui/command/cardTypes.ts b/crs-simulation/src/ui/command/cardTypes.ts
 new file mode 100644
-index 0000000..42d4f82
+index 0000000..5687ab8
 --- /dev/null
 +++ b/crs-simulation/src/ui/command/cardTypes.ts
-@@ -0,0 +1,527 @@
+@@ -0,0 +1,535 @@
 +/* =====================================================================================
 + * Carte de commandement — CONTRAT des fiches (types seulement, aucune logique).
 + *
@@ -878,6 +878,8 @@ index 0000000..42d4f82
 +  | { kind: 'proposal'; accept: boolean }
 +  /** Sommations : `all` les trois à la suite (chaîne légale), sinon la suivante seulement. */
 +  | { kind: 'sommation'; all: boolean }
++  /** « Négocier un parcours (liaison) » : l'équipe de liaison prend contact avec les organisateurs (crowd.core.setLiaison). */
++  | { kind: 'liaison' }
 +  /** Engager une unité d'un commissariat (P5) : Qui fixé, puis « OÙ L'ENVOYER ? », ordre par défaut `defaultVerb`. */
 +  | { kind: 'engage'; entryId: number; defaultVerb: OrderType }
 +  /**
@@ -1164,6 +1166,12 @@ index 0000000..42d4f82
 +  placeName(x: number, z: number): string;
 +  /** Vent au sol (m/s, repère monde) pour l'aperçu du gaz ; absent ou null : inconnu. */
 +  wind?: { x: number; z: number } | null;
++  /**
++   * Équipe de liaison (crowd.core.setLiaison) : false = elle peut être mise au contact des organisateurs du cortège
++   * (ligne « Négocier un parcours (liaison) » de la fiche de la foule principale), true = c'est déjà fait ; absent ou
++   * null = pas de liaison possible (service absent, ou joueur qui ne commande pas l'ensemble du dispositif).
++   */
++  liaison?: boolean | null;
 +}
 +
 +// ───────────────────────────── Qui (bestUnit.ts, C1B) ─────────────────────────────
@@ -1474,10 +1482,10 @@ index 87f1057..4f0a32c 100644
      void this.ctx;
 diff --git a/crs-simulation/src/ui/command/intents.ts b/crs-simulation/src/ui/command/intents.ts
 new file mode 100644
-index 0000000..424bd6c
+index 0000000..d2f7d9c
 --- /dev/null
 +++ b/crs-simulation/src/ui/command/intents.ts
-@@ -0,0 +1,920 @@
+@@ -0,0 +1,931 @@
 +/* =====================================================================================
 + * Carte de commandement — INTENTIONS et FICHES (logique pure, sans DOM).
 + *
@@ -1820,7 +1828,18 @@ index 0000000..424bd6c
 +  const has = (t: OrderType): boolean => lines.some((l) => l.action.kind === 'verb' && l.action.type === t);
 +  const h = crowdHeader(c, env);
 +  const name = c ? capFirst(c.name) : r.name;
-+  return { title: name.toLocaleUpperCase('fr-FR'), name, sub: h.sub, notes: h.notes, lines, others: crowdOthers(env, x, z, has) };
++  const others = crowdOthers(env, x, z, has);
++  // LIAISON — « Négocier un parcours (liaison) » : le dialogue avant la force, en tête de « Autres ordres ici… » de la
++  // foule principale (le cortège, celui du directeur de la foule), pour qui commande tout le dispositif, tant que
++  // l'équipe de liaison n'est pas déjà au contact (env.liaison, lu par cardEnvFromCore ; envoi : sendLine.ts).
++  if (c && c.main && env.liaison === false) {
++    others.unshift(plainLine(
++      'Négocier un parcours (liaison)',
++      'L’équipe de liaison va au contact des organisateurs : la tension monte moins vite et retombe plus vite.',
++      'radio', { kind: 'liaison' },
++    ));
++  }
++  return { title: name.toLocaleUpperCase('fr-FR'), name, sub: h.sub, notes: h.notes, lines, others };
 +}
 +
 +function nasseCard(r: Repere, env: CardEnv): Built {
@@ -2876,10 +2895,10 @@ index 0000000..f9fcd08
 +  }
 +}
 diff --git a/crs-simulation/src/ui/command/orderWheel.ts b/crs-simulation/src/ui/command/orderWheel.ts
-index 78fe9e9..c556d6e 100644
+index 78fe9e9..c91a951 100644
 --- a/crs-simulation/src/ui/command/orderWheel.ts
 +++ b/crs-simulation/src/ui/command/orderWheel.ts
-@@ -2,65 +2,256 @@
+@@ -2,65 +2,276 @@
   * Écran « roue_ordres » : roue d'ordres rapide en vue de jeu, pour l'unité du joueur. Les ordres
   * visent le point regardé (PlayerState.aimX / aimZ) ou la personne visée, relevés à l'ouverture.
   *
@@ -3146,6 +3165,26 @@ index 78fe9e9..c556d6e 100644
 +  flush(sub);
 +}
 +
++/** Rayon des touches dans le menu radial (wheel.ts, R_KEY) : repris ici sans modifier ce fichier. */
++const WHEEL_R_KEY = 138;
++
++/**
++ * Roue large (trois ou quatre secteurs : celle de l'exécutant) : la touche, posée par le menu radial au milieu du bord
++ * extérieur, tombait sur la deuxième ligne d'un secteur latéral (« 2 » sur « toute mon unité »). Elle glisse vers le
++ * début de son secteur, à 35°, toujours dans le secteur et hors du texte. Rien ne change pour la roue de huit.
++ */
++function placeWideKeys(svg: SVGSVGElement, count: number): void {
++  if (count > 4 || count < 2) return;
++  const step = (Math.PI * 2) / count;
++  const keys = Array.from(svg.querySelectorAll<SVGTextElement>('.cw-key'));
++  if (keys.length !== count) return;
++  for (let i = 0; i < count; i++) {
++    const a = i * step - Math.PI / 2 - Math.min(step / 2 - 0.2, (35 * Math.PI) / 180);
++    keys[i]!.setAttribute('x', (Math.cos(a) * WHEEL_R_KEY).toFixed(1));
++    keys[i]!.setAttribute('y', (Math.sin(a) * WHEEL_R_KEY + 3.5).toFixed(1));
++  }
++}
++
 +/** Taille de police (px) pour qu'un texte du centre tienne dans le moyeu. */
 +function hubFont(text: string, base: number, perChar: number, min: number): number {
 +  const w = text.length * base * perChar;
@@ -3164,7 +3203,7 @@ index 78fe9e9..c556d6e 100644
    private readonly squad: Squad | null = null;
    private held: boolean;
    private age = 0;
-@@ -75,25 +266,44 @@ export class OrderWheelScreen implements ScreenInstance {
+@@ -75,25 +286,52 @@ export class OrderWheelScreen implements ScreenInstance {
    private readonly targetId: number;
    private readonly unitX: number;
    private readonly unitZ: number;
@@ -3199,6 +3238,14 @@ index 78fe9e9..c556d6e 100644
 +    this.root.appendChild(this.slot);
      host.appendChild(this.root);
      this.held = ctx.input.down('orders');
++    // un toucher (ou un clic) hors de la roue la referme — au téléphone, c'était sinon le seul moyen avec le moyeu ;
++    // pas pendant le premier dixième de seconde (le doigt qui vient d'ouvrir la roue)
++    this.root.addEventListener('pointerdown', (e) => {
++      const t = e.target;
++      if (this.done || this.age < 0.12 || !(t instanceof Element) || t.closest('svg')) return;
++      if (this.inner) this.openRing(this.outer, false);
++      else this.close();
++    });
  
      const st = ctx.player.state;
      const p = core.player();
@@ -3211,7 +3258,7 @@ index 78fe9e9..c556d6e 100644
      this.yaw = st.camYaw;
      const px = p ? p.x : 0;
      const pz = p ? p.z : 0;
-@@ -110,54 +320,78 @@ export class OrderWheelScreen implements ScreenInstance {
+@@ -110,54 +348,81 @@ export class OrderWheelScreen implements ScreenInstance {
      this.aimZ = az;
      const target = st.aimedPersonId !== 0 ? ctx.people.get(st.aimedPersonId) : undefined;
      this.targetId = target && target.faction !== 'police' ? target.id : 0;
@@ -3287,7 +3334,10 @@ index 78fe9e9..c556d6e 100644
 +    wheel.hoverEnabled = inner && hover;
 +    wheel.setCenter(title, sub);
 +    const svg = wheel.root.querySelector('svg');
-+    if (svg) fitSectorTexts(svg);
++    if (svg) {
++      fitSectorTexts(svg);
++      placeWideKeys(svg, sectors.length);
++    }
 +    this.wheel = wheel;
 +    this.titleShown = '';
 +    this.subShown = '';
@@ -3316,7 +3366,7 @@ index 78fe9e9..c556d6e 100644
    /**
     * Souris : le premier événement ne fait que noter la position (le navigateur en fabrique un quand la
     * roue apparaît sous un pointeur immobile). Ensuite, le survol direct choisit le secteur ; hors de la
-@@ -187,6 +421,22 @@ export class OrderWheelScreen implements ScreenInstance {
+@@ -187,6 +452,22 @@ export class OrderWheelScreen implements ScreenInstance {
      this.core.ctx.ui.close(WHEEL_SCREEN);
    }
  
@@ -3339,7 +3389,7 @@ index 78fe9e9..c556d6e 100644
    private issue(type: string): void {
      const core = this.core;
      const ctx = core.ctx;
-@@ -221,11 +471,13 @@ export class OrderWheelScreen implements ScreenInstance {
+@@ -221,11 +502,13 @@ export class OrderWheelScreen implements ScreenInstance {
        default:
          break;
      }
@@ -3355,7 +3405,7 @@ index 78fe9e9..c556d6e 100644
      this.close();
    }
  
-@@ -251,10 +503,23 @@ export class OrderWheelScreen implements ScreenInstance {
+@@ -251,10 +534,23 @@ export class OrderWheelScreen implements ScreenInstance {
        if (Math.hypot(input.moveX, input.moveY) > 0.5) wheel.pointAt(input.moveX, -input.moveY, 0.5);
        else wheel.pointAt(this.vx, this.vy, 0.4);
      }
@@ -3382,7 +3432,7 @@ index 78fe9e9..c556d6e 100644
      // roue restée affichée après un appui bref : un nouvel appui sur « Ordres » la referme
      if (!this.held && this.ticks > 1 && input.pressed('orders')) {
        this.close();
-@@ -275,14 +540,21 @@ export class OrderWheelScreen implements ScreenInstance {
+@@ -275,14 +571,21 @@ export class OrderWheelScreen implements ScreenInstance {
      }
    }
  
@@ -3405,7 +3455,7 @@ index 78fe9e9..c556d6e 100644
  }
 +
 diff --git a/crs-simulation/src/ui/command/orders.ts b/crs-simulation/src/ui/command/orders.ts
-index 0cedfd2..05b1a61 100644
+index 0cedfd2..50b4353 100644
 --- a/crs-simulation/src/ui/command/orders.ts
 +++ b/crs-simulation/src/ui/command/orders.ts
 @@ -25,6 +25,22 @@ export interface OrderVerb {
@@ -3431,7 +3481,7 @@ index 0cedfd2..05b1a61 100644
  }
  
  /** Consigne de l'ordre « Barrer la rue » (palette, ordre rapide, roue, aperçu). */
-@@ -66,78 +82,211 @@ export function barrageTargetId(type: OrderType, letPass: boolean, targetId = 0)
+@@ -66,85 +82,212 @@ export function barrageTargetId(type: OrderType, letPass: boolean, targetId = 0)
  
  export const ORDER_VERBS: readonly OrderVerb[] = [
    { type: 'tenir', label: 'Tenir la position', short: 'Tenir', group: 'posture', gesture: 'immediate', force: 1, coercive: false,
@@ -3548,8 +3598,8 @@ index 0cedfd2..05b1a61 100644
  export const ORDER_GROUP_LABELS: Readonly<Record<OrderGroup, string>> = {
 -  posture: 'Postures', mouvement: 'Mouvements', manoeuvre: 'Manœuvres', appui: 'Appui', fin: 'Fin d’action',
 +  posture: 'Se placer', mouvement: 'Se déplacer', manoeuvre: 'Face à la foule', appui: 'Intervenir', fin: 'Fin d’action',
- };
- 
++};
++
 +/**
 + * Textes en clair des ordres que d'autres modules ajoutent à ORDER_VERBS (« Rentrer au commissariat », `retour_poste`,
 + * ajouté par le module des commissariats) : les fiches et les étiquettes les emploient dès que le verbe existe.
@@ -3559,8 +3609,8 @@ index 0cedfd2..05b1a61 100644
 +    plain: 'Rentrer au commissariat', tag: 'RENTRE', explain: 'Retour sans deux-tons\u00a0; au repos puis de nouveau prête.',
 +    doing: 'rentre au commissariat',
 +  },
-+};
-+
+ };
+ 
 +/** Étiquette de « Barrer la rue, passants admis » (targetId BARRAGE_LET_PASSERSBY). */
 +export const TAG_PASSERSBY = 'BARRE (PASSANTS)';
 +
@@ -3606,8 +3656,11 @@ index 0cedfd2..05b1a61 100644
 +  if (tag === '') return 'Ordre en cours';
 +  const low = tag.toLocaleLowerCase('fr-FR');
 +  return low.charAt(0).toLocaleUpperCase('fr-FR') + low.slice(1);
-+}
-+
+ }
+ 
+-/** Intitulés des niveaux de force, dans l'ordre de la gradation. */
+-export const FORCE_LABELS: readonly string[] = [
+-  'Aucune force', 'Présence, contact', 'Bâton, gazeuse', 'Lacrymogènes, canon à eau', 'GM2L, désencerclement, LBD', 'Arme à feu',
 +/** Article devant un nom de voie ou de lieu : « la rue de Rivoli », « le boulevard Haussmann », « l’avenue Foch ». */
 +/** Mots qui ouvrent un nom de voie : écrits en minuscule au milieu d'une phrase (« barre la place de la Concorde »). */
 +const VOIE_WORDS: ReadonlySet<string> = new Set([
@@ -3665,21 +3718,23 @@ index 0cedfd2..05b1a61 100644
 +const AUTHORIZE_WORDS: readonly string[] = [
 +  'autoriser l’emploi de la force', 'autoriser les mains nues', 'autoriser le bâton et la gazeuse', 'autoriser le gaz',
 +  'autoriser les grenades et les lanceurs de balles (LBD)', 'autoriser l’arme à feu',
-+];
+ ];
+-export const FORCE_SHORT: readonly string[] = ['Aucune', 'Contact', 'Bâton', 'Lacrymogènes', 'LBD, GM2L', 'Arme'];
 +
 +/** « autoriser le gaz » pour le niveau 3 (étapes légales des fiches). */
 +export function authorizeWord(level: number): string {
 +  const l = Number.isFinite(level) ? Math.max(0, Math.min(AUTHORIZE_WORDS.length - 1, Math.round(level))) : 0;
 +  return AUTHORIZE_WORDS[l]!;
- }
++}
  
- /** Intitulés des niveaux de force, dans l'ordre de la gradation. */
+ // ───────────────────────────── géométrie ─────────────────────────────
+ 
 diff --git a/crs-simulation/src/ui/command/panelCard.ts b/crs-simulation/src/ui/command/panelCard.ts
 new file mode 100644
-index 0000000..dbb7034
+index 0000000..1e27ed6
 --- /dev/null
 +++ b/crs-simulation/src/ui/command/panelCard.ts
-@@ -0,0 +1,880 @@
+@@ -0,0 +1,887 @@
 +/* =====================================================================================
 + * Carte de commandement — la FICHE (colonne de droite ; feuille de 380 px au téléphone). DOM seul : aucun accès au
 + * noyau ni à la partie, l'écran (tacticalScreen.ts) lui donne tout et reçoit les choix par des rappels.
@@ -4150,12 +4205,30 @@ index 0000000..dbb7034
 +    this.renderCard(v);
 +  }
 +
++  /** Onglets des repères empilés sous le pointeur (« Rue Royale | Foule »). */
++  private stackTabs(v: CardView): HTMLElement {
++    const tabs = node('div', 'cc-tabs');
++    v.tabs.forEach((t, i) => {
++      const b = btn('cc-btn cc-tab' + (t.on ? ' is-on' : ''), `card-tab-${i}`, t.name);
++      b.setAttribute('aria-pressed', t.on ? 'true' : 'false');
++      this.listen(b, 'click', (e) => {
++        e.stopPropagation();
++        this.onStack?.(i);
++      });
++      tabs.appendChild(b);
++    });
++    return tabs;
++  }
++
 +  private renderCard(v: CardView): void {
 +    // ── en-tête ──
 +    const head = this.cardHead;
 +    clear(head);
 +    const top = node('div', 'cc-top');
-+    top.appendChild(node('h2', 'cc-title', v.title));
++    // téléphone : les repères empilés prennent la place du titre, sur la même rangée (l'onglet surligné nomme le lieu),
++    // pour que les six lignes et « Donner l'ordre » tiennent dans les 390 px sans défiler
++    const tabsInTop = v.compact && v.tabs.length > 1;
++    top.appendChild(tabsInTop ? this.stackTabs(v) : node('h2', 'cc-title', v.title));
 +    if (v.position !== '') {
 +      const pos = node('span', 'cc-pos');
 +      const prev = btn('cc-btn', 'card-prev', '‹');
@@ -4186,19 +4259,7 @@ index 0000000..dbb7034
 +      top.appendChild(x);
 +    }
 +    head.appendChild(top);
-+    if (v.tabs.length > 1) {
-+      const tabs = node('div', 'cc-tabs');
-+      v.tabs.forEach((t, i) => {
-+        const b = btn('cc-btn cc-tab' + (t.on ? ' is-on' : ''), `card-tab-${i}`, t.name);
-+        b.setAttribute('aria-pressed', t.on ? 'true' : 'false');
-+        this.listen(b, 'click', (e) => {
-+          e.stopPropagation();
-+          this.onStack?.(i);
-+        });
-+        tabs.appendChild(b);
-+      });
-+      head.appendChild(tabs);
-+    }
++    if (!tabsInTop && v.tabs.length > 1) head.appendChild(this.stackTabs(v));
 +    if (v.sticky !== '') head.appendChild(node('div', 'cc-sticky', v.sticky));
 +    if (!v.compact) {
 +      if (v.sub !== '') head.appendChild(node('div', 'cc-subl', v.sub));
@@ -4546,7 +4607,8 @@ index 0000000..dbb7034
 +    if (this.mode !== 'card') this.setMode('card');
 +    const lines = text.split('\n').map((s) => s.trim()).filter((s) => s !== '');
 +    const first = lines.shift() ?? '';
-+    const title = first !== '' ? `${SENT_PREFIX} — ${first}` : SENT_PREFIX;
++    // un texte qui porte déjà son en-tête (« ✓ ÉTAPES LANCÉES — … » de la chaîne légale) le garde tel quel
++    const title = first.startsWith('✓') ? first : first !== '' ? `${SENT_PREFIX} — ${first}` : SENT_PREFIX;
 +    if (this.sentText.textContent !== title) this.sentText.textContent = title;
 +    const detail = lines.join(' · ');
 +    if (this.sentDetail.textContent !== detail) this.sentDetail.textContent = detail;
@@ -7598,10 +7660,10 @@ index d109644..e6a6251 100644
  }
 diff --git a/crs-simulation/src/ui/command/preview.ts b/crs-simulation/src/ui/command/preview.ts
 new file mode 100644
-index 0000000..2a256a6
+index 0000000..41073b7
 --- /dev/null
 +++ b/crs-simulation/src/ui/command/preview.ts
-@@ -0,0 +1,470 @@
+@@ -0,0 +1,473 @@
 +/* =====================================================================================
 + * Carte de commandement — APERÇU d'une ligne avant l'ordre (logique pure, sans dessin).
 + *
@@ -7823,6 +7885,9 @@ index 0000000..2a256a6
 +      break;
 +    case 'centre':
 +      what = 'La carte se centre ici.';
++      break;
++    case 'liaison':
++      what = 'L’équipe de liaison rejoint les organisateurs et négocie le parcours avec eux ; aucune unité ne bouge.';
 +      break;
 +    case 'proposal':
 +      what = a.accept ? 'L’ordre proposé par l’adjoint part en votre nom.' : 'La proposition est écartée.';
@@ -8073,7 +8138,7 @@ index 0000000..2a256a6
 +  }
 +}
 diff --git a/crs-simulation/src/ui/command/quickActions.ts b/crs-simulation/src/ui/command/quickActions.ts
-index 0c58cfe..5a69d9a 100644
+index 0c58cfe..0bf9127 100644
 --- a/crs-simulation/src/ui/command/quickActions.ts
 +++ b/crs-simulation/src/ui/command/quickActions.ts
 @@ -1,27 +1,41 @@
@@ -8157,7 +8222,7 @@ index 0c58cfe..5a69d9a 100644
  
  const STYLE_ID = 'cm-quick-style';
  
-@@ -41,63 +70,226 @@ function ensureQuickStyle(): void {
+@@ -41,63 +70,230 @@ function ensureQuickStyle(): void {
    const s = document.createElement('style');
    s.id = STYLE_ID;
    s.textContent = `
@@ -8211,6 +8276,10 @@ index 0c58cfe..5a69d9a 100644
 +.cq-row{display:flex;gap:6px;margin-top:6px}
 +.cq-row .cm-btn{width:auto;min-height:32px;font-size:12px;padding:3px 10px;background:rgba(20,30,50,.95);border-color:rgba(255,255,255,.16)}
 +.cq-row .cq-ok{border-color:rgba(64,200,120,.6)}
++/* « Accepter P » et « Plus tard Maj+P » tiennent dans les 262 px de la carte (sans icône : la touche et la couleur
++   du bord suffisent) */
++.cq .cq-prop .cq-row .cm-btn{flex:1 1 auto;min-width:0;justify-content:center;padding:3px 7px}
++.cq .cq-prop .cq-row .cm-btn>svg{display:none}
 +/* fenêtre basse (MacBook Air avec les barres du navigateur) : la proposition tient sur une ligne */
 +@media (max-height:759px){
 +  .ui-hud[data-touch="none"] .cq-prop{display:flex;align-items:center;gap:6px;padding:4px 6px 4px 9px}
@@ -8414,7 +8483,7 @@ index 0c58cfe..5a69d9a 100644
    private readonly onKey: (e: KeyboardEvent) => void;
  
    constructor(private readonly core: CommandCore, host: HTMLElement) {
-@@ -122,43 +314,93 @@ export class QuickActionsHud implements HudWidget {
+@@ -122,43 +318,93 @@ export class QuickActionsHud implements HudWidget {
      ensureQuickStyle();
      this.root = el('div', 'cq is-off');
      this.root.dataset.id = 'hud-quick';
@@ -8535,7 +8604,7 @@ index 0c58cfe..5a69d9a 100644
    /** Proposition « Fermer la nasse » : P exécute les ordres « Barrer la rue », Maj + P l'écarte. */
    private answerNasse(yes: boolean): void {
      const core = this.core;
-@@ -175,21 +417,22 @@ export class QuickActionsHud implements HudWidget {
+@@ -175,21 +421,22 @@ export class QuickActionsHud implements HudWidget {
      this.last = -1;
    }
  
@@ -8565,7 +8634,7 @@ index 0c58cfe..5a69d9a 100644
      const cmd = this.core.ctx.service<{ proposals: readonly ProposalLike[] }>('police.command');
      let best: ProposalLike | null = null;
      if (cmd && this.commander) {
-@@ -205,7 +448,9 @@ export class QuickActionsHud implements HudWidget {
+@@ -205,7 +452,9 @@ export class QuickActionsHud implements HudWidget {
      }
      if (best.id !== this.propId) {
        this.propId = best.id;
@@ -8576,7 +8645,7 @@ index 0c58cfe..5a69d9a 100644
      }
      setClass(this.prop, 'is-off', false);
    }
-@@ -236,26 +481,121 @@ export class QuickActionsHud implements HudWidget {
+@@ -236,26 +485,121 @@ export class QuickActionsHud implements HudWidget {
      const p = core.player();
      if (!p || ctx.session.phase !== 'playing') {
        setClass(this.root, 'is-off', true);
@@ -8704,7 +8773,7 @@ index 0c58cfe..5a69d9a 100644
    private callFollow(column: boolean): void {
      const core = this.core;
      this.closeRescue();
-@@ -264,7 +604,10 @@ export class QuickActionsHud implements HudWidget {
+@@ -264,7 +608,10 @@ export class QuickActionsHud implements HudWidget {
      if (!r.ok) {
        core.ctx.ui.notify(r.reason, 'warn', 5);
        core.ctx.audio.play('ui_alerte');
@@ -8716,7 +8785,7 @@ index 0c58cfe..5a69d9a 100644
    }
  
    private droneFeed(): DroneFeedApi | undefined {
-@@ -302,6 +645,7 @@ export class QuickActionsHud implements HudWidget {
+@@ -302,6 +649,7 @@ export class QuickActionsHud implements HudWidget {
      this.open = !this.open;
      setClass(this.sub, 'is-off', !this.open);
      setClass(this.rescueBtn, 'is-on', this.open);
@@ -8724,7 +8793,7 @@ index 0c58cfe..5a69d9a 100644
    }
  
    private closeRescue(): void {
-@@ -309,44 +653,31 @@ export class QuickActionsHud implements HudWidget {
+@@ -309,44 +657,31 @@ export class QuickActionsHud implements HudWidget {
      this.open = false;
      setClass(this.sub, 'is-off', true);
      setClass(this.rescueBtn, 'is-on', false);
@@ -8813,10 +8882,10 @@ index 367cb80..d0af011 100644
      const channels = this.core.maps.scene.vis.radio;
 diff --git a/crs-simulation/src/ui/command/reperes.ts b/crs-simulation/src/ui/command/reperes.ts
 new file mode 100644
-index 0000000..740e39f
+index 0000000..bd19663
 --- /dev/null
 +++ b/crs-simulation/src/ui/command/reperes.ts
-@@ -0,0 +1,486 @@
+@@ -0,0 +1,502 @@
 +/* =====================================================================================
 + * Carte de commandement — les REPÈRES : ce que le commandant peut désigner (rues d'issue des foules, foules, nasses,
 + * incidents, ses unités, les autres unités, lui-même, stations de métro, rues fermées, proposition de l'adjoint,
@@ -9125,6 +9194,22 @@ index 0000000..740e39f
 +interface ObstacleLike { blocked(): { x: number; z: number; street: string } | null }
 +interface AdvisorLike { riposteAt(x: number, z: number): boolean }
 +interface ManifLike { id: number; label: string; tension: number; headHeading: number }
++/** Vue minimale du service 'crowd.core' (src/sim/crowd/api.ts) : l'équipe de liaison au contact des organisateurs. */
++interface LiaisonLike { setLiaison(active: boolean): void }
++
++/**
++ * État de l'équipe de liaison pour les fiches : null si personne ne peut l'engager (service absent, ou joueur qui ne
++ * commande pas tout le dispositif), sinon true quand elle est déjà au contact. Le directeur de la foule (ctx.director)
++ * porte le drapeau `liaison`, remis à faux à chaque partie.
++ */
++export function liaisonState(core: CommandCore): boolean | null {
++  const ctx = core.ctx;
++  if (core.scope().level !== 'tout') return null;
++  const api = ctx.service<Partial<LiaisonLike>>('crowd.core');
++  if (!api || typeof api.setLiaison !== 'function') return null;
++  const d = ctx.director as unknown as { liaison?: unknown } | undefined;
++  return d ? d.liaison === true : null;
++}
 +
 +const MOTOR_DISTANCE = 250;
 +
@@ -9296,7 +9381,7 @@ index 0000000..740e39f
 +      const lead = s.leaderId !== 0 ? ctx.people.get(s.leaderId) : s.members.length ? ctx.people.get(s.members[0]!) : undefined;
 +      return !!lead && Math.hypot(lead.x - x, lead.z - z) > MOTOR_DISTANCE;
 +    },
-+    roadAt, placeName, wind: { x: scene.windX, z: scene.windZ },
++    roadAt, placeName, wind: { x: scene.windX, z: scene.windZ }, liaison: liaisonState(core),
 +  };
 +  for (const h of envHooks) {
 +    try { h(env, core); } catch { /* une extension défaillante ne prive pas la carte de ses fiches */ }
@@ -9305,10 +9390,10 @@ index 0000000..740e39f
 +}
 diff --git a/crs-simulation/src/ui/command/sendLine.ts b/crs-simulation/src/ui/command/sendLine.ts
 new file mode 100644
-index 0000000..c439ae4
+index 0000000..c55d045
 --- /dev/null
 +++ b/crs-simulation/src/ui/command/sendLine.ts
-@@ -0,0 +1,645 @@
+@@ -0,0 +1,660 @@
 +/* =====================================================================================
 + * Carte de commandement — ENVOI d'une ligne de fiche (« Donner l'ordre »).
 + *
@@ -9729,6 +9814,21 @@ index 0000000..c439ae4
 +      const r = sommationOnce(core, where);
 +      return r.ok ? done(r.text, []) : fail(r.text);
 +    }
++    case 'liaison': {
++      // l'équipe de liaison au contact des organisateurs (crowd.core.setLiaison, effet de la bible F.4) ; réservé à qui
++      // commande tout le dispositif, une seule fois par partie (le directeur de la foule remet le drapeau à chaque partie)
++      const api = ctx.service<{ setLiaison?(active: boolean): void }>('crowd.core');
++      if (!api || typeof api.setLiaison !== 'function' || core.scope().level !== 'tout') {
++        return fail('Seul le commandant du dispositif engage l’équipe de liaison.');
++      }
++      if (env.card.liaison === true) return fail('L’équipe de liaison est déjà au contact des organisateurs.');
++      api.setLiaison(true);
++      ctx.radio.say({
++        channel: 'commandement', from: core.callsign(), priority: 1, personId: ctx.player.state.personId,
++        text: radioFrame('LIAISON', core.callsign(), 'Prenez contact avec les organisateurs, négociez le parcours', false),
++      });
++      return done('Équipe de liaison au contact des organisateurs', []);
++    }
 +    default:
 +      return fail('');
 +  }
@@ -9955,10 +10055,10 @@ index 0000000..c439ae4
 +  return `${who.mode === 'vehicules' ? 'en véhicules' : 'à pied'} · arrivée ~${Math.max(1, Math.round(who.eta / 60))} min`;
 +}
 diff --git a/crs-simulation/src/ui/command/style.ts b/crs-simulation/src/ui/command/style.ts
-index 2de0574..f066f65 100644
+index 2de0574..53f041d 100644
 --- a/crs-simulation/src/ui/command/style.ts
 +++ b/crs-simulation/src/ui/command/style.ts
-@@ -1,35 +1,145 @@
+@@ -1,35 +1,154 @@
  /* =====================================================================================
 - * Feuille de style du commandement : carte tactique (« ct- »), roue d'ordres (« cw- »), panneau
 - * radio (« cr- »), éléments de HUD (« ch- »). S'appuie sur les jetons de .cm-root (cartes).
@@ -10075,13 +10175,16 @@ index 2de0574..f066f65 100644
 +/* ── messages de l'interface pendant la carte : sous-titres radio en haut à gauche de la carte (à droite de
 +   « Rechercher un lieu »), messages en bas à gauche, deux au plus, jamais sur le bandeau ── */
 +.ct-open .ui-subs{left:var(--ct-sub-left,50%);top:var(--ct-sub-top,auto);bottom:auto;transform:none;align-items:flex-start;max-width:var(--ct-sub-max,50vw)}
-+.ct-open .ui-sub-line{text-align:left;-webkit-line-clamp:2}
++/* le bas de la ligne coupée ne dépasse pas dans la marge intérieure : la marge du bas est une bordure transparente
++   (le texte est coupé au bord de la marge intérieure, pas de la bordure) */
++.ct-open .ui-sub-line{text-align:left;-webkit-line-clamp:2;padding-bottom:0;border-bottom:4px solid transparent}
 +.ct-open .ui-sub-line:nth-last-child(n+3){display:none}
 +.ct-open .ui-toasts{left:var(--ct-toast-left,12px);top:auto;bottom:var(--ct-toast-bottom,80px);transform:none;align-items:flex-start;max-width:var(--ct-toast-max,60vw)}
 +.ct-open .ui-toast:nth-last-child(n+3){display:none}
 +
-+/* ── téléphone (< 980 × 520) : bandeau 36 px, barre 52 px, une feuille de 380 px à la fois ── */
-+.ct.is-compact .ct-top{height:36px;gap:8px;padding-left:calc(6px + var(--safe-left,0px))}
++/* ── téléphone (< 980 × 520) : bandeau 40 px (ses boutons font 40 px pour le doigt : à 36 px ils sortaient de l'écran
++   par le haut), barre 52 px, une feuille de 380 px à la fois ── */
++.ct.is-compact .ct-top{height:40px;gap:8px;padding-left:calc(6px + var(--safe-left,0px))}
 +.ct.is-compact .ct-brand .cm-title,.ct.is-compact .ct-scope{display:none}
 +.ct.is-compact .ct-actions{display:contents}
 +.ct.is-compact .ct-close{order:-1}
@@ -10089,12 +10192,18 @@ index 2de0574..f066f65 100644
 +.ct.is-compact .ct-st-crowd,.ct.is-compact .ct-gauge{display:none}
 +.ct.is-compact .ct-actions .cm-btn-t{display:none}
 +.ct.is-compact .ct-suivi{display:inline-flex}
++/* lecture seule (exécutant) au téléphone : ni « Suivi » ni panneau (§2.9 : ✕ et ◎ seulement) */
++.ct.is-compact.is-readonly .ct-suivi{display:none}
 +.ct.is-compact .ct-suivi .cm-btn-t{display:inline}
 +.ct.is-compact .ct-status{font-size:11.5px}
 +.ct.is-compact .ct-chip{max-width:none}
 +.ct.is-compact .ct-right2{position:absolute;right:0;top:0;bottom:0;width:min(380px,58vw);padding-right:var(--safe-right,0px);display:none;box-shadow:-8px 0 24px rgba(0,0,0,.45)}
 +.ct.is-compact.has-sheet .ct-right2{display:flex}
 +.ct.is-compact.has-sheet .ct-left2{margin-right:min(380px,58vw)}
++/* la feuille monte jusqu'en haut de l'écran (§2.2 : 30 + 7 × 40 + 18 + 44 px tiennent dans les 390 px) ; le bandeau
++   garde ses boutons à gauche de la feuille */
++.ct.is-compact.has-sheet .ct-right2{top:-40px;z-index:9}
++.ct.is-compact.has-sheet .ct-top{padding-right:calc(min(380px,58vw) + 6px)}
 +.ct.is-compact.has-sheet .ct-intents,.ct.is-compact.has-sheet .ct-model{display:none}
 +.ct.is-compact .ct-intents{height:calc(53px + var(--safe-bottom,0px));gap:2px;padding:0 calc(2px + var(--safe-right,0px)) var(--safe-bottom,0px) calc(2px + var(--safe-left,0px))}
 +.ct.is-compact .ct-intent{min-width:96px;height:52px;flex-direction:column;justify-content:center;gap:1px;padding:2px 4px;text-align:center;border-radius:6px}
@@ -10122,7 +10231,7 @@ index 2de0574..f066f65 100644
  
  /* ── arborescence des unités ── */
  .ct-unit{appearance:none;position:relative;display:flex;align-items:center;gap:7px;width:100%;min-height:var(--cm-tap);padding:2px 9px 2px calc(8px + var(--d,0) * 13px);
-@@ -59,17 +169,7 @@ border:0;border-bottom:1px solid rgba(148,168,208,.08);background:transparent;co
+@@ -59,17 +178,7 @@ border:0;border-bottom:1px solid rgba(148,168,208,.08);background:transparent;co
  .ct-bar{position:relative;display:block;height:5px;border-radius:3px;background:rgba(148,168,208,.2);overflow:hidden;align-self:center}
  .ct-bar::after{content:"";position:absolute;inset:0;background:var(--c,var(--cm-sky));transform-origin:left center;transform:scaleX(var(--v,0))}
  
@@ -10141,7 +10250,7 @@ index 2de0574..f066f65 100644
  .ct-pane{display:none;flex-direction:column;flex:1;min-height:0}
  .ct-pane.is-on{display:flex}
  .ct-sec{padding:10px 12px 12px;border-bottom:1px solid var(--cm-line);display:flex;flex-direction:column;gap:8px}
-@@ -142,81 +242,21 @@ color:var(--cm-dim);font:inherit;font-size:10.5px;font-weight:700;letter-spacing
+@@ -142,81 +251,21 @@ color:var(--cm-dim);font:inherit;font-size:10.5px;font-weight:700;letter-spacing
  .ct-msg p{margin:0;-webkit-user-select:text;user-select:text}
  .ct-empty{padding:18px 14px;font-size:12px;color:var(--cm-dim);line-height:1.45;text-align:center}
  
@@ -10224,7 +10333,7 @@ index 2de0574..f066f65 100644
  
  /* ── roue d'ordres ── */
  .cw-screen{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px}
-@@ -276,6 +316,7 @@ export function ensureCommandStyle(): void {
+@@ -276,6 +325,7 @@ export function ensureCommandStyle(): void {
    injected = true;
    const style = document.createElement('style');
    style.id = 'crs-command-style';
@@ -10235,10 +10344,10 @@ index 2de0574..f066f65 100644
  }
 diff --git a/crs-simulation/src/ui/command/styleCard.ts b/crs-simulation/src/ui/command/styleCard.ts
 new file mode 100644
-index 0000000..5ba81b6
+index 0000000..e2a5704
 --- /dev/null
 +++ b/crs-simulation/src/ui/command/styleCard.ts
-@@ -0,0 +1,140 @@
+@@ -0,0 +1,142 @@
 +/* =====================================================================================
 + * Feuille de style de la FICHE de la carte de commandement (panelCard.ts, préfixe « cc- ») : en-tête, lignes
 + * numérotées (52 px ; 40 px au téléphone), marques légales (⚖ / 🔒), bloc « Qui », phrase « Ce qui va se passer »,
@@ -10287,6 +10396,8 @@ index 0000000..5ba81b6
 +.cc.is-compact .cc-tabs{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
 +.cc.is-compact .cc-tabs::-webkit-scrollbar{display:none}
 +.cc.is-compact .cc-tab{flex:none;white-space:nowrap}
++.cc.is-compact .cc-top>.cc-tabs{flex:1 1 auto;min-width:0}
++.cc.is-compact .cc-top>.cc-tabs .cc-tab{min-height:36px}
 +.cc-sticky{padding:4px 8px;border-radius:6px;background:rgba(255,214,10,.12);border:1px solid rgba(255,214,10,.45);color:#ffe680;font-size:12px;font-weight:700}
 +.cc-subl{font-size:12px;color:var(--cm-dim);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
 +.cc-notes{display:flex;flex-direction:column;gap:1px;font-size:11.5px;color:var(--cm-dim)}
@@ -11778,10 +11889,10 @@ index 5fc9f51..76fc262 100644
 +
 +const W = { x: 0, z: 0 };
 diff --git a/crs-simulation/src/ui/command/tacticalScreen.ts b/crs-simulation/src/ui/command/tacticalScreen.ts
-index c5e95ca..02b15a2 100644
+index c5e95ca..4eb8ae0 100644
 --- a/crs-simulation/src/ui/command/tacticalScreen.ts
 +++ b/crs-simulation/src/ui/command/tacticalScreen.ts
-@@ -1,192 +1,370 @@
+@@ -1,192 +1,372 @@
  /* =====================================================================================
 - * Écran « carte_tactique » : la carte de commandement. Non bloquant pour la simulation (le temps
 - * continue, avec une option « temps ralenti »). Assemble la carte interactive, l'arborescence des
@@ -12159,6 +12270,8 @@ index c5e95ca..02b15a2 100644
 +  private lastCard = -1;
    private lastStatus = -1;
 -  private zone = 0;
++  /** Sommations et forces relevées au dernier rafraîchissement du bandeau (pastille légale). */
++  private legalKey = '';
 +  private lastSide = -1;
 +  /** Environnement des fiches et repères de la scène (rafraîchis à 10 Hz au plus). */
 +  private env: CardEnv | null = null;
@@ -12286,7 +12399,7 @@ index c5e95ca..02b15a2 100644
      this.map.canvas.tabIndex = 0;
      this.map.canvas.dataset.autofocus = '';
      this.map.canvas.dataset.id = 'tac-map';
-@@ -198,178 +376,234 @@ export class TacticalScreen implements ScreenInstance {
+@@ -198,178 +378,234 @@ export class TacticalScreen implements ScreenInstance {
        const u = core.maps.scene.unitModel.get(k);
        return u !== undefined && core.canCommand(u.squadId);
      };
@@ -12672,7 +12785,7 @@ index c5e95ca..02b15a2 100644
    private initialView(open: TacticalOpenData): void {
      const core = this.core;
      const scene = core.maps.scene;
-@@ -388,9 +622,13 @@ export class TacticalScreen implements ScreenInstance {
+@@ -388,9 +624,13 @@ export class TacticalScreen implements ScreenInstance {
        n++;
      };
      const any = core.scope().squadIds.size === 0;
@@ -12687,7 +12800,7 @@ index c5e95ca..02b15a2 100644
      }
      if (scene.hasPlayer) take(scene.px, scene.pz);
      if (scene.hasHead) take(scene.headX, scene.headZ);
-@@ -409,21 +647,96 @@ export class TacticalScreen implements ScreenInstance {
+@@ -409,21 +649,96 @@ export class TacticalScreen implements ScreenInstance {
      this.map.invalidate();
    }
  
@@ -12789,7 +12902,7 @@ index c5e95ca..02b15a2 100644
    private droneFeed(): DroneFeedApi | undefined {
      const f = this.core.ctx.service<DroneFeedApi>(DRONE_FEED_SERVICE);
      return f && typeof f.toggle === 'function' ? f : undefined;
-@@ -436,23 +749,21 @@ export class TacticalScreen implements ScreenInstance {
+@@ -436,23 +751,21 @@ export class TacticalScreen implements ScreenInstance {
      setClass(this.droneBtn, 'is-on', feed.open);
    }
  
@@ -12817,7 +12930,7 @@ index c5e95ca..02b15a2 100644
        feed!.showSquad(u.squadId);
        setClass(this.droneBtn, 'is-on', feed!.open);
      }
-@@ -469,501 +780,1494 @@ export class TacticalScreen implements ScreenInstance {
+@@ -469,501 +782,1501 @@ export class TacticalScreen implements ScreenInstance {
        this.slow = false;
      }
      setClass(this.slowBtn, 'is-on', this.slow);
@@ -14333,7 +14446,8 @@ index c5e95ca..02b15a2 100644
 +    this.confirmLine = null;
 +    this.confirmPlan = null;
 +    st.sheet = 'card';
-+    this.sent(`Étapes légales lancées : ${plan.title}`, []);
++    // l'ordre lui-même ne part qu'à la fin de la chaîne : l'en-tête ne dit pas « ORDRE DONNÉ »
++    this.sent(`✓ ÉTAPES LANCÉES — ${plan.title}\nl’ordre partira après la dernière étape · suivez-les dans « Mes unités »`, []);
 +  }
 +
 +  // ───────────────────────────── rafraîchissement ─────────────────────────────
@@ -14430,6 +14544,12 @@ index c5e95ca..02b15a2 100644
 -    const time = this.core.maps.time;
 -    if (force || st.dirty || time - this.lastPanels > 0.25) {
 -      this.lastPanels = time;
++    // (une sommation faite, une force autorisée — depuis « Cadre légal » ou la chaîne légale — met la pastille légale à
++    // jour à l'image suivante, sans attendre la demi-seconde du bandeau)
++    const roe = this.core.ctx.law.roe;
++    const legalKey = `${roe.sommation}|${roe.authorizedForce}|${roe.lawfulForce}`;
++    const dirty = legalKey !== this.legalKey;
++    this.legalKey = legalKey;
 +    if (force || st.dirty || this.time - this.lastSide > 0.25) {
 +      this.lastSide = this.time;
        st.dirty = false;
@@ -14515,7 +14635,7 @@ index c5e95ca..02b15a2 100644
 -      this.refresh(true);
 -      const idx = TABS.findIndex((t) => t.id === st.tab);
 -      this.tabBtns[Math.max(0, idx)]?.focus({ preventScroll: true });
-+    if (force || this.time - this.lastStatus > 0.5) {
++    if (force || dirty || this.time - this.lastStatus > 0.5) {
 +      this.lastStatus = this.time;
 +      this.refreshStatus();
      }
@@ -15718,6 +15838,38 @@ index d79daee..1b507a6 100644
        const fresh = b.seq > 0 && ctx.clock.now - b.since < NEW_ORDER_SECONDS;
        badgeB.set(b.isOrder ? 'Nouvel ordre' : 'Nouvelle consigne');
        badgeShown.set(fresh && !b.regroup);
+diff --git a/crs-simulation/src/ui/hud/model.ts b/crs-simulation/src/ui/hud/model.ts
+index 2e1a2e4..c6ff3f0 100644
+--- a/crs-simulation/src/ui/hud/model.ts
++++ b/crs-simulation/src/ui/hud/model.ts
+@@ -189,8 +189,9 @@ export function legalState(roe: RoeState): LegalState {
+ }
+ 
+ /** Moyen le plus fort permis à chaque niveau de la gradation (contracts.ts, ForceLevel) — libellés courts pour le HUD. */
++// mêmes mots que la pastille « ⚖ … · Force : mains nues » de la carte de commandement (§7.1), jamais de chiffre
+ const FORCE_LABELS: readonly string[] = [
+-  'Aucune force', 'Présence, contact', 'Bâton, gazeuse', 'Lacrymogène', 'Lanceurs, LBD', 'Arme de service',
++  'Aucune force', 'Mains nues', 'Bâton et gazeuse', 'Gaz', 'Grenades', 'Arme à feu',
+ ];
+ 
+ export function forceLabel(level: number): string {
+diff --git a/crs-simulation/src/ui/hud/situation.ts b/crs-simulation/src/ui/hud/situation.ts
+index a81b053..72f745d 100644
+--- a/crs-simulation/src/ui/hud/situation.ts
++++ b/crs-simulation/src/ui/hud/situation.ts
+@@ -136,8 +136,10 @@ export function createSituation(env: HudEnv): HudPart {
+           lawful[i]!.set(i < st.lawful);
+         }
+         forceText.set(forceLabel(st.usable));
+-        forceNums.set(`licite ${st.lawful} · autorisée ${st.authorized}`);
+-        forceAria.set(`Force utilisable : ${forceLabel(st.usable)} (niveau licite ${st.lawful} sur 5, niveau autorisé ${st.authorized} sur 5)`);
++        // en mots, comme la pastille de la carte de commandement : l'autorisation n'est rappelée que si elle dépasse ce
++        // que la loi permet maintenant (elle prendra effet après les sommations)
++        forceNums.set(st.authorized > st.lawful ? `vous autorisez : ${forceLabel(st.authorized).toLocaleLowerCase('fr-FR')} ⚠` : '');
++        forceAria.set(`Force : ${forceLabel(st.usable)}. La loi permet : ${forceLabel(st.lawful)}. Vous autorisez : ${forceLabel(st.authorized)}.`);
+         showRow4.set(false);
+       } else {
+         const text = mode === 'reminder' ? legalReminder(roe) : '';
 diff --git a/crs-simulation/src/ui/maps/basemap-labels.ts b/crs-simulation/src/ui/maps/basemap-labels.ts
 index d01d850..64386de 100644
 --- a/crs-simulation/src/ui/maps/basemap-labels.ts
@@ -18922,12 +19074,98 @@ index 0000000..d3c22bc
 +  await server.close().catch(() => {});
 +  process.exit(C.failures.length === 0 ? 0 : 1);
 +}
+diff --git a/crs-simulation/tests/e2e/verif-commande-liaison.mjs b/crs-simulation/tests/e2e/verif-commande-liaison.mjs
+new file mode 100644
+index 0000000..2f7a452
+--- /dev/null
++++ b/crs-simulation/tests/e2e/verif-commande-liaison.mjs
+@@ -0,0 +1,80 @@
++// Carte de commandement — « Négocier un parcours (liaison) » au CLAVIER SEUL (scénario navigateur).
++// Ordinateur 1280 × 800, commandant à la place de la Concorde : Tab, N (la visée va sur la foule), 0 (« Autres ordres
++// ici… ») : la première ligne est « Négocier un parcours (liaison) » ; 1 puis Entrée : l'équipe de liaison est au
++// contact des organisateurs (directeur de la foule), un message radio part, aucune unité ne reçoit d'ordre, et la ligne
++// disparaît de la fiche. Capture commande-liaison-1280x800.png dans tests/e2e/out.
++// Usage : node tests/e2e/verif-commande-liaison.mjs
++import { startServer, openPage, waitFor, frames, step, makeChecker, snap, tactical } from './verif-fin-lib.mjs';
++
++const tag = 'verif-commande-liaison';
++const C = makeChecker(tag);
++const server = await startServer();
++const { browser, page, errors } = await openPage(`${server.url}?quality=bas`, { width: 1280, height: 800, pointerLock: false });
++
++async function press(code) {
++  await page.keyboard.down(code);
++  await frames(page, 2);
++  await page.keyboard.up(code);
++  await frames(page, 3);
++}
++
++try {
++  const q = new URLSearchParams({
++    autostart: 'paris', nomenu: '1', mode: 'libre', role: 'commandant', variante: 'terrain', place: 'Place de la Concorde', crowd: '300',
++    quality: 'bas', seed: '7', time: '12', weather: 'clair',
++  });
++  await page.goto(`${server.url}?${q}`, { waitUntil: 'load', timeout: 120000 });
++  await waitFor(page, 'window.__CRS && window.__CRS.ready === true && window.__CRS.ctx.session.phase === "playing"', 400000);
++  await step(page, 3);
++  await page.evaluate(() => {
++    const core = window.__CRS.ctx.service('ui.command');
++    const orig = core.issue.bind(core);
++    window.__lia = [];
++    core.issue = (...a) => { window.__lia.push(String(a[0])); return orig(...a); };
++  });
++  C.check(await page.evaluate(() => window.__CRS.ctx.director.liaison === false), 'au départ, l’équipe de liaison n’est pas au contact');
++
++  await press('Tab');
++  await page.waitForTimeout(500);
++  await frames(page, 4);
++  await press('KeyN');
++  await step(page, 0.3);
++  let t = await tactical(page);
++  C.check(t && t.kind === 'foule', `N : la visée est sur une foule (${t && t.visee})`);
++  await press('Digit0');
++  await step(page, 0.2);
++  t = await tactical(page);
++  C.check(t && t.lines[0] === 'Négocier un parcours (liaison)', '« Autres ordres ici… » commence par « Négocier un parcours (liaison) »', JSON.stringify(t && t.lines));
++  await press('Digit1');
++  await step(page, 0.2);
++  await snap(page, 'commande-liaison-1280x800');
++  await page.waitForTimeout(700);
++  await press('Enter');
++  await step(page, 0.5);
++  const after = await page.evaluate(() => ({
++    liaison: window.__CRS.ctx.director.liaison,
++    radio: window.__CRS.ctx.radio.log.slice(-6).map((m) => m.text),
++    issued: window.__lia.slice(),
++  }));
++  t = await tactical(page);
++  C.check(after.liaison === true, 'Entrée : l’équipe de liaison est au contact des organisateurs');
++  C.check(after.radio.some((x) => /LIAISON ICI/.test(x) && /organisateurs/.test(x)), 'un message radio part vers la liaison', after.radio.join(' | '));
++  C.check(after.issued.length === 0, 'aucune unité ne reçoit d’ordre', after.issued.join(','));
++  C.check(t && /liaison/i.test(t.sent || ''), `« ✓ ORDRE DONNÉ » le dit (${t && t.sent})`);
++  // la ligne n'est plus proposée
++  await press('Escape');
++  await press('KeyN');
++  await step(page, 0.3);
++  await press('Digit0');
++  await step(page, 0.2);
++  t = await tactical(page);
++  C.check(t && !t.lines.includes('Négocier un parcours (liaison)'), 'la ligne n’est plus proposée une fois la liaison au contact', JSON.stringify(t && t.lines));
++} catch (e) {
++  C.check(false, 'scénario interrompu', e && e.stack ? e.stack : String(e));
++} finally {
++  C.check(errors.length === 0, 'aucune erreur dans la page', errors.slice(0, 5).join(' | '));
++  C.done();
++  await browser.close().catch(() => {});
++  await server.close().catch(() => {});
++  process.exit(C.failures.length === 0 ? 0 : 1);
++}
 diff --git a/crs-simulation/tests/e2e/verif-commande-tel.mjs b/crs-simulation/tests/e2e/verif-commande-tel.mjs
 new file mode 100644
-index 0000000..275acf6
+index 0000000..cd75422
 --- /dev/null
 +++ b/crs-simulation/tests/e2e/verif-commande-tel.mjs
-@@ -0,0 +1,266 @@
+@@ -0,0 +1,291 @@
 +// Carte de commandement au TÉLÉPHONE (844 × 390, paysage, au doigt seulement — aucune touche, qui masquerait les
 +// commandes tactiles) — refonte du commandement, §2.1–§2.6, §4 et §5.3. Commandant à la place de la Concorde :
 +//   S0     la barre du bas : 7 boutons d'au moins 96 × 52 px, dans l'écran ; « ☰ Suivi » ;
@@ -18969,8 +19207,13 @@ index 0000000..275acf6
 +  return { x: b.left + b.width / 2, y: b.top + b.height / 2, w: b.width, h: b.height, left: b.left, right: b.right, top: b.top, bottom: b.bottom, hitOk: !!h && (h === e || e.contains(h)) };
 +}, sel);
 +async function tapSel(sel) {
-+  const r = await rectOf(sel);
-+  if (!r) throw new Error(`introuvable ou caché : ${sel}`);
++  let r = await rectOf(sel);
++  // (la barre du bas réapparaît au rafraîchissement qui suit le retour au repos : une image de plus)
++  if (!r) { await frames(page, 3); r = await rectOf(sel); }
++  if (!r) {
++    const why = await page.evaluate(() => { const t = window.__CRS.game.systems.find((s) => s.id === 'ui:command').tactical; return { screen: window.__CRS.ctx.ui.current, root: t ? t.root.className : null, sheet: t ? t.state.sheet : null, card: !!(t && t.state.card), intent: t ? t.state.intent : null }; });
++    throw new Error(`introuvable ou caché : ${sel} ${JSON.stringify(why)}`);
++  }
 +  if (!r.hitOk || r.bottom > 390.5 || r.top < -3) throw new Error(`hors de l’écran ou recouvert : ${sel} ${JSON.stringify(r)}`);
 +  await tapAt(r.x, r.y);
 +  return r;
@@ -19080,6 +19323,26 @@ index 0000000..275acf6
 +  C.check(st && st.sheet === 'card' && st.kind === 'rue', 'toucher la rue : sa fiche s’ouvre dans la feuille de droite', JSON.stringify(st));
 +  C.check(JSON.stringify(await sheetsOn()) === '["card"]', 'une seule feuille ouverte (la fiche)', JSON.stringify(await sheetsOn()));
 +  await snap(page, 'commande-tel-S1-844x390');
++  // §2.2 : la fiche tient dans les 390 px sans défiler — les six lignes, « Autres ordres ici… » et « Donner l'ordre »
++  const fit = await page.evaluate(() => {
++    const out = {};
++    for (const id of ['card-line-1', 'card-line-6', 'card-line-0', 'card-send']) {
++      const e = [...document.querySelectorAll(`[data-id="${id}"]`)].find((x) => x.getBoundingClientRect().width > 0);
++      if (!e) { out[id] = 'absent'; continue; }
++      const r = e.getBoundingClientRect();
++      // visible : dans la fenêtre et pas caché par un ancêtre qui défile
++      let ok = r.top >= -0.5 && r.bottom <= innerHeight + 0.5;
++      for (let q = e.parentElement; q && ok; q = q.parentElement) {
++        if (getComputedStyle(q).overflowY === 'visible') continue;
++        const b = q.getBoundingClientRect();
++        if (r.top < b.top - 0.5 || r.bottom > b.bottom + 0.5) ok = false;
++      }
++      out[id] = ok ? 'ok' : `hors vue (${Math.round(r.top)}–${Math.round(r.bottom)})`;
++    }
++    return out;
++  });
++  C.check(Object.values(fit).every((v) => v === 'ok' || v === 'absent') && fit['card-send'] === 'ok' && fit['card-line-1'] === 'ok',
++    'S1 : la fiche tient dans l’écran sans défiler (lignes, « Autres ordres ici… », « Donner l’ordre »)', JSON.stringify(fit));
 +  // un seul toucher sur la ligne 2 : surlignée, rien n'est envoyé
 +  n0 = (await sends()).length;
 +  await tapSel('[data-id="card-line-2"]');
@@ -19255,7 +19518,7 @@ index 2cc3170..e57ecf8 100644
    await page.locator('[data-id="tac-close"]').click();
    await sleep(800);
 diff --git a/crs-simulation/tests/e2e/verif-fin-chef.mjs b/crs-simulation/tests/e2e/verif-fin-chef.mjs
-index 01b26a1..ee3a8a6 100644
+index 01b26a1..f64a277 100644
 --- a/crs-simulation/tests/e2e/verif-fin-chef.mjs
 +++ b/crs-simulation/tests/e2e/verif-fin-chef.mjs
 @@ -1,12 +1,13 @@
@@ -19304,7 +19567,7 @@ index 01b26a1..ee3a8a6 100644
      const toTarget = () => page.evaluate(() => { const c = window.__CRS.ctx; const me = c.player.person(); const sq = c.squads.get(me.squadId); return { order: sq.order.type, by: sq.order.issuedBy, d: sq.members.map((id) => c.people.get(id)).filter((p) => p && !p.isPlayer && p.vehicleId === 0).map((p) => Math.hypot(p.x - sq.order.x, p.z - sq.order.z)), me: Math.hypot(me.x - sq.order.x, me.z - sq.order.z) }; });
      const t0 = await toTarget();
      // joueur immobile, 60 s
-@@ -101,52 +103,50 @@ try {
+@@ -101,55 +103,62 @@ try {
    }
  
    if (parts.includes('C')) {
@@ -19354,7 +19617,7 @@ index 01b26a1..ee3a8a6 100644
 +      await frames(page, 3);
 +      const place = await tactical(page);
 +      C.note(`lieu désigné : ${place && place.visee} (${place && place.kind}) — lignes : ${place ? place.lines.join(' | ') : ''}`);
-+      let line = await clickCardLine(page, /^(Tenir une ligne ici|Contenir : ligne face à la foule)$/);
++      let line = await clickCardLine(page, /^(Tenir une ligne ici|Contenir\s*: ligne face à la foule)$/);
 +      if (!line && (await verbFirst(page, 'ligne'))) line = (await clickSel(page, '[data-id="card-send"]')) ? 'ligne (Tous les ordres)' : '';
        await frames(page, 3);
        await snap(page, tag + '-07-tactique-ordre');
@@ -19379,9 +19642,23 @@ index 01b26a1..ee3a8a6 100644
      if (report.ordreTactique && report.ordreTactique.after === 'ligne') {
 -      const tgt = await mates();
        await step(page, 45);
-       const aft = await page.evaluate(() => { const c = window.__CRS.ctx; const me = c.player.person(); const sq = c.squads.get(me.squadId); return sq.members.map((id) => c.people.get(id)).filter((p) => p && !p.isPlayer && p.vehicleId === 0).map((p) => Math.hypot(p.x - sq.order.x, p.z - sq.order.z)); });
-       C.check(aft.every((d) => d < 8), 'TACTIQUE : 45 s plus tard les équipiers sont en ligne sur le point', aft.map((d) => R(d, 1)).join(', ') + ' m');
-@@ -168,7 +168,7 @@ try {
+-      const aft = await page.evaluate(() => { const c = window.__CRS.ctx; const me = c.player.person(); const sq = c.squads.get(me.squadId); return sq.members.map((id) => c.people.get(id)).filter((p) => p && !p.isPlayer && p.vehicleId === 0).map((p) => Math.hypot(p.x - sq.order.x, p.z - sq.order.z)); });
+-      C.check(aft.every((d) => d < 8), 'TACTIQUE : 45 s plus tard les équipiers sont en ligne sur le point', aft.map((d) => R(d, 1)).join(', ') + ' m');
++      // (la ligne est tracée d'une façade à l'autre : chaque équipier est sur le segment, pas forcément au centre)
++      const aft = await page.evaluate(() => {
++        const c = window.__CRS.ctx; const me = c.player.person(); const sq = c.squads.get(me.squadId); const o = sq.order;
++        return sq.members.map((id) => c.people.get(id)).filter((p) => p && !p.isPlayer && p.vehicleId === 0).map((p) => {
++          const dx = p.x - o.x, dz = p.z - o.z;
++          const along = dx * Math.cos(o.heading) - dz * Math.sin(o.heading);
++          const depth = dx * Math.sin(o.heading) + dz * Math.cos(o.heading);
++          return { out: Math.max(0, Math.abs(along) - (o.width || 0) / 2), depth: Math.abs(depth) };
++        });
++      });
++      C.check(aft.every((d) => d.out < 3 && d.depth < 5), 'TACTIQUE : 45 s plus tard les équipiers sont en ligne sur le point', aft.map((d) => `${R(d.out, 1)}/${R(d.depth, 1)}`).join(', ') + ' m (hors du segment / en profondeur)');
+       await page.evaluate(() => { const c = window.__CRS.ctx; const me = c.player.person(); const sq = c.squads.get(me.squadId); c.player.state.camYaw = Math.atan2(sq.order.x - me.x, sq.order.z - me.z); c.player.state.camPitch = -0.1; });
+       await step(page, 0.3);
+       await snap(page, tag + '-08-ligne');
+@@ -168,7 +177,7 @@ try {
      if (s2 === 'carte_tactique') await snap(page, tag + '-09-manette-tactique');
      await pad(PAD.SELECT); await page.waitForTimeout(300);
      const s3 = await state(page);
@@ -19511,7 +19788,7 @@ index aa935f2..f76c06a 100644
  export const sysErrors = (page) => page.evaluate(() => window.__CRS.summary().systems.filter((s) => s.errors > 0 || s.disabled).map((s) => `${s.id}:${s.errors}${s.disabled ? ' (désactivé)' : ''}`));
  
 diff --git a/crs-simulation/tests/e2e/verif-fin-ordres.mjs b/crs-simulation/tests/e2e/verif-fin-ordres.mjs
-index b2b7036..f9cc900 100644
+index b2b7036..5c0f105 100644
 --- a/crs-simulation/tests/e2e/verif-fin-ordres.mjs
 +++ b/crs-simulation/tests/e2e/verif-fin-ordres.mjs
 @@ -1,9 +1,10 @@
@@ -19610,14 +19887,14 @@ index b2b7036..f9cc900 100644
 +        await frames(page, 3);
 +        // la ligne de la fiche est cliquable : rien (sous-titres radio, messages) ne la recouvre
 +        const covered = await page.evaluate(() => {
-+          const e = [...document.querySelectorAll('[data-id^="card-line-"]')].find((b) => /^(Tenir une ligne ici|Contenir : ligne face à la foule)$/.test(b.querySelector('.cc-lab')?.textContent || ''));
++          const e = [...document.querySelectorAll('[data-id^="card-line-"]')].find((b) => /^(Tenir une ligne ici|Contenir\s*: ligne face à la foule)$/.test(b.querySelector('.cc-lab')?.textContent || ''));
 +          if (!e) return null;
 +          const b = e.getBoundingClientRect();
 +          const top = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
 +          return { covered: !(top && (top === e || e.contains(top))), by: top ? String(top.getAttribute('data-id') || top.className || top.tagName).slice(0, 60) : '' };
 +        });
 +        C.check(covered === null || !covered.covered, 'TACTIQUE : la ligne « Tenir une ligne ici » est cliquable (rien ne la recouvre)', J(covered));
-+        line = await clickCardLine(page, /^(Tenir une ligne ici|Contenir : ligne face à la foule)$/);
++        line = await clickCardLine(page, /^(Tenir une ligne ici|Contenir\s*: ligne face à la foule)$/);
 +        if (!line && (await verbFirst(page, 'ligne'))) line = (await clickSel(page, '[data-id="card-send"]')) ? 'ligne (Tous les ordres)' : '';
 +        await frames(page, 3);
        }
@@ -19902,7 +20179,7 @@ index 950de10..c17eea5 100644
    ok = false;
    console.error(err);
 diff --git a/crs-simulation/tests/e2e/verif-ordres-carte.mjs b/crs-simulation/tests/e2e/verif-ordres-carte.mjs
-index aa5c427..59c26d5 100644
+index aa5c427..3493b8d 100644
 --- a/crs-simulation/tests/e2e/verif-ordres-carte.mjs
 +++ b/crs-simulation/tests/e2e/verif-ordres-carte.mjs
 @@ -1,5 +1,8 @@
@@ -19961,7 +20238,7 @@ index aa5c427..59c26d5 100644
 +  const place = await tactical(page);
 +  console.log('fiche du lieu', JSON.stringify(place && { visee: place.visee, kind: place.kind, lines: place.lines, who: place.who }));
 +  const before = await page.evaluate((id) => window.__CRS.ctx.squads.get(id).order.issuedAt, sid);
-+  let clicked = await clickCardLine(page, /^(Tenir une ligne ici|Contenir : ligne face à la foule)$/);
++  let clicked = await clickCardLine(page, /^(Tenir une ligne ici|Contenir\s*: ligne face à la foule)$/);
 +  if (!clicked) {
 +    // le lieu n'a pas de ligne « Tenir une ligne » (une unité, un incident) : « Plus… › Tous les ordres › ligne »
 +    if (await verbFirst(page, 'ligne')) clicked = (await clickSel(page, '[data-id="card-send"]')) ? 'ligne (Tous les ordres)' : '';
@@ -20074,7 +20351,7 @@ index 890200f..76f11ed 100644
  } catch (e) { console.error(e); ok = false; }
  await finish({ browser, server, errors, ok, label: 'propositions' });
 diff --git a/crs-simulation/tests/e2e/verif-roles-interface.mjs b/crs-simulation/tests/e2e/verif-roles-interface.mjs
-index ab40851..9dc531a 100644
+index ab40851..0c7d575 100644
 --- a/crs-simulation/tests/e2e/verif-roles-interface.mjs
 +++ b/crs-simulation/tests/e2e/verif-roles-interface.mjs
 @@ -1,7 +1,9 @@
@@ -20088,7 +20365,7 @@ index ab40851..9dc531a 100644
  // Code de sortie : 0 seulement si toutes les vérifications passent. Résumé par rôle à la fin.
  // Usage : node tests/e2e/verif-roles-interface.mjs [--device=tel|pc|tous] [--roles=crs:bouclier,manifestant:pacifique] [--accueil=0]
  import { startServer, openPage, waitFor, frames, step, snap, fingers, rects, overlap, args, J } from './verif-fin-lib.mjs';
-@@ -198,17 +200,75 @@ try {
+@@ -198,17 +200,76 @@ try {
            }
          }
  
@@ -20156,7 +20433,8 @@ index ab40851..9dc531a 100644
 +          if (chief) {
 +            check(!lay.readonly && fixed.filter((id) => /^intent-/.test(id)).length === 6 && fixed.includes('tac-more') && fixed.length <= (mobile ? 13 : 14) + (fixed.includes('tac-drone') ? 1 : 0), `carte (chef) : six intentions, « Plus… », au plus ${mobile ? 13 : 14} commandes fixes (+ « Vue drone » quand un drone est engagé)`, `${fixed.length} : ${fixed.join(' · ')}`);
 +          } else if (who.police || who.level === 'lecture') {
-+            check(lay.readonly && !fixed.some((id) => /^intent-|^tac-more$/.test(id)) && fixed.length <= (mobile ? 3 : 4), 'carte (lecture seule) : ni intention ni ordre, au plus Fermer, +, −, Moi', `${fixed.length} : ${fixed.join(' · ')}`);
++            // (« Vue drone » en plus quand un drone est engagé : le télépilote, par exemple)
++            check(lay.readonly && !fixed.some((id) => /^intent-|^tac-more$/.test(id)) && fixed.length <= (mobile ? 3 : 4) + (fixed.includes('tac-drone') ? 1 : 0), 'carte (lecture seule) : ni intention ni ordre, au plus Fermer, +, −, Moi (+ « Vue drone » quand un drone est engagé)', `${fixed.length} : ${fixed.join(' · ')}`);
 +          }
            const offT = (await rects(page, '.ui-screen button, .ui-screen [role="button"]')).filter((r) => r.x + r.w > W + 2 || r.x < -2);
 -          check(offT.length === 0, 'carte tactique : aucun bouton hors de l’écran en largeur', offT.slice(0, 4).map((r) => r.text || r.cls).join(' ; '));
@@ -20311,6 +20589,25 @@ index 67daf5e..c5c3014 100644
    await shot(page, 'suivi-ordres');
  } catch (e) { console.error(e); ok = false; }
  await finish({ browser, server, errors, ok, label: 'suivi-ordres' });
+diff --git a/crs-simulation/tests/e2e/verif-tpm-manette2.mjs b/crs-simulation/tests/e2e/verif-tpm-manette2.mjs
+index ae1b8b6..c820fe6 100644
+--- a/crs-simulation/tests/e2e/verif-tpm-manette2.mjs
++++ b/crs-simulation/tests/e2e/verif-tpm-manette2.mjs
+@@ -89,7 +89,13 @@ try {
+       C.check(toast.length > 0, `croix droite (${role}) sans roue : un message explique pourquoi`, toast.join(' | ') || 'aucun message');
+     } else {
+       await padAxes(page, [0, -0.95, null, null]); await frames(page, 4); await page.waitForTimeout(200);
+-      const sel = await page.evaluate(() => [...document.querySelectorAll('.crs-ui [class*="wheel"] *, .crs-ui [class*="radial"] *')].filter((e) => /is-on|is-hot|is-sel|active/.test(String(e.className && e.className.baseVal !== undefined ? e.className.baseVal : e.className))).map((e) => (e.textContent || '').trim().slice(0, 30)).filter(Boolean).slice(0, 3));
++      // (le secteur surligné est un tracé sans texte : son nom se lit au centre de la roue, « cw-title »)
++      const sel = await page.evaluate(() => {
++        const w = document.querySelector('[data-id="order-wheel"]');
++        const hot = w ? w.querySelectorAll('.cw-wedge.is-hot').length : 0;
++        const title = w ? (w.querySelector('.cw-title')?.textContent || '').trim() : '';
++        return hot > 0 ? [title || 'secteur'] : [];
++      });
+       report.wheelSel = sel;
+       await snap(page, `${tag}-roue-stick-haut`);
+       C.check(sel.length > 0, 'roue d’ordres : le stick gauche désigne un secteur', sel.join(' | ') || 'aucun secteur mis en évidence');
 diff --git a/crs-simulation/tests/e2e/verif-tpm-tactique-tel.mjs b/crs-simulation/tests/e2e/verif-tpm-tactique-tel.mjs
 index 95be304..ae36deb 100644
 --- a/crs-simulation/tests/e2e/verif-tpm-tactique-tel.mjs
@@ -22816,10 +23113,10 @@ index 0000000..cfc9384
 +});
 diff --git a/crs-simulation/tests/unit/ui-command.fiche-dom.test.ts b/crs-simulation/tests/unit/ui-command.fiche-dom.test.ts
 new file mode 100644
-index 0000000..be62680
+index 0000000..96454f5
 --- /dev/null
 +++ b/crs-simulation/tests/unit/ui-command.fiche-dom.test.ts
-@@ -0,0 +1,670 @@
+@@ -0,0 +1,689 @@
 +// La fiche de la carte de commandement (panelCard.ts) rendue dans un petit DOM de test, avec des fiches, des unités
 +// proposées et des étapes légales tirées d'une vraie partie à la Concorde (commandant, puis chef de groupe) :
 +// la fiche d'une rue montre six lignes + « Autres ordres ici… », la ligne par défaut surlignée ; au doigt un premier
@@ -23409,6 +23706,9 @@ index 0000000..be62680
 +    expect(byId(root(), 'card-undo')).toBeNull();
 +    showStreet(0);
 +    expect(byClass(root(), 'cc-sent-t')).toHaveLength(0);
++    // la chaîne légale : l'ordre ne part qu'à la fin, l'en-tête garde le sien (« ✓ ÉTAPES LANCÉES »), pas « ORDRE DONNÉ »
++    panel.showSent('✓ ÉTAPES LANCÉES — Dispersion au gaz — Tête de cortège\nl’ordre partira après la dernière étape', false);
++    expect(byClass(root(), 'cc-sent-t')[0]!.textContent).toBe('✓ ÉTAPES LANCÉES — Dispersion au gaz — Tête de cortège');
 +  });
 +});
 +
@@ -23430,6 +23730,22 @@ index 0000000..be62680
 +    expect(byId(foot, 'card-send')).not.toBeNull();
 +    expect(byId(foot, 'card-who')).not.toBeNull();
 +    expect(byId(root(), 'card-who-next')).toBeNull();
++  });
++
++  it('téléphone : des repères empilés prennent la place du titre, sur la même rangée (la fiche ne défile pas)', () => {
++    panel = mount();
++    const stacked = { ...street, stack: [street.repere, { ...street.repere, key: 'autre', name: 'Foule' }] };
++    const a = screenArgs(boss, stacked, 0, {});
++    panel.show(stacked, a.who, 0, a.sentence, true, { ...a.extra, explainAll: false });
++    const top = byClass(root(), 'cc-top')[0]!;
++    expect(byClass(top, 'cc-tabs')).toHaveLength(1);
++    expect(byClass(root(), 'cc-tabs')).toHaveLength(1);
++    expect(byClass(root(), 'cc-title')).toHaveLength(0);
++    expect(byId(top, 'card-tab-1')).not.toBeNull();
++    // sur PC : le titre reste, les onglets en dessous
++    panel.show(stacked, a.who, 0, a.sentence, false, a.extra);
++    expect(byClass(root(), 'cc-title')).toHaveLength(1);
++    expect(byClass(byClass(root(), 'cc-top')[0]!, 'cc-tabs')).toHaveLength(0);
 +  });
 +
 +  it('fenêtre basse sur PC : l’explication de la ligne surlignée seulement (la fiche ne défile jamais)', () => {
@@ -23492,10 +23808,10 @@ index 0000000..be62680
 +});
 diff --git a/crs-simulation/tests/unit/ui-command.fiches.test.ts b/crs-simulation/tests/unit/ui-command.fiches.test.ts
 new file mode 100644
-index 0000000..c402850
+index 0000000..bfc162c
 --- /dev/null
 +++ b/crs-simulation/tests/unit/ui-command.fiches.test.ts
-@@ -0,0 +1,523 @@
+@@ -0,0 +1,535 @@
 +// Carte de commandement — fiches des repères (intents.ts) et mots des ordres (orders.ts) : au plus six lignes, la ligne
 +// de l'intention toujours visible, les deux barrages de rue, le cadenas légal, la lecture seule, la fiche d'un poste,
 +// et aucun ordre perdu. La fin du fichier construit les fiches d'une vraie partie (place de la Concorde).
@@ -23846,6 +24162,18 @@ index 0000000..c402850
 +    expect(prop.lines.map((l) => l.label)).toEqual(['Accepter', 'Plus tard']);
 +    const som = buildCard(collectReperes(env).find((r) => r.proposalId === 8)!, env, null);
 +    expect(som.lines.map((l) => l.action)).toEqual([{ kind: 'sommation', all: true }, { kind: 'proposal', accept: false }]);
++  });
++
++  it('liaison : « Négocier un parcours (liaison) » en tête des autres ordres du cortège, seulement quand elle est possible', () => {
++    const label = 'Négocier un parcours (liaison)';
++    const othersOf = (e: CardEnv): string[] => buildCard(oneOfEach(e).foule, e, null).others.map((l) => l.label);
++    expect(othersOf(makeEnv({ liaison: false }))[0]).toBe(label);
++    expect(buildCard(oneOfEach(makeEnv({ liaison: false })).foule, makeEnv({ liaison: false }), null).others[0]!.action).toEqual({ kind: 'liaison' });
++    // déjà au contact, pas de service, ou foule qui n'est pas le cortège : rien
++    expect(othersOf(makeEnv({ liaison: true }))).not.toContain(label);
++    expect(othersOf(makeEnv())).not.toContain(label);
++    const nasse = buildCard(oneOfEach(makeEnv({ liaison: false })).nasse, makeEnv({ liaison: false }), null);
++    expect(nasse.others.map((l) => l.label)).not.toContain(label);
 +  });
 +
 +  it('extensions : une fiche remplacée et des lignes ajoutées, puis retirées', () => {
@@ -25679,6 +26007,25 @@ index a396959..9f0a9ba 100644
      expect(s.zoom[0]).toBeGreaterThan(1);
      expect(s.zoom[1]).toBeLessThan(1);
      expect(s.zoom[0]! * s.zoom[1]!).toBeCloseTo(1, 9);
+diff --git a/crs-simulation/tests/unit/ui.hud-model.test.ts b/crs-simulation/tests/unit/ui.hud-model.test.ts
+index f66c7e7..0115451 100644
+--- a/crs-simulation/tests/unit/ui.hud-model.test.ts
++++ b/crs-simulation/tests/unit/ui.hud-model.test.ts
+@@ -73,9 +73,11 @@ describe('hud/cadre légal', () => {
+ 
+   it('libellés de force et rappel du droit pour les civils', () => {
+     expect(forceLabel(0)).toBe('Aucune force');
+-    expect(forceLabel(3)).toBe('Lacrymogène');
+-    expect(forceLabel(5)).toBe('Arme de service');
+-    expect(forceLabel(9)).toBe('Arme de service');
++    // mêmes mots que la pastille de la carte de commandement (§7.1), jamais un chiffre
++    expect(forceLabel(1)).toBe('Mains nues');
++    expect(forceLabel(3)).toBe('Gaz');
++    expect(forceLabel(5)).toBe('Arme à feu');
++    expect(forceLabel(9)).toBe('Arme à feu');
+     expect(legalReminder(roe())).toBe('');
+     expect(legalReminder(roe({ sommation: 2 }))).toContain('Première sommation');
+     expect(legalReminder(roe({ sommation: 3 }))).toBe('Dernière sommation entendue : rester est un délit');
 diff --git a/crs-simulation/tests/unit/ui.hud-zone-gauche.test.ts b/crs-simulation/tests/unit/ui.hud-zone-gauche.test.ts
 index db9adbb..17f679b 100644
 --- a/crs-simulation/tests/unit/ui.hud-zone-gauche.test.ts
