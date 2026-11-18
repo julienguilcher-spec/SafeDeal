@@ -6,8 +6,7 @@ chantier aura été intégré dans `crs-simulation/`, testé et publié.
 
 | Fichier | Chantier | Base (commit) | État à la sauvegarde |
 |---|---|---|---|
-| `commande.patch` | Refonte de la carte de commandement et des ordres | `2365d2b` | TERMINÉE et relue par le joueur critique ; fusion avec la version actuelle en cours de vérification |
-| `commissariats.patch` | Commissariats dessinés, envoi des unités | `2365d2b` | 5 paquets sur 8 faits (attend la refonte) |
+| `commissariats.patch` | Commissariats dessinés, envoi des unités | `2365d2b` | 7 paquets sur 8 faits (la refonte du commandement y est appliquée, l'envoi des unités est fait) ; dernier paquet puis intégration en cours |
 
 Reprendre un chantier : `git worktree add --detach <dossier> <base>` puis, dans ce dossier,
 `git apply --3way chantiers-en-cours/<chantier>.patch`.
@@ -15,4 +14,6 @@ Reprendre un chantier : `git worktree add --detach <dossier> <base>` puis, dans 
 Autres fichiers : les plans (`plan-commissariats.md`, `design-commande.md`), les comptes rendus des paquets terminés
 (`rapports-paquets-*.json`) et les deux scripts d'orchestration (`workflow-*.js`).
 
-Déjà intégrés et retirés d'ici : l'accueil en quatre modes, les véhicules garés en bloc, les fins de trajet de colonne.
+Déjà intégrés et retirés d'ici : l'accueil en quatre modes, les véhicules garés en bloc, les fins de trajet de colonne,
+la refonte de la carte de commandement (son cahier des charges `design-commande.md` reste ici : le chantier des
+commissariats s'y réfère).
