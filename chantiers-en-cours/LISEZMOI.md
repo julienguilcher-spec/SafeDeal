@@ -6,7 +6,7 @@ chantier aura été intégré dans `crs-simulation/`, testé et publié.
 
 | Fichier | Chantier | Base (commit) | État à la sauvegarde |
 |---|---|---|---|
-| `commissariats.patch` | Commissariats dessinés, envoi des unités | `2365d2b` | 7 paquets sur 8 faits (la refonte du commandement y est appliquée, l'envoi des unités est fait) ; dernier paquet puis intégration en cours |
+| `commissariats.patch` | Commissariats dessinés, envoi des unités | `2365d2b` | les 8 paquets sont faits ; intégration en cours depuis 10 h 30, puis test en joueur |
 
 Reprendre un chantier : `git worktree add --detach <dossier> <base>` puis, dans ce dossier,
 `git apply --3way chantiers-en-cours/<chantier>.patch`.
