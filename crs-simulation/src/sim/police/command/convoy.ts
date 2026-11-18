@@ -11,7 +11,7 @@
  * Sans pilote automatique (module des véhicules absent), l'unité débarque là où elle se trouve.
  * ===================================================================================== */
 
-import type { OrderType, Vehicle } from '@/core/contracts';
+import type { OrderType, RoadSample, Vehicle } from '@/core/contracts';
 import { angleDiff, pointOnPolyline, projectOnPolyline } from '@/core/math';
 import { agentOf } from '../brain';
 import { isProtester } from './core';
@@ -99,6 +99,8 @@ export class ConvoyControl {
   readonly list: Convoy[] = [];
   private thinkAt = 0;
   private readonly pathBuf: number[] = [];
+  private readonly headBuf: number[] = [];
+  private readonly roadBuf: RoadSample = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '', roadClass: 'residential', oneway: false };
 
   constructor(private readonly core: CommandCore) {}
 
@@ -202,6 +204,17 @@ export class ConvoyControl {
       const k = commandFirst && v.kind === 'vl_commandement' && ahead(v) > front - 1.5 ? 1e9 : ahead(v);
       if (k > best) { best = k; head = i; }
     }
+    // la tête dont l'itinéraire part tout droit devant elle, quand un véhicule de la colonne est garé juste devant son
+    // nez : celui-ci prend la tête à sa place (et ainsi de suite) — sinon la tête attendait, nez contre lui, celui qui
+    // devait la suivre, et la relance « tête bloquée » redésignait la même (commissariat du 1er : colonne figée un quart
+    // d'heure)
+    const seen = new Set<number>([head]);
+    for (let guard = 0; guard < list.length; guard++) {
+      const k = this.blockerAhead(c, list[head]!, tx, tz, urgent);
+      if (k < 0 || seen.has(k)) break;
+      seen.add(k);
+      head = k;
+    }
     // puis chacun suit son voisin immédiat : la file se défait dans l'ordre où elle est garée
     const out: Vehicle[] = [list[head]!];
     const rest = list.filter((_, i) => i !== head);
@@ -216,6 +229,62 @@ export class ConvoyControl {
       out.push(rest.splice(k, 1)[0]!);
     }
     for (let i = 0; i < out.length; i++) list[i] = out[i]!;
+  }
+
+  /**
+   * Véhicule de la colonne (indice dans c.vehicles, −1 si aucun) garé juste devant le nez de `v` (moins de 6 m entre
+   * les pare-chocs, dans son couloir) quand l'itinéraire que le pilote automatique calculera pour `v` s'il prend la
+   * tête part en marche avant (depuis sa place, dans le sens où il est tourné, demi-tour coûté comme le pilote le
+   * coûte) : tête désignée, il resterait nez contre lui. Un itinéraire qui commence par un demi-tour n'est pas gêné.
+   */
+  private blockerAhead(c: Convoy, v: Vehicle, tx: number, tz: number, urgent: boolean): number {
+    const list = c.vehicles;
+    const fx = Math.sin(v.heading), fz = Math.cos(v.heading);
+    let best = -1;
+    let bestGap = Infinity;
+    for (let k = 0; k < list.length; k++) {
+      const o = list[k]!;
+      if (o === v) continue;
+      const along = (o.x - v.x) * fx + (o.z - v.z) * fz;
+      const lat = Math.abs((o.x - v.x) * fz - (o.z - v.z) * fx);
+      // (emprise de l'autre selon son cap : de travers, il barre plus large et moins long)
+      const oc = Math.abs(Math.sin(o.heading) * fx + Math.cos(o.heading) * fz);
+      const oLen = o.def.length * 0.5 * oc + o.def.width * 0.5 * (1 - oc);
+      const oWid = o.def.width * 0.5 * oc + o.def.length * 0.5 * (1 - oc);
+      const gap = along - v.def.length * 0.5 - oLen;
+      if (along <= 0 || gap > 6 || gap >= bestGap || lat > v.def.width * 0.5 + oWid + 0.3) continue;
+      best = k;
+      bestGap = gap;
+    }
+    if (best < 0) return -1;
+    // l'itinéraire de v part-il devant lui ? (premier point à plus de 4 m de son centre)
+    const ctx = this.core.ctx;
+    const path = this.headBuf;
+    path.length = 0;
+    try {
+      if (!ctx.world.findPath(v.x, v.z, tx, tz, 'vehicle', path, {
+        heading: v.heading, uturn: this.uturnCost(v), avoid: this.crowdZones(c), contraflow: urgent ? 3 : 0, minWidth: v.def.width + 1.2,
+      }) || path.length < 4) return -1;
+    } catch {
+      return -1;
+    }
+    for (let i = 2; i + 1 < path.length; i += 2) {
+      const dx = path[i]! - v.x, dz = path[i + 1]! - v.z;
+      if (Math.hypot(dx, dz) < 4) continue;
+      return dx * fx + dz * fz > 0 ? best : -1;
+    }
+    return -1;
+  }
+
+  /** Coût d'un demi-tour sur place pour ce véhicule dans cette rue (s), comme le pilote automatique le calcule. */
+  private uturnCost(v: Vehicle): number {
+    const world = this.core.ctx.world;
+    const road = this.roadBuf;
+    if (world.edgeCount === 0 || !world.nearestRoad(v.x, v.z, road, 25)) return 30;
+    const r = v.def.wheelbase / Math.tan(v.def.maxSteer);
+    if (road.width >= 2 * r + v.def.width + 1) return 8;
+    if (road.width >= v.def.length + 3) return 35;
+    return 200;
   }
 
   /**

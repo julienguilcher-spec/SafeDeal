@@ -116,6 +116,35 @@ export function manifestationBrief(extra: Readonly<Record<string, unknown>> | un
   return text;
 }
 
+/**
+ * Foule que la colonne contournera (mêmes zones que police/command/convoy.ts, crowdZones) : une zone de 30 m par carré
+ * de 40 m où au moins six manifestants libres, debout et à pied sont regroupés.
+ */
+function crowdZones(ctx: GameContext): { x: number; z: number; r: number }[] {
+  const cells = new Map<number, { n: number; x: number; z: number }>();
+  const list = ctx.people.list;
+  for (let i = 0; i < list.length; i++) {
+    const p = list[i]!;
+    if (p.dormant || p.faction !== 'protest' || p.custody !== 'free' || p.posture === 'down' || p.vehicleId !== 0) continue;
+    const key = Math.floor(p.x / 40) * 65536 + Math.floor(p.z / 40);
+    const cell = cells.get(key);
+    if (cell) {
+      cell.n++;
+      cell.x += p.x;
+      cell.z += p.z;
+    } else {
+      cells.set(key, { n: 1, x: p.x, z: p.z });
+    }
+  }
+  const out: { x: number; z: number; r: number }[] = [];
+  for (const cell of cells.values()) {
+    if (cell.n < 6) continue;
+    out.push({ x: cell.x / cell.n, z: cell.z / cell.n, r: 30 });
+    if (out.length >= 40) break;
+  }
+  return out;
+}
+
 export class JourneeSystem implements GameSystem {
   readonly id = 'session.journee';
   readonly order = SystemOrder.CONTROL + 47;
@@ -715,9 +744,17 @@ export class JourneeSystem implements GameSystem {
     for (const v of list) { cx += v.x; cz += v.z; }
     cx /= list.length;
     cz /= list.length;
+    // itinéraire calculé comme celui que la colonne roulera (police/command/convoy.ts, departRoute ; pilote automatique) :
+    // foule contournée, contresens au pas permis en urgence, chaussée assez large — le plus court chemin brut partait
+    // parfois à l'opposé (commissariat du 8e : file rangée le long d'une rue que la colonne ne prend pas, VL tourné dos à
+    // l'itinéraire réel)
+    const width = list.reduce((w, v) => Math.max(w, v.def.width), 0);
     const path: number[] = [];
     let ok = false;
-    try { ok = ctx.world.findPath(cx, cz, tx, tz, 'vehicle', path) && path.length >= 4; } catch { ok = false; }
+    try {
+      ok = ctx.world.findPath(cx, cz, tx, tz, 'vehicle', path, { heading: NaN, uturn: 0, avoid: crowdZones(ctx), contraflow: 3, minWidth: width + 1.2 })
+        && path.length >= 4;
+    } catch { ok = false; }
     if (!ok) return;
     const p = { x: 0, z: 0 };
     const moving = new Set<Vehicle>([...list, ...idle]);

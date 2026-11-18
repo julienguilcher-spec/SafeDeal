@@ -30,6 +30,7 @@ const CONVOY = new Set(['fourgon_crs', 'car_crs', 'vl_commandement', 'fourgon_ce
 const ENGINES = new Set(['canon_eau', 'centaure']);
 const PLACES: Record<string, [string, number, number]> = {
   republique: ['Place de la République', 3123, -208], concorde: ['Place de la Concorde', -10, 15], bastille: ['Place de la Bastille', 3542, 1395],
+  hotel: ['Hôtel de Ville', 2211, 993],
 };
 
 type T = ReturnType<typeof createTestContext>;
@@ -167,12 +168,45 @@ function parkingFaults(ctx: GameContext, me: Person): string[] {
 }
 
 describe('départ de la base (journée de service)', () => {
-  // DÉFAUT CONNU (hors de ce lot) : la file est rangée le long d'un itinéraire calculé sans la foule, quand la colonne
-  // (police/command/convoy.ts) contourne la foule et part à l'opposé ; corriger journee.lineUp seul déplace le blocage
-  // (ordre de départ de convoy.ts calculé lui aussi sans la foule) et dégrade le départ de la caserne de la Cité.
-  it.skip('commissariat du 8e → Concorde : file propre, tournée dans le sens de l’itinéraire réel de la colonne', async () => {
+  // (la file était rangée le long du plus court chemin brut, calculé sans la foule : la colonne, qui la contourne, part
+  // dans l'autre sens — VL tourné dos à l'itinéraire réel)
+  it('commissariat du 8e → Concorde : file tournée dans le sens de l’itinéraire réel de la colonne (foule contournée)', async () => {
+    const { ctx, me } = await journee({ role: 'crs', seed: 7, base: 4, where: 'concorde' });
+    expect(parkingFaults(ctx, me).filter((f) => !/en travers de la voie/.test(f))).toEqual([]);
+  }, 300000);
+
+  // DÉFAUT CONNU (hors de ce lot) : le serre-file reste posé en travers, sur le bout de liaison entre la cour et la rue.
+  // Toute règle de lineUp qui l'en écarte (file commencée après ce bout, places en travers ou avant un virage serré
+  // sautées) déplace aussi la file de la caserne de la Cité, garée de la même façon, et le trajet de la colonne y
+  // échoue ensuite dans le pilote automatique (demi-tour de la tête bloquée par des voitures civiles, manœuvre sans fin) :
+  // integration.journee ou playtest.colonne-ia (Cité, graine 3) passent au rouge. À reprendre après ces corrections.
+  it.skip('commissariat du 8e → Concorde : file propre, aucun véhicule en travers', async () => {
     const { ctx, me } = await journee({ role: 'crs', seed: 7, base: 4, where: 'concorde' });
     expect(parkingFaults(ctx, me)).toEqual([]);
+  }, 300000);
+
+  // Commissariat du 1er : véhicules en file nez à l'est, mais l'ordre de départ (calculé depuis le centre du groupe)
+  // désignait comme tête un fourgon de l'arrière ; son pilote automatique, qui part dans le sens où il est tourné, butait
+  // contre le fourgon garé devant lui — celui-là même qui devait le suivre. Colonne figée un quart d'heure (relance
+  // « tête bloquée » : même ordre, même tête). Disposition relevée telle quelle dans la partie (commandant, graine 3).
+  it('commissariat du 1er : la tête désignée n’a pas un véhicule de sa colonne devant le nez — la colonne part', async () => {
+    const { t, ctx, me, j } = await journee({ role: 'commandant', seed: 3, base: 1, where: 'hotel', means: { sections: 2, fourgons: 6 }, crowd: 150 });
+    const col = column(ctx, me).sort((a, b) => (a.kind === 'vl_commandement' ? 0 : 1) - (b.kind === 'vl_commandement' ? 0 : 1) || a.id - b.id);
+    const SPOTS: [number, number, number][] = [[837, -194, 1.28], [827, -197, 1.29], [818, -201, 1.30], [809, -204, 1.30], [799, -204, 1.30], [790, -209, 1.24], [766, -216, 1.08]];
+    expect(col.length).toBe(SPOTS.length);
+    col.forEach((v, i) => { [v.x, v.z, v.heading] = SPOTS[i]!; v.vx = 0; v.vz = 0; v.speed = 0; });
+    // le commandant monte dans son VL (la colonne ne l'attend pas)
+    const vl = col[0]!;
+    me.x = vl.x + 2.5; me.z = vl.z;
+    expect(ctx.vehicles.enter(me, vl, 'passenger')).toBe(true);
+    const from = new Map(col.map((v) => [v.id, { x: v.x, z: v.z }]));
+    for (let i = 0; i < 300 && j.stage !== 'route'; i++) t.step(1);
+    expect(j.stage).toBe('route');
+    // (file tournée à l'est, sortie par le sud : chacun fait demi-tour à son tour — quatre minutes au plus)
+    const stay = (): string[] => col.filter((v) => Math.hypot(v.x - from.get(v.id)!.x, v.z - from.get(v.id)!.z) < 15).map((v) => `${v.kind}#${v.id}`);
+    for (let i = 0; i < 48 && stay().length > 0; i++) t.step(5);
+    console.log(`4 min après le départ, restés sur place : ${stay().join(', ') || 'aucun'}`);
+    expect(stay()).toEqual([]);
   }, 300000);
 
   it('opérateur du canon à eau : l’objectif l’envoie à SON engin, pas dans un fourgon de CRS', async () => {
@@ -246,8 +280,8 @@ describe('départ de la base (journée de service)', () => {
           const run = await journee({ ...r, seed, base: b, where, means: { centaure: 1, canon_eau: 1, drone: 1 } });
           const { t, ctx, me, objectives } = run;
           const tag = `${SERVICE_BASES[b]!.name} → ${where}, ${r.role}${r.poste ? '/' + r.poste : ''}, graine ${seed}`;
-          // (DÉFAUT CONNU, voir plus haut : file rangée le long d'un itinéraire calculé sans la foule — véhicules en travers,
-          // tête tournée à l'opposé — relevé ici sans faire échouer la matrice)
+          // (DÉFAUT CONNU, voir plus haut : véhicule en travers sur le bout de liaison vers la chaussée — relevé ici sans
+          // faire échouer la matrice ; le commissariat du 8e, où la foule retournait l'itinéraire, a son test plus haut)
           const all = parkingFaults(ctx, me);
           const bad = all.filter((f) => !/en travers de la voie|tourné à l'opposé/.test(f));
           if (all.length > bad.length) known.push(`${SERVICE_BASES[b]!.name}, ${r.role}, graine ${seed} : ${all.length - bad.length} défaut(s) de file`);
