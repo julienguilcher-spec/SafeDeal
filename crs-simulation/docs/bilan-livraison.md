@@ -81,8 +81,57 @@ imparfait, et où trouver les propositions d'améliorations.
 - **Ravitaillement du joueur** : touche d'interaction à l'arrière du fourgon ; réserve vide → « Demande de ravitaillement » par radio, la logistique complète les fourgons et la soute du Centaure quelques minutes plus tard ; indications à l'écran avec repère ; plein du canon à eau à la bouche d'incendie.
 - Allures : avance tenue = petite foulée puis course ; CRS au pas, au trot ou en courant selon l'urgence.
 
+## Versions 13 à 21 de l'artefact (17 et 18 novembre)
+
+Le jeu est livré sous forme d'artefact jouable dans le navigateur (ordinateur et téléphone). L'application Mac n'est
+plus reconstruite pour l'instant, à la demande du joueur.
+
+### Nouveautés
+- **Accueil en quatre modes** : Patrouille (équipage BAC ou Police secours en voiture, appels de CENTRAL, manifestations
+  qui se déclarent au hasard), Carrière, Missions spéciales par poste, Mode libre (nom de la manifestation, lieu,
+  colonnes, part de hasard).
+- **Carte de commandement refaite** (version 18) : six intentions avec leur touche — Envoyer (E), Bloquer une rue (B),
+  Encercler (N), Disperser (D), Interpeller (I), Secours (S) — et « Plus… » (O) ; une seule fiche d'ordre de six lignes
+  au plus, qui propose l'action et l'unité, dessine l'ordre sur la carte et dit ce qui va se passer ; « Donner
+  l'ordre » avec Entrée, autre unité (U), toute la compagnie (T), annulation dans les 5 s (X). Sur le terrain, bloc
+  « ORDRES » en quatre lignes ; l'exécutant voit « ORDRE DU COMMANDANT ».
+- **Carte lisible** (version 19) : unités au même endroit regroupées sous une étiquette, étiquettes qui ne se recouvrent
+  plus ; la radio et l'unité disent le lieu écrit sur la fiche ; « Mes unités » dit quand une colonne attend le joueur.
+
+### Bugs corrigés
+- **Tout le monde me suit** : véhicules garés en bloc qui ne sortaient pas (Bastille, République, commissariats du 1er
+  et du 8e), suiveurs arrêtés par des manifestants ou par des barrières, motos de la BRAV-M sans pilote ou qui ne
+  suivaient pas, fourgon d'escorte enfermé, tête de colonne qui faisait demi-tour contre ses propres fourgons, blessé
+  allongé jamais contourné. Le test strict (42 cas : chaque poste, trois lieux) passe en entier.
+- **Colonne et mission du joueur** : la colonne attend le joueur quand il est au volant ; une mission ne commence qu'à
+  l'arrivée ; l'atelier de l'élève se gagne en suivant la carte « Ma mission » ; le délai de départ affiché est vrai.
+- **Commandant en mission** (version 21, après un essai du joueur) : mission perdue dès l'arrivée à cause des blessés
+  du trajet ; ordre donné à l'arrivée écrasé par le « débarquez » de la colonne ; mission lancée avec la compagnie
+  600 m derrière ; BRAV-M qui annonçait « en position » sans bouger ; colonne figée derrière son canon à eau à la
+  Concorde ; réseau radio saturé par CENTRAL, comptes rendus perdus.
+- **Fiche d'ordre fidèle au terrain** (trois tours d'un robot commandant) : BRAV-M à l'interpellation (groupe et non
+  binôme, à pied ou à moto comme annoncé), nasse incomplète annoncée, interpellation sans fait constaté ou auteur en
+  fuite dits avant et pendant, équipage de patrouille à qui on ne propose plus ligne, charge ou gaz.
+- Téléphone : sous-titres radio qui recouvraient les boutons ; CRS bloqués devant des barrières Vauban ; missions
+  lancées depuis l'accueil au mauvais poste ; nasse et évacuation ; textes divers.
+
+### En cours au 18 novembre (non livré)
+- **Ordres directs sur le terrain** : regarder une rue, une personne ou un carrefour, appuyer sur Entrée, l'unité y va ;
+  « Avec moi » (A), choix de l'unité (U) ; unités assises qui descendent puis exécutent ; arrivée en secondes ;
+  BRAV-M dans la compagnie ; plus jamais « sans ordre ». Cahier des charges : `chantiers-en-cours/ordres-directs/`.
+- **Interpellés** : fourgons cellulaires avec équipage toujours présents, lieu de remise indiqué, « Confier » à des
+  collègues, transfert au commissariat, fourgon de relève.
+- **Commissariats dessinés** (sept sites, véhicules garés en colonnes, unités engagées et renvoyées depuis la carte) :
+  terminés et vérifiés sur une version antérieure, en cours de report sur la version 21.
+
 ## Limites connues
 
+- **Version 21** : des unités assises dans leurs fourgons n'exécutent pas un ordre à pied ; quand le commandant conduit
+  sa voiture ou part devant, la colonne peut débarquer à 1 ou 2 km ; « Suivez-moi à pied » fait marcher des sections
+  à plus de 250 m ; la BRAV-M est lente dans une foule dense ; un véhicule déjà nez à un mur ne s'en dégage pas ; le
+  lieu où déposer un interpellé n'est pas affiché et le fourgon cellulaire n'a pas toujours d'équipage ; sur
+  téléphone, la carte reste chargée quand une fiche d'ordre est ouverte. (Tous en cours de correction, voir
+  ci-dessus.)
 - **Colonnes** : sur le banc de mesure (6 bases × 10 lieux), il reste des trajets où la colonne n'arrive pas complète dans le délai, surtout vers Châtelet (colonne retenue par la foule à 150–250 m du point). Le filet de sécurité replace alors les véhicules, hors de la vue du joueur.
 - Une colonne qui doit faire demi-tour dans une rue étroite peut encore se gêner elle-même.
 - Concorde : le point de départ de certains véhicules est en dehors du réseau de rues.
