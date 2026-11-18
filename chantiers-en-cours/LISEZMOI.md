@@ -7,7 +7,6 @@ chantier aura été intégré dans `crs-simulation/`, testé et publié.
 | Fichier | Chantier | Base (commit) | État à la sauvegarde |
 |---|---|---|---|
 | `commissariats.patch` | Commissariats dessinés, envoi des unités | `2365d2b` | les 8 paquets sont faits ; intégration en cours depuis 10 h 30, puis test en joueur |
-| `commandant-carte.patch` | Campagne du commandant sur la nouvelle carte (BRAV-M à l'interpellation, phrase de la nasse) | `761c04e` | relu et validé ; à intégrer après la version 19 |
 
 Reprendre un chantier : `git worktree add --detach <dossier> <base>` puis, dans ce dossier,
 `git apply --3way chantiers-en-cours/<chantier>.patch`.
