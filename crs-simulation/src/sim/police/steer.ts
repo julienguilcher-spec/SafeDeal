@@ -283,6 +283,12 @@ export function navigate(k: Kernel, a: Agent, tx: number, tz: number, interval: 
       if (prop) {
         cornerDetour(k, a, prop.x, prop.z, prop.halfX, prop.halfZ, prop.heading, tx, tz);
         a.detourAt = k.now;
+      } else if (again && hit.t * reach < VAULT_LOOK && vaultOver(k, a, tx, tz)) {
+        // l'obstacle bas est juste devant lui : il l'enjambe sans attendre de piétiner — poussant de biais contre la
+        // barrière, l'agent glissait le long d'elle (il « avançait », donc ne piétinait jamais), revenait au coin au
+        // contournement suivant, et restait de ce côté pour de bon
+        a.stuckT = 0;
+        return;
       }
     }
   }

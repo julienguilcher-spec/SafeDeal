@@ -614,6 +614,14 @@ export class ApDriver {
    */
   private avoid(rt: VehicleRt, ap: ApState, au: number, dt: number, finalLeg: boolean): boolean {
     const v = rt.v;
+    // contournement de personnes arrêté à son tour, depuis un moment, par une personne immobile (rang suivant d'une ligne
+    // d'agents en quinconce, blessé plus loin) : on reprend le contournement depuis là où l'on est, au lieu d'attendre
+    // derrière elle pour de bon
+    if (ap.avoidProp === -1 && ap.mode === 'follow' && this.dodging.get(ap) === ap.avoidS1 && ap.obsReason === 'personne'
+      && au < 0.3 && ap.blockedFor > FOLLOW_PEOPLE_DODGE && ap.avoidBack <= 0 && this.dodgePeople(rt, ap, au)) {
+      ap.blockedFor = 0;
+      return false;
+    }
     if (ap.avoidVeh !== 0 || ap.avoidProp !== 0) {
       ap.avoidT += dt;
       const ext = this.extent;
@@ -712,7 +720,10 @@ export class ApDriver {
       ext.sMax = ext.sMin + 3;
       ext.latMin = 0;
       ext.latMax = 0;
-      const off0 = ap.laneOffset;
+      // (personnes immobiles devant un suivant : couloir compté depuis la trace du meneur, que la trajectoire suit sans
+      // décalage de voie — compté depuis ap.laneOffset, jusqu'à 3,2 m dans une rue à double sens, le couloir vérifié
+      // était libre à droite et le suivant braquait vers la gauche, droit sur le blessé allongé qu'il voulait éviter)
+      const off0 = standing && ap.mode === 'follow' && ap.axisUntil <= ap.s ? 0 : ap.laneOffset;
       // (en intervention, au pas, on monte sur le trottoir s'il le faut et s'il est libre : là où l'axe de la rue
       // relevé sur la carte coupe l'angle d'un immeuble)
       const passes = ap.urgence || ap.convoy ? 2 : 1;
@@ -726,6 +737,10 @@ export class ApDriver {
           ap.avoidVeh = 0;
           ap.avoidProp = -1;
           ap.avoidS1 = ext.sMax;
+          // (personnes immobiles — une ligne de collègues en travers de la rue, en quinconce — : couloir vu de proche en
+          // proche, comme pour dodgePeople ; le recontrôle sur toute la longueur butait sur le rang suivant, le véhicule
+          // attendait cinq secondes, renonçait, et recommençait indéfiniment — les motos de la BRAV-M ne passaient pas)
+          if (standing) this.dodging.set(ap, ap.avoidS1);
           ap.avoidKerb = this.kerbOk;
           this.kerbOk = false;
           this.engageAvoid(rt, ap, shift, au);
@@ -842,6 +857,10 @@ export class ApDriver {
         ap.avoidKerb = this.kerbOk;
         this.kerbOk = false;
         this.engageAvoid(rt, ap, shift, au);
+        // (le couloir vérifié est à off0 − shift de l'itinéraire ; la trajectoire vise −avoidShift : décalage compté
+        // depuis l'itinéraire, pas depuis la position du moment — sans quoi un véhicule déjà écarté de la trace, qui
+        // reprend un contournement, visait un autre couloir que celui qu'il avait vérifié)
+        ap.avoidWant = shift - off0;
         return true;
       }
     }

@@ -50,6 +50,12 @@ describe('ordre « avec moi »', () => {
     const van = ctx.vehicles.get(held.vehicleId)!;
     const aboard = held.members.filter((id) => ctx.people.get(id)!.vehicleId === van.id).length;
     const ap = ctx.service<{ status(v: unknown): { mode: string; leaderId: number } }>('vehicles.autopilot')!;
+    // tant que le commandant reste à l'arrêt, le fourgon embarqué reste garé ; il démarre : le fourgon le suit
+    for (let i = 0; i < 20 && ap.status(van).mode !== 'follow'; i++) {
+      vl.x += Math.sin(vl.heading) * 3; vl.z += Math.cos(vl.heading) * 3; vl.speed = 3;
+      me.x = vl.x; me.z = vl.z;
+      t.step(2);
+    }
     const st = ap.status(van);
     console.log(`avec moi : ordre ${held.order.type} ; ${aboard}/${held.members.length} à bord ; fourgon ${st.mode} derrière ${st.leaderId}`);
     expect(aboard).toBeGreaterThanOrEqual(held.members.length - 1);

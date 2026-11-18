@@ -1,8 +1,10 @@
 // PARTIE JOUÉE « tout le monde me suit » : pour chaque rôle de police, le joueur prend le volant d'un véhicule de police
 // et roule (itinéraire de plus de 400 m, dans le vrai Paris, bâtiments chargés). Toute la colonne de sa compagnie (chaque
 // véhicule de troupe avec son équipage) quitte sa place et le suit en chaîne — sauf l'équipage du Centaure, que seul
-// l'engin apparié accompagne (règle acceptée par le commanditaire). BRAV-M : toutes les motos de son unité le suivent.
-// Personne de valide n'est laissé à pied.
+// l'engin apparié accompagne (règle acceptée par le commanditaire) : « suivre » y veut dire que le groupe d'escorte
+// rattaché à l'équipage (session/setup.ts, attachEscort) embarque dans SON fourgon, qui suit le Centaure en chaîne ; la
+// compagnie, elle, reste à sa mission. BRAV-M : toutes les motos de son unité le suivent. Personne de valide n'est
+// laissé à pied.
 import { describe, expect, it } from 'vitest';
 
 import type { GameContext, Person, RayHit, Squad, Vehicle } from '@/core/contracts';
@@ -257,8 +259,9 @@ export async function playColumn(c: Case): Promise<{ expected: number; followed:
   const me = ctx.player.person()!;
   const ride = rideOf(ctx, me);
   // compagnie du joueur : la sienne ; pour un équipage ou une équipe rattachée à rien, la compagnie engagée sur place
+  // (équipage du Centaure : le sien, avec le groupe d'escorte qui lui est rattaché — l'engin apparié)
   const mine = rootOf(ctx, ctx.squads.get(me.squadId)!);
-  const company = c.role === 'bravm' || mine.kind === 'compagnie' ? mine
+  const company = c.role === 'bravm' || c.role === 'gendarme_centaure' || mine.kind === 'compagnie' ? mine
     : ctx.squads.list.find((s) => s.faction === 'police' && s.kind === 'compagnie')!;
   // véhicules attendus derrière lui : ceux de la compagnie avec un équipage (motos de son unité pour la BRAV-M)
   const kinds = c.role === 'bravm' ? new Set(['moto_bravm']) : TROOP;
@@ -381,18 +384,13 @@ describe('partie jouée : toute la colonne suit le joueur', () => {
     it(`${c.where} ${c.role}${c.poste ? '/' + c.poste : ''} ${c.seat}`, async () => {
       const r = await playColumn(c);
       // la règle (session/follow.ts) : chaque véhicule de troupe de la compagnie, avec son équipage, prend place dans la
-      // colonne derrière le joueur (sauf équipage du Centaure : l'engin apparié seul), et personne de valide ne reste à
-      // pied. PLAYTEST_STRICT=1 : chacun a aussi quitté sa place de plus de 150 m et roule en chaîne derrière lui
-      // (conduite des suivants : pilote automatique, sim/vehicles — voir le rapport « colonne-ia »).
-      if (c.role === 'gendarme_centaure') expect(r.joined, r.log).toBeGreaterThanOrEqual(Math.min(1, r.expected));
-      else {
-        expect(r.joined, r.log).toBe(r.expected);
-        expect(r.afoot, r.log).toEqual([]);
-      }
-      if (process.env['PLAYTEST_STRICT']) {
-        if (c.role === 'gendarme_centaure') expect(r.followed, r.log).toBeGreaterThanOrEqual(Math.min(1, r.expected));
-        else expect(r.followed, r.log).toBe(r.expected);
-      }
+      // colonne derrière le joueur (équipage du Centaure : le fourgon de son escorte, l'engin apparié), et personne de
+      // valide ne reste à pied. PLAYTEST_STRICT=1 : chacun a aussi quitté sa place de plus de 150 m et roule en chaîne
+      // derrière lui (conduite des suivants : pilote automatique, sim/vehicles — voir le rapport « colonne-ia »).
+      if (c.role === 'gendarme_centaure') expect(r.expected, r.log).toBe(1);
+      expect(r.joined, r.log).toBe(r.expected);
+      expect(r.afoot, r.log).toEqual([]);
+      if (process.env['PLAYTEST_STRICT']) expect(r.followed, r.log).toBe(r.expected);
     }, 900000);
   }
 });

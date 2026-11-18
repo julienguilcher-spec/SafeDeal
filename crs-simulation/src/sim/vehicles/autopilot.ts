@@ -48,6 +48,7 @@ export class Autopilot implements AutopilotApi {
   private readonly footBuf: number[] = [];
   private readonly joinOrder: number[] = [];
   private readonly joinCost: number[] = [];
+  private readonly joinHit: RayHit = makeRayHit();
   private readonly hit: RayHit = makeRayHit();
   /** Nouvel itinéraire après un demi-tour impossible : le demi-tour sur place est exclu. */
   private forceAround = false;
@@ -445,10 +446,15 @@ export class Autopilot implements AutopilotApi {
     order.sort((a, b) => cost[a]! - cost[b]!);
     let best = order[0]!;
     const world = this.k.ctx.world;
+    // (vu ET atteignable tout droit : une grille — enclos de l'obélisque, square — laisse voir sans laisser passer ; le
+    // suivant qui la traversait « tout droit » restait bloqué contre elle, toute la colonne derrière lui)
+    const straight = (x: number, z: number): boolean => world.lineOfSight(v.x, v.z, x, z) && !(world.raycast(v.x, v.z, x, z, this.joinHit) && this.joinHit.hit);
+    let seen = false;
     for (let k = 0; k < order.length && k < TRAIL_SIGHT_TRIES; k++) {
       const i = order[k]!;
-      if (world.lineOfSight(v.x, v.z, trail[i * 2]!, trail[i * 2 + 1]!)) {
+      if (straight(trail[i * 2]!, trail[i * 2 + 1]!)) {
         best = i;
+        seen = true;
         break;
       }
     }
@@ -456,7 +462,7 @@ export class Autopilot implements AutopilotApi {
     const bz = trail[best * 2 + 1]!;
     const buf = this.scratch;
     let far = false;
-    if ((bx - v.x) * (bx - v.x) + (bz - v.z) * (bz - v.z) > 15 * 15 && !this.k.ctx.world.lineOfSight(v.x, v.z, bx, bz) && this.plan(rt, ap, bx, bz)) {
+    if (!seen && this.plan(rt, ap, bx, bz)) {
       far = true;
       buf.length = 0;
       for (let i = 0; i < ap.n * 2; i++) buf.push(ap.path[i]!);

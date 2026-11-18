@@ -338,7 +338,7 @@ export class Tiles {
     if (kind === '') return;
     // la carte pose parfois un objet sur la chaussée du jeu (plus large que la vraie) : replacé sur le trottoir
     // le plus proche, ou pas posé du tout s'il n'y a pas de place (jamais de lampadaire au milieu de la voie)
-    if (!this.offCarriageway(kind, info.x, info.z)) return;
+    if (!this.offCarriageway(kind, info.x, info.z, info.heading)) return;
     const p = this.spawn(rec, kind, this.off.x, this.off.z, info.heading, info.index);
     if (!(density > 0)) return;
     const rng = job.rng;
@@ -372,9 +372,11 @@ export class Tiles {
    * pas dans la chaussée d'une voie (axe et largeur du réseau) ; sinon le bord de cette voie, du côté où il se trouve
    * (on garde l'alignement de la rue), à défaut le sol libre le plus proche hors de toute voie. false : aucune place
    * à moins de `reach` mètres — l'objet n'est pas posé. Une place sans voie (statue, candélabres de la Concorde)
-   * garde son mobilier là où la carte le met.
+   * garde son mobilier là où la carte le met. Toute l'emprise de l'objet compte, pas seulement son centre : une station
+   * de vélos de 6 m dont le centre était juste au bord de la chaussée, tournée en travers, barrait la rue (rue Saint-Paul,
+   * vers la Bastille : les colonnes de police y perdaient plusieurs minutes en détours).
    */
-  private offCarriageway(kind: PropKind, x: number, z: number): boolean {
+  private offCarriageway(kind: PropKind, x: number, z: number, heading = 0): boolean {
     const world = this.m.k.ctx.world;
     const spot = this.off;
     spot.x = x;
@@ -384,7 +386,8 @@ export class Tiles {
     const road = this.roadAt;
     if (!world.nearestRoad(x, z, road, 40)) return true;
     const edge = road.width * 0.5;
-    if (road.dist >= edge + 0.25) return true;
+    const def = propDef(kind);
+    if (road.dist >= edge + 0.25 && !this.overRoad(def.halfX, def.halfZ, x, z, heading)) return true;
     const reach = RELOCATE_REACH[kind] ?? RELOCATE_DEFAULT;
     let nx = x - road.x, nz = z - road.z;
     const d = Math.hypot(nx, nz);
@@ -392,14 +395,36 @@ export class Tiles {
     const ax = road.x, az = road.z;
     for (let extra = 0.5; extra <= reach; extra += 0.5) {
       const px = ax + nx * (edge + extra), pz = az + nz * (edge + extra);
-      if (this.clearSpot(px, pz)) { spot.x = px; spot.z = pz; return true; }
+      if (this.clearSpot(px, pz) && !this.overRoad(def.halfX, def.halfZ, px, pz, heading)) { spot.x = px; spot.z = pz; return true; }
     }
     for (let r = 0.5; r <= reach; r += 0.5) {
       for (let k = 0; k < 16; k++) {
         const a = (k / 16) * Math.PI * 2;
         const px = x + Math.sin(a) * r, pz = z + Math.cos(a) * r;
-        if (this.clearSpot(px, pz)) { spot.x = px; spot.z = pz; return true; }
+        if (this.clearSpot(px, pz) && !this.overRoad(def.halfX, def.halfZ, px, pz, heading)) { spot.x = px; spot.z = pz; return true; }
       }
+    }
+    return false;
+  }
+
+  /**
+   * L'emprise d'un objet long (plus de 1,2 m), centrée en (x, z) et tournée de `heading`, mord-elle sur la chaussée d'une
+   * voie ? Ses quatre coins et le milieu de ses grands côtés, chacun comparé à la voie la plus proche de lui.
+   */
+  private overRoad(halfX: number, halfZ: number, x: number, z: number, heading: number): boolean {
+    if (halfX <= 0.6 && halfZ <= 0.6) return false;
+    const world = this.m.k.ctx.world;
+    const road = this.roadAt2;
+    const c = Math.cos(heading);
+    const s = Math.sin(heading);
+    const long = halfX >= halfZ;
+    for (let k = 0; k < 6; k++) {
+      // (repère de l'objet : x local le long de (cos, −sin), z local le long de (sin, cos))
+      const lx = k < 4 ? (k === 0 || k === 3 ? -halfX : halfX) : long ? 0 : k === 4 ? -halfX : halfX;
+      const lz = k < 4 ? (k < 2 ? -halfZ : halfZ) : long ? (k === 4 ? -halfZ : halfZ) : 0;
+      const px = x + lx * c + lz * s;
+      const pz = z - lx * s + lz * c;
+      if (world.nearestRoad(px, pz, road, 40) && road.dist < road.width * 0.5 + 0.25) return true;
     }
     return false;
   }

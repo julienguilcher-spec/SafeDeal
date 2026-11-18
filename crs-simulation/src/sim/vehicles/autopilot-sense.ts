@@ -51,6 +51,12 @@ export class ApSensor {
     // obstacle contourné, déjà dégagé latéralement : il n'arrête plus le véhicule (voir ApDriver.avoid)
     const skipVeh = ap.avoidVeh !== 0 && dir > 0 && this.committed(ap) ? ap.avoidVeh : 0;
     const skipProp = ap.avoidProp !== 0 && dir > 0 && this.committed(ap) ? ap.avoidProp : 0;
+    // contournement au pas engagé (personnes arrêtées, mur) : couloir décalé visé (voir besideDodge). Une personne
+    // immobile qui reste hors de ce couloir ne l'arrête plus — sans quoi le suivant arrêté tout près d'un blessé allongé,
+    // collé par le véhicule de derrière (pas de marche arrière possible), braquait sans jamais avancer. (Pas au bord du
+    // trottoir — cycliste — ni en dépassant un deux-roues : la trajectoire y suit d'autres règles.)
+    const dodging = ap.avoidProp === -1 && dir > 0 && ap.mode !== 'park' && ap.kerb === 0 && ap.passShift === 0
+      && this.committed(ap) && ap.n >= 2;
 
     // ── personnes ──
     const mid = horizon * 0.5;
@@ -82,6 +88,7 @@ export class ApSensor {
         inside = (lat2 > -margin && lat2 < margin) || (lat < 0) !== (lat2 < 0);
       }
       if (!inside) continue;
+      if (dodging && p.vx * p.vx + p.vz * p.vz < 0.09 && this.besideDodge(rt, ap, p, fwd)) continue;
       const d = fwd - p.radius;
       if (d < best) {
         best = d;
@@ -249,6 +256,23 @@ export class ApSensor {
     ap.obsPropId = reason === 'obstacle' ? propId : 0;
     ap.obsLat = blockerLat;
     ap.obsWaiting = blocker !== null && blocker.apActive && Math.abs(blocker.v.speed) < 0.3;
+  }
+
+  /**
+   * Personne (à `fwd` m devant le pare-chocs) hors du couloir de contournement visé, avec une marge : le véhicule qui s'y
+   * décale ne la touchera pas. Couloir à sa hauteur, en m à droite de l'itinéraire, compté comme la trajectoire de
+   * ApDriver.drive : décalage de voie (fondu aux extrémités de l'axe des rues ; nul sur la trace d'un meneur), moins le
+   * décalage de contournement.
+   */
+  private besideDodge(rt: VehicleRt, ap: ApState, p: Person, fwd: number): boolean {
+    const pt = this.mid;
+    const sP = Math.min(ap.total, ap.s + rt.halfL + fwd);
+    ap.sample(sP, pt);
+    const toEnd = ap.endInLane && ap.axisUntil >= ap.total ? 8 : ap.axisUntil - sP;
+    const taper = Math.min(1, Math.max(0, Math.min(ap.fromAxis ? 8 : sP, toEnd) / 8));
+    const lat = ap.laneOffset * taper - ap.avoidShift;
+    const pl = (p.x - pt.x) * -pt.dz + (p.z - pt.z) * pt.dx;
+    return Math.abs(pl - lat) > rt.halfW + p.radius + 0.5;
   }
 
   /** Le décalage de contournement est pris (aux trois quarts) : l'obstacle contourné n'est plus dans le couloir. */
