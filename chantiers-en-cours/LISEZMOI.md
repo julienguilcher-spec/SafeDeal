@@ -6,8 +6,8 @@ chantier aura été intégré dans `crs-simulation/`, testé et publié.
 
 | Fichier | Chantier | Base (commit) | État à la sauvegarde |
 |---|---|---|---|
-| `commissariats.patch` | Commissariats dessinés, envoi des unités | `2365d2b` | les 8 paquets et l'intégration sont faits ; test en joueur en cours depuis 11 h 37 |
-| `commissariats-delta-A.patch` | Les seuls ajouts du chantier des commissariats par rapport à « 2365d2b + refonte du commandement » (instantané de 12 h 44) | à appliquer en `git apply --3way` sur la branche principale (`52e9d92`) | fusion en cours (5 fichiers en conflit, script `workflow-fusion-commissariats.js`) |
+| `commissariats.patch` | Commissariats dessinés, envoi des unités | `2365d2b` | TERMINÉ dans son espace (paquets, intégration, test en joueur : `critique-commissariats.json`) |
+| `commissariats-delta-A.patch` | Les seuls ajouts du chantier des commissariats par rapport à « 2365d2b + refonte du commandement » (instantané de 12 h 44) | à appliquer en `git apply --3way` sur la branche principale (`52e9d92`) | fusion en cours (5 fichiers en conflit, script `workflow-fusion-commissariats.js`) ; `commissariats-delta-B.patch` = les dernières retouches du joueur critique (3 fichiers), à appliquer ensuite |
 
 Reprendre un chantier : `git worktree add --detach <dossier> <base>` puis, dans ce dossier,
 `git apply --3way chantiers-en-cours/<chantier>.patch`.

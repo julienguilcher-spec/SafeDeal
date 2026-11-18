@@ -13,3 +13,13 @@ Terrain (lot B, fichiers partagés avec le chantier des commissariats : à faire
 - Ordre de colonne / BRAV-M vers un point au-delà du bord de la carte (non reproduit).
 - ecole-02 dure 600 s : vérifier qu'il n'y a pas de temps mort.
 - Compte rendu : vérifier qu'aucun autre texte ne donne un niveau de force en chiffre.
+
+## Ajouts du 18/11 à 13 h 15 (joueur critique des commissariats, campagne du commandant tour 2)
+- Préfecture (Cité), joueur sur place : quatre engins qui rentrent en même temps se gênent sur le boulevard du Palais (manœuvre de stationnement du pilote automatique + arrivée « en file » de la colonne) ; rangés dès que le joueur est à plus de 160 m.
+- 9e, joueur sur place : une moto BRAV-M peut rester 3 m derrière la dernière place.
+- engins.ts : un véhicule de police gêné par des piétons allume sa sirène et la garde pour tout le trajet, même au retour « sans deux-tons ».
+- Point inaccessible près du bord de la carte (ex. rue Biscornet depuis les Célestins) : le peloton débarque à ses places et reste « En alerte », sans aucun message au joueur.
+- Voiture de Police secours envoyée depuis un commissariat : « OÙ L'ENVOYER ? » parle de « boucliers levés » et propose « Tenir une ligne » (texte générique, faux pour trois policiers en voiture).
+- Rôles en lecture seule : pas d'accès à « Plus… › Commissariats » depuis la fiche (C fait défiler les postes).
+- Réseau de commandement saturé : CENTRAL répète « URGENT. Automobiliste bloqué… » toutes les 10 s ; les comptes rendus de priorité 1 attendent plus de 90 s et sont écartés.
+- BLOQUANT : « Toute la compagnie » en véhicules à la Concorde (graine 21) : le canon à eau en tête de file reste « bloqué mur », toute la colonne attend derrière lui indéfiniment (convoy.thinkRoute ne décroche que les véhicules i ≥ 1).
