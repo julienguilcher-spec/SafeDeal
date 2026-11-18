@@ -73,6 +73,8 @@ export const createSystems: ModuleFactory = (): GameSystem[] => {
         if (heard && control.subtitles && out.priority >= 1) ctx.ui.subtitle(out.from, out.text, duration + SUBTITLE_EXTRA);
       });
       queue = q;
+      // le message du joueur passe en tête de la file de son canal (compte rendu attendu par l'objectif)
+      q.fromPlayer = (msg) => msg.personId !== undefined && ctx.player.person()?.id === msg.personId;
 
       const api: RadioApi = {
         log,

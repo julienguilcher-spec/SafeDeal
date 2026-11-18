@@ -24,7 +24,7 @@ import { sessionDurationSeconds } from '@/core/session';
 import { MISSIONS, missionById } from './catalog';
 import { isRadioCallsign } from './catalog/dsl';
 import { missionConfig } from './config';
-import { conclude, crowdInjured, evaluate, isPreserve, pronounces } from './objectives';
+import { conclude, crowdInjured, evaluate, isLiaison, isPreserve, pronounces } from './objectives';
 import { PhaseAleas } from './aleas';
 import type { EvalEnv, ObjectiveRun } from './objectives';
 import { MissionTracker } from './tracker';
@@ -42,6 +42,11 @@ interface CommandPin {
 
 /** Délai maximal d'une phase qui attend un objectif (s). */
 export const PHASE_TIMEOUT = 300;
+/**
+ * Délai d'une phase qui attend un objectif jugé seulement à la fin (« personnalise » que rien ne mesure, « rester dans
+ * le cortège »…) : rien ne le constate en cours de mission, la phase restait sinon PHASE_TIMEOUT sur place (s).
+ */
+export const END_JUDGED_PHASE = 90;
 /** Durée minimale de la dernière phase avant une fin anticipée par objectifs atteints (s). */
 const LAST_PHASE_MIN = 45;
 /** Recherche d'une victime réelle autour du lieu d'un objectif de soins (m), et blessure infligée (grave, à terre). */
@@ -480,7 +485,12 @@ export class MissionSystem implements GameSystem {
         return ctx.director.tension >= u.above || inPhase >= PHASE_TIMEOUT;
       case 'objectif': {
         const run = this.runs.find((r) => r.def.id === u.id);
-        return !run || run.state !== 'actif' || inPhase >= PHASE_TIMEOUT;
+        // objectif qui ne peut être atteint qu'à la fin (sauf liaison, constatée dès le contact) : délai court, ou la
+        // durée que l'objectif annonce (« Cinq minutes d'affrontement » : 300 s, « Trente secondes pour décider » : 30 s)
+        const end = !!run && isPreserve(run) && !isLiaison(run);
+        const told = run?.def.seconds;
+        const wait = !end ? PHASE_TIMEOUT : typeof told === 'number' && told > 0 ? Math.min(PHASE_TIMEOUT, told) : END_JUDGED_PHASE;
+        return !run || run.state !== 'actif' || inPhase >= wait;
       }
       case 'fin':
         return false;

@@ -18,6 +18,8 @@
  * ===================================================================================== */
 
 import { createRng } from '@/core/rng';
+import { missionById } from '@/gameplay/missions/catalog';
+import { missionComposition } from '@/gameplay/missions/config';
 import {
   RYTHME_AMBIANCE, crewInfo, migrateLegacyPatrol, nearestDepart, readImprevus, readVacation, sanitizePatrolSetup,
   vacationSessionConfig,
@@ -181,7 +183,11 @@ export function sanitizeDraft(input: Partial<ScenarioDraft> | null | undefined, 
   out.role = ROLE_IDS.indexOf(d.role) >= 0 ? d.role : 'crs';
   const info = roleInfo(out.role);
   out.rank = info.ranks.length === 0 ? null : d.rank && info.ranks.indexOf(d.rank) >= 0 ? d.rank : info.defaultRank;
-  out.poste = info.postes.length === 0 ? null : d.poste && info.postes.indexOf(d.poste) >= 0 ? d.poste : info.defaultPoste;
+  // le poste que la fiche de mission impose est gardé même s'il n'est pas proposé au rôle sur l'accueil (atelier
+  // ecole-03 : l'élève CRS tient la place du chef de groupe pour prononcer les sommations)
+  const def = out.missionId !== '' ? missionById(out.missionId) : undefined;
+  const imposed = !!def && def.role === out.role && !!d.poste && def.poste === d.poste;
+  out.poste = info.postes.length === 0 ? null : d.poste && (imposed || info.postes.indexOf(d.poste) >= 0) ? d.poste : info.defaultPoste;
   out.variante = info.variantes.length === 0 ? '' : info.variantes.some((v) => v.id === d.variante) ? d.variante : info.variantes[0]!.id;
 
   out.place = typeof d.place === 'string' ? d.place : base.place;
@@ -195,7 +201,8 @@ export function sanitizeDraft(input: Partial<ScenarioDraft> | null | undefined, 
   out.windDir = ((Math.round(num(d.windDir, base.windDir) / 45) * 45) % 360 + 360) % 360;
   out.windSpeed = Math.round(clamp(num(d.windSpeed, base.windSpeed), 0, 70));
 
-  out.crowdSize = Math.round(clamp(num(d.crowdSize, base.crowdSize), CROWD_MIN, CROWD_MAX));
+  // une mission garde la foule de sa fiche, même sous le minimum du curseur (40 figurants d'atelier, aucune foule)
+  out.crowdSize = Math.round(clamp(num(d.crowdSize, base.crowdSize), out.missionId !== '' ? 0 : CROWD_MIN, CROWD_MAX));
   out.cause = typeof d.cause === 'string' && d.cause ? d.cause : base.cause;
   out.causeLabel = typeof d.causeLabel === 'string' && d.causeLabel ? d.causeLabel : causeLabelOf(out.cause, DEFAULT_CAUSES);
 
@@ -429,6 +436,7 @@ export function buildSessionConfig(draft: ScenarioDraft): SessionConfig {
     extra.manifestations = d.manifestations.map((m) => ({ ...m, tension: m.tension ?? d.tension, volatility: m.volatility ?? d.volatility }));
   }
   if (free) applyLibre(d, extra);
+  else applyMission(d, extra);
   if (extra.journee) {
     // la caserne est loin du rassemblement : ses données sont chargées aussi avant la mise en place ; un point de
     // départ choisi limite le choix de la session à cette seule base
@@ -457,6 +465,31 @@ export function buildSessionConfig(draft: ScenarioDraft): SessionConfig {
     config.z = d.z;
   }
   return config;
+}
+
+/**
+ * Ce que la fiche de mission impose et que le brouillon ne sait pas porter (même configuration que missionConfig,
+ * src/gameplay/missions/config.ts) : aucune foule quand la fiche n'en a pas, son parcours déclaré, et ses familles
+ * hors de l'éditeur (supporters, curieux, riverains… = 'divers') tant que le joueur n'a pas retouché la composition.
+ */
+function applyMission(d: ScenarioDraft, extra: ScenarioExtra): void {
+  const def = missionById(d.missionId);
+  if (!def) return;
+  const out = extra as unknown as Record<string, unknown>;
+  if (d.crowdSize <= 0) out['crowd.none'] = true;
+  if (def.crowd.route.length >= 2) out['crowd.route'] = [...def.crowd.route];
+  const own = missionComposition(def);
+  const asDrafted = sanitizeDraft({ ...d, composition: weightsFromShares(own) }, d).composition;
+  if (FAMILY_IDS.every((id) => asDrafted[id] === d.composition[id])) out.composition = shareOf(own);
+}
+
+/** Poids → parts (somme = 1). */
+function shareOf(weights: Record<string, number>): Record<string, number> {
+  let sum = 0;
+  for (const v of Object.values(weights)) sum += Math.max(0, v);
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(weights)) if (v > 0) out[k] = round4(v / (sum || 1));
+  return out;
 }
 
 /** Réglages du scénario libre : nom, organisateurs, imprévu, lieu tiré au hasard (aucune clé pour une valeur par défaut). */

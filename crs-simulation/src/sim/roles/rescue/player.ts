@@ -51,6 +51,8 @@ export class PlayerCrew {
   /** Foyers éteints déjà annoncés, bilan du SAMU déjà passé (intervention en cours). */
   private firesSaid = 0;
   private bilanSaid = false;
+  /** Joueur pompier déjà doté de sa trousse de premiers secours (une seule fois : elle ne se remplit pas seule). */
+  private kittedId = 0;
   dispatcher!: Dispatcher;
   /** Trajet de l'engin conduit par son conducteur (IA). */
   readonly ride: PlayerRide;
@@ -72,6 +74,7 @@ export class PlayerCrew {
     this.quietSince = -1;
     this.firesSaid = 0;
     this.bilanSaid = false;
+    this.kittedId = 0;
     this.ride.reset();
   }
 
@@ -105,6 +108,12 @@ export class PlayerCrew {
     if (!kind || !p) {
       if (this.crew && !this.call) this.dissolve();
       return;
+    }
+    // le sapeur joué tient la lance mais porte aussi la trousse de premiers secours : le HUD l'appelle auprès des
+    // blessés et le geste « soigner » la demande (le porte-lance de l'IA n'en a pas, ses équipiers « secours » si)
+    if (kind === 'pompiers' && this.kittedId !== p.id) {
+      this.kittedId = p.id;
+      if (ctx.actions.def('trousse_secours') && ctx.actions.has(p, 'trousse_secours') <= 0) ctx.actions.give(p, 'trousse_secours', 10);
     }
     let crew = this.crew;
     if (!crew || crew.kind !== kind) {

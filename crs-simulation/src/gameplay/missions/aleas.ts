@@ -97,7 +97,14 @@ export class PhaseAleas {
   /** Joue un aléa : annonce, puis effet selon sa famille. */
   play(ctx: GameContext, text: string): void {
     const t = text.toLowerCase();
-    ctx.radio.say({ channel: 'commandement', from: 'SALLE', priority: 2, text: `Attention, ${text.charAt(0).toLowerCase()}${text.slice(1)}.` });
+    const said = `Attention, ${text.charAt(0).toLowerCase()}${text.slice(1)}.`;
+    // annonce sur le réseau du joueur : le pompier ou le soignant du SAMU n'écoute que le réseau des secours (salle
+    // PARIS, régulation SAMU 75) ; la salle de police parle sur 'commandement' (les autres civils n'ont que la notification)
+    if (ctx.player.state.role === 'secouriste') {
+      ctx.radio.say({ channel: 'secours', from: ctx.player.person()?.kind === 'samu' ? 'SAMU 75' : 'PARIS', priority: 2, text: said });
+    } else {
+      ctx.radio.say({ channel: 'commandement', from: 'SALLE', priority: 2, text: said });
+    }
     ctx.ui.notify(text, 'warn', 6);
     const spot = this.contactPoint(ctx);
     if (/averse|pluie|orage|grêle/.test(t)) {

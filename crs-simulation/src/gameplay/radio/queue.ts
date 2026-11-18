@@ -5,7 +5,9 @@
  *   - les messages en attente sortent par priorité décroissante (urgent d'abord), puis par ancienneté ;
  *   - les messages d'ambiance attendent au plus quelques secondes, les autres plus longtemps, avant d'être abandonnés ;
  *   - un même message du même émetteur n'est pas redit avant un délai qui dépend de sa priorité ;
- *   - une file saturée écarte d'abord les messages les moins importants.
+ *   - une file saturée écarte d'abord les messages les moins importants ;
+ *   - le message du joueur (voir `fromPlayer`) passe en tête de la file de son canal et n'est jamais abandonné : c'est
+ *     celui qu'il attend (un compte rendu n'est compté par l'objectif qu'une fois diffusé).
  * ===================================================================================== */
 
 import type { RadioChannel, RadioMessage } from '@/core/contracts';
@@ -52,6 +54,8 @@ export class RadioQueue {
   private readonly busy = new Map<RadioChannel, number>();
   private readonly recent = new Map<string, number>();
   private seq = 0;
+  /** Reconnaît un message dit par le joueur (null : aucun passe-droit). Renseigné par le module radio. */
+  fromPlayer: ((msg: RadioMessage) => boolean) | null = null;
 
   /**
    * @param play  diffuse réellement le message (journal, événement, sous-titre) ; appelée au plus une fois par message.
@@ -109,7 +113,7 @@ export class RadioQueue {
     if (q.length >= this.cfg.maxPending) {
       let victim = 0;
       for (let i = 1; i < q.length; i++) if (q[i]!.msg.priority < q[victim]!.msg.priority) victim = i;
-      if (q[victim]!.msg.priority > msg.priority) {
+      if (q[victim]!.msg.priority > msg.priority && !this.isPlayer(msg)) {
         this.counters.dropped++;
         return 'dropped';
       }
@@ -128,17 +132,23 @@ export class RadioQueue {
       // abandon des messages qui ont trop attendu
       for (let i = q.length - 1; i >= 0; i--) {
         const p = q[i]!;
-        if (now - p.at > this.cfg.maxWait[p.msg.priority]) {
+        if (now - p.at > this.cfg.maxWait[p.msg.priority] && !this.isPlayer(p.msg)) {
           q.splice(i, 1);
           this.counters.dropped++;
         }
       }
       if (q.length === 0 || now < (this.busy.get(channel) ?? -Infinity)) continue;
       let best = 0;
+      let bestMine = this.isPlayer(q[0]!.msg);
       for (let i = 1; i < q.length; i++) {
         const a = q[i]!;
         const b = q[best]!;
-        if (a.msg.priority > b.msg.priority || (a.msg.priority === b.msg.priority && a.seq < b.seq)) best = i;
+        const mine = this.isPlayer(a.msg);
+        // le joueur d'abord ; puis priorité décroissante, puis ancienneté
+        if (mine !== bestMine ? mine : a.msg.priority > b.msg.priority || (a.msg.priority === b.msg.priority && a.seq < b.seq)) {
+          best = i;
+          bestMine = mine;
+        }
       }
       const [next] = q.splice(best, 1);
       this.start(next!.msg, next!.key, now);
@@ -160,6 +170,15 @@ export class RadioQueue {
     this.counters.repeated = 0;
     this.counters.dropped = 0;
     this.seq = 0;
+  }
+
+  private isPlayer(msg: RadioMessage): boolean {
+    if (!this.fromPlayer || msg.personId === undefined) return false;
+    try {
+      return this.fromPlayer(msg);
+    } catch {
+      return false;
+    }
   }
 
   private queueOf(channel: RadioChannel): Pending[] {
