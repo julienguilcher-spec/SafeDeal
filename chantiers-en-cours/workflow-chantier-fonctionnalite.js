@@ -132,13 +132,16 @@ Return: bugs (each with severity, evidence, fixed), acceptance (one entry per ac
 
 const byKey = {}
 for (const p of packages) byKey[p.key] = p
+// paquets terminés lors d'une étape précédente (livraison par étapes) : { P1: { title, report } }
+const DONE = args.done || {}
+const EARLIER = { summary: 'Finished in an earlier stage: its code is in the worktree (read it) and its report is in the reports file named in the plan addendum.' }
 const started = {}
 function run(p) {
   if (!started[p.key]) {
     started[p.key] = (async () => {
       const depKeys = p.dependsOn || []
-      const depReports = await Promise.all(depKeys.map((k) => run(byKey[k])))
-      const deps = depKeys.map((k, i) => ({ key: k, title: byKey[k].title, report: depReports[i] }))
+      const depReports = await Promise.all(depKeys.map((k) => byKey[k] ? run(byKey[k]) : Promise.resolve(DONE[k] ? DONE[k].report : EARLIER)))
+      const deps = depKeys.map((k, i) => ({ key: k, title: byKey[k] ? byKey[k].title : (DONE[k] ? DONE[k].title : k), report: depReports[i] }))
       let r = await agent(pkgPrompt(p, deps, PARTIAL.includes(p.key)), { label: `paquet:${feature}:${p.key}`, phase: 'Paquets', schema: PKG_SCHEMA, model: MODEL })
       if (!r) {
         log(`${feature} ${p.key} : agent interrompu, nouvelle tentative`)
@@ -154,12 +157,26 @@ function run(p) {
 phase('Paquets')
 const reports = await Promise.all(packages.map((p) => run(p).then((r) => ({ key: p.key, title: p.title, report: r }))))
 
+// livraison par étapes : une étape peut ne faire que des paquets (le coordinateur enchaîne lui-même la suite)
+if (args.packagesOnly) return { feature, packages: reports }
+
 phase('Intégration')
 // intégration déjà faite lors d'un lancement précédent (coupé par un redémarrage) : on passe directement au joueur critique
 let integ = args.integrationReportFile
   ? { note: 'The integration was finished in an earlier run. The integrator\'s full report is in the JSON file ' + args.integrationReportFile + ' under the key « intégration:' + feature + ' » — read it first.' }
   : await agent(integPrompt(reports), { label: `intégration:${feature}`, phase: 'Intégration', schema: INTEG_SCHEMA, model: MODEL })
 if (!integ) integ = await agent(integPrompt(reports), { label: `intégration:${feature}:reprise`, phase: 'Intégration', schema: INTEG_SCHEMA, model: MODEL })
+
+// livraison par étapes : une première étape peut s'arrêter après l'intégration (le coordinateur écrit le correctif et
+// vérifie lui-même) ; le joueur critique passe à la fin de la dernière étape, sur toute la fonctionnalité
+if (args.skipCritic) {
+  return {
+    feature,
+    packages: reports.map((r) => ({ key: r.key, title: r.title, complete: r.report ? r.report.complete : false, deviations: r.report ? r.report.deviations : [], openIssues: r.report ? r.report.openIssues : ['agent interrompu'], summary: r.report ? r.report.summary : '' })),
+    integration: integ,
+    critic: null,
+  }
+}
 
 phase('Joueur critique')
 let critic = await agent(criticPrompt(integ), { label: `joueur-critique:${feature}`, phase: 'Joueur critique', schema: CRITIC_SCHEMA, model: MODEL })

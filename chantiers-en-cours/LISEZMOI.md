@@ -15,7 +15,7 @@ chantier aura été intégré dans `crs-simulation/`, testé et publié.
 | `commissariats.patch`, `commissariats-delta-A.patch` | Le chantier des commissariats dans son espace d'origine (complet, base `2365d2b`) et ses seuls ajouts par rapport à « 2365d2b + refonte du commandement » | voir colonne 1 | TERMINÉ (paquets, intégration, test en joueur) ; sert de référence à la fusion |
 | `colonne-tete-bloquee.patch` | Colonne arrêtée pour de bon derrière sa tête bloquée contre un mur ; réseau radio saturé ; point inaccessible sans message ; sirène | branche principale (`commandant-carte-2` y est intégré) | brouillon du chasseur, en cours |
 | `commandant-mission.patch` | La partie du joueur : commandant en mode Missions spéciales, aucun ordre possible à l'arrivée, personne ne suit, BRAV-M immobile | branche principale (`commandant-carte-2` y est intégré) | brouillon du chasseur, en cours |
-| `ordres-directs/` | Diagnostic du retour du joueur et conception des ordres directs sur le terrain, des unités « avec moi », de la réactivité, des fourgons cellulaires et du circuit des interpellés | documents | diagnostic « terrain » écrit ; les deux autres diagnostics, les trois propositions, la synthèse et la critique sont en cours |
+| `ordres-directs/` | Ordres directs sur le terrain, unités « avec moi », réactivité, fourgons cellulaires et circuit des interpellés | documents | diagnostic (3 rapports), 3 propositions, cahier des charges critiqué `design-ordres-directs.md` (16 paquets, 15 blocages), plan de réalisation `plan-ordres-directs.md` (avec l'addendum du coordinateur) ; réalisation lancée : paquet P1 en cours dans un arbre basé sur la branche principale |
 
 ## Reprendre
 
