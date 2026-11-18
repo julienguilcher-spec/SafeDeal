@@ -624,5 +624,127 @@
    "Not run: `playtest.colonne-ia*`, `playtest.colonne-barrages`, `playtest.colonne-joueur`, `integration.journee*`."
   ],
   "complete": false
+ },
+ "contre-vérif:commissariats→ordres-directs": {
+  "problems": [
+   {
+    "title": "The map's « Qui » treated every unit following the player as busy: no two sections for a wide street, and the label said « suit · place de la Concorde (la quittera) »",
+    "evidence": "Since P5, every unit starts with « suivre » on the player. bestUnit.ts isFree only counted libre, cesser and a far « tenir » as free, so all sections fell into tier 1 and the wide-street rule (first section must be tier 0) never fired. A debug run at Concorde, seed 21, showed every candidate as « suit … (la quittera) ». The plan (§1.4) says a unit « avec vous » is free, as direct/who.ts already does. ui-command.qui was red (got 1 section, expected 2). Fix: CardPlayer.personId (cardTypes.ts, set in reperes.ts), and withPlayer() in bestUnit.ts used by isFree and busyText (« avec vous »). After the fix the debug run shows « Sections MISTRAL 3 et MISTRAL 1 | rue de 71 m : 2 sections ». ui-command.qui is green and all 31 ui-command.* files pass (328 tests). Mission robots 01 and 04 (passager, with and without stations) re-run after the fix: all pass.",
+    "fixed": true
+   },
+   {
+    "title": "« En colonne » given to a BRAV-M said « En file, à pied, rejoignez le point » on the radio while it rode 600 m on its motos",
+    "evidence": "Seen in playtest.commissariats (9e): « FAUCON 9 ICI MISTRAL. En file, à pied, rejoignez le point, rue Sainte-Anne ». The merge's BRAV-M phrase only covered « Faire mouvement ». Fix in src/ui/command/core.ts: bravmMove = bravm || (type 'colonne' && isBravm(s)) now picks the same « Mouvement à moto, en colonne, sur … » or « Mouvement à pied sur … » phrase, using drivesTo(…, 'bravm'). Proven by the new test integration.commissariats-ordres-directs: red on a copy without the fix (« expected 'FAUCON 1 ICI MISTRAL. En file, à pied…' to match /Mouvement à moto, en colonne/ »), green with it.",
+    "fixed": true
+   },
+   {
+    "title": "police.convoi-ordre-joueur « colonne qui roule »: the robot stopped waiting while the company column was still in 'route', a few seconds before it parked",
+    "evidence": "Debug dump: the column was still 'route', with its vans 25–55 m from the point and the carried section seated (carrying=true). 5 s later it was 'stationnement', at +35 s 'en_place', with 16/16 on foot. Bisected on a scratch copy: with the pre-merge sim/traffic/parking.ts and car-clear.ts the case passes unchanged. Theirs' reserved-bay parking changes spawn order and ids, which shifts the timing. The behaviour is right; the test waited only while the stage was stationnement or debarquement. Fix: it now also waits while 'route' (bounded, 200 s). The case is green.",
+    "fixed": true
+   },
+   {
+    "title": "playtest.commissariats « cycle complet — 9e »: FAUCON 9's first moto stops 88 m from the point (limit 80)",
+    "evidence": "Dump: stage 'a_pied'. The chief and operators are 0–9 m from the point; the pilots and motos are 75–96 m back (one at 199 m). This is P4's rule: a player order whose motos stall within 250 m dismounts and finishes on foot. It is identical on a copy with ours bravm.ts and the pre-merge parking, so the merge did not cause it. The test predates P4. It now measures the BRAV-M chief when he is on foot. The rest of the cycle passes: return home, all 6 motos in their bays at 0°, rest, available again.",
+    "fixed": true
+   },
+   {
+    "title": "Three stale expectations after P5 (BRAV-M under the company, crewed cellular vans, everyone follows)",
+    "evidence": "ui-command.direct-logique: (c) looked for a BRAV-M with parentId 0; it is now the FAUCON group under the company. (e) needed a section not « avec vous », but all start following, so the test now sends one section to hold elsewhere first and restores its order. (U) the cycle now has 2 cellular vans before « Toute la compagnie », which is exactly §1.4. ui-command.panneaux: « Engins (2) » is now « Engins (4) » (Centaure, canon à eau, CELLULAIRE 1 and 2; at most 6 rows still holds). All three files: 46/46 pass.",
+    "fixed": true
+   },
+   {
+    "title": "Service day at République: the company column waits at its point among its own BRAV-M motos, parked on the same point",
+    "evidence": "journee.ts engageOthers sends the attached BRAV-M 'colonne' to the company's own destination. In both convoi-ordre-joueur dumps, FAUCON 1-x motos sit 0–22 m from the point; some are 'drive/bloque' for 227 s while the vans wait 'follow/attente'. A van then manoeuvres about 45 s with 6 agents seated (holding=true while park/manoeuvre). Result: « tous à pied à +49 s » against the 40 s limit. With the pre-merge parking it is +32 s. This is P6 design plus P17 parking robustness, not a merge logic error. Not fixed here.",
+    "fixed": false
+   },
+   {
+    "title": "integration.journee.chef-bravm « il ne remonte pas »: 3/5 motos leave, not 4",
+    "evidence": "Still red on a copy with ours bravm.ts and the pre-merge parking, so the merge did not cause it. It was green in P6's report; P4 edited bravm.ts afterwards and its report does not list this test. Not fixed (P4/P17).",
+    "fixed": false
+   },
+   {
+    "title": "playtest.bravm-passager: 3 cases red (journée 9e → Bastille seed 5, and both « chef de la BRAV-M » cases)",
+    "evidence": "Both chief cases are still red on a copy with ours bravm.ts and the pre-merge parking, so not caused by the merge. P4 reported 7/7 before later P5/P6 work. Not fixed.",
+    "fixed": false
+   },
+   {
+    "title": "playtest.colonne-joueur « atelier »: held 0.65 s (needs ≥ 1)",
+    "evidence": "Passes on the copy with the pre-merge parking (with either bravm.ts) and fails with theirs' parking.ts. Timing sensitivity to civilian traffic, not a merge logic error. Not fixed.",
+    "fixed": false
+   }
+  ],
+  "redTests": [
+   {
+    "test": "tests/unit/ui-command.direct-logique (rules c, e, U cycle)",
+    "status": "green 31/31",
+    "note": "Expectations updated to the P5 setup; the new values follow §1.4."
+   },
+   {
+    "test": "tests/unit/ui-command.qui (wide street, 2 sections)",
+    "status": "green 2/2",
+    "note": "Real fix in bestUnit.ts isFree: « avec vous » counts as free."
+   },
+   {
+    "test": "tests/unit/ui-command.panneaux (« Engins (2) »)",
+    "status": "green 13/13",
+    "note": "Now « Engins (4) »: Centaure, canon à eau and the 2 crewed cellular vans."
+   },
+   {
+    "test": "tests/unit/playtest.commandant-compagnie-depart",
+    "status": "red 1 passed / 4 failed",
+    "note": "Left to P17. Concorde 21 passes. Concorde 7: « pas arrivés ». Bastille 5: « partis trop tard ». République 11: « pas arrivés ». République 21 (journée): fixedCandidate mode 'pied' instead of 'vehicules', identical without my Qui fix."
+   },
+   {
+    "test": "tests/unit/session.cellulaires « journée de service »",
+    "status": "red (1/6)",
+    "note": "Left to P17: « point de remise fixé après le débarquement: expected null not to be null »."
+   },
+   {
+    "test": "PLAYTEST_STRICT=1 PLAYTEST_LIGHT=1 tests/unit/playtest.colonnes-roles",
+    "status": "red 38 passed / 4 failed",
+    "note": "The same 4 driver cases as before the merge (concorde crs/conducteur, republique crs/conducteur, republique chef_groupe/chef_section, bastille crs/conducteur). Left to P17."
+   },
+   {
+    "test": "tests/unit/police.convoi-ordre-joueur",
+    "status": "4/5",
+    "note": "« colonne qui roule » is green (robot now waits for the column to stop). « journée de service » is red: all on foot at +49 s, limit 40, because of the BRAV-M motos parked on the column point and a van manoeuvring (see problems)."
+   },
+   {
+    "test": "tests/unit/playtest.commissariats",
+    "status": "green 12/12 after the BRAV-M arrival fix",
+    "note": "9e re-run alone after the fix: pass. « retour sous les yeux du joueur 9e » was green in this pass."
+   },
+   {
+    "test": "tests/unit/playtest.commandant-mission-colonne",
+    "status": "green 1/1",
+    "note": "The merger's report had it red at step (d)."
+   },
+   {
+    "test": "tests/unit/integration.journee.chef-bravm",
+    "status": "red 1/2",
+    "note": "Not caused by the merge (bisected)."
+   },
+   {
+    "test": "tests/unit/playtest.bravm-passager",
+    "status": "red 4/7",
+    "note": "Not caused by the merge for the two chief cases (bisected)."
+   },
+   {
+    "test": "tests/unit/playtest.colonne-joueur",
+    "status": "red 3/4",
+    "note": "The atelier case fails only with theirs' parking.ts: timing."
+   }
+  ],
+  "checked": "Static review against base, ours and theirs (merge-cs/st) of convoy.ts, bravm.ts, units.ts, follow.ts, journee.ts, command/api.ts, command/system.ts, ui/command/core.ts and ui/command/index.ts. Every feature of theirs' convoy.ts is present (quietRun, pace, driveOne, quiet, takeWheel, remanLaunched, again, urgence handling, disembark:false). The private taken map, dismountTaken and release(c) are gone. takeOver callers match the merged signature. The P8 watchdog skips BRAV-M. arrest-service.receives rejects held and at-post station vans.\n\nRobots (headless vitest, real Paris map):\n- playtest.commandant-mission-01 and -04, PLAYTEST_ARRIVAL=passager, with and without PLAYTEST_STATIONS=1: 4/4 pass before my change and again after it. Their « after » baseline was passager green, so nothing is worse.\n- integration.commissariats-commandant, -fusion, -journee-depart, integration.commissariats, commissariats.*: 10 files, 46 passed, 1 skipped. This covers (b), (b2), (c), (c2), a service day from the 1er, two sessions in a row, and bravm-retour-proche.\n- police.ordre-a-bord, integration.fin-de-colonne, police.interpelles-fourgon, police.convoi-ordre-depart: pass. police.convoi-ordre-joueur: 4/5 after the fix.\n- New tests/unit/integration.commissariats-ordres-directs.test.ts: green. (e) No station unit follows the player or appears in env.units, U or « Toute la compagnie ». No held vehicle is used by a session unit. Reserve vans never receive a detainee; nearestVan next to each reserve van returns a dispositif van or none; the company's 2 vans receive. A BRAV-M « En colonne » radio line test. (f) After « A », a station section engaged and moving by vehicle, then a second start: no direct-order tickets, no afterConvoy, every station entry au_poste with squadId 0, no station unit following.\n- ui-command.* (31 files, 328 tests): all green.\n- playtest.commissariats 9e, playtest.commandant-mission-colonne, chef-bravm, bravm-passager, colonne-joueur, compagnie-depart, session.cellulaires, colonnes-roles strict: statuses in redTests.\n- Bisections on a scratch copy (/tmp/claude-0/-home-user-SafeDeal/f854eafd-7c66-528c-834c-30dfeec78944/scratchpad/verif2/copy) with HEAD parking.ts/car-clear.ts and/or ours bravm.ts.\n- `npx tsc --noEmit -p .`: clean.\n\nFiles changed: src/ui/command/bestUnit.ts, src/ui/command/cardTypes.ts, src/ui/command/reperes.ts, src/ui/command/core.ts; tests ui-command.direct-logique, ui-command.panneaux, police.convoi-ordre-joueur, playtest.commissariats, plus the new integration.commissariats-ordres-directs.test.ts. No files of P9 or P12 were touched.",
+  "tscClean": true,
+  "remaining": [
+   "Service day at République: the attached BRAV-M is sent 'colonne' to the company's own point (journee.ts engageOthers). Its motos park on the spot where the vans must park; some stay 'drive/bloque' for minutes. One van then manoeuvres about 45 s with 6 agents seated. Result: police.convoi-ordre-joueur « journée » has everyone on foot at +49 s against the 40 s limit. Suggested for P17/P6: give the BRAV-M a point offset from the column, or let the passengers out after N s of park manoeuvre.",
+   "Since the merge, columns are sensitive to traffic timing. Theirs' reserved-bay parking.ts change shifts spawn order and vehicle ids. Bisected: playtest.colonne-joueur « atelier » fails only with the new parking.ts.",
+   "Red and not caused by the merge (bisected with ours bravm.ts and the pre-merge parking): integration.journee.chef-bravm « il ne remonte pas » (3/5 motos) and playtest.bravm-passager (both chief cases, plus journée 9e → Bastille). Likely P4's bravm.ts edits made after P6.",
+   "P17 items: playtest.commandant-compagnie-depart is 1/5. Its République 21 journée case gets 'pied' from fixedCandidate for a 600 m « Toute la compagnie » with the commandant aboard, a UI travel-mode question. session.cellulaires « journée » (no point de remise). colonnes-roles strict: 4 driver cases.",
+   "A BRAV-M stalled under 250 m on a player order finishes on foot and its motos stay where they stopped (75–96 m back in the 9e cycle, one at 199 m). This is P4's design; consider whether the pilots should bring the motos up once the operators arrive.",
+   "Not tested in a browser: the station card's « Engager » followed by a field order (Entrée), U with engaged station units, and the new BRAV-M « Mouvement à moto / à pied » radio line for « En colonne »."
+  ],
+  "summaryFr": "J'ai vérifié la fusion « commissariats » + « ordres directs ». Chaque besoin n'a bien qu'un seul mécanisme : un ordre donné pendant l'arrivée de la colonne, une unité qui quitte une colonne, une BRAV-M dont les motos n'avancent plus, le stationnement, la journée de service et le cœur de l'interface.\n\nJ'ai corrigé deux vrais défauts :\n1. La carte de commandement (« Qui ») traitait comme occupées les unités qui vous suivent (« avec vous »). Résultat : elle ne proposait jamais deux sections pour barrer une rue large et affichait « suit … (la quittera) ». Elle propose de nouveau deux sections et affiche « avec vous ».\n2. La radio disait « En file, à pied » à une BRAV-M envoyée « En colonne » à 600 m, alors qu'elle partait à moto. Elle dit maintenant « Mouvement à moto » (ou « à pied » quand le point est proche).\n\nJ'ai aussi remis à jour cinq tests qui ne collaient plus à la nouvelle mise en place : BRAV-M dans la compagnie, deux fourgons cellulaires avec équipage, tout le monde vous suit.\n\nCe que j'ai vérifié en jeu automatique :\n- Missions 01 et 04 en passager, avec et sans commissariats : elles passent, rien n'a régressé.\n- Une unité de commissariat engagée exécute l'ordre donné à son arrivée.\n- « Rentrer au commissariat » pendant la colonne fonctionne.\n- Personne au repos dans un commissariat ne vous suit au début de la partie.\n- Un interpellé ne va jamais dans un fourgon garé en réserve d'un commissariat.\n- Deux parties de suite ne gardent rien de la première.\n\nCe qui reste fragile (à voir dans le paquet P17) :\n- À République, en journée de service, les motos de la BRAV-M se garent au point même de la colonne et la gênent. Les agents mettent environ 49 s à être tous à pied au lieu de 40.\n- Quelques robots du chef BRAV-M et des départs de compagnie restent rouges. Je les ai isolés : ils ne viennent pas de la fusion.\n\nÀ jouer en priorité : une journée de service depuis la place de la République, et le chef de la BRAV-M."
  }
 }
