@@ -82,7 +82,7 @@ export type VerbGeom = 'point' | 'street' | 'autoLine' | 'trace' | 'immediate' |
 
 export type LineAction =
   /** Ordre du catalogue (orders.ts). `targetId` : BARRAGE_LET_PASSERSBY pour « passants admis », entité visée sinon. */
-  | { kind: 'verb'; type: OrderType; geom: VerbGeom; targetId?: number }
+  | { kind: 'verb'; type: OrderType; geom: VerbGeom; targetId?: number; noFact?: boolean }
   /** « Encercler (nasse) » : chaque issue ouverte de la foule reçoit une unité (nasse.ts proposeNasse + acceptNasse). */
   | { kind: 'nasse' }
   /** « Ouvrir une sortie filtrée » d'une nasse fermée (nasse.ts openFilteredExit). */
@@ -407,6 +407,11 @@ export interface CardEnv {
    * null = pas de liaison possible (service absent, ou joueur qui ne commande pas l'ensemble du dispositif).
    */
   liaison?: boolean | null;
+  /**
+   * Un auteur de fait constaté, interpellable, se trouve-t-il à moins de `radius` m du point ? Absent : inconnu (la fiche
+   * promet alors l'interpellation comme avant).
+   */
+  offenderAt?(x: number, z: number, radius: number): boolean;
 }
 
 // ───────────────────────────── Qui (bestUnit.ts, C1B) ─────────────────────────────
@@ -423,6 +428,11 @@ export interface WhoCandidate {
   busy: string;
   /** Unité d'un commissariat à engager à l'envoi (entrée du module des commissariats). */
   fromStation?: number;
+  /**
+   * Le joueur, à pied, fait partie de l'unité qui part en véhicules : sa colonne l'attend pour démarrer (jusqu'à 5 min,
+   * sim/police/command/convoy.ts awaitPlayer). La phrase de la fiche le dit.
+   */
+  waitsForYou?: boolean;
 }
 
 export interface WhoEnv {

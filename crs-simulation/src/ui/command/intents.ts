@@ -158,11 +158,18 @@ const VERB_ICONS: Readonly<Record<string, IconName>> = {
  * Ligne de fiche pour un ordre du catalogue au point (x, z) : libellé et explication du verbe (sauf `opts`), cadenas
  * légal, règle. null si le verbe n'existe pas (encore) dans le catalogue — la ligne n'est alors pas proposée.
  */
+/** Rayon (m) où l'envoi cherche l'auteur d'un fait constaté dans une foule (sendLine.ts). */
+const NO_FACT_RADIUS = 40;
+
 export function verbLine(env: CardEnv, type: OrderType, geom: VerbGeom, x: number, z: number, opts: VerbLineOpts = {}): CardLine | null {
   const v = verbOf(type);
   if (!v) return null;
   const legal = legalOf(v, env, x, z);
-  const action: LineAction = opts.targetId !== undefined ? { kind: 'verb', type, geom, targetId: opts.targetId } : { kind: 'verb', type, geom };
+  const verb: Extract<LineAction, { kind: 'verb' }> = opts.targetId !== undefined ? { kind: 'verb', type, geom, targetId: opts.targetId } : { kind: 'verb', type, geom };
+  // « Interpeller » sans auteur désigné et sans fait constaté autour : l'unité ira constater, mais n'interpellera
+  // personne (la fiche disait « interpelle l'auteur », puis l'unité répondait « négatif » à la radio)
+  if (type === 'interpeller' && (opts.targetId ?? 0) === 0 && env.offenderAt && !env.offenderAt(x, z, NO_FACT_RADIUS)) verb.noFact = true;
+  const action: LineAction = verb;
   return {
     label: opts.label ?? v.plain, explain: opts.explain ?? v.explain, icon: opts.icon ?? VERB_ICONS[type] ?? 'nav', action,
     coercive: legal.coercive, lock: legal.lock, needsWho: opts.needsWho ?? true, rule: v.rule,

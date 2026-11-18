@@ -362,6 +362,7 @@ export function wholeCandidate(where: { x: number; z: number }, env: WhoEnv): Wh
   if (!w || w.squadIds.length === 0) return null;
   let eta = 0, distance = 0, agents = 0;
   let vehicles = false;
+  let withPlayer = false;
   for (const id of w.squadIds) {
     const u = env.card.units.find((q) => q.squadId === id);
     if (!u) continue;
@@ -369,9 +370,13 @@ export function wholeCandidate(where: { x: number; z: number }, env: WhoEnv): Wh
     eta = Math.max(eta, t.eta);
     distance = Math.max(distance, t.distance);
     if (t.mode === 'vehicules') vehicles = true;
+    withPlayer = withPlayer || (u.hasPlayer === true && t.mode === 'vehicules');
     agents += u.valid;
   }
-  return { squadIds: w.squadIds.slice(), label: w.label, mode: vehicles ? 'vehicules' : 'pied', eta, distance, busy: `${agents} agents` };
+  const out: WhoCandidate = { squadIds: w.squadIds.slice(), label: w.label, mode: vehicles ? 'vehicules' : 'pied', eta, distance, busy: `${agents} agents` };
+  // le commandant à pied fait partie de la colonne : elle l'attend pour partir (convoy.ts awaitPlayer)
+  if (withPlayer && env.card.player && !env.card.player.inVehicle) out.waitsForYou = true;
+  return out;
 }
 
 /** Libellé du bouton T selon ce qu'il sélectionne (« Toute la compagnie », « Toute la section », « Tout le groupe »). */

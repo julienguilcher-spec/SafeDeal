@@ -900,6 +900,16 @@ export class BravmUnit extends SpecialUnit {
       this.arrestOk = ok;
       this.arrestReason = ok ? '' : reason;
       if (ok) this.arrested++;
+      else {
+        // l'auteur a fui (un fuyard sans équipement court plus vite qu'un opérateur casqué) ou s'est dégagé : compte
+        // rendu tout de suite, sur le réseau de l'unité. Celui du module de police part sur le réseau de commandement,
+        // souvent saturé (il y était écarté) ; et le compte rendu de fin, en selle, venait plusieurs minutes après,
+        // sans motif : le commandant ne savait jamais que l'interpellation avait été abandonnée.
+        const fled = /atteinte|fuite|échappé|trop loin|perdu de vue/i.test(reason);
+        this.say(report(this.superior(), this.squad.name,
+          (fled ? 'Auteur en fuite, interpellation abandonnée' : 'Interpellation abandonnée' + (reason !== '' ? ' : ' + reason.replace(/\.$/, '').toLocaleLowerCase('fr-FR') : ''))
+          + '. Je regagne les machines'));
+      }
       this.backToMotos();
     } else if (stage === 'retour' && type === 'colonne') {
       this.remount();

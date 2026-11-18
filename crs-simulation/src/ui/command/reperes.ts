@@ -523,6 +523,8 @@ export function cardEnvFromCore(core: CommandCore, selection: readonly number[] 
       return !!lead && Math.hypot(lead.x - x, lead.z - z) > MOTOR_DISTANCE;
     },
     roadAt, placeName, wind: { x: scene.windX, z: scene.windZ }, liaison: liaisonState(core),
+    // même règle que l'envoi (sendLine) et que l'unité (droit : fait constaté) : quelqu'un d'interpellable près du point ?
+    offenderAt: (x, z, radius) => !!ctx.people.nearest(x, z, radius, (q) => q.faction === 'protest' && q.custody === 'free' && ctx.law.canArrest(q)),
   };
   for (const h of envHooks) {
     try { h(env, core); } catch { /* une extension défaillante ne prive pas la carte de ses fiches */ }

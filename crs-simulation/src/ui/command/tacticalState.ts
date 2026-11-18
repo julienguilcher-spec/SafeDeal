@@ -364,8 +364,9 @@ export function withVerbFirst(card: Card, type: OrderType, env: CardEnv, targetI
 }
 
 /** Qui imposé (fiche d'une unité, « L'envoyer ailleurs… », unité choisie dans la liste) : délai jusqu'au lieu `to`. */
-export function fixedCandidate(env: Pick<CardEnv, 'units'>, squadIds: readonly number[], to: { x: number; z: number }, label = ''): WhoCandidate {
+export function fixedCandidate(env: Pick<CardEnv, 'units'> & Partial<Pick<CardEnv, 'player'>>, squadIds: readonly number[], to: { x: number; z: number }, label = ''): WhoCandidate {
   let eta = 0;
+  let withPlayer = false;
   let distance = 0;
   let vehicles = false;
   const names: string[] = [];
@@ -378,12 +379,16 @@ export function fixedCandidate(env: Pick<CardEnv, 'units'>, squadIds: readonly n
     if (e.eta > eta) eta = e.eta;
     if (e.distance > distance) distance = e.distance;
     vehicles = vehicles || e.vehicles;
+    withPlayer = withPlayer || (u.hasPlayer === true && e.vehicles);
     if (squadIds.length === 1) busy = u.order ? 'a déjà un ordre (le quittera)' : 'sans ordre';
   }
-  return {
+  const out: WhoCandidate = {
     squadIds: squadIds.slice(), label: label !== '' ? label : names.length > 0 ? names.join(', ') : 'Unité',
     mode: vehicles ? 'vehicules' : 'pied', eta, distance, busy,
   };
+  // T (toute la compagnie) : le commandant à pied fait partie de la colonne, elle l'attend pour partir
+  if (withPlayer && env.player && !env.player.inVehicle) out.waitsForYou = true;
+  return out;
 }
 
 // ───────────────────────────── « À traiter » ─────────────────────────────

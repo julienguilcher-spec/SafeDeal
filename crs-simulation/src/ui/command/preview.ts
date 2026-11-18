@@ -104,7 +104,9 @@ const ACTIONS: Readonly<Record<string, Forms>> = {
   bond_offensif: ['fait un bond en avant de 20 à 40\u00a0m vers {lieu}, sans chercher le contact.', 'font un bond en avant de 20 à 40\u00a0m vers {lieu}, sans chercher le contact.'],
   disperser_gaz: ['lance le gaz lacrymogène sur {lieu}\u00a0; le nuage suit le vent.', 'lancent le gaz lacrymogène sur {lieu}\u00a0; le nuage suit le vent.'],
   encercler: ['encercle {lieu} en cercle serré\u00a0; une sortie reste ouverte à l’opposé.', 'encerclent {lieu} en cercle serré\u00a0; une sortie reste ouverte à l’opposé.'],
-  interpeller: ['interpelle l’auteur des faits constatés près {de}.', 'interpellent l’auteur des faits constatés près {de}.'],
+  // l'auteur peut fuir pendant l'approche (il court plus vite qu'un policier équipé) : l'unité y renonce et le dit
+  interpeller: ['interpelle l’auteur des faits constatés près {de}\u00a0; s’il prend la fuite, l’interpellation est abandonnée et l’unité rend compte.',
+    'interpellent l’auteur des faits constatés près {de}\u00a0; s’il prend la fuite, l’interpellation est abandonnée et les unités rendent compte.'],
   degager_barricade: ['dégage la barricade.', 'dégagent la barricade.'],
   degager_obstacle: ['pousse le véhicule hors de la chaussée.', 'poussent le véhicule hors de la chaussée.'],
   proteger: ['se place pour couvrir {lieu}.', 'se placent pour couvrir {lieu}.'],
@@ -133,21 +135,37 @@ function fill(t: string, where: Repere): string {
   return t.replace('{lieu}', p).replace('{de}', deOf(p)).replace('{jusque}', untilOf(p));
 }
 
-function verbSentence(type: string, targetId: number, who: WhoCandidate | null, where: Repere): string {
+/** « Interpeller » sans fait constaté près du point (LineAction.noFact) : l'unité constate, n'interpelle personne. */
+const NO_FACT: Forms = ['va constater près {de}\u00a0; sans fait constaté, personne n’est interpellé.', 'vont constater près {de}\u00a0; sans fait constaté, personne n’est interpellé.'];
+
+/**
+ * Colonne dont le joueur à pied fait partie (T, toute la compagnie) : elle ne démarre qu'avec lui à bord — la phrase
+ * annonçait « part en véhicules (~1 min) » et la colonne restait embarquée jusqu'à 5 min à l'attendre.
+ */
+function waitText(who: WhoCandidate | null, type: string): string {
+  if (!who || who.waitsForYou !== true || who.mode !== 'vehicules' || IMMEDIATE.has(type)) return '';
+  return ' La colonne vous attend pour partir\u00a0: montez à bord (elle part sans vous au bout de 5\u00a0min).';
+}
+
+function verbSentence(type: string, targetId: number, who: WhoCandidate | null, where: Repere, noFact = false): string {
   if (type === 'degager_obstacle' && (!who || who.squadIds.length === 0)) {
     return 'Le blindé Centaure libre le plus proche pousse le véhicule hors de la chaussée.';
   }
   const s = who ? subjectOf(who.label) : { text: 'l’unité', plural: false };
   const i = s.plural ? 1 : 0;
   const p = placePhrase(where);
+  if (type === 'interpeller' && noFact && !(who && /^BRAV-M\s/.test(who.label))) {
+    // une troupe ne part pas « constater » : sans fait constaté, elle refuse l'ordre sur place (ops.ts startTask)
+    return capFirst(`aucun fait constaté ${fill('près {de}', where)}\u00a0: ${s.text} ne peut interpeller personne et ${s.plural ? 'refuseront' : 'refusera'} l’ordre.`);
+  }
   if (type === 'colonne') {
-    return capFirst(`${s.text} ${s.plural ? 'partent' : 'part'} ${who ? modeText(who) : 'à pied'}, en file, vers ${p}.`);
+    return capFirst(`${s.text} ${s.plural ? 'partent' : 'part'} ${who ? modeText(who) : 'à pied'}, en file, vers ${p}.`) + waitText(who, type);
   }
   if (type === 'faire_mouvement') {
     const eta = who ? ` (~${minutesText(who.eta)})` : '';
-    return capFirst(`${s.text} ${s.plural ? 'embarquent et partent' : 'embarque et part'} en véhicules, deux-tons, vers ${p}${eta}, puis ${s.plural ? 'débarquent' : 'débarque'}.`);
+    return capFirst(`${s.text} ${s.plural ? 'embarquent et partent' : 'embarque et part'} en véhicules, deux-tons, vers ${p}${eta}, puis ${s.plural ? 'débarquent' : 'débarque'}.`) + waitText(who, type);
   }
-  let action = ACTIONS[type]?.[i];
+  let action = type === 'interpeller' && noFact ? NO_FACT[i] : ACTIONS[type]?.[i];
   if (type === 'couper_circulation' && targetId === BARRAGE_LET_PASSERSBY) {
     action = s.plural ? 'barrent {lieu}\u00a0: les manifestants ne passent pas, les passants oui.' : 'barre {lieu}\u00a0: les manifestants ne passent pas, les passants oui.';
   }
@@ -158,7 +176,7 @@ function verbSentence(type: string, targetId: number, who: WhoCandidate | null, 
   const move = who && !IMMEDIATE.has(type) && !MOVES.has(type) && who.distance > NEAR
     ? `${s.plural ? 'partent' : 'part'} ${modeText(who)} et `
     : '';
-  return capFirst(`${s.text} ${move}${fill(action, where)}`);
+  return capFirst(`${s.text} ${move}${fill(action, where)}`) + waitText(who, type);
 }
 
 /**
@@ -172,7 +190,7 @@ export function sentenceOf(line: CardLine, who: WhoCandidate | null, where: Repe
   let what: string;
   switch (a.kind) {
     case 'verb':
-      what = verbSentence(String(a.type), a.targetId ?? 0, who, where);
+      what = verbSentence(String(a.type), a.targetId ?? 0, who, where, a.noFact === true);
       break;
     case 'nasse': {
       // pas assez d'unités pour toutes les rues (Qui le dit : « — 4 rues resteront ouvertes ») : la nasse ne se ferme
