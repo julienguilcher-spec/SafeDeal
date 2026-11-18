@@ -855,3 +855,136 @@ radio (fin) :
     CENTRAL: TOUTES UNITÉS ICI CENTRAL. Point horaire : ZÉRO-NEUF heures QUATRE-QUATRE. Toutes les unités restent à l’écoute. TERMINÉ.
     FAUCON 1: MISTRAL ICI FAUCON UN. Compte de l’unité fait, secteur boulevard du Palais. Nombre d’agents aptes : SIX. TERMINÉ.
     Amine Breton: BRAV-M 1 ICI AMINE BRETON. Me suivre à pied : en formation derrière moi. PARLEZ.
+
+##  surplace chef_groupe bastille none graine 5
+config : rôle chef_groupe grade brigadier_chef poste chef_groupe variante  journée false ; scope unite « Chef de groupe — MISTRAL 1 ALFA » own=MISTRAL 1 ALFA follow=MISTRAL 1 ALFA
+unités au départ : MISTRAL[libre >libre] bord 15/87 bouge 0 ; FAUCON 1[libre >libre] bord 0/12 bouge 0
+à l'arrivée : à pied ; j:inactif cv:- cmd:mise_en_place/ia prop:0 scope:unite à pied ; unités : MISTRAL[libre >libre/tenir] bord 15/87 bouge 32 ; FAUCON 1[libre >libre] bord 0/12 bouge 0 ; TV 75-07[libre] bord 3/3 bouge 3 ; BAC 75N[libre] bord 3/3 bouge 3 ; TV 75-09[libre] bord 3/3 bouge 3 ; BAC 75S[libre] bord 3/3 bouge 3 ; TV 75-03[libre] bord 3/3 bouge 3
+fourgons cellulaires : fourgon_cellulaire#7369 à 63 m, pilote non, état ok
+scope à l'arrivée : unite « Chef de groupe — MISTRAL 1 ALFA » unités commandables 1 ; carte : 1 unités « à moi »
+| t | essai | accepté | texte | 1er mvt | +5 s | +10 s | étape |
+|---|---|---|---|---|---|---|---|
+| 0 | champ:suivez-moi-pied | oui | Ordre donné : MISTRAL 1 ALFA | 2.5s | MISTRAL 1 ALFA[suivre] bord 1/6 bouge 4 | MISTRAL 1 ALFA[suivre] bord 1/6 bouge 3 | j:inactif cv:- cmd:mise_en_place/ia prop:0 scope:unite à pied |
+| 10 | carte:envoyer | oui | [Y aller · Groupe MISTRAL 1 ALFA] Ce qui va se passer : Le groupe MISTRAL 1 ALFA part à pied (~1 min) et avance en formation jusqu’à la foule, boucliers levés. | 1.5s | MISTRAL 1 ALFA[avancer] bord 1/6 bouge 5 | MISTRAL 1 ALFA[avancer] bord 1/6 bouge 5 | j:inactif cv:- cmd:mise_en_place/ia prop:0 scope:unite à pied |
+| 20 | roue:3-avancer | oui | Ordre donné : MISTRAL 1 ALFA avance en formation | 2.5s | MISTRAL 1 ALFA[avancer] bord 1/6 bouge 0 | MISTRAL 1 ALFA[avancer] bord 1/6 bouge 2 | j:inactif cv:- cmd:mise_en_place/ia prop:0 scope:unite à pied |
+| 30 | adjoint:accepter | NON | (aucune proposition exécutable ; 0 en tout) | - |  |  | j:inactif cv:- cmd:mise_en_place/ia prop:0 scope:unite à pied |
+| 40 | carte:disperser | oui | [Repousser la foule · Groupe MISTRAL 1 ALFA] Ce qui va se passer : Le groupe MISTRAL 1 ALFA part à pied (~1 min) et repousse la foule par bonds de 50 m, en lui laissant une sortie devant elle. | 1.5s | MISTRAL 1 ALFA[refoulement] bord 1/6 bouge 5 | MISTRAL 1 ALFA[refoulement] bord 1/6 bouge 4 | j:inactif cv:- cmd:mise_en_place/ia prop:0 scope:unite à pied |
+| 50 | champ:suivez-moi-vehicules | oui | Ordre donné : MISTRAL 1 ALFA | 1.5s | MISTRAL 1 ALFA[embarquer] bord 1/6 bouge 5 | MISTRAL 1 ALFA[embarquer] bord 6/6 bouge 0 | j:inactif cv:- cmd:mise_en_place/ia prop:0 scope:unite à pied |
+| 60 | roue:4-ligne | oui | Ordre donné : MISTRAL 1 ALFA tient une ligne | >10s | MISTRAL 1 ALFA[ligne] bord 6/6 bouge 0 | MISTRAL 1 ALFA[ligne] bord 6/6 bouge 0 | j:inactif cv:- cmd:mise_en_place/ia prop:0 scope:unite à pied |
+| 70 | carte:bloquer | oui | [Barrer la rue · Groupe MISTRAL 1 ALFA] Ce qui va se passer : Le groupe MISTRAL 1 ALFA part à pied (~1 min) et barre la rue Saint-Antoine d’une façade à l’autre. Personne ne passe. | >10s | MISTRAL 1 ALFA[couper_circulation] bord 6/6 bouge 0 | MISTRAL 1 ALFA[couper_circulation] bord 6/6 bouge 0 | j:inactif cv:- cmd:mise_en_place/ia prop:0 scope:unite à pied |
+| 80 | roue:5-interpeller | oui | Ordre donné : MISTRAL 1 ALFA interpelle | >10s | MISTRAL 1 ALFA[couper_circulation] bord 6/6 bouge 0 | MISTRAL 1 ALFA[couper_circulation] bord 6/6 bouge 0 | j:inactif cv:- cmd:mise_en_place/ia prop:0 scope:unite à pied |
+| 90 | carte:interpeller | oui | [Interpeller dans la foule · Groupe MISTRAL 1 ALFA] Ce qui va se passer : Aucun fait constaté près de la foule : le groupe MISTRAL 1 ALFA ne peut interpeller personne et refusera l’ordre. | >10s | MISTRAL 1 ALFA[couper_circulation] bord 6/6 bouge 0 | MISTRAL 1 ALFA[couper_circulation] bord 6/6 bouge 0 | j:inactif cv:- cmd:mise_en_place/ia prop:0 scope:unite à pied |
+| 100 | carte:encercler | NON | [Encercler (nasse) · personne] Choisissez d’abord l’unité (U). | - |  |  | j:inactif cv:- cmd:mise_en_place/ia prop:0 scope:unite à pied |
+| 110 | roue:8.5-tenir | oui | Ordre donné : MISTRAL 1 ALFA tient sa position | >10s | MISTRAL 1 ALFA[tenir] bord 6/6 bouge 0 | MISTRAL 1 ALFA[tenir] bord 6/6 bouge 0 | j:inactif cv:- cmd:mise_en_place/ia prop:0 scope:unite à pied |
+| 120 | roue:8.2-bond | oui | Ordre donné : MISTRAL 1 ALFA fait un bond en avant | >10s | MISTRAL 1 ALFA[bond_offensif] bord 6/6 bouge 0 | MISTRAL 1 ALFA[bond_offensif] bord 6/6 bouge 0 | j:inactif cv:- cmd:mise_en_place/ia prop:0 scope:unite à pied |
+| 130 | carte:secours | oui | [Pompiers ici · personne] Ce qui va se passer : Les pompiers sont appelés sur ce point, près de Place de la Bastille : ils viennent éteindre ou secourir. | >10s |  |  | j:inactif cv:- cmd:mise_en_place/ia prop:0 scope:unite à pied |
+| 140 | roue:8.1-repli | oui | Ordre donné : MISTRAL 1 ALFA se replie | >10s | MISTRAL 1 ALFA[repli] bord 6/6 bouge 0 | MISTRAL 1 ALFA[repli] bord 6/6 bouge 0 | j:inactif cv:- cmd:mise_en_place/ia prop:0 scope:unite à pied |
+| 150 | roue:8.6-cesser | oui | Ordre donné : MISTRAL 1 ALFA attend | >10s | MISTRAL 1 ALFA[cesser] bord 6/6 bouge 0 | MISTRAL 1 ALFA[cesser] bord 6/6 bouge 0 | j:inactif cv:- cmd:conduite/ia prop:0 scope:unite à pied |
+| 160 | roue:8.7-libre | oui | Ordre donné : MISTRAL 1 ALFA sans ordre | >10s | MISTRAL 1 ALFA[libre] bord 6/6 bouge 0 | MISTRAL 1 ALFA[libre] bord 6/6 bouge 0 | j:inactif cv:- cmd:conduite/ia prop:0 scope:unite à pied |
+| 170 | roue:8.8-tortue | oui | Ordre donné : MISTRAL 1 ALFA se protège (tortue) | >10s | MISTRAL 1 ALFA[tortue] bord 6/6 bouge 0 | MISTRAL 1 ALFA[tortue] bord 6/6 bouge 0 | j:inactif cv:- cmd:conduite/ia prop:0 scope:unite à pied |
+| 180 | roue:8.3-charge | NON | Refusé : « Charger » demande : bâton et gazeuse ; la force autorisée n’est que : mains nues. | - | MISTRAL 1 ALFA[tortue] bord 6/6 bouge 0 | MISTRAL 1 ALFA[tortue] bord 6/6 bouge 0 | j:inactif cv:- cmd:conduite/ia prop:0 scope:unite à pied |
+| 190 | roue:8.4-gaz | NON | Refusé : « Disperser au gaz lacrymogène » demande : gaz lacrymogène et canon à eau ; la force autorisée n’est que : mains nues. | - | MISTRAL 1 ALFA[tortue] bord 6/6 bouge 0 | MISTRAL 1 ALFA[tortue] bord 6/6 bouge 0 | j:inactif cv:- cmd:conduite/ia prop:0 scope:unite à pied |
+| 200 | roue:6-pousser | NON | Aucun Centaure disponible sous vos ordres. | - | MISTRAL 1 ALFA[tortue] bord 6/6 bouge 0 | MISTRAL 1 ALFA[tortue] bord 6/6 bouge 0 | j:inactif cv:- cmd:conduite/ia prop:0 scope:unite à pied |
+| 210 | champ:suivez-moi-pied | oui | Ordre donné : MISTRAL 1 ALFA | 2.0s | MISTRAL 1 ALFA[suivre] bord 1/6 bouge 5 | MISTRAL 1 ALFA[suivre] bord 1/6 bouge 5 | j:inactif cv:- cmd:conduite/ia prop:0 scope:unite à pied |
+
+unités en fin :
+    MISTRAL[libre >libre/colonne] bord 15/87 bouge 36
+    FAUCON 1[libre >libre] bord 0/12 bouge 0
+    TV 75-07[libre] bord 3/3 bouge 3
+    BAC 75N[libre] bord 3/3 bouge 0
+    TV 75-09[libre] bord 3/3 bouge 3
+    BAC 75S[libre] bord 3/3 bouge 3
+    TV 75-03[libre] bord 3/3 bouge 3
+radio (fin) :
+    MISTRAL 1 ALFA: MISTRAL UN ICI MISTRAL UN ALFA. Barrage en place, face est, UN à pied. PARLEZ.
+    CENTRAL: ICI CENTRAL. Sapeurs-pompiers en route vers place de la Bastille. Délai : UNE minute. Préparez l’accès. TERMINÉ.
+    MISTRAL 1 ALFA: ICI MISTRAL UN ALFA. REÇU, je tiens la position, place de la Bastille. TERMINÉ.
+    MISTRAL 1 ALFA: MISTRAL 1 ALFA ICI MISTRAL 1 ALFA. Tenez la position. PARLEZ.
+    MISTRAL 1 ALFA: CENTRAL ICI MISTRAL 1 ALFA. URGENT. Demande les sapeurs-pompiers sur place, place de la Bastille. Je sécurise l’accès. PARLEZ.
+    MISTRAL 1 ALFA: ICI MISTRAL UN ALFA. REÇU, bond offensif, puis halte et réalignement. TERMINÉ.
+    MISTRAL 1 ALFA: CENTRAL ICI MISTRAL UN ALFA. Réouverture effectuée : Rue Saint-Antoine. La circulation reprend. PARLEZ.
+    MISTRAL 1 ALFA: MISTRAL UN ICI MISTRAL UN ALFA. Bond effectué, ligne réalignée. PARLEZ.
+    MISTRAL 1 ALFA: MISTRAL 1 ALFA ICI MISTRAL 1 ALFA. Rompez le contact, repli par échelons, boulevard Henri IV. PARLEZ.
+    MISTRAL 1 ALFA: ICI MISTRAL UN ALFA. REÇU, je romps le contact, repli, boulevard Henri IV. TERMINÉ.
+    MISTRAL 1 ALFA: MISTRAL 1 ALFA ICI MISTRAL 1 ALFA. Halte à l’action en cours. PARLEZ.
+    MISTRAL 1 ALFA: MISTRAL UN ICI MISTRAL UN ALFA. Halte. Action interrompue, je tiens sur place. PARLEZ.
+    MISTRAL 1 ALFA: MISTRAL 1 ALFA ICI MISTRAL 1 ALFA. Reprenez votre mission, initiative laissée. PARLEZ.
+    MISTRAL 1 ALFA: ICI MISTRAL UN ALFA. REÇU, halte à l’action en cours. TERMINÉ.
+    MISTRAL 1 ALFA: MISTRAL 1 ALFA ICI MISTRAL 1 ALFA. Formez la tortue, boucliers hauts. PARLEZ.
+    MISTRAL 1 ALFA: ICI MISTRAL UN ALFA. REÇU, je reprends ma mission. TERMINÉ.
+    CENTRAL: MISTRAL ICI CENTRAL. URGENT. Automobiliste bloqué, place de la Bastille. Je demande une unité pour le dégager. PARLEZ.
+    MISTRAL 1 ALFA: MISTRAL UN ICI MISTRAL UN ALFA. Tortue formée, boucliers hauts. PARLEZ.
+    MISTRAL 1 ALFA: ICI MISTRAL UN ALFA. REÇU, tortue, boucliers hauts. TERMINÉ.
+    CENTRAL: MISTRAL ICI CENTRAL. URGENT. Automobiliste bloqué, rue des Tournelles. Je demande une unité pour le dégager. PARLEZ.
+    MISTRAL 1 CHARLIE: MISTRAL ICI MISTRAL UN CHARLIE. Arrivé au point, en colonne par deux. PARLEZ.
+    FAUCON 6: CENTRAL ICI FAUCON SIX. Automobiliste bloqué dans la foule, secteur rue Jacques Cœur. Je demande une unité pour le dégager. PARLEZ.
+    MISTRAL 1 CHARLIE: ICI MISTRAL UN CHARLIE. REÇU, je protège l’élément désigné. TERMINÉ.
+    MISTRAL 1 ALFA: ICI MISTRAL UN ALFA. REÇU, je débarque et je me mets en place. TERMINÉ.
+    MISTRAL 1 ALFA: MISTRAL 1 ALFA ICI MISTRAL 1 ALFA. Me suivre à pied : en formation derrière moi. PARLEZ.
+
+##  surplace bravm_chef concorde none graine 21
+config : rôle bravm grade brigadier_chef poste pilote_moto variante  journée false ; scope unite « Chef de groupe — BRAV-M 1 » own=BRAV-M 1 follow=BRAV-M 1
+unités au départ : MISTRAL[libre >libre] bord 15/88 bouge 0 ; FAUCON 1[libre >libre] bord 0/12 bouge 0 ; BRAV-M 1[suivre] bord 0/5 bouge 0
+à l'arrivée : à pied ; j:inactif cv:- cmd:- prop:0 scope:unite à pied ; unités : MISTRAL[libre >libre/tenir] bord 15/88 bouge 55 ; FAUCON 1[libre >libre] bord 0/12 bouge 0 ; BRAV-M 1[suivre] bord 0/5 bouge 5 ; TV 75-03[libre] bord 3/3 bouge 3 ; BAC 75O[libre] bord 3/3 bouge 3 ; TV 75-09[libre] bord 3/3 bouge 3 ; BAC 75S[libre] bord 3/3 bouge 3 ; TV 75-07[libre] bord 3/3 bouge 3
+fourgons cellulaires : fourgon_cellulaire#9816 à 74 m, pilote non, état ok
+scope à l'arrivée : unite « Chef de groupe — BRAV-M 1 » unités commandables 1 ; carte : 1 unités « à moi »
+| t | essai | accepté | texte | 1er mvt | +5 s | +10 s | étape |
+|---|---|---|---|---|---|---|---|
+| 0 | champ:suivez-moi-pied | oui | Ordre donné : BRAV-M 1 | >10s | BRAV-M 1[suivre] bord 0/5 bouge 0 | BRAV-M 1[suivre] bord 0/5 bouge 0 | j:inactif cv:- cmd:- prop:0 scope:unite à pied |
+| 10 | carte:envoyer | oui | [Y aller · BRAV-M 1] Ce qui va se passer : La BRAV-M 1 part à pied (~2 min) et avance en formation jusqu’à la foule, boucliers levés. | 1.5s | BRAV-M 1[avancer] bord 0/5 bouge 5 | BRAV-M 1[avancer] bord 0/5 bouge 5 | j:inactif cv:- cmd:- prop:0 scope:unite à pied |
+| 20 | roue:3-avancer | oui | Ordre donné : BRAV-M 1 avance en formation | 1.5s | BRAV-M 1[avancer] bord 0/5 bouge 5 | BRAV-M 1[avancer] bord 0/5 bouge 5 | j:inactif cv:- cmd:- prop:0 scope:unite à pied |
+| 30 | adjoint:accepter | NON | (aucune proposition exécutable ; 0 en tout) | - |  |  | j:inactif cv:- cmd:- prop:0 scope:unite à pied |
+| 40 | carte:disperser | oui | [Repousser la foule · BRAV-M 1] Ce qui va se passer : La BRAV-M 1 part à pied (~2 min) et repousse la foule par bonds de 50 m, en lui laissant une sortie devant elle. | 2.0s | BRAV-M 1[refoulement] bord 0/5 bouge 5 | BRAV-M 1[refoulement] bord 0/5 bouge 5 | j:inactif cv:- cmd:- prop:0 scope:unite à pied |
+| 50 | champ:suivez-moi-vehicules | oui | Ordre donné : BRAV-M 1 | 1.5s | BRAV-M 1[embarquer] bord 0/5 bouge 5 | BRAV-M 1[embarquer] bord 2/5 bouge 2 | j:inactif cv:- cmd:- prop:0 scope:unite à pied |
+| 60 | roue:4-ligne | oui | Ordre donné : BRAV-M 1 tient une ligne | 1.5s | BRAV-M 1[ligne] bord 2/5 bouge 2 | BRAV-M 1[ligne] bord 2/5 bouge 3 | j:inactif cv:- cmd:- prop:0 scope:unite à pied |
+| 70 | carte:bloquer | oui | [Barrer la rue · BRAV-M 1] Ce qui va se passer : La BRAV-M 1 part à pied (~1 min) et barre la terrasse de l'Orangerie d’une façade à l’autre. Personne ne passe. | 1.0s | BRAV-M 1[couper_circulation] bord 2/5 bouge 3 | BRAV-M 1[couper_circulation] bord 4/5 bouge 1 | j:inactif cv:- cmd:- prop:0 scope:unite à pied |
+| 80 | roue:5-interpeller | oui | Ordre donné : BRAV-M 1 interpelle | 1.0s | BRAV-M 1[couper_circulation] bord 5/5 bouge 0 | BRAV-M 1[couper_circulation] bord 5/5 bouge 0 | j:inactif cv:- cmd:- prop:0 scope:unite à pied |
+| 90 | carte:interpeller | oui | [Interpeller dans la foule · BRAV-M 1] Ce qui va se passer : La BRAV-M 1 part à pied (~2 min) et va constater près de la foule ; sans fait constaté, personne n’est interpellé. | >10s | BRAV-M 1[couper_circulation] bord 5/5 bouge 0 | BRAV-M 1[couper_circulation] bord 5/5 bouge 0 | j:inactif cv:- cmd:- prop:0 scope:unite à pied |
+| 100 | carte:encercler | NON | [Encercler (nasse) · personne] Choisissez d’abord l’unité (U). | - |  |  | j:inactif cv:- cmd:- prop:0 scope:unite à pied |
+| 110 | roue:8.5-tenir | oui | Ordre donné : BRAV-M 1 tient sa position | >10s | BRAV-M 1[tenir] bord 5/5 bouge 0 | BRAV-M 1[tenir] bord 5/5 bouge 0 | j:inactif cv:- cmd:- prop:0 scope:unite à pied |
+| 120 | roue:8.2-bond | oui | Ordre donné : BRAV-M 1 fait un bond en avant | >10s | BRAV-M 1[bond_offensif] bord 5/5 bouge 0 | BRAV-M 1[bond_offensif] bord 5/5 bouge 0 | j:inactif cv:- cmd:- prop:0 scope:unite à pied |
+| 130 | carte:secours | oui | [Pompiers ici · personne] Ce qui va se passer : Les pompiers sont appelés sur ce point, près de Place de la Concorde : ils viennent éteindre ou secourir. | >10s |  |  | j:inactif cv:- cmd:- prop:0 scope:unite à pied |
+| 140 | roue:8.1-repli | oui | Ordre donné : BRAV-M 1 se replie | >10s | BRAV-M 1[repli] bord 5/5 bouge 0 | BRAV-M 1[repli] bord 5/5 bouge 0 | j:inactif cv:- cmd:- prop:0 scope:unite à pied |
+| 150 | roue:8.6-cesser | oui | Ordre donné : BRAV-M 1 attend | >10s | BRAV-M 1[cesser] bord 5/5 bouge 0 | BRAV-M 1[cesser] bord 5/5 bouge 0 | j:inactif cv:- cmd:- prop:0 scope:unite à pied |
+| 160 | roue:8.7-libre | oui | Ordre donné : BRAV-M 1 sans ordre | >10s | BRAV-M 1[libre] bord 5/5 bouge 0 | BRAV-M 1[libre] bord 5/5 bouge 0 | j:inactif cv:- cmd:- prop:0 scope:unite à pied |
+| 170 | roue:8.8-tortue | oui | Ordre donné : BRAV-M 1 se protège (tortue) | >10s | BRAV-M 1[tortue] bord 5/5 bouge 0 | BRAV-M 1[tortue] bord 5/5 bouge 0 | j:inactif cv:- cmd:- prop:0 scope:unite à pied |
+| 180 | roue:8.3-charge | NON | Refusé : « Charger » demande : bâton et gazeuse ; la force autorisée n’est que : mains nues. | - | BRAV-M 1[tortue] bord 5/5 bouge 0 | BRAV-M 1[tortue] bord 5/5 bouge 0 | j:inactif cv:- cmd:- prop:0 scope:unite à pied |
+| 190 | roue:8.4-gaz | NON | Refusé : « Disperser au gaz lacrymogène » demande : gaz lacrymogène et canon à eau ; la force autorisée n’est que : mains nues. | - | BRAV-M 1[tortue] bord 5/5 bouge 0 | BRAV-M 1[tortue] bord 5/5 bouge 0 | j:inactif cv:- cmd:- prop:0 scope:unite à pied |
+| 200 | roue:6-pousser | NON | Aucun Centaure disponible sous vos ordres. | - | BRAV-M 1[tortue] bord 5/5 bouge 0 | BRAV-M 1[tortue] bord 5/5 bouge 0 | j:inactif cv:- cmd:- prop:0 scope:unite à pied |
+| 210 | champ:suivez-moi-pied | oui | Ordre donné : BRAV-M 1 | 0.5s | BRAV-M 1[suivre] bord 0/5 bouge 5 | BRAV-M 1[suivre] bord 0/5 bouge 3 | j:inactif cv:- cmd:- prop:0 scope:unite à pied |
+
+unités en fin :
+    MISTRAL[libre >libre/colonne] bord 15/88 bouge 30
+    FAUCON 1[libre >libre] bord 0/12 bouge 0
+    BRAV-M 1[suivre] bord 0/5 bouge 3
+    TV 75-03[libre] bord 3/3 bouge 3
+    BAC 75O[libre] bord 3/3 bouge 3
+    TV 75-09[libre] bord 3/3 bouge 3
+    BAC 75S[libre] bord 3/3 bouge 3
+    TV 75-07[libre] bord 3/3 bouge 3
+radio (fin) :
+    CENTRAL: ICI CENTRAL. Secours en route vers le secteur place de la Concorde. Délai : DEUX minutes. Préparez l’accès. TERMINÉ.
+    MISTRAL 3 CHARLIE: MISTRAL TROIS ICI MISTRAL TROIS CHARLIE. Dispositif de protection en place. PARLEZ.
+    BRAV-M 1: CENTRAL ICI BRAV-M UN. Barrage en place, Place de la Concorde, face nord-est, UN à pied. PARLEZ.
+    MISTRAL 1 ALFA: ICI MISTRAL UN ALFA. REÇU, je protège l’élément désigné. TERMINÉ.
+    BRAV-M 1: CENTRAL ICI BRAV-M 1. URGENT. Demande les sapeurs-pompiers sur place, place de la Concorde. Je sécurise l’accès. PARLEZ.
+    BRAV-M 1: CENTRAL ICI BRAV-M UN. Bond effectué, ligne réalignée. PARLEZ.
+    BRAV-M 1: ICI BRAV-M UN. REÇU, je romps le contact, repli, place de la Concorde. TERMINÉ.
+    BRAV-M 1: BRAV-M 1 ICI BRAV-M 1. Rompez le contact, repli par échelons, place de la Concorde. PARLEZ.
+    BRAV-M 1: ICI BRAV-M UN. REÇU, halte à l’action en cours. TERMINÉ.
+    BRAV-M 1: BRAV-M 1 ICI BRAV-M 1. Halte à l’action en cours. PARLEZ.
+    MISTRAL 3 BRAVO: ICI MISTRAL TROIS BRAVO. REÇU, je protège l’élément désigné. TERMINÉ.
+    BRAV-M 1: BRAV-M 1 ICI BRAV-M 1. Reprenez votre mission, initiative laissée. PARLEZ.
+    BRAV-M 1: ICI BRAV-M UN. REÇU, je reprends ma mission. TERMINÉ.
+    BRAV-M 1: BRAV-M 1 ICI BRAV-M 1. Formez la tortue, boucliers hauts. PARLEZ.
+    MISTRAL 1 ALFA: MISTRAL ICI MISTRAL UN ALFA. Dispositif de protection en place. PARLEZ.
+    CENTRAL: MISTRAL ICI CENTRAL. URGENT. Automobiliste bloqué, place de la Concorde. Je demande une unité pour le dégager. PARLEZ.
+    BRAV-M 1: ICI BRAV-M UN. REÇU, tortue, boucliers hauts. TERMINÉ.
+    MISTRAL 1 BRAVO: MISTRAL ICI MISTRAL UN BRAVO. Mise en place retardée : 3 agents encore loin de leur poste. Je poursuis. TERMINÉ.
+    CENTRAL: MISTRAL ICI CENTRAL. URGENT. Automobiliste bloqué, cours la Reine. Je demande une unité pour le dégager. PARLEZ.
+    MISTRAL 3 BRAVO: MISTRAL ICI MISTRAL TROIS BRAVO. Incident réglé, secteur place de la Concorde. Nature : automobiliste bloqué. Je me remets à votre disposition. PARLEZ.
+    MISTRAL 1 ALFA: CENTRAL ICI MISTRAL UN ALFA. Automobiliste bloqué dans la foule, secteur place de la Concorde. Je demande une unité pour le dégager. PARLEZ.
+    MISTRAL 2 BRAVO: MISTRAL ICI MISTRAL DEUX BRAVO. Barrage en place, face nord-ouest, front UN-QUATRE mètres, SIX à pied. PARLEZ.
+    MISTRAL 1 ALFA: CENTRAL ICI MISTRAL UN ALFA. Véhicule civil immobilisé au milieu de la foule, secteur place de la Concorde. Occupants à bord, dégagement à prévoir. PARLEZ.
+    BRAV-M 1: ICI BRAV-M UN. REÇU, je débarque et je me mets en place. TERMINÉ.
+    SAPEUR 1: MISTRAL ICI SAPEUR UN. En attente de sécurisation, secteur place de la Concorde. Nous n’avançons pas sans protection ni itinéraire dégagé. PARLEZ.

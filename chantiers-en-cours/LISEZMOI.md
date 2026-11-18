@@ -10,22 +10,20 @@ chantier aura été intégré dans `crs-simulation/`, testé et publié.
 
 | Fichier | Chantier | Base | État à la sauvegarde |
 |---|---|---|---|
-| `commandant-carte-2.patch` | Campagne du commandant, tour 2 : fiche honnête pour « Interpeller » (auteur en fuite, pas de fait constaté) et pour « Toute la compagnie » (la colonne attend le commandant à pied) | branche principale (`52e9d92` et suivants) | RELU ET VALIDÉ ; appliqué dans l'arbre de travail, suite complète en cours avant enregistrement |
 | `fusion-commissariats.patch` | Commissariats fusionnés avec la version actuelle (instantané de l'arbre de fusion) | `52e9d92` | conflits résolus, compile ; vérification croisée simulation + interface en cours, puis suite complète |
 | `commissariats-delta-B.patch` | Dernières retouches du joueur critique des commissariats (3 fichiers) | à appliquer en `--3way` sur l'arbre de fusion, après la vérification croisée | à appliquer |
 | `commissariats.patch`, `commissariats-delta-A.patch` | Le chantier des commissariats dans son espace d'origine (complet, base `2365d2b`) et ses seuls ajouts par rapport à « 2365d2b + refonte du commandement » | voir colonne 1 | TERMINÉ (paquets, intégration, test en joueur) ; sert de référence à la fusion |
-| `colonne-tete-bloquee.patch` | Colonne arrêtée pour de bon derrière sa tête bloquée contre un mur ; réseau radio saturé ; point inaccessible sans message ; sirène | branche principale + `commandant-carte-2.patch` | brouillon du chasseur, en cours |
-| `commandant-mission.patch` | La partie du joueur : commandant en mode Missions spéciales, aucun ordre possible à l'arrivée, personne ne suit, BRAV-M immobile | branche principale + `commandant-carte-2.patch` | brouillon du chasseur, en cours |
+| `colonne-tete-bloquee.patch` | Colonne arrêtée pour de bon derrière sa tête bloquée contre un mur ; réseau radio saturé ; point inaccessible sans message ; sirène | branche principale (`commandant-carte-2` y est intégré) | brouillon du chasseur, en cours |
+| `commandant-mission.patch` | La partie du joueur : commandant en mode Missions spéciales, aucun ordre possible à l'arrivée, personne ne suit, BRAV-M immobile | branche principale (`commandant-carte-2` y est intégré) | brouillon du chasseur, en cours |
 | `ordres-directs/` | Diagnostic du retour du joueur et conception des ordres directs sur le terrain, des unités « avec moi », de la réactivité, des fourgons cellulaires et du circuit des interpellés | documents | diagnostic « terrain » écrit ; les deux autres diagnostics, les trois propositions, la synthèse et la critique sont en cours |
 
 ## Reprendre
 
 - Un correctif : `git worktree add --detach <dossier> <base>` puis, dans ce dossier,
-  `git apply --3way chantiers-en-cours/<chantier>.patch`. Pour les deux brouillons basés sur « branche principale +
-  `commandant-carte-2.patch` », appliquer d'abord `commandant-carte-2.patch`.
+  `git apply --3way chantiers-en-cours/<chantier>.patch`. 
 - Les scripts d'orchestration (`workflow-*.js`) se relancent avec l'outil Workflow (`scriptPath`) et les mêmes
   arguments ; les chasseurs reprennent le brouillon trouvé dans leur arbre de travail.
-- Ordre d'intégration prévu : `commandant-carte-2` → `colonne-tete-bloquee` et `commandant-mission` (chacun : suite
+- Ordre d'intégration prévu : `colonne-tete-bloquee` et `commandant-mission` (chacun : suite
   complète, scénarios navigateur, publication) → fusion des commissariats + `commissariats-delta-B` → réalisation des
   ordres directs et du circuit des interpellés sur la base fusionnée (cahier des charges
   `ordres-directs/design-ordres-directs.md` quand il sera écrit).
