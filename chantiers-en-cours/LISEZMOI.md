@@ -4,15 +4,12 @@ Ce dossier ne fait pas partie du jeu : c'est une sauvegarde du travail des agent
 redémarrage ou une perte de la machine de travail ne le fasse pas disparaître. Il sera supprimé quand chaque
 chantier aura été intégré dans `crs-simulation/`, testé et publié.
 
-État au 18 novembre, 14 h 55 (heure de Paris 15 h 55). Le jeu publié est la **version 21** (commit `8dc8378`).
+État au 18 novembre, 14 h 55 (heure de Paris 15 h 55). Le jeu publié est la **version 22** (commit `0e488cd`), commissariats compris.
 
 ## Correctifs et chantiers
 
 | Fichier | Chantier | Base | État à la sauvegarde |
 |---|---|---|---|
-| `fusion-commissariats.patch` + `commissariats-delta-B.patch` | Commissariats fusionnés et vérifiés (simulation, interface, suite complète) sur une version antérieure | `52e9d92` | TERMINÉ ; en cours de report sur la version 21 (3 fichiers en conflit dans la gestion des colonnes, script `workflow-refusion-commissariats.js`) |
-| `fusion-commissariats-2.patch` | Commissariats reportés sur la version 21, résolus et contre-vérifiés (correctif FINAL) | `refs/scratch/main-v21` = code de `8dc8378` sans le correctif de la sirène des suiveurs (le correctif le contient : `git apply --3way` sur `8dc8378` passe sans conflit) | appliqué dans l'arbre de travail principal ; suite complète et navigateur en cours avant enregistrement |
-| `commissariats.patch` | Le chantier des commissariats dans son espace d'origine (référence) | `2365d2b` | TERMINÉ |
 | `ordres-directs.patch` | Réalisation des ordres directs (instantané de l'arbre de travail ; contient aussi les trois lots de la version 21) | `d24fffd` (code de la branche principale avant la version 21) | P1, P2, P7, P5, P3, P8 faits (rapports dans `ordres-directs/rapports-paquets-ordres-directs.json`) ; P4, P9, P6, P13 en cours ; puis report des commissariats dans cet arbre, P17, P10, P11, P12, P14, P15, P16, intégration et joueur critique |
 | `ordres-directs/` | Ordres directs sur le terrain, unités « avec moi », réactivité, fourgons cellulaires et circuit des interpellés | documents | diagnostic (3 rapports), 3 propositions, cahier des charges critiqué `design-ordres-directs.md` (16 paquets, 15 blocages), plan de réalisation `plan-ordres-directs.md` (avec l'addendum du coordinateur) ; réalisation lancée : paquet P1 en cours dans un arbre basé sur la branche principale |
 
@@ -30,9 +27,6 @@ chantier aura été intégré dans `crs-simulation/`, testé et publié.
 ## Autres fichiers
 
 - `restes-a-faire.md` : la liste des défauts connus à traiter dans un dernier lot.
-- `design-commande.md` : cahier des charges de la carte de commandement (intégrée en version 18).
-- `plan-commissariats.md`, `rapports-paquets-commissariats.json`, `rapport-integration-commissariats.json`,
-  `critique-commissariats.json` : plan et comptes rendus du chantier des commissariats.
 
 ## Ce que le joueur a demandé le 18 novembre (à livrer)
 
@@ -45,5 +39,5 @@ chantier aura été intégré dans `crs-simulation/`, testé et publié.
 
 Il jouait **commandant, en mode Missions spéciales**.
 
-Déjà intégrés et retirés d'ici : l'accueil en quatre modes, les véhicules garés en bloc, les fins de trajet de colonne,
+Déjà intégrés et retirés d'ici : les commissariats dessinés (version 22), les trois lots de la version 21, l'accueil en quatre modes, les véhicules garés en bloc, les fins de trajet de colonne,
 la refonte de la carte de commandement, la lisibilité de la carte, le premier tour de la campagne du commandant.
