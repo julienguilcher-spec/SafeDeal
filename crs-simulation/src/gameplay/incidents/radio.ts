@@ -12,7 +12,7 @@ import type { GameContext, RadioChannel, Squad } from '@/core/contracts';
 import type { RadioPhrases } from '@/gameplay/radio/api';
 import type { Entry } from './entry';
 import { spokenGravity, spokenType } from './labels';
-import { FAM_FIRE, FAM_OFFICER, FAM_VICTIM, RADIO_GAP } from './tuning';
+import { FAM_FIRE, FAM_MOTORIST, FAM_OFFICER, FAM_VICTIM, RADIO_GAP } from './tuning';
 
 const MSG_OPEN = 0;
 const MSG_WORSE = 1;
@@ -26,18 +26,40 @@ interface Pending {
 }
 
 const QUEUE_MAX = 12;
+/**
+ * Même nature d'incident annoncée (ou portée au compte rendu) par la salle dans le même secteur : on ne la redit pas
+ * avant tant de secondes, à moins de tant de mètres de la précédente (le réseau du commandement était saturé de
+ * « URGENT. Automobiliste bloqué… », un par voiture prise dans la circulation autour de la colonne et de la foule, et
+ * les comptes rendus des unités attendaient derrière jusqu'à être abandonnés). Seulement pour les messages de
+ * quietable.
+ */
+const KIND_QUIET = 120;
+const KIND_QUIET_DIST = 500;
+
+/**
+ * Messages que la salle peut taire s'ils redisent ce qui vient d'être dit (voir KIND_QUIET) : les automobilistes bloqués
+ * (un par voiture prise dans la circulation) et les clôtures sans traitement. Un feu, un agent isolé ou à terre, un
+ * blessé, des secours bloqués restent toujours annoncés : chacun demande son moyen.
+ */
+function quietable(type: number, family: number): boolean {
+  if (family === FAM_OFFICER || family === FAM_VICTIM) return false;
+  return type === MSG_LAPSED || family === FAM_MOTORIST;
+}
 
 export class RadioDesk {
   enabled = true;
   private readonly queue: Pending[] = [];
   private nextAt = 0;
   private phrases: RadioPhrases | undefined;
+  /** Dernière annonce de la salle par type de message et nature d'incident (voir KIND_QUIET). */
+  private readonly lastKind = new Map<string, { t: number; x: number; z: number }>();
 
   constructor(private readonly ctx: GameContext) {}
 
   reset(): void {
     this.queue.length = 0;
     this.nextAt = 0;
+    this.lastKind.clear();
     this.phrases = this.ctx.service<RadioPhrases>('radio.phrases');
   }
 
@@ -68,6 +90,13 @@ export class RadioDesk {
     const e = m.entry;
     // une annonce d'ouverture ou d'aggravation n'a plus d'objet si l'incident est clos entre-temps
     if ((m.type === MSG_OPEN || m.type === MSG_WORSE) && !e.active) return;
+    // (même nature, même secteur, il y a peu : déjà dit — voir KIND_QUIET ; un compte rendu d'unité passe toujours)
+    if (m.type !== MSG_DONE && quietable(m.type, e.family)) {
+      const key = `${m.type}:${e.kind}`;
+      const last = this.lastKind.get(key);
+      if (last && now - last.t < KIND_QUIET && Math.hypot(e.x - last.x, e.z - last.z) < KIND_QUIET_DIST) return;
+      this.lastKind.set(key, { t: now, x: e.x, z: e.z });
+    }
     this.nextAt = now + RADIO_GAP;
     if (!this.phrases) this.phrases = this.ctx.service<RadioPhrases>('radio.phrases');
     switch (m.type) {

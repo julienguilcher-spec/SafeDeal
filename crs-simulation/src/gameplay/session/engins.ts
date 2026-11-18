@@ -18,7 +18,7 @@ import type { EntityId, GameContext, GameSystem, Squad, Vehicle } from '@/core/c
 import { SystemOrder } from '@/core/contracts';
 
 interface Autopilot {
-  status(v: Vehicle): Readonly<{ mode: string; state: string; reason: string; blockedFor: number; remaining: number; leaderId?: number }>;
+  status(v: Vehicle): Readonly<{ mode: string; state: string; reason: string; blockedFor: number; remaining: number; leaderId?: number; urgence?: boolean }>;
   driveTo(v: Vehicle, x: number, z: number, options?: { urgence?: boolean; speed?: number; stopBefore?: number; pushThrough?: boolean }): boolean;
   reroute?(v: Vehicle, pushThrough?: boolean): boolean;
   follow?(v: Vehicle, leaderId: EntityId, distance?: number): boolean;
@@ -94,6 +94,8 @@ interface Blocked {
   hornAt: number;
   /** Premier blocage de la série (s). */
   firstAt: number;
+  /** Deux-tons donné ici pour écarter les piétons (pas celui d'une intervention urgente) : coupé une fois la voie libre. */
+  siren?: boolean;
 }
 
 export class EnginsSystem implements GameSystem {
@@ -191,7 +193,7 @@ export class EnginsSystem implements GameSystem {
       }
       // (les motos de la BRAV-M ont leur propre conduite de colonne : bravm.ts)
       if (v.kind === 'moto_bravm') continue;
-      if (st.mode !== 'drive' && st.mode !== 'follow') { this.blocked.delete(v.id); continue; }
+      if (st.mode !== 'drive' && st.mode !== 'follow') { this.release(v, st); continue; }
       const stopped = Math.abs(v.speed) < 0.4;
       if ((st.state === 'attente' || st.state === 'bloque') && st.reason === 'vehicule' && stopped && st.blockedFor > VEHICLE_AFTER) {
         this.clearVehicle(v, ap, st.blockedFor);
@@ -203,7 +205,7 @@ export class EnginsSystem implements GameSystem {
       }
       const byPeople = (st.state === 'attente' || st.state === 'bloque') && (st.reason === 'personne' || st.reason === '');
       if (!byPeople || !stopped || st.blockedFor < CLEAR_AFTER) {
-        if (Math.abs(v.speed) > 1.5) this.blocked.delete(v.id);
+        if (Math.abs(v.speed) > 1.5) this.release(v, st);
         continue;
       }
       let b = this.blocked.get(v.id);
@@ -215,6 +217,7 @@ export class EnginsSystem implements GameSystem {
       if (v.def.hasSiren && v.siren === 0) {
         if (ext && ext.setSiren) ext.setSiren(v, 1);
         else v.siren = 1;
+        b.siren = true;
       }
       if (now >= b.hornAt) {
         b.hornAt = now + 3;
@@ -229,6 +232,32 @@ export class EnginsSystem implements GameSystem {
         }
       }
     }
+  }
+
+  /**
+   * Fin d'un blocage par des piétons : le deux-tons donné pour les écarter s'arrête, sauf en intervention urgente (il
+   * restait sinon allumé jusqu'au bout du trajet, sur un retour « sans deux-tons » à la base comme ailleurs).
+   */
+  private release(v: Vehicle, st: Readonly<{ mode: string; urgence?: boolean; leaderId?: number }>): void {
+    const b = this.blocked.get(v.id);
+    if (!b) return;
+    this.blocked.delete(v.id);
+    if (!b.siren || v.siren === 0 || this.urgent(st)) return;
+    const ext = this.ctx!.service<VehiclesExt>('vehicles.ext');
+    if (ext && ext.setSiren) ext.setSiren(v, 0);
+    else v.siren = 0;
+  }
+
+  /**
+   * Trajet en urgence : celui du véhicule, ou celui de son chef de file. Un suiveur garde son deux-tons tant que le
+   * véhicule qu'il suit a le sien (colonne derrière le fourgon du joueur dans une manifestation : sans lui la foule
+   * se referme devant chaque suiveur et la colonne se disloque).
+   */
+  private urgent(st: Readonly<{ mode: string; urgence?: boolean; leaderId?: number }>): boolean {
+    if (st.urgence) return true;
+    if (st.mode !== 'follow' || !st.leaderId) return false;
+    const lead = this.ctx!.vehicles.get(st.leaderId);
+    return lead !== undefined && lead.siren > 0;
   }
 
   /**

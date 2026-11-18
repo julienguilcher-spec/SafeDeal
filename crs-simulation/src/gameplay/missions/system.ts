@@ -67,6 +67,14 @@ const TRAVEL_NEAR = 400;
 const ARRIVE_NEAR = 150;
 const ARRIVE_HOLD = 20;
 /**
+ * Le joueur est sur place mais la colonne de sa compagnie roule encore (il est passé devant, à pied ou au volant ; son
+ * véhicule de commandement a pris de l'avance) : la mission l'attend, au plus COLUMN_WAIT s. Relevé de la recette du
+ * commandant : « Prise de commandement » commençait avec le commandant place de la République et ses six groupes à
+ * six cents mètres, encore dans leurs fourgons sur le boulevard — ses premiers ordres partaient dans le vide.
+ */
+const COLUMN_WAIT = 180;
+const COLUMN_NEAR = 300;
+/**
  * Ordre des phases de la foule. Une phase de mission qui attend « départ » ou « cortège » est close quand la foule en est
  * déjà plus loin : en journée de service, le cortège part pendant le trajet en colonne, avant le début de la mission.
  */
@@ -150,12 +158,23 @@ export class MissionSystem implements GameSystem {
   private readonly casualtiesFor = new Set<string>();
   /** Victimes mises en scène (prémisse de la mission : non reprochées au joueur dans les blessés). */
   private readonly staged = new Set<EntityId>();
+  /**
+   * Agents des forces déjà blessés au début de la mission (journée de service : chute d'une moto de la BRAV-M pendant le
+   * trajet, foyer secondaire à l'autre bout de Paris) : la mission ne les reproche pas au joueur. Relevé de la recette
+   * du commandant : « Nuit des vitrines » échouait au premier pas après l'arrivée (« Trop de blessés parmi vos agents »,
+   * dix motards légèrement blessés pendant le trajet), avant qu'il ait pu donner un seul ordre.
+   */
+  private readonly hurtBefore = new Set<EntityId>();
+  /** Décès déjà relevés par les incidents au début de la mission (même raison : le trajet ne lui est pas reproché). */
+  private deathsBefore = 0;
   /** Groupe du joueur exécutant retenu pour l'objectif de la mission (0 : aucun). */
   private pinnedId = 0;
   /** Poste du groupe pas encore donné (le groupe débarque encore), et instant du début de l'attente (−1 : aucune). */
   private postSince = -1;
   /** Le joueur est sur place (journée de service, colonne encore en manœuvre) depuis cet instant (−1 : non). */
   private nearSince = -1;
+  /** Attente de la colonne déjà annoncée au joueur. */
+  private columnTold = false;
   private readonly catalog_: Record<string, unknown>[];
 
   constructor() {
@@ -207,10 +226,13 @@ export class MissionSystem implements GameSystem {
     this.unpin();
     this.casualtiesFor.clear();
     this.staged.clear();
+    this.hurtBefore.clear();
+    this.deathsBefore = 0;
     this.aleas.reset();
     this.waitSince = -1;
     this.postSince = -1;
     this.nearSince = -1;
+    this.columnTold = false;
     this.tracker?.reset();
     this.def = null;
     this.pending = false;
@@ -242,7 +264,10 @@ export class MissionSystem implements GameSystem {
       isCommander: def.role === 'commandant' || def.role === 'chef_groupe',
       scratch: [] as Person[],
       staged: this.staged,
+      injuredAtStart: ctx.director.stats.injured,
     };
+    for (const p of ctx.people.list) if (p.faction === 'police' && p.injury !== 'none') this.hurtBefore.add(p.id);
+    this.deathsBefore = ctx.service<{ stats(): { deaths: number } }>('incidents.records')?.stats().deaths ?? 0;
     this.runs = def.objectives.map((o) => ({
       def: o,
       state: 'actif' as const,
@@ -259,6 +284,49 @@ export class MissionSystem implements GameSystem {
     this.equipForCare();
     ctx.ui.banner(def.title, def.pitch, 6);
     this.enterPhase(0);
+  }
+
+  /**
+   * La colonne de la compagnie du joueur est-elle arrivée : plus « en route », et la moitié au moins de ses agents à
+   * moins de COLUMN_NEAR m du lieu (au volant, le véhicule de commandement du joueur, en tête, se gare pendant que ses
+   * fourgons sont encore à cinq cents mètres) ? Sinon la mission l'attend, en le disant une fois au joueur, au plus
+   * COLUMN_WAIT s après son arrivée à lui.
+   */
+  private columnIn(now: number, dest: { x: number; z: number } | null): boolean {
+    const ctx = this.ctx!;
+    const me = ctx.player.person();
+    let top = me && me.squadId !== 0 ? ctx.squads.get(me.squadId) : undefined;
+    for (let guard = 0; top && top.parentId !== 0 && guard < 8; guard++) top = ctx.squads.get(top.parentId);
+    const cmd = ctx.service<{ convoyOf?(id: number): { stage: string } | null }>('police.command');
+    const st = top && cmd && cmd.convoyOf ? cmd.convoyOf(top.id) : null;
+    if (!st || now - this.nearSince >= ARRIVE_HOLD + COLUMN_WAIT) return true;
+    if (st.stage !== 'route' && (!dest || !top || this.shareNear(top.id, dest.x, dest.z) >= 0.5)) return true;
+    if (!this.columnTold) {
+      this.columnTold = true;
+      ctx.ui.notify('Votre compagnie est encore en route : la mission commence à son arrivée.', 'info', 6);
+    }
+    return false;
+  }
+
+  /** Part des agents valides de l'unité (et de sa descendance, hors joueur) à moins de COLUMN_NEAR m de (x, z). */
+  private shareNear(squadId: number, x: number, z: number): number {
+    const ctx = this.ctx!;
+    let n = 0;
+    let near = 0;
+    const visit = (id: number, depth: number): void => {
+      const q = ctx.squads.get(id);
+      if (!q || depth > 8) return;
+      for (const pid of q.members) {
+        const p = ctx.people.get(pid);
+        if (!p || p.isPlayer || p.posture === 'down' || p.custody !== 'free') continue;
+        const v = p.vehicleId !== 0 ? ctx.vehicles.get(p.vehicleId) : undefined;
+        n++;
+        if (Math.hypot((v ? v.x : p.x) - x, (v ? v.z : p.z) - z) < COLUMN_NEAR) near++;
+      }
+      for (const k of ctx.squads.childrenOf(id)) visit(k.id, depth + 1);
+    };
+    visit(squadId, 0);
+    return n > 0 ? near / n : 1;
   }
 
   /**
@@ -553,7 +621,7 @@ export class MissionSystem implements GameSystem {
         if (j.stage === 'route' && far < ARRIVE_NEAR && (!v || Math.abs(v.speed) < 0.5)) {
           if (this.nearSince < 0) this.nearSince = now;
         } else this.nearSince = -1;
-        const inPlace = this.nearSince >= 0 && now - this.nearSince >= ARRIVE_HOLD;
+        const inPlace = this.nearSince >= 0 && now - this.nearSince >= ARRIVE_HOLD && this.columnIn(now, d);
         if (!inPlace && (now - this.waitSince < TRAVEL_MAX || far > TRAVEL_NEAR)) return;
       }
       this.begin();
@@ -634,7 +702,7 @@ export class MissionSystem implements GameSystem {
           break;
         case 'victime_non_secourue': {
           const rec = ctx.service<{ stats(): { deaths: number } }>('incidents.records');
-          if (rec && rec.stats().deaths > 0) return f.text;
+          if (rec && rec.stats().deaths > this.deathsBefore) return f.text;
           break;
         }
         case 'temps':
@@ -651,7 +719,7 @@ export class MissionSystem implements GameSystem {
   /** Agents des forces de l'ordre blessés (même légèrement), comme la foule compte ses blessés. */
   private policeInjured(): number {
     let n = 0;
-    for (const p of this.ctx!.people.list) if (p.faction === 'police' && p.injury !== 'none' && !this.staged.has(p.id)) n++;
+    for (const p of this.ctx!.people.list) if (p.faction === 'police' && p.injury !== 'none' && !this.staged.has(p.id) && !this.hurtBefore.has(p.id)) n++;
     return n;
   }
 

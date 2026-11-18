@@ -33,6 +33,22 @@ export const DEFAULT_QUEUE_CONFIG: QueueConfig = {
   repeatWindow: [90, 20, 8],
 };
 
+/**
+ * Un message opérationnel qui attend gagne un niveau de priorité par PROMOTE secondes, jusqu'à l'urgent : sur un réseau
+ * saturé de messages urgents de la salle (chacun différent, l'anti-répétition n'y pouvait rien), le compte rendu de fin
+ * d'ordre d'une unité (« Arrivé au point », priorité 1) passait toujours après eux, attendait plus que maxWait et était
+ * abandonné — le commandant n'entendait jamais le résultat de son ordre. Il passe désormais au bout d'une demi-minute,
+ * à son rang parmi les urgents (l'ambiance, qui n'attend que quelques secondes, n'en profite pas).
+ */
+const PROMOTE = 30;
+
+function rank(p: { msg: RadioMessage; at: number }, now: number): number {
+  const base = p.msg.priority;
+  if (base === 0 || base >= 2) return base;
+  const r = base + (now - p.at) / PROMOTE;
+  return r > 2 ? 2 : r;
+}
+
 export type SubmitOutcome = 'played' | 'queued' | 'repeated' | 'dropped';
 
 interface Pending {
@@ -144,8 +160,10 @@ export class RadioQueue {
         const a = q[i]!;
         const b = q[best]!;
         const mine = this.isPlayer(a.msg);
-        // le joueur d'abord ; puis priorité décroissante, puis ancienneté
-        if (mine !== bestMine ? mine : a.msg.priority > b.msg.priority || (a.msg.priority === b.msg.priority && a.seq < b.seq)) {
+        const pa = rank(a, now);
+        const pb = rank(b, now);
+        // le joueur d'abord ; puis priorité décroissante (l'attente comptée, voir rank), puis ancienneté
+        if (mine !== bestMine ? mine : pa > pb || (pa === pb && a.seq < b.seq)) {
           best = i;
           bestMine = mine;
         }

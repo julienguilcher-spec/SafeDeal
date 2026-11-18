@@ -124,6 +124,7 @@ export class CommandSystem implements GameSystem {
       arrive: (id, dest) => this.convoy.arrive(id, dest),
       depart: (id, exit) => this.convoy.depart(id, exit),
       convoyOf: (id) => this.convoy.statusOf(id),
+      takeOver: (id) => this.convoy.takeOver(id),
     };
     const post: CommandPost = {
       get atVehicle(): boolean { return self.postState(0); },

@@ -59,6 +59,14 @@ const REJOIN_GAP = 10;
 const REJOIN_MAX = 12;
 /** Opérateurs à moins de tant de mètres de leurs machines : ils y montent directement (embarquement), sans colonne à pied (m). */
 const MOUNT_REACH = 40;
+/**
+ * Tête de colonne arrêtée au milieu de la foule (au moins CROWD_AROUND manifestants à moins de CROWD_RADIUS m) depuis
+ * CROWD_STUCK s sans avoir gagné 5 m vers son point d’arrêt : les motos ne fendent pas une foule — pied à terre, la suite à pied
+ * (m, nombre, s).
+ */
+const CROWD_RADIUS = 15;
+const CROWD_AROUND = 6;
+const CROWD_STUCK = 8;
 
 /** L'unité est-elle un groupe de BRAV-M (au moins un binôme subordonné doté d'une moto, ou binôme isolé) ? */
 export function isBravmGroup(core: CommandCore, s: Squad): boolean {
@@ -110,6 +118,11 @@ export class BravmUnit extends SpecialUnit {
   private arrestOk = false;
   private arrestReason = '';
   private arrested = 0;
+  /** Tête de colonne au milieu de la foule : distance au point d'arrêt quand elle avançait encore, et depuis quand (voir CROWD_STUCK). */
+  private crowdD = 0;
+  private crowdAt = -1;
+  /** Point d'arrêt du déplacement en cours ramené en arrière par la foule (ride : jamais d'arrêt dans un rassemblement). */
+  private crowdBack = false;
   /** Interception loin d'opérateurs à pied : ils remontent d'abord en selle, puis la colonne roule vers l'objectif. */
   private rideAfterRemount = false;
   /** Ordre à exécuter une fois le pied à terre fait (manœuvre à pied laissée au module de police). */
@@ -223,6 +236,9 @@ export class BravmUnit extends SpecialUnit {
       this.setStage('repos');
       return true;
     }
+    // « suivre » (« Suivez-moi à pied » du commandant) : le point est la personne suivie, là où elle est — l'ordre ne
+    // porte que sa cible ; à des centaines de mètres, la BRAV-M partait à pied, ou restait sur place
+    if (type === 'suivre' && o.targetId > 0 && locate(this.core, o.targetId)) o = { ...o, x: this.core.v2.x, z: this.core.v2.z };
     const far = this.farPoint(o);
     if (mounted && this.motos.length > 0 && far > RIDE_BEYOND && this.pilots() > 0) {
       // point éloigné : la colonne s'y rend à moto, pied à terre sur place, puis la manœuvre est exécutée
@@ -291,11 +307,16 @@ export class BravmUnit extends SpecialUnit {
         break;
       case 'avancer':
       case 'colonne':
-      case 'repli':
-        this.say(received(this.squad.name, o.type === 'repli' ? 'je me replie en colonne' : 'en colonne vers le point'));
+      case 'repli': {
+        // à pied, point à moins de trois minutes de marche : on y va à pied, directement (le retour aux machines,
+        // garées au milieu de la foule, puis la remontée en selle, laissaient la BRAV-M sur place une minute et plus)
+        const walk = !mounted && this.footOperators() > 0 && Math.hypot(this.tx - this.people[0].x, this.tz - this.people[0].z) <= WALK_LIMIT;
+        this.say(received(this.squad.name, o.type === 'repli' ? 'je me replie en colonne' : walk ? 'à pied vers le point' : 'en colonne vers le point'));
         if (mounted) this.ride(this.tx, this.tz, 0);
+        else if (walk) this.defer(() => this.walkTo(this.tx, this.tz));
         else this.defer(() => this.backToMotos());
         break;
+      }
       case 'embarquer':
         if (mounted) this.complete(true, '');
         else this.defer(() => this.backToMotos());
@@ -335,6 +356,7 @@ export class BravmUnit extends SpecialUnit {
     // point d'arrêt le long de l'itinéraire
     let sx = x;
     let sz = z;
+    this.crowdBack = false;
     const path = core.path;
     const routed = core.ctx.world.findPath(lead.x, lead.z, x, z, 'vehicle', path) && path.length >= 4;
     this.departure(routed ? path : null, x, z);
@@ -356,6 +378,7 @@ export class BravmUnit extends SpecialUnit {
         if (core.ctx.people.countIn(sx, sz, 22, isProtester) < 8) break;
         back += 20;
       }
+      this.crowdBack = back > standoff;
     } else if (standoff > 0) {
       const d = Math.hypot(x - lead.x, z - lead.z);
       if (d > standoff + 4) {
@@ -373,6 +396,7 @@ export class BravmUnit extends SpecialUnit {
       this.arrived();
       return;
     }
+    this.crowdAt = -1;
     this.relaunches = 0;
     this.rejoinAt = -1;
     // trajet à travers la ville : en urgence, les fermetures de rue de la police sont franchies (arrêtée devant un
@@ -535,6 +559,17 @@ export class BravmUnit extends SpecialUnit {
     const st = ap.status(lead);
     const d = Math.hypot(this.standX - lead.x, this.standZ - lead.z);
     const stopped = Math.abs(lead.speed) < 0.4;
+    // tête arrêtée au milieu de la foule (le pilote automatique attend que les manifestants s'écartent, indéfiniment) :
+    // pied à terre, la suite à pied (voir CROWD_STUCK) — sur un ordre du joueur ; l'arrivée de la journée de service, elle,
+    // s'arrête avant la foule (session/journee.ts)
+    // (« avancé » : cinq mètres de gagnés vers le point d'arrêt — une tête qui piétine sur place dans la foule n'avance pas)
+    if (this.crowdAt < 0 || d < this.crowdD - 5) {
+      this.crowdD = d;
+      this.crowdAt = now;
+    } else if (this.byPlayer() && now - this.crowdAt > CROWD_STUCK && d > RIDE_STANDOFF && core.ctx.people.countIn(lead.x, lead.z, CROWD_RADIUS, isProtester) >= CROWD_AROUND) {
+      this.crowdDismount();
+      return;
+    }
     // tête arrêtée loin du point (circulation, rue encombrée, pilote automatique arrêté) : la colonne n'est pas
     // « arrivée » — elle repart par un nouvel itinéraire (voir RIDE_FAR) ; le délai de route ne joue que près du point
     const far = d > RIDE_FAR && this.relaunches < RELAUNCH_MAX;
@@ -589,6 +624,18 @@ export class BravmUnit extends SpecialUnit {
     }
     this.rejoinTries = 0;
     this.rejoinAt = this.core.now + REJOIN_GAP;
+    // déplacement arrêté par la foule loin du point (BRAV-M arrivée avec la colonne au milieu du rassemblement : point
+    // d'arrêt retombé sur la tête, pilote automatique qui attend que les manifestants s'écartent) : la colonne se disait
+    // « en position » sans avoir bougé, à cent cinquante mètres du point — « la BRAV-M, ils bougeaient pas ». Pied à
+    // terre, la suite à pied. Aussi quand le point demandé est dans la foule : ride() a ramené le point d'arrêt au bord du
+    // rassemblement (les motos ne s'arrêtent pas dedans), parfois sur la tête elle-même — « En position » à cent mètres du
+    // point où le commandant l'appelait (sur son ordre : l'arrivée de la journée de service s'arrête avant la foule)
+    const left = lead ? Math.hypot(this.tx - lead.x, this.tz - lead.z) : 0;
+    if (o && lead && this.byPlayer() && (o.type === 'avancer' || o.type === 'colonne') && this.mountedOperators() > 0 && left > RIDE_STANDOFF + 8
+      && (this.core.ctx.people.countIn(lead.x, lead.z, CROWD_RADIUS, isProtester) >= CROWD_AROUND || (left <= WALK_LIMIT && this.crowdBack))) {
+      this.crowdDismount();
+      return;
+    }
     if (!o || o.type === 'avancer' || o.type === 'colonne' || o.type === 'repli') {
       // arrêtée loin de son point d'arrêt (route coupée, mur du bord de la carte, foule en travers) : elle le dit, avec la
       // distance qui reste — « En position » à 130 m du point trompait celui qui l'y avait envoyée
@@ -628,7 +675,24 @@ export class BravmUnit extends SpecialUnit {
     }
   }
 
+  /** L'ordre en cours vient-il du joueur (carte, roue, bloc « ORDRES ») ? */
+  private byPlayer(): boolean {
+    const o = this.order;
+    return !!o && o.issuedBy !== 0 && o.issuedBy === this.core.ctx.player.state.personId;
+  }
+
   // ───────────────────────────── pied à terre ─────────────────────────────
+
+  /**
+   * Colonne prise dans la foule : les motos s'arrêtent, les opérateurs mettent pied à terre et l'ordre continue à pied
+   * (déplacement : colonne à pied jusqu'au point ; interception : approche à pied), annoncé à la radio.
+   */
+  private crowdDismount(): void {
+    this.stopMotos();
+    this.crowdAt = -1;
+    this.say(report(this.superior(), this.squad.name, 'Foule sur l’itinéraire, les motos ne passent pas. Pied à terre, je continue à pied'));
+    this.dismount();
+  }
 
   /** Tous les opérateurs descendent dans le même pas (les pilotes gardent les machines). */
   private dismount(): void {
@@ -672,7 +736,13 @@ export class BravmUnit extends SpecialUnit {
       return;
     }
     // déplacement demandé sans machines disponibles : colonne à pied
-    this.internal({ type: 'colonne', x: this.tx, z: this.tz, issuedBy: o.issuedBy });
+    this.walkTo(this.tx, this.tz);
+  }
+
+  /** Déplacement à pied jusqu'au point (colonne du module de police) : l'unité redevient une unité à pied. */
+  private walkTo(x: number, z: number): void {
+    const o = this.order;
+    this.internal({ type: 'colonne', x, z, issuedBy: o ? o.issuedBy : 0 });
     this.order = null;
     this.status.order = '';
     this.setStage('a_pied');

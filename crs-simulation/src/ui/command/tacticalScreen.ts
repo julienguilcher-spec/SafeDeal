@@ -42,7 +42,7 @@ import type { TacticalOpenData, TacticalTab } from './api';
 import type {
   Card, CardEnv, CardLine, CardPreview, IntentId, LegalPlan, LegalStatus, LegalStep, Repere, SendEnv, WhoCandidate, WhoEnv,
 } from './cardTypes';
-import { defaultWho, noUnitText } from './bestUnit';
+import { noUnitText, whoAt } from './bestUnit';
 import type { CommandCore } from './core';
 import { INTENTS, LEGAL_CHIP_TOOLTIP, MORE_BUTTON, buildCard, intentById, intentCandidates, plainLine } from './intents';
 import { buildNasseProposal, holdingSquads, nasseCandidates } from './nasse';
@@ -933,9 +933,7 @@ export class TacticalScreen implements ScreenInstance {
     }
     if (this.whoList.length === 0) return null;
     // d'office : la première de mes unités, jamais un renfort de commissariat (U les atteint ensuite)
-    if (st.whoIndex === 0) return defaultWho(this.whoList);
-    const n = this.whoList.length;
-    return this.whoList[((st.whoIndex % n) + n) % n]!;
+    return whoAt(this.whoList, st.whoIndex);
   }
 
   /** Recalcule la fiche ouverte (repère à jour, ligne, Qui, aperçu, phrase) et la montre. */

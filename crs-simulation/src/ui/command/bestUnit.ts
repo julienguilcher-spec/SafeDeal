@@ -114,11 +114,30 @@ function lowerFirst(s: string): string {
   return s === '' ? s : s.charAt(0).toLocaleLowerCase('fr-FR') + s.slice(1);
 }
 
+/**
+ * L'unité (ou une de ses subordonnées) tient-elle une issue d'une nasse fermée ? L'envoyer ailleurs rouvre la nasse :
+ * Qui le dit (« la quittera : la nasse s'ouvre »), au lieu d'un simple « la quittera ».
+ */
+function holdsClosedNasse(u: CardUnit, env: CardEnv): boolean {
+  for (const c of env.crowds) {
+    if (!c.closed) continue;
+    for (const e of c.exits) {
+      let id = e.squadId;
+      for (let guard = 0; id > 0 && guard < 8; guard++) {
+        if (id === u.squadId) return true;
+        id = env.units.find((q) => q.squadId === id)?.parentId ?? 0;
+      }
+    }
+  }
+  return false;
+}
+
 /** Ce que fait déjà l'unité, en clair (« sans ordre », « barre la rue Royale (la quittera) »). */
 export function busyText(u: CardUnit, env: CardEnv, holding: boolean): string {
   if (isFree(u, env)) return u.order && u.order.type === 'tenir' ? 'tient sa position' : 'sans ordre';
   const o = u.order!;
   const doing = lowerFirst(doingAt(o.type, u.orderPlace, o.targetId)) || 'ordre en cours';
+  if (holdsClosedNasse(u, env)) return `${doing} (la quittera\u00a0: la nasse s’ouvre)`;
   return `${doing}${holding || !IDLE_ORDERS.has(String(o.type)) ? ' (la quittera)' : ''}`;
 }
 
@@ -343,6 +362,19 @@ export function proposeWho(line: CardLine, where: { x: number; z: number } | Rep
 export function defaultWho(list: readonly WhoCandidate[]): WhoCandidate | null {
   for (const c of list) if (c.fromStation === undefined) return c;
   return null;
+}
+
+/**
+ * Qui après `index` appuis sur U (négatif : Maj+U). 0 : le candidat d'office. Sans unité à moi (que des renforts de
+ * commissariat), le premier U donne le renfort que nomme noUnitText (« renfort possible : TV 75-19 : U »), pas le suivant.
+ */
+export function whoAt(list: readonly WhoCandidate[], index: number): WhoCandidate | null {
+  const n = list.length;
+  if (n === 0) return null;
+  const first = defaultWho(list);
+  if (index === 0) return first;
+  const k = first ? index : index > 0 ? index - 1 : index;
+  return list[((k % n) + n) % n]!;
 }
 
 /**

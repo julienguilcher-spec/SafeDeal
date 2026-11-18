@@ -11,7 +11,8 @@
  * Sans pilote automatique (module des véhicules absent), l'unité débarque là où elle se trouve.
  * ===================================================================================== */
 
-import type { OrderType, RoadSample, Vehicle } from '@/core/contracts';
+import type { OrderType, RayHit, RoadSample, Vehicle } from '@/core/contracts';
+import { makeRayHit } from '@/core/null-services';
 import { angleDiff, pointOnPolyline, projectOnPolyline } from '@/core/math';
 import { agentOf } from '../brain';
 import { isProtester } from './core';
@@ -54,6 +55,12 @@ interface Convoy {
   zonesAt: number;
   /** Longueur de l'itinéraire au départ (m ; −1 : pas encore relevée). */
   routeLen: number;
+  /**
+   * Point qu'aucun itinéraire carrossable ne dessert (dit à la radio, voir reportNoRoute) ; et l'unité, débarquée, s'y
+   * rend alors à pied (false : aucun chemin à pied non plus, elle reste en attente d'ordres).
+   */
+  noRoute?: boolean;
+  footTo?: boolean;
   /** Prochain nouvel itinéraire possible de la tête arrêtée par la foule (s). */
   rerouteAt: number;
   /** Tête de colonne : dernière position où elle bougeait et depuis quand elle n'en a pas bougé ; redémarrages. */
@@ -95,6 +102,10 @@ const PLAYER_REMIND = 30;
  */
 const DRIVER_ARRIVE = 90;
 const DRIVER_MOVED = 30;
+/** Longueur du début d'itinéraire où lineUp range une file (douze véhicules au plus, ~17 m chacun) (m). */
+const LINE_SPAN = 220;
+/** Place laissée devant la tête de la file avant un mur (de quoi braquer, même un canon à eau) (m). */
+const WALL_ROOM = 30;
 
 /**
  * Allure de croisière demandée pour une colonne en urgence (deux tons) ; le pilote automatique la porte à une fois et
@@ -114,13 +125,52 @@ export class ConvoyControl {
   private thinkAt = 0;
   private readonly pathBuf: number[] = [];
   private readonly headBuf: number[] = [];
+  private readonly lineBuf: number[] = [];
+  private readonly rayHit: RayHit = makeRayHit();
   private readonly roadBuf: RoadSample = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '', roadClass: 'residential', oneway: false };
+
+  /**
+   * Unités d'une colonne en cours d'arrivée (par colonne) que le joueur a commandées pendant le trajet ou le
+   * stationnement : le débarquement de fin de trajet ne leur est plus donné. Relevé de la recette du commandant en
+   * mission (« Nuit des vitrines ») : la mission commence quand il arrive, la colonne se gare encore ; il fait barrer une
+   * rue, repousser la foule, « Suivez-moi à pied »… et une minute plus tard le « débarquez » de la colonne remplaçait
+   * tous ces ordres : les sections s'arrêtaient, sans ordre, là où elles étaient.
+   */
+  private readonly taken = new Map<number, Set<number>>();
 
   constructor(private readonly core: CommandCore) {}
 
   reset(): void {
     this.list.length = 0;
     this.thinkAt = 0;
+    this.taken.clear();
+  }
+
+  /** Le joueur donne un ordre à cette unité : retenue pour la colonne en cours d'arrivée dont elle fait partie. */
+  takeOver(squadId: number): void {
+    for (let i = 0; i < this.list.length; i++) {
+      const c = this.list[i];
+      if ((c.status.stage !== 'route' && c.status.stage !== 'stationnement') || !this.core.isUnder(squadId, c.status.squadId)) continue;
+      let set = this.taken.get(c.status.squadId);
+      if (!set) this.taken.set(c.status.squadId, (set = new Set<number>()));
+      set.add(squadId);
+    }
+  }
+
+  /**
+   * Débarquement de fin de trajet donné aux seules branches de la colonne que le joueur n'a pas commandées (l'ordre
+   * donné plus haut reprendrait sinon toute la descendance) : les unités qui ont ses ordres les exécutent.
+   */
+  private disembarkRest(squadId: number, taken: ReadonlySet<number>, order: Parameters<CommandCore['issue']>[1]): void {
+    if (taken.has(squadId)) return;
+    let mixed = false;
+    for (const id of taken) if (this.core.isUnder(id, squadId)) { mixed = true; break; }
+    if (!mixed) {
+      this.core.issue(squadId, { ...order });
+      return;
+    }
+    const kids = this.core.ctx.squads.childrenOf(squadId);
+    for (let i = 0; i < kids.length; i++) this.disembarkRest(kids[i].id, taken, order);
   }
 
   of(squadId: number): Convoy | null {
@@ -374,12 +424,15 @@ export class ConvoyControl {
     const squad = core.ctx.squads.get(squadId);
     if (!squad) return false;
     const c = this.obtain(squadId);
+    this.taken.delete(squadId);
     c.dest = { ...dest };
     c.hasDest = true;
     c.routeLen = -1;
     c.orderDone = false;
     c.stallAt = 0;
     c.restarts = 0;
+    c.noRoute = false;
+    c.footTo = false;
     c.drvId = 0;
     c.status.awaitingDriver = false;
     c.status.t0 = core.now;
@@ -415,7 +468,8 @@ export class ConvoyControl {
       core.say(squad.name, frame('CENTRAL', squad.name, 'En route vers la zone de stationnement, ' + spell(c.vehicles.length) + ' véhicules en colonne', false), 1, 'commandement', squad.leaderId);
       return true;
     }
-    // pas de véhicule ou pas de pilote : on débarque sur place
+    // pas de véhicule ou pas de pilote : on débarque sur place (aucun itinéraire jusqu'au point : l'unité le dit)
+    if (lead && ap) this.reportNoRoute(c);
     this.beginDisembark(c);
     return lead !== undefined;
   }
@@ -440,14 +494,15 @@ export class ConvoyControl {
     const squad = core.ctx.squads.get(c.status.squadId);
     if (ap && c.vehicles.length > 0 && c.dest.stagger) {
       c.staggerIdx = 0;
-      this.launchNext(c);
-      if (squad) core.say(squad.name, frame('CENTRAL', squad.name, 'Départ en colonne, ' + spell(c.vehicles.length) + ' véhicules, deux tons', false), 1, 'commandement', squad.leaderId);
+      // (tête sans itinéraire : pas de « départ » annoncé — voir thinkStagger, point inaccessible)
+      if (this.launchNext(c) && squad) core.say(squad.name, frame('CENTRAL', squad.name, 'Départ en colonne, ' + spell(c.vehicles.length) + ' véhicules, deux tons', false), 1, 'commandement', squad.leaderId);
       return;
     }
     if (ap && c.vehicles.length > 0 && ap.convoy(c.vehicles, c.dest.x, c.dest.z, { gap: core.tuning.convoyGap, speed: urgentSpeed(core), urgence: true, avoid: this.crowdZones(c) })) {
       if (squad) core.say(squad.name, frame('CENTRAL', squad.name, 'En route vers la zone de stationnement, ' + spell(c.vehicles.length) + ' véhicules en colonne', false), 1, 'commandement', squad.leaderId);
       return;
     }
+    if (ap && c.vehicles.length > 0) this.reportNoRoute(c);
     this.beginDisembark(c);
   }
 
@@ -570,11 +625,29 @@ export class ConvoyControl {
     for (const v of list) { cx += v.x; cz += v.z; }
     cx /= list.length;
     cz /= list.length;
-    const path = this.pathBuf;
-    path.length = 0;
     let ok = false;
-    try { ok = this.departRoute(c, cx, cz, tx, tz, path) && path.length >= 4; } catch { ok = false; }
+    try { ok = this.departRoute(c, cx, cz, tx, tz, this.pathBuf) && this.pathBuf.length >= 4; } catch { ok = false; }
     if (!ok) return;
+    // (copie : orderForDeparture et blockerAhead réécrivent pathBuf et headBuf)
+    const path = this.lineBuf;
+    path.length = 0;
+    for (const x of this.pathBuf) path.push(x);
+    // un mur en travers du début de l'itinéraire (voir wallAt) : la file se range le long de l'itinéraire que le pilote
+    // automatique roulera vraiment (il ne prend pas ce tronçon droit barré : il sort de la place par les allées ou de
+    // l'autre côté), et s'arrête au besoin WALL_ROOM m avant le mur
+    let limit = this.wallAt(path, 8);
+    const ap = this.core.autopilot;
+    const probe = list.find((v) => v.seats[0] !== 0);
+    if (limit !== Infinity && ap && ap.plannedPath && probe) {
+      const alt = this.headBuf;
+      if (ap.driveTo(probe, tx, tz, { urgence: true, avoid: this.crowdZones(c) }) && ap.plannedPath(probe, alt) && alt.length >= 4 && this.wallAt(alt, 8) > limit) {
+        path.length = 0;
+        for (const x of alt) path.push(x);
+        limit = this.wallAt(path, 8);
+      }
+      ap.stop(probe);
+    }
+    limit -= WALL_ROOM;
     this.orderForDeparture(c, tx, tz, false);
     const p = { x: 0, z: 0 };
     const near: Vehicle[] = [];
@@ -585,7 +658,7 @@ export class ConvoyControl {
       if (v.seats[0] === 0) continue;
       // première place libre le long de l'itinéraire (ni mur, ni voiture garée, ni autre véhicule)
       let placed = false;
-      for (let tries = 0; tries < 8 && !placed; tries++) {
+      for (let tries = 0; tries < 8 && !placed && s + v.def.length < limit; tries++) {
         s += v.def.length * 0.5;
         const h = pointOnPolyline(path, s, p);
         const rx = Math.cos(h), rz = -Math.sin(h);
@@ -610,18 +683,63 @@ export class ConvoyControl {
     }
   }
 
+  /**
+   * Abscisse (m) où le début de l'itinéraire (les LINE_SPAN premiers mètres, où lineUp range la file) traverse un mur,
+   * Infinity sinon. Hors des rues, le premier tronçon va tout droit à la chaussée carrossable la plus proche, parfois
+   * au-delà d'un mur de quai (place de la Concorde, piétonne : voie Georges-Pompidou en contrebas, derrière le parapet) :
+   * la file rangée le long de ce tronçon jusqu'au bout mettait sa tête — le canon à eau — nez au parapet, sans place
+   * pour braquer ni sortie possible, et la colonne restait figée derrière elle. Elle s'arrête désormais avant le mur ;
+   * la tête sort de la place par les allées (pilote automatique : départ loin de toute chaussée).
+   */
+  private wallAt(path: number[], from: number): number {
+    const world = this.core.ctx.world;
+    const hit = this.rayHit;
+    let run = 0;
+    for (let i = 2; i + 1 < path.length && run < LINE_SPAN; i += 2) {
+      const ax = path[i - 2]!, az = path[i - 1]!, bx = path[i]!, bz = path[i + 1]!;
+      const len = Math.hypot(bx - ax, bz - az);
+      // (seulement au-delà du début de la file : un mur en deçà est derrière elle)
+      const t0 = len > 0 && from > run ? Math.min(1, (from - run) / len) : 0;
+      if (t0 < 1 && world.raycast(ax + (bx - ax) * t0, az + (bz - az) * t0, bx, bz, hit) && hit.hit) return run + len * (t0 + (1 - t0) * hit.t);
+      run += len;
+    }
+    return Infinity;
+  }
+
   /** Départ échelonné : le véhicule suivant part vers le point et s'arrêtera derrière ceux qui le précèdent. */
-  private launchNext(c: Convoy): void {
+  private launchNext(c: Convoy): boolean {
     const core = this.core;
     const ap = core.autopilot;
     const v = c.vehicles[c.staggerIdx];
-    if (!ap || !v) return;
+    if (!ap || !v) return false;
     const order = c.staggerIdx;
     c.startX[order] = v.x;
     c.startZ[order] = v.z;
-    ap.driveTo(v, c.dest.x, c.dest.z, { urgence: true, speed: urgentSpeed(core), stopBefore: 2 + order * 11, avoid: this.crowdZones(c) });
+    const ok = ap.driveTo(v, c.dest.x, c.dest.z, { urgence: true, speed: urgentSpeed(core), stopBefore: 2 + order * 11, avoid: this.crowdZones(c) });
     c.staggerIdx++;
     c.staggerAt = core.now;
+    return ok;
+  }
+
+  /**
+   * Aucun véhicule de la colonne n'a d'itinéraire jusqu'au point (hors des voies carrossables, au bord de la carte) :
+   * l'unité le dit en clair à celui qui a donné l'ordre, et ce qu'elle fait à la place — elle débarque et s'y rend à pied
+   * s'il existe un chemin, sinon elle reste en attente d'ordres. Elle débarquait sinon en silence devant ses véhicules
+   * et restait « en alerte », ou annonçait une « colonne arrêtée à des kilomètres du point » qui n'était jamais partie.
+   */
+  private reportNoRoute(c: Convoy): void {
+    const core = this.core;
+    const squad = core.ctx.squads.get(c.status.squadId);
+    const lead = c.vehicles[0];
+    if (!squad || !lead || !c.hasDest || c.noRoute) return;
+    c.noRoute = true;
+    let foot = false;
+    try { foot = core.ctx.world.findPath(lead.x, lead.z, c.dest.x, c.dest.z, 'foot', this.headBuf) && this.headBuf.length >= 4; } catch { foot = false; }
+    c.footTo = foot;
+    const parent = squad.parentId !== 0 ? core.ctx.squads.get(squad.parentId) : undefined;
+    const to = parent ? parent.name : 'CENTRAL';
+    core.say(squad.name, frame(to, squad.name, 'Point inaccessible en véhicule, aucun itinéraire par la route. '
+      + (foot ? 'On débarque et on s\'y rend à pied' : 'Inaccessible à pied aussi : on débarque et on reste ici, en attente d\'ordres'), true), 1, 'commandement', squad.leaderId);
   }
 
   /** Colonne échelonnée en route : départs successifs, puis débarquement quand tous sont arrivés (ou arrêtés). */
@@ -635,6 +753,13 @@ export class ConvoyControl {
       const prev = c.vehicles[i];
       const moved = prev ? Math.hypot(prev.x - c.startX[i]!, prev.z - c.startZ[i]!) : 99;
       if (moved > 12 || now - c.staggerAt > 8) this.launchNext(c);
+      return;
+    }
+    // aucun véhicule n'a d'itinéraire jusqu'au point : l'unité le dit et débarque (voir reportNoRoute)
+    if (n > 0 && c.vehicles.every((v) => { const st = ap.status(v); return st.state === 'echec' && st.reason === 'sans_itineraire'; })) {
+      for (const v of c.vehicles) ap.stop(v);
+      this.reportNoRoute(c);
+      this.beginDisembark(c);
       return;
     }
     // colonne coincée au départ : un véhicule arrêté derrière un autre de la colonne pas encore lancé le fait partir ;
@@ -989,7 +1114,16 @@ export class ConvoyControl {
     }
     c.orderDone = false;
     const squad = core.ctx.squads.get(c.status.squadId);
-    core.issue(c.status.squadId, { type: 'debarquer', x: lx, z: lz, heading: lh, width: 0, issuedBy: squad ? squad.leaderId : 0 });
+    const order = { type: 'debarquer' as const, x: lx, z: lz, heading: lh, width: 0, issuedBy: squad ? squad.leaderId : 0 };
+    const taken = this.taken.get(c.status.squadId);
+    this.taken.delete(c.status.squadId);
+    if (taken && taken.size > 0) {
+      // le joueur a déjà commandé une partie de la colonne : le reste débarque, ses ordres tiennent
+      this.disembarkRest(c.status.squadId, taken, order);
+      this.setStage(c, 'en_place');
+      return;
+    }
+    core.issue(c.status.squadId, order);
     this.setStage(c, 'debarquement');
   }
 
@@ -1108,7 +1242,16 @@ export class ConvoyControl {
         case 'route': this.thinkRoute(c); break;
         case 'stationnement': this.thinkPark(c); break;
         case 'debarquement':
-          if (c.orderDone || core.now - c.stageT > 120) this.setStage(c, 'en_place');
+          if (c.orderDone || core.now - c.stageT > 120) {
+            // (point inaccessible en véhicule : à pied, comme annoncé — l'ordre repris au débarquement, s'il y en a un,
+            // prend la suite à l'annonce de 'en_place')
+            if (c.footTo) {
+              c.footTo = false;
+              const squad = core.ctx.squads.get(c.status.squadId);
+              core.issue(c.status.squadId, { type: 'colonne', x: c.dest.x, z: c.dest.z, heading: c.dest.heading, width: 0, issuedBy: squad ? squad.leaderId : 0 });
+            }
+            this.setStage(c, 'en_place');
+          }
           break;
         case 'rembarquement': this.thinkEmbark(c); break;
         case 'depart': this.thinkLeave(c); break;

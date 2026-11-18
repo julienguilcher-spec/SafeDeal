@@ -147,6 +147,15 @@ function waitText(who: WhoCandidate | null, type: string): string {
   return ' La colonne vous attend pour partir\u00a0: montez à bord (elle part sans vous au bout de 5\u00a0min).';
 }
 
+/**
+ * Ordres dont une voiture de patrouille fait un trajet en urgence, et ceux où elle s'arrête sur place (gameplay/patrols :
+ * MOVE_ORDERS, HOLD_ORDERS) : ni ligne, ni formation, ni boucliers pour trois policiers en voiture.
+ */
+const PATROL_DRIVES: ReadonlySet<string> = new Set([
+  'avancer', 'colonne', 'faire_mouvement', 'repli', 'bond_offensif', 'charge', 'refoulement', 'ligne', 'couper_circulation', 'filtrer',
+]);
+const PATROL_HOLDS: ReadonlySet<string> = new Set(['tenir', 'cesser', 'tortue']);
+
 function verbSentence(type: string, targetId: number, who: WhoCandidate | null, where: Repere, noFact = false): string {
   if (type === 'degager_obstacle' && (!who || who.squadIds.length === 0)) {
     return 'Le blindé Centaure libre le plus proche pousse le véhicule hors de la chaussée.';
@@ -154,6 +163,12 @@ function verbSentence(type: string, targetId: number, who: WhoCandidate | null, 
   const s = who ? subjectOf(who.label) : { text: 'l’unité', plural: false };
   const i = s.plural ? 1 : 0;
   const p = placePhrase(where);
+  if (who && /^Patrouille\s/.test(who.label)) {
+    if (PATROL_DRIVES.has(type)) {
+      return capFirst(`${s.text} s’y rend en voiture, deux-tons, vers ${p} (~${minutesText(who.eta)}), et s’arrête juste avant.`);
+    }
+    if (PATROL_HOLDS.has(type)) return capFirst(`${s.text} s’arrête et reste sur place, à bord de sa voiture.`);
+  }
   if (type === 'interpeller' && noFact && !(who && /^BRAV-M\s/.test(who.label))) {
     // une troupe ne part pas « constater » : sans fait constaté, elle refuse l'ordre sur place (ops.ts startTask)
     return capFirst(`aucun fait constaté ${fill('près {de}', where)}\u00a0: ${s.text} ne peut interpeller personne et ${s.plural ? 'refuseront' : 'refusera'} l’ordre.`);

@@ -86,11 +86,16 @@ export interface EvalEnv {
    * elles sont la prémisse de la mission et ne comptent pas parmi les blessés reprochés au joueur.
    */
   staged?: ReadonlySet<EntityId>;
+  /**
+   * Blessés de la foule déjà comptés au début de la mission (journée de service : le cortège part pendant le trajet en
+   * colonne depuis la caserne) : la mission ne juge que ce qui arrive après son début.
+   */
+  injuredAtStart?: number;
 }
 
 /** Blessés de la foule, hors victimes mises en scène par la mission. */
 export function crowdInjured(env: EvalEnv): number {
-  const n = env.ctx.director.stats.injured;
+  const n = Math.max(0, env.ctx.director.stats.injured - (env.injuredAtStart ?? 0));
   if (!env.staged || env.staged.size === 0) return n;
   let k = 0;
   for (const id of env.staged) {

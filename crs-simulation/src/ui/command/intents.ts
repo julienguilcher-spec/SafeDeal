@@ -737,6 +737,33 @@ function synthIntentLine(intent: IntentId, r: Repere, env: CardEnv): CardLine | 
 
 // ───────────────────────────── construction ─────────────────────────────
 
+/**
+ * Ordres qu'une voiture de patrouille (Police secours, BAC : trois policiers, sans boucliers) n'exécute pas : le module
+ * des patrouilles en fait un simple trajet en urgence (gameplay/patrols, MOVE_ORDERS) — la fiche offrait « Tenir une
+ * ligne ici », « Charger », « Disperser au gaz »… et la phrase promettait « boucliers levés ».
+ */
+const PATROL_UNFIT: ReadonlySet<string> = new Set([
+  'ligne', 'avancer', 'charge', 'refoulement', 'bond_offensif', 'disperser_gaz', 'encercler', 'tortue', 'couper_circulation', 'filtrer',
+  'degager_obstacle', 'degager_barricade',
+]);
+
+/** Ordres restants dont la voiture fait un trajet en urgence (« Y aller », « Se replier ici »…). */
+const PATROL_DRIVES_TO: ReadonlySet<string> = new Set(['avancer', 'colonne', 'faire_mouvement', 'repli']);
+
+/** Les unités visées par la fiche (l'unité de sa fiche, sinon la sélection) sont-elles toutes des voitures de patrouille ? */
+function patrolOnly(r: Repere, env: CardEnv): boolean {
+  const ids = r.kind === 'unite' && r.squadId !== undefined && r.squadId > 0 ? [r.squadId] : env.selection;
+  return ids.length > 0 && ids.every((id) => env.units.find((u) => u.squadId === id)?.patrol === true);
+}
+
+/** Ligne qu'une voiture de patrouille ne peut pas tenir (« Y aller » reste : la voiture s'y rend). */
+function patrolUnfit(l: CardLine): boolean {
+  const a = l.action;
+  if (a.kind === 'verb') return l.label !== 'Y aller' && PATROL_UNFIT.has(String(a.type));
+  if (a.kind === 'sendElsewhere') return a.type !== undefined && PATROL_UNFIT.has(String(a.type));
+  return a.kind === 'nasse' || a.kind === 'filteredExit';
+}
+
 /** Fiche d'origine d'un repère (sans les fiches remplacées par registerCardBuilder). */
 export function defaultCardBuilder(r: Repere, env: CardEnv, intent: IntentId | null): Card {
   const b = BUILDERS[r.kind](r, env);
@@ -748,6 +775,14 @@ export function defaultCardBuilder(r: Repere, env: CardEnv, intent: IntentId | n
     try { extra = p.fn(r, env); } catch { extra = {}; }
     for (const l of extra.lines ?? []) (lines.length < MAX_LINES ? lines : others).push(l);
     for (const l of extra.others ?? []) others.push(l);
+  }
+  // une voiture de patrouille ne tient ni ligne ni barrage, ne charge pas, ne gaze pas : ces lignes ne lui sont pas offertes
+  if (patrolOnly(r, env)) {
+    // ce qui reste roule : « Y aller » ne dit plus « à pied, en formation » (gameplay/patrols, MOVE_ORDERS)
+    const drive = (l: CardLine): CardLine => (l.action.kind === 'verb' && PATROL_DRIVES_TO.has(String(l.action.type))
+      ? { ...l, explain: 'En voiture, deux-tons ; elle s’arrête juste avant.' } : l);
+    lines = lines.filter((l) => !patrolUnfit(l)).map(drive);
+    others = others.filter((l) => !patrolUnfit(l)).map(drive);
   }
   // lecture seule : aucune action (la fiche ne fait que renseigner)
   if (env.level === 'lecture') {

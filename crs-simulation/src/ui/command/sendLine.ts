@@ -406,10 +406,23 @@ export function sendCardLine(env: SendEnv, line: CardLine, who: WhoCandidate | n
       return done('Toutes les rues sont rouvertes à la circulation', []);
     }
     case 'follow': {
+      // unités choisies sur la carte (Qui, Maj + clic, fiche d'unité) qui ne sont pas de son unité — la BRAV-M, qui n'est
+      // pas de la compagnie : elles viennent aussi (« Suivez-moi » ne parlait qu'à la compagnie : la BRAV-M ne venait
+      // jamais avec le commandant)
+      const own = core.followUnit();
+      const outside = (id: number): boolean => {
+        for (let q = core.ctx.squads.get(id), guard = 0; q && guard < 8; q = q.parentId !== 0 ? core.ctx.squads.get(q.parentId) : undefined, guard++) {
+          if (own && q.id === own.id) return false;
+        }
+        return true;
+      };
+      const picked = squadsOf(core, env.card.selection.filter((id) => id > 0 && outside(id)));
       const r = core.callFollow(a.column);
-      if (!r.ok) return fail(r.reason);
+      const r2 = picked.length > 0 ? core.issue((a.column ? 'avec_moi' : 'suivre_pied') as OrderType, picked, null) : null;
+      if (!r.ok && !(r2 && r2.ok)) return fail(r2 ? r2.reason : r.reason);
       const u = core.followUnit();
-      return done(`${a.column ? 'Suivez-moi en véhicules' : 'Suivez-moi à pied'}${u ? ` — ${u.name}` : ''}`, u ? [u.id] : []);
+      const all = [...(r.ok && u ? [u] : []), ...(r2 && r2.ok ? picked : [])];
+      return done(`${a.column ? 'Suivez-moi en véhicules' : 'Suivez-moi à pied'}${all.length > 0 ? ` — ${all.map((s) => s.name).join(', ')}` : ''}`, all.map((s) => s.id));
     }
     case 'centre':
       env.centre?.(where.x, where.z);

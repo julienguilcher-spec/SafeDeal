@@ -475,6 +475,11 @@ export interface CommandApi {
   /** Rembarquement, puis départ en colonne vers `exit` s'il est fourni. */
   depart(squadId: number, exit?: { x: number; z: number }): boolean;
   convoyOf(squadId: number): ConvoyStatus | null;
+  /**
+   * Le joueur donne un ordre à cette unité (carte, roue, bloc « ORDRES ») : la colonne en cours d'arrivée dont elle fait
+   * partie ne lui donnera plus l'ordre de débarquer en fin de trajet (il remplacerait le sien).
+   */
+  takeOver?(squadId: number): void;
 }
 
 export type { Squad };
