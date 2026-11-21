@@ -1,0 +1,41 @@
+{
+  "name": "crs-simulation-desktop",
+  "productName": "CRS Simulation",
+  "version": "1.0.0",
+  "description": "CRS Simulation France — application de bureau (macOS)",
+  "main": "main.js",
+  "private": true,
+  "author": "CRS Simulation",
+  "scripts": {
+    "prepare-game": "node prepare-game.mjs",
+    "start": "electron .",
+    "dist:mac": "node prepare-game.mjs && electron-builder --mac zip --arm64 --x64 --publish never"
+  },
+  "build": {
+    "appId": "fr.crs-simulation.jeu",
+    "productName": "CRS Simulation",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "game/**/*"
+    ],
+    "asar": true,
+    "mac": {
+      "category": "public.app-category.simulation-games",
+      "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "icon": "build/icon.png",
+      "artifactName": "CRS-Simulation-mac-${arch}.${ext}"
+    },
+    "publish": []
+  },
+  "devDependencies": {
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8"
+  }
+}

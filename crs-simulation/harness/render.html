@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Banc d'essai — environnement et rendu de base</title>
+<style>
+html,body{margin:0;height:100%;background:#0b1220;overflow:hidden;font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}
+#game{position:absolute;inset:0;overflow:hidden}
+#legende{position:absolute;left:12px;bottom:10px;z-index:5;color:#fff;font-size:13px;line-height:1.35;
+  text-shadow:0 1px 2px rgba(0,0,0,.85);pointer-events:none;white-space:pre}
+#aide{position:absolute;right:12px;top:10px;z-index:5;color:#dfe6f0;font-size:12px;line-height:1.5;
+  background:rgba(8,12,20,.55);padding:8px 10px;border-radius:6px;pointer-events:none;white-space:pre}
+</style></head>
+<body>
+<div id="game"></div>
+<div id="legende"></div>
+<div id="aide" hidden></div>
+<script type="module" src="./render.ts"></script>
+</body></html>

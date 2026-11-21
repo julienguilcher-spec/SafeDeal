@@ -1,0 +1,8 @@
+# Compte rendu — recherche:jeux
+
+> Généré automatiquement à partir du rapport de l'étape. Référence pour les développeurs suivants.
+
+
+## Résumé
+
+Le dossier est écrit (975 lignes, soit un peu au-dessus de la cible de 900 : les 84 missions complètes prennent 5 lignes chacune). Le jeu « simulation CRS » vu sur TikTok n'a pas pu être identifié malgré sept recherches ciblées ; le concurrent le plus proche est un simulateur d'émeute polonais dont seul le prologue gratuit est sorti (61 % d'avis positifs sur 921), et aucun des jeux recensés ne reproduit la procédure française. Le dossier contient l'état de l'art (jeux d'émeute, simulateurs de police, jeux de rôle en ligne, technique de foule), 30 mécaniques priorisées (16 P0, 12 P1, 2 P2), les boucles de jeu des rôles asymétriques avec barèmes chiffrés (photo sur 1 000 points, triage START, drone, commandement), puis 84 missions pour 12 rôles et 17 familles de situations. Tous les lieux des missions ont été vérifiés automatiquement contre les données de carte du dépôt ; mouvements, clubs et États sont fictifs et neutres. La section 5 propose une carrière en 9 chapitres et un Mode libre entièrement déverrouillé (commandant et commissaire dès la première partie) à 16 paramètres, dont « qui dérape » pour faire dégénérer d'un côté ou de l'autre. J'ai aligné le barème de notation et les dimensions des lieux sur les dossiers 04 et 06 écrits en parallèle par d'autres agents ; le dossier 06 étant encore en cours, ces renvois (06 §1.3) sont à revérifier s'il change. Seul ce fichier a été modifié ; rien n'a été committé par moi (une version intermédiaire a été enregistrée par la sauvegarde automatique du dépôt).

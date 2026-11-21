@@ -1,0 +1,395 @@
+{
+ "designPath": "/tmp/claude-0/-home-user-SafeDeal/f854eafd-7c66-528c-834c-30dfeec78944/scratchpad/ordres-directs/design-ordres-directs.md",
+ "summaryFr": "Critique faite en jouant comme le joueur, sur MacBook sans souris et sur téléphone, et vérifiée dans le code. La spécification est corrigée sur place et se termine par un nouveau §12 « Corrections de la critique » (25 points).\n\nLe principe reste le même. Le joueur regarde quelque chose, une ligne lui dit ce que fera Entrée et qui le fera, il appuie, et l'unité répond « REÇU » en moins d'1 s puis bouge en moins de 2 s. A ramène tout le monde, U change d'unité, F ouvre la roue, Tab ouvre la carte.\n\nCe que la critique a corrigé :\n\n1. **Fausses manips.**\n   - Entrée ou ⌫ qui ferment la carte ne donnent plus un deuxième ordre ou une annulation sur le terrain : touche maintenue ignorée, et 0,6 s de garde après la fermeture d'un écran.\n   - Entrée en regardant le ciel ou un mur ne rappelle plus tous les barrages.\n   - Un policier détaché qui passe dans le viseur ne transforme plus l'ordre en « avec moi ».\n   - A, collé aux touches de déplacement, s'annule avec ⌫ pendant 5 s.\n2. **Ordre stable.** Entrée exécute exactement la ligne affichée, et la ligne change au plus toutes les 0,5 s.\n3. **Viser sans souris.** Au clavier, la caméra reste horizontale : le point visé était toujours à 80 m, voire 400 m. La désignation choisit maintenant le lieu le plus proche le long du regard (devant de la foule, débouché de rue, carrefour). Lever la vue (trackpad ou fn+↑) passe au lieu suivant.\n4. **Disperser en un appui.** Une seconde ligne « Maj+Entrée » (appui long sur le téléphone) donne Disperser. Pour le commandant, le deuxième appui fait faire les sommations et donne son accord pour la force, sans passer par la carte.\n5. **Roue F.** Tous les anciens numéros gardent leur sens : 2 = Avec moi, Disperser en 6, « Plus… » inchangé avec Pousser ajouté en 9. Une vieille habitude ne tombe jamais sur un ordre de force.\n6. **Choix de l'unité.** Un choix fait avec U ne vaut que pour l'ordre suivant ; la touche U suivante y revient. Une section qui tient un barrage n'est jamais prise d'office si une autre est libre.\n7. **Téléphone.**\n   - ⟳ veut toujours dire « À qui » ; pour annuler, on touche la pastille d'état.\n   - Les pastilles « Suivez-moi » et « Secours ici » mesurent 30 px aujourd'hui : elles passent à 44 px.\n   - Un pouce qui glisse depuis la pastille fait marcher le joueur et ne donne pas d'ordre.\n   - Les textes de la pastille sont courts et vérifiés par un test.\n8. **Interpellés.**\n   - Le 4e appui sur E est directement la meilleure issue (confier à un collègue, remettre au fourgon, ou faire venir le fourgon) : 4 appuis au lieu de 5.\n   - Une ligne dit quoi faire 0,5 s après la palpation.\n   - Au moins 2 fourgons cellulaires dès qu'une compagnie est engagée, et un fourgon ne quitte jamais les lieux sans relève, sauf si le joueur l'ordonne.\n   - Aucun interpellé n'est laissé seul plus de 120 s.\n   - À l'écran, toujours « fourgon cellulaire » ; la première fois : « pour les interpellés ».\n9. **BRAV-M et patrouille.**\n   - La BRAV-M part avec son chef ; s'il traîne, sa moto et son pilote l'attendent.\n   - Chaque ordre à la BRAV-M a un critère mesuré.\n   - En patrouille, le chef de bord commande son équipier, et le fourgon est demandé automatiquement.\n10. **Refus.** Tout refus de la simulation a une phrase traduite et dit quoi faire ; un motif inconnu fait échouer le test.\n11. **Lots de travail.**\n   - Dépendances manquantes ajoutées et graphe refait.\n   - Le U de la carte a désormais un propriétaire (P10).\n   - Un nouveau lot P16 « Recette » porte le robot de bout en bout, qui ne pouvait pas être le critère de P8.\n   - Trois bloqueurs ajoutés (B13 à B15).",
+ "blockersFirst": [
+  {
+   "title": "B1 Unités assises : elles ignorent tout ordre et la radio dit le contraire",
+   "files": [
+    "src/sim/police/maneuver.ts",
+    "src/sim/police/tree.ts"
+   ],
+   "fix": "descendre d'abord dans startOrder (agents qui descendent comptés formable), comptes rendus seulement si ≥ 50 % ont participé (P2)"
+  },
+  {
+   "title": "B2 Ordre à sa propre unité : elle embarque et attend le joueur 300 s",
+   "files": [
+    "src/ui/command/core.ts",
+    "src/sim/police/command/convoy.ts"
+   ],
+   "fix": "motorizes() ne fait jamais embarquer une unité qui contient le joueur s'il n'est pas à bord ; ConvoyControl.release appelé par CommandCore.issue ; PLAYER_WAIT seulement pour « Avec moi » en véhicules et le départ de la journée de service (P1, P3, P8)"
+  },
+  {
+   "title": "B3 Fin du stationnement et ordres de l'IA écrasent les ordres du joueur",
+   "files": [
+    "src/core/contracts.ts",
+    "src/sim/police/system.ts",
+    "src/sim/police/command/convoy.ts"
+   ],
+   "fix": "SquadOrder.byPlayer ; handleOrder garde l'ordre byPlayer d'une sous-unité ; ordres du convoi en issuedBy 0 ; debarquer section par section (P1, P3)"
+  },
+  {
+   "title": "B4 Après une colonne, unités « DESCEND » pour toujours",
+   "files": [
+    "src/gameplay/session/follow.ts"
+   ],
+   "fix": "endConvoy enchaîne suivre (posture en garde) après debarquer (P6)"
+  },
+  {
+   "title": "B5 BRAV-M hors de la compagnie, retourne aux motos pour 30 m, « accès bloqué »",
+   "files": [
+    "src/sim/police/api.ts",
+    "src/sim/police/units.ts",
+    "src/gameplay/session/setup.ts",
+    "src/sim/police/command/bravm.ts"
+   ],
+   "fix": "parentId vers la compagnie ; règle de distance à pied ou à moto ; seuils d'arrivée byPlayer 30 m, 5 s, 8 s (P5, P4)"
+  },
+  {
+   "title": "B6 Colonne garée jusqu'à 9 min ; départ 120 s après l'embarquement complet",
+   "files": [
+    "src/sim/police/command/convoy.ts"
+   ],
+   "fix": "débarquement véhicule par véhicule, plafonds de 30 s, règle BOARD_MAX, débarquement terminé quand plus personne n'est assis (P3)"
+  },
+  {
+   "title": "B7 Adjoint muet 2 min après l'arrivée",
+   "files": [
+    "src/sim/police/command/command.ts"
+   ],
+   "fix": "thinkDeploy propose dès le stationnement (P3)"
+  },
+  {
+   "title": "B8 L'IA commande les groupes d'un chef de section joueur",
+   "files": [
+    "src/sim/police/command/command.ts"
+   ],
+   "fix": "buildElements ignore toute unité menée par le joueur ou placée sous lui (P3)"
+  },
+  {
+   "title": "B9 Personne ne suit le commandant ni la section du chef de section au départ",
+   "files": [
+    "src/gameplay/session/setup.ts"
+   ],
+   "fix": "suivre initial pour chaque unité de son commandement, BRAV-M comprise (P5)"
+  },
+  {
+   "title": "B10 Le 5e E fait asseoir l'interpellé ; fourgon sans équipage qui ne part jamais",
+   "files": [
+    "src/gameplay/law/interactions.ts",
+    "src/sim/police/units.ts",
+    "src/gameplay/session/setup.ts"
+   ],
+   "fix": "4e E = meilleure issue (Confier, Remettre, Faire venir) ; fourgons avec équipage ; transfert au commissariat (P12, P5, P14)"
+  },
+  {
+   "title": "B11 Arbre des commissariats : unitVehicles ignore extraVehicles",
+   "files": [
+    "src/gameplay/commissariats/engage.ts"
+   ],
+   "fix": "inclure extraVehicles (P14 ou l'agent de fusion)"
+  },
+  {
+   "title": "B12 Canon à eau en tête bloqué contre un mur, toute la colonne attend (Concorde 21)",
+   "files": [
+    "src/sim/police/command/convoy.ts"
+   ],
+   "fix": "en cours chez un autre agent ; P3 se rebase dessus ; le chien de garde de P8 sert de filet"
+  },
+  {
+   "title": "B13 Interpellés parqués laissés seuls à jamais (diag-interpelles P6, P10)",
+   "files": [
+    "src/sim/police/ops-arrest.ts",
+    "src/gameplay/law/custody-step.ts"
+   ],
+   "fix": "le fourgon le plus proche et un binôme libre ramassent tout Custody.parked en moins de 120 s (P13, P12)"
+  },
+  {
+   "title": "B14 Pastilles du téléphone à 30 px",
+   "files": [
+    "src/ui/command/quickActions.ts"
+   ],
+   "fix": "hauteur minimale de 44 px pour tout élément touchable du HUD (P10)"
+  },
+  {
+   "title": "B15 « Suivez-moi en véhicules » donné à pied gare l'unité et bloque tout le reste",
+   "files": [
+    "src/gameplay/session/follow.ts",
+    "src/sim/police/maneuver.ts"
+   ],
+   "fix": "« Avec moi » s'adapte à la façon dont le joueur se déplace + descendre d'abord pour tout ordre suivant (P6, P2)"
+  }
+ ],
+ "packages": [
+  {
+   "key": "P1",
+   "title": "Logique d'ordre pure et contrats (words, natural, who, caps, travel, tickets, state)",
+   "dependsOn": [],
+   "files": [
+    "src/core/contracts.ts",
+    "src/ui/command/direct/index.ts",
+    "src/ui/command/direct/words.ts",
+    "src/ui/command/direct/natural.ts",
+    "src/ui/command/direct/who.ts",
+    "src/ui/command/direct/caps.ts",
+    "src/ui/command/direct/travel.ts",
+    "src/ui/command/direct/tickets.ts",
+    "src/ui/command/direct/state.ts",
+    "src/ui/command/intents.ts",
+    "src/ui/command/bestUnit.ts"
+   ]
+  },
+  {
+   "key": "P2",
+   "title": "Simulation : à bord ils descendent puis exécutent ; rapports honnêtes ; posture « en garde »",
+   "dependsOn": [
+    "P1"
+   ],
+   "files": [
+    "src/sim/police/maneuver.ts",
+    "src/sim/police/tree.ts",
+    "src/sim/police/mcore.ts",
+    "src/sim/police/tuning.ts",
+    "src/sim/police/brain.ts",
+    "src/sim/police/formation.ts"
+   ]
+  },
+  {
+   "key": "P7",
+   "title": "Radio : accusé ≤ 1 s, jamais avant l'ordre, refus dits",
+   "dependsOn": [
+    "P1"
+   ],
+   "files": [
+    "src/gameplay/radio/queue.ts",
+    "src/gameplay/radio/index.ts",
+    "src/sim/police/kernel.ts",
+    "src/sim/police/radio.ts",
+    "src/gameplay/incidents/radio.ts",
+    "src/gameplay/radio/phrases/c-manoeuvres-incidents.ts"
+   ]
+  },
+  {
+   "key": "P3",
+   "title": "Simulation : ordres du joueur prioritaires, convoi libérable, arrivée en secondes",
+   "dependsOn": [
+    "P1",
+    "P7"
+   ],
+   "files": [
+    "src/sim/police/system.ts",
+    "src/sim/police/command/convoy.ts",
+    "src/sim/police/command/command.ts",
+    "src/sim/police/command/system.ts",
+    "src/sim/police/command/api.ts",
+    "src/sim/police/command/core.ts"
+   ]
+  },
+  {
+   "key": "P5",
+   "title": "Mise en place : tout le monde me suit, BRAV-M dans la compagnie, fourgons cellulaires avec équipage (2 au moins avec une compagnie)",
+   "dependsOn": [
+    "P1"
+   ],
+   "files": [
+    "src/gameplay/session/setup.ts",
+    "src/gameplay/session/placement.ts",
+    "src/sim/police/units.ts",
+    "src/sim/police/api.ts",
+    "src/ui/screens/scenario.ts",
+    "src/gameplay/session/manifestations.ts",
+    "src/gameplay/missions/catalog/**"
+   ]
+  },
+  {
+   "key": "P4",
+   "title": "BRAV-M qui obéit, poste « Chef de la BRAV-M », portée équipage du chef de bord en patrouille",
+   "dependsOn": [
+    "P1",
+    "P5"
+   ],
+   "files": [
+    "src/sim/police/command/bravm.ts",
+    "src/sim/police/command/special.ts",
+    "src/ui/screens/catalog.ts",
+    "src/gameplay/session/roster.ts",
+    "src/ui/command/scope.ts"
+   ]
+  },
+  {
+   "key": "P6",
+   "title": "Suivre et colonnes du joueur, journée de service (BRAV-M qui part avec son chef ou lui laisse une moto)",
+   "dependsOn": [
+    "P2",
+    "P3",
+    "P5"
+   ],
+   "files": [
+    "src/gameplay/session/follow.ts",
+    "src/gameplay/session/journee.ts"
+   ]
+  },
+  {
+   "key": "P8",
+   "title": "Émission des ordres et tickets (moteur du terrain, ordre affiché = ordre donné, choix d'unité valable pour un ordre)",
+   "dependsOn": [
+    "P1"
+   ],
+   "files": [
+    "src/ui/command/core.ts",
+    "src/ui/command/sendLine.ts",
+    "src/ui/command/direct/runtime.ts",
+    "src/ui/command/index.ts"
+   ]
+  },
+  {
+   "key": "P9",
+   "title": "Clavier et roue : Entrée, Maj+Entrée, A, U, ⌫, gardes, numéros gardés, désignation par candidats",
+   "dependsOn": [
+    "P1",
+    "P8"
+   ],
+   "files": [
+    "src/input/bindings.ts",
+    "src/input/buttons.ts",
+    "src/input/labels.ts",
+    "src/ui/core/kit.ts",
+    "src/ui/command/orderWheel.ts",
+    "src/ui/command/wheelKeys.ts",
+    "src/ui/command/direct/designate.ts",
+    "src/ui/command/direct/fieldKeys.ts"
+   ]
+  },
+  {
+   "key": "P10",
+   "title": "HUD : bloc d'ordres, ligne d'état (annulable au toucher), repères, pastilles de 44 px, carte partagée et U de la carte",
+   "dependsOn": [
+    "P1",
+    "P8",
+    "P9"
+   ],
+   "files": [
+    "src/ui/command/quickActions.ts",
+    "src/ui/command/hud.ts",
+    "src/ui/hud/markers.ts",
+    "src/ui/command/tacticalState.ts",
+    "src/ui/command/tacticalScreen.ts",
+    "src/ui/command/tacticalKeys.ts"
+   ]
+  },
+  {
+   "key": "P11",
+   "title": "Téléphone : pastille d'ordre + ⟳, formes courtes, anti-toucher involontaire, appui long vers la roue",
+   "dependsOn": [
+    "P9",
+    "P10"
+   ],
+   "files": [
+    "src/input/touch/layouts.ts",
+    "src/input/touch/overlay.ts",
+    "src/input/touch/controller.ts",
+    "src/input/touch/style.ts",
+    "src/ui/hud/layout.ts"
+   ]
+  },
+  {
+   "key": "P13",
+   "title": "Interpellations des unités, collègues qui emmènent, le fourgon vient, ramassage des interpellés parqués",
+   "dependsOn": [
+    "P3",
+    "P5"
+   ],
+   "files": [
+    "src/sim/police/ops-arrest.ts",
+    "src/sim/police/arrest-service.ts",
+    "src/sim/police/system.ts (une ligne d'enregistrement, après P3)"
+   ]
+  },
+  {
+   "key": "P12",
+   "title": "Interpellé du joueur : 4e E = meilleure issue, ligne d'aide, Confier, Remettre, Faire venir ; statuts",
+   "dependsOn": [
+    "P1",
+    "P13"
+   ],
+   "files": [
+    "src/gameplay/law/handover.ts",
+    "src/gameplay/law/interactions.ts",
+    "src/gameplay/law/config.ts",
+    "src/gameplay/law/custody.ts",
+    "src/gameplay/law/custody-step.ts",
+    "src/gameplay/law/records.ts",
+    "src/gameplay/law/texts.ts",
+    "src/gameplay/law/api.ts",
+    "src/gameplay/law/index.ts"
+   ]
+  },
+  {
+   "key": "P14",
+   "title": "Transfert au commissariat, jamais sans fourgon sur place, relève, demande automatique en patrouille",
+   "dependsOn": [
+    "P5",
+    "P12"
+   ],
+   "files": [
+    "src/gameplay/transfer/index.ts",
+    "src/gameplay/transfer/system.ts",
+    "src/gameplay/transfer/texts.ts",
+    "src/main.ts",
+    "src/gameplay/commissariats/engage.ts"
+   ]
+  },
+  {
+   "key": "P15",
+   "title": "Interpellés à l'écran : Ma mission, étiquettes « fourgon cellulaire », cartes, compte rendu, cartes du chef BRAV-M",
+   "dependsOn": [
+    "P4",
+    "P6",
+    "P10",
+    "P12",
+    "P14"
+   ],
+   "files": [
+    "src/gameplay/session/executant.ts",
+    "src/ui/hud/mission.ts",
+    "src/ui/maps/units.ts",
+    "src/ui/maps/overlay-units.ts",
+    "src/ui/screens/debrief.ts"
+   ]
+  },
+  {
+   "key": "P16",
+   "title": "Recette : robot de bout en bout §7.1–7.5 pour chaque poste et mode, e2e clavier et téléphone",
+   "dependsOn": [
+    "P2",
+    "P3",
+    "P4",
+    "P5",
+    "P6",
+    "P7",
+    "P8",
+    "P9",
+    "P10",
+    "P11",
+    "P12",
+    "P13",
+    "P14",
+    "P15"
+   ],
+   "files": [
+    "tests/unit/playtest.ordre-direct.test.ts",
+    "tests/e2e/ordre-direct-recette.mjs"
+   ]
+  }
+ ],
+ "acceptance": "Chaque point est vérifié par un robot ou un test e2e ; P16 les porte tous.\n1. Colonne, je descends, je regarde une rue, Entrée : ma section la barre. Accusé ≤ 1 s, premier agent en mouvement ≤ 2 s, barrage en place ≤ 45 s, à chaque étape de la journée de service.\n2. Ordre donné pendant qu'ils sont dans les fourgons : jamais 0 agent en mouvement 10 s après, à aucune étape du convoi.\n3. Jamais bloqué à l'arrivée : chaque ticket en attente a une raison et un délai ≤ 10 s (temps de route excepté).\n4. Quand je m'arrête : ligne face à la foule en moins de 10 s, l'ordre reste suivre.\n5. Jamais « SANS ORDRE », « MONTE », « DESCEND » ou « EN FILE » pour une unité sous mes ordres.\n6. A : toutes les unités suivent en moins d'1 s, BRAV-M comprise.\n7. Casseur interpellé par la BRAV-M en un appui : arrêté ≤ 60 s, dans le fourgon ≤ 120 s, puis la BRAV-M « revient avec vous » ≤ 10 s après.\n8. BRAV-M à 400 m en deux touches : elle arrive, ou elle finit à pied et y est en moins de 90 s.\n9. Pour le commandant et le chef de la BRAV-M, chaque verbe accepté par la BRAV-M : accusé ≤ 1 s, squad.order.type égal à l'ordre donné, mouvement ≤ 2 s à pied ou ≤ 6 s s'il faut remonter sur les motos. Le chef n'est jamais laissé sans son unité ou sans une moto qui l'attend.\n10. Tout refus vient du tableau §4.3 ou a la forme « X ne peut pas : … U : une autre unité. » ; un motif inconnu fait échouer le test.\n11. Mon propre interpellé : libéré en 4 appuis au plus, ligne d'aide en moins de 0,5 s après la palpation, jamais « Faire asseoir » quand une autre issue existe.\n12. À chaque seconde d'un robot de 30 min avec 20 interpellations : au moins 1 fourgon avec une place libre à moins de 150 m du point de remise (sauf ordre de départ du joueur), aucun interpellé parqué depuis plus de 120 s.\n13. Les chiffres du compte rendu égalent les registres.\n14. Chef de section : aucun ordre de l'IA à ses unités pendant 300 s.\n15. Téléphone 844x390 : cibles ≥ 44 px, aucun chevauchement (zone gauche du HUD comprise), §7.1–7.3 aux pouces.\n16. Clavier seul : §7.1–7.3 au clavier, sans souris.\n17. Mêmes mots sur la carte et sur le terrain.\n18. Aucun ordre perdu, et aucun ancien « F puis N » ne tombe sur un ordre de force qu'il ne donnait pas avant.\n19. Fausses manips sans dégâts :\n   - Entrée vers le ciel ne donne aucun ordre.\n   - Entrée ou ⌫ qui ferment un écran ne donnent aucun ordre sur le terrain.\n   - Aucun rappel par le cône de visée.\n   - Un barrage n'est jamais pris d'office si une autre unité est libre.\n   - A puis ⌫ remet tous les ordres.\n20. Caméra horizontale : le lieu désigné est le débouché de rue le plus proche, entre 15 et 60 m.\n21. Téléphone : un glissement parti de la pastille fait marcher le joueur, sans donner d'ordre.\n22. Patrouille : Interpeller et Avec moi en 1 appui ; fourgon demandé automatiquement.\n23. Après les sommations, Maj+Entrée sur la foule donne refoulement ; avant, le même appui les fait faire (commandant).",
+ "relatedTests": "Préfixes de tests unitaires à garder au vert, un lot à la fois (jamais toute la suite) :\n- ui-command.\n- input.\n- police.\n- police-command.\n- convoy.\n- bravm.\n- session.\n- integration.suivre\n- integration.avec-moi\n- integration.colonnes\n- integration.journee\n- integration.moyens\n- integration.session\n- radio.\n- law.\n- missions.executant-poste\n- maps.etiquettes-ordres\n- ui.\n- playtest.commandant-\n- playtest.commande\n- playtest.ordres-clairs\n- playtest.colonne-\n- playtest.modes\n- playtest.missions-\n- playtest.apparition-roles\n- playtest.bravm-passager\n- ui-maps.commissariats (arbre de fusion)\n\nNouveaux tests :\n- ui-command.direct-logique\n- ui-command.direct-tickets\n- ui-command.direct-runtime\n- ui-command.designation\n- ui-command.wheel-numeros\n- police.ordre-a-bord\n- police.suivre-en-garde\n- police.convoi-ordre-joueur\n- bravm.ordres-joueur\n- session.cellulaires\n- session.tous-me-suivent\n- integration.fin-de-colonne\n- police.interpelles-fourgon\n- transfer.cellulaire\n- playtest.ordre-direct (P16)",
+ "e2e": "Nouveaux scénarios (Playwright) :\n- tests/e2e/ordre-direct-clavier.mjs : 1280x800, clavier seul. Entrée, Maj+Entrée, A, U, ⌫, F 1…8 ; gardes contre la touche maintenue et après fermeture de la carte.\n- tests/e2e/ordre-direct-tel.mjs : 844x390 tactile.\n  - Toucher la pastille, ⟳, appui long ; toucher le décor pour désigner.\n  - Un glissement parti de la pastille fait marcher le joueur sans donner d'ordre.\n  - Les rectangles réels de la zone gauche du HUD ne chevauchent ni la pastille, ni ⟳, ni la radio, ni le joystick, à pied, en véhicule et en drone.\n  - Tout élément touchable mesure au moins 44 px.\n- tests/e2e/interpelles-cellulaire.mjs : ligne « Interpellé. E : … », fiche « Emmenez l'interpellé au fourgon cellulaire 1 », repère, remise, étiquette 1/8 ; assertions par le DOM et window.__CRS.\n- tests/e2e/ordre-direct-recette.mjs (P16) : §7.1–7.3 au clavier et au toucher.\n\nScénarios existants à mettre à jour ou à garder au vert :\n- verif-hud-ordres.mjs (à mettre à jour)\n- verif-actions-rapides.mjs\n- verif-commande-clavier.mjs\n- verif-commande-tel.mjs\n- verif-tpm-tel.mjs\n- verif-fin-tel.mjs\n- verif-ma-mission.mjs\n- verif-patrouille.mjs\n\nUn seul navigateur à la fois ; captures d'écran dans le dossier de travail, à titre d'archive seulement.",
+ "openQuestions": [
+  "A pour « Avec moi » (KeyQ) est collé aux touches de déplacement ; la spécification protège avec l'annulation ⌫ et la touche maintenue ignorée. Faut-il plutôt une touche loin du déplacement ? Le joueur joue surtout aux flèches, d'où ce choix.",
+  "La posture « en ligne face à la foule » quand il s'arrête est une posture, pas un ordre : faut-il qu'en posture les unités « avec vous » interpellent d'elles-mêmes un casseur à moins de 10 m ou repoussent une charge, pour répondre à « ils me suivent mais n'ont pas d'ordre » ?",
+  "Le chiffre 2 de la roue est un alias caché de 1 pour garder l'habitude « F puis 2 » : acceptable visuellement (numéros 1, 3–8 affichés), ou vaut-il mieux afficher « 1/2 » sur le secteur Avec moi ?",
+  "Au moins 2 fourgons cellulaires dès qu'une compagnie est engagée : vérifier que le coût en véhicules reste acceptable au téléphone (rendu) pour les grandes manifestations (4 fourgons + engins).",
+  "Le chef de bord en patrouille reçoit la portée « équipage » : faut-il aussi lui permettre « Bloquer » à deux, ou garder les renforts par CENTRAL (Y) seulement ?",
+  "Lever la vue au trackpad ou avec fn+↑ pour passer au lieu suivant le long du regard : à valider en jeu sur un vrai MacBook (nombre de degrés par lieu)."
+ ]
+}

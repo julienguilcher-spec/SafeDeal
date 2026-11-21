@@ -1,0 +1,626 @@
+/* =====================================================================================
+ * CIRCULATION — gestionnaire des véhicules civils en circulation : apparition autour du joueur,
+ * disparition hors champ, densité, itinéraires (destination, déviation autour des rues fermées et des
+ * chaussées bloquées), ordres donnés au pilote automatique du module des véhicules.
+ *
+ * Le pilote automatique (service 'vehicles.autopilot') conduit : direction, allure, distances, piétons,
+ * obstacles, demi-tours. Ce module RÉGULE : il lui donne la destination (« roule »), un point d'arrêt
+ * (« tiens-toi à la ligne ») ou un point sur le bas-côté (« range-toi »). L'itinéraire mémorisé ici est
+ * exactement celui que suit le pilote : ctx.world.findPath est appelé avec les mêmes arguments juste avant
+ * driveTo. La réflexion de chaque automobiliste (car-think.ts) est étalée : quatre fois par seconde.
+ * ===================================================================================== */
+
+import type { EntityId, RoadSample, Vehicle, VehicleKind } from '@/core/contracts';
+import { EXT } from '@/core/extensions';
+import type { IncidentsApi } from '@/core/extensions';
+import type { AutopilotApi, DriveOptions, VehiclesExtApi } from '@/sim/vehicles/api';
+import { MOTORIST_EVENT } from './api';
+import type { MotoristState } from './api';
+import { CarBrain, MODE_CLEAR, MODE_GO, MODE_HOLD, MODE_PARK, MODE_PULL } from './car-brain';
+import { CarClearer } from './car-clear';
+import { CarPurge } from './car-purge';
+import { AXIS_NUDGE, CarRouter } from './car-routing';
+import { CarThinker } from './car-think';
+import type { EdgePoint } from './graph';
+import { E_ONEWAY, N_JUNCTION } from './graph';
+import type { Parking } from './parking';
+import type { ControlPoint, RoutePoint } from './route';
+import { CP_BOX } from './route';
+import type { Siren, TrafficKernel } from './shared';
+import { makeRoadSample } from './shared';
+import {
+  CAR_COLORS, CAR_THINK, CITY_SPEED, PULL_KERB, SIREN_CLEARANCE, TRAFFIC_MIX, VELO_COLORS, VELO_KERB_MIN,
+  VELO_KERB_SPAN, VELO_SPEED_MIN, VELO_SPEED_SPAN, classWeight, hourFactor, sirenLane, veloFactor, weatherCarFactor,
+} from './tuning';
+
+const AUTOPILOT_SERVICE = 'vehicles.autopilot';
+const VEHICLES_EXT_SERVICE = 'vehicles.ext';
+const CLASS_NAMES = ['motorway', 'primary', 'secondary', 'tertiary', 'residential', 'pedestrian', 'service', 'footway'] as const;
+
+export class Cars {
+  readonly list: CarBrain[] = [];
+  readonly byVehicle = new Map<EntityId, CarBrain>();
+  /** Véhicules laissés sur place par leur conducteur (ils restent : cibles, matériau de barricade). */
+  readonly abandoned: EntityId[] = [];
+  ap: AutopilotApi | undefined;
+  ext: VehiclesExtApi | undefined;
+  parking: Parking | null = null;
+  readonly thinker: CarThinker;
+  readonly router: CarRouter;
+  /** Automobilistes qu'on fait dégager (deux-tons d'un véhicule arrêté, ordre d'un policier). */
+  readonly clearer: CarClearer;
+  /** Rue fermée vidée de ses voitures (car-purge.ts). */
+  readonly purge: CarPurge;
+  /** Facteur local selon le type des voies autour du joueur (grands axes : plus de trafic). */
+  roadFactor = 1;
+
+  private popT = 0;
+  private serviceT = 0;
+  private roadT = 0;
+  private readonly buf: number[] = [];
+  private readonly nodes: number[] = [];
+  private readonly near: Vehicle[] = [];
+  private readonly pt: EdgePoint = { x: 0, z: 0, dx: 0, dz: 1 };
+  private readonly rp: RoutePoint = { x: 0, z: 0, dx: 0, dz: 1 };
+  private readonly road: RoadSample = makeRoadSample();
+  /** (la circulation roule toujours sur sa voie : itinéraire depuis l'axe, sans dérive vers le trottoir) */
+  private readonly opts: DriveOptions = { inLane: true };
+
+  constructor(readonly k: TrafficKernel) {
+    this.router = new CarRouter(k);
+    this.thinker = new CarThinker(k, this);
+    this.clearer = new CarClearer(k, this);
+    this.purge = new CarPurge(k, this);
+  }
+
+  reset(): void {
+    this.list.length = 0;
+    this.byVehicle.clear();
+    this.abandoned.length = 0;
+    this.popT = 0;
+    this.serviceT = 0;
+    this.roadT = 0;
+    this.roadFactor = 1;
+    this.thinker.reset();
+    this.clearer.reset();
+    this.purge.reset();
+  }
+
+  private services(): void {
+    const ctx = this.k.ctx;
+    this.ap = ctx.service<AutopilotApi>(AUTOPILOT_SERVICE);
+    this.ext = ctx.service<VehiclesExtApi>(VEHICLES_EXT_SERVICE);
+  }
+
+  // ───────────────────────────── pas de simulation ─────────────────────────────
+
+  update(dt: number): void {
+    const k = this.k;
+    this.serviceT -= dt;
+    if (this.serviceT <= 0) {
+      this.serviceT = 2;
+      this.services();
+    }
+    this.thinker.update(dt);
+    if (this.ap) this.clearer.update(dt);
+    const list = this.list;
+    for (let i = list.length - 1; i >= 0; i--) {
+      const b = list[i]!;
+      // manœuvre de dégagement : le conducteur tient le volant à chaque pas
+      if (b.mode === MODE_CLEAR) this.clearer.step(b, dt);
+      b.thinkT -= dt;
+      if (b.thinkT > 0) continue;
+      b.thinkT += CAR_THINK;
+      if (b.thinkT < 0) b.thinkT = 0;
+      this.thinker.think(b);
+    }
+    // rue fermée : les voitures restées au-delà du barrage s'en vont puis disparaissent
+    this.purge.update(dt);
+    this.popT -= dt;
+    if (this.popT <= 0) {
+      this.popT = 0.5;
+      this.populate();
+    }
+    k.stats.vehicles = list.length;
+    k.stats.abandoned = this.abandoned.length;
+  }
+
+  // ───────────────────────────── population ─────────────────────────────
+
+  /** Effectif visé autour du joueur : heure, météo, type de voies, réglage du nombre de PNJ, manifestation. */
+  target(): number {
+    const k = this.k;
+    const t = k.tuning;
+    if (!t.ambient || !k.hasFocus || !this.ap || !k.cache.ready) return 0;
+    const env = k.ctx.env.state;
+    const scale = k.ctx.settings.values.crowdScale;
+    const n = t.vehicleBase * t.vehicleDensity * k.sessionVehicles * hourFactor(env.timeOfDay) * weatherCarFactor(env.weather)
+      * scale * this.roadFactor * (1 - 0.85 * k.crowd);
+    const max = Math.min(t.vehicleMax, Math.round(t.vehicleMax * Math.max(0.25, scale)));
+    return Math.max(0, Math.min(max, Math.round(n)));
+  }
+
+  private populate(): void {
+    const k = this.k;
+    const t = k.tuning;
+    const list = this.list;
+    this.roadT -= 0.5;
+    if (this.roadT <= 0) {
+      this.roadT = 6;
+      this.measureRoads();
+    }
+    const target = this.target();
+    k.stats.vehicleTarget = target;
+    const now = k.ctx.clock.now;
+    const far2 = t.despawn * t.despawn;
+    const mid2 = t.spawnMin * t.spawnMin * 0.5;
+    let excess = list.length - target;
+    for (let i = list.length - 1; i >= 0; i--) {
+      const b = list[i]!;
+      if (!b.ambient) continue;
+      const d2 = k.distToFocus2(b.v.x, b.v.z);
+      if (d2 > far2) {
+        this.despawn(b);
+        excess--;
+      } else if (excess > 0 && d2 > mid2 && now - b.bornAt > 20 && !k.visible(b.v.x, b.v.z)) {
+        this.despawn(b);
+        excess--;
+      }
+    }
+    if (!k.hasFocus || !t.ambient) return;
+    // les épaves laissées loin derrière finissent par disparaître, hors champ
+    if (this.abandoned.length > 12) this.sweepAbandoned();
+    if (list.length < target) {
+      // loin de l'effectif visé (début de session, retour de la circulation) : on rattrape plus vite
+      const batch = list.length < target * 0.6 ? 3 : 1;
+      for (let n = 0; n < batch; n++) {
+        for (let attempt = 0; attempt < 3; attempt++) if (this.trySpawn()) break;
+      }
+    }
+  }
+
+  /** Poids moyen des voies autour du joueur : sur une avenue il passe plus de monde que dans une impasse. */
+  private measureRoads(): void {
+    const k = this.k;
+    const c = k.cache;
+    if (!c.ready || !k.hasFocus) return;
+    const nodes = this.nodes;
+    const n = c.nodesInRadius(k.focusX, k.focusZ, 180, nodes);
+    let sum = 0;
+    let len = 0;
+    for (let i = 0; i < n; i++) {
+      const node = nodes[i]!;
+      for (let j = c.adjStart[node]!; j < c.adjStart[node + 1]!; j++) {
+        const e = c.adjEdge[j]!;
+        if (c.edgeA[e] !== node || !c.isVehicle(e)) continue;
+        const l = c.edgeLen[e]!;
+        sum += classWeight(CLASS_NAMES[c.edgeClass[e]!]!) * l;
+        len += l;
+      }
+    }
+    // 1 pour un quartier de rues ordinaires et d'artères mêlées (poids moyen ≈ 1,6)
+    this.roadFactor = len > 0 ? Math.max(0.3, Math.min(1.6, sum / len / 1.6)) : 0;
+  }
+
+  private sweepAbandoned(): void {
+    const k = this.k;
+    const ctx = k.ctx;
+    for (let i = this.abandoned.length - 1; i >= 0 && this.abandoned.length > 8; i--) {
+      const v = ctx.vehicles.get(this.abandoned[i]!);
+      if (!v) {
+        this.abandoned.splice(i, 1);
+        continue;
+      }
+      if (v.state === 'ok' && v.burning === 0 && k.distToFocus2(v.x, v.z) > 260 * 260 && !k.visible(v.x, v.z)) {
+        this.abandoned.splice(i, 1);
+        ctx.vehicles.remove(v.id);
+      }
+    }
+  }
+
+  /** Tente de faire apparaître un véhicule dans la couronne d'apparition. */
+  private trySpawn(): boolean {
+    const k = this.k;
+    const c = k.cache;
+    const t = k.tuning;
+    const rng = k.rng;
+    const ctx = k.ctx;
+    const nodes = this.nodes;
+    const n = c.nodesInRadius(k.focusX, k.focusZ, t.spawnMax, nodes);
+    if (n === 0) return false;
+    const min2 = t.spawnMin * t.spawnMin;
+    const pt = this.pt;
+    const buf = this.buf;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const node = nodes[rng.int(0, n)]!;
+      const deg = c.adjStart[node + 1]! - c.adjStart[node]!;
+      if (deg === 0) continue;
+      const e = c.adjEdge[c.adjStart[node]! + rng.int(0, deg)]!;
+      if (!c.isVehicle(e) || k.closures.isClosed(e)) continue;
+      const w = c.edgeWidth[e]!;
+      if (w < 3.2 || rng.next() > classWeight(CLASS_NAMES[c.edgeClass[e]!]!) / 3.2) continue;
+      // jamais dans un carrefour ni à son abord immédiat : il n'aurait pas la place de s'arrêter à la ligne
+      const len = c.edgeLen[e]!;
+      const a = c.edgeA[e]!;
+      const b2 = c.edgeB[e]!;
+      const clearA = (c.nodeFlags[a]! & N_JUNCTION) !== 0 ? c.nodeRadius[a]! + 24 : 2;
+      const clearB = (c.nodeFlags[b2]! & N_JUNCTION) !== 0 ? c.nodeRadius[b2]! + 24 : 2;
+      if (len < clearA + clearB + 1) continue;
+      const s = clearA + rng.next() * (len - clearA - clearB);
+      const oneway = (c.edgeFlags[e]! & E_ONEWAY) !== 0;
+      c.pointAt(e, s, 0, pt);
+      if (!this.router.pickDestination(pt.x, pt.z)) continue;
+      // le sens de marche est celui de l'itinéraire : pas de demi-tour à peine apparu
+      if (!ctx.world.findPath(pt.x, pt.z, this.router.destX, this.router.destZ, 'vehicle', buf) || buf.length < 4) continue;
+      let dir = 0;
+      for (let i = 2; i + 1 < buf.length; i += 2) {
+        const dx = buf[i]! - pt.x;
+        const dz = buf[i + 1]! - pt.z;
+        if (dx * dx + dz * dz < 4) continue;
+        dir = dx * pt.dx + dz * pt.dz >= 0 ? 1 : -1;
+        break;
+      }
+      if (dir === 0 || (oneway && dir < 0)) continue;
+      // Il apparaît presque dans l'axe et se déporte de lui-même sur sa voie en deux secondes : le pilote
+      // automatique, s'il partait de la voie, ajouterait son décalage à celui qu'on lui donne et roulerait
+      // contre le trottoir jusqu'au prochain sommet de la rue.
+      const lane = oneway ? 0 : Math.min(w * 0.25, 3.2) * 0.2;
+      c.pointAt(e, s, lane * dir, pt);
+      const x = pt.x;
+      const z = pt.z;
+      const d2 = k.distToFocus2(x, z);
+      if (d2 < min2 || d2 > t.spawnMax * t.spawnMax) continue;
+      // pas d'apparition sous les yeux du joueur (au bout d'une avenue rectiligne qu'il regarde) : il naît hors
+      // champ ou derrière les façades, et entre dans la vue en roulant
+      if (k.visible(x, z)) continue;
+      // ni à l'intérieur d'un périmètre fermé (ses rues intérieures restent ouvertes, mais on n'y entre plus)
+      if (k.closures.inClosedArea(x, z)) continue;
+      if (!ctx.world.isLoaded(x, z)) continue;
+      if (ctx.vehicles.queryRadius(x, z, 22, this.near) > 0) continue;
+      if (ctx.people.countIn(x, z, 6) > 0) continue;
+      if (ctx.hazards.fireAt(x, z) > 0 || k.dangers.at(x, z) > 0.2) continue;
+      // type de véhicule
+      const env = ctx.env.state;
+      const bikes = veloFactor(env.timeOfDay, env.weather);
+      let total = 0;
+      for (let i = 0; i < TRAFFIC_MIX.length; i++) {
+        const m = TRAFFIC_MIX[i]!;
+        if (w >= m.minWidth) total += m.kind === 'velo' ? m.weight * bikes : m.weight;
+      }
+      let roll = rng.next() * total;
+      let kind: VehicleKind = 'voiture';
+      for (let i = 0; i < TRAFFIC_MIX.length; i++) {
+        const m = TRAFFIC_MIX[i]!;
+        if (w < m.minWidth) continue;
+        roll -= m.kind === 'velo' ? m.weight * bikes : m.weight;
+        if (roll <= 0) {
+          kind = m.kind;
+          break;
+        }
+      }
+      const hx = pt.dx * dir;
+      const hz = pt.dz * dir;
+      const destX = this.router.destX;
+      const destZ = this.router.destZ;
+      // la voie est-elle libre devant ? alors il apparaît déjà lancé
+      const clear = ctx.vehicles.queryRadius(x + hx * 30, z + hz * 30, 16, this.near) === 0;
+      const br = this.create(kind, x, z, Math.atan2(hx, hz), destX, destZ, true);
+      if (!br) continue;
+      if (clear) {
+        const u0 = Math.min(c.edgeSpeed[e]!, CITY_SPEED, br.cruise > 0 ? br.cruise : CITY_SPEED) * 0.6;
+        br.v.vx = hx * u0;
+        br.v.vz = hz * u0;
+        br.v.speed = u0;
+      }
+      return true;
+    }
+    return false;
+  }
+
+  /** Crée un véhicule, son conducteur, son itinéraire, et le confie au pilote automatique. */
+  create(kind: VehicleKind, x: number, z: number, heading: number, destX: number, destZ: number, ambient: boolean): CarBrain | null {
+    const k = this.k;
+    const ctx = k.ctx;
+    if (!this.ap) this.services();
+    if (!this.ap || !k.cache.ready) return null;
+    const palette = kind === 'velo' ? VELO_COLORS : CAR_COLORS;
+    const color = kind === 'taxi' || kind === 'bus' ? undefined : palette[k.rng.int(0, palette.length)]!;
+    const v = ctx.vehicles.spawn(kind, x, z, heading, color === undefined ? undefined : { color });
+    const driver = ctx.archetypes.spawn('conducteur', x, z, { heading });
+    if (!ctx.vehicles.enter(driver, v, 'driver')) {
+      ctx.people.remove(driver.id);
+      ctx.vehicles.remove(v.id);
+      return null;
+    }
+    const b = new CarBrain(v);
+    b.driverId = driver.id;
+    b.ambient = ambient;
+    this.router.nudge(destX, destZ);
+    b.destX = this.router.destX;
+    b.destZ = this.router.destZ;
+    b.thinkT = k.rng.next() * CAR_THINK;
+    b.patience = k.tuning.patience * (0.6 + k.rng.next() * 0.9);
+    b.bornAt = ctx.clock.now;
+    if (kind === 'velo') {
+      // cycliste : allure de 15 à 22 km/h, au bord droit de la chaussée (hors du caniveau et des portières)
+      b.cruise = VELO_SPEED_MIN + k.rng.next() * VELO_SPEED_SPAN;
+      b.kerb = VELO_KERB_MIN + k.rng.next() * VELO_KERB_SPAN;
+    }
+    b.closureStamp = k.closures.stamp;
+    b.graphStamp = k.cache.stamp;
+    v.engineOn = true;
+    v.brain = b;
+    this.list.push(b);
+    this.byVehicle.set(v.id, b);
+    if (!this.retarget(b, false) || !this.drive(b)) {
+      this.despawn(b);
+      return null;
+    }
+    k.stats.spawned++;
+    return b;
+  }
+
+  /** Retire le véhicule et son conducteur du monde. */
+  despawn(b: CarBrain): void {
+    const ctx = this.k.ctx;
+    const v = b.v;
+    this.forget(b, false);
+    const driver = ctx.people.get(b.driverId);
+    if (driver && driver.vehicleId === v.id) {
+      for (let i = 0; i < v.seats.length; i++) if (v.seats[i] === driver.id) v.seats[i] = 0;
+      driver.vehicleId = 0;
+      driver.seat = -1;
+      ctx.people.remove(driver.id);
+    }
+    if (ctx.vehicles.get(v.id) === v) ctx.vehicles.remove(v.id);
+    this.k.stats.despawned++;
+  }
+
+  /** Oublie la fiche (le véhicule reste dans le monde). */
+  forget(b: CarBrain, keepAsAbandoned: boolean): void {
+    const k = this.k;
+    const v = b.v;
+    const r = b.route;
+    for (let i = r.cpNext; i < r.cpCount; i++) {
+      const cp = r.cps[i]!;
+      if ((cp.kind & CP_BOX) !== 0) k.boxes.release(cp.node, v.id);
+    }
+    if (b.passRec) b.passRec.permits.delete(v.id);
+    this.closeIncident(b, false);
+    const i = this.list.indexOf(b);
+    if (i >= 0) {
+      this.list[i] = this.list[this.list.length - 1]!;
+      this.list.pop();
+    }
+    this.byVehicle.delete(v.id);
+    if (v.brain === b) v.brain = null;
+    if (keepAsAbandoned && this.abandoned.indexOf(v.id) < 0) this.abandoned.push(v.id);
+  }
+
+  /** Le véhicule vient d'être retiré du monde par un autre module. */
+  onVehicleRemoved(id: EntityId): void {
+    const b = this.byVehicle.get(id);
+    if (b) {
+      const driver = this.k.ctx.people.get(b.driverId);
+      this.forget(b, false);
+      // (le véhicule a déjà été vidé quand l'événement arrive : le conducteur, éjecté à côté, disparaît avec lui —
+      // sans quoi il restait planté au milieu de la chaussée, sans personne pour le faire marcher)
+      if (driver && !driver.isPlayer && (driver.vehicleId === id || driver.vehicleId === 0)) this.k.ctx.people.remove(driver.id);
+    }
+    const i = this.abandoned.indexOf(id);
+    if (i >= 0) this.abandoned.splice(i, 1);
+  }
+
+  // ───────────────────────────── ordres au pilote automatique ─────────────────────────────
+
+  /** « Roule » : vers la destination (ou le point de passage), selon l'itinéraire déjà installé. */
+  drive(b: CarBrain): boolean {
+    const ap = this.ap;
+    if (!ap) return false;
+    const o = this.opts;
+    o.urgence = b.passing;
+    o.stopBefore = undefined;
+    o.pushThrough = undefined;
+    o.speed = b.cruise > 0 ? (b.fleeing ? b.cruise * 1.3 : b.cruise) : b.fleeing ? CITY_SPEED * 1.35 : undefined;
+    o.kerb = b.kerb > 0 ? b.kerb : undefined;
+    b.mode = MODE_GO;
+    b.holdCp = null;
+    b.replanAt = -1;
+    return ap.driveTo(b.v, b.hasVia ? b.viaX : b.destX, b.hasVia ? b.viaZ : b.destZ, o);
+  }
+
+  /** Recalcule l'itinéraire depuis la position courante puis « roule » (départ d'une ligne d'arrêt). */
+  go(b: CarBrain): boolean {
+    const router = this.router;
+    if (!router.path(b, b.hasVia ? b.viaX : b.destX, b.hasVia ? b.viaZ : b.destZ)) return false;
+    router.install(b);
+    return this.drive(b);
+  }
+
+  /** Choix de l'itinéraire (voir CarRouter.retarget). */
+  retarget(b: CarBrain, avoid: boolean): boolean {
+    return this.router.retarget(b, avoid);
+  }
+
+  newDestination(b: CarBrain, ahead: boolean): boolean {
+    return this.router.newDestination(b, ahead);
+  }
+
+  markEntry(b: CarBrain): void {
+    this.router.markEntry(b);
+  }
+
+  /** « Tiens-toi à la ligne » : arrêt du pare-chocs à la ligne d'arrêt du point de contrôle. */
+  holdAt(b: CarBrain, cp: ControlPoint): void {
+    const ap = this.ap;
+    if (!ap) return;
+    const r = b.route;
+    const v = b.v;
+    b.mode = MODE_HOLD;
+    b.holdCp = cp;
+    if (cp.stopS - (r.s + b.halfL) < 1.5) {
+      ap.stop(v); // déjà à la ligne : il freine sur place
+      return;
+    }
+    const p = this.rp;
+    r.sample(cp.stopS, p);
+    // Le point d'arrêt est posé à 20 cm de l'axe : le pilote automatique y reconnaît « un point de la rue »
+    // et s'arrête sur sa voie de droite. Posé exactement sur l'axe, il serait confondu avec le point
+    // d'accroche de l'itinéraire (ctx.world.findPath fusionne les points à moins de 5 cm) et le pilote
+    // viendrait s'arrêter au milieu de la chaussée.
+    const o = this.opts;
+    o.urgence = false;
+    o.speed = b.cruise > 0 ? b.cruise : undefined;
+    o.kerb = b.kerb > 0 ? b.kerb : undefined;
+    o.pushThrough = undefined;
+    o.stopBefore = b.halfL + 0.6;
+    if (!ap.driveTo(v, p.x - p.dz * AXIS_NUDGE, p.z + p.dx * AXIS_NUDGE, o)) ap.stop(v);
+  }
+
+  /**
+   * « Range-toi » : se serre contre le bord droit de la chaussée et s'arrête, pour laisser passer une sirène.
+   * Il se range contre les véhicules garés s'il y en a, pas dessus. `mustFit` (sirène dans son sens) : il ne se
+   * range que si la sirène pourra ensuite passer entre lui et l'axe ; sinon rien n'est fait et l'on rend false
+   * (il continue jusqu'à un endroit plus large).
+   */
+  pullOver(b: CarBrain, siren: Siren, seconds: number, mustFit: boolean): boolean {
+    const ap = this.ap;
+    if (!ap) return false;
+    const k = this.k;
+    const ctx = k.ctx;
+    const r = b.route;
+    const v = b.v;
+    const u = Math.abs(v.speed);
+    const p = this.rp;
+    const ahead = Math.max(8, u * 1.6 + 6);
+    r.sample(Math.min(r.total, r.s + ahead), p);
+    const road = this.road;
+    if (!ctx.world.nearestRoad(p.x, p.z, road, 8)) return false;
+    let off = road.width * 0.5 - b.halfW - PULL_KERB;
+    // véhicules garés (ou abandonnés) le long du trottoir de droite, d'ici au point visé : on se serre contre eux
+    const list = this.near;
+    const n = ctx.vehicles.queryRadius(p.x - p.dx * ahead * 0.5, p.z - p.dz * ahead * 0.5, ahead * 0.5 + 8, list);
+    for (let i = 0; i < n; i++) {
+      const o = list[i]!;
+      if (o === v || o.def.flying || this.byVehicle.has(o.id) || Math.abs(o.speed) > 0.5) continue;
+      const rx = o.x - p.x;
+      const rz = o.z - p.z;
+      const along = rx * p.dx + rz * p.dz;
+      if (along < -(ahead + b.halfL + 3) || along > 6 + o.def.length * 0.5) continue;
+      const lat = -rx * p.dz + rz * p.dx; // positif à droite
+      const cross = Math.abs(Math.sin(o.heading) * p.dz - Math.cos(o.heading) * p.dx);
+      const half = 0.5 * (o.def.width * (1 - cross) + o.def.length * cross);
+      const inner = lat - half;
+      if (inner < 0.5) continue; // pas le long du trottoir de droite
+      const lim = inner - b.halfW - 0.3;
+      if (lim < off) off = lim;
+    }
+    if (mustFit) {
+      // la sirène roule à sirenLane() de l'axe, dans le même repère que moi : reste-t-il la place entre nous ?
+      const lane = sirenLane(road.width, road.oneway);
+      if (off - b.halfW < lane + siren.halfW + SIREN_CLEARANCE) return false;
+    }
+    list.length = 0;
+    b.mode = MODE_PULL;
+    b.holdCp = null;
+    b.pullFor = siren.id;
+    b.pullUntil = ctx.clock.now + seconds;
+    b.resumeAt = -1;
+    const o = this.opts;
+    o.urgence = false;
+    // (un cycliste lève aussitôt le pied en serrant le trottoir)
+    o.speed = b.cruise > 0 ? b.cruise * 0.5 : undefined;
+    o.pushThrough = undefined;
+    o.stopBefore = undefined;
+    // Arrêt au point de la rue situé devant lui, serré contre la bordure : le pilote automatique compte l'écart
+    // à la bordure depuis l'axe réel de la rue (option kerb), sans déborder sur le trottoir. Point posé à 20 cm de
+    // l'axe : « un point de la rue », où il s'arrête sur sa voie (voir holdAt).
+    o.kerb = road.width * 0.5 - b.halfW - off;
+    if (off < 1.1 || !ap.driveTo(v, p.x - p.dz * AXIS_NUDGE, p.z + p.dx * AXIS_NUDGE, o)) ap.stop(v);
+    return true;
+  }
+
+  /** « Gare-toi » sur la place donnée. */
+  park(b: CarBrain, slot: number, x: number, z: number, heading: number): boolean {
+    const ap = this.ap;
+    if (!ap || !ap.park(b.v, x, z, heading)) return false;
+    b.mode = MODE_PARK;
+    b.holdCp = null;
+    b.parkSlot = slot;
+    b.parkUntil = this.k.ctx.clock.now + 50;
+    return true;
+  }
+
+  // ───────────────────────────── fin de course ─────────────────────────────
+
+  /** Le conducteur quitte son véhicule et s'enfuit à pied ; le véhicule reste sur place. */
+  abandon(b: CarBrain): void {
+    const k = this.k;
+    const ctx = k.ctx;
+    const v = b.v;
+    const driver = ctx.people.get(b.driverId);
+    if (this.ap) this.ap.stop(v);
+    if (this.ext) this.ext.setEngine(v, false);
+    else v.engineOn = false;
+    v.cmd.throttle = 0;
+    v.cmd.brake = 1;
+    v.cmd.handbrake = true;
+    const x = v.x;
+    const z = v.z;
+    this.emit(b, 'abandon');
+    this.forget(b, true);
+    k.stats.abandons++;
+    if (driver && driver.vehicleId === v.id && ctx.vehicles.exit(driver) && k.peds) {
+      const fromX = k.dangers.at(x, z) > 0 ? k.dangers.lastX : x;
+      const fromZ = k.dangers.at(x, z) > 0 ? k.dangers.lastZ : z;
+      k.peds.adopt(driver, true, fromX, fromZ);
+    }
+  }
+
+  emit(b: CarBrain, state: MotoristState): void {
+    this.k.ctx.events.emitAny(MOTORIST_EVENT, { vehicleId: b.v.id, personId: b.driverId, state, x: b.v.x, z: b.v.z });
+  }
+
+  openIncident(b: CarBrain, urgency: 1 | 2 | 3): void {
+    const k = this.k;
+    if (b.status.incidentId !== 0 || !k.tuning.incidents) return;
+    const api = k.ctx.service<IncidentsApi>(EXT.incidents);
+    this.emit(b, 'bloque');
+    k.stats.incidents++;
+    if (!api) {
+      b.status.incidentId = -1; // pas de service d'incidents : l'événement libre suffit
+      return;
+    }
+    b.status.incidentId = api.open('automobiliste_bloque', b.v.x, b.v.z, 'vehicle', b.v.id, urgency).id;
+  }
+
+  closeIncident(b: CarBrain, resolved: boolean): void {
+    const id = b.status.incidentId;
+    if (id === 0) return;
+    b.status.incidentId = 0;
+    if (resolved) this.emit(b, 'libere');
+    if (id > 0) this.k.ctx.service<IncidentsApi>(EXT.incidents)?.close(id, resolved, 0);
+  }
+
+  /** Compte les véhicules de la circulation dans un rayon (TrafficControlApi.countNear). */
+  countNear(x: number, z: number, r: number, out: { moving: number; stopped: number }): void {
+    const r2 = r * r;
+    const list = this.list;
+    for (let i = 0; i < list.length; i++) {
+      const v = list[i]!.v;
+      const dx = v.x - x;
+      const dz = v.z - z;
+      if (dx * dx + dz * dz > r2) continue;
+      if (Math.abs(v.speed) > 0.5) out.moving++;
+      else out.stopped++;
+    }
+    const vehicles = this.k.ctx.vehicles;
+    for (let i = 0; i < this.abandoned.length; i++) {
+      const v = vehicles.get(this.abandoned[i]!);
+      if (!v) continue;
+      const dx = v.x - x;
+      const dz = v.z - z;
+      if (dx * dx + dz * dz <= r2) out.stopped++;
+    }
+  }
+}
