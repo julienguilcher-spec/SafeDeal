@@ -4,13 +4,13 @@ Ce dossier ne fait pas partie du jeu : c'est une sauvegarde du travail des agent
 redémarrage ou une perte de la machine de travail ne le fasse pas disparaître. Il sera supprimé quand chaque
 chantier aura été intégré dans `crs-simulation/`, testé et publié.
 
-État au 18 novembre, 20 h 05 UTC (21 h 05 à Paris). Le jeu publié est la **version 22** (commit `0e488cd`), commissariats compris.
+État au 21 novembre, 16 h UTC (17 h à Paris) : travail interrompu du 18 novembre 21 h 30 UTC au 21 novembre par la limite de dépense du compte. Le jeu publié est la **version 22** (commit `0e488cd`).
 
 ## Correctifs et chantiers
 
 | Fichier | Chantier | Base | État à la sauvegarde |
 |---|---|---|---|
-| `ordres-directs.patch` | Réalisation des ordres directs (instantané de l'arbre de travail ; il contient aussi les lots de la version 21 et les commissariats de la version 22, reportés dedans) | `d24fffd` | 11 paquets faits sur 17 (P1–P9, P12, P13 ; rapports dans `ordres-directs/rapports-paquets-ordres-directs.json`) ; en cours : report des commissariats (résolution puis contre-vérification), P10 puis P11 (affichage, téléphone), P14 (transfert au commissariat), P17 (colonne garantie) ; restent P15, P16, l'intégration et le joueur critique. Livraison : l'arbre contient tout ce que la branche principale a — le correctif final se calcule contre la branche principale, pas contre `d24fffd` |
+| `ordres-directs.patch` | Réalisation des ordres directs (instantané de l'arbre de travail au 21 novembre ; il contient aussi les lots de la version 21 et les commissariats de la version 22) | `d24fffd` | faits : P1–P10, P12–P15 ; P17 partiel ; report des commissariats résolu et contre-vérifié. INTERROMPUS le 18 novembre à 21 h 30 UTC par la limite de dépense du compte, brouillons dans l'instantané : P11 (téléphone), P18 (colonnes : zéro régression + garantie d'arrivée), P19 (BRAV-M, fourgons cellulaires, tests périmés). Restent ensuite P16 (recette), l'intégration et le joueur critique. Livraison : le correctif final se calcule contre la branche principale, pas contre `d24fffd` |
 | `ordres-directs/` | Ordres directs sur le terrain, unités « avec moi », réactivité, fourgons cellulaires et circuit des interpellés | documents | diagnostic (3 rapports), 3 propositions, cahier des charges critiqué `design-ordres-directs.md` (16 paquets, 15 blocages), plan de réalisation `plan-ordres-directs.md` (avec l'addendum du coordinateur) ; réalisation lancée : paquet P1 en cours dans un arbre basé sur la branche principale |
 
 ## Reprendre
