@@ -1,3 +1,84 @@
+# COORDINATOR'S UPDATE — stage 5 (P22, P23: the last 11 red tests) — read first; it overrides everything below
+
+**State of this worktree, 23 November 22:50 UTC (nothing committed; `git status` shows it all):** the whole unit suite
+was run again after P20 and P21: **4124 green, 11 red, in 8 files** (it was 53 red two hours ago). `npx tsc --noEmit
+-p .` is clean. The exact failure messages are in
+`/tmp/claude-0/-home-user-SafeDeal/f854eafd-7c66-528c-834c-30dfeec78944/scratchpad/ordres-directs/suite-23nov-rouges-2.md`.
+The reports of P20 and P21 (read their `openIssues`: coordinates, vehicle ids, seeds, what was tried and withdrawn)
+are in `/tmp/claude-0/-home-user-SafeDeal/f854eafd-7c66-528c-834c-30dfeec78944/scratchpad/rapports-etape4-23nov.json`;
+those of P18 and P19 in `…/scratchpad/rapports-reprise-23nov.json`; the coordination notes of P20/P21 in
+`…/scratchpad/ordres-directs/coordination-etape4.md`.
+
+The published game (`/home/user/SafeDeal/crs-simulation`, read only; never run git or write there) passes every one
+of these tests that exists there. **Nothing is released until these 11 are green, without weakening an assertion.**
+An expectation may be changed only when the specification deliberately changed the behaviour (quote the sentence of
+the plan); a timing margin may be widened only with the measured before/after in your report.
+
+**The column and arrest tests are chaotic: any change of timing flips other cases.** So: (1) before your first edit,
+run your guard batch (below) and note what is green; (2) after each fix, re-run the guard batch, and withdraw a
+change that turns a green case red unless you also fix that case; (3) at the end, run the guard batch three times.
+Two agents work at the same time (P22 and P23); each owns the files of its package. For a change in the other's
+files, follow the stage-4 rule (small and local: do it and log it; larger: ask) in
+`…/scratchpad/ordres-directs/coordination-etape5.md`. Read that file before each test batch. 4 cores: small groups
+of tests (`--maxWorkers=2`), never the whole suite. Leave no probe file (`tests/unit/zz-*`). The account budget is
+tight: root causes, in priority order, nothing speculative, an honest report.
+
+## PACKAGE P22 — Interpellations : le binôme arrête, la nasse filtre, le fourgon vient à la porte (this IS its section-8 entry)
+- **Files (owned):** `src/sim/police/{ops-arrest,arrest-service}.ts`, `src/sim/law/**`, `src/gameplay/transfer/**`,
+  `src/gameplay/session/remise.ts`, the nasse / filtered-exit code (kettle), and the tests below.
+- **Red tests (5), in priority order:**
+  1. `tests/unit/law.interpelle-joueur.test.ts` « monter dans un véhicule en escortant l'interpellé : il est confié
+     au binôme libre le plus proche » (« un binôme l'a pris en escorte: expected false to be true ») — green at
+     20:13 today, red at 22:21: caused by an edit of P20 or P21 (suspects: `arrest-service.ts reviewRuns` urgent
+     relaunch, `follow.ts walkIn`, `engins.ts heldByCivil`, `convoy.ts carryOn`). Bisect with a scratch copy.
+  2. `tests/unit/ui-command.envoi-fiche.test.ts` « foule : Encercler (nasse) donne une rue à chaque unité ; la
+     nasse ouvre ensuite sa sortie filtrée la plus large » (expected 0 to be ≥ 1) — also green at 20:13, red at 22:21.
+  3. `tests/unit/integration.nasse-sortie-filtree.test.ts`, seeds 23 (66 against 67) and 5 (58 against 57). P21's
+     diagnosis: the cellular van comes only to 160 m from the filtering door, so each arresting agent escorts his
+     detainee 160 m (165 s per trip) and the fourth culprit is never arrested; in the published game detainees are
+     guarded at the door and five agents arrest within 15 s each. Seed 5: a culprit counted twice (crossed while
+     free, arrested 8 m beyond). Specification §5.4: the van comes to about 20 m behind the line; or the pair is
+     freed sooner (the detainee is guarded at the door until the van takes him).
+  4. `tests/unit/bravm.ordres-joueur.test.ts` T5 (« Interpeller » an offender at 125 m): a pair reaches him at
+     t+40 s, then stays 10–25 m behind him for 100 s (« Auteur en fuite, je reste sur lui ») and never arrests
+     (`ops-arrest.ts` chase; bravm.ts hands over correctly at t = 20 s).
+- **Guard batch:** `tests/unit/law. tests/unit/police.interpelles tests/unit/transfer. tests/unit/session.cellulaires
+  tests/unit/integration.nasse tests/unit/ui-command.envoi-fiche tests/unit/playtest.commandant-interpeller
+  tests/unit/bravm.ordres-joueur tests/unit/playtest.commissariats tests/unit/police.nasse tests/unit/playtest.commandant-nasse-ouverte` (add the files your edits touch).
+- **Done:** the 5 cases green three times in a row, the guard batch with no new red, tsc clean.
+
+## PACKAGE P23 — Motos de la BRAV-M, pilote automatique et second Centaure (this IS its section-8 entry)
+- **Files (owned):** `src/sim/vehicles/**` (autopilot, physics), `src/sim/police/command/{bravm,special,convoy}.ts`,
+  `src/gameplay/session/{follow,journee,engins}.ts`, the placement of units at the start of a game, and the tests below.
+- **Red tests (6), in priority order:**
+  1. `tests/unit/integration.suivre.test.ts` « Centaure : jamais seul » (85 m, limit 40). Full diagnosis in P21's
+     openIssues: idle crewed police vehicles roll down the slope from t = 0 (also in the published game); the second
+     Centaure is held, then ends nose to flank with a van and `backOff` refuses because its foot escort stands
+     behind. P20 tried an idle handbrake hold in `physics.ts`: it fixed this but left the drone team ICARE without
+     its spare van seat in `playtest.colonnes-roles` (38/42) — so the hold must come WITH a fix of the drone team's
+     boarding (`sim/police/special.ts seatFor / reseat`), or use the `follow.ts mayFollow` guard P20 suggests.
+     `playtest.colonnes-roles` must stay 42/42 in both modes (default, and `PLAYTEST_STRICT=1 PLAYTEST_LIGHT=1`).
+  2. `tests/unit/playtest.colonne-ia.test.ts` « bravm : 9e → Bastille » (seed 6): `journee.ts lineUp` lays the
+     company file in front of the player's own BRAV-M parked at the same base (CELLULAIRE 2 #7231 at (1351,−908),
+     motos #7234/#7236 at (1348,−887)/(1349,−897)); the motos stay `bloque/vehicule` 90 s. In the real game the
+     BRAV-M has its own base: place it so, or let the motos leave first / go round.
+  3. `tests/unit/integration.journee.chef-bravm.test.ts` « il ne remonte pas » (seed 11, line 131): the chief's moto
+     never leaves the base street, nose to nose with queued civil cars near (2300, 290), sent with `urgence: true`
+     by `journee.ts thinkWaitingMoto`. Related autopilot defect (P20): a police moto stopped behind a vehicle creeps
+     at 0.1–0.3 m/s in state `en_route`, so `blockedFor` never reaches the avoidance thresholds.
+  4. `tests/unit/playtest.bravm-passager.test.ts` (3 red: 9e → Bastille seed 5, Cité → République seed 3, chief at
+     République seed 21): a creeping moto pushes a standing tourist along (PEOPLE_CREEP / CREEP_SPEED /
+     `stillAhead`); a follower moto hits walls at speed and is wrecked (followers at 21.9 m/s catching up); a
+     follower takes a side street and loops round the block (spread 376 m, limit 250). Details in P19's openIssues.
+- **Guard batch:** `tests/unit/playtest.colonnes-roles.test.ts` (default mode, and once with `PLAYTEST_STRICT=1
+  PLAYTEST_LIGHT=1`), `tests/unit/vehicles. tests/unit/bravm. tests/unit/integration.suivre tests/unit/integration.journee
+  tests/unit/playtest.colonne-ia tests/unit/playtest.colonne-joueur tests/unit/playtest.colonne-barrages
+  tests/unit/police.convoi tests/unit/police-command.convoi tests/unit/playtest.commandant-compagnie-depart
+  tests/unit/integration.avec-moi tests/unit/police.interpelles-fourgon tests/unit/integration.engins
+  tests/unit/session.tous-me-suivent tests/unit/playtest.commandant-mission-colonne`.
+- **Done:** the 6 cases green three times in a row, the guard batch with no new red, tsc clean. Not asked: P18's
+  item B2 and the `PLAYTEST_COLONNE=1` matrix (leave them).
+
 # COORDINATOR'S UPDATE — stage 4 (P20, P21: the last red tests before release) — read first; it overrides everything below
 
 **State of this worktree, 23 November 20:45 UTC (nothing committed; `git status` shows it all):** every package P1–P15,
