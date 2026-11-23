@@ -1,3 +1,94 @@
+# COORDINATOR'S UPDATE — stage 4 (P20, P21: the last red tests before release) — read first; it overrides everything below
+
+**State of this worktree, 23 November 20:45 UTC (nothing committed; `git status` shows it all):** every package P1–P15,
+P17 and P11 (phone) is written; P18 (columns) and P19 (BRAV-M, cellular vans) were returned incomplete. Their reports
+are in `/tmp/claude-0/-home-user-SafeDeal/f854eafd-7c66-528c-834c-30dfeec78944/scratchpad/rapports-reprise-23nov.json`
+(read the `openIssues` of P18 and P19: they name coordinates, vehicle ids and seeds). `npx tsc --noEmit -p .` is clean.
+
+**The whole unit suite was run on this worktree: 4080 green, 53 red, in 12 files.** The exact list, with every failure
+message, is in `/tmp/claude-0/-home-user-SafeDeal/f854eafd-7c66-528c-834c-30dfeec78944/scratchpad/ordres-directs/suite-23nov-rouges.md`.
+The published game (`/home/user/SafeDeal/crs-simulation`, read only; never run git or write there) passes every one
+of these tests that exists there. **Nothing is released until these 53 are green, without weakening an assertion.**
+An expectation may be changed only when the specification below deliberately changed the behaviour (say which
+sentence of the plan); a timing margin may be widened only with the measured before/after in your report.
+
+The player's complaint, word for word: « ils ne suivaient pas », « tout le monde doit me suivre, c'est obligatoire »,
+« la BRAV-M, j'arrivais pas à leur donner d'ordre, ils bougeaient pas ». 36 of the 53 red cases are exactly that.
+
+**Two agents work at the same time in this worktree (P20 and P21).** Each owns the files listed in its package. If you
+need a change in a file of the other package: when it is small and local (a guard, an exported helper, a constant),
+re-read the file just before editing, make the change, and append one line to
+`/tmp/claude-0/-home-user-SafeDeal/f854eafd-7c66-528c-834c-30dfeec78944/scratchpad/ordres-directs/coordination-etape4.md`
+(who, file, function, why); when it is larger, write the request in that file instead. Read that file at the start
+and before each of your test batches: a test that turns red « by itself » is usually the other agent's edit.
+The machine has 4 cores: run tests in small groups (never the whole suite), one browser at a time.
+The account budget is tight: fix root causes in priority order, write nothing speculative, leave no probe file
+behind (`tests/unit/zz-*`), and report honestly what is left.
+
+## PACKAGE P20 — La BRAV-M de la compagnie suit le joueur en colonne ; BRAV-M et motos (this IS its section-8 entry)
+- **Files (owned):** `src/sim/police/command/{bravm,special}.ts`, `src/sim/vehicles/**` (autopilot), the placement of
+  the BRAV-M at the start of a game (setup / spawn code), `tests/unit/bravm.*`, `tests/unit/playtest.bravm-passager.test.ts`.
+- **Content, in priority order:**
+  1. `tests/unit/playtest.colonnes-roles.test.ts` in its DEFAULT mode (no env variable): 36 red of 42 (it is 42/42
+     with `PLAYTEST_STRICT=1 PLAYTEST_LIGHT=1`, which has no BRAV-M — keep that green too). In every red case the
+     company's own BRAV-M (FAUCON 1, attached to the company since P4) is left ON FOOT when the player drives off in
+     column: « à pied 12 (FAUCON 1-1:chef_groupe, FAUCON 1-1:pilote_moto, …) » or « à pied 6 (… passager_moto) ».
+     Expected: when the company embarks to follow the player, the BRAV-M mounts its motos and rides in the column
+     (pilots AND passengers), like every other unit. At République and Concorde some vans also do not follow
+     (« 0/8 véhicules suivent … follow/en_route avancé 0 m », « follow/bloque/mur », « idle/repos ») — find out whether
+     the dismounted BRAV-M or its parked motos are what blocks them (P18 moved the motos to a stand beside the parking
+     row in `journee.ts motoStand`; the free-mode setup may not have it); if the cause is in P21's files, hand it over
+     through the coordination file with the evidence.
+  2. `playtest.colonne-ia` « bravm : 9e → Bastille » (the player's BRAV-M starts a metre behind a cellular van at the
+     company's base and stays blocked 90 s — placement), `playtest.apparition-roles` « la BRAV-M de l'IA part de SON
+     commissariat », `integration.journee.chef-bravm` « il ne remonte pas » (0 instead of 9636 at line 130),
+     `bravm.ordres-joueur` T5 (« Interpeller » at 125 m: never arrested).
+  3. `playtest.bravm-passager` (3 red): a police moto creeping at 0.7 m/s pushes a standing tourist along instead of
+     waiting or going round him (autopilot-drive.ts PEOPLE_CREEP / CREEP_SPEED / `stillAhead`); a follower moto hits
+     walls and a street prop at speed and is wrecked (followers seen at 21.9 m/s catching up); a follower crawls,
+     takes a side street and loops round the block (spread 376 m, limit 250). P19's `untieFile` (bravm.ts) removes a
+     real deadlock: keep it.
+  4. `playtest.commandant-mission-colonne` step (d) (BRAV-M « Y aller » across the crowd swings green/red): make it
+     robust, not lucky.
+- **Done:** every test above green three times in a row; `PLAYTEST_STRICT=1 PLAYTEST_LIGHT=1` roles test 42/42; the
+  BRAV-M batch green (`tests/unit/bravm. tests/unit/integration.journee.bravm tests/unit/integration.colonnes-bravm
+  tests/unit/session.bravm-concorde tests/unit/police-command.unites-speciales tests/unit/playtest.commissariats
+  tests/unit/playtest.commandant-terrain tests/unit/playtest.commandant-interpeller`); `vehicles.*` green; tsc clean.
+
+## PACKAGE P21 — La colonne de la compagnie derrière le joueur, « Avec moi », fourgons cellulaires (this IS its section-8 entry)
+- **Files (owned):** `src/sim/police/command/convoy.ts`, `src/gameplay/session/{follow,journee,engins,remise}.ts`,
+  `src/gameplay/transfer/**`, `src/sim/police/{arrest-service,ops-arrest}.ts`, `src/ui/command/direct/travel.ts`,
+  `tests/unit/playtest.commandant-compagnie-depart.test.ts`, `tests/unit/playtest.colonne-garantie*`.
+- **Content, in priority order:**
+  1. `tests/unit/integration.suivre.test.ts` (2 red): « commandant au volant : toute la compagnie embarque, suit en
+     colonne, puis débarque en ligne et le suit » (line 138) and « Centaure : jamais seul — le second Centaure et
+     l'escorte suivent l'engin du joueur » (85 m instead of < 40).
+  2. `tests/unit/integration.avec-moi.test.ts` « Avec moi à pied (A) : une section à 700 m vient en fourgons et le
+     suit » (line 129, never happens).
+  3. `tests/unit/playtest.commandant-compagnie-depart.test.ts` (3 red of 5): Concorde seed 7 (nine vehicles not
+     arrived when the column says `en_place`), Bastille seed 5 (three vans leave too late or never), République
+     seed 21 in a service day (the card answers « pied » where the test expects « vehicules »: decide from the plan
+     which is right, then fix the game or the test flow and say why).
+  4. `tests/unit/police.interpelles-fourgon.test.ts` « l'unité partie à 250 m des fourgons interpelle — le fourgon
+     vient »: the called cellular van takes a 995 m route (274 m when green at 18:19 today), sticks behind traffic at
+     (3053, −303); the detainee is never loaded. It turned red between P18's edits of convoy.ts (18:41),
+     autopilot-drive.ts (18:45) and engins.ts (18:47). Then re-run `tests/unit/transfer.cellulaire.test.ts` and
+     `tests/unit/session.cellulaires.test.ts`.
+  5. `tests/unit/playtest.commandant-accuse.test.ts`: « Interpeller sans fait constaté » now answers « REÇU, je vais
+     constater sur place » where the test expects a refusal — this is P1's deliberate card change (« Aller
+     constater »); update the expectation to the specified behaviour, keeping the « acknowledged within 1 s » check.
+     `tests/unit/integration.nasse-sortie-filtree.test.ts` (2 red: 66 against 67, 58 against 57 — counts that moved by
+     one): find what moved (an arrest pair, a cellular van, a person counted twice) before touching the test.
+  6. P18's item B2, as written in its `openIssues` (when the player holds the wheel of the lead and has moved off, his
+     escorts must not replay his trail: `convoy.ts thinkRoute`), then the order card (`direct/travel.ts`) which still
+     says « en véhicules » for a BRAV-M on foot amid a crowd 150–400 m away while it now walks. Only if 1–5 are green.
+- **Done:** every test of items 1–5 green three times in a row; the column batch still green (`tests/unit/police.convoi
+  tests/unit/police-command.convoi tests/unit/convoy. tests/unit/integration.colonne- tests/unit/playtest.colonne-ia
+  tests/unit/playtest.colonne-joueur tests/unit/playtest.colonne-barrages tests/unit/integration.journee
+  tests/unit/session.depart-base tests/unit/integration.engins tests/unit/engins. tests/unit/session.tous-me-suivent
+  tests/unit/playtest.colonne-garantie-retard.test.ts`); the `PLAYTEST_COLONNE=1` matrix not worse than 11/21 (say the
+  figure); tsc clean.
+
 # COORDINATOR'S UPDATE — stage 3 (P18, P19, then P16, integration, playtest) — read first; it overrides everything below
 
 **State of this worktree (nothing committed; `git status` shows it all):** every package P1–P15 and P17 has been written
