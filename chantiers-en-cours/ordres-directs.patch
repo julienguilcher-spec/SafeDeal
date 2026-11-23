@@ -5609,7 +5609,7 @@ index 899c362..dd2c2ea 100644
  export const REGROUP_FAR = 40;
  export const REGROUP_NEAR = 20;
 diff --git a/crs-simulation/src/gameplay/session/follow.ts b/crs-simulation/src/gameplay/session/follow.ts
-index 68b242d..fbe2587 100644
+index 68b242d..9882a3d 100644
 --- a/crs-simulation/src/gameplay/session/follow.ts
 +++ b/crs-simulation/src/gameplay/session/follow.ts
 @@ -14,20 +14,29 @@
@@ -5686,7 +5686,17 @@ index 68b242d..fbe2587 100644
  /** Rayon dans lequel les véhicules d'une unité « en colonne » rejoignent celle du joueur qui conduit (m). */
  const MOTOR_RADIUS = 3000;
  /** Étapes d'un mouvement motorisé encore en cours (police.command) : la colonne de l'unité roule vers le joueur. */
-@@ -106,7 +138,7 @@ const ARMORED: ReadonlySet<string> = new Set(['centaure', 'canon_eau']);
+@@ -67,6 +99,9 @@ interface VehiclesExt {
+ /** Délai maximal pour rejoindre un véhicule avant d'abandonner (s) et distance de montée (m). */
+ const BOARD_TIMEOUT = 40;
+ const BOARD_REACH = 4.5;
++/** Équipier qui court à sa place sans plus s'en rapprocher depuis (s) : il prend le chemin d'un piéton, suivi au plus (s). */
++const SEAT_STALL = 2;
++const SEAT_PATH_MAX = 25;
+ /** Rayon dans lequel on cherche les véhicules de l'unité autour du joueur (m). */
+ const FLEET_RADIUS = 90;
+ /** Intervalle entre deux véhicules de la colonne (m, pare-chocs à pare-chocs). */
+@@ -106,7 +141,7 @@ const ARMORED: ReadonlySet<string> = new Set(['centaure', 'canon_eau']);
  const FREE_ORDERS: ReadonlySet<string> = new Set(['libre', 'suivre', 'cesser', 'embarquer', 'debarquer', 'colonne', 'escorter']);
  /** Véhicules qui emmènent la compagnie : quand le joueur en conduit un, toute la colonne suit. */
  const TROOP_KINDS: ReadonlySet<string> = new Set(['fourgon_crs', 'car_crs', 'vl_commandement', 'canon_eau', 'centaure', 'fourgon_cellulaire']);
@@ -5695,7 +5705,21 @@ index 68b242d..fbe2587 100644
  /**
   * « Tout le monde me suit » (demande du commanditaire : « c'est obligatoire ») : quel que soit son rôle de police — sauf
   * l'équipage du Centaure, que seul l'engin apparié accompagne —, quand le joueur conduit un véhicule de police (ou est
-@@ -146,13 +178,33 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -130,6 +165,13 @@ interface Assignment {
+   /** Place attribuée (index dans v.def.seats) : poste de conduite, de tir (lance du canon à eau) ou passager. */
+   seat: number;
+   since: number;
++  /** Plus courte distance au véhicule atteinte en chemin, et instant où elle a encore diminué (walkToSeats). */
++  near?: number;
++  nearAt?: number;
++  /** Chemin de piéton vers le véhicule quand le trajet direct n'avance plus (walkToSeats) : points, instant du calcul, point visé. */
++  path?: number[];
++  pathAt?: number;
++  pathI?: number;
+ }
+ 
+ export class FollowLeaderSystem implements GameSystem {
+@@ -146,13 +188,33 @@ export class FollowLeaderSystem implements GameSystem {
    private escortSince = 0;
    private nextThink = 0;
    private nextJoin = 0;
@@ -5735,7 +5759,7 @@ index 68b242d..fbe2587 100644
    /** Branches d'une unité « en colonne » qui ont reçu un autre ordre : elles ne font plus partie de la colonne. */
    private readonly detached = new Set<number>();
    /** Colonne derrière le véhicule où le joueur est passager (il ne conduit pas) : véhicules dans l'ordre. */
-@@ -214,7 +266,12 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -214,7 +276,12 @@ export class FollowLeaderSystem implements GameSystem {
      // ordres « me suivre » : propres à la session (les identifiants d'unités sont réattribués)
      this.motor.clear();
      this.dismount.clear();
@@ -5749,7 +5773,7 @@ index 68b242d..fbe2587 100644
      this.detached.clear();
      this.ride = [];
      this.trails.clear();
-@@ -282,8 +339,16 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -282,8 +349,16 @@ export class FollowLeaderSystem implements GameSystem {
        this.ride = [];
        this.startConvoy(me, driving);
      } else if (!isDriver && this.mounted !== 0) this.endConvoy();
@@ -5766,7 +5790,7 @@ index 68b242d..fbe2587 100644
      // marche vers les véhicules (à chaque pas : l'IA de police réécrit les commandes avant nous)
      // (à pied aussi : équipiers d'une unité « en colonne » restés sans place, voir seatStragglers)
      if (this.mounted !== 0 || this.assign.size > 0) this.walkToSeats(me, now);
-@@ -338,6 +403,8 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -338,6 +413,8 @@ export class FollowLeaderSystem implements GameSystem {
      const rank = new Map<Vehicle, number>();
      for (const v of ctx.vehicles.list) {
        if (v === lead || v.state === 'wrecked' || v.state === 'burnt' || v.def.flying || !POLICE_FLEET.has(v.kind)) continue;
@@ -5775,7 +5799,7 @@ index 68b242d..fbe2587 100644
        if (v.seats.some((id) => id !== 0)) continue;
        const d = Math.hypot(v.x - lead.x, v.z - lead.z);
        if (d > FLEET_RADIUS) continue;
-@@ -405,10 +472,14 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -405,10 +482,14 @@ export class FollowLeaderSystem implements GameSystem {
        // unités en « Me suivre en colonne (véhicules) », elles-mêmes ou par une unité mère
        const root = this.motorRoot(s);
        const called = root !== 0;
@@ -5792,7 +5816,7 @@ index 68b242d..fbe2587 100644
        const under = this.underAny(s, led) || s === pair || called;
        // toute la compagnie, sauf les unités au contact (elles restent : le commandant IA les garde à leur tâche)
        const all = !under && whole.has(this.rootOf(s.id)) && !this.inContact(s);
-@@ -431,7 +502,16 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -431,7 +512,16 @@ export class FollowLeaderSystem implements GameSystem {
      joining.sort((a, b) => ids.indexOf(a.vehicleId) - ids.indexOf(b.vehicleId));
      for (const s of joining) {
        this.escorts.push(s.id);
@@ -5809,7 +5833,7 @@ index 68b242d..fbe2587 100644
        // une unité déjà à bord (« en colonne ») n'est pas réembarquée
        if (!(this.motorRoot(s) !== 0 && s.order.type === 'embarquer')) ctx.squads.issue(s.id, { type: 'embarquer', issuedBy: me.id });
      }
-@@ -495,32 +575,59 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -495,32 +585,59 @@ export class FollowLeaderSystem implements GameSystem {
    }
  
    private readonly near: Person[] = [];
@@ -5874,7 +5898,7 @@ index 68b242d..fbe2587 100644
    /** Branches de l'unité « en colonne » encore dans la colonne (sans les branches détachées par un autre ordre). */
    private columnTree(rootId: number): Squad[] {
      return this.tree(rootId, []).filter((q) => this.motorRoot(q) === rootId);
-@@ -568,6 +675,7 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -568,6 +685,7 @@ export class FollowLeaderSystem implements GameSystem {
        const tree = this.tree(rootId, []);
        for (const v of ctx.vehicles.list) {
          if (v.kind !== 'moto_bravm' || owned.has(v.id) || out.indexOf(v) >= 0 || v.state === 'wrecked' || v.state === 'burnt') continue;
@@ -5882,7 +5906,7 @@ index 68b242d..fbe2587 100644
          if (!out.some((o) => o.kind === 'moto_bravm' && Math.hypot(o.x - v.x, o.z - v.z) < FLEET_RADIUS)) continue;
          if (v.seats.some((id) => id !== 0 && !tree.some((q) => q.members.indexOf(id) >= 0))) continue;
          out.push(v);
-@@ -660,7 +768,7 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -660,7 +778,7 @@ export class FollowLeaderSystem implements GameSystem {
          if (v && v.state !== 'wrecked' && v.state !== 'burnt') continue;
        }
        if (this.motorRoot(q) !== 0) continue;
@@ -5891,7 +5915,7 @@ index 68b242d..fbe2587 100644
        for (const id of q.members) {
          const p = ctx.people.get(id);
          if (!p || p.isPlayer || p.vehicleId !== 0 || p.custody !== 'free' || p.posture === 'down' || this.assign.has(p.id)) continue;
-@@ -889,49 +997,256 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -889,49 +1007,256 @@ export class FollowLeaderSystem implements GameSystem {
  
    // ───────────────────────────── ordres du joueur ─────────────────────────────
  
@@ -6162,7 +6186,7 @@ index 68b242d..fbe2587 100644
    }
  
    /** L'unité quitte la colonne : ses véhicules s'arrêtent où ils sont (ils ne suivent plus le joueur). */
-@@ -971,6 +1286,11 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -971,6 +1296,11 @@ export class FollowLeaderSystem implements GameSystem {
    /** Suivi des ordres : autre ordre reçu (l'unité quitte la colonne), compte rendu « prête », passage à pied. */
    private tendOrders(me: Person, now: number): void {
      const ctx = this.ctx!;
@@ -6174,7 +6198,7 @@ index 68b242d..fbe2587 100644
      for (const [sid, st] of [...this.motor]) {
        const s = ctx.squads.get(sid);
        if (!s) {
-@@ -1003,21 +1323,51 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -1003,21 +1333,51 @@ export class FollowLeaderSystem implements GameSystem {
          text: `${to.toUpperCase()} ICI ${s.name.toUpperCase()}. En colonne, prête à vous suivre${afoot}. TERMINÉ.`,
        });
      }
@@ -6235,7 +6259,7 @@ index 68b242d..fbe2587 100644
      }
    }
  
-@@ -1110,6 +1460,18 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -1110,6 +1470,18 @@ export class FollowLeaderSystem implements GameSystem {
      return s ? s.id : 0;
    }
  
@@ -6254,7 +6278,7 @@ index 68b242d..fbe2587 100644
    /** L'unité est-elle placée (directement ou non) sous l'une de ces unités ? */
    private underAny(s: Squad, set: ReadonlySet<number>): boolean {
      const ctx = this.ctx!;
-@@ -1123,6 +1485,50 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -1123,6 +1495,50 @@ export class FollowLeaderSystem implements GameSystem {
      return false;
    }
  
@@ -6305,7 +6329,64 @@ index 68b242d..fbe2587 100644
    /** Équipage d'une unité accompagnatrice au complet à bord (ou délai d'embarquement écoulé, au moins le conducteur). */
    private escortReady(v: Vehicle): boolean {
      const ctx = this.ctx!;
-@@ -1315,6 +1721,91 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -1176,8 +1592,42 @@ export class FollowLeaderSystem implements GameSystem {
+       const v = ctx.vehicles.get(a.vehicleId);
+       if (!p || !v || p.vehicleId !== 0) continue;
+       if (now - a.since > BOARD_TIMEOUT) continue;
+-      const dx = v.x - p.x, dz = v.z - p.z;
+-      const d = Math.hypot(dx, dz) || 1;
++      let dx = v.x - p.x, dz = v.z - p.z;
++      let d = Math.hypot(dx, dz) || 1;
++      // arrêté en chemin sans plus se rapprocher depuis SEAT_STALL s (un mur, une grille, une balustrade sur le trajet
++      // direct — Concorde : le télépilote de l'équipe drone poussait contre la balustrade, à cinq mètres du fourgon,
++      // jusqu'au départ de la colonne) : il fait le tour par le chemin d'un piéton, point après point
++      if (a.near === undefined || d < a.near - 0.3) {
++        a.near = d;
++        a.nearAt = now;
++      }
++      if (a.path && (now - (a.pathAt ?? 0) > SEAT_PATH_MAX || (a.pathI ?? 0) >= a.path.length)) {
++        a.path = undefined;
++        a.near = d;
++        a.nearAt = now;
++      }
++      if (!a.path && d > 3 && now - (a.nearAt ?? now) > SEAT_STALL) {
++        const path: number[] = [];
++        let ok = false;
++        try { ok = ctx.world.findPath(p.x, p.z, v.x, v.z, 'foot', path) && path.length >= 4; } catch { ok = false; }
++        a.nearAt = now;
++        if (ok) {
++          a.path = path;
++          a.pathAt = now;
++          a.pathI = 2;
++        }
++      }
++      if (a.path) {
++        const path = a.path;
++        let i = a.pathI ?? 2;
++        while (i < path.length && Math.hypot(path[i]! - p.x, path[i + 1]! - p.z) < 1.2) i += 2;
++        a.pathI = i;
++        if (i < path.length) {
++          dx = path[i]! - p.x;
++          dz = path[i + 1]! - p.z;
++          d = Math.hypot(dx, dz) || 1;
++        }
++      }
+       let mx = dx / d;
+       let mz = dz / d;
+       // un autre véhicule en travers du trajet direct (bloc garé) : on le longe, du côté opposé à son centre
+@@ -1210,6 +1660,11 @@ export class FollowLeaderSystem implements GameSystem {
+       if (!p || !v) { this.assign.delete(id); continue; }
+       if (p.vehicleId !== 0) continue;
+       if (now - a.since > BOARD_TIMEOUT) { this.assign.delete(id); continue; }
++      // véhicule complet entre-temps (l'IA de police y a fait monter un agent sans place d'un autre groupe, un opérateur
++      // de l'état-major : les deux comptes de places ne se connaissent pas) : la place est rendue tout de suite, une
++      // autre lui est donnée au pas suivant (seatOrphans, seatStragglers). Il restait devant le fourgon plein jusqu'au
++      // bout du délai, et la colonne partait sans lui (Concorde : le télépilote de l'équipe drone à pied)
++      if (!v.seats.some((sid) => sid === 0)) { this.assign.delete(id); continue; }
+       const reach = Math.max(v.def.length, v.def.width) * 0.5 + BOARD_REACH;
+       if (Math.hypot(v.x - p.x, v.z - p.z) <= reach && !ctx.vehicles.enter(p, v, a.seat)) ctx.vehicles.enter(p, v);
+     }
+@@ -1315,6 +1770,91 @@ export class FollowLeaderSystem implements GameSystem {
      return room;
    }
  
@@ -6397,7 +6478,7 @@ index 68b242d..fbe2587 100644
    /** Le joueur descend : la colonne s'arrête, tout le monde descend et reprend « suivre » à pied. */
    private endConvoy(): void {
      const ctx = this.ctx!;
-@@ -1333,17 +1824,31 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -1333,17 +1873,31 @@ export class FollowLeaderSystem implements GameSystem {
        if (sq && this.motorRoot(sq) !== 0) continue;
        if (p && p.vehicleId !== 0) ctx.vehicles.exit(p);
      }
@@ -6434,7 +6515,7 @@ index 68b242d..fbe2587 100644
      this.orphaned.clear();
      this.column = [];
 diff --git a/crs-simulation/src/gameplay/session/journee.ts b/crs-simulation/src/gameplay/session/journee.ts
-index adce1e2..fa8044f 100644
+index adce1e2..28025ab 100644
 --- a/crs-simulation/src/gameplay/session/journee.ts
 +++ b/crs-simulation/src/gameplay/session/journee.ts
 @@ -47,15 +47,27 @@ export interface JourneeApi {
@@ -6466,7 +6547,7 @@ index adce1e2..fa8044f 100644
  }
  interface VehiclesExt {
    setSiren?(v: Vehicle, mode: 0 | 1 | 2): void;
-@@ -79,10 +91,40 @@ const BASE_RADIUS = 160;
+@@ -79,10 +91,46 @@ const BASE_RADIUS = 160;
  const RETURN_MAX = 900;
  /** Durée maximale de la seconde intervention avant de lever le périmètre (s). */
  const INTERVENTION_MAX = 420;
@@ -6489,6 +6570,12 @@ index adce1e2..fa8044f 100644
 +const CHIEF_NEAR = 15;
 +/** Moto du chef qui rejoint la BRAV-M : rendue à la BRAV-M à moins de tant de mètres de sa tête (m). */
 +const REJOIN_BRAVM = 80;
++/** Chef de la BRAV-M en selle sur la moto qui l'attendait : la journée attend son arrivée au plus ce temps (s). */
++const REJOIN_RIDE_MAX = 600;
++/** Base partagée : la compagnie se met en file quand les motos de la BRAV-M du joueur sont à plus de tant de mètres de ses véhicules (m). */
++const OTHERS_CLEAR = 110;
++/** … et au plus tard après ce délai (s) : un joueur resté sur place ne retient pas la compagnie. */
++const OTHERS_WAIT = 45;
 +/** Moto du chef dont le pilote automatique s'est arrêté en chemin : relancée au plus toutes les tant de secondes (s). */
 +const REDRIVE = 20;
 +/**
@@ -6507,7 +6594,7 @@ index adce1e2..fa8044f 100644
  
  const CONVOY_KINDS: ReadonlySet<string> = new Set(['fourgon_crs', 'car_crs', 'vl_commandement', 'fourgon_cellulaire', 'canon_eau', 'centaure']);
  /** Engins à équipage : on n'y monte que si l'on en fait partie. */
-@@ -172,6 +214,22 @@ export class JourneeSystem implements GameSystem {
+@@ -172,6 +220,27 @@ export class JourneeSystem implements GameSystem {
    private nextCity = 0;
    private cityCount = 0;
    private sirensOn = false;
@@ -6523,14 +6610,19 @@ index adce1e2..fa8044f 100644
 +  /** Chef de la BRAV-M à pied à l'ordre de mouvement : depuis quand on l'attend (s), −1 : on ne l'attend pas. */
 +  private chiefWaitAt = -1;
 +  /**
++   * Compagnies dont le départ (mise en file, embarquement) attend que les motos de la BRAV-M du joueur soient sorties de
++   * la base qu'elles partagent (voir holdsOwnColumn) : { compagnie, zone de stationnement, instant de la demande }.
++   */
++  private lateOthers: { id: number; x: number; z: number; heading: number; since: number }[] = [];
++  /**
 +   * Moto du chef laissée avec son pilote quand la BRAV-M est partie sans lui (binôme, moto) ; `riding` : il est monté,
 +   * son pilote l'emmène rejoindre la BRAV-M (la moto lui est rendue quand ils l'ont rejointe).
 +   */
-+  private waitingMoto: { binomeId: number; motoId: number; riding: boolean; driveAt: number } | null = null;
++  private waitingMoto: { binomeId: number; motoId: number; riding: boolean; driveAt: number; rideAt: number } | null = null;
    private nextThink = 0;
    private rng: (() => number) | null = null;
    private readonly road: RoadSample = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '' } as RoadSample;
-@@ -182,12 +240,18 @@ export class JourneeSystem implements GameSystem {
+@@ -182,12 +251,18 @@ export class JourneeSystem implements GameSystem {
        get stage() { return self.stage_; },
        get travelling() { return self.stage_ === 'embarquement' || self.stage_ === 'route' || self.stage_ === 'rembarquement' || self.stage_ === 'retour' || self.stage_ === 'intervention_route'; },
        get destination() { return self.dest ? { x: self.dest.x, z: self.dest.z, name: self.dest.name } : null; },
@@ -6549,7 +6641,7 @@ index adce1e2..fa8044f 100644
    }
  
    reset(): void {
-@@ -205,6 +269,13 @@ export class JourneeSystem implements GameSystem {
+@@ -205,6 +280,14 @@ export class JourneeSystem implements GameSystem {
      this.fires.length = 0;
      this.cityCount = 0;
      this.sirensOn = false;
@@ -6560,10 +6652,11 @@ index adce1e2..fa8044f 100644
 +    this.takenOver = false;
 +    this.chiefWaitAt = -1;
 +    this.waitingMoto = null;
++    this.lateOthers.length = 0;
      this.nextThink = 0;
    }
  
-@@ -217,7 +288,8 @@ export class JourneeSystem implements GameSystem {
+@@ -217,7 +300,8 @@ export class JourneeSystem implements GameSystem {
      }
      this.base = baseOf(ctx.session.config);
      this.mission = (ctx.session.config?.missionId ?? '') !== '';
@@ -6573,7 +6666,7 @@ index adce1e2..fa8044f 100644
      this.startAt = ctx.clock.now;
      this.nextCity = this.startAt + CITY_FIRST;
      const r = ctx.rng.fork('session.journee');
-@@ -244,6 +316,35 @@ export class JourneeSystem implements GameSystem {
+@@ -244,6 +328,35 @@ export class JourneeSystem implements GameSystem {
      ctx.ui.notify(text, 'info', 8);
    }
  
@@ -6609,16 +6702,17 @@ index adce1e2..fa8044f 100644
    /** Compagnie (racine) de l'unité. */
    private companyOf(id: number): number {
      const ctx = this.ctx!;
-@@ -260,6 +361,8 @@ export class JourneeSystem implements GameSystem {
+@@ -260,6 +373,9 @@ export class JourneeSystem implements GameSystem {
      this.nextThink = now + 0.5;
      const t = now - this.startAt;
      if (!this.mission) this.cityLife(now);
 +    // moto du chef de la BRAV-M laissée à l'attendre : à toutes les étapes, jusqu'à ce qu'elle ait rejoint la BRAV-M
 +    if (this.waitingMoto) this.thinkWaitingMoto();
++    if (this.lateOthers.length > 0) this.thinkLateOthers(now);
      // briefing et ordre de mouvement : aussi quand le joueur part sans colonne (BRAV-M en tête de ses motards)
      if (!this.briefed && t >= BRIEF_AT) this.brief();
      if (t >= DISPATCH_AT && !this.moveSaid && this.dest) this.sayMove();
-@@ -316,8 +419,22 @@ export class JourneeSystem implements GameSystem {
+@@ -316,8 +432,22 @@ export class JourneeSystem implements GameSystem {
    private engageOthers(x: number, z: number, heading: number, back: boolean): void {
      const ctx = this.ctx!;
      const command = ctx.service<CommandLike>('police.command');
@@ -6642,10 +6736,68 @@ index adce1e2..fa8044f 100644
        // (une BRAV-M n'a pas de membres propres : ses binômes sont des sous-unités)
        if (this.isBravm(s.id)) {
          ctx.squads.issue(s.id, { type: 'colonne', x, z, heading, width: 0, issuedBy: s.leaderId });
-@@ -333,6 +450,63 @@ export class JourneeSystem implements GameSystem {
+@@ -325,7 +455,10 @@ export class JourneeSystem implements GameSystem {
+       }
+       if (s.kind !== 'compagnie' || !command) continue;
+       if (back) command.depart(s.id, { x, z });
+-      else {
++      else if (this.holdsOwnColumn(s.id)) {
++        // la BRAV-M du joueur part de la même base : ses motos sortent d'abord (thinkLateOthers)
++        if (!this.lateOthers.some((o) => o.id === s.id)) this.lateOthers.push({ id: s.id, x, z, heading, since: ctx.clock.now });
++      } else {
+         // véhicules mis en file, nez vers la sortie : garés en bloc, la tête manœuvrait sans fin pour sortir
+         this.lineUp(x, z, s.id);
+         command.arrive(s.id, { x, z, heading, layout: 'file', boardFirst: true });
+@@ -333,6 +466,109 @@ export class JourneeSystem implements GameSystem {
      }
    }
  
++  /**
++   * La mise en file de la compagnie `companyId` enfermerait-elle la colonne du joueur ? Vrai quand il fait mouvement avec
++   * SA BRAV-M (une unité à part, pas celle de cette compagnie) et qu'une de ses motos, pilote en selle, est encore dans
++   * l'emprise de cette file (OTHERS_CLEAR m au moins autour du bloc de la compagnie). La file se range le long des premiers mètres de l'itinéraire,
++   * celui des motos aussi : commissariat du 9e (rue Chauchat, 5,20 m de chaussée, sens unique), le fourgon cellulaire de
++   * queue posé cinq mètres devant les motos du joueur, qui attendaient derrière lui que la compagnie ait embarqué — une
++   * minute et demie, sans la place de le doubler.
++   */
++  private holdsOwnColumn(companyId: number): boolean {
++    const ctx = this.ctx!;
++    if (!this.solo || !this.isBravmUnit(this.companyId) || this.companyOf(this.companyId) === companyId) return false;
++    let cx = 0, cz = 0, n = 0;
++    for (const s of ctx.squads.list) {
++      if (s.vehicleId === 0 || this.companyOf(s.id) !== companyId) continue;
++      const v = ctx.vehicles.get(s.vehicleId);
++      if (!v || !CONVOY_KINDS.has(v.kind) || v.def.flying) continue;
++      cx += v.x; cz += v.z; n++;
++    }
++    if (n === 0) return false;
++    cx /= n;
++    cz /= n;
++    // (la file : une dizaine de mètres par véhicule depuis le centre du bloc, le long de l'itinéraire)
++    const clear = Math.max(OTHERS_CLEAR, n * 10 + 30);
++    for (const s of ctx.squads.list) {
++      if (s.vehicleId === 0 || !this.under(s.id, this.companyId)) continue;
++      const v = ctx.vehicles.get(s.vehicleId);
++      if (v && !v.def.flying && v.seats[0] !== 0 && Math.hypot(v.x - cx, v.z - cz) < clear) return true;
++    }
++    return false;
++  }
++
++  /** Départ des compagnies qui attendaient la sortie des motos du joueur : dès qu'elles sont sorties, OTHERS_WAIT s au plus. */
++  private thinkLateOthers(now: number): void {
++    const ctx = this.ctx!;
++    const command = ctx.service<CommandLike>('police.command');
++    for (let i = this.lateOthers.length - 1; i >= 0; i--) {
++      const o = this.lateOthers[i]!;
++      const s = ctx.squads.get(o.id);
++      if (s && command && now - o.since < OTHERS_WAIT && this.stage_ === 'route' && this.holdsOwnColumn(o.id)) continue;
++      this.lateOthers.splice(i, 1);
++      if (!s || !command) continue;
++      this.lineUp(o.x, o.z, o.id);
++      command.arrive(o.id, { x: o.x, z: o.z, heading: o.heading, layout: 'file', boardFirst: true });
++    }
++  }
++
 +  /**
 +   * Point d'arrêt des motos d'une BRAV-M rattachée à la compagnie, à l'aller : jamais la zone de stationnement même.
 +   * Parties de leur commissariat, elles y arrivaient avant la colonne et s'arrêtaient là où son véhicule de tête doit se
@@ -6706,7 +6858,7 @@ index adce1e2..fa8044f 100644
    /** « à la caserne de la Cité », « au commissariat du 9e arrondissement… ». */
    private atBase(): string {
      const n = this.base.name;
-@@ -377,10 +551,21 @@ export class JourneeSystem implements GameSystem {
+@@ -377,10 +613,21 @@ export class JourneeSystem implements GameSystem {
      const command = ctx.service<CommandLike>('police.command');
      const me = ctx.player.person();
      const own = ctx.squads.get(this.companyId);
@@ -6731,7 +6883,7 @@ index adce1e2..fa8044f 100644
        this.objective(me && own.leaderId === me.id ? `En selle, en tête de la BRAV-M : ${name}` : `En selle avec la BRAV-M : ${name}`, at.x, at.z, true);
        this.stage_ = 'route';
        this.setSirens(true);
-@@ -429,8 +614,18 @@ export class JourneeSystem implements GameSystem {
+@@ -429,8 +676,18 @@ export class JourneeSystem implements GameSystem {
  
    private thinkEmbark(): void {
      const ctx = this.ctx!;
@@ -6750,7 +6902,7 @@ index adce1e2..fa8044f 100644
      // la colonne roule dès que l'un de ses véhicules part : au départ échelonné, le véhicule de commandement ne part
      // qu'en dernier, une demi-minute après le premier fourgon (attendre la tête laissait « En route bientôt » affiché)
      if (this.convoyMoving()) {
-@@ -450,6 +645,20 @@ export class JourneeSystem implements GameSystem {
+@@ -450,6 +707,20 @@ export class JourneeSystem implements GameSystem {
    private thinkRoute(): void {
      const ctx = this.ctx!;
      if (this.solo) {
@@ -6771,7 +6923,19 @@ index adce1e2..fa8044f 100644
        // sans colonne de la compagnie : arrivé quand le joueur (ou le chef de son unité) est sur le point
        const d = this.dest;
        const me = ctx.player.person();
-@@ -467,12 +676,165 @@ export class JourneeSystem implements GameSystem {
+@@ -462,17 +733,177 @@ export class JourneeSystem implements GameSystem {
+       const sp = own && command && command.special ? command.special(own.id) : null;
+       const parked = !!sp && !!d && sp.kind === 'bravm' && sp.stage === 'repos' && typeof sp.x === 'number' && typeof sp.z === 'number'
+         && Math.hypot(sp.x - d.x, sp.z - d.z) < BRAVM_PARKED;
+-      if (near(me) || near(lead) || parked) this.arrived();
++      // chef de la BRAV-M en selle sur la moto restée l'attendre, en chemin pour la rejoindre : la journée n'est pas
++      // « sur place » tant qu'il roule encore — la BRAV-M arrivée sans lui l'y mettait, lui à plusieurs centaines de
++      // mètres, sa moto jamais rendue à son binôme (thinkWaitingMoto la rend à l'arrivée : même pas de réflexion). Au
++      // plus REJOIN_RIDE_MAX s après qu'il est monté : une moto arrêtée pour de bon ne retient pas la journée.
++      const w = this.waitingMoto;
++      const rejoining = !!w && w.riding && ctx.clock.now - w.rideAt < REJOIN_RIDE_MAX;
++      if (near(me) || near(lead) || (parked && !rejoining)) this.arrived();
+       return;
      }
      const command = ctx.service<CommandLike>('police.command');
      const st = command ? command.convoyOf(this.companyId) : null;
@@ -6863,7 +7027,7 @@ index adce1e2..fa8044f 100644
 +    this.chiefWaitAt = -1;
 +    const b = me.squadId !== 0 ? ctx.squads.get(me.squadId) : undefined;
 +    if (b && b.vehicleId === moto.id) {
-+      this.waitingMoto = { binomeId: b.id, motoId: moto.id, riding: false, driveAt: 0 };
++      this.waitingMoto = { binomeId: b.id, motoId: moto.id, riding: false, driveAt: 0, rideAt: 0 };
 +      b.vehicleId = 0;
 +    }
 +    ctx.squads.issue(own.id, { type: 'colonne', x: d.x, z: d.z, heading: d.heading, width: 0, issuedBy: 0 });
@@ -6902,6 +7066,7 @@ index adce1e2..fa8044f 100644
 +      }
 +      w.riding = true;
 +      w.driveAt = ctx.clock.now;
++      w.rideAt = ctx.clock.now;
 +      const ap = ctx.service<{ driveTo(v: Vehicle, x: number, z: number, o?: { urgence?: boolean }): boolean }>('vehicles.autopilot');
 +      if (ap && moto.seats[0] !== 0 && moto.seats[0] !== me.id) ap.driveTo(moto, d.x, d.z, { urgence: true });
 +      const ext = ctx.service<VehiclesExt>('vehicles.ext');
@@ -6940,7 +7105,7 @@ index adce1e2..fa8044f 100644
    /** Arrivée : sirènes coupées, le joueur passager descend avec son groupe, le commandement prend la main. */
    private arrived(): void {
      const ctx = this.ctx!;
-@@ -484,6 +846,8 @@ export class JourneeSystem implements GameSystem {
+@@ -484,6 +915,8 @@ export class JourneeSystem implements GameSystem {
        if (v && v.seats[0] !== me.id && CONVOY_KINDS.has(v.kind)) ctx.vehicles.exit(me);
      }
      this.stage_ = 'sur_place';
@@ -6949,7 +7114,7 @@ index adce1e2..fa8044f 100644
      this.clearObjective();
      ctx.radio.say({ channel: 'commandement', from: this.companyName(), priority: 1,
        text: `CENTRAL de ${this.companyName()}. Sur place, ${this.dest ? this.dest.name : 'zone de stationnement'}. On débarque et on se met en place.` });
-@@ -493,6 +857,7 @@ export class JourneeSystem implements GameSystem {
+@@ -493,6 +926,7 @@ export class JourneeSystem implements GameSystem {
      const ctx = this.ctx!;
      const command = ctx.service<CommandLike>('police.command');
      const st = command ? command.convoyOf(this.companyId) : null;
@@ -6957,7 +7122,7 @@ index adce1e2..fa8044f 100644
      if (st && (st.stage === 'rembarquement' || st.stage === 'depart')) {
        this.engageOthers(this.base.x, this.base.z, 0, true);
        this.stage_ = 'rembarquement';
-@@ -537,6 +902,101 @@ export class JourneeSystem implements GameSystem {
+@@ -537,6 +971,101 @@ export class JourneeSystem implements GameSystem {
      }
    }
  
@@ -8019,7 +8184,7 @@ index 2c990f8..2405e3f 100644
    // major pour chef de bord)
    if (role === 'patrouille' && cast.player !== 0 && config.rank === 'major' && cast.slots[0]) cast.slots[0].rank = 'major';
 diff --git a/crs-simulation/src/gameplay/session/setup.ts b/crs-simulation/src/gameplay/session/setup.ts
-index 6465e07..85fb6c3 100644
+index 6465e07..fcc25fa 100644
 --- a/crs-simulation/src/gameplay/session/setup.ts
 +++ b/crs-simulation/src/gameplay/session/setup.ts
 @@ -20,13 +20,20 @@
@@ -8040,7 +8205,7 @@ index 6465e07..85fb6c3 100644
  } from '@/core/contracts';
  import { SystemOrder } from '@/core/contracts';
  import { getCore } from '@/core/context';
-+import { wrapAngle } from '@/core/math';
++import { pointOnPolyline, wrapAngle } from '@/core/math';
  import { EXT } from '@/core/extensions';
  import type { MetroApi, TrafficControlApi } from '@/core/extensions';
  import type { RenderCameraApi } from '@/render/base/api';
@@ -8053,7 +8218,18 @@ index 6465e07..85fb6c3 100644
  
  /** Sections par compagnie (au-delà, les sections suivantes lui sont rattachées en renfort). */
  const COMPANY_SECTIONS = 4;
-@@ -63,6 +72,14 @@ const BLOCK_CLEAR = 6;
+@@ -52,6 +61,10 @@ const COMPANY_LAYOUT: 'colonne' | 'ligne' = 'ligne';
+ /** Rôles où le joueur commande sa petite unité : elle le suit à pied et en véhicule (voir follow.ts). */
+ const LEADER_ROLES: ReadonlySet<string> = new Set(['chef_groupe', 'bravm', 'gendarme_centaure', 'operateur_canon_eau', 'telepilote']);
+ /** Véhicules de l'unité que l'on gare nez vers la sortie (les engins à équipage restent face au front). */
++/** BRAV-M du joueur devant la compagnie (aheadOfForces) : distance le long de la route du départ (m), et écart libre exigé (m). */
++const AHEAD_MIN = 30;
++const AHEAD_MAX = 180;
++const AHEAD_CLEAR = 22;
+ const PARKED_KINDS: readonly string[] = ['fourgon_crs', 'car_crs', 'vl_commandement', 'fourgon_cellulaire', 'voiture_police', 'moto_bravm'];
+ /** Longueur (m) du début d'itinéraire où une sortie ne doit croiser aucun véhicule arrêté hors du bloc (voir crossesParked). */
+ const CROSS_CHECK = 45;
+@@ -63,6 +76,14 @@ const BLOCK_CLEAR = 6;
   */
  const CELL_SPOTS: readonly number[] = [7.6, 0, 7.6, 3.6, 7.6, -3.6, 0, 3.6, 0, -3.6, 15.2, 0];
  const isProtester = (p: { faction: string }): boolean => p.faction === 'protest';
@@ -8068,7 +8244,7 @@ index 6465e07..85fb6c3 100644
  const propsScratch: unknown[] = [];
  
  const DEFAULT_BYSTANDERS = 10;
-@@ -84,6 +101,8 @@ export class SessionSetupSystem implements GameSystem {
+@@ -84,6 +105,8 @@ export class SessionSetupSystem implements GameSystem {
    private readonly hit: RayHit = { hit: false, t: 0, x: 0, z: 0, nx: 0, nz: 0, kind: 'none', id: 0, height: 0 };
    private readonly spot = { x: 0, z: 0, heading: 0 };
    private readonly routeScratch: number[] = [];
@@ -8077,7 +8253,7 @@ index 6465e07..85fb6c3 100644
  
    provide(ctx: GameContext): void {
      this.ctx = ctx;
-@@ -101,16 +120,29 @@ export class SessionSetupSystem implements GameSystem {
+@@ -101,16 +124,29 @@ export class SessionSetupSystem implements GameSystem {
        },
      };
      ctx.provide<EquipageApi>(EQUIPAGE_SERVICE, equipage);
@@ -8107,7 +8283,7 @@ index 6465e07..85fb6c3 100644
    }
  
    dispose(): void {
-@@ -145,6 +177,7 @@ export class SessionSetupSystem implements GameSystem {
+@@ -145,6 +181,7 @@ export class SessionSetupSystem implements GameSystem {
        // journée de service : les forces prennent leur service à la caserne (île de la Cité) et rejoignent la
        // manifestation en colonne (session/journee.ts) — elles ne sont pas posées à côté du rassemblement
        const journee = isJournee(config);
@@ -8115,7 +8291,7 @@ index 6465e07..85fb6c3 100644
        const apart = crowd && !journee ? chooseStandOffCrowd(ctx, x, z, ctx.director.route, isProtester) : null;
        const base = baseOf(config);
        const forces = journee ? chooseStand(ctx, base.x, base.z, rand) : apart ?? chooseStand(ctx, x, z, rand);
-@@ -154,7 +187,7 @@ export class SessionSetupSystem implements GameSystem {
+@@ -154,7 +191,7 @@ export class SessionSetupSystem implements GameSystem {
        const summary: SessionSetupSummary = {
          playerId: 0, role: config.role, x: stand.x, z: stand.z, heading: stand.heading, squadId: 0, rootSquadId: 0,
          teammates: 0, vehicleIds: [], bystanders: 0, usedPoliceUnits: false, offCrowd: apart !== null,
@@ -8124,7 +8300,17 @@ index 6465e07..85fb6c3 100644
        };
  
        // équipage de patrouille : la compagnie du Mode libre (moyens engagés, manifestation en cours) est construite
-@@ -181,6 +214,9 @@ export class SessionSetupSystem implements GameSystem {
+@@ -175,12 +212,18 @@ export class SessionSetupSystem implements GameSystem {
+       }
+       if (!player) {
+         // l'équipe du joueur est créée directement ; si une compagnie tient déjà l'emplacement, elle se range à côté
+-        if (summary.usedPoliceUnits && withForces) stand = this.besideForces(forces);
++        if (summary.usedPoliceUnits && withForces) {
++          // (journée de service, BRAV-M du joueur à la base de la compagnie : devant elle sur la route du départ)
++          stand = (journee && config.role === 'bravm' ? this.aheadOfForces(forces, x, z) : null) ?? this.besideForces(forces);
++        }
+         summary.x = stand.x;
+         summary.z = stand.z;
          summary.heading = stand.heading;
          player = this.buildCast(cast, stand, helper, rand, summary);
        }
@@ -8134,7 +8320,7 @@ index 6465e07..85fb6c3 100644
        this.countMeans(summary);
        // personne posée au ras d'une façade, sur une case « bâti » de la grille des sols (au mètre, plus large que les
        // collisions) : ramenée sur le sol libre le plus proche, pour que tout le jeu la voie dehors
-@@ -205,7 +241,11 @@ export class SessionSetupSystem implements GameSystem {
+@@ -205,7 +248,11 @@ export class SessionSetupSystem implements GameSystem {
          if (config.role === 'commandant' && config.extra && config.extra['variante'] === 'salle') this.seatInCommandRoom(player);
          // BRAV-M, poste passager : opérateur d'un binôme, en selle derrière son pilote ; le chef de groupe de l'IA
          // commande (voir mountBravm) — le joueur ne prend pas la tête de l'unité, son pilote ne le « suit » pas à pied
@@ -8147,7 +8333,7 @@ index 6465e07..85fb6c3 100644
          // rôles à responsabilité : le joueur prend la tête de son unité (BRAV-M, équipage d'engin, équipe du drone)
          if (LEADER_ROLES.has(config.role) && player.squadId !== 0 && !bravmPassenger) {
            const own = ctx.squads.get(player.squadId);
-@@ -213,15 +253,12 @@ export class SessionSetupSystem implements GameSystem {
+@@ -213,15 +260,12 @@ export class SessionSetupSystem implements GameSystem {
            // canon à eau, Centaure : un groupe de CRS de la compagnie l'escorte et le suit
            if (own && (config.role === 'operateur_canon_eau' || config.role === 'gendarme_centaure')) this.attachEscort(player, own, config.role === 'gendarme_centaure');
          }
@@ -8169,7 +8355,7 @@ index 6465e07..85fb6c3 100644
        } else {
          console.error('[session] aucun personnage n’a pu être créé pour le joueur');
        }
-@@ -408,14 +445,18 @@ export class SessionSetupSystem implements GameSystem {
+@@ -408,14 +452,18 @@ export class SessionSetupSystem implements GameSystem {
      try {
        // Patrouille libre (aucune manifestation, joueur non commandant) : une compagnie n'aurait rien à y faire,
        // même si la page d'accueil a transmis ses « moyens engagés » — le joueur part avec son seul groupe.
@@ -8191,7 +8377,7 @@ index 6465e07..85fb6c3 100644
          if (!foot || !mine) return null;
          const person = this.pickPlayer(handles, role, mine.poste);
          if (!person) return null;
-@@ -472,6 +513,8 @@ export class SessionSetupSystem implements GameSystem {
+@@ -472,6 +520,8 @@ export class SessionSetupSystem implements GameSystem {
      const rz = fx;
      const company = units.createCompany!({
        x: stand.x, z: stand.z, heading: stand.heading, sections: Math.min(COMPANY_SECTIONS, sections), vehicles: vans, drivers: vans, layout: COMPANY_LAYOUT,
@@ -8200,7 +8386,7 @@ index 6465e07..85fb6c3 100644
      });
      out.push(company);
      this.progress(0.47, 'Mise en place de la compagnie');
-@@ -535,8 +578,13 @@ export class SessionSetupSystem implements GameSystem {
+@@ -535,8 +585,13 @@ export class SessionSetupSystem implements GameSystem {
      }
      if (typeof units.createBravm === 'function') {
        for (let i = 0; i < means.bravm; i++) {
@@ -8216,7 +8402,7 @@ index 6465e07..85fb6c3 100644
        }
      }
      if (typeof units.createEquipage === 'function') {
-@@ -547,6 +595,48 @@ export class SessionSetupSystem implements GameSystem {
+@@ -547,6 +602,48 @@ export class SessionSetupSystem implements GameSystem {
      if (command && typeof command.createDroneTeam === 'function') {
        for (let i = 0; i < means.drone; i++) special((x, z, heading) => command.createDroneTeam!({ x, z, heading, parentId }), 2, 'l’équipe du drone');
      }
@@ -8265,7 +8451,7 @@ index 6465e07..85fb6c3 100644
  
      for (const h of out) {
        for (const p of h.people) if (ctx.people.get(p.id)) this.people.push(p.id);
-@@ -651,6 +741,8 @@ export class SessionSetupSystem implements GameSystem {
+@@ -651,6 +748,8 @@ export class SessionSetupSystem implements GameSystem {
    private nearBlock(x: number, z: number, length: number, own: readonly Vehicle[]): boolean {
      for (const o of this.ctx.vehicles.list) {
        if (own.indexOf(o) >= 0 || o.faction !== 'police' || o.def.flying || Math.abs(o.speed) > 0.5 || PARKED_KINDS.indexOf(o.kind) < 0) continue;
@@ -8274,7 +8460,7 @@ index 6465e07..85fb6c3 100644
        if (Math.hypot(o.x - x, o.z - z) < (o.def.length + length) * 0.5 + BLOCK_CLEAR) return true;
      }
      return false;
-@@ -905,6 +997,28 @@ export class SessionSetupSystem implements GameSystem {
+@@ -905,6 +1004,28 @@ export class SessionSetupSystem implements GameSystem {
      return null;
    }
  
@@ -8303,7 +8489,44 @@ index 6465e07..85fb6c3 100644
    /** Emplacement de l'équipe du joueur quand une compagnie tient déjà l'emplacement des forces : sur son flanc. */
    private besideForces(forces: Stand): Stand {
      const spot = this.spot;
-@@ -967,6 +1081,8 @@ export class SessionSetupSystem implements GameSystem {
+@@ -914,6 +1035,36 @@ export class SessionSetupSystem implements GameSystem {
+     return { x: forces.x + fz * 14 - fx * 4, z: forces.z - fx * 14 - fz * 4, heading: forces.heading, facing: forces.facing };
+   }
+ 
++  /**
++   * Journée de service, BRAV-M du joueur qui prend son service à la même base que la compagnie : elle se range SUR LA
++   * CHAUSSÉE, DEVANT la compagnie, le long des premiers mètres de la route du départ, à l'écart de ses rangs et de ses
++   * véhicules — elle part la première, sans rien devant elle. Rangée sur le flanc des forces (besideForces), dans une
++   * rue étroite (commissariat du 9e, rue Chauchat : 5,20 m de chaussée), ses motos se trouvaient au milieu des rangs de
++   * la compagnie, qui ne pouvaient pas s'écarter : une moto restait à sa place jusqu'au départ des fourgons. null : pas
++   * d'itinéraire ou pas de place libre (elle se range alors sur le flanc, comme sans journée).
++   */
++  private aheadOfForces(forces: Stand, tx: number, tz: number): Stand | null {
++    const ctx = this.ctx;
++    const path: number[] = [];
++    let ok = false;
++    try {
++      ok = ctx.world.findPath(forces.x, forces.z, tx, tz, 'vehicle', path) && path.length >= 4;
++    } catch { ok = false; }
++    if (!ok) return null;
++    ctx.people.rebuildIndex();
++    const p = { x: 0, z: 0 };
++    const spot = this.spot;
++    const near: Vehicle[] = [];
++    for (let s = AHEAD_MIN; s <= AHEAD_MAX; s += 6) {
++      const h = pointOnPolyline(path, s, p);
++      // à l'écart des véhicules et des rangs de la compagnie (sa file de départ se range derrière, journee.ts lineUp)
++      if (ctx.vehicles.queryRadius(p.x, p.z, AHEAD_CLEAR, near) > 0 || ctx.people.countIn(p.x, p.z, AHEAD_CLEAR) > 0) continue;
++      if (!roadSpot(ctx, p.x, p.z, 12, 3, spot) || Math.hypot(spot.x - p.x, spot.z - p.z) > 12) continue;
++      return { x: spot.x, z: spot.z, heading: h, facing: forces.facing };
++    }
++    return null;
++  }
++
+   /**
+    * Mode « salle de commandement » : le commandant n'est pas au contact ; il est installé dans le véhicule de commandement
+    * de sa compagnie (le poste de commandement mobile tient lieu de salle), caméra tactique. Les sommations sont alors
+@@ -967,6 +1118,8 @@ export class SessionSetupSystem implements GameSystem {
        // le binôme est commandé par son opérateur ; le groupe, par l'opérateur du premier binôme (chef de groupe)
        b.leaderId = op.id;
        if (group.leaderId === 0 && !op.isPlayer) group.leaderId = op.id;
@@ -8312,7 +8535,7 @@ index 6465e07..85fb6c3 100644
        if (op === player) seated = true;
      }
      return seated;
-@@ -1051,6 +1167,61 @@ export class SessionSetupSystem implements GameSystem {
+@@ -1051,6 +1204,61 @@ export class SessionSetupSystem implements GameSystem {
      }
    }
  
@@ -8374,7 +8597,7 @@ index 6465e07..85fb6c3 100644
    /** Recense les moyens réellement présents (ce que la page d'accueil a demandé et qui a pu être placé). */
    private countMeans(summary: SessionSetupSummary): void {
      const ctx = this.ctx;
-@@ -1074,6 +1245,12 @@ export class SessionSetupSystem implements GameSystem {
+@@ -1074,6 +1282,12 @@ export class SessionSetupSystem implements GameSystem {
        else if (v.kind === 'drone') m.drone++;
      }
      m.bravm = Math.ceil(motos / 6);
@@ -12836,10 +13059,10 @@ index 5274cbf..66c8685 100644
  // ───────────────────────────── état des unités ─────────────────────────────
 diff --git a/crs-simulation/src/sim/police/arrest-service.ts b/crs-simulation/src/sim/police/arrest-service.ts
 new file mode 100644
-index 0000000..a573959
+index 0000000..c458fcf
 --- /dev/null
 +++ b/crs-simulation/src/sim/police/arrest-service.ts
-@@ -0,0 +1,826 @@
+@@ -0,0 +1,838 @@
 +/* =====================================================================================
 + * FORCES DE L'ORDRE — interpellés pris en charge par les unités (service 'police.arrests', plan §5.4).
 + *
@@ -12960,6 +13183,8 @@ index 0000000..a573959
 +const VAN_CALL_MAX = 2000;
 +/** Rendez-vous d'un fourgon déjà appelé, réutilisé pour un autre interpellé à moins de tant de mètres (m). */
 +const RUN_SHARE = 40;
++/** Fourgon appelé arrêté à moins de tant de mètres de son rendez-vous : il y est (m). */
++const RUN_ARRIVED = 25;
 +/** Fourgon appelé qui roule encore au bout de tant de secondes : il s'arrête où il est (manœuvre sans fin). */
 +const RUN_MAX = 180;
 +/** Fourgon que plus personne n'attend depuis tant de secondes : il retourne à sa place (s). */
@@ -13180,7 +13405,12 @@ index 0000000..a573959
 +    const ap = this.k.autopilot;
 +    if (!ap || !this.callable(v)) return false;
 +    const run = this.runs.get(v.id);
-+    if (run) return Math.hypot(run.x - x, run.z - z) < RUN_SHARE;
++    if (run) {
++      if (Math.hypot(run.x - x, run.z - z) >= RUN_SHARE) return false;
++      // déjà appelé à ce rendez-vous : il y roule, ou il y est. Arrêté avant d'y être (il ne passait pas : file de
++      // voitures, rue barrée — hold), il ne vient plus : on y conduit l'interpellé à pied sans l'attendre de nouveau
++      return ap.isActive(v) || Math.hypot(v.x - run.x, v.z - run.z) < RUN_ARRIVED;
++    }
 +    const now = this.k.now;
 +    const remise = this.k.ctx.service<RemiseLike>('session.remise');
 +    const spot = remise && typeof remise.point === 'function' ? remise.point() : null;
@@ -13205,8 +13435,13 @@ index 0000000..a573959
 +  remaining(v: Vehicle, x: number, z: number): number {
 +    const ap = this.k.autopilot;
 +    const run = this.runs.get(v.id);
-+    if (ap && run && ap.isActive(v) && Math.hypot(run.x - x, run.z - z) < RUN_SHARE) return ap.status(v).remaining;
-+    return Math.hypot(v.x - x, v.z - z);
++    const straight = Math.hypot(v.x - x, v.z - z);
++    if (ap && run && ap.isActive(v) && Math.hypot(run.x - x, run.z - z) < RUN_SHARE) {
++      // (0 tant que le pilote n'a pas fait son premier pas : la distance à vol d'oiseau en attendant)
++      const left = ap.status(v).remaining;
++      if (left > 0 || straight < RUN_ARRIVED) return left;
++    }
++    return straight;
 +  }
 +
 +  /** Le fourgon appelé ne passe pas (le binôme vient à pied) : il s'arrête où il est (il rentrera ensuite à sa place). */
@@ -18185,7 +18420,7 @@ index 6b7ade1..05dc16f 100644
  
  /** Fin d'une manœuvre ou d'une tâche : événement libre pour le commandement et l'interface. */
 diff --git a/crs-simulation/src/sim/police/ops-arrest.ts b/crs-simulation/src/sim/police/ops-arrest.ts
-index c2ff164..8f0882a 100644
+index c2ff164..52ba17c 100644
 --- a/crs-simulation/src/sim/police/ops-arrest.ts
 +++ b/crs-simulation/src/sim/police/ops-arrest.ts
 @@ -1,14 +1,30 @@
@@ -18222,7 +18457,7 @@ index c2ff164..8f0882a 100644
  import type { Kernel } from './kernel';
  import { report } from './mcore';
  import {
-@@ -18,26 +34,155 @@ import {
+@@ -18,26 +34,177 @@ import {
  import { fleetOf } from './tree';
  import * as T from './tuning';
  
@@ -18281,6 +18516,15 @@ index c2ff164..8f0882a 100644
 +const PICKUP_REACH = 12;
 +const PICKUP_MAX = 240;
 +
++/**
++ * Poursuite : l'individu « fuit » s'il s'éloigne du binôme à plus de CHASE_FLEE m/s ; une fois sa fuite finie (il ne
++ * s'éloigne plus qu'à CHASE_SLOW m/s au plus — moins vite que le pas du binôme), à moins de CHASE_CALM m de lui, le
++ * binôme approche au pas (au-delà des 24 m où la foule voit une charge dans des agents qui courent — crowd/behavior.ts).
++ */
++const CHASE_FLEE = 1.5;
++const CHASE_SLOW = 0.8;
++const CHASE_CALM = 26;
++
 +type ArrestKind = 'arrest' | 'escort' | 'watch' | 'pickup';
 +
 +/** Données propres aux opérations d'interpellation, à côté de l'Op commune (brain.ts). */
@@ -18300,6 +18544,8 @@ index c2ff164..8f0882a 100644
 +  seatAsked: boolean;
 +  /** « Aller constater » : personne désignée (0 : le point seul). */
 +  watchId: EntityId;
++  /** L'individu a fui devant le binôme : fuite finie, il est rejoint au pas (voir CHASE_CALM). */
++  fled: boolean;
 +}
 +
 +const extras = new WeakMap<Op, ArrestExtra>();
@@ -18307,7 +18553,7 @@ index c2ff164..8f0882a 100644
 +function extraOf(op: Op): ArrestExtra {
 +  let e = extras.get(op);
 +  if (!e) {
-+    e = { kind: 'arrest', rdvX: 0, rdvZ: 0, calledAt: -1, vanBest: Infinity, vanBestAt: -1, announced: false, fromId: 0, seatAsked: false, watchId: 0 };
++    e = { kind: 'arrest', rdvX: 0, rdvZ: 0, calledAt: -1, vanBest: Infinity, vanBestAt: -1, announced: false, fromId: 0, seatAsked: false, watchId: 0, fled: false };
 +    extras.set(op, e);
 +  }
 +  return e;
@@ -18338,6 +18584,17 @@ index c2ff164..8f0882a 100644
 +  if (op.stage === 4 && (op.count === DEST_VEHICLE || op.count === DEST_VAN_COMING)) return op.destId;
 +  if (op.stage === STAGE_PICKUP) return op.destId;
 +  return 0;
++}
++
++/**
++ * L'agent a-t-il la charge d'un interpellé — premier ou équipier d'une interpellation dont l'individu est déjà maîtrisé,
++ * d'une prise en charge (« Confier », ramassage) ou d'une mise à bord ? Il ne le lâche pas pour embarquer avec son
++ * unité : il monte après la remise (special.ts startEmbark / reseat, system.ts drive). Même règle qu'abortOps (ops.ts) :
++ * une personne maîtrisée n'est pas abandonnée.
++ */
++export function withDetainee(a: Agent): boolean {
++  const op = a.op;
++  return op !== null && !op.done && op.kind === OP_ARREST && op.stage >= 2 && op.stage !== STAGE_WATCH && (op.lead === a || op.second === a);
 +}
 +
 +function desk(k: Kernel): ArrestService | undefined {
@@ -18385,7 +18642,7 @@ index c2ff164..8f0882a 100644
    if (!lead) return null;
    const op = createOp(OP_ARREST, root, owner, k.now);
    op.ordered = ordered;
-@@ -46,7 +191,7 @@ export function createArrest(k: Kernel, root: Unit, owner: Unit, target: Person,
+@@ -46,7 +213,7 @@ export function createArrest(k: Kernel, root: Unit, owner: Unit, target: Person,
    op.z = target.z;
    op.lead = lead;
    engage(op, lead, ROLE_LEAD);
@@ -18394,7 +18651,7 @@ index c2ff164..8f0882a 100644
    engage(op, op.second, ROLE_SECOND);
    takeCover(op, lead.p.x, lead.p.z, null);
    openDoor(k, lead, target.x, target.z, 5);
-@@ -55,9 +200,209 @@ export function createArrest(k: Kernel, root: Unit, owner: Unit, target: Person,
+@@ -55,9 +222,212 @@ export function createArrest(k: Kernel, root: Unit, owner: Unit, target: Person,
    return op;
  }
  
@@ -18588,7 +18845,10 @@ index c2ff164..8f0882a 100644
 +      ex.rdvX = rx;
 +      ex.rdvZ = rz;
 +      ex.calledAt = k.now;
-+      ex.vanBest = service.remaining(van, rx, rz);
++      // (le premier relevé du trajet restant vient au pas suivant : le pilote automatique ne le connaît pas encore —
++      // parti de 0, aucun progrès n'était jamais compté et le fourgon, qui roulait, était arrêté « coincé » au bout de
++      // VAN_STALL s à 160 m de la porte ; chaque binôme y conduisait ensuite son interpellé à pied)
++      ex.vanBest = Infinity;
 +      ex.vanBestAt = k.now;
 +      op.destId = van.id;
 +      op.count = DEST_VAN_COMING;
@@ -18605,7 +18865,7 @@ index c2ff164..8f0882a 100644
    let top = op.root;
    while (top.parent) top = top.parent;
    const ids: number[] = k.pathTmp;
-@@ -66,29 +411,21 @@ function findHandover(k: Kernel, op: Op, from: Person): void {
+@@ -66,29 +436,21 @@ function findHandover(k: Kernel, op: Op, from: Person): void {
    let bestD = Infinity;
    for (let i = 0; i < n; i++) {
      const v = ctx.vehicles.get(ids[i]);
@@ -18642,7 +18902,7 @@ index c2ff164..8f0882a 100644
    if (pts) {
      let bd = 500;
      for (let i = 0; i < pts.length; i++) {
-@@ -97,12 +434,14 @@ function findHandover(k: Kernel, op: Op, from: Person): void {
+@@ -97,12 +459,14 @@ function findHandover(k: Kernel, op: Op, from: Person): void {
          bd = d;
          op.destX = pts[i].x;
          op.destZ = pts[i].z;
@@ -18658,7 +18918,7 @@ index c2ff164..8f0882a 100644
  export function updateArrest(k: Kernel, op: Op): void {
    stepArrest(k, op);
    lineDoor(k, op);
-@@ -112,9 +451,13 @@ function stepArrest(k: Kernel, op: Op): void {
+@@ -112,9 +476,13 @@ function stepArrest(k: Kernel, op: Op): void {
    const ctx = k.ctx;
    const root = op.root;
    const now = k.now;
@@ -18673,7 +18933,7 @@ index c2ff164..8f0882a 100644
      // le premier est hors de combat : son équipier prend la suite
      release(lead);
      lead = op.second;
-@@ -122,7 +465,7 @@ function stepArrest(k: Kernel, op: Op): void {
+@@ -122,7 +490,7 @@ function stepArrest(k: Kernel, op: Op): void {
      op.second = null;
      lead.opRole = ROLE_LEAD;
      lead.goalRun = true;
@@ -18682,7 +18942,25 @@ index c2ff164..8f0882a 100644
    }
    if (!lead || !lead.able) {
      finish(k, op, false, 'Binôme hors de combat.');
-@@ -249,12 +592,16 @@ function stepArrest(k: Kernel, op: Op): void {
+@@ -165,6 +533,17 @@ function stepArrest(k: Kernel, op: Op): void {
+       // freinant à l'approche de son but, il restait à 1,7 m dans le dos d'un fuyard aussi rapide que lui sans jamais
+       // l'atteindre (« Individu hors d'atteinte »).
+       const away = target.vx * dx + target.vz * dz;
++      // Auteur qui a fui devant le binôme : au bout de sa fuite il s'arrête et se fond dans le groupe — le binôme le
++      // rejoint alors AU PAS. Deux agents qui courent sur quelqu'un à moins de 24 m, c'est pour lui une charge (foule,
++      // behavior.ts) : il repartait à chaque fois, 30 à 60 m plus loin, devant un binôme essoufflé par sa course
++      // d'approche qui ne pouvait plus que trotter — poursuite sans fin (« Auteur en fuite, je reste sur lui », jamais
++      // interpellé). Tant qu'il fuit ou s'en va d'un bon pas, le binôme court ; arrêté à portée (ou reculant à petits
++      // pas), on marche sur lui et on le saisit.
++      const ex = extraOf(op);
++      if (away > CHASE_FLEE && d < CHASE_CALM + 10) ex.fled = true;
++      const calm = ex.fled && away <= CHASE_SLOW && d < CHASE_CALM;
++      lead.goalRun = !calm;
++      if (second) second.goalRun = !calm;
+       if (away > 0.5 && d < 12) setGoal(lead, target.x + target.vx * 0.8, target.z + target.vz * 0.8);
+       else setGoal(lead, target.x - dx * 0.8, target.z - dz * 0.8);
+       setGoal(second, target.x - dx * 0.5 - dz * 0.9, target.z - dz * 0.5 + dx * 0.9);
+@@ -249,12 +628,16 @@ function stepArrest(k: Kernel, op: Op): void {
          break;
        }
        lead.hold = false;
@@ -18700,7 +18978,7 @@ index c2ff164..8f0882a 100644
        } else if (target.custody === 'free') {
          op.stage = 0;
          op.nextAt = now + 1;
-@@ -268,100 +615,336 @@ function stepArrest(k: Kernel, op: Op): void {
+@@ -268,100 +651,336 @@ function stepArrest(k: Kernel, op: Op): void {
        }
        break;
      }
@@ -19386,12 +19664,14 @@ index 6fdcaa3..78eb901 100644
    if (kind === 'centaure' || kind === 'canon_eau') {
      add(out, person, 'operateur', kind === 'centaure' ? 'major' : 'brigadier_chef', 0, '', 'Chef d’engin', 'unite');
 diff --git a/crs-simulation/src/sim/police/special.ts b/crs-simulation/src/sim/police/special.ts
-index b4b1720..765abd0 100644
+index b4b1720..ff7f530 100644
 --- a/crs-simulation/src/sim/police/special.ts
 +++ b/crs-simulation/src/sim/police/special.ts
-@@ -24,7 +24,9 @@ import {
+@@ -23,8 +23,11 @@ import {
+ } from './mcore';
  import { spell } from './radio';
  import { formStreetBarrage, markBarrage } from './barrages';
++import { withDetainee } from './ops-arrest';
  import { fleetOf } from './tree';
 +import { isHeldVehicle } from '@/world/commissariats';
  import * as T from './tuning';
@@ -19399,7 +19679,7 @@ index b4b1720..765abd0 100644
  
  // ───────────────────────────── relève ─────────────────────────────
  
-@@ -275,6 +277,8 @@ function seatFor(k: Kernel, u: Unit, a: Agent): EntityId {
+@@ -275,6 +278,8 @@ function seatFor(k: Kernel, u: Unit, a: Agent): EntityId {
    for (let i = 0; i < n; i++) {
      const v = nearby[i];
      if (!usable(v) || (!TROOP_SEATS.has(v.kind) && v.kind !== 'fourgon_cellulaire') || seatsLeft(u, v, a) <= 0) continue;
@@ -19408,7 +19688,7 @@ index b4b1720..765abd0 100644
      const key = (v.kind === 'fourgon_cellulaire' ? 4000 : 0) + (v.seats[0] === 0 ? 2000 : 0) + (top !== u && fleet.indexOf(v.id) < 0 ? 1000 : 0)
        + Math.hypot(v.x - p.x, v.z - p.z);
      if (key < bestKey) {
-@@ -291,7 +295,8 @@ function reseat(k: Kernel, u: Unit): number {
+@@ -291,7 +296,8 @@ function reseat(k: Kernel, u: Unit): number {
    for (let i = 0; i < u.agents.length; i++) {
      const a = u.agents[i];
      const p = a.p;
@@ -19418,7 +19698,16 @@ index b4b1720..765abd0 100644
      const id = seatFor(k, u, a);
      if (id === 0) continue;
      a.boardId = id;
-@@ -382,6 +387,20 @@ export function startDisembark(k: Kernel, u: Unit, o: SquadOrder): void {
+@@ -341,6 +347,8 @@ export function startEmbark(k: Kernel, u: Unit, o: SquadOrder): void {
+     const p = a.p;
+     if (!a.able && !a.crew) continue;
+     if (p.vehicleId !== 0 || p.isPlayer) continue;
++    // le binôme qui a la charge d'un interpellé ne le lâche pas pour embarquer : il monte après la remise (reseat)
++    if (withDetainee(a)) continue;
+     // véhicule de son groupe d'abord, puis le premier qui a de la place
+     let pick = -1;
+     for (let x: Unit | null = a.home; x && pick < 0; x = x.parent) {
+@@ -382,6 +390,20 @@ export function startDisembark(k: Kernel, u: Unit, o: SquadOrder): void {
    setPhase(k, u, 'action');
  }
  
@@ -19439,7 +19728,7 @@ index b4b1720..765abd0 100644
  export function progressBoarding(k: Kernel, u: Unit): void {
    const ctx = k.ctx;
    const m = u.man;
-@@ -428,6 +447,10 @@ export function progressBoarding(k: Kernel, u: Unit): void {
+@@ -428,6 +450,10 @@ export function progressBoarding(k: Kernel, u: Unit): void {
        aboard++;
        if (usedVehicles.indexOf(p.vehicleId) >= 0) continue;
        usedVehicles.push(p.vehicleId);
@@ -19450,7 +19739,7 @@ index b4b1720..765abd0 100644
        if (ctx.vehicles.exit(p)) {
          aboard--;
          a.lastX = p.x;
-@@ -488,6 +511,19 @@ export function startCrewOrder(k: Kernel, u: Unit, o: SquadOrder): boolean {
+@@ -488,6 +514,19 @@ export function startCrewOrder(k: Kernel, u: Unit, o: SquadOrder): boolean {
      }
      setPhase(k, u, type === 'embarquer' ? 'embarque' : 'en_place');
      u.reported = true;
@@ -19532,7 +19821,7 @@ index 9262197..a03704e 100644
  function cornerX(cx: number, rx: number, fx: number, mx: number, mz: number, i: number): number {
    return cx + rx * mx * (i & 1 ? 1 : -1) + fx * mz * (i & 2 ? 1 : -1);
 diff --git a/crs-simulation/src/sim/police/system.ts b/crs-simulation/src/sim/police/system.ts
-index 8362889..4a98b80 100644
+index 8362889..d73a0e9 100644
 --- a/crs-simulation/src/sim/police/system.ts
 +++ b/crs-simulation/src/sim/police/system.ts
 @@ -13,7 +13,7 @@
@@ -19555,7 +19844,7 @@ index 8362889..4a98b80 100644
  import { copyOrder, done, report } from './mcore';
  import { measure, placeGroup } from './place';
  import { abortOps, autoOps, opReport, resupplyNext, startTask, updateOps } from './ops';
-+import { watching } from './ops-arrest';
++import { watching, withDetainee } from './ops-arrest';
 +import { ArrestService, POLICE_ARRESTS_SERVICE } from './arrest-service';
  import { ackBody, acknowledge, negative, spell } from './radio';
  import { looksAhead, thinkAgent } from './reflex';
@@ -19863,7 +20152,18 @@ index 8362889..4a98b80 100644
      // cordons des lignes à l'arrêt, état des rues barrées, nasses
      this.barrages.update(k);
      // agents : focalisation (réflexion moins fréquente loin du joueur)
-@@ -668,4 +839,15 @@ export class PoliceSystem implements GameSystem {
+@@ -529,7 +700,9 @@ export class PoliceSystem implements GameSystem {
+     const k = this.k;
+     const p = a.p;
+     const now = k.now;
+-    if (a.boardId !== 0) {
++    // (l'agent qui a la charge d'un interpellé le remet d'abord, il embarque ensuite : désigné par une colonne pendant
++    // qu'il rejoignait l'interpellé confié par le joueur, il partait à son fourgon et l'interpellé restait seul)
++    if (a.boardId !== 0 && !withDetainee(a)) {
+       this.board(a);
+       return;
+     }
+@@ -668,4 +841,15 @@ export class PoliceSystem implements GameSystem {
    }
  }
  
@@ -19987,7 +20287,7 @@ index 7b9a703..a6edf61 100644
  
  /** Gain de rappel vers l'emplacement (1/s) et freinage de référence à l'approche (m/s²). */
 diff --git a/crs-simulation/src/sim/police/units.ts b/crs-simulation/src/sim/police/units.ts
-index 9b4fcb2..4fae911 100644
+index 9b4fcb2..2202355 100644
 --- a/crs-simulation/src/sim/police/units.ts
 +++ b/crs-simulation/src/sim/police/units.ts
 @@ -37,6 +37,8 @@ interface Build {
@@ -20047,7 +20347,7 @@ index 9b4fcb2..4fae911 100644
    const lead = b.handle.vehicles[0];
    if (!lead || lead === cell || Math.hypot(cell.x - lead.x, cell.z - lead.z) > 40) return;
    const fx = Math.sin(b.heading);
-@@ -360,11 +370,33 @@ function cellAtRear(b: Build, cell: Vehicle, x: number, z: number, h: number): b
+@@ -360,11 +370,45 @@ function cellAtRear(b: Build, cell: Vehicle, x: number, z: number, h: number): b
    return true;
  }
  
@@ -20071,6 +20371,17 @@ index 9b4fcb2..4fae911 100644
 +  return parkSpot(k, b, n, out, len, firm);
 +}
 +
++/**
++ * Véhicule garé à la mise en place : frein à main serré (comme les véhicules de la distribution, session/setup.ts). Le
++ * conducteur de l'IA s'assoit au volant sans rien commander tant que personne ne le fait rouler ; sans frein, tout
++ * véhicule armé garé sur une pente roulait dès la première seconde (Concorde : le canon à eau à 24 m de sa place en
++ * cinquante secondes, les Centaures une douzaine de mètres, jusque dans les rangs). Le pilote automatique le desserre
++ * au départ (Autopilot.engage) et le resserre à l'arrêt (ApDriver.finish) ; le joueur au volant commande le sien.
++ */
++function parkBrake(v: Vehicle): void {
++  void v;
++}
++
  function spawnVehicle(k: Kernel, b: Build, kind: VehicleKind, squad: Squad | null, color?: number): Vehicle | null {
    const def = k.ctx.vehicles.def(kind);
 -  if (!parkSpot(k, b, b.handle.vehicles.length, spot, def ? def.length : PARK_LEN)) return null;
@@ -20078,11 +20389,12 @@ index 9b4fcb2..4fae911 100644
 +  if (!placeVehicle(k, b, b.handle.vehicles.length, spot, def ? def.length : PARK_LEN, kind === 'moto_bravm')) return null;
    if (!b.road && spot.heading !== b.heading) b.road = { x: spot.x, z: spot.z, heading: spot.heading };
    const v = k.ctx.vehicles.spawn(kind, spot.x, spot.z, spot.heading, { faction: 'police', color });
++  parkBrake(v);
 +  if (b.parking) v.y = k.ctx.world.heightAt(spot.x, spot.z);
    b.handle.vehicles.push(v);
    if (squad) squad.vehicleId = v.id;
    k.reserveOf(v);
-@@ -491,7 +523,7 @@ export function createCompany(k: Kernel, options: CompanyOptions = {}): UnitHand
+@@ -491,7 +535,7 @@ export function createCompany(k: Kernel, options: CompanyOptions = {}): UnitHand
      }
    }
    for (let s = 1; s <= sections; s++) buildSection(k, b, callsign + ' ' + s, s, company, slots, vehicles, 'section');
@@ -20091,7 +20403,7 @@ index 9b4fcb2..4fae911 100644
      const cell = spawnVehicle(k, b, 'fourgon_cellulaire', null);
      if (cell) parkCellAtRear(k, b, cell);
      syncTree(k, true);
-@@ -575,12 +607,15 @@ export function createBravm(k: Kernel, binomes: number, options: BravmOptions =
+@@ -575,12 +619,15 @@ export function createBravm(k: Kernel, binomes: number, options: BravmOptions =
    const count = Math.max(1, Math.min(18, Math.round(binomes)));
    const base = options.callsign ?? 'FAUCON';
    const groupsN = Math.ceil(count / 6);
@@ -20109,7 +20421,7 @@ index 9b4fcb2..4fae911 100644
      b.handle.sections.push(group);
      if (!top && gi === 0) b.handle.squad = group;
      const inGroup = Math.min(6, count - made);
-@@ -627,9 +662,18 @@ export function createBravm(k: Kernel, binomes: number, options: BravmOptions =
+@@ -627,9 +674,18 @@ export function createBravm(k: Kernel, binomes: number, options: BravmOptions =
  
  const CREW_CALLSIGN: Readonly<Record<CrewKind, string>> = {
    centaure: 'CENTAURE', canon_eau: 'NEPTUNE', fourgon_crs: 'FOURGON', vl_commandement: 'COMMANDEMENT',
@@ -20129,7 +20441,7 @@ index 9b4fcb2..4fae911 100644
  /** Équipage d'un engin, créé à bord : conducteur au volant, opérateur à la tourelle, chef d'engin à côté. */
  export function createEquipage(k: Kernel, kind: CrewKind, options: CrewOptions = {}): UnitHandle {
    const ctx = k.ctx;
-@@ -639,13 +683,23 @@ export function createEquipage(k: Kernel, kind: CrewKind, options: CrewOptions =
+@@ -639,13 +695,24 @@ export function createEquipage(k: Kernel, kind: CrewKind, options: CrewOptions =
    const parent = options.parentId ? ctx.squads.get(options.parentId) : undefined;
    const squad = ctx.squads.create('equipage', 'police', callsign, parent ? parent.id : 0);
    const b = begin(k, squad, options, options.seed, undefined);
@@ -20143,6 +20455,7 @@ index 9b4fcb2..4fae911 100644
 +    b.heading = slot.heading;
 +  }
 +  const v = ctx.vehicles.spawn(crewVehicleKind(k, kind), b.x, b.z, b.heading, { faction: 'police' });
++  parkBrake(v);
 +  if (slot) v.y = ctx.world.heightAt(b.x, b.z);
    b.handle.vehicles.push(v);
    squad.vehicleId = v.id;
@@ -20154,7 +20467,7 @@ index 9b4fcb2..4fae911 100644
    for (let i = 0; i < slots.length; i++) {
      const p = spawnSlot(k, b, slots[i], squad);
      if (slots[i].leads !== '') {
-@@ -659,8 +713,12 @@ export function createEquipage(k: Kernel, kind: CrewKind, options: CrewOptions =
+@@ -659,8 +726,12 @@ export function createEquipage(k: Kernel, kind: CrewKind, options: CrewOptions =
        seated = ctx.vehicles.enter(p, v, 'gunner');
        gunner = seated;
      }
@@ -50286,6 +50599,22 @@ index 0000000..a0e2fdd
 +    expect(ownUnitAboardText('MISTRAL 1')).toBe('MISTRAL 1 descend — vous êtes à bord : E pour descendre');
 +  });
 +});
+diff --git a/crs-simulation/tests/unit/ui-command.envoi-fiche.test.ts b/crs-simulation/tests/unit/ui-command.envoi-fiche.test.ts
+index cfc9384..fa54a3a 100644
+--- a/crs-simulation/tests/unit/ui-command.envoi-fiche.test.ts
++++ b/crs-simulation/tests/unit/ui-command.envoi-fiche.test.ts
+@@ -161,8 +161,11 @@ describe('« Donner l’ordre » sur une ligne de fiche (vraie partie, place de
+     // plus large
+     const heldBy = (c: { exits: readonly { held: boolean; squadId: number }[] }): number => c.exits.filter((e) => e.held && core.canCommand(e.squadId)).length;
+     const best = () => core.maps.scene.crowdExits.slice().sort((a, b) => heldBy(b) - heldBy(a))[0];
++    // (la scène de la carte ne se rafraîchit qu'à intervalles d'horloge réelle — ensureFresh — : l'essai la force à
++    // chaque pas, sinon ce qu'il lit dépend de la vitesse de la machine et le résultat change d'une exécution à l'autre)
+     for (let i = 0; i < 60 && !(best() && heldBy(best()!) >= 2); i++) {
+       t.step(2);
++      core.maps.scene.invalidate();
+       core.maps.scene.ensureFresh();
+     }
+     expect(best() && heldBy(best()!)).toBeGreaterThanOrEqual(1);
 diff --git a/crs-simulation/tests/unit/ui-command.meme-lieu.test.ts b/crs-simulation/tests/unit/ui-command.meme-lieu.test.ts
 index 1a27cc3..8402577 100644
 --- a/crs-simulation/tests/unit/ui-command.meme-lieu.test.ts
@@ -51355,4 +51684,291 @@ index 0000000..6dfd8cf
 +      expect(stuck, msg).toBeLessThan(30);
 +    }, 300000);
 +  }
++});
+diff --git a/crs-simulation/tests/unit/zz-p23-centaure.test.ts b/crs-simulation/tests/unit/zz-p23-centaure.test.ts
+new file mode 100644
+index 0000000..562afe1
+--- /dev/null
++++ b/crs-simulation/tests/unit/zz-p23-centaure.test.ts
+@@ -0,0 +1,69 @@
++// SONDE P23 (à supprimer)
++import { describe, expect, it } from 'vitest';
++import type { GameContext } from '@/core/contracts';
++import { createTestContext } from '@/core/testing';
++import { createSystems as world } from '@/world/query';
++import { createSystems as roles } from '@/sim/roles';
++import { createSystems as people } from '@/sim/people';
++import { createSystems as vehicles } from '@/sim/vehicles';
++import { createSystems as traffic } from '@/sim/traffic';
++import { createSystems as crowd } from '@/sim/crowd';
++import { createSystems as police } from '@/sim/police';
++import { createSystems as items } from '@/sim/items';
++import { createSystems as props } from '@/sim/props';
++import { createSystems as hazards } from '@/sim/hazards';
++import { createSystems as law } from '@/gameplay/law';
++import { createSystems as radio } from '@/gameplay/radio';
++import { createSystems as session } from '@/gameplay/session';
++
++const SIM = [world, roles, people, vehicles, traffic, crowd, police, items, props, hazards, law, radio, session];
++const COMPANY = { sections: 2, fourgons: 6, centaure: 0, canon_eau: 1, bravm: 0, drone: 0, pompiers: 0, samu: 0, secours_sur_appel: true };
++function takeWheel(ctx: GameContext, kind: string) {
++  const me = ctx.player.person()!;
++  const own = ctx.squads.get(me.squadId);
++  const ownV = own && own.vehicleId ? ctx.vehicles.get(own.vehicleId) : undefined;
++  const v = ownV && ownV.kind === kind ? ownV : ctx.vehicles.list.filter((x) => x.kind === kind).sort((a, b) => Math.hypot(a.x - me.x, a.z - me.z) - Math.hypot(b.x - me.x, b.z - me.z))[0]!;
++  if (me.vehicleId !== 0) ctx.vehicles.exit(me);
++  if (v.seats[0] !== 0) ctx.vehicles.exit(ctx.people.get(v.seats[0])!);
++  me.x = v.x + 3; me.z = v.z;
++  expect(ctx.vehicles.enter(me, v, 'driver')).toBe(true);
++  return { me, v };
++}
++describe('sonde centaure', () => {
++  it('trace', async () => {
++    const t = createTestContext({ seed: 8, strict: false, modules: SIM });
++    const moyens = { ...COMPANY, centaure: 2 };
++    await t.start({ mode: 'libre', role: 'gendarme_centaure', place: 'essai', x: -10, z: 15, crowdSize: 30, tension: 0, volatility: 0, duration: 'standard', extra: { moyens } });
++    const { ctx } = t;
++    const ap = ctx.service<{ status(v: unknown): { mode: string; state: string; reason: string; leaderId: number; blockedFor?: number; obstacleId?: number } }>('vehicles.autopilot')!;
++    const dump = (tag: string, all = false) => {
++      const now = ctx.clock.now.toFixed(1);
++      for (const q of ctx.vehicles.list) {
++        if (q.def.flying) continue;
++        const drv = q.seats[0] ? ctx.people.get(q.seats[0]) : undefined;
++        if (!all && q.kind !== 'centaure') continue;
++        if (!drv && !all) continue;
++        if (drv?.faction !== 'police' && !(all && Math.hypot(q.x - 80, q.z - 90) < 60)) continue;
++        const st = ap.status(q);
++        console.log(`${tag} t=${now} #${q.id} ${q.kind} (${q.x.toFixed(1)},${q.z.toFixed(1)}) h=${q.heading.toFixed(2)} v=${q.speed.toFixed(2)} drv=${q.seats[0]}${drv?.isPlayer ? '*' : ''} ${st.mode}/${st.state}/${st.reason} lead=${st.leaderId} blk=${(st.blockedFor ?? 0).toFixed(1)} obs=${st.obstacleId ?? ''} hp=${q.health.toFixed(0)} siren=${q.siren}`);
++      }
++    };
++    dump('t0', true);
++    t.step(5);
++    dump('t5', true);
++    const { v } = takeWheel(ctx, 'centaure');
++    const other = ctx.vehicles.list.find((q) => q.kind === 'centaure' && q !== v)!;
++    for (let i = 0; i < 9; i++) { t.step(5); dump('wait'); }
++    dump('t50', true);
++    v.siren = 1;
++    const input = ctx.input as { moveY: number };
++    input.moveY = 1;
++    for (let i = 0; i < 10; i++) { t.step(1); dump('drive'); }
++    input.moveY = 0;
++    for (let i = 0; i < 8; i++) { t.step(1); dump('coast'); }
++    dump('end', true);
++    for (const s of ctx.squads.list) if (s.faction === 'police') console.log(`squad ${s.id} ${s.name} ${s.kind} parent=${s.parentId} veh=${s.vehicleId} order=${s.order.type} tgt=${s.order.targetId} n=${s.members.length} onfoot=${s.members.filter((id) => ctx.people.get(id)!.vehicleId === 0).length}`);
++    const d1 = Math.hypot(other.x - v.x, other.z - v.z);
++    console.log('d1', d1);
++  }, 300000);
++});
+diff --git a/crs-simulation/tests/unit/zz-p23-chef.test.ts b/crs-simulation/tests/unit/zz-p23-chef.test.ts
+new file mode 100644
+index 0000000..36af341
+--- /dev/null
++++ b/crs-simulation/tests/unit/zz-p23-chef.test.ts
+@@ -0,0 +1,65 @@
++// SONDE P23 (à supprimer)
++import { describe, expect, it } from 'vitest';
++import type { Vehicle } from '@/core/contracts';
++import { EXT } from '@/core/extensions';
++import { createTestContext } from '@/core/testing';
++import { createSystems as world } from '@/world/query';
++import { createSystems as roles } from '@/sim/roles';
++import { createSystems as people } from '@/sim/people';
++import { createSystems as vehicles } from '@/sim/vehicles';
++import { createSystems as traffic } from '@/sim/traffic';
++import { createSystems as crowd } from '@/sim/crowd';
++import { createSystems as police } from '@/sim/police';
++import { createSystems as items } from '@/sim/items';
++import { createSystems as props } from '@/sim/props';
++import { createSystems as hazards } from '@/sim/hazards';
++import { createSystems as law } from '@/gameplay/law';
++import { createSystems as radio } from '@/gameplay/radio';
++import { createSystems as session } from '@/gameplay/session';
++import { createObjectives } from '@/ui/core/objectives';
++import type { GameContext, GameSystem, ModuleFactory } from '@/core/contracts';
++const objectives: ModuleFactory = () => [{ id: 'test.objectives', order: 0, provide(ctx: GameContext) { ctx.provide(EXT.objectives, createObjectives()); } } as GameSystem];
++import { JOURNEE_SERVICE, SERVICE_BASES } from '@/gameplay/session';
++import type { JourneeApi } from '@/gameplay/session';
++
++const SIM = [world, roles, people, vehicles, traffic, crowd, police, items, props, hazards, law, radio, session, objectives];
++const MEANS = { sections: 1, fourgons: 3, centaure: 0, canon_eau: 0, bravm: 1, drone: 0, pompiers: 0, samu: 0, secours_sur_appel: true };
++describe('sonde chef bravm', () => {
++  it('trace', async () => {
++    const base = SERVICE_BASES[3]!;
++    const t = createTestContext({ seed: 11, strict: false, modules: SIM });
++    await t.start({
++      mode: 'libre', role: 'bravm', rank: 'brigadier_chef', place: 'Place de la Concorde', x: -10, z: 15, crowdSize: 120, tension: 0.2, volatility: 0.2, duration: 'standard',
++      extra: { moyens: MEANS, journee: true, base: { x: base.x, z: base.z, name: base.name }, poste: 'chef_groupe', baseBravm: { x: base.x, z: base.z, name: base.name } },
++    } as never);
++    const { ctx } = t;
++    void EXT;
++    const me = ctx.player.person()!;
++    const j = ctx.service<JourneeApi>(JOURNEE_SERVICE)!;
++    const moto = ctx.vehicles.get(me.vehicleId)!;
++    const faucon = ctx.squads.list.find((q) => q.faction === 'police' && q.leaderId === me.id && q.kind === 'groupe')!;
++    const motos = ctx.squads.list.filter((q) => q.parentId === faucon.id && q.vehicleId !== 0).map((q) => ctx.vehicles.get(q.vehicleId)!).filter((v) => v && v.kind === 'moto_bravm');
++    const ap = ctx.service<{ status(v: unknown): { mode: string; state: string; reason: string; leaderId: number; blockedFor?: number; remaining: number }; isActive(v: Vehicle): boolean }>('vehicles.autopilot')!;
++    const cmd = ctx.service<{ special(id: number): { stage: string; x?: number; z?: number } | null }>('police.command')!;
++    ctx.vehicles.exit(me);
++    me.x += 6;
++    t.step(24);
++    for (let i = 0; i < 60; i++) t.step(1);
++    me.x = moto.x + 1.5; me.z = moto.z;
++    expect(ctx.vehicles.enter(me, moto, 'passenger')).toBe(true);
++    const dest = j.destination!;
++    console.log('dest', dest.x, dest.z, 'base', base.x, base.z);
++    const dump = (tag: string) => {
++      const sp = cmd.special(faucon.id);
++      console.log(`${tag} t=${ctx.clock.now.toFixed(0)} stage=${j.stage} sp=${sp?.stage}(${sp?.x?.toFixed(0)},${sp?.z?.toFixed(0)}) binome.veh=${ctx.squads.get(me.squadId)!.vehicleId}`);
++      for (const q of [moto, ...motos.filter((m) => m !== moto)]) {
++        const st = ap.status(q);
++        console.log(`${tag}   #${q.id}${q === moto ? '*' : ''} (${q.x.toFixed(0)},${q.z.toFixed(0)}) h=${q.heading.toFixed(2)} v=${q.speed.toFixed(1)} ${st.mode}/${st.state}/${st.reason} lead=${st.leaderId} blk=${(st.blockedFor ?? 0).toFixed(0)} rem=${st.remaining.toFixed(0)} dDest=${Math.hypot(q.x - dest.x, q.z - dest.z).toFixed(0)} hp=${q.health.toFixed(0)} drv=${q.seats[0]}`);
++      }
++    };
++    dump('board');
++    for (let i = 0; i < 170 && j.stage !== 'sur_place'; i++) { t.step(5); if (i % 4 === 0) dump('run'); }
++    dump('surplace');
++    for (let i = 0; i < 6; i++) { t.step(5); dump('after'); }
++  }, 900000);
++});
+diff --git a/crs-simulation/tests/unit/zz-p23-ia.test.ts b/crs-simulation/tests/unit/zz-p23-ia.test.ts
+new file mode 100644
+index 0000000..4d6fa32
+--- /dev/null
++++ b/crs-simulation/tests/unit/zz-p23-ia.test.ts
+@@ -0,0 +1,70 @@
++// SONDE P23 (à supprimer)
++import { describe, expect, it } from 'vitest';
++import type { Vehicle } from '@/core/contracts';
++import { createTestContext } from '@/core/testing';
++import { createSystems as world } from '@/world/query';
++import { createSystems as roles } from '@/sim/roles';
++import { createSystems as people } from '@/sim/people';
++import { createSystems as vehicles } from '@/sim/vehicles';
++import { createSystems as traffic } from '@/sim/traffic';
++import { createSystems as crowd } from '@/sim/crowd';
++import { createSystems as police } from '@/sim/police';
++import { createSystems as items } from '@/sim/items';
++import { createSystems as props } from '@/sim/props';
++import { createSystems as hazards } from '@/sim/hazards';
++import { createSystems as law } from '@/gameplay/law';
++import { createSystems as radio } from '@/gameplay/radio';
++import { createSystems as session } from '@/gameplay/session';
++import { JOURNEE_SERVICE, SERVICE_BASES } from '@/gameplay/session';
++import type { JourneeApi } from '@/gameplay/session';
++
++const SIM = [world, roles, people, vehicles, traffic, crowd, police, items, props, hazards, law, radio, session];
++describe('sonde colonne-ia bravm', () => {
++  it('trace', async () => {
++    const base = SERVICE_BASES[2]!;
++    const MEANS = { sections: 1, fourgons: 3, centaure: 0, canon_eau: 0, bravm: 1, drone: 0, pompiers: 0, samu: 0, secours_sur_appel: true };
++    const t = createTestContext({ seed: 5, strict: false, modules: SIM });
++    await t.start({
++      mode: 'libre', role: 'bravm', place: 'Place de la Bastille', x: 3542, z: 1395, crowdSize: 120, tension: 0.2, volatility: 0.2, duration: 'standard',
++      extra: { moyens: MEANS, journee: true, base: { x: base.x, z: base.z, name: base.name }, poste: 'passager_moto', baseBravm: { x: base.x, z: base.z, name: base.name } },
++    });
++    const { ctx } = t;
++    const j = ctx.service<JourneeApi>(JOURNEE_SERVICE)!;
++    const ap = ctx.service<{ status(v: unknown): { mode: string; state: string; reason: string; leaderId: number; blockedFor?: number; obstacleId?: number } }>('vehicles.autopilot')!;
++    const me = ctx.player.person()!;
++    const dump = (tag: string) => {
++      const now = ctx.clock.now.toFixed(1);
++      console.log(`${tag} t=${now} stage=${j.stage} me=(${me.x.toFixed(1)},${me.z.toFixed(1)}) veh=${me.vehicleId}`);
++      for (const q of ctx.vehicles.list) {
++        if (q.def.flying || q.faction !== 'police' || Math.hypot(q.x - base.x, q.z - base.z) > 400) continue;
++        const st = ap.status(q);
++        const sq = ctx.squads.list.find((s) => s.vehicleId === q.id);
++        console.log(`${tag} t=${now} #${q.id} ${q.kind} (${q.x.toFixed(1)},${q.z.toFixed(1)}) h=${q.heading.toFixed(2)} v=${q.speed.toFixed(2)} drv=${q.seats[0]} ${st.mode}/${st.state}/${st.reason} lead=${st.leaderId} blk=${(st.blockedFor ?? 0).toFixed(1)} obs=${st.obstacleId ?? ''} sq=${sq?.name ?? '-'}/${sq?.order.type ?? ''}`);
++      }
++    };
++    console.log('base', base.x, base.z);
++    dump('t0');
++    t.step(12);
++    dump('t12');
++    const ride = (): Vehicle | undefined => ctx.vehicles.list
++      .filter((v) => v.faction === 'police' && !v.def.flying && v.seats[0] !== 0 && v.seats[0] !== me.id && v.kind === 'moto_bravm'
++        && v.seats.some((id, i) => id === 0 && i > 0 && v.def.seats[i]?.role === 'passenger'))
++      .sort((a, b) => Math.hypot(a.x - me.x, a.z - me.z) - Math.hypot(b.x - me.x, b.z - me.z))[0];
++    let mine: Vehicle | undefined = me.vehicleId !== 0 ? ctx.vehicles.get(me.vehicleId) : undefined;
++    if (mine && mine.seats[0] === me.id) { ctx.vehicles.exit(me); mine = undefined; }
++    if (!mine) { const v = ride(); me.x = v!.x + 2.5; me.z = v!.z; expect(ctx.vehicles.enter(me, v!, 'passenger')).toBe(true); mine = v!; }
++    console.log('mine', mine.id);
++    const road = { x: 0, z: 0, heading: 0, width: 0, name: '', oneway: false } as { x: number; z: number; heading: number; width: number; name: string; oneway?: boolean };
++    for (const z of [-890, -900, -910, -920, -930, -940]) { (ctx.world as unknown as { nearestRoad(x: number, z: number, o: unknown, r: number): boolean }).nearestRoad(1351, z, road, 20); console.log('road', z, JSON.stringify(road)); }
++    const k = (ctx.service('vehicles.ext') as unknown as { kernel?: unknown });
++    console.log('ext keys', Object.keys(k ?? {}));
++    for (let i = 0; i < 80; i++) {
++      t.step(1);
++      const q = ctx.vehicles.list.filter((o) => o.kind === "moto_bravm" && ctx.squads.list.some((sq) => sq.vehicleId === o.id && sq.name.indexOf("BRAV-M") === 0)).sort((a, b) => Math.hypot(a.x - 1350, a.z + 897) - Math.hypot(b.x - 1350, b.z + 897))[0]!; const st = ap.status(q) as unknown as Record<string, unknown>;
++      const near = ctx.people.list.filter((p) => p.vehicleId === 0 && Math.hypot(p.x - q.x, p.z - q.z) < 7).map((p) => `${p.id}:${p.faction}:${p.poste}(${(p.x - q.x).toFixed(1)},${(p.z - q.z).toFixed(1)})`).join(' ');
++      const nv = ctx.vehicles.list.filter((o) => o !== q && Math.hypot(o.x - q.x, o.z - q.z) < 12).map((o) => `#${o.id}:${o.kind}(${(o.x - q.x).toFixed(1)},${(o.z - q.z).toFixed(1)})h${o.heading.toFixed(2)}v${o.speed.toFixed(1)}`).join(' ');
++      console.log(`fine t=${ctx.clock.now.toFixed(0)} (${q.x.toFixed(1)},${q.z.toFixed(1)}) h=${q.heading.toFixed(2)} v=${q.speed.toFixed(2)} ${JSON.stringify(st)} | P ${near} | V ${nv}`);
++    }
++    for (const s of ctx.squads.list) if (s.faction === 'police') console.log(`squad ${s.id} ${s.name} ${s.kind} parent=${s.parentId} veh=${s.vehicleId} order=${s.order.type} n=${s.members.length}`);
++  }, 600000);
++});
+diff --git a/crs-simulation/tests/unit/zz-p23-icare.test.ts b/crs-simulation/tests/unit/zz-p23-icare.test.ts
+new file mode 100644
+index 0000000..2937578
+--- /dev/null
++++ b/crs-simulation/tests/unit/zz-p23-icare.test.ts
+@@ -0,0 +1,59 @@
++// SONDE P23 (à supprimer)
++import { describe, expect, it } from 'vitest';
++import type { GameContext, Person, Squad, Vehicle } from '@/core/contracts';
++import { createTestContext } from '@/core/testing';
++import { createSystems as world } from '@/world/query';
++import { createSystems as roles } from '@/sim/roles';
++import { createSystems as people } from '@/sim/people';
++import { createSystems as vehicles } from '@/sim/vehicles';
++import { createSystems as crowd } from '@/sim/crowd';
++import { createSystems as police } from '@/sim/police';
++import { createSystems as law } from '@/gameplay/law';
++import { createSystems as radio } from '@/gameplay/radio';
++import { createSystems as session } from '@/gameplay/session';
++import { createSystems as command } from '@/ui/command';
++
++const SIM = [world, roles, people, vehicles, crowd, police, law, radio, session, command];
++const MEANS = { sections: 2, fourgons: 6, centaure: 1, canon_eau: 1, bravm: 1, drone: 1, pompiers: 0, samu: 0, secours_sur_appel: true };
++const TROOP = new Set(['fourgon_crs', 'car_crs', 'vl_commandement', 'canon_eau', 'centaure']);
++function rideOf(ctx: GameContext, me: Person): Vehicle {
++  let q = me.squadId !== 0 ? ctx.squads.get(me.squadId) : undefined;
++  for (let g = 0; q && q.vehicleId === 0 && g < 8; g++) q = q.parentId !== 0 ? ctx.squads.get(q.parentId) : undefined;
++  const v = q && q.vehicleId !== 0 ? ctx.vehicles.get(q.vehicleId) : undefined;
++  if (v) return v;
++  return ctx.vehicles.list.filter((w) => w.faction === 'police' && TROOP.has(w.kind)).sort((a, b) => Math.hypot(a.x - me.x, a.z - me.z) - Math.hypot(b.x - me.x, b.z - me.z))[0]!;
++}
++describe('sonde icare', () => {
++  it('trace', async () => {
++    const seed = Number(process.env['P23_SEED'] ?? '105');
++    const poste = process.env['P23_POSTE'] ?? 'conducteur';
++    const t = createTestContext({ seed, strict: false, modules: SIM });
++    await t.start({ mode: 'libre', role: 'crs', place: 'Place de la Concorde', x: -10, z: 15, crowdSize: 60, tension: 0.1, volatility: 0.1, duration: 'standard', extra: { moyens: MEANS, poste } } as never);
++    const { ctx } = t;
++    t.step(5);
++    const ap = ctx.service<{ status(v: unknown): { mode: string; state: string; reason: string; leaderId: number } }>('vehicles.autopilot')!;
++    const me = ctx.player.person()!;
++    const ride = rideOf(ctx, me);
++    const icare = ctx.squads.list.find((s) => s.name.indexOf('ICARE') === 0)!;
++    const dump = (tag: string) => {
++      const ms = icare.members.map((id) => ctx.people.get(id)!);
++      console.log(`${tag} t=${ctx.clock.now.toFixed(0)} ICARE ord=${icare.order.type} tgt=${icare.order.targetId} veh=${icare.vehicleId} ` + ms.map((p) => `${p.poste}(${p.x.toFixed(0)},${p.z.toFixed(0)}) veh=${p.vehicleId}`).join(' '));
++      const vs = ctx.vehicles.list.filter((v) => v.faction === 'police' && !v.def.flying && (TROOP.has(v.kind) || v.kind === 'fourgon_cellulaire'));
++      console.log(`${tag}   ` + vs.map((v) => { const st = ap.status(v); const free = v.seats.filter((id, i) => id === 0 && i > 0).length; return `#${v.id}:${v.kind.slice(0, 6)}(${v.x.toFixed(0)},${v.z.toFixed(0)}) v=${v.speed.toFixed(1)} ${st.mode}/${st.state} free=${free} d=${Math.round(Math.hypot(v.x - ms[0]!.x, v.z - ms[0]!.z))}`; }).join(' | '));
++    };
++    dump('pre');
++    me.x = ride.x + 3; me.z = ride.z;
++    if (ride.seats[0] !== 0) { const o = ctx.people.get(ride.seats[0])!; ctx.vehicles.exit(o); let ok = false; for (let i = 1; i < ride.seats.length && !ok; i++) if (ride.seats[i] === 0) ok = ctx.vehicles.enter(o, ride, i); }
++    expect(ctx.vehicles.enter(me, ride, 'driver')).toBe(true);
++    console.log('ride', ride.id, ride.kind);
++    for (let i = 0; i < 20; i++) { t.step(2); if (i % 2 === 1) dump('emb');
++      const tp = icare.members.map((id) => ctx.people.get(id)!).find((p) => p.poste === (process.env['P23_WHO'] ?? 'telepilote'))!;
++      if (i % 1 === 0) console.log(`near t=${ctx.clock.now.toFixed(0)} tp=(${tp.x.toFixed(1)},${tp.z.toFixed(1)}) cmd=(${tp.cmd.moveX.toFixed(2)},${tp.cmd.moveZ.toFixed(2)}) V: ` + ctx.vehicles.list.filter((v) => Math.hypot(v.x - tp.x, v.z - tp.z) < 9).map((v) => `#${v.id}:${v.kind}(${v.x.toFixed(1)},${v.z.toFixed(1)})h${v.heading.toFixed(2)} seats=${v.seats.join(',')}`).join(' ') + ' PROPS: ' + (() => { const out: { kind: string; x: number; z: number; halfX: number; halfZ: number; blocksMove: boolean }[] = []; (ctx.props as unknown as { queryRadius(x: number, z: number, r: number, o: unknown[]): number }).queryRadius(tp.x, tp.z, 4, out); return out.map((q) => `${q.kind}(${q.x.toFixed(1)},${q.z.toFixed(1)}) ${q.halfX}x${q.halfZ} ${q.blocksMove}`).join(' '); })() + ' FREE: ' + [[1, 0], [0, -1], [-1, 0], [0, 1], [0.9, -0.4]].map(([ax, az]) => (ctx.world.isFree(tp.x + ax! * 0.8, tp.z + az! * 0.8, 0.35) ? '1' : '0')).join('') + ' v=' + Math.hypot(tp.vx, tp.vz).toFixed(2) + ' P: ' + ctx.people.list.filter((q) => q !== tp && q.vehicleId === 0 && Math.hypot(q.x - tp.x, q.z - tp.z) < 3).map((q) => `${q.id}:${q.poste}(${q.x.toFixed(1)},${q.z.toFixed(1)})`).join(' '));
++    }
++    const input = ctx.input as { moveY: number; moveX: number };
++    input.moveY = 0.6;
++    for (let i = 0; i < 10; i++) { t.step(3); dump('drv'); }
++    input.moveY = 0;
++    for (const s of ctx.squads.list) if (s.faction === 'police') console.log(`squad ${s.id} ${s.name} ${s.kind} parent=${s.parentId} veh=${s.vehicleId} order=${s.order.type} tgt=${s.order.targetId} n=${s.members.length} onfoot=${s.members.filter((id) => ctx.people.get(id)!.vehicleId === 0).length}`);
++  }, 600000);
 +});
