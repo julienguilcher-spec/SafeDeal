@@ -4916,7 +4916,7 @@ index 10d5bc5..2c502ba 100644
  
  /** Ce que ce module utilise du service 'police.command' (équipe du drone). */
 diff --git a/crs-simulation/src/gameplay/session/engins.ts b/crs-simulation/src/gameplay/session/engins.ts
-index e9f1347..6f5fe19 100644
+index e9f1347..6778a34 100644
 --- a/crs-simulation/src/gameplay/session/engins.ts
 +++ b/crs-simulation/src/gameplay/session/engins.ts
 @@ -16,9 +16,10 @@
@@ -4931,7 +4931,23 @@ index e9f1347..6f5fe19 100644
    driveTo(v: Vehicle, x: number, z: number, options?: { urgence?: boolean; speed?: number; stopBefore?: number; pushThrough?: boolean }): boolean;
    reroute?(v: Vehicle, pushThrough?: boolean): boolean;
    follow?(v: Vehicle, leaderId: EntityId, distance?: number): boolean;
-@@ -63,6 +64,19 @@ const SKIP_DIST = 30;
+@@ -54,6 +55,15 @@ const VEHICLE_AFTER = 5;
+  * engin en intervention la contourne (pilote automatique) bien avant.
+  */
+ const CIVIL_AFTER = 40;
++/**
++ * En intervention urgente (deux-tons), arrêté par la même voiture civile immobile depuis (s) — reprises du pilote
++ * automatique comprises (voir heldByCivil) : elle se range, retirée de la chaussée, comme devant une colonne en urgence
++ * (police/command/convoy.ts, CIVIL_CLEAR). Relevé gardé tant que l'engin n'a pas bougé de CIVIL_SPAN m, oublié après
++ * CIVIL_LAPSE s sans arrêt derrière elle.
++ */
++const URGENT_CIVIL = 20;
++const CIVIL_SPAN = 8;
++const CIVIL_LAPSE = 20;
+ /** Bloqué contre un mur ou un obstacle fixe depuis : nouvel itinéraire, puis marche arrière (s). */
+ const WALL_AFTER = 12;
+ /** Coincé depuis (s), hors de vue du joueur (m) : replacé plus loin sur l'itinéraire (m). */
+@@ -63,6 +73,19 @@ const SKIP_DIST = 30;
  /** Progression minimale attendue (m) sur la fenêtre (s). */
  const PROGRESS_MIN = 15;
  const PROGRESS_WINDOW = 60;
@@ -4951,7 +4967,7 @@ index e9f1347..6f5fe19 100644
  
  /** Service de lecture des interventions du filet de sécurité (tests, débogage). */
  export const ENGINS_SERVICE = 'session.engins';
-@@ -94,6 +108,8 @@ interface Blocked {
+@@ -94,6 +117,8 @@ interface Blocked {
    hornAt: number;
    /** Premier blocage de la série (s). */
    firstAt: number;
@@ -4960,7 +4976,7 @@ index e9f1347..6f5fe19 100644
  }
  
  export class EnginsSystem implements GameSystem {
-@@ -112,6 +128,15 @@ export class EnginsSystem implements GameSystem {
+@@ -112,11 +137,23 @@ export class EnginsSystem implements GameSystem {
    private readonly stillSince = new Map<EntityId, number>();
    /** Suivi de la progression des véhicules sous pilote automatique. */
    private readonly progress = new Map<EntityId, { remaining: number; at: number }>();
@@ -4976,7 +4992,16 @@ index e9f1347..6f5fe19 100644
    /**
     * Engins qui reculent de quelques mètres pour laisser manœuvrer l'automobiliste qu'ils font dégager (collés à son
     * pare-chocs, ils l'enfermaient) : fin du recul, position de départ, conduite à reprendre (destination ou meneur).
-@@ -149,6 +174,10 @@ export class EnginsSystem implements GameSystem {
+    */
+-  private readonly backoff = new Map<EntityId, { until: number; x: number; z: number; mode: string; leaderId: number; tx: number; tz: number }>();
++  private readonly backoff = new Map<EntityId, { until: number; x: number; z: number; mode: string; leaderId: number; tx: number; tz: number; urgence: boolean }>();
++
++  /** Engins retenus par une voiture civile à l'arrêt : depuis quand, dernier relevé, où (voir heldByCivil). */
++  private readonly civilHeld = new Map<EntityId, { since: number; seen: number; x: number; z: number }>();
+ 
+   readonly stats: EnginsStats = { unstickFollow: 0, skipAhead: 0, wallNudge: 0, civilRemoved: 0, log: [] };
+ 
+@@ -149,7 +186,12 @@ export class EnginsSystem implements GameSystem {
      this.target.clear();
      this.stillSince.clear();
      this.progress.clear();
@@ -4985,9 +5010,11 @@ index e9f1347..6f5fe19 100644
 +    this.placeSince = -1;
 +    this.nextLate = 0;
      this.backoff.clear();
++    this.civilHeld.clear();
    }
  
-@@ -162,6 +191,10 @@ export class EnginsSystem implements GameSystem {
+   update(_dt: number): void {
+@@ -162,6 +204,10 @@ export class EnginsSystem implements GameSystem {
        this.clearWay(now);
        this.escortsMove(now);
      }
@@ -4998,7 +5025,7 @@ index e9f1347..6f5fe19 100644
      if (now >= this.nextEscort) {
        this.nextEscort = now + ESCORT_THINK;
        this.keepEscorts();
-@@ -176,8 +209,11 @@ export class EnginsSystem implements GameSystem {
+@@ -176,8 +222,11 @@ export class EnginsSystem implements GameSystem {
      if (!ap) return;
      const crowd = ctx.service<CrowdCore>('crowd.core');
      const ext = ctx.service<VehiclesExt>('vehicles.ext');
@@ -5010,7 +5037,7 @@ index e9f1347..6f5fe19 100644
        const st = ap.status(v);
        // filet de sécurité, hors de la vue du joueur : un véhicule coincé depuis longtemps (cour étroite, interblocage
        // entre colonnes au départ de la caserne) est retrouvé derrière son chef de file ou plus loin sur son itinéraire
-@@ -189,9 +225,19 @@ export class EnginsSystem implements GameSystem {
+@@ -189,9 +238,19 @@ export class EnginsSystem implements GameSystem {
          const t = this.destinationOf(v, ap);
          if (t && this.skipAhead(v, ap, t, 'sans_progres')) { this.progress.delete(v.id); continue; }
        }
@@ -5031,7 +5058,7 @@ index e9f1347..6f5fe19 100644
        const stopped = Math.abs(v.speed) < 0.4;
        if ((st.state === 'attente' || st.state === 'bloque') && st.reason === 'vehicule' && stopped && st.blockedFor > VEHICLE_AFTER) {
          this.clearVehicle(v, ap, st.blockedFor);
-@@ -202,19 +248,24 @@ export class EnginsSystem implements GameSystem {
+@@ -202,19 +261,24 @@ export class EnginsSystem implements GameSystem {
          continue;
        }
        const byPeople = (st.state === 'attente' || st.state === 'bloque') && (st.reason === 'personne' || st.reason === '');
@@ -5060,7 +5087,7 @@ index e9f1347..6f5fe19 100644
        }
        if (now >= b.hornAt) {
          b.hornAt = now + 3;
-@@ -231,6 +282,32 @@ export class EnginsSystem implements GameSystem {
+@@ -231,6 +295,32 @@ export class EnginsSystem implements GameSystem {
      }
    }
  
@@ -5093,7 +5120,75 @@ index e9f1347..6f5fe19 100644
    /**
     * Arrêté par un autre véhicule (parking de la compagnie, voiture garée) : un engin de police à l'arrêt avec son
     * chauffeur se range (avance de quelques mètres et dégage le passage) ; sinon, nouvel itinéraire (le Centaure pousse).
-@@ -433,6 +510,230 @@ export class EnginsSystem implements GameSystem {
+@@ -250,6 +340,22 @@ export class EnginsSystem implements GameSystem {
+         if (ap.driveTo(ov, tx, tz, { speed: 3, stopBefore: 1 })) return;
+       }
+     }
++    // en intervention urgente, la même voiture civile immobile depuis URGENT_CIVIL s : elle se range (retirée de la
++    // chaussée). L'automobiliste « rangé » qui n'avait pas la place de se serrer restait en travers de la voie ; l'engin
++    // reculait pour le laisser manœuvrer, repartait, butait de nouveau sur lui — son temps d'arrêt remis à zéro à
++    // chaque reprise, il n'atteignait jamais le délai de dernier recours : le fourgon cellulaire appelé pour un
++    // interpellé restait cent secondes derrière une citadine, puis renonçait (République). Jamais la voiture du joueur.
++    if (ov && ov.faction === 'civil' && Math.abs(ov.speed) < 0.3) {
++      const held = this.heldByCivil(v, blockedFor);
++      const me = ctx.player.person();
++      const urgent = v.siren !== 0 || ap.status(v).urgence === true;
++      if (!(process.env.ZZ_OFF ?? '').includes('engins') && urgent && held > URGENT_CIVIL && ov.seats.every((id) => id === 0 || !ctx.people.get(id)?.isPlayer) && !(me && me.vehicleId === ov.id)) {
++        this.note(ov, 'civilRemoved', `urgence_${v.kind}`);
++        ctx.vehicles.remove(ov.id);
++        this.civilHeld.delete(v.id);
++        return;
++      }
++    }
+     // automobiliste arrêté devant l'engin (autobus trop long pour se ranger, véhicule retenu par la foule) : coup
+     // d'avertisseur, et on le fait dégager — il se serre sur le côté, au besoin à cheval sur le trottoir (le contourner
+     // ou le retirer hors de la vue du joueur ne suffit pas : le joueur, dans la colonne, restait bloqué derrière lui)
+@@ -289,6 +395,23 @@ export class EnginsSystem implements GameSystem {
+     }
+   }
+ 
++  /**
++   * Temps (s) depuis lequel une voiture civile à l'arrêt retient cet engin au même endroit (à CIVIL_SPAN m près),
++   * reprises du pilote automatique comprises (recul pour laisser manœuvrer, nouvel itinéraire) : le premier relevé part
++   * du temps d'arrêt du pilote (`blockedFor`), les suivants ne le remettent pas à zéro.
++   */
++  private heldByCivil(v: Vehicle, blockedFor: number): number {
++    const now = this.ctx!.clock.now;
++    let rec = this.civilHeld.get(v.id);
++    if (rec && (Math.hypot(v.x - rec.x, v.z - rec.z) > CIVIL_SPAN || now - rec.seen > CIVIL_LAPSE)) rec = undefined;
++    if (!rec) {
++      rec = { since: now - blockedFor, seen: now, x: v.x, z: v.z };
++      this.civilHeld.set(v.id, rec);
++    }
++    rec.seen = now;
++    return now - rec.since;
++  }
++
+   /**
+    * Collé au pare-chocs de l'automobiliste qu'il fait dégager (moins de 4 m) : l'engin recule de quelques mètres, le
+    * temps que l'autre manœuvre, puis reprend sa conduite (même destination, ou même meneur dans la colonne).
+@@ -303,8 +426,11 @@ export class EnginsSystem implements GameSystem {
+     const st = ap.status(v);
+     const t = this.destinationOf(v, ap);
+     if (st.mode !== 'follow' && !t) return;
++    // (l'urgence du trajet est relevée avant l'arrêt du pilote, qui coupe le deux-tons : la reprise se faisait sans
++    // urgence — plus de sirène, et la colonne ne faisait plus ranger les voitures qui la retenaient)
+     this.backoff.set(v.id, {
+       until: this.ctx!.clock.now + 4, x: v.x, z: v.z, mode: st.mode, leaderId: st.leaderId ?? 0, tx: t ? t.x : v.x, tz: t ? t.z : v.z,
++      urgence: st.urgence === true || v.siren !== 0,
+     });
+     ap.stop(v);
+   }
+@@ -336,7 +462,7 @@ export class EnginsSystem implements GameSystem {
+       // reprise : même meneur dans la colonne, ou même destination
+       const lead = b.leaderId !== 0 ? ctx.vehicles.get(b.leaderId) : undefined;
+       if (b.mode === 'follow' && lead && ap.follow && ap.follow(v, lead.id, 6)) continue;
+-      ap.driveTo(v, b.tx, b.tz, { urgence: v.siren !== 0, pushThrough: v.def.canPush === true });
++      ap.driveTo(v, b.tx, b.tz, { urgence: ((process.env.ZZ_OFF ?? '').includes('urg') ? false : b.urgence) || v.siren !== 0, pushThrough: v.def.canPush === true });
+     }
+   }
+ 
+@@ -433,6 +559,230 @@ export class EnginsSystem implements GameSystem {
      return now - p.at > PROGRESS_WINDOW && remaining > 30;
    }
  
@@ -5324,7 +5419,7 @@ index e9f1347..6f5fe19 100644
    /** Le joueur ne voit pas ce véhicule (loin de lui). */
    private unseen(v: Vehicle): boolean {
      const me = this.ctx!.player.person();
-@@ -511,6 +812,8 @@ export class EnginsSystem implements GameSystem {
+@@ -511,6 +861,8 @@ export class EnginsSystem implements GameSystem {
      const used = new Set<number>(this.escorts.values());
      for (const v of ctx.vehicles.list) {
        if (v.faction !== 'police' || !ARMORED.has(v.kind) || v.state === 'wrecked' || v.state === 'burnt') continue;
@@ -5333,7 +5428,7 @@ index e9f1347..6f5fe19 100644
        // l'escorte en place tient-elle toujours ?
        const cur = this.escorts.get(v.id);
        if (cur !== undefined) {
-@@ -575,7 +878,10 @@ export class EnginsSystem implements GameSystem {
+@@ -575,7 +927,10 @@ export class EnginsSystem implements GameSystem {
        if (s.faction !== 'police' || s.kind !== 'groupe' || used.has(s.id) || s.members.length < 3) continue;
        if (s.leaderId === playerId || s.members.indexOf(playerId) >= 0) continue;
        if (!FREE_ORDERS.has(s.order.type)) continue;
@@ -5532,7 +5627,7 @@ index 899c362..dd2c2ea 100644
  export const REGROUP_FAR = 40;
  export const REGROUP_NEAR = 20;
 diff --git a/crs-simulation/src/gameplay/session/follow.ts b/crs-simulation/src/gameplay/session/follow.ts
-index 68b242d..412a3a2 100644
+index 68b242d..fbe2587 100644
 --- a/crs-simulation/src/gameplay/session/follow.ts
 +++ b/crs-simulation/src/gameplay/session/follow.ts
 @@ -14,20 +14,29 @@
@@ -5567,12 +5662,12 @@ index 68b242d..412a3a2 100644
 +import type { EntityId, GameContext, GameSystem, Person, RayHit, RoadSample, Squad, Vehicle } from '@/core/contracts';
  import { SystemOrder } from '@/core/contracts';
 +// (règle pure, sans DOM : la même que la fiche, le terrain et le Qui — quand une unité vient en véhicules)
-+import { motorizes } from '@/ui/command/direct/travel';
++import { SEATED_DRIVE_MIN, motorizes } from '@/ui/command/direct/travel';
 +import { isHeldVehicle } from '@/world/commissariats';
  
  interface Autopilot {
    follow(v: Vehicle, leaderId: EntityId, distance?: number, trail?: readonly number[]): boolean;
-@@ -38,6 +47,12 @@ interface Autopilot {
+@@ -38,6 +47,14 @@ interface Autopilot {
  interface CommandLike {
    stateOf(companyId: number): { phase: string; commanderId: EntityId; missionEnded: boolean } | null;
    convoyOf?(squadId: number): { stage: string } | null;
@@ -5582,22 +5677,34 @@ index 68b242d..412a3a2 100644
 +  arrive?(squadId: number, dest: { x: number; z: number; heading: number; layout?: 'file'; boardFirst?: boolean; stagger?: boolean; disembark?: boolean }): boolean;
 +  /** Le véhicule roule-t-il dans une colonne du commandement (trajet, départ) ? */
 +  carrying?(vehicleId: number): boolean;
++  /** Un ordre du joueur libère l'unité de la colonne en cours (voir sim/police/command/convoy.ts takeOver). */
++  takeOver?(squadId: number, order?: Partial<Squad['order']>): boolean;
  }
  
  /** Service des ordres « Me suivre à pied » / « Me suivre en colonne (véhicules) ». */
-@@ -55,6 +70,11 @@ export interface FollowApi {
+@@ -55,6 +72,21 @@ export interface FollowApi {
  /** Délai maximal d'embarquement avant de se déclarer prête (s) et de débarquement avant de suivre à pied (s). */
  const MOTOR_READY_MAX = 60;
  const DISMOUNT_MAX = 45;
 +/** Branche venue de loin en véhicules (« Avec moi » à pied) : au-delà, elle le suit à pied d'où elle est (s). */
 +const INCOMING_MAX = 600;
++/**
++ * Fourgon d'une branche qui vient de loin (voir walkIn) : à moins de INCOMING_WALK m du joueur, s'il ne s'est pas
++ * rapproché de lui de INCOMING_GAIN m en INCOMING_STALL s (embouteillage, détour), son groupe finit à pied — après les
++ * vingt secondes au bout desquelles une colonne en urgence fait ranger la voiture qui la retient (convoy.ts,
++ * CIVIL_CLEAR) ; un fourgon qui n'a pas démarré INCOMING_START s après l'appel est tenu pour arrêté (m, m, s, s).
++ */
++const INCOMING_WALK = 400;
++const INCOMING_GAIN = 5;
++const INCOMING_STALL = 30;
++const INCOMING_START = 30;
 +/** Point d'arrêt de sa colonne : à tant de mètres du joueur, de son côté, sur la chaussée la plus proche (m). */
 +const CALL_STOP = 40;
 +const CALL_ROAD = 30;
  /** Rayon dans lequel les véhicules d'une unité « en colonne » rejoignent celle du joueur qui conduit (m). */
  const MOTOR_RADIUS = 3000;
  /** Étapes d'un mouvement motorisé encore en cours (police.command) : la colonne de l'unité roule vers le joueur. */
-@@ -106,7 +126,7 @@ const ARMORED: ReadonlySet<string> = new Set(['centaure', 'canon_eau']);
+@@ -106,7 +138,7 @@ const ARMORED: ReadonlySet<string> = new Set(['centaure', 'canon_eau']);
  const FREE_ORDERS: ReadonlySet<string> = new Set(['libre', 'suivre', 'cesser', 'embarquer', 'debarquer', 'colonne', 'escorter']);
  /** Véhicules qui emmènent la compagnie : quand le joueur en conduit un, toute la colonne suit. */
  const TROOP_KINDS: ReadonlySet<string> = new Set(['fourgon_crs', 'car_crs', 'vl_commandement', 'canon_eau', 'centaure', 'fourgon_cellulaire']);
@@ -5606,7 +5713,7 @@ index 68b242d..412a3a2 100644
  /**
   * « Tout le monde me suit » (demande du commanditaire : « c'est obligatoire ») : quel que soit son rôle de police — sauf
   * l'équipage du Centaure, que seul l'engin apparié accompagne —, quand le joueur conduit un véhicule de police (ou est
-@@ -146,13 +166,31 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -146,13 +178,33 @@ export class FollowLeaderSystem implements GameSystem {
    private escortSince = 0;
    private nextThink = 0;
    private nextJoin = 0;
@@ -5633,6 +5740,8 @@ index 68b242d..412a3a2 100644
 +   * colonne vers lui) et, débarquées, le suivent à pied. Instant de l'appel, ordre du joueur ou non.
 +   */
 +  private readonly incoming = new Map<number, { since: number; byPlayer: boolean }>();
++  /** Fourgons de ces branches : distance au joueur la plus courte atteinte, instant où elle l'a été, a-t-il roulé. */
++  private readonly inbound = new Map<EntityId, { d: number; at: number; rolled: boolean }>();
 +  /** Actions reportées après le traitement d'un ordre par le module de police (voir later). */
 +  private deferred: { at: number; run: () => void }[] = [];
 +  /** BRAV-M d'une unité qui vient de recevoir « Avec moi » : « suivre » le joueur lui est donné (ou redonné) sous peu. */
@@ -5644,12 +5753,13 @@ index 68b242d..412a3a2 100644
    /** Branches d'une unité « en colonne » qui ont reçu un autre ordre : elles ne font plus partie de la colonne. */
    private readonly detached = new Set<number>();
    /** Colonne derrière le véhicule où le joueur est passager (il ne conduit pas) : véhicules dans l'ordre. */
-@@ -214,7 +252,11 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -214,7 +266,12 @@ export class FollowLeaderSystem implements GameSystem {
      // ordres « me suivre » : propres à la session (les identifiants d'unités sont réattribués)
      this.motor.clear();
      this.dismount.clear();
 -    this.afoot.clear();
 +    this.incoming.clear();
++    this.inbound.clear();
 +    this.bravmDue.clear();
 +    this.deferred = [];
 +    this.escortBy.clear();
@@ -5657,7 +5767,7 @@ index 68b242d..412a3a2 100644
      this.detached.clear();
      this.ride = [];
      this.trails.clear();
-@@ -282,8 +324,16 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -282,8 +339,16 @@ export class FollowLeaderSystem implements GameSystem {
        this.ride = [];
        this.startConvoy(me, driving);
      } else if (!isDriver && this.mounted !== 0) this.endConvoy();
@@ -5674,7 +5784,7 @@ index 68b242d..412a3a2 100644
      // marche vers les véhicules (à chaque pas : l'IA de police réécrit les commandes avant nous)
      // (à pied aussi : équipiers d'une unité « en colonne » restés sans place, voir seatStragglers)
      if (this.mounted !== 0 || this.assign.size > 0) this.walkToSeats(me, now);
-@@ -338,6 +388,8 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -338,6 +403,8 @@ export class FollowLeaderSystem implements GameSystem {
      const rank = new Map<Vehicle, number>();
      for (const v of ctx.vehicles.list) {
        if (v === lead || v.state === 'wrecked' || v.state === 'burnt' || v.def.flying || !POLICE_FLEET.has(v.kind)) continue;
@@ -5683,7 +5793,7 @@ index 68b242d..412a3a2 100644
        if (v.seats.some((id) => id !== 0)) continue;
        const d = Math.hypot(v.x - lead.x, v.z - lead.z);
        if (d > FLEET_RADIUS) continue;
-@@ -405,10 +457,14 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -405,10 +472,14 @@ export class FollowLeaderSystem implements GameSystem {
        // unités en « Me suivre en colonne (véhicules) », elles-mêmes ou par une unité mère
        const root = this.motorRoot(s);
        const called = root !== 0;
@@ -5700,7 +5810,7 @@ index 68b242d..412a3a2 100644
        const under = this.underAny(s, led) || s === pair || called;
        // toute la compagnie, sauf les unités au contact (elles restent : le commandant IA les garde à leur tâche)
        const all = !under && whole.has(this.rootOf(s.id)) && !this.inContact(s);
-@@ -431,7 +487,16 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -431,7 +502,16 @@ export class FollowLeaderSystem implements GameSystem {
      joining.sort((a, b) => ids.indexOf(a.vehicleId) - ids.indexOf(b.vehicleId));
      for (const s of joining) {
        this.escorts.push(s.id);
@@ -5717,7 +5827,7 @@ index 68b242d..412a3a2 100644
        // une unité déjà à bord (« en colonne ») n'est pas réembarquée
        if (!(this.motorRoot(s) !== 0 && s.order.type === 'embarquer')) ctx.squads.issue(s.id, { type: 'embarquer', issuedBy: me.id });
      }
-@@ -495,32 +560,59 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -495,32 +575,59 @@ export class FollowLeaderSystem implements GameSystem {
    }
  
    private readonly near: Person[] = [];
@@ -5782,7 +5892,7 @@ index 68b242d..412a3a2 100644
    /** Branches de l'unité « en colonne » encore dans la colonne (sans les branches détachées par un autre ordre). */
    private columnTree(rootId: number): Squad[] {
      return this.tree(rootId, []).filter((q) => this.motorRoot(q) === rootId);
-@@ -568,6 +660,7 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -568,6 +675,7 @@ export class FollowLeaderSystem implements GameSystem {
        const tree = this.tree(rootId, []);
        for (const v of ctx.vehicles.list) {
          if (v.kind !== 'moto_bravm' || owned.has(v.id) || out.indexOf(v) >= 0 || v.state === 'wrecked' || v.state === 'burnt') continue;
@@ -5790,7 +5900,7 @@ index 68b242d..412a3a2 100644
          if (!out.some((o) => o.kind === 'moto_bravm' && Math.hypot(o.x - v.x, o.z - v.z) < FLEET_RADIUS)) continue;
          if (v.seats.some((id) => id !== 0 && !tree.some((q) => q.members.indexOf(id) >= 0))) continue;
          out.push(v);
-@@ -660,7 +753,7 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -660,7 +768,7 @@ export class FollowLeaderSystem implements GameSystem {
          if (v && v.state !== 'wrecked' && v.state !== 'burnt') continue;
        }
        if (this.motorRoot(q) !== 0) continue;
@@ -5799,7 +5909,7 @@ index 68b242d..412a3a2 100644
        for (const id of q.members) {
          const p = ctx.people.get(id);
          if (!p || p.isPlayer || p.vehicleId !== 0 || p.custody !== 'free' || p.posture === 'down' || this.assign.has(p.id)) continue;
-@@ -889,49 +982,207 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -889,49 +997,256 @@ export class FollowLeaderSystem implements GameSystem {
  
    // ───────────────────────────── ordres du joueur ─────────────────────────────
  
@@ -5992,6 +6102,55 @@ index 68b242d..412a3a2 100644
 +    }
 +  }
 +
++  /**
++   * Branche appelée par « Avec moi » qui vient en fourgons (callFar), colonne encore en route : chaque groupe dont le
++   * fourgon est arrêté à portée de marche du joueur (SEATED_DRIVE_MIN : la fiche dirait « à pied »), ou qui, à moins de
++   * INCOMING_WALK m, ne s'est plus rapproché de lui depuis INCOMING_STALL s (embouteillage, itinéraire qui repart pour un
++   * détour d'un kilomètre), met pied à terre et finit à pied : il quitte la colonne (police.command.takeOver, son
++   * fourgon s'arrête là) et reçoit « suivre ». Sans cela la colonne ne débarquait qu'une fois TOUS ses fourgons arrivés :
++   * le premier groupe attendait assis à quarante mètres du commandant, les deux autres dans la circulation à cent
++   * cinquante mètres, et personne n'était venu au bout de sept minutes (spécification « ordres directs » §2.5 : une
++   * unité qui n'avance plus à moins de 400 m du point finit à pied).
++   */
++  private walkIn(root: Squad, me: Person, d: { since: number; byPlayer: boolean }, now: number): void {
++    const ctx = this.ctx!;
++    const cmd = ctx.service<CommandLike>('police.command');
++    const pilot = ctx.service<Autopilot>('vehicles.autopilot');
++    for (const q of this.tree(root.id, [])) {
++      const v = q.vehicleId !== 0 ? ctx.vehicles.get(q.vehicleId) : undefined;
++      if (!v || v.def.flying || this.cellCrew(q) || this.apartBravm(q) !== 0 || q.members.length === 0) continue;
++      // (déjà descendu pour le suivre ; ou pris par un autre ordre du joueur)
++      if (q.order.type !== 'embarquer') {
++        this.inbound.delete(v.id);
++        continue;
++      }
++      const dist = Math.hypot(v.x - me.x, v.z - me.z);
++      let rec = this.inbound.get(v.id);
++      if (!rec) {
++        rec = { d: dist, at: now, rolled: false };
++        this.inbound.set(v.id, rec);
++      }
++      if (Math.abs(v.speed) > 1) rec.rolled = true;
++      if (dist < rec.d - INCOMING_GAIN) {
++        rec.d = dist;
++        rec.at = now;
++      }
++      if (dist > INCOMING_WALK) continue;
++      const st = pilot && pilot.status ? pilot.status(v) : null;
++      const stopped = Math.abs(v.speed) < 0.5;
++      // arrivé près de lui (ou arrêté là) ; ou plus de progrès vers lui ; ou jamais parti
++      const here = stopped && dist <= SEATED_DRIVE_MIN && (rec.rolled || (!!st && st.state === 'arrive'));
++      const stalled = rec.rolled ? now - rec.at > INCOMING_STALL : now - d.since > INCOMING_START && stopped;
++      if (!here && !stalled) continue;
++      // (personne à bord : le groupe n'a pas embarqué — il viendra avec l'ordre donné à la branche)
++      if (!q.members.some((id) => { const p = ctx.people.get(id); return !!p && p.vehicleId !== 0 && p.poste !== 'conducteur'; })) continue;
++      this.inbound.delete(v.id);
++      const order = { type: 'suivre' as const, targetId: me.id, issuedBy: me.id, ...(d.byPlayer ? { byPlayer: true as const } : {}) };
++      if (cmd && typeof cmd.takeOver === 'function') cmd.takeOver(q.id, order);
++      ctx.squads.issue(q.id, order);
++    }
++  }
++
 +  /** Chef de l'unité (ou son premier membre). */
 +  private leadOf(q: Squad): Person | undefined {
 +    const ctx = this.ctx!;
@@ -6021,7 +6180,7 @@ index 68b242d..412a3a2 100644
    }
  
    /** L'unité quitte la colonne : ses véhicules s'arrêtent où ils sont (ils ne suivent plus le joueur). */
-@@ -971,6 +1222,11 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -971,6 +1286,11 @@ export class FollowLeaderSystem implements GameSystem {
    /** Suivi des ordres : autre ordre reçu (l'unité quitte la colonne), compte rendu « prête », passage à pied. */
    private tendOrders(me: Person, now: number): void {
      const ctx = this.ctx!;
@@ -6033,7 +6192,7 @@ index 68b242d..412a3a2 100644
      for (const [sid, st] of [...this.motor]) {
        const s = ctx.squads.get(sid);
        if (!s) {
-@@ -1003,21 +1259,46 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -1003,21 +1323,51 @@ export class FollowLeaderSystem implements GameSystem {
          text: `${to.toUpperCase()} ICI ${s.name.toUpperCase()}. En colonne, prête à vous suivre${afoot}. TERMINÉ.`,
        });
      }
@@ -6070,10 +6229,15 @@ index 68b242d..412a3a2 100644
 +      const st = cmd && cmd.convoyOf ? cmd.convoyOf(sid) : null;
 +      // (dès le débarquement commencé — pendant le stationnement, la colonne redonnerait son « débarquez », convoy.ts
 +      // beginDisembark ; ceux encore assis descendent dès que leur fourgon est garé)
-+      if (st && (st.stage === 'route' || st.stage === 'stationnement') && now - d.since < INCOMING_MAX) continue;
++      if (st && (st.stage === 'route' || st.stage === 'stationnement') && now - d.since < INCOMING_MAX) {
++        // (en route : le groupe dont le fourgon est arrivé près de lui, ou n'avance plus, finit à pied sans attendre les autres)
++        if (me.vehicleId === 0) this.walkIn(s, me, d, now);
++        continue;
++      }
 +      this.incoming.delete(sid);
 +      ctx.squads.issue(sid, { type: 'suivre', targetId: me.id, issuedBy: me.id, ...(d.byPlayer ? { byPlayer: true } : {}) });
 +    }
++    if (this.incoming.size === 0 && this.inbound.size > 0) this.inbound.clear();
 +    // BRAV-M d'une unité appelée : « suivre » le joueur, une fois l'ordre de l'unité mère relayé (special.ts)
 +    for (const [sid, d] of [...this.bravmDue]) {
 +      const s = ctx.squads.get(sid);
@@ -6089,7 +6253,7 @@ index 68b242d..412a3a2 100644
      }
    }
  
-@@ -1110,6 +1391,18 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -1110,6 +1460,18 @@ export class FollowLeaderSystem implements GameSystem {
      return s ? s.id : 0;
    }
  
@@ -6108,7 +6272,7 @@ index 68b242d..412a3a2 100644
    /** L'unité est-elle placée (directement ou non) sous l'une de ces unités ? */
    private underAny(s: Squad, set: ReadonlySet<number>): boolean {
      const ctx = this.ctx!;
-@@ -1123,6 +1416,41 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -1123,6 +1485,50 @@ export class FollowLeaderSystem implements GameSystem {
      return false;
    }
  
@@ -6145,12 +6309,21 @@ index 68b242d..412a3a2 100644
 +      }
 +      ctx.squads.issue(sid, { type: 'embarquer', issuedBy: me.id });
 +    }
++    // l'unité du joueur lui-même, quand il n'en est pas le chef (CRS au volant du fourgon de son groupe) : montée avec lui
++    // (startConvoy), elle n'est pas une unité accompagnatrice — le commandant IA lui donnait une mission à tenir à pied
++    // (« Protégez la Bourse du Travail ») et le groupe descendait du fourgon du joueur, à 500 m de la place (plan
++    // « ordres directs », P20 : même règle que pour les unités accompagnatrices, quand toute sa compagnie le suit)
++    const own = me.squadId !== 0 ? ctx.squads.get(me.squadId) : undefined;
++    if (own && own.leaderId !== me.id && own.vehicleId === this.mounted && this.escorts.indexOf(own.id) < 0 && this.escorts.indexOf(this.rootOf(own.id)) >= 0) {
++      const o = own.order;
++      if (o.type !== 'embarquer' && o.type !== 'debarquer' && !CONTACT_ORDERS.has(o.type) && o.byPlayer !== true) ctx.squads.issue(own.id, { type: 'embarquer', issuedBy: me.id });
++    }
 +  }
 +
    /** Équipage d'une unité accompagnatrice au complet à bord (ou délai d'embarquement écoulé, au moins le conducteur). */
    private escortReady(v: Vehicle): boolean {
      const ctx = this.ctx!;
-@@ -1315,6 +1643,91 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -1315,6 +1721,91 @@ export class FollowLeaderSystem implements GameSystem {
      return room;
    }
  
@@ -6242,7 +6415,7 @@ index 68b242d..412a3a2 100644
    /** Le joueur descend : la colonne s'arrête, tout le monde descend et reprend « suivre » à pied. */
    private endConvoy(): void {
      const ctx = this.ctx!;
-@@ -1333,17 +1746,31 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -1333,17 +1824,31 @@ export class FollowLeaderSystem implements GameSystem {
        if (sq && this.motorRoot(sq) !== 0) continue;
        if (p && p.vehicleId !== 0) ctx.vehicles.exit(p);
      }
@@ -13644,7 +13817,7 @@ index ca125b6..04544cb 100644
  
  export type { Squad };
 diff --git a/crs-simulation/src/sim/police/command/bravm.ts b/crs-simulation/src/sim/police/command/bravm.ts
-index 159e617..3ae0d77 100644
+index 159e617..0551fa5 100644
 --- a/crs-simulation/src/sim/police/command/bravm.ts
 +++ b/crs-simulation/src/sim/police/command/bravm.ts
 @@ -10,27 +10,73 @@
@@ -13746,7 +13919,7 @@ index 159e617..3ae0d77 100644
  /** Moto à plus de tant de mètres de la tête : la tête l'attend (m) ; regroupée à moins de REGROUP_DONE m ; attente maximale (s). */
  const REGROUP_SPREAD = 120;
  const REGROUP_DONE = 45;
-@@ -59,6 +120,62 @@ const REJOIN_GAP = 10;
+@@ -59,6 +120,72 @@ const REJOIN_GAP = 10;
  const REJOIN_MAX = 12;
  /** Opérateurs à moins de tant de mètres de leurs machines : ils y montent directement (embarquement), sans colonne à pied (m). */
  const MOUNT_REACH = 40;
@@ -13784,6 +13957,16 @@ index 159e617..3ae0d77 100644
 +const GARDE_FAR = 60;
 +const GARDE_CROWD = 120;
 +const GARDE_CROWD_N = 8;
++/**
++ * « Avec vous » derrière quelqu'un qui roule (voir thinkEscort) : la BRAV-M ferme la colonne de son véhicule. La moto de
++ * tête suit sa trace, à GARDE_BEHIND m derrière lui plus ESCORT_SLOT m par véhicule de sa colonne ; elle part quand il
++ * a pris GARDE_FAR − GARDE_BEHIND m de plus. Au-delà de ESCORT_REACH m de lui, elle le rejoint d'abord par les rues
++ * (trajet ordinaire). Trace gardée : un point tous les TRAIL_STEP m, TRAIL_MAX points au plus.
++ */
++const ESCORT_SLOT = 16;
++const ESCORT_REACH = 250;
++const TRAIL_STEP = 3;
++const TRAIL_MAX = 600;
 +/** Allures d'estimation (m/s) : opérateurs à pied au trot, à pied dans une foule dense, colonne de motos ; remontée en selle (s). */
 +const FOOT_SPEED = 2.2;
 +const CROWD_FOOT_SPEED = 0.5;
@@ -13809,7 +13992,7 @@ index 159e617..3ae0d77 100644
  
  /** L'unité est-elle un groupe de BRAV-M (au moins un binôme subordonné doté d'une moto, ou binôme isolé) ? */
  export function isBravmGroup(core: CommandCore, s: Squad): boolean {
-@@ -87,11 +204,17 @@ export class BravmUnit extends SpecialUnit {
+@@ -87,11 +214,17 @@ export class BravmUnit extends SpecialUnit {
    private tz = 0;
    private standX = 0;
    private standZ = 0;
@@ -13827,7 +14010,7 @@ index 159e617..3ae0d77 100644
    /** Début du regroupement en cours (s), −1 sans regroupement (voir REGROUP_SPREAD). */
    private regroupAt = -1;
    private regroups = 0;
-@@ -110,6 +233,11 @@ export class BravmUnit extends SpecialUnit {
+@@ -110,6 +243,11 @@ export class BravmUnit extends SpecialUnit {
    private arrestOk = false;
    private arrestReason = '';
    private arrested = 0;
@@ -13839,7 +14022,7 @@ index 159e617..3ae0d77 100644
    /** Interception loin d'opérateurs à pied : ils remontent d'abord en selle, puis la colonne roule vers l'objectif. */
    private rideAfterRemount = false;
    /** Ordre à exécuter une fois le pied à terre fait (manœuvre à pied laissée au module de police). */
-@@ -118,9 +246,20 @@ export class BravmUnit extends SpecialUnit {
+@@ -118,9 +256,29 @@ export class BravmUnit extends SpecialUnit {
    /** Action différée à la prochaine réflexion (voir defer). */
    private pending: (() => void) | null = null;
    private policeReported = false;
@@ -13852,6 +14035,15 @@ index 159e617..3ae0d77 100644
 +  private approachZ = 0;
 +  /** Nouvelles tentatives d'interpellation de l'ordre en cours (voir retryArrest). */
 +  private arrestRetries = 0;
++  /** « Avec vous » derrière un véhicule : véhicule que suit la moto de tête (0 : aucun), prochaine revue (s). */
++  private escortLead = 0;
++  private escortAt = 0;
++  /** Distance tenue derrière ce véhicule, le long de sa trace (m). */
++  private escortGap = GARDE_BEHIND;
++  /** Trace du véhicule de la personne suivie (x, z, x, z… la plus récente en dernier), et ce véhicule. */
++  private readonly trail: number[] = [];
++  private trailOf = 0;
++  private readonly chain: Vehicle[] = [];
  
    constructor(core: CommandCore, pic: Picture, squad: Squad) {
      super(core, pic, squad, 'bravm');
@@ -13860,7 +14052,7 @@ index 159e617..3ae0d77 100644
      this.refresh();
      const m = this.motos[0];
      if (m) this.rememberHome(m.x, m.z);
-@@ -179,30 +318,67 @@ export class BravmUnit extends SpecialUnit {
+@@ -179,30 +337,68 @@ export class BravmUnit extends SpecialUnit {
      for (const id of ids) {
        for (const m of ctx.squads.get(id)?.members ?? []) {
          const p = ctx.people.get(m);
@@ -13929,10 +14121,11 @@ index 159e617..3ae0d77 100644
 +    // un nouvel ordre remplace l'action différée du précédent, et les motos qu'on amenait
      this.pending = null;
 +    this.fetchAt = 0;
++    this.endEscort();
      const type = o.type;
      const mounted = this.mountedOperators() > 0;
      const stage = this.status.stage;
-@@ -223,8 +399,14 @@ export class BravmUnit extends SpecialUnit {
+@@ -223,8 +419,14 @@ export class BravmUnit extends SpecialUnit {
        this.setStage('repos');
        return true;
      }
@@ -13948,7 +14141,7 @@ index 159e617..3ae0d77 100644
        // point éloigné : la colonne s'y rend à moto, pied à terre sur place, puis la manœuvre est exécutée
        this.after = this.copy(o);
        this.order = this.copy(o);
-@@ -235,15 +417,16 @@ export class BravmUnit extends SpecialUnit {
+@@ -235,15 +437,16 @@ export class BravmUnit extends SpecialUnit {
        this.ride(o.x, o.z, RIDE_STANDOFF);
        return true;
      }
@@ -13969,7 +14162,7 @@ index 159e617..3ae0d77 100644
        return true;
      }
      if (mounted && this.motos.length > 0) {
-@@ -256,11 +439,55 @@ export class BravmUnit extends SpecialUnit {
+@@ -256,11 +459,67 @@ export class BravmUnit extends SpecialUnit {
      }
      // à pied : c'est une unité comme une autre
      this.order = null;
@@ -13981,15 +14174,18 @@ index 159e617..3ae0d77 100644
  
 +  /**
 +   * « Suivre » la personne `o.targetId` (position dans o.x, o.z) : en selle et sans foule à moins de GARDE_CROWD m
-+   * d'elle, la BRAV-M reste en selle à GARDE_BEHIND m derrière (étape « garde ») ; à pied, quand la personne suivie
-+   * roule et que les machines sont à portée, elle remonte en selle pour la suivre. Sinon (foule, à pied) : false — le
-+   * module de police la fait suivre à pied (posture « en garde » quand le chef s'arrête).
++   * d'elle, la BRAV-M reste en selle à GARDE_BEHIND m derrière (étape « garde ») ; quand la personne suivie est en
++   * véhicule, elle la suit toujours en selle (elle y remonte si elle est à pied), foule ou non. Sinon (personne à pied
++   * près d'une foule, BRAV-M à pied) : false — le module de police la fait suivre à pied (posture « en garde » quand
++   * le chef s'arrête).
 +   */
 +  private follow(o: SquadOrder, mounted: boolean): boolean {
 +    const target = this.core.ctx.people.get(o.targetId);
 +    if (!target || this.motos.length === 0) return false;
 +    if (mounted && this.pilots() > 0) {
-+      if (this.crowdNear(target.x, target.z, GARDE_CROWD)) return false; // (pied à terre par la règle générale ci-dessous)
++      // (pied à terre par la règle générale ci-dessous — derrière quelqu'un qui est à pied seulement : des opérateurs à
++      // pied ne suivent pas un véhicule qui roule)
++      if (target.vehicleId === 0 && this.crowdNear(target.x, target.z, GARDE_CROWD)) return false;
 +      this.order = this.copy(o);
 +      this.after = null;
 +      this.status.order = 'suivre';
@@ -13999,7 +14195,9 @@ index 159e617..3ae0d77 100644
 +      this.guard(target);
 +      return true;
 +    }
-+    if (!mounted && target.vehicleId !== 0 && this.pilotsAvailable() > 0 && this.footOperators() > 0 && this.atMotos(true)) {
++    // (machines hors de portée : retour aux machines d'abord — la personne suivie est en véhicule, la suivre à pied la
++    // laissait filer ; backToMotos y ramène les opérateurs)
++    if (!mounted && target.vehicleId !== 0 && this.pilotsAvailable() > 0 && this.footOperators() > 0) {
 +      this.order = this.copy(o);
 +      this.after = null;
 +      this.status.order = 'suivre';
@@ -14015,6 +14213,13 @@ index 159e617..3ae0d77 100644
 +    const lead = this.motos[0];
 +    this.tx = target.x;
 +    this.tz = target.z;
++    // (la personne suivie roule, à portée : la BRAV-M ferme la colonne de son véhicule — thinkEscort, à la prochaine réflexion)
++    const tv = this.rideOf(target);
++    if (lead && tv && Math.hypot(tv.x - lead.x, tv.z - lead.z) <= ESCORT_REACH) {
++      this.escortAt = 0;
++      this.setStage('garde');
++      return;
++    }
 +    if (lead && Math.hypot(target.x - lead.x, target.z - lead.z) > GARDE_FAR) {
 +      this.ride(target.x, target.z, GARDE_BEHIND);
 +      return;
@@ -14025,7 +14230,7 @@ index 159e617..3ae0d77 100644
    private begin(o: SquadOrder): void {
      const core = this.core;
      this.order = this.copy(o);
-@@ -269,6 +496,7 @@ export class BravmUnit extends SpecialUnit {
+@@ -269,6 +528,7 @@ export class BravmUnit extends SpecialUnit {
      this.status.targetId = o.type === 'interpeller' && o.targetId > 0 ? o.targetId : 0;
      this.arrestOk = false;
      this.arrestReason = '';
@@ -14033,7 +14238,7 @@ index 159e617..3ae0d77 100644
      this.rideAfterRemount = false;
      this.tx = o.x;
      this.tz = o.z;
-@@ -277,25 +505,69 @@ export class BravmUnit extends SpecialUnit {
+@@ -277,25 +537,69 @@ export class BravmUnit extends SpecialUnit {
        this.tz = core.v2.z;
      }
      const mounted = this.mountedOperators() > 0;
@@ -14115,7 +14320,7 @@ index 159e617..3ae0d77 100644
        case 'embarquer':
          if (mounted) this.complete(true, '');
          else this.defer(() => this.backToMotos());
-@@ -320,9 +592,40 @@ export class BravmUnit extends SpecialUnit {
+@@ -320,9 +624,70 @@ export class BravmUnit extends SpecialUnit {
      this.setStage('retour');
    }
  
@@ -14141,13 +14346,43 @@ index 159e617..3ae0d77 100644
 +        return c;
 +      }
 +      case 'embarquer':
-+      case 'debarquer':
++      case 'debarquer': {
 +        // (les ordres de colonne de la compagnie — fourgons — ne la font ni monter ni descendre ; ceux du joueur, si)
-+        return o.byPlayer ? this.copy(o) : null;
++        if (o.byPlayer) return this.copy(o);
++        // « tout le monde me suit » : la compagnie embarque derrière le véhicule du joueur (session/follow.ts,
++        // startConvoy — ordre émis en son nom). La BRAV-M de la compagnie part avec elle : en selle, à sa place derrière
++        // lui, hors de la colonne des fourgons (« suivre ») ; elle restait à pied sur la place, sans ordre. Quand il
++        // descend et que la compagnie débarque, elle met pied à terre comme elle — sauf sous ses ordres (commandant) :
++        // « Avec moi » ne le quitte pas, elle garde « suivre ».
++        const me = this.core.ctx.player.person();
++        if (!me || o.issuedBy !== me.id) return null;
++        if (o.type === 'embarquer') {
++          if (me.vehicleId === 0) return null;
++          const c = this.copy(o);
++          c.type = 'suivre';
++          c.targetId = me.id;
++          c.x = me.x;
++          c.z = me.z;
++          return c;
++        }
++        const own = this.squad.order;
++        return own.type === 'suivre' && own.targetId === me.id && !own.byPlayer && !this.ledBy(me.id) ? this.copy(o) : null;
++      }
 +      default:
 +        // ligne, barrage, charge… : la BRAV-M ne tient pas de barrage, elle garde son ordre
 +        return null;
 +    }
++  }
++
++  /** La personne commande-t-elle cette unité (elle-même ou une unité supérieure) ? */
++  private ledBy(personId: number): boolean {
++    const squads = this.core.ctx.squads;
++    let q: Squad | undefined = this.squad;
++    for (let guard = 0; q && guard < 8; guard++) {
++      if (q.leaderId === personId) return true;
++      q = q.parentId !== 0 ? squads.get(q.parentId) : undefined;
++    }
++    return false;
 +  }
 +
    // ───────────────────────────── à moto ─────────────────────────────
@@ -14157,7 +14392,7 @@ index 159e617..3ae0d77 100644
    private ride(x: number, z: number, standoff: number): void {
      const core = this.core;
      const lead = this.motos[0];
-@@ -335,9 +638,12 @@ export class BravmUnit extends SpecialUnit {
+@@ -335,9 +700,12 @@ export class BravmUnit extends SpecialUnit {
      // point d'arrêt le long de l'itinéraire
      let sx = x;
      let sz = z;
@@ -14170,7 +14405,7 @@ index 159e617..3ae0d77 100644
      if (routed) {
        let total = 0;
        for (let i = 2; i + 1 < path.length; i += 2) total += Math.hypot(path[i] - path[i - 2], path[i + 1] - path[i - 1]);
-@@ -352,10 +658,12 @@ export class BravmUnit extends SpecialUnit {
+@@ -352,10 +720,12 @@ export class BravmUnit extends SpecialUnit {
          this.pointOnPath(path, at);
          sx = core.v2.x;
          sz = core.v2.z;
@@ -14185,7 +14420,7 @@ index 159e617..3ae0d77 100644
      } else if (standoff > 0) {
        const d = Math.hypot(x - lead.x, z - lead.z);
        if (d > standoff + 4) {
-@@ -373,7 +681,9 @@ export class BravmUnit extends SpecialUnit {
+@@ -373,7 +743,9 @@ export class BravmUnit extends SpecialUnit {
        this.arrived();
        return;
      }
@@ -14195,7 +14430,7 @@ index 159e617..3ae0d77 100644
      this.rejoinAt = -1;
      // trajet à travers la ville : en urgence, les fermetures de rue de la police sont franchies (arrêtée devant un
      // barrage à 600 m du point, la colonne s'y déclarait « en position » et n'arrivait jamais) ; manœuvre courte : au pas
-@@ -383,6 +693,8 @@ export class BravmUnit extends SpecialUnit {
+@@ -383,6 +755,8 @@ export class BravmUnit extends SpecialUnit {
      this.regroups = 0;
      this.relaunchX = lead.x;
      this.relaunchZ = lead.z;
@@ -14204,7 +14439,7 @@ index 159e617..3ae0d77 100644
      this.still.clear();
      if (!this.convoy(core.tuning.bravmSpeed)) {
        this.dismount();
-@@ -450,7 +762,70 @@ export class BravmUnit extends SpecialUnit {
+@@ -450,7 +824,70 @@ export class BravmUnit extends SpecialUnit {
      const ap = this.core.autopilot;
      if (!ap) return false;
      this.convoyAt = this.core.now;
@@ -14276,7 +14511,7 @@ index 159e617..3ae0d77 100644
    }
  
    private stopMotos(): void {
-@@ -459,6 +834,44 @@ export class BravmUnit extends SpecialUnit {
+@@ -459,6 +896,44 @@ export class BravmUnit extends SpecialUnit {
      for (let i = 0; i < this.motos.length; i++) ap.stop(this.motos[i]);
    }
  
@@ -14321,7 +14556,7 @@ index 159e617..3ae0d77 100644
    private thinkRide(): void {
      const core = this.core;
      const ap = core.autopilot;
-@@ -468,6 +881,8 @@ export class BravmUnit extends SpecialUnit {
+@@ -468,6 +943,8 @@ export class BravmUnit extends SpecialUnit {
        return;
      }
      const now = core.now;
@@ -14330,7 +14565,7 @@ index 159e617..3ae0d77 100644
      // retenue : 20 km/h à moins de 30 m de piétons
      const ahead = 12;
      const px = lead.x + Math.sin(lead.heading) * ahead;
-@@ -483,6 +898,8 @@ export class BravmUnit extends SpecialUnit {
+@@ -483,6 +960,8 @@ export class BravmUnit extends SpecialUnit {
        this.slow = false;
        this.convoy(core.tuning.bravmSpeed);
      }
@@ -14339,7 +14574,7 @@ index 159e617..3ae0d77 100644
      // regroupement : la tête s'arrête tant que des motos sont loin derrière (encore loin du point) ; elles la rejoignent
      // — la tête ne file plus seule en laissant le reste de l'unité, et le joueur en selle, à des centaines de mètres
      const d0 = Math.hypot(this.standX - lead.x, this.standZ - lead.z);
-@@ -512,6 +929,12 @@ export class BravmUnit extends SpecialUnit {
+@@ -512,6 +991,12 @@ export class BravmUnit extends SpecialUnit {
      // une moto qui ne suit plus (coincée au départ, perdue dans la circulation) rejoint le point seule
      if (now >= this.stragglerAt) {
        this.stragglerAt = now + 5;
@@ -14352,7 +14587,7 @@ index 159e617..3ae0d77 100644
        for (let i = 1; i < this.motos.length; i++) {
          const m = this.motos[i];
          // immobile depuis plus de 15 s, quel que soit l'état que donne le pilote automatique (un suiveur qui attend son
-@@ -528,13 +951,60 @@ export class BravmUnit extends SpecialUnit {
+@@ -528,13 +1013,60 @@ export class BravmUnit extends SpecialUnit {
          if (m.seats[0] === 0 || now - s.t <= 15 || Math.hypot(m.x - lead.x, m.z - lead.z) <= 40) continue;
          const ms = ap.status(m);
          if (ms.mode === 'drive' && ms.state !== 'bloque' && ms.state !== 'attente' && ms.state !== 'echec' && ms.state !== 'arrive') continue;
@@ -14414,7 +14649,7 @@ index 159e617..3ae0d77 100644
      // tête arrêtée loin du point (circulation, rue encombrée, pilote automatique arrêté) : la colonne n'est pas
      // « arrivée » — elle repart par un nouvel itinéraire (voir RIDE_FAR) ; le délai de route ne joue que près du point
      const far = d > RIDE_FAR && this.relaunches < RELAUNCH_MAX;
-@@ -546,9 +1016,11 @@ export class BravmUnit extends SpecialUnit {
+@@ -546,9 +1078,11 @@ export class BravmUnit extends SpecialUnit {
          this.arrived();
          return;
        }
@@ -14429,7 +14664,7 @@ index 159e617..3ae0d77 100644
        // une tête qui n'a pas bougé depuis le dernier départ (coincée derrière un véhicule) passe en queue : une autre mène
        this.relaunches++;
        if (Math.hypot(lead.x - this.relaunchX, lead.z - this.relaunchZ) < 5 && this.motos.length > 1) {
-@@ -578,23 +1050,43 @@ export class BravmUnit extends SpecialUnit {
+@@ -578,23 +1112,43 @@ export class BravmUnit extends SpecialUnit {
    private arrived(): void {
      const o = this.order;
      this.stopMotos();
@@ -14441,10 +14676,10 @@ index 159e617..3ae0d77 100644
 -      for (let i = 1; i < this.motos.length; i++) {
 -        const m = this.motos[i];
 -        if (Math.hypot(m.x - lead.x, m.z - lead.z) > 40 && m.seats[0] !== 0) ap.driveTo(m, lead.x, lead.z, { speed: this.core.tuning.bravmSpeed, stopBefore: 4 + i * 3.5 });
-+    // « avec vous » en selle : à sa place derrière la personne suivie (foule près d'elle : pied à terre, suivi à pied)
++    // « avec vous » en selle : à sa place derrière la personne suivie (à pied, foule près d'elle : pied à terre, suivi à pied)
 +    if (o && o.type === 'suivre') {
 +      const target = this.core.ctx.people.get(o.targetId);
-+      if (target && this.crowdNear(target.x, target.z, GARDE_CROWD)) {
++      if (target && target.vehicleId === 0 && this.crowdNear(target.x, target.z, GARDE_CROWD)) {
 +        this.after = this.copy(o);
 +        this.setStage('arret');
 +      } else {
@@ -14483,7 +14718,7 @@ index 159e617..3ae0d77 100644
          ? 'Arrêtés à ' + Math.round(short / 10) * 10 + ' mètres du point, accès bloqué, ' + motos
          : 'En position, ' + motos));
        this.complete(true, '');
-@@ -603,6 +1095,23 @@ export class BravmUnit extends SpecialUnit {
+@@ -603,6 +1157,23 @@ export class BravmUnit extends SpecialUnit {
      this.setStage('arret');
    }
  
@@ -14507,7 +14742,7 @@ index 159e617..3ae0d77 100644
    /**
     * Après l'arrivée : les motos restées loin de la tête (relancées une fois vers elle par arrived) dont le pilote
     * automatique s'est arrêté — itinéraire impossible, bloquées, rendues au repos — repartent vers la tête, tant
-@@ -628,17 +1137,79 @@ export class BravmUnit extends SpecialUnit {
+@@ -628,17 +1199,219 @@ export class BravmUnit extends SpecialUnit {
      }
    }
  
@@ -14526,21 +14761,161 @@ index 159e617..3ae0d77 100644
 +    const target = o && o.type === 'suivre' ? this.core.ctx.people.get(o.targetId) : undefined;
 +    const lead = this.motos[0];
 +    if (!o || !target || !lead) {
++      this.endEscort();
 +      this.complete(true, '');
 +      return;
 +    }
 +    if (this.mountedOperators() === 0) {
 +      // (opérateurs descendus d'eux-mêmes, motos sans passagers) : le suivi continue à pied
++      this.endEscort();
 +      this.handOver(o);
 +      return;
 +    }
-+    if (this.crowdNear(target.x, target.z, GARDE_CROWD)) {
-+      // une foule près de la personne suivie : pied à terre, suivi à pied (posture « en garde » du module de police)
++    const tv = this.rideOf(target);
++    if (tv && this.pilots() > 0 && this.core.autopilot && (this.escortLead !== 0 || Math.hypot(tv.x - lead.x, tv.z - lead.z) <= ESCORT_REACH)) {
++      this.thinkEscort(target, tv);
++      return;
++    }
++    // (elle est descendue de son véhicule : les motos s'arrêtent, puis les règles à pied)
++    this.endEscort();
++    if (target.vehicleId === 0 && this.crowdNear(target.x, target.z, GARDE_CROWD)) {
++      // une foule près de la personne suivie, à pied : pied à terre, suivi à pied (posture « en garde » du module de
++      // police) — tant qu'elle roule, la BRAV-M reste en selle derrière elle (le commandant parti au volant en longeant
++      // le rassemblement laissait ses opérateurs à pied sur la place, les pilotes seuls sur les machines)
 +      this.after = this.copy(o);
 +      this.dismount();
 +      return;
 +    }
 +    if (Math.hypot(target.x - lead.x, target.z - lead.z) > GARDE_FAR && this.pilots() > 0) this.guard(target);
++  }
++
++  /**
++   * Véhicule terrestre où se trouve la personne suivie, quand ce n'est pas une moto de l'unité (le chef de la BRAV-M en
++   * selle sur l'une d'elles ne se suit pas lui-même) ; null à pied, en vol ou sur une machine de l'unité.
++   */
++  private rideOf(target: Person): Vehicle | null {
++    if (target.vehicleId === 0) return null;
++    const v = this.core.ctx.vehicles.get(target.vehicleId);
++    return v && !v.def.flying && this.motos.indexOf(v) < 0 ? v : null;
++  }
++
++  /**
++   * Nombre de véhicules de la colonne qui part derrière le véhicule `head` de la personne suivie : ceux que le pilote
++   * automatique fait déjà suivre en file derrière lui, ou — la colonne se forme encore — ceux des unités qui embarquent
++   * sur son ordre (session/follow.ts : « embarquer » émis en son nom), à moins de ESCORT_REACH m de lui.
++   */
++  private columnSize(target: Person, head: Vehicle): number {
++    const core = this.core;
++    const ap = core.autopilot!;
++    const ctx = core.ctx;
++    const list = ctx.vehicles.list;
++    const seen = this.chain;
++    seen.length = 0;
++    let prev = head;
++    for (let guard = 0; guard < 40; guard++) {
++      let next: Vehicle | null = null;
++      for (let i = 0; i < list.length && !next; i++) {
++        const v = list[i];
++        if (v === head || v.kind === 'moto_bravm' || seen.indexOf(v) >= 0) continue;
++        const st = ap.status(v);
++        if (st.mode === 'follow' && st.leaderId === prev.id) next = v;
++      }
++      if (!next) break;
++      seen.push(next);
++      prev = next;
++    }
++    const chained = seen.length;
++    seen.length = 0;
++    const squads = ctx.squads.list;
++    for (let i = 0; i < squads.length; i++) {
++      const q = squads[i];
++      if (q.faction !== 'police' || q.vehicleId === 0 || q.vehicleId === head.id || q.order.type !== 'embarquer' || q.order.issuedBy !== target.id) continue;
++      const v = ctx.vehicles.get(q.vehicleId);
++      if (!v || v.kind === 'moto_bravm' || v.def.flying || v.seats[0] === 0 || seen.indexOf(v) >= 0 || !core.usable(v)) continue;
++      if (Math.hypot(v.x - head.x, v.z - head.z) <= ESCORT_REACH) seen.push(v);
++    }
++    const boarding = seen.length;
++    seen.length = 0;
++    return Math.max(chained, boarding);
++  }
++
++  /**
++   * « Avec vous » en selle derrière quelqu'un qui roule (étape « garde ») : la BRAV-M ferme la colonne de son véhicule.
++   * La moto de tête suit la TRACE de ce véhicule (pilote automatique, « follow »), assez loin derrière lui pour laisser
++   * la place des véhicules de sa colonne ; les autres motos la suivent en file. Elle passe ainsi où il est passé, derrière
++   * les fourgons qui y roulent : un trajet par les rues vers le point où il était la menait à travers le rassemblement,
++   * où elle mettait pied à terre pendant qu'il s'éloignait.
++   */
++  private thinkEscort(target: Person, tv: Vehicle): void {
++    const core = this.core;
++    const ap = core.autopilot!;
++    const now = core.now;
++    if (now < this.escortAt) return;
++    this.escortAt = now + 1;
++    this.tx = target.x;
++    this.tz = target.z;
++    const lead = this.motos[0];
++    if (this.escortLead !== tv.id) {
++      // (premier départ, ou elle a changé de véhicule) : on attend à sa place que le véhicule ait pris son avance
++      if (this.escortLead !== 0) this.endEscort();
++      const gap = GARDE_BEHIND + this.columnSize(target, tv) * ESCORT_SLOT;
++      if (Math.hypot(tv.x - lead.x, tv.z - lead.z) <= gap + GARDE_FAR - GARDE_BEHIND) return;
++      // file des motos : la plus proche du véhicule suivi mène, les motos sans pilote restent où elles sont
++      const riders = this.motos.filter((m) => m.seats[0] !== 0).sort((a, b) => Math.hypot(a.x - tv.x, a.z - tv.z) - Math.hypot(b.x - tv.x, b.z - tv.z) || a.id - b.id);
++      this.departOrder.length = 0;
++      for (let i = 0; i < riders.length; i++) this.departOrder.push(riders[i].id);
++      this.refresh();
++      this.escortLead = tv.id;
++      this.escortGap = gap;
++      this.rejoinAt = -1;
++    }
++    // chaque moto suit la précédente ; la tête suit la personne elle-même, sur la trace de son véhicule (et non ce
++    // véhicule : la colonne de ses fourgons, où chacun suit le précédent, reste une seule file — session/follow.ts) ; une
++    // moto que le pilote automatique a lâchée est reprise
++    let prev: Vehicle | null = null;
++    for (let i = 0; i < this.motos.length; i++) {
++      const m = this.motos[i];
++      const pilot = m.seats[0] !== 0 ? core.ctx.people.get(m.seats[0]) : undefined;
++      if (!pilot) continue;
++      if (!pilot.isPlayer) {
++        const st = ap.status(m);
++        const leaderId = prev ? prev.id : target.id;
++        if (st.mode !== 'follow' || st.leaderId !== leaderId) {
++          if (prev) ap.follow(m, prev.id, MOTO_GAP);
++          else ap.follow(m, target.id, this.escortGap, this.trailOf === tv.id ? this.trail : undefined);
++        }
++      }
++      prev = m;
++    }
++  }
++
++  /** Fin du suivi derrière un véhicule : les motos s'arrêtent (nouvel ordre, personne suivie descendue). */
++  private endEscort(): void {
++    if (this.escortLead === 0) return;
++    this.escortLead = 0;
++    this.departOrder.length = 0;
++    this.stopMotos();
++  }
++
++  /** Tient la trace du véhicule de la personne suivie (« suivre », elle roule) : voir thinkEscort. */
++  private recordTrail(): void {
++    const o = this.order;
++    const target = o && o.type === 'suivre' ? this.core.ctx.people.get(o.targetId) : undefined;
++    const tv = target ? this.rideOf(target) : null;
++    const trail = this.trail;
++    if (!tv) {
++      trail.length = 0;
++      this.trailOf = 0;
++      return;
++    }
++    if (this.trailOf !== tv.id) {
++      trail.length = 0;
++      this.trailOf = tv.id;
++    }
++    const n = trail.length;
++    if (n >= 2 && Math.hypot(tv.x - trail[n - 2], tv.z - trail[n - 1]) < TRAIL_STEP) return;
++    trail.push(tv.x, tv.z);
++    if (trail.length > TRAIL_MAX * 2) trail.splice(0, trail.length - TRAIL_MAX * 2);
 +  }
 +
    // ───────────────────────────── pied à terre ─────────────────────────────
@@ -14588,7 +14963,7 @@ index 159e617..3ae0d77 100644
      }
      const lead = this.motos[0];
      if (lead) {
-@@ -649,16 +1220,25 @@ export class BravmUnit extends SpecialUnit {
+@@ -649,16 +1422,25 @@ export class BravmUnit extends SpecialUnit {
      this.setStage('pied_a_terre');
    }
  
@@ -14620,7 +14995,7 @@ index 159e617..3ae0d77 100644
        return;
      }
      if (!o || o.type === 'debarquer') {
-@@ -671,15 +1251,176 @@ export class BravmUnit extends SpecialUnit {
+@@ -671,15 +1453,176 @@ export class BravmUnit extends SpecialUnit {
        this.approach();
        return;
      }
@@ -14802,7 +15177,7 @@ index 159e617..3ae0d77 100644
    private approach(): void {
      const o = this.order;
      if (this.footOperators() === 0) {
-@@ -690,6 +1431,12 @@ export class BravmUnit extends SpecialUnit {
+@@ -690,6 +1633,12 @@ export class BravmUnit extends SpecialUnit {
      this.ensureHandover();
      const fx = this.people[0].x;
      const fz = this.people[0].z;
@@ -14815,7 +15190,7 @@ index 159e617..3ae0d77 100644
      const d = Math.hypot(this.tx - fx, this.tz - fz);
      let ax = this.tx;
      let az = this.tz;
-@@ -700,12 +1447,67 @@ export class BravmUnit extends SpecialUnit {
+@@ -700,12 +1649,67 @@ export class BravmUnit extends SpecialUnit {
        ax = fx;
        az = fz;
      }
@@ -14883,7 +15258,7 @@ index 159e617..3ae0d77 100644
      const h = this.core.handover();
      if (!h || !Array.isArray(h.points)) return;
      for (let i = 0; i < h.points.length; i++) if (Math.hypot(h.points[i].x - this.standX, h.points[i].z - this.standZ) < 300) return;
-@@ -761,13 +1563,12 @@ export class BravmUnit extends SpecialUnit {
+@@ -761,13 +1765,12 @@ export class BravmUnit extends SpecialUnit {
        // pas au milieu d'un groupe compact : le binôme serait isolé
        const around = core.ctx.people.countIn(target.x, target.z, 6, isProtester);
        if (around <= 14) {
@@ -14900,7 +15275,7 @@ index 159e617..3ae0d77 100644
        this.arrestOk = false;
        this.arrestReason = target ? 'Objectif au milieu d’un groupe compact : interpellation non tentée.' : 'Aucun fait constaté : aucune interpellation.';
        this.say(refused(this.squad.name, this.arrestReason.replace(/\.$/, '') + ', je regagne les machines'));
-@@ -798,13 +1599,14 @@ export class BravmUnit extends SpecialUnit {
+@@ -798,13 +1801,14 @@ export class BravmUnit extends SpecialUnit {
  
    /**
     * Tous les opérateurs à pied sont-ils à portée des machines (moins de MOUNT_REACH m du point de regroupement ou d'une
@@ -14918,7 +15293,7 @@ index 159e617..3ae0d77 100644
        for (let j = 0; j < this.motos.length && !near; j++) near = Math.hypot(p.x - this.motos[j].x, p.z - this.motos[j].z) < MOUNT_REACH;
        if (!near) return false;
      }
-@@ -816,6 +1618,28 @@ export class BravmUnit extends SpecialUnit {
+@@ -816,6 +1820,28 @@ export class BravmUnit extends SpecialUnit {
      this.setStage('remontee');
    }
  
@@ -14947,7 +15322,7 @@ index 159e617..3ae0d77 100644
    private remountDone(): void {
      const o = this.order;
      this.emitStage('en_selle', true, '');
-@@ -823,23 +1647,30 @@ export class BravmUnit extends SpecialUnit {
+@@ -823,23 +1849,30 @@ export class BravmUnit extends SpecialUnit {
        this.setStage('repos');
        return;
      }
@@ -14982,7 +15357,7 @@ index 159e617..3ae0d77 100644
        return;
      }
      if (this.after && this.mountedOperators() > 0) {
-@@ -849,30 +1680,24 @@ export class BravmUnit extends SpecialUnit {
+@@ -849,30 +1882,24 @@ export class BravmUnit extends SpecialUnit {
      }
      if (this.after) {
        // personne n'a pu remonter : la manœuvre se fait à pied
@@ -15024,7 +15399,7 @@ index 159e617..3ae0d77 100644
    }
  
    private complete(ok: boolean, reason: string): void {
-@@ -886,6 +1711,7 @@ export class BravmUnit extends SpecialUnit {
+@@ -886,6 +1913,7 @@ export class BravmUnit extends SpecialUnit {
      } else {
        this.finish(ok, reason);
      }
@@ -15032,7 +15407,7 @@ index 159e617..3ae0d77 100644
      this.policeReported = false;
      this.setStage(this.mountedOperators() > 0 || this.motos.length === 0 ? 'repos' : 'a_pied');
    }
-@@ -900,7 +1726,9 @@ export class BravmUnit extends SpecialUnit {
+@@ -900,7 +1928,9 @@ export class BravmUnit extends SpecialUnit {
        this.arrestOk = ok;
        this.arrestReason = ok ? '' : reason;
        if (ok) this.arrested++;
@@ -15043,7 +15418,7 @@ index 159e617..3ae0d77 100644
          // l'auteur a fui (un fuyard sans équipement court plus vite qu'un opérateur casqué) ou s'est dégagé : compte
          // rendu tout de suite, sur le réseau de l'unité. Celui du module de police part sur le réseau de commandement,
          // souvent saturé (il y était écarté) ; et le compte rendu de fin, en selle, venait plusieurs minutes après,
-@@ -915,6 +1743,9 @@ export class BravmUnit extends SpecialUnit {
+@@ -915,6 +1945,9 @@ export class BravmUnit extends SpecialUnit {
        this.remount();
      } else if (stage === 'remontee' && type === 'embarquer') {
        this.remountDone();
@@ -15053,7 +15428,15 @@ index 159e617..3ae0d77 100644
      }
    }
  
-@@ -929,11 +1760,14 @@ export class BravmUnit extends SpecialUnit {
+@@ -922,6 +1955,7 @@ export class BravmUnit extends SpecialUnit {
+ 
+   think(): void {
+     this.refresh();
++    this.recordTrail();
+     const pending = this.pending;
+     if (pending) {
+       this.pending = null;
+@@ -929,11 +1963,14 @@ export class BravmUnit extends SpecialUnit {
        return;
      }
      const stage = this.status.stage;
@@ -15069,7 +15452,7 @@ index 159e617..3ae0d77 100644
        case 'arret':
          // machines à l'arrêt : pied à terre simultané
          if (this.sinceStage() >= 0.5) this.dismount();
-@@ -941,11 +1775,15 @@ export class BravmUnit extends SpecialUnit {
+@@ -941,11 +1978,15 @@ export class BravmUnit extends SpecialUnit {
        case 'pied_a_terre':
          if (this.sinceStage() >= 1) this.afterDismount();
          break;
@@ -15089,7 +15472,7 @@ index 159e617..3ae0d77 100644
          break;
        case 'constat':
          this.thinkWatch();
-@@ -962,6 +1800,7 @@ export class BravmUnit extends SpecialUnit {
+@@ -962,6 +2003,7 @@ export class BravmUnit extends SpecialUnit {
          break;
        case 'remontee':
          if (this.sinceStage() > 100) this.remountDone();
@@ -15171,7 +15554,7 @@ index 60dba6d..cde6a41 100644
        return false;
      }
 diff --git a/crs-simulation/src/sim/police/command/convoy.ts b/crs-simulation/src/sim/police/command/convoy.ts
-index 8f83986..fe6b61e 100644
+index 8f83986..16bf175 100644
 --- a/crs-simulation/src/sim/police/command/convoy.ts
 +++ b/crs-simulation/src/sim/police/command/convoy.ts
 @@ -11,9 +11,10 @@
@@ -15200,7 +15583,7 @@ index 8f83986..fe6b61e 100644
    /** Prochain nouvel itinéraire possible de la tête arrêtée par la foule (s). */
    rerouteAt: number;
    /** Tête de colonne : dernière position où elle bougeait et depuis quand elle n'en a pas bougé ; redémarrages. */
-@@ -69,23 +76,96 @@ interface Convoy {
+@@ -69,25 +76,102 @@ interface Convoy {
    drvX: number;
    drvZ: number;
    drvRemindAt: number;
@@ -15301,8 +15684,14 @@ index 8f83986..fe6b61e 100644
 +const DISEMBARK_MAX = 120;
  /** Voiture civile arrêtée devant un véhicule de la colonne en urgence : au-delà de tant de secondes, elle est dégagée. */
  const CIVIL_CLEAR = 20;
++/** Même attente au départ échelonné (s) ; relevé d'une voiture civile qui retient un véhicule : rayon (m), oubli (s). */
++const CIVIL_STAGGER = 8;
++const CIVIL_SPAN = 8;
++const CIVIL_LAPSE = 12;
  const PLAYER_REMIND = 30;
-@@ -95,6 +175,10 @@ const PLAYER_REMIND = 30;
+ /**
+  * Véhicule conduit par le joueur : il est sur le point à moins de tant de mètres (comme une tête rendue au repos près du
+@@ -95,6 +179,10 @@ const PLAYER_REMIND = 30;
   */
  const DRIVER_ARRIVE = 90;
  const DRIVER_MOVED = 30;
@@ -15313,7 +15702,7 @@ index 8f83986..fe6b61e 100644
  
  /**
   * Allure de croisière demandée pour une colonne en urgence (deux tons) ; le pilote automatique la porte à une fois et
-@@ -104,6 +188,11 @@ function urgentSpeed(core: CommandCore): number {
+@@ -104,6 +192,11 @@ function urgentSpeed(core: CommandCore): number {
    return core.tuning.convoySpeed;
  }
  
@@ -15325,7 +15714,7 @@ index 8f83986..fe6b61e 100644
  /** Rang d'un véhicule dans la colonne : commandement en tête, fourgons, puis le cellulaire en serre-file. */
  function columnRank(v: Vehicle): number {
    return v.kind === 'vl_commandement' ? 0 : v.kind === 'fourgon_cellulaire' ? 2 : 1;
-@@ -114,7 +203,11 @@ export class ConvoyControl {
+@@ -114,13 +207,346 @@ export class ConvoyControl {
    private thinkAt = 0;
    private readonly pathBuf: number[] = [];
    private readonly headBuf: number[] = [];
@@ -15334,13 +15723,17 @@ index 8f83986..fe6b61e 100644
    private readonly roadBuf: RoadSample = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '', roadClass: 'residential', oneway: false };
 +  private readonly fleetBuf: Vehicle[] = [];
 +  private readonly busy: number[] = [];
++  /** Véhicules de colonne retenus par une voiture civile à l'arrêt : depuis quand, dernier relevé, où (voir civilWait). */
++  private readonly civilHeld = new Map<EntityId, { since: number; seen: number; x: number; z: number }>();
  
    constructor(private readonly core: CommandCore) {}
  
-@@ -123,6 +216,266 @@ export class ConvoyControl {
+   reset(): void {
+     this.list.length = 0;
      this.thinkAt = 0;
-   }
- 
++    this.civilHeld.clear();
++  }
++
 +  /**
 +   * Le joueur donne un ordre à cette unité — LA règle unique entre un ordre du joueur et une colonne en cours (appelée
 +   * par l'interface avant l'envoi, sans l'ordre, puis par le commandement pour chaque ordre `byPlayer`, avec lui) :
@@ -15380,7 +15773,14 @@ index 8f83986..fe6b61e 100644
 +        }
 +        // (toute la colonne libérée en route par un ordre sans point — l'unité finit à pied, ticket bloqué de la ligne
 +        // d'état : elle dit où elle s'est arrêtée, comme une colonne qui ne passe plus)
-+        if (id === root && (order.x === undefined || order.z === undefined)) this.reportShort(c);
++        if (id === root && (order.x === undefined || order.z === undefined)) {
++          this.reportShort(c);
++          // (ses véhicules qui roulent encore loin du point finissent le trajet : voir carryOn)
++          if (!(process.env.ZZ_OFF ?? '').includes('carry') && this.carryOn(c)) {
++            freed = true;
++            continue;
++          }
++        }
 +      }
 +      if (this.release(c, id)) freed = true;
 +    }
@@ -15513,6 +15913,65 @@ index 8f83986..fe6b61e 100644
 +    return true;
 +  }
 +
++  /**
++   * « Finissez à pied » donné à toute une colonne en route (ordre du joueur sans point : surveillance des ordres directs,
++   * ui/command/direct) alors que certains de ses véhicules roulent encore à plus de UNLOAD_FAR m du point : ceux-là
++   * finissent le trajet — la colonne les emporte jusqu'à l'arrêt, leurs agents descendent là et exécutent l'ordre du
++   * joueur ; les véhicules arrivés, à portée de marche ou arrêtés pour de bon quittent la colonne et s'arrêtent, leurs
++   * agents descendent tout de suite. La colonne ne donnera pas de « débarquez » (unité libérée). Sans cela, toute la
++   * colonne s'arrêtait net : dix véhicules sur le point, quatre laissés entre 230 et 590 m, qui roulaient vers lui
++   * (« Toute la compagnie » à 600 m, Concorde ; colonne garantie, plan « ordres directs » P17). false : aucun véhicule
++   * ne roule plus loin du point — la colonne est libérée en entier (release).
++   */
++  private carryOn(c: Convoy): boolean {
++    const core = this.core;
++    const ap = core.autopilot;
++    if (!ap) return false;
++    const d = c.dest;
++    const rolls = (v: Vehicle): boolean => {
++      if (this.isPlayerWheel(v) || !core.usable(v) || Math.hypot(v.x - d.x, v.z - d.z) <= UNLOAD_FAR) return false;
++      const st = ap.status(v);
++      if (st.mode !== 'drive' && st.mode !== 'follow') return false;
++      return st.state !== 'echec' && !((st.state === 'bloque' || st.state === 'attente') && st.blockedFor > STUCK_LEAVE);
++    };
++    if (!c.vehicles.some(rolls) && !c.solo.some(rolls)) return false;
++    let stopped = 0;
++    for (let k = c.vehicles.length - 1; k >= 0; k--) {
++      const v = c.vehicles[k]!;
++      if (rolls(v)) continue;
++      c.vehicles.splice(k, 1);
++      if (k < c.startX.length) {
++        c.startX.splice(k, 1);
++        c.startZ.splice(k, 1);
++      }
++      if (k < c.staggerIdx) c.staggerIdx--;
++      stopped++;
++      if (!this.isPlayerWheel(v)) ap.stop(v);
++    }
++    for (let j = c.solo.length - 1; j >= 0; j--) {
++      const v = c.solo[j]!;
++      if (rolls(v)) continue;
++      c.solo.splice(j, 1);
++      stopped++;
++      if (!this.isPlayerWheel(v)) ap.stop(v);
++    }
++    // agents que la colonne envoyait vers une place libre à bord (boardStragglers) : ils y renoncent
++    const n = core.members(c.status.squadId, core.people2);
++    for (let i = 0; i < n; i++) {
++      const p = core.people2[i]!;
++      const a = p.vehicleId === 0 ? agentOf(p) : null;
++      if (a && a.boardId !== 0) a.boardId = 0;
++    }
++    c.taken.clear();
++    c.freed.add(c.status.squadId);
++    c.status.vehicles = c.vehicles.length + c.solo.length;
++    // la file qui roule encore se reforme sans eux (un suiveur suivait peut-être un véhicule arrêté)
++    if (stopped > 0 && c.status.stage === 'route' && !c.boarding && !c.dest.stagger && c.vehicles.length > 0) {
++      ap.convoy(c.vehicles, d.x, d.z, { gap: core.tuning.convoyGap, ...this.pace(c), avoid: this.crowdZones(c) });
++    }
++    return true;
++  }
++
 +  /** Les véhicules de l'unité (et de sa descendance) ne font plus partie de la colonne `c`, sans être arrêtés. */
 +  private forget(c: Convoy, squadId: number): void {
 +    this.core.fleet(squadId, this.fleetBuf);
@@ -15599,12 +16058,10 @@ index 8f83986..fe6b61e 100644
 +        else v.beacons = false;
 +      }
 +    }
-+  }
-+
+   }
+ 
    of(squadId: number): Convoy | null {
-     for (let i = 0; i < this.list.length; i++) if (this.list[i].status.squadId === squadId) return this.list[i];
-     return null;
-@@ -133,6 +486,17 @@ export class ConvoyControl {
+@@ -133,6 +559,17 @@ export class ConvoyControl {
      return c ? c.status : null;
    }
  
@@ -15622,7 +16079,7 @@ index 8f83986..fe6b61e 100644
    /** Un convoi de cette unité est-il encore en route, en stationnement ou en débarquement ? */
    arriving(squadId: number): boolean {
      const c = this.of(squadId);
-@@ -155,6 +519,8 @@ export class ConvoyControl {
+@@ -155,6 +592,8 @@ export class ConvoyControl {
          vehicles: [], dest: { x: 0, z: 0, heading: 0 }, hasDest: false, exitX: 0, exitZ: 0, hasExit: false, stageT: this.core.now,
          fromX: 0, fromZ: 0, orderDone: false, stragglersAt: 0, boarding: false, waitSince: 0, remindAt: 0, solo: [], unstuckAt: 0, staggerIdx: 0, staggerAt: 0, startX: [], startZ: [], zones: [], zonesAt: 0, routeLen: -1, rerouteAt: 0,
          stallX: 0, stallZ: 0, stallAt: 0, restarts: 0, drvId: 0, drvX: 0, drvZ: 0, drvRemindAt: 0,
@@ -15631,7 +16088,7 @@ index 8f83986..fe6b61e 100644
        };
        this.list.push(c);
      }
-@@ -332,35 +698,81 @@ export class ConvoyControl {
+@@ -332,35 +771,81 @@ export class ConvoyControl {
      for (let i = c.vehicles.length - 1; i >= 0; i--) {
        const v = c.vehicles[i]!;
        if (v.seats[0] !== 0) continue;
@@ -15725,7 +16182,7 @@ index 8f83986..fe6b61e 100644
          if (v.id === reserved && this.freeSeats(v) <= 1) continue;
          if (ctx.vehicles.enter(p, v, 'passenger')) break;
        }
-@@ -373,13 +785,40 @@ export class ConvoyControl {
+@@ -373,13 +858,40 @@ export class ConvoyControl {
      const core = this.core;
      const squad = core.ctx.squads.get(squadId);
      if (!squad) return false;
@@ -15766,7 +16223,7 @@ index 8f83986..fe6b61e 100644
      c.drvId = 0;
      c.status.awaitingDriver = false;
      c.status.t0 = core.now;
-@@ -387,14 +826,27 @@ export class ConvoyControl {
+@@ -387,14 +899,27 @@ export class ConvoyControl {
      c.status.alignError = -1;
      c.status.headingError = -1;
      this.gather(c);
@@ -15794,7 +16251,7 @@ index 8f83986..fe6b61e 100644
      if (dest.boardFirst && lead && ap) {
        // stationnement en bloc serré (rangs côte à côte) : personne ne pourrait manœuvrer pour sortir ; les véhicules
        // se rangent d'abord en file le long du début de l'itinéraire, nez vers la sortie (les équipages y montent)
-@@ -404,7 +856,8 @@ export class ConvoyControl {
+@@ -404,7 +929,8 @@ export class ConvoyControl {
        c.stragglersAt = 0;
        c.status.stage = 'echec';
        this.setStage(c, 'route');
@@ -15804,7 +16261,7 @@ index 8f83986..fe6b61e 100644
        core.say(squad.name, frame('À TOUS', squad.name, 'Embarquez, départ en colonne', false), 1, 'commandement', squad.leaderId);
        return true;
      }
-@@ -412,10 +865,11 @@ export class ConvoyControl {
+@@ -412,10 +938,11 @@ export class ConvoyControl {
      if (lead && ap) this.seatStragglers(c);
      if (lead && ap && ap.convoy(c.vehicles, dest.x, dest.z, { gap: core.tuning.convoyGap, speed: core.tuning.convoySpeed, avoid: this.crowdZones(c) })) {
        this.setStage(c, 'route');
@@ -15818,7 +16275,7 @@ index 8f83986..fe6b61e 100644
      this.beginDisembark(c);
      return lead !== undefined;
    }
-@@ -425,14 +879,21 @@ export class ConvoyControl {
+@@ -425,14 +952,21 @@ export class ConvoyControl {
      const core = this.core;
      // le joueur est attendu (rappels radio) pendant tout l'embarquement, pas seulement à la fin
      const waiting = this.awaitPlayer(c);
@@ -15845,7 +16302,7 @@ index 8f83986..fe6b61e 100644
      c.boarding = false;
      c.stageT = core.now;
      c.routeLen = -1;
-@@ -440,17 +901,66 @@ export class ConvoyControl {
+@@ -440,17 +974,66 @@ export class ConvoyControl {
      const squad = core.ctx.squads.get(c.status.squadId);
      if (ap && c.vehicles.length > 0 && c.dest.stagger) {
        c.staggerIdx = 0;
@@ -15916,7 +16373,7 @@ index 8f83986..fe6b61e 100644
    private freeSeats(v: Vehicle): number {
      let free = 0;
      for (let s = 0; s < v.seats.length; s++) if (v.seats[s] === 0 && v.def.seats[s] && v.def.seats[s].role === 'passenger') free++;
-@@ -466,11 +976,7 @@ export class ConvoyControl {
+@@ -466,11 +1049,7 @@ export class ConvoyControl {
      const ctx = core.ctx;
      const pid = ctx.player.state.personId;
      const p = pid !== 0 ? ctx.people.get(pid) : undefined;
@@ -15929,7 +16386,7 @@ index 8f83986..fe6b61e 100644
      const own = p.squadId !== 0 ? ctx.squads.get(p.squadId) : undefined;
      if (own && own.vehicleId !== 0) for (const v of c.vehicles) if (v.id === own.vehicleId) return v.id;
      return c.vehicles[0].id;
-@@ -522,22 +1028,19 @@ export class ConvoyControl {
+@@ -522,22 +1101,19 @@ export class ConvoyControl {
    }
  
    /**
@@ -15956,7 +16413,7 @@ index 8f83986..fe6b61e 100644
      if (c.waitSince === 0) { c.waitSince = core.now; c.remindAt = core.now + 20; }
      if (core.now - c.waitSince > PLAYER_WAIT) return false;
      if (core.now >= c.remindAt) {
-@@ -570,12 +1073,32 @@ export class ConvoyControl {
+@@ -570,12 +1146,32 @@ export class ConvoyControl {
      for (const v of list) { cx += v.x; cz += v.z; }
      cx /= list.length;
      cz /= list.length;
@@ -15993,7 +16450,7 @@ index 8f83986..fe6b61e 100644
      const p = { x: 0, z: 0 };
      const near: Vehicle[] = [];
      let s = 8;
-@@ -585,7 +1108,7 @@ export class ConvoyControl {
+@@ -585,7 +1181,7 @@ export class ConvoyControl {
        if (v.seats[0] === 0) continue;
        // première place libre le long de l'itinéraire (ni mur, ni voiture garée, ni autre véhicule)
        let placed = false;
@@ -16002,7 +16459,7 @@ index 8f83986..fe6b61e 100644
          s += v.def.length * 0.5;
          const h = pointOnPolyline(path, s, p);
          const rx = Math.cos(h), rz = -Math.sin(h);
-@@ -610,18 +1133,68 @@ export class ConvoyControl {
+@@ -610,18 +1206,68 @@ export class ConvoyControl {
      }
    }
  
@@ -16074,7 +16531,7 @@ index 8f83986..fe6b61e 100644
    }
  
    /** Colonne échelonnée en route : départs successifs, puis débarquement quand tous sont arrivés (ou arrêtés). */
-@@ -637,6 +1210,13 @@ export class ConvoyControl {
+@@ -637,6 +1283,13 @@ export class ConvoyControl {
        if (moved > 12 || now - c.staggerAt > 8) this.launchNext(c);
        return;
      }
@@ -16088,7 +16545,17 @@ index 8f83986..fe6b61e 100644
      // colonne coincée au départ : un véhicule arrêté derrière un autre de la colonne pas encore lancé le fait partir ;
      // une voiture civile qui barre la route à une colonne en urgence se range (retirée de la chaussée)
      if (now >= c.unstuckAt) {
-@@ -654,7 +1234,8 @@ export class ConvoyControl {
+@@ -644,6 +1297,9 @@ export class ConvoyControl {
+       for (let i = 0; i < c.staggerIdx; i++) {
+         const v = c.vehicles[i]!;
+         const st = ap.status(v);
++        // (voiture civile qui le retient depuis CIVIL_STAGGER s, reprises du pilote comprises — voir civilWait ; sans
++        // urgence, la colonne attend dans la circulation comme tout le monde)
++        if (!(process.env.ZZ_OFF ?? '').includes('convoy') && c.dest.urgence !== false && this.clearCivilian(v, true, CIVIL_STAGGER)) continue;
+         if ((st.state !== 'attente' && st.state !== 'bloque') || st.blockedFor < 6 || Math.abs(v.speed) > 0.3) continue;
+         const o = obstacleOf(ap, v);
+         const ov = o !== 0 ? core.ctx.vehicles.get(o) : undefined;
+@@ -654,7 +1310,8 @@ export class ConvoyControl {
            c.vehicles.splice(k, 1);
            c.vehicles.splice(c.staggerIdx, 0, ov);
            this.launchNext(c);
@@ -16098,7 +16565,7 @@ index 8f83986..fe6b61e 100644
            const driver = ov.seats[0] !== 0 ? core.ctx.people.get(ov.seats[0]!) : undefined;
            if (!driver || !driver.isPlayer) core.ctx.vehicles.remove(ov.id);
          }
-@@ -670,14 +1251,27 @@ export class ConvoyControl {
+@@ -670,14 +1327,27 @@ export class ConvoyControl {
      }
      // (le véhicule que conduit le joueur, au repos tant qu'il n'a pas démarré : la colonne l'attend — voir awaitDriver)
      const pv = this.playerWheel(c);
@@ -16131,7 +16598,18 @@ index 8f83986..fe6b61e 100644
      this.beginDisembark(c);
    }
  
-@@ -717,9 +1311,9 @@ export class ConvoyControl {
+@@ -698,8 +1368,8 @@ export class ConvoyControl {
+       return;
+     }
+     const now = core.now;
+-    for (const v of c.vehicles) this.clearCivilian(v);
+-    for (const v of c.solo) this.clearCivilian(v);
++    for (const v of c.vehicles) this.clearCivilian(v, c.dest.urgence !== false);
++    for (const v of c.solo) this.clearCivilian(v, c.dest.urgence !== false);
+     // un véhicule bloqué (garé en travers, embouteillage) ne doit pas immobiliser toute la colonne : il la quitte et
+     // rejoint le point seul, en urgence ; les autres reforment la colonne et repartent
+     if (now >= c.unstuckAt) {
+@@ -717,9 +1387,9 @@ export class ConvoyControl {
          if (blocked || dropped) {
            const v = c.vehicles.splice(i, 1)[0]!;
            // (il s'arrêtera à sa place derrière la tête, pas sur le point même : pas d'embouteillage à l'arrivée)
@@ -16143,7 +16621,7 @@ index 8f83986..fe6b61e 100644
            c.unstuckAt = now + 10;
            break;
          }
-@@ -728,21 +1322,42 @@ export class ConvoyControl {
+@@ -728,21 +1398,42 @@ export class ConvoyControl {
        for (const v of c.solo) {
          const vs = ap.status(v);
          if (!this.isPlayerWheel(v) && vs.mode === 'idle' && Math.abs(v.speed) < 0.3 && Math.hypot(v.x - c.dest.x, v.z - c.dest.z) > 90) {
@@ -16189,7 +16667,7 @@ index 8f83986..fe6b61e 100644
      // tête arrêtée par la foule loin du point : la foule a bougé (cortège) — nouvel itinéraire qui la contourne
      if (ls.state !== 'en_route' && ls.reason === 'personne' && ls.blockedFor > 15 && now >= c.rerouteAt && ap.reroute
        && Math.hypot(lead.x - c.dest.x, lead.z - c.dest.z) > 90) {
-@@ -765,7 +1380,7 @@ export class ConvoyControl {
+@@ -765,7 +1456,7 @@ export class ConvoyControl {
        c.unstuckAt = now + 10;
        for (const v of c.solo) if (c.vehicles.indexOf(v) < 0) c.vehicles.push(v);
        c.solo.length = 0;
@@ -16198,7 +16676,7 @@ index 8f83986..fe6b61e 100644
      }
      // tête arrivée à quelques dizaines de mètres du point mais arrêtée là (mobilier, véhicule, manœuvre sans fin sur
      // ses derniers mètres) : la colonne est arrivée, elle se gare — sans attendre qu'un demi-tour sur la place la
-@@ -779,8 +1394,15 @@ export class ConvoyControl {
+@@ -779,8 +1470,15 @@ export class ConvoyControl {
      // repos n'est que le joueur qui n'a pas démarré (la colonne se disait « bloquée » au bout de vingt secondes,
      // débarquait à la caserne et la mission commençait à trois kilomètres de son lieu)
      const pv = this.playerWheel(c);
@@ -16216,7 +16694,7 @@ index 8f83986..fe6b61e 100644
      if (!arrived && !stuck) return;
      // les véhicules partis seuls reprennent leur place pour le stationnement
      for (const v of c.solo) if (c.vehicles.indexOf(v) < 0) c.vehicles.push(v);
-@@ -794,8 +1416,17 @@ export class ConvoyControl {
+@@ -794,8 +1492,17 @@ export class ConvoyControl {
        this.setStage(c, 'stationnement');
        return;
      }
@@ -16236,7 +16714,7 @@ index 8f83986..fe6b61e 100644
      // véhicules encore loin (partis seuls par un autre chemin) : ils finissent le trajet et s'arrêtent derrière la file
      // (les garer d'ici, à des centaines de mètres, les ferait manœuvrer à travers la ville)
      const rowList = near ? c.vehicles.filter((v) => Math.hypot(v.x - d.x, v.z - d.z) < ROW_REACH) : c.vehicles;
-@@ -804,11 +1435,17 @@ export class ConvoyControl {
+@@ -804,11 +1511,17 @@ export class ConvoyControl {
        for (const v of c.vehicles) {
          if (rowList.indexOf(v) >= 0) continue;
          const st = ap.status(v);
@@ -16255,7 +16733,7 @@ index 8f83986..fe6b61e 100644
        this.setStage(c, 'stationnement');
      } else {
        // colonne arrêtée en route (rue coupée, obstacle) : on débarque où l'on est
-@@ -819,7 +1456,7 @@ export class ConvoyControl {
+@@ -819,7 +1532,7 @@ export class ConvoyControl {
  
    /**
     * Colonne arrêtée en route loin du point : les véhicules loin du point (à plus de 90 m) qui ne sont ni hors d'usage ni
@@ -16264,7 +16742,7 @@ index 8f83986..fe6b61e 100644
     * la file d'arrivée. La colonne est rangée du plus proche au plus éloigné du point : le débarquement se fait devant
     * celui qui en est le plus près. false si aucun véhicule ne repart.
     */
-@@ -835,9 +1472,9 @@ export class ConvoyControl {
+@@ -835,9 +1548,9 @@ export class ConvoyControl {
      for (const v of c.vehicles) {
        const st = ap.status(v);
        const there = dist(v) < 90;
@@ -16277,7 +16755,68 @@ index 8f83986..fe6b61e 100644
        k++;
      }
      return moved > 0;
-@@ -897,8 +1534,6 @@ export class ConvoyControl {
+@@ -849,12 +1562,17 @@ export class ConvoyControl {
+    * voiture « qui se range » pour la sirène restait sinon à l'arrêt, à deux mètres du VL de tête, et la colonne derrière
+    * elle, dix minutes durant, à plus d'un kilomètre du point. Jamais le véhicule du joueur. true si la voie est dégagée.
+    */
+-  private clearCivilian(v: Vehicle): boolean {
++  private clearCivilian(v: Vehicle, urgent = false, after = CIVIL_CLEAR): boolean {
+     const core = this.core;
+     const ap = core.autopilot;
+-    if (!ap || v.siren === 0 || Math.abs(v.speed) > 0.3) return false;
++    if (!ap) return false;
++    // (relevé à chaque passage, même sans deux-tons : le temps d'arrêt court pendant les reprises du pilote)
++    const wait = (process.env.ZZ_OFF ?? '').includes('convoy') ? 0 : this.civilWait(v);
++    if ((process.env.ZZ_OFF ?? '').includes('convoy')) urgent = false;
++    if ((v.siren === 0 && !urgent) || Math.abs(v.speed) > 0.3) return false;
+     const st = ap.status(v);
+-    if ((st.state !== 'attente' && st.state !== 'bloque') || st.blockedFor < CIVIL_CLEAR || st.mode === 'idle') return false;
++    const blocked = (st.state === 'attente' || st.state === 'bloque') && st.blockedFor >= after && st.mode !== 'idle';
++    if (!blocked && wait < after) return false;
+     const o = obstacleOf(ap, v);
+     const ov = o !== 0 ? core.ctx.vehicles.get(o) : undefined;
+     if (!ov || ov.faction !== 'civil' || Math.abs(ov.speed) >= 0.3) return false;
+@@ -864,9 +1582,39 @@ export class ConvoyControl {
+     const me = core.ctx.player.person();
+     if (me && me.vehicleId === ov.id) return false;
+     core.ctx.vehicles.remove(ov.id);
++    this.civilHeld.delete(v.id);
+     return true;
+   }
+ 
++  /**
++   * Temps (s) depuis lequel une voiture civile à l'arrêt retient ce véhicule de la colonne au même endroit (à CIVIL_SPAN m
++   * près) — reprises du pilote automatique comprises. Le véhicule qui recule pour laisser manœuvrer l'automobiliste
++   * (session/engins.ts, giveRoom) puis repart remettait à zéro son temps d'arrêt toutes les dix secondes : les
++   * CIVIL_CLEAR s au bout desquelles la voiture se range n'étaient jamais atteintes (trois automobilistes « rangés » en
++   * travers du pont de la Concorde retenaient sept minutes deux fourgons appelés par le commandant, à 150 m de lui).
++   * 0 quand rien ne le retient à cet instant.
++   */
++  private civilWait(v: Vehicle): number {
++    const core = this.core;
++    const ap = core.autopilot;
++    if (!ap) return 0;
++    const now = core.now;
++    let rec = this.civilHeld.get(v.id);
++    if (rec && (Math.hypot(v.x - rec.x, v.z - rec.z) > CIVIL_SPAN || now - rec.seen > CIVIL_LAPSE)) {
++      this.civilHeld.delete(v.id);
++      rec = undefined;
++    }
++    const o = obstacleOf(ap, v);
++    const ov = o !== 0 ? core.ctx.vehicles.get(o) : undefined;
++    if (!ov || ov.faction !== 'civil' || Math.abs(ov.speed) >= 0.3 || Math.abs(v.speed) > 0.5) return 0;
++    if (!rec) {
++      rec = { since: now, seen: now, x: v.x, z: v.z };
++      this.civilHeld.set(v.id, rec);
++    }
++    rec.seen = now;
++    return now - rec.since;
++  }
++
+   private measure(c: Convoy): void {
+     const d = c.dest;
+     const rx = -Math.cos(d.heading);
+@@ -897,8 +1645,6 @@ export class ConvoyControl {
      }
      let parked = 0;
      let failed = 0;
@@ -16286,7 +16825,7 @@ index 8f83986..fe6b61e 100644
      const now = this.core.now;
      if (c.stallAt < c.stageT) c.stallAt = c.stageT;
      const d = c.dest;
-@@ -910,27 +1545,51 @@ export class ConvoyControl {
+@@ -910,27 +1656,51 @@ export class ConvoyControl {
        if (st.mode === 'drive' && Math.abs(v.speed) < 0.5 && st.blockedFor > 6 && (st.state === 'attente' || st.state === 'bloque')
          && Math.hypot(v.x - d.x, v.z - d.z) < 60 + c.vehicles.length * 10) ap.stop(v);
        else if (st.mode === 'drive') this.clearCivilian(v);
@@ -16349,7 +16888,7 @@ index 8f83986..fe6b61e 100644
      this.measure(c);
      // (tête restée en route, d'autres véhicules arrivés au point — partis seuls, voir finishAlone — : la ligne se forme
      // devant celui qui en est le plus près, pas devant la tête, à des centaines de mètres de là)
-@@ -942,6 +1601,87 @@ export class ConvoyControl {
+@@ -942,6 +1712,87 @@ export class ConvoyControl {
      this.beginDisembark(c);
    }
  
@@ -16437,7 +16976,7 @@ index 8f83986..fe6b61e 100644
    /**
     * Fin du trajet : colonne arrêtée loin du point (rue coupée, place inaccessible) — elle le dit, avec la distance qui
     * reste ; elle débarquait sinon en silence à des centaines de mètres du point, le chef la croyant sur place.
-@@ -956,17 +1696,43 @@ export class ConvoyControl {
+@@ -956,17 +1807,43 @@ export class ConvoyControl {
    }
  
    private beginDisembark(c: Convoy): void {
@@ -16482,7 +17021,7 @@ index 8f83986..fe6b61e 100644
      if (lx === undefined || lz === undefined) {
        if (lead) {
          const h = c.hasDest ? d.heading : lead.heading;
-@@ -987,10 +1753,10 @@ export class ConvoyControl {
+@@ -987,10 +1864,10 @@ export class ConvoyControl {
          lz = d.z;
        }
      }
@@ -16497,7 +17036,7 @@ index 8f83986..fe6b61e 100644
    }
  
    // ───────────────────────────── départ ─────────────────────────────
-@@ -1013,7 +1779,13 @@ export class ConvoyControl {
+@@ -1013,7 +1890,13 @@ export class ConvoyControl {
        this.setStage(c, 'parti');
        return false;
      }
@@ -16512,7 +17051,7 @@ index 8f83986..fe6b61e 100644
      this.setStage(c, 'rembarquement');
      return true;
    }
-@@ -1029,7 +1801,7 @@ export class ConvoyControl {
+@@ -1029,7 +1912,7 @@ export class ConvoyControl {
      let walking = 0;
      for (let i = 0; i < n; i++) {
        const p = core.people[i];
@@ -16521,7 +17060,7 @@ index 8f83986..fe6b61e 100644
        const a = agentOf(p);
        if (!a) continue;
        if (a.boardId !== 0) {
-@@ -1060,14 +1832,17 @@ export class ConvoyControl {
+@@ -1060,14 +1943,17 @@ export class ConvoyControl {
    private thinkEmbark(c: Convoy): void {
      const core = this.core;
      const waiting = this.awaitPlayer(c);
@@ -16544,7 +17083,7 @@ index 8f83986..fe6b61e 100644
        this.manVehicles(c);
        this.orderForDeparture(c, c.exitX, c.exitZ, true, false);
      }
-@@ -1104,11 +1879,33 @@ export class ConvoyControl {
+@@ -1104,11 +1990,33 @@ export class ConvoyControl {
      this.thinkAt = core.now + 0.5;
      for (let i = 0; i < this.list.length; i++) {
        const c = this.list[i];
@@ -16579,7 +17118,7 @@ index 8f83986..fe6b61e 100644
            break;
          case 'rembarquement': this.thinkEmbark(c); break;
          case 'depart': this.thinkLeave(c); break;
-@@ -1134,7 +1931,7 @@ export class ConvoyControl {
+@@ -1134,7 +2042,7 @@ export class ConvoyControl {
        let total = 0;
        for (let i = 0; i < n; i++) {
          const p = core.people[i];
@@ -16588,7 +17127,7 @@ index 8f83986..fe6b61e 100644
          total++;
          if (p.vehicleId !== 0) aboard++;
        }
-@@ -1147,6 +1944,8 @@ export class ConvoyControl {
+@@ -1147,6 +2055,8 @@ export class ConvoyControl {
        // l'ordre d'embarquer, puis les retardataires, puis le joueur : la colonne part au plus tard au bout du plus long
        let left = !c.orderDone && now - c.stageT < BOARD_MAX ? BOARD_MAX - (now - c.stageT) : 0;
        if (c.stragglersAt > 0 && now - c.stragglersAt < STRAGGLERS_MAX) left = Math.max(left, STRAGGLERS_MAX - (now - c.stragglersAt));
@@ -19860,8 +20399,27 @@ index 8712919..868baf3 100644
      const ctx = this.k.ctx;
      const surface = ctx.world.surfaceAt(x, z);
      if (surface !== 'road' && surface !== 'sett' && surface !== 'void') return false;
+diff --git a/crs-simulation/src/sim/vehicles/api.ts b/crs-simulation/src/sim/vehicles/api.ts
+index eae5c94..7bd8202 100644
+--- a/crs-simulation/src/sim/vehicles/api.ts
++++ b/crs-simulation/src/sim/vehicles/api.ts
+@@ -277,8 +277,12 @@ export interface AutopilotStatus {
+ export interface AutopilotApi {
+   /** Conduit le véhicule jusqu'au point par les rues (ctx.world.findPath, mode 'vehicle'). false si impossible. */
+   driveTo(v: Vehicle, x: number, z: number, options?: DriveOptions): boolean;
+-  /** Suit un meneur (véhicule ou personne) sur sa trace ; `distance` = intervalle entre mon pare-chocs et lui (m, défaut 6). */
+-  follow(v: Vehicle, leaderId: EntityId, distance?: number): boolean;
++  /**
++   * Suit un meneur (véhicule ou personne) sur sa trace ; `distance` = intervalle entre mon pare-chocs et lui (m, défaut 6).
++   * `trail` : trace déjà parcourue par le meneur (x, z, x, z… la plus récente en dernier) — le suivant la rejoint au plus
++   * près et la parcourt, au lieu de chercher son propre itinéraire jusqu'à lui.
++   */
++  follow(v: Vehicle, leaderId: EntityId, distance?: number, trail?: readonly number[]): boolean;
+   /** Colonne : le premier conduit jusqu'au point, les autres suivent à intervalle régulier et s'arrêtent alignés. */
+   convoy(list: readonly Vehicle[], x: number, z: number, options?: ConvoyOptions): boolean;
+   /** Se gare au point donné, dans le cap donné (manœuvre d'approche, d'alignement et de reprise). */
 diff --git a/crs-simulation/src/sim/vehicles/autopilot-drive.ts b/crs-simulation/src/sim/vehicles/autopilot-drive.ts
-index e7f76fd..e473af1 100644
+index e7f76fd..0848a8e 100644
 --- a/crs-simulation/src/sim/vehicles/autopilot-drive.ts
 +++ b/crs-simulation/src/sim/vehicles/autopilot-drive.ts
 @@ -33,8 +33,16 @@ const AVOID_GIVE_UP = 45;
@@ -19881,7 +20439,28 @@ index e7f76fd..e473af1 100644
  /** Arrêt devant un obstacle fixe infranchissable avant de chercher un autre itinéraire (s) : en conduite normale, en urgence. */
  const OBSTACLE_REROUTE = 10;
  const OBSTACLE_REROUTE_URGENT = 6;
-@@ -455,6 +463,18 @@ export class ApDriver {
+@@ -271,7 +279,9 @@ export class ApDriver {
+     if (ap.mode === 'follow' && ap.cruise === 0 && !ap.convoy) {
+       // une colonne tient l'allure de son meneur (+ de quoi recoller), même là où la voie la plus proche est un
+       // cheminement piéton à vitesse de marche (place, quai) : c'est le meneur qui choisit où et à quelle vitesse on passe (les convois de l'IA ont leur propre allure de croisière)
+-      const lv = ctx.vehicles.get(ap.leaderId);
++      // (meneur suivi en tant que personne, à bord d'un véhicule — BRAV-M en selle derrière le joueur qui roule,
++      // police/command/bravm.ts : l'allure est celle de son véhicule)
++      const lv = this.leaderRide(ap);
+       if (lv && lv.speed + 4 > vt) vt = lv.speed + 4;
+     }
+     // intervention urgente : une fois et demie l'allure (demandée ou limite de la voie), 50 km/h au moins
+@@ -332,7 +342,8 @@ export class ApDriver {
+       const tx = lx - ap.path[ap.n * 2 - 2]!;
+       const tz = lz - ap.path[ap.n * 2 - 1]!;
+       goal = ap.total - ap.s + Math.sqrt(tx * tx + tz * tz) - rt.halfL - half - ap.followDist;
+-      if (lv) leaderSpeed = Math.max(0, lv.speed);
++      const ride = lv ?? this.leaderRide(ap);
++      if (ride) leaderSpeed = Math.max(0, ride.speed);
+       else if (lp) leaderSpeed = Math.sqrt(lp.vx * lp.vx + lp.vz * lp.vz);
+       // accordéon : on règle sa vitesse sur celle du meneur, corrigée de l'écart
+       // et l'on anticipe ses freinages (une demi-seconde d'avance) pour ne pas venir mourir sur son pare-chocs
+@@ -455,6 +466,18 @@ export class ApDriver {
          obstacle = vt < 0.3;
        }
      }
@@ -19900,7 +20479,7 @@ index e7f76fd..e473af1 100644
  
      // ── décoincement : consigne d'avancer mais véhicule immobile ──
      if (ap.unstickT > 0) {
-@@ -473,7 +493,10 @@ export class ApDriver {
+@@ -473,7 +496,10 @@ export class ApDriver {
        return;
      }
      // nez contre un mur (angle de façade, mobilier fixe) : même reprise en marche arrière qu'un véhicule qui force
@@ -19912,7 +20491,7 @@ index e7f76fd..e473af1 100644
      if ((vt > 0.8 && au < 0.12) || wallStall) {
        ap.stuckT += dt;
        if (ap.stuckT > 2.5) {
-@@ -720,12 +743,14 @@ export class ApDriver {
+@@ -720,12 +746,14 @@ export class ApDriver {
      // là où le meneur s'est faufilé — : on la contourne au pas comme un obstacle fixe, si un couloir libre le permet)
      // (de même, un véhicule de police conduit seul, arrêté par des collègues à pied immobiles devant lui — les hommes de
      // son unité, une autre compagnie rangée sur la chaussée — : ils tiennent leur place, ils ne s'écartent pas ; sans
@@ -19930,7 +20509,7 @@ index e7f76fd..e473af1 100644
      // (personnes immobiles, ou à terre — un blessé allongé sur la chaussée —, devant un suivant : on les contourne
      // franchement, en leur laissant un mètre, comme un objet arrêté sur la voie ; un petit pas de côté ne suffisait pas
      // et la colonne attendait derrière un blessé jusqu'à la fin)
-@@ -785,8 +810,11 @@ export class ApDriver {
+@@ -785,8 +813,11 @@ export class ApDriver {
        const urgent = ap.urgence || ap.convoy;
        // un véhicule qui suit un meneur (colonne du joueur, escorte) contourne aussi un véhicule GARÉ (sans conducteur)
        // qui lui barre la voie : sinon, sorti d'un stationnement en bloc, il attendait derrière indéfiniment
@@ -19944,10 +20523,20 @@ index e7f76fd..e473af1 100644
        vehId = o.v.id;
      } else {
        return false;
-@@ -987,6 +1015,30 @@ export class ApDriver {
+@@ -987,6 +1018,40 @@ export class ApDriver {
      return found;
    }
  
++
++  /** Véhicule du meneur : le meneur lui-même, ou le véhicule où se trouve la personne suivie (undefined : à pied, ou aucun). */
++  private leaderRide(ap: ApState): Vehicle | undefined {
++    const ctx = this.k.ctx;
++    const lv = ctx.vehicles.get(ap.leaderId);
++    if (lv) return lv;
++    const lp = ctx.people.get(ap.leaderId);
++    return lp && lp.vehicleId !== 0 ? ctx.vehicles.get(lp.vehicleId) : undefined;
++  }
++
 +  /** Les personnes à pied dans mon couloir, juste devant l'obstacle qui m'arrête, sont-elles toutes immobiles (au moins une) ? */
 +  private stillAhead(rt: VehicleRt, ap: ApState): boolean {
 +    const v = rt.v;
@@ -35518,6 +36107,132 @@ index e78181a..86c7973 100644
      // ils remontent en selle et la colonne part
      const cmd = ctx.service<{ special(id: number): { stage: string } | null }>('police.command')!;
      for (let i = 0; i < 30; i++) {
+diff --git a/crs-simulation/tests/unit/bravm.suivre-vehicule.test.ts b/crs-simulation/tests/unit/bravm.suivre-vehicule.test.ts
+new file mode 100644
+index 0000000..5c9ec40
+--- /dev/null
++++ b/crs-simulation/tests/unit/bravm.suivre-vehicule.test.ts
+@@ -0,0 +1,120 @@
++// BRAV-M de la compagnie, « avec vous » derrière quelqu'un qui ROULE (plan « ordres directs », P20) : elle reste en selle
++// et ferme la colonne de son véhicule, sur sa trace — même quand il longe le rassemblement (elle mettait pied à terre dès
++// qu'une foule était à moins de 120 m de lui, et ses opérateurs restaient à pied sur la place pendant qu'il s'éloignait).
++// Partie réelle : place de la Concorde, vrai Paris, commandant sur le terrain, passager de son véhicule de commandement.
++import { describe, expect, it } from 'vitest';
++
++import type { GameContext, Person, Squad, Vehicle } from '@/core/contracts';
++import { createTestContext } from '@/core/testing';
++import { createSystems as world } from '@/world/query';
++import { createSystems as roles } from '@/sim/roles';
++import { createSystems as people } from '@/sim/people';
++import { createSystems as vehicles } from '@/sim/vehicles';
++import { createSystems as crowd } from '@/sim/crowd';
++import { createSystems as police } from '@/sim/police';
++import { createSystems as law } from '@/gameplay/law';
++import { createSystems as radio } from '@/gameplay/radio';
++import { createSystems as session } from '@/gameplay/session';
++import { createSystems as command } from '@/ui/command';
++
++const SIM = [world, roles, people, vehicles, crowd, police, law, radio, session, command];
++const MEANS = { sections: 2, fourgons: 6, centaure: 0, canon_eau: 0, bravm: 1, drone: 0, pompiers: 0, samu: 0, secours_sur_appel: true };
++
++interface Ap {
++  status(v: Vehicle): { mode: string; state: string; leaderId: number };
++  driveTo(v: Vehicle, x: number, z: number): boolean;
++}
++interface Cmd { special(id: number): { stage: string; kind: string } | null }
++
++/** Opérateurs et pilotes de la BRAV-M (membres de ses binômes). */
++function riders(ctx: GameContext, bravm: Squad): Person[] {
++  return ctx.squads.list.filter((q) => q.parentId === bravm.id).flatMap((q) => q.members.map((id) => ctx.people.get(id)!)).filter((p) => !!p);
++}
++
++describe('BRAV-M : « avec vous » derrière un véhicule', () => {
++  it('le commandant part en véhicule en longeant la foule : la BRAV-M reste en selle et le suit ; il descend : elle ne suit plus son véhicule', async () => {
++    const t = createTestContext({ seed: 108, strict: false, modules: SIM });
++    await t.start({
++      mode: 'libre', role: 'commandant', rank: 'commandant', place: 'Place de la Concorde', x: -10, z: 15,
++      crowdSize: 60, tension: 0.1, volatility: 0.1, duration: 'standard', extra: { moyens: MEANS, variante: 'terrain' },
++    } as never);
++    const { ctx } = t;
++    t.step(5);
++    const ap = ctx.service<Ap>('vehicles.autopilot')!;
++    const cmd = ctx.service<Cmd>('police.command')!;
++    const me = ctx.player.person()!;
++    const company = ctx.squads.get(me.squadId)!;
++    const bravm = ctx.squads.list.find((q) => cmd.special(q.id)?.kind === 'bravm')!;
++    expect(bravm, 'la BRAV-M du dispositif').toBeTruthy();
++    // (§3.3 : tout le monde suit le joueur dès la mise en place, BRAV-M comprise ; §4.1.1 : elle est dans la compagnie)
++    expect(bravm.parentId).toBe(company.id);
++    expect(bravm.order.type).toBe('suivre');
++    expect(bravm.order.targetId).toBe(me.id);
++    const motos = ctx.squads.list.filter((q) => q.parentId === bravm.id && q.vehicleId !== 0).map((q) => ctx.vehicles.get(q.vehicleId)!);
++    expect(motos.length).toBe(6);
++    const all = riders(ctx, bravm);
++    expect(all.length).toBe(12);
++
++    // il monte en passager de son véhicule de commandement (l'IA conduit)
++    const vl = ctx.vehicles.get(company.vehicleId)!;
++    expect(vl.kind).toBe('vl_commandement');
++    if (vl.seats[0] === 0) {
++      const drv = company.members.map((id) => ctx.people.get(id)!).find((p) => p && !p.isPlayer && p.vehicleId === 0)!;
++      drv.x = vl.x + 2; drv.z = vl.z;
++      expect(ctx.vehicles.enter(drv, vl, 'driver')).toBe(true);
++    }
++    me.x = vl.x + 3; me.z = vl.z;
++    let seat = 1;
++    while (seat < vl.seats.length && vl.seats[seat] !== 0) seat++;
++    expect(ctx.vehicles.enter(me, vl, seat)).toBe(true);
++    // la BRAV-M remonte en selle (ses machines sont à côté)
++    for (let i = 0; i < 40 && all.some((p) => p.vehicleId === 0); i++) t.step(1);
++    expect(all.filter((p) => p.vehicleId === 0).map((p) => p.poste), 'tous en selle').toEqual([]);
++    expect(cmd.special(bravm.id)!.stage).toBe('garde');
++
++    // le véhicule roule 400 m et plus, le long du rassemblement
++    const path: number[] = [];
++    let goal: { x: number; z: number } | null = null;
++    for (let k = 0; k < 16 && !goal; k++) {
++      const a = (k / 16) * Math.PI * 2;
++      path.length = 0;
++      if (!ctx.world.findPath(vl.x, vl.z, vl.x + Math.sin(a) * 450, vl.z + Math.cos(a) * 450, 'vehicle', path) || path.length < 4) continue;
++      const ex = path[path.length - 2]!, ez = path[path.length - 1]!;
++      if (Math.hypot(ex - vl.x, ez - vl.z) > 380) goal = { x: ex, z: ez };
++    }
++    expect(goal, 'un itinéraire de 400 m').toBeTruthy();
++    const x0 = vl.x, z0 = vl.z;
++    expect(ap.driveTo(vl, goal!.x, goal!.z)).toBe(true);
++    let crowdNear = false;
++    let afootMax = 0;
++    for (let i = 0; i < 150 && ap.status(vl).state !== 'arrive'; i++) {
++      t.step(2);
++      if (ctx.people.countIn(me.x, me.z, 120, (p) => p.faction === 'protest') >= 8 && Math.hypot(vl.x - x0, vl.z - z0) > 30) crowdNear = true;
++      afootMax = Math.max(afootMax, all.filter((p) => p.vehicleId === 0).length);
++    }
++    const moved = Math.hypot(vl.x - x0, vl.z - z0);
++    expect(moved, 'le véhicule a roulé').toBeGreaterThan(300);
++    expect(crowdNear, 'il a longé le rassemblement').toBe(true);
++    // personne n'a mis pied à terre en route
++    expect(afootMax, 'opérateurs à pied en route').toBe(0);
++    // la colonne des motos le rejoint, derrière son véhicule
++    const lead = (): number => Math.min(...motos.map((v) => Math.hypot(v.x - vl.x, v.z - vl.z)));
++    for (let i = 0; i < 60 && lead() > 120; i++) t.step(2);
++    const gone = motos.filter((v) => Math.hypot(v.x - x0, v.z - z0) > 150).length;
++    console.log(`  véhicule : ${moved.toFixed(0)} m ; moto la plus proche à ${lead().toFixed(0)} m de lui ; ${gone}/6 motos parties ; étape ${cmd.special(bravm.id)!.stage} ; à pied ${all.filter((p) => p.vehicleId === 0).length}`);
++    expect(lead(), 'la tête des motos derrière lui').toBeLessThan(120);
++    expect(gone, 'motos parties avec lui').toBeGreaterThanOrEqual(4);
++    expect(all.filter((p) => p.vehicleId === 0).length).toBe(0);
++    expect(bravm.order.type).toBe('suivre');
++    // la moto de tête le suit, lui (sa trace) — jamais dans la file de ses fourgons, où chacun suit le véhicule précédent
++    expect(motos.some((v) => ap.status(v).mode === 'follow' && ap.status(v).leaderId === me.id)).toBe(true);
++    expect(motos.some((v) => ap.status(v).mode === 'follow' && ap.status(v).leaderId === vl.id)).toBe(false);
++
++    // il descend : plus aucune moto ne suit son véhicule ; « avec moi » reste (à pied près de lui, ou en selle derrière)
++    ctx.vehicles.exit(me);
++    t.step(5);
++    expect(motos.some((v) => ap.status(v).mode === 'follow' && ap.status(v).leaderId === me.id)).toBe(false);
++    expect(bravm.order.type).toBe('suivre');
++    expect(bravm.order.targetId).toBe(me.id);
++  }, 600000);
++});
 diff --git a/crs-simulation/tests/unit/commissariats.bravm-retour-proche.test.ts b/crs-simulation/tests/unit/commissariats.bravm-retour-proche.test.ts
 new file mode 100644
 index 0000000..157c63f
@@ -39616,7 +40331,7 @@ index 2029ada..926aba5 100644
    }, 600000);
  
 diff --git a/crs-simulation/tests/unit/integration.suivre.test.ts b/crs-simulation/tests/unit/integration.suivre.test.ts
-index 6ec7106..ae638d1 100644
+index 6ec7106..9c89cb8 100644
 --- a/crs-simulation/tests/unit/integration.suivre.test.ts
 +++ b/crs-simulation/tests/unit/integration.suivre.test.ts
 @@ -116,7 +116,7 @@ describe('l’unité suit le joueur', () => {
@@ -39628,18 +40343,25 @@ index 6ec7106..ae638d1 100644
      const t = createTestContext({ seed: 7, strict: false, modules: SIM });
      await t.start({ mode: 'libre', role: 'commandant', place: 'essai', x: -10, z: 15, crowdSize: 30, tension: 0, volatility: 0, duration: 'standard', extra: { moyens: COMPANY, variante: 'terrain' } });
      const { ctx } = t;
-@@ -134,7 +134,10 @@ describe('l’unité suit le joueur', () => {
+@@ -134,8 +134,17 @@ describe('l’unité suit le joueur', () => {
      expect(vans.every((x) => x.siren === 1)).toBe(true);
      ctx.vehicles.exit(me);
      t.step(10);
 -    expect(groups.every((s) => s.order.type === 'debarquer')).toBe(true);
-+    // (ils débarquent en ligne à côté de leur fourgon, puis le suivent à pied : jamais laissés à « débarquer »)
-+    expect(groups.every((s) => s.order.type === 'debarquer' || (s.order.type === 'suivre' && s.order.targetId === me.id))).toBe(true);
-+    for (let i = 0; i < 20 && !groups.every((s) => s.order.type === 'suivre'); i++) t.step(2);
-+    expect(groups.filter((s) => s.order.type !== 'suivre').map((s) => `${s.name}=${s.order.type}`)).toEqual([]);
      const cannon = ctx.squads.list.find((s) => s.kind === 'equipage' && ctx.vehicles.get(s.vehicleId)?.kind === 'canon_eau')!;
++    // (ils débarquent en ligne à côté de leur fourgon, puis le suivent à pied : jamais laissés à « débarquer » — sauf le
++    // groupe repris pour l'escorte à pied du canon à eau, un seul : « tout le monde me suit » ne retient pas l'escorte d'un
++    // blindé, spécification « ordres directs » §3.3, session/engins.ts)
++    const guards = (s: (typeof groups)[number]) => (s.order.type === 'proteger' || s.order.type === 'suivre') && s.order.targetId === cannon.vehicleId;
++    const follows = (s: (typeof groups)[number]) => s.order.type === 'suivre' && s.order.targetId === me.id;
++    expect(groups.filter((s) => !(s.order.type === 'debarquer' || follows(s) || guards(s))).map((s) => `${s.name}=${s.order.type}`)).toEqual([]);
++    for (let i = 0; i < 20 && !groups.every((s) => follows(s) || guards(s)); i++) t.step(2);
++    expect(groups.filter((s) => !follows(s) && !guards(s)).map((s) => `${s.name}=${s.order.type}`)).toEqual([]);
++    expect(groups.filter(guards).length).toBeLessThanOrEqual(1);
++    expect(groups.filter(follows).length).toBeGreaterThanOrEqual(groups.length - 1);
      expect(cannon.members.filter((id) => ctx.people.get(id)!.vehicleId !== 0).length).toBe(cannon.members.length);
    }, 300000);
+ 
 diff --git a/crs-simulation/tests/unit/law.arrest.test.ts b/crs-simulation/tests/unit/law.arrest.test.ts
 index ef1bed2..7254727 100644
 --- a/crs-simulation/tests/unit/law.arrest.test.ts
@@ -40352,6 +41074,23 @@ index 0000000..697258b
 +    }
 +  }, 300000);
 +});
+diff --git a/crs-simulation/tests/unit/playtest.apparition-roles.test.ts b/crs-simulation/tests/unit/playtest.apparition-roles.test.ts
+index 546c83d..190cdd9 100644
+--- a/crs-simulation/tests/unit/playtest.apparition-roles.test.ts
++++ b/crs-simulation/tests/unit/playtest.apparition-roles.test.ts
+@@ -517,8 +517,11 @@ describe('point de départ de chaque rôle', () => {
+     const { ctx } = t;
+     const bb = bravmBaseOf(ctx.session.config)!;
+     expect(bb).not.toBeNull();
+-    const faucon = ctx.squads.list.find((s) => s.name.indexOf('FAUCON') === 0 && s.parentId === 0)!;
++    // (plan « ordres directs » §4.1.1 : la BRAV-M fait partie de la compagnie — à portée de « Avec moi » et des ordres du
++    // commandant — tout en partant de son propre commissariat ; avant, c'était une unité sans unité mère)
++    const faucon = ctx.squads.list.find((s) => s.name.indexOf('FAUCON') === 0 && s.kind === 'groupe')!;
+     expect(faucon).toBeDefined();
++    expect(ctx.squads.get(faucon.parentId)?.kind).toBe('compagnie');
+     const motos = ctx.vehicles.list.filter((v) => v.kind === 'moto_bravm');
+     expect(motos.length).toBeGreaterThanOrEqual(6);
+     for (const v of motos) expect(Math.hypot(v.x - bb.x, v.z - bb.z)).toBeLessThan(150);
 diff --git a/crs-simulation/tests/unit/playtest.bravm-passager.test.ts b/crs-simulation/tests/unit/playtest.bravm-passager.test.ts
 index 4ddb3f0..36f25c2 100644
 --- a/crs-simulation/tests/unit/playtest.bravm-passager.test.ts
@@ -40906,10 +41645,10 @@ index 0000000..0c9d772
 +}
 diff --git a/crs-simulation/tests/unit/playtest.commandant-accuse.test.ts b/crs-simulation/tests/unit/playtest.commandant-accuse.test.ts
 new file mode 100644
-index 0000000..abf1dee
+index 0000000..f67c1de
 --- /dev/null
 +++ b/crs-simulation/tests/unit/playtest.commandant-accuse.test.ts
-@@ -0,0 +1,227 @@
+@@ -0,0 +1,229 @@
 +// Partie robot du commandant, côté radio : chaque ordre qu'il donne (par la fiche de la carte, comme « Donner l'ordre »,
 +// ou directement) est écrit tout de suite au journal et en sous-titre (sa phrase n'est pas dite), et l'unité qui le
 +// reçoit répond « REÇU » — ou « NÉGATIF » avec la raison — moins d'une seconde après, jamais avant la phrase d'ordre,
@@ -41090,14 +41829,16 @@ index 0000000..abf1dee
 +    }));
 +    t.step(6);
 +
-+    // 5. Refus : « Interpeller » sans personne qui ait commis un fait — « NÉGATIF », dit avec la raison, dans la seconde
++    // 5. « Interpeller » sans personne qui ait commis un fait : plus un refus (« NÉGATIF ») — l'unité va constater sur
++    // place et interpelle au premier fait (spécification « ordres directs » §4.3, « Aller constater ») ; elle le dit,
++    // dans la seconde
 +    chatter();
 +    t.step(1.4);
 +    const rNo = measure(t, ctx, sec2.id, () => {
 +      expect(core.issue('interpeller', [sec2], null, 0).ok).toBe(true);
 +    });
-+    check('Interpeller sans fait constaté (refus)', rNo, true);
-+    expect(rNo.ack!.text).toMatch(/NÉGATIF\. .+/);
++    check('Interpeller sans fait constaté (aller constater)', rNo);
++    expect(rNo.ack!.text).toMatch(/REÇU, je vais constater sur place/);
 +
 +    console.log(results.map((x) => `${x.what.padEnd(48)} ${x.delay.toFixed(2)} s  ${x.text}`).join('\n'));
 +    // aucune phrase d'ordre du joueur n'est partie à la voix
@@ -41177,10 +41918,10 @@ index 0000000..6bcde82
 +});
 diff --git a/crs-simulation/tests/unit/playtest.commandant-compagnie-depart.test.ts b/crs-simulation/tests/unit/playtest.commandant-compagnie-depart.test.ts
 new file mode 100644
-index 0000000..82446c4
+index 0000000..cd1ec56
 --- /dev/null
 +++ b/crs-simulation/tests/unit/playtest.commandant-compagnie-depart.test.ts
-@@ -0,0 +1,120 @@
+@@ -0,0 +1,125 @@
 +// Partie robot du commandant : « Toute la compagnie » (T) en véhicules, « Y aller » à 600 m, sur la place de la Concorde
 +// (piétonne, loin de toute voie carrossable : la file rangée par lineUp le long du tronçon droit vers la voie
 +// Georges-Pompidou mettait sa tête, le canon à eau, nez au mur de quai — colonne figée derrière elle, plus de cinq
@@ -41251,7 +41992,13 @@ index 0000000..82446c4
 +      const tmap = new TacticalMap(core, { handlers: null } as unknown as MapCanvas, state);
 +      const sendEnv = (card: CardEnv): SendEnv => ({ core, map: tmap, setSelection: (ids) => state.setSelection(ids), card, trace: null });
 +      const e0 = cardEnvFromCore(core);
-+      const sec = e0.units.find((u) => u.symbol === 'section' && u.mine && u.hasVehicles)!;
++      const we = whoEnvFromCore(core, e0, []);
++      // (journée de service : la compagnie embarque encore à sa base, étalée dans la cour — le point est pris à 600 m de
++      // la compagnie elle-même, et non d'une de ses sections : à moins de 450 m d'une unité à pied, la fiche dit « à
++      // pied », et c'est juste — règle unique de direct/travel.ts, plan « ordres directs » §2.1 —, il n'y aurait pas de
++      // colonne à vérifier)
++      const sec = (extra.journee ? e0.units.find((u) => u.squadId === we.whole!.squadIds[0]) : undefined)
++        ?? e0.units.find((u) => u.symbol === 'section' && u.mine && u.hasVehicles)!;
 +      const road = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '', roadClass: 'residential', oneway: false } as never as { x: number; z: number; roadClass: string };
 +      let target: { x: number; z: number } | null = null;
 +      for (let a = 0; a < 16 && !target; a++) {
@@ -41263,7 +42010,6 @@ index 0000000..82446c4
 +      const r = pointRepere(target!.x, target!.z, e0);
 +      const card = buildCard(r, e0, 'envoyer');
 +      const line = card.lines[card.defaultLine]!;
-+      const we = whoEnvFromCore(core, e0, []);
 +      const who = fixedCandidate(e0, we.whole!.squadIds, r, we.whole!.label);
 +      expect(who.mode).toBe('vehicules');
 +      expect(sendCardLine(sendEnv(e0), line, who, r).ok).toBe(true);
@@ -50570,3 +51316,40 @@ index 0000000..6dfd8cf
 +    }, 300000);
 +  }
 +});
+diff --git a/crs-simulation/tests/unit/zz-p20-probe6.test.ts b/crs-simulation/tests/unit/zz-p20-probe6.test.ts
+new file mode 100644
+index 0000000..a96f92d
+--- /dev/null
++++ b/crs-simulation/tests/unit/zz-p20-probe6.test.ts
+@@ -0,0 +1,31 @@
++import { vi } from 'vitest';
++import type { GameContext } from '@/core/contracts';
++
++vi.mock('@/core/testing', async (orig) => {
++  const m = await orig<typeof import('@/core/testing')>();
++  return { ...m, createTestContext: (o: never) => {
++    const t = m.createTestContext(o) as { ctx: GameContext; step(s: number, dt?: number): void };
++    const step0 = t.step.bind(t);
++    let next = 380;
++    t.step = (s: number, dt?: number): void => {
++      step0(s, dt);
++      const ctx = t.ctx;
++      if (ctx.clock.now < next) return;
++      next = ctx.clock.now + 20;
++      const cmd = ctx.service<{ special(id: number): { stage: string; order: string } | null }>('police.command');
++      const me = ctx.player.person()!;
++      const out: string[] = [];
++      for (const q of ctx.squads.list) {
++        if (q.faction !== 'police' || q.members.length === 0) continue;
++        const seated = q.members.filter((id) => { const p = ctx.people.get(id); return p && p.vehicleId !== 0 && p.poste !== 'conducteur' && p.poste !== 'pilote_moto'; }).length;
++        if (seated > 0) out.push(`${q.name}:${seated}/${q.members.length}(${q.order.type}/by${q.order.issuedBy}${q.order.byPlayer ? '/J' : ''})`);
++      }
++      const f = ctx.squads.list.find((q) => q.name === 'FAUCON 1');
++      const sp = f && cmd ? cmd.special(f.id) : null;
++      console.log(`t=${ctx.clock.now.toFixed(0)} moi v=${me.vehicleId} ; FAUCON 1 ${f?.order.type}/by${f?.order.issuedBy} étape ${sp?.stage}/${sp?.order} ; assis : ${out.join(' ')}`);
++    };
++    return t;
++  } };
++});
++
++await import('./police.convoi-ordre-joueur.test');
