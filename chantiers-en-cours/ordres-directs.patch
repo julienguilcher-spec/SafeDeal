@@ -43153,10 +43153,10 @@ index 0000000..97381f2
 +});
 diff --git a/crs-simulation/tests/unit/police-command.convoi-point-inaccessible.test.ts b/crs-simulation/tests/unit/police-command.convoi-point-inaccessible.test.ts
 new file mode 100644
-index 0000000..3ab3651
+index 0000000..aea5106
 --- /dev/null
 +++ b/crs-simulation/tests/unit/police-command.convoi-point-inaccessible.test.ts
-@@ -0,0 +1,44 @@
+@@ -0,0 +1,45 @@
 +import { describe, expect, it } from 'vitest';
 +import { createTestContext } from '@/core/testing';
 +import { createSystems as world } from '@/world/query';
@@ -43194,7 +43194,8 @@ index 0000000..3ab3651
 +    expect(pc.arrive(sec.id, { x: tx, z: tz, heading: 0, layout: 'file', boardFirst: true, stagger: true, disembark: true })).toBe(true);
 +    let stage = '';
 +    for (let i = 0; i < 400 && stage !== 'en_place'; i++) { t.step(1); stage = pc.convoyOf(sec.id)?.stage ?? ''; }
-+    t.step(20);
++    // (le compte rendu passe sur un réseau de commandement chargé : il est dit dans les quarante secondes)
++    t.step(40);
 +    const said = ctx.radio.log.slice(from).filter((m) => m.from === sec.name).map((m) => m.text);
 +    console.log(said.join('\n'));
 +    expect(stage).toBe('en_place');
