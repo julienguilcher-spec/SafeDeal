@@ -397,7 +397,7 @@ async function bureau(server) {
     const ts2 = await page.evaluate(() => window.__CRS.ctx.clock.timeScale);
     check(ts0 === 1 && ts1 === 4 && ts2 === 1, 'la touche d’avance rapide bascule la vitesse de la simulation', `×${ts0} → ×${ts1} → ×${ts2}`);
 
-    // ── roue d'ordres pour un simple CRS : trois secteurs, mêmes numéros que pour un chef (F puis 1, F puis 2, F puis 7) ──
+    // ── roue d'ordres pour un simple CRS : deux secteurs, mêmes numéros que pour un chef (F puis 1, F puis 7) ──
     await page.keyboard.down('KeyF');
     await frames(page, 2);
     await page.keyboard.up('KeyF');
@@ -411,8 +411,8 @@ async function bureau(server) {
         keys: w ? Array.from(w.querySelectorAll('.cw-key')).map((e) => (e.textContent || '').trim()).join(',') : '',
       };
     });
-    check(followWheel.wedges === 3 && followWheel.labels === 'Suivez-moiàpied|Suivez-moienvéhicules|Secoursici' && followWheel.keys === '1,2,7',
-      'touche des ordres pour un équipier : la roue réduite « Suivez-moi à pied » (1), « Suivez-moi en véhicules » (2), « Secours ici » (7)', JSON.stringify(followWheel));
+    check(followWheel.wedges === 2 && followWheel.labels === 'Avecmoi|Secoursici' && followWheel.keys === '1,7',
+      'touche des ordres pour un équipier : la roue réduite « Avec moi » (1) et « Secours ici » (7)', JSON.stringify(followWheel));
     await page.keyboard.press('Escape');
     await frames(page, 3);
     check((await state(page)).screen === null, '… et Échap la referme : aucun écran ne reste ouvert', String((await state(page)).screen));

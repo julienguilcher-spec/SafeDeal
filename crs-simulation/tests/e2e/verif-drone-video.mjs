@@ -78,7 +78,7 @@ try {
   const small = await feedState();
   check(small.rect && s.rect && small.rect.w === s.rect.w, 'un troisième clic revient à la petite fenêtre', `${small.rect?.w}`);
   // par-dessus la carte tactique
-  await page.locator('[data-id="quick-map"]').click();
+  await page.locator('[data-id="hud-key-map"]').click();
   await sleep(2500);
   const tac = await feedState();
   check(tac.ui === 'carte_tactique' && tac.shown, 'la fenêtre reste visible par-dessus la carte de commandement', JSON.stringify(tac.rect));

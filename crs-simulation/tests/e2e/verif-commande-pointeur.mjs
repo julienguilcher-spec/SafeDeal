@@ -146,7 +146,7 @@ try {
 
   // ── ouverture au clic ──
   clicks = 0;
-  await clickSel('[data-id="quick-map"]');
+  await clickSel('[data-id="hud-key-map"]');
   await page.waitForTimeout(500);
   await frames(page, 4);
   C.check(await page.evaluate(() => window.__CRS.ctx.ui.current === 'carte_tactique'), 'le bouton du HUD ouvre la carte de commandement');
@@ -249,7 +249,8 @@ try {
   clicks = 1;
   await clickSel('[data-id="intent-interpeller"]');
   st = await tac();
-  C.check(st && st.intent === 'interpeller' && /Interpeller/.test(st.lineLabel), '« Interpeller » : « Interpeller… » surlignée', JSON.stringify(st));
+  // (aucun fait constaté dans cette foule : la fiche propose d'aller constater, cahier des charges §4.3)
+  C.check(st && st.intent === 'interpeller' && /Interpeller|constater/.test(st.lineLabel), '« Interpeller » : « Interpeller… » ou « Aller constater » surlignée', JSON.stringify(st));
   await readTexts('fiche Interpeller');
   const idI = await page.evaluate(() => {
     const t = window.__CRS.game.systems.find((s) => s.id === 'ui:command').tactical;

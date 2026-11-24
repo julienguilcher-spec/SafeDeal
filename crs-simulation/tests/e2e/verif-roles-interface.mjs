@@ -123,7 +123,8 @@ try {
       try {
         await page.goto(`${server.url}?${q}`, { waitUntil: 'load', timeout: 120000 });
         await waitFor(page, 'window.__CRS && window.__CRS.ready === true && window.__CRS.ctx.session.phase === "playing"', 400000);
-        if (mobile) { const r = await rects(page, 'body'); if (r[0]) await F.tap(W / 2, H / 2); }
+        // (premier toucher hors de tout bouton : le centre de l'écran porte les pastilles d'ordres depuis la version 23)
+        if (mobile) { const r = await rects(page, 'body'); if (r[0]) await F.tap(Math.round(W * 0.71), Math.round(H * 0.77)); }
         await step(page, 2);
         await frames(page, 3);
         const name = `${tag}-${current.replace(/[/:]/g, '-')}`;

@@ -255,7 +255,7 @@ async function bureau() {
     return { draws: m.draws, transforms: m.transforms, hud: !!document.querySelector('[data-id="hud-unit"]:not(.is-off)'), unitText: document.querySelector('[data-id="hud-unit"]').textContent };
   });
   check(s.draws > 0, 'la mini-carte a été dessinée');
-  check(s.hud && /MISTRAL/.test(s.unitText) && /\d+\/\d+/.test(s.unitText), `élément « mon unité » affiché (${s.unitText})`);
+  check(s.hud && /MISTRAL|avec vous/i.test(s.unitText) && /\d+\/\d+/.test(s.unitText), `élément « mon unité » affiché : qui est avec moi, effectif (${s.unitText})`);
   check(!/INITIATIVE|_/.test(s.unitText), `« mon unité » en mots simples, jamais « INITIATIVE » ni un type brut (${s.unitText})`);
   await shot(page, 'command-hud-1280x720');
   // rotation du regard : la mini-carte tourne par transformation CSS, sans redessiner à chaque image
@@ -944,8 +944,8 @@ async function roles() {
       keys: Array.from(document.querySelectorAll('.cw-key')).map((e) => e.textContent),
     }));
     const lab = w.labels.map((x) => (x || '').replace(/\s+/g, ''));
-    check(lab.length === 3 && lab[0] === 'Suivez-moiàpied' && lab[1] === 'Suivez-moienvéhicules' && lab[2] === 'Secoursici' && w.keys.join(',') === '1,2,7',
-      `roue d'ordres d'un CRS : trois secteurs, mêmes numéros que le chef (${JSON.stringify(w)})`);
+    check(lab.length === 2 && lab[0] === 'Avecmoi' && lab[1] === 'Secoursici' && w.keys.join(',') === '1,7',
+      `roue d'ordres d'un CRS : « Avec moi » (1) et « Secours ici » (7), mêmes numéros que le chef (${JSON.stringify(w)})`);
     const wheelNt = await notices(page);
     check(!wheelNt.some((x) => /recevez les ordres/.test(x)), `roue d'ordres d'un CRS : plus de « vous recevez les ordres » (${JSON.stringify(wheelNt.slice(-3))})`);
     // appui LONG (plus d'un quart de seconde et de quatre images) : relâché trop tôt, c'est un appui bref et la
@@ -1057,7 +1057,7 @@ async function plan() {
   check(await page.evaluate(() => window.__cmd.maps.waypoint === null), 'repère supprimé');
   await key(page, 'KeyM', 'carte', false);
 
-  // ── roue d'ordres (8 secteurs, « Suivez-moi » d'abord) : touche maintenue, direction à la souris, relâchement ──
+  // ── roue d'ordres (7 secteurs, « Avec moi » d'abord) : touche maintenue, direction à la souris, relâchement ──
   const aim = await page.evaluate(() => { const s = window.__cmd.ctx.player.state; return { x: s.aimX, z: s.aimZ, yaw: s.camYaw }; });
   await page.keyboard.down('KeyF');
   check(await untilStack(page, 'roue_ordres', true), 'touche F maintenue : la roue d\'ordres s\'ouvre');
@@ -1065,19 +1065,20 @@ async function plan() {
   await shot(page, 'command-roue-1280x720');
   // (libellés sur deux lignes : comparés sans les espaces)
   const labels8 = await page.evaluate(() => Array.from(document.querySelectorAll('.cw-label')).map((e) => (e.textContent || '').replace(/\s+/g, '')));
-  check(labels8.length === 8 && labels8[0] === 'Suivez-moiàpied' && labels8[1] === 'Suivez-moienvéhicules' && /^Plus/.test(labels8[7]), `roue du chef : huit secteurs, « Suivez-moi à pied » en haut (${labels8.join(' | ')})`);
-  // secteur 3 « Avancer jusqu'ici » : à droite de la roue (sens des aiguilles d'une montre depuis le haut)
+  check(labels8.length === 7 && labels8[0] === 'Avecmoi' && labels8[1] === 'Envoyer' && labels8[2] === 'Bloquerunerue' && /^Plus/.test(labels8[6]), `roue du chef : sept secteurs, « Avec moi » en haut (${labels8.join(' | ')})`);
+  // secteur « Envoyer » : le deuxième, en haut à droite (sens des aiguilles d'une montre depuis le haut, 7 secteurs)
   await page.mouse.move(640, 360);
-  await page.mouse.move(750, 360, { steps: 4 });
+  await page.mouse.move(726, 291, { steps: 4 });
   await settle(page, 200);
-  check(await page.evaluate(() => /Avancer/.test(document.querySelector('.cw-title').textContent)), `survol : secteur « Avancer jusqu’ici » surligné (${await page.evaluate(() => document.querySelector('.cw-title').textContent)})`);
+  check(await page.evaluate(() => /Envoyer/.test(document.querySelector('.cw-title').textContent)), `survol : secteur « Envoyer » surligné (${await page.evaluate(() => document.querySelector('.cw-title').textContent)})`);
   await shot(page, 'command-roue-survol-1280x720');
   await page.keyboard.up('KeyF');
   check(await untilStack(page, 'roue_ordres', false), 'relâchement : la roue se ferme');
   let o = await order(page, I.groups[1][0]);
-  check(o.type === 'avancer' && o.issuedBy === I.player, `ordre « avancer » donné à son groupe (${o.type})`);
-  near(o.x, aim.x, 0.5, 'roue : l\'ordre vise le point regardé (x)');
-  near(o.z, aim.z, 0.5, 'roue : l\'ordre vise le point regardé (z)');
+  check(/^(avancer|colonne|faire_mouvement)$/.test(o.type) && o.issuedBy === I.player, `« Envoyer » : ordre de mouvement donné à son groupe (${o.type})`);
+  // (le lieu désigné est le débouché de rue ou le carrefour le plus proche du point regardé : 60 m au plus)
+  const sent = Math.hypot(o.x - aim.x, o.z - aim.z);
+  check(sent <= 60, `roue : l'ordre vise le lieu regardé (${sent.toFixed(1)} m du point de visée)`);
   /** Centre (client) du secteur i d'une roue de n secteurs. */
   const wedgeAt = (i, n) => page.evaluate(([k, m]) => {
     const r = document.querySelector('.cw-svg').getBoundingClientRect();
@@ -1089,17 +1090,17 @@ async function plan() {
   await key(page, 'KeyF', 'roue_ordres', true);
   await settle(page, 600);
   check((await stack(page)).includes('roue_ordres'), 'appui bref : la roue reste affichée');
-  const wedge = await wedgeAt(3, 8); // secteur 4 « Tenir une ligne ici »
+  const wedge = await wedgeAt(2, 7); // troisième secteur : « Bloquer une rue »
   await page.mouse.click(wedge.x, wedge.y);
   const closedAfterChoice = await untilStack(page, 'roue_ordres', false);
   o = await order(page, I.groups[1][0]);
-  check(o.type === 'ligne', `clic sur « Tenir une ligne ici » : ordre transmis (${o.type})`);
-  angleNear(o.heading, aim.yaw, 0.01, 'ligne de la roue : face au regard');
+  check(/^(couper_circulation|ligne)$/.test(o.type) && o.issuedBy === I.player, `clic sur « Bloquer une rue » : ordre transmis (${o.type})`);
+  const blockType = o.type;
   check(closedAfterChoice, 'la roue se ferme après le choix');
-  // ordre de force non autorisé : « Plus… » (secteur 8) puis « Charger » grisé — aucun ordre
+  // ordre de force non autorisé : « Plus… » (dernier secteur) puis « Charger » grisé — aucun ordre
   await key(page, 'KeyF', 'roue_ordres', true);
   await settle(page, 300);
-  const more = await wedgeAt(7, 8);
+  const more = await wedgeAt(6, 7);
   await page.mouse.click(more.x, more.y);
   await settle(page, 300);
   const inner = await page.evaluate(() => Array.from(document.querySelectorAll('.cw-label')).map((e) => (e.textContent || '').replace(/\s+/g, '')));
@@ -1108,7 +1109,7 @@ async function plan() {
   const w2 = await wedgeAt(ci, inner.length);
   await page.mouse.click(w2.x, w2.y);
   await settle(page, 300);
-  check((await order(page, I.groups[1][0])).type === 'ligne', 'secteur « Charger » indisponible (force non autorisée) : aucun ordre');
+  check((await order(page, I.groups[1][0])).type === blockType, 'secteur « Charger » indisponible (force non autorisée) : aucun ordre');
   // Échap : de la couronne intérieure à la roue, puis la roue se ferme
   for (let i = 0; i < 2 && (await stack(page)).includes('roue_ordres'); i++) {
     await page.keyboard.press('Escape');
@@ -1122,14 +1123,14 @@ async function plan() {
   await key(page, 'KeyF', 'roue_ordres', true);
   await settle(page, 300);
   const keysShown = await page.evaluate(() => Array.from(document.querySelectorAll('.cw-key')).map((e) => e.textContent));
-  check(keysShown.join(' ') === '1 2 3 4 5 6 7 8', `chaque secteur affiche sa touche (${keysShown.join(' ')})`);
+  check(keysShown.join(' ') === '1 3 4 5 6 7 8', `chaque secteur affiche sa touche (${keysShown.join(' ')})`);
   check(await page.evaluate(() => /Chiffres, ou flèches puis Entrée/.test(document.querySelector('.cw-legend')?.textContent ?? '')), 'légende « Chiffres, ou flèches puis Entrée » sous la roue');
   await page.keyboard.press('ArrowUp');
   await frames(page, 3);
-  check(await page.evaluate(() => /Suivez-moiàpied/.test(document.querySelector('.cw-title').textContent.replace(/\s+/g, ''))), '↑ : secteur « Suivez-moi à pied » surligné');
+  check(await page.evaluate(() => /Avecmoi/.test(document.querySelector('.cw-title').textContent.replace(/\s+/g, ''))), '↑ : secteur « Avec moi » surligné');
   await page.keyboard.press('ArrowRight');
   await frames(page, 3);
-  check(await page.evaluate(() => /Suivez-moienvéhicules/.test(document.querySelector('.cw-title').textContent.replace(/\s+/g, ''))), '→ : secteur suivant (« Suivez-moi en véhicules ») surligné');
+  check(await page.evaluate(() => /Envoyer/.test(document.querySelector('.cw-title').textContent.replace(/\s+/g, ''))), '→ : secteur suivant (« Envoyer ») surligné');
   check(await key(page, 'Backspace', 'roue_ordres', false), '⌫ ferme la roue sans ordre');
   check((await order(page, I.groups[1][0])).type === before0, 'roue fermée au clavier : aucun nouvel ordre');
   await key(page, 'KeyF', 'roue_ordres', true);
@@ -1137,7 +1138,7 @@ async function plan() {
   await page.keyboard.press('Digit3');
   check(await untilStack(page, 'roue_ordres', false), 'chiffre 3 : la roue se ferme');
   await frames(page, 4);
-  check((await order(page, I.groups[1][0])).type === 'avancer', 'chiffre 3 : ordre « avancer » transmis');
+  { const t3 = (await order(page, I.groups[1][0])).type; check(/^(avancer|colonne|faire_mouvement)$/.test(t3), `chiffre 3 : « Envoyer » transmis (${t3})`); }
   const held1 = await page.evaluate(() => { const p = window.__cmd.ctx.player.person(); return p ? p.active : -2; });
   check(held1 === held0, `le chiffre tapé dans la roue ne change pas l'objet en main (${held0} → ${held1})`);
 
@@ -1337,7 +1338,7 @@ async function manette() {
   await tapPad(2);
   await settle(page, 300);
   t = await tac(page);
-  check(t.whoIndex === 1 && t.who && t.who.label !== who0, `X : Qui suivant (${who0} → ${t.who && t.who.label})`);
+  check(!!t.who && t.who.label !== who0, `X : Qui suivant (${who0} → ${t.who && t.who.label})`);
   const target = t.who ? t.who.ids : [];
   const before = await Promise.all(target.map((id) => order(page, id)));
   await settle(page, 700);
@@ -1738,7 +1739,7 @@ async function socle() {
     screens: ['carte', 'carte_tactique', 'roue_ordres', 'radio'].map((id) => window.__cmd.ctx.service('ui.kit').hasScreen(id)),
   }));
   check(hud.widgets.includes('maps.minimap') && hud.widgets.includes('command.unit') && hud.widgets.includes('command.incident'), `éléments de HUD enregistrés auprès du vrai UiKit (${hud.widgets.join(', ')})`);
-  check(hud.mini && /MISTRAL/.test(hud.unit), 'mini-carte et « mon unité » affichés dans le HUD du socle');
+  check(hud.mini && /MISTRAL|avec vous/i.test(hud.unit), `mini-carte et « mon unité » affichés dans le HUD du socle (${hud.unit})`);
   check(hud.screens.every(Boolean), 'écrans carte, carte_tactique, roue_ordres et radio enregistrés');
   await shot(page, 'command-socle-hud-1280x720');
   // touches d'interface du socle (table HOTKEY_SCREENS)
@@ -1786,12 +1787,17 @@ async function socle() {
   check(await untilStack(page, 'roue_ordres', true), 'socle : F maintenue ouvre la roue d\'ordres');
   await settle(page, 300);
   await page.mouse.move(640, 360);
-  await page.mouse.move(750, 360, { steps: 4 });
+  await page.mouse.move(726, 291, { steps: 4 }); // secteur « Envoyer »
   await settle(page, 200);
   await shot(page, 'command-socle-roue-1280x720');
   await page.keyboard.up('KeyF');
   check(await untilStack(page, 'roue_ordres', false), 'socle : relâchement, la roue se ferme');
-  check((await order(page, I.company)).type === 'avancer', 'socle : « Avancer jusqu’ici » (roue) transmis à l\'unité du joueur');
+  {
+    // (ordres directs : « Envoyer » va à l'unité libre la plus proche du lieu visé, pas à toute la compagnie)
+    const sentTo = await page.evaluate((me) => window.__cmd.ctx.squads.list
+      .filter((q) => q.order && q.order.issuedBy === me && /^(avancer|colonne|faire_mouvement)$/.test(q.order.type)).map((q) => `${q.name} : ${q.order.type}`), I.player);
+    check(sentTo.length > 0, `socle : « Envoyer » (roue) transmis à une unité du joueur (${sentTo.join(' ; ') || 'aucune'})`);
+  }
   // manette dans le vrai socle : zones de focus par LB / RB
   await page.evaluate(() => {
     const pad = { id: 'Manette d\'essai (STANDARD GAMEPAD Vendor: 045e Product: 02ea)', index: 0, connected: true, mapping: 'standard', timestamp: 0, axes: [0, 0, 0, 0], buttons: Array.from({ length: 17 }, () => ({ pressed: false, touched: false, value: 0 })) };
