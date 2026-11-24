@@ -6591,7 +6591,7 @@ index 68b242d..dba9d82 100644
      this.orphaned.clear();
      this.column = [];
 diff --git a/crs-simulation/src/gameplay/session/journee.ts b/crs-simulation/src/gameplay/session/journee.ts
-index adce1e2..a855aac 100644
+index adce1e2..ff538f6 100644
 --- a/crs-simulation/src/gameplay/session/journee.ts
 +++ b/crs-simulation/src/gameplay/session/journee.ts
 @@ -47,15 +47,27 @@ export interface JourneeApi {
@@ -7056,7 +7056,7 @@ index adce1e2..a855aac 100644
 +      else if (this.rideStillAt < 0) this.rideStillAt = now;
 +      const walkable = Math.hypot(ride.x - d.x, ride.z - d.z) < RIDE_WALK && this.rideStillAt >= 0 && now - this.rideStillAt > RIDE_STILL;
 +      if (!walkable && now - this.rideWaitAt < RIDE_WAIT) return;
-     }
++    }
 +    this.rideWaitAt = -1;
 +    this.rideStillAt = -1;
 +    this.arrived();
@@ -7166,7 +7166,7 @@ index adce1e2..a855aac 100644
 +      if (moto.def.hasSiren && ext && ext.setSiren) ext.setSiren(moto, 1);
 +      this.objective(`En selle avec la BRAV-M : ${d.name}`, d.x, d.z, true);
 +      return;
-+    }
+     }
 +    // la zone de stationnement atteinte, ou la BRAV-M arrêtée sur place et rejointe (sa tête à moins de REJOIN_BRAVM m) :
 +    // la moto lui est rendue
 +    const command = ctx.service<CommandLike>('police.command');
@@ -7202,7 +7202,7 @@ index adce1e2..a855aac 100644
      this.setSirens(false);
      const me = ctx.player.person();
      if (me && me.vehicleId !== 0) {
-@@ -484,15 +933,23 @@ export class JourneeSystem implements GameSystem {
+@@ -484,15 +933,34 @@ export class JourneeSystem implements GameSystem {
        if (v && v.seats[0] !== me.id && CONVOY_KINDS.has(v.kind)) ctx.vehicles.exit(me);
      }
      this.stage_ = 'sur_place';
@@ -7211,7 +7211,18 @@ index adce1e2..a855aac 100644
      this.clearObjective();
 +    // (colonne arrêtée avant le point — arrêt court, rue fermée : police/command/convoy.ts shortPark — : on ne se dit pas
 +    // « sur place » à trois cents mètres du lieu)
-+    const short = me && this.dest && !this.solo ? Math.hypot(me.x - this.dest.x, me.z - this.dest.z) : 0;
++    let short = 0;
++    if (this.dest && !this.solo) {
++      // (distance au lieu du véhicule de la compagnie qui en est le plus près — pas celle du joueur, resté à la base
++      // quand la colonne est partie sans lui)
++      short = Infinity;
++      for (const s of ctx.squads.list) {
++        if (s.vehicleId === 0 || this.companyOf(s.id) !== this.companyId) continue;
++        const v = ctx.vehicles.get(s.vehicleId);
++        if (v && CONVOY_KINDS.has(v.kind)) short = Math.min(short, Math.hypot(v.x - this.dest.x, v.z - this.dest.z));
++      }
++      if (short === Infinity) short = 0;
++    }
      ctx.radio.say({ channel: 'commandement', from: this.companyName(), priority: 1,
 -      text: `CENTRAL de ${this.companyName()}. Sur place, ${this.dest ? this.dest.name : 'zone de stationnement'}. On débarque et on se met en place.` });
 +      text: short > RIDE_NEAR
@@ -7227,7 +7238,7 @@ index adce1e2..a855aac 100644
      if (st && (st.stage === 'rembarquement' || st.stage === 'depart')) {
        this.engageOthers(this.base.x, this.base.z, 0, true);
        this.stage_ = 'rembarquement';
-@@ -537,6 +994,101 @@ export class JourneeSystem implements GameSystem {
+@@ -537,6 +1005,101 @@ export class JourneeSystem implements GameSystem {
      }
    }
  
@@ -44202,7 +44213,7 @@ index 0000000..03f270e
 +});
 diff --git a/crs-simulation/tests/unit/playtest.commandant-mission.lib.ts b/crs-simulation/tests/unit/playtest.commandant-mission.lib.ts
 new file mode 100644
-index 0000000..45fd1b6
+index 0000000..1be2f95
 --- /dev/null
 +++ b/crs-simulation/tests/unit/playtest.commandant-mission.lib.ts
 @@ -0,0 +1,751 @@
@@ -44876,7 +44887,7 @@ index 0000000..45fd1b6
 +        const fv = by && by.vehicleId ? ctx.vehicles.get(by.vehicleId) : undefined;
 +        const fa = fv ? ctx.service<{ status(v: Vehicle): { mode: string; state: string; reason: string; urgence: boolean } }>('vehicles.autopilot')?.status(fv) : undefined;
 +        const tg = ctx.people.get(f.targetId);
-+        run.notes.push(`force fautive +${(f.t - tArr).toFixed(0)} s : ${q?.name ?? '?'} (${by?.poste ?? '?'}${fv ? `, à bord de ${fv.kind} #${fv.id} en (${fv.x.toFixed(0)}, ${fv.z.toFixed(0)}), ${fv.speed.toFixed(1)} m/s, pilote ${fa ? `${fa.mode}/${fa.state}/${fa.reason}${fa.urgence ? ' urgence' : ''}` : '-'}` : ''}, ordre ${q?.order.type ?? '-'}) — ${f.means}, ${f.verdict.kind}, gravité ${f.verdict.severity}, à ${Math.hypot(f.x - me.x, f.z - me.z).toFixed(0)} m du commandant ; touché : ${tg ? `${tg.faction} ${tg.role ?? ''} ${tg.posture}, sol « ${ctx.world.surfaceAt(tg.x, tg.z)} »` : '?'}`);
++        run.notes.push(`force fautive +${(f.t - tArr).toFixed(0)} s : ${q?.name ?? '?'} (${by?.poste ?? '?'}${fv ? `, à bord de ${fv.kind} #${fv.id} en (${fv.x.toFixed(0)}, ${fv.z.toFixed(0)}), ${fv.speed.toFixed(1)} m/s, pilote ${fa ? `${fa.mode}/${fa.state}/${fa.reason}${fa.urgence ? ' urgence' : ''}` : '-'}` : ''}, ordre ${q?.order.type ?? '-'}) — ${f.means}, ${f.verdict.kind}, gravité ${f.verdict.severity}, à ${Math.hypot(f.x - me.x, f.z - me.z).toFixed(0)} m du commandant ; touché : ${tg ? `${tg.faction}, ${tg.posture}, sol « ${ctx.world.surfaceAt(tg.x, tg.z)} »` : '?'}`);
 +      }
 +    }
 +    for (const [when, f] of plan) if (when === k && ctx.session.phase === 'playing' && !SKIP.has(when)) f();

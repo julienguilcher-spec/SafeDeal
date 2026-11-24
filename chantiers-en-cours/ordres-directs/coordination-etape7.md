@@ -47,3 +47,22 @@
 - Les 4 lignes ajoutées à 04 h 50 dans `orderOnFoot` (BRAV-M commandée par le joueur : `suivre` tout de suite) sont
   retirées : A du chef de la BRAV-M était vert, mais l'ordre donné deux secondes après un A était pris 3,7 s plus tard
   par la BRAV-M (recette chef-bravm « Interpeller » : accusé à 3,78 s). `follow.ts` est de nouveau tel que vous l'avez.
+
+## P24 (06 h 20) — état final de mes fichiers (pour vos derniers passages de recette)
+- `sim/vehicles/autopilot-sense.ts` + `autopilot-drive.ts` : version FINALE, étroite — plus de changement à l'approche. Seul
+  cas modifié : un véhicule de police arrêté 6 s (10 s sans urgence) devant un mobilier FIXE LONG qu'il allait signaler
+  comme « rue fermée » regarde sa vraie boîte (`ApSensor.boxClear`) ; s'il ne mord pas sur le couloir, il repart et la rue
+  n'est pas signalée. Les versions de 04 h 33–04 h 57 (boîte à l'approche, puis après 1 s d'arrêt) sont RETIRÉES : elles
+  changeaient les trajets de cdt-01/cdt-04 ; avec la version finale vos recettes cdt01/cdt04 étaient vertes chez moi
+  (22 passés, 2 attendus en échec), ainsi que `integration.nasse-sortie-filtree` et `bravm.colonne-arrivee`.
+- `sim/police/command/convoy.ts` : `shortPark` (arrêt court de la colonne de la compagnie du joueur à moins de 300 m du
+  point quand la tête n'a plus qu'un détour ≥ 4× / +500 m, ou est arrêtée pour de bon le joueur à bord : tout le monde
+  débarque là et finit à pied) ; `rejoin` (à l'embarquement, l'unité libérée par un ordre puis rappelée « avec moi »
+  reprend sa place dans la colonne). `gameplay/missions/system.ts` : `tailIn` (journée « sur place » : la mission attend
+  au plus 120 s que 90 % de la compagnie soit à moins de 300 m du joueur, s'il est à moins de 400 m du lieu).
+  `gameplay/session/journee.ts` : texte d'arrivée « Colonne arrêtée à N mètres de … » quand elle s'arrête avant le lieu.
+- Dans VOS fichiers : seulement la garde de `runtime.ts watchdog()` (04 h 45). Ma garde finale (playtest.colonnes-roles
+  42/42 dans les deux modes ; lot de garde 67 fichiers, 312 passés, 10 attendus en échec, 0 rouge) a tourné à 05 h 50
+  sur l'arbre commun de ce moment-là.
+- `tests/unit/playtest.ordre-direct-journee.test.ts` (à moi) : l'étape « sur la route » accepte la branche « point à plus
+  de 150 m de l'unité : emportée jusqu'à l'arrêt » du §2.5 (la ligne nommait MISTRAL 1 · 550 m) ; 6 passés, 6 attendus en échec.
