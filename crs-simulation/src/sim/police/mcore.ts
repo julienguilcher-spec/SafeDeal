@@ -13,6 +13,7 @@ import type { Agent, FormGroup, Unit } from './brain';
 import { F_BOX, F_COLUMN, F_HOLD, F_LINE, F_NONE, F_SCREEN, F_TORTUE, createGroup } from './brain';
 import { buildBox, buildColumn, buildHold, buildLine, buildScreen, buildTortue } from './formation';
 import type { Kernel } from './kernel';
+import { isAble } from './kernel';
 import { centroid, measure, placeGroup, setPath, settleSlots } from './place';
 import { frame, superior } from './radio';
 import { formables, refreshFormable } from './tree';
@@ -25,21 +26,53 @@ export function copyOrder(o: SquadOrder): SquadOrder {
   };
   // le lieu nommé par celui qui a donné l'ordre suit la copie (accusé de réception, suivi)
   if (o.place) c.place = o.place;
+  // ordre du joueur : la marque suit toutes les copies (délais courts, priorité sur les ordres de l'IA)
+  if (o.byPlayer) c.byPlayer = true;
   return c;
+}
+
+/** Délai de grâce d'une mise en place (s) : court sur un ordre du joueur. */
+function formTimeout(u: Unit): number {
+  return u.order && u.order.byPlayer ? T.FORM_TIMEOUT_PLAYER : T.FORM_TIMEOUT;
+}
+
+const exitQueue: number[] = [];
+
+/**
+ * Temps qu'il faut aux agents encore assis de l'unité pour descendre (s) : un par véhicule toutes les EXIT_INTERVAL
+ * secondes, tous les véhicules à la fois — le véhicule le plus chargé fixe la durée. 0 si personne n'est assis.
+ */
+export function dismountEta(u: Unit): number {
+  if (!u.dismount) return 0;
+  exitQueue.length = 0;
+  let most = 0;
+  const agents = u.agents;
+  for (let i = 0; i < agents.length; i++) {
+    const a = agents[i];
+    if (!a.hasSlot || a.p.vehicleId === 0) continue;
+    const v = a.p.vehicleId;
+    let j = 0;
+    while (j < exitQueue.length && exitQueue[j] !== v) j += 2;
+    if (j >= exitQueue.length) exitQueue.push(v, 0);
+    const n = ++exitQueue[j + 1];
+    if (n > most) most = n;
+  }
+  return most > 0 ? most * T.EXIT_INTERVAL + 1 : 0;
 }
 
 export function setPhase(k: Kernel, u: Unit, phase: UnitPhase): void {
   if (phase === 'mise_en_place') {
-    // délai de grâce de la mise en place : le temps de marche du plus éloigné, plus une marge
+    // délai de grâce de la mise en place : le temps de marche du plus éloigné, plus une marge (agents encore à bord
+    // compris : le temps de descendre, puis de rejoindre leur place)
     let far = 0;
     const agents = u.agents;
     for (let i = 0; i < agents.length; i++) {
       const a = agents[i];
-      if (!a.hasSlot || !a.able) continue;
+      if (!a.hasSlot || (!a.able && a.p.vehicleId === 0)) continue;
       const d = (a.sx - a.p.x) * (a.sx - a.p.x) + (a.sz - a.p.z) * (a.sz - a.p.z);
       if (d > far) far = d;
     }
-    u.formDeadline = k.now + T.FORM_TIMEOUT + Math.sqrt(far) / 1.6;
+    u.formDeadline = k.now + formTimeout(u) + dismountEta(u) + Math.sqrt(far) / 1.6;
     u.lateN = 0;
   }
   if (u.phase === phase) return;
@@ -56,23 +89,70 @@ const LATE_NEAR = 3;
  * poursuit sa mise en place (elle annonçait « en place » à 30 m de son poste, bloquée derrière des barrières).
  */
 export function formLate(k: Kernel, u: Unit): boolean {
-  if (k.now <= u.formDeadline) return false;
+  const player = !!(u.order && u.order.byPlayer);
+  if (!player && k.now <= u.formDeadline) return false;
   let n = 0;
   let near = 0;
+  let seated = 0;
   const agents = u.agents;
   for (let i = 0; i < agents.length; i++) {
     const a = agents[i];
-    if (!a.able || !a.hasSlot || a.op !== null || a.p.isPlayer) continue;
+    if (!a.hasSlot || a.op !== null || a.p.isPlayer) continue;
+    if (!a.able) {
+      // encore assis dans son véhicule (débarquement préalable) : pas à son poste
+      if (u.dismount && a.p.vehicleId !== 0) {
+        n++;
+        seated++;
+      }
+      continue;
+    }
     n++;
     const dx = a.sx - a.p.x;
     const dz = a.sz - a.p.z;
     if (dx * dx + dz * dz <= LATE_NEAR * LATE_NEAR) near++;
   }
+  // ordre du joueur : en place dès que 70 % des agents sont à moins de 3 m de leur emplacement, sans attendre l'échéance
+  if (player && n > 0 && near >= n * T.PLAYER_READY_SHARE && !groupsMoving(u)) return true;
+  if (k.now <= u.formDeadline) return false;
   if (n === 0 || near * 3 >= n * 2) return true;
-  u.formDeadline = k.now + T.FORM_TIMEOUT;
+  u.formDeadline = k.now + formTimeout(u);
   // compte rendu au premier retard, puis toutes les quatre échéances (pas une rafale toutes les 25 s)
-  if (u.lateN++ % 4 === 0) report(k, u, 'Mise en place retardée : ' + (n - near) + ' agents encore loin de leur poste. Je poursuis', 1, false);
+  if (u.lateN++ % 4 === 0) {
+    const far = n - near;
+    const text = seated === 0 ? far + ' agents encore loin de leur poste'
+      : seated === far ? seated + (seated > 1 ? ' agents encore à bord' : ' agent encore à bord')
+        : far + ' agents encore loin de leur poste, dont ' + seated + ' encore à bord';
+    report(k, u, 'Mise en place retardée : ' + text + '. Je poursuis', 1, false);
+  }
   return false;
+}
+
+function groupsMoving(u: Unit): boolean {
+  for (let i = 0; i < u.groups.length; i++) if (u.groups[i].moving) return true;
+  return false;
+}
+
+/**
+ * Part de l'unité qui prend part à la manœuvre (0..1) : agents valides à pied à leur emplacement ou détachés pour une
+ * tâche, sur tous les agents de l'unité en état d'agir (assis dans un véhicule compris ; conducteurs, équipages et
+ * joueur exceptés). Une unité sans agent compte pour 1.
+ */
+export function takingPart(k: Kernel, u: Unit): number {
+  let total = 0;
+  let part = 0;
+  const agents = u.agents;
+  for (let i = 0; i < agents.length; i++) {
+    const a = agents[i];
+    const p = a.p;
+    if (a.crew || p.isPlayer) continue;
+    if (a.able) {
+      total++;
+      if (a.hasSlot || a.op !== null) part++;
+    } else if (a.formable || (p.vehicleId !== 0 && isAble(k.ctx, p))) {
+      total++;
+    }
+  }
+  return total === 0 ? 1 : part / total;
 }
 
 export function setStep(k: Kernel, u: Unit, step: number): void {
@@ -418,7 +498,8 @@ export function reform(k: Kernel, u: Unit): void {
 
 /** Tous les blocs de l'unité sont-ils en place (écart toléré) ? Met à jour les mesures. */
 export function allSettled(u: Unit, tolerance: number): boolean {
-  let ok = true;
+  // des agents encore assis gardent leur place dans la formation : elle n'est pas en place sans eux
+  let ok = !(u.dismount && seatedInSlot(u));
   for (let i = 0; i < u.groups.length; i++) {
     const g = u.groups[i];
     measure(g);
@@ -426,6 +507,13 @@ export function allSettled(u: Unit, tolerance: number): boolean {
     if (!g.settled) ok = false;
   }
   return ok;
+}
+
+/** Un agent de l'unité qui a un emplacement est-il encore assis dans un véhicule ? */
+function seatedInSlot(u: Unit): boolean {
+  const agents = u.agents;
+  for (let i = 0; i < agents.length; i++) if (agents[i].hasSlot && agents[i].p.vehicleId !== 0 && !agents[i].crew) return true;
+  return false;
 }
 
 /** Barycentre de l'effectif apte de l'unité, dans k.v2. */
@@ -444,14 +532,17 @@ export function report(k: Kernel, u: Unit, body: string, priority: 0 | 1 | 2 = 1
   k.say(u, frame(superior(k, u, u.task ?? u.order), u.squad.name, body, expectReply), priority, u.parent ? 'unite' : 'commandement');
 }
 
-/** Formation en place : événement et compte rendu (une fois par ordre). */
+/**
+ * Formation en place : événement et compte rendu (une fois par ordre). Pas de compte rendu radio quand moins de la
+ * moitié de l'unité y a pris part (« Tortue formée » dite par une unité restée dans ses fourgons) : l'événement suit.
+ */
 export function inPlace(k: Kernel, u: Unit, body: string): void {
   setPhase(k, u, 'en_place');
   if (u.reported) return;
   u.reported = true;
   const g = u.groups.length > 0 ? u.groups[0] : null;
   k.emit(IN_PLACE_EVENT, { squadId: u.id, x: g ? g.ax : 0, z: g ? g.az : 0 });
-  if (body !== '') report(k, u, body);
+  if (body !== '' && takingPart(k, u) >= T.REPORT_SHARE) report(k, u, body);
 }
 
 /** Fin d'une manœuvre ou d'une tâche : événement libre pour le commandement et l'interface. */

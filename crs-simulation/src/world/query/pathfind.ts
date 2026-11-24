@@ -30,6 +30,8 @@ const ADJ_CONTRA = 4;
 /** Longueur maximale d'un tronçon pris à contresens (m) et surcoût fixe (s). */
 const CONTRA_MAX = 160;
 const CONTRA_EXTRA = 15;
+/** Départ à moins de tant de mètres d'un nœud de l'arête d'accroche : le véhicule est encore dans le carrefour (m). */
+const START_NODE_REACH = 8;
 
 // Marqueurs de provenance : départ par l'arête d'accroche vers son nœud b (avant) ou a (arrière).
 const FROM_START_FORWARD = -2;
@@ -54,6 +56,15 @@ export interface PathStart {
    * ruelle) coûte cher — empruntée seulement s'il n'y a rien d'autre.
    */
   minWidth?: number;
+  /**
+   * Deux-roues : au départ, à moins de START_NODE_REACH m d'un carrefour, le virage à ce carrefour est jugé sur le cap
+   * réel du véhicule, pas seulement sur le sens où il parcourrait sa voie d'accroche (voir sharpTurn — le surcoût d'un
+   * virage en épingle est compté pour un fourgon, qui ne tourne pas à 150° dans une rue de 5 m). Une moto arrêtée à
+   * l'entrée d'une rue à sens unique, à deux mètres du boulevard qu'elle venait de quitter et tournée à 45° de lui,
+   * faisait le tour du pâté de maisons (620 m) au lieu de reprendre le boulevard (100 m) : accrochée à la rue, elle
+   * était tenue pour en revenir à contresens, donc pour prendre le boulevard en épingle.
+   */
+  tightTurns?: boolean;
 }
 
 /** Marge (m) à l'intérieur des limites du monde en deçà de laquelle une voie est tenue pour hors carte. */
@@ -370,6 +381,7 @@ export class PathFinder {
     this.avoid = vehicle && start && start.avoid && start.avoid.length > 0 ? start.avoid : undefined;
     this.contra = vehicle && start && start.contraflow && start.contraflow > 0 ? start.contraflow : 0;
     this.minWidth = vehicle && start && start.minWidth && start.minWidth > 0 ? start.minWidth : 0;
+    this.tightTurns = !!start && start.tightTurns === true;
     if (this.avoid) {
       const ne = this.net.graph.edges.length;
       if (this.edgePenalty.length !== ne) {
@@ -404,6 +416,7 @@ export class PathFinder {
   private avoid: PathStart['avoid'] = undefined;
   private contra = 0;
   private minWidth = 0;
+  private tightTurns = false;
   /** Surcoût d'évitement de chaque arête pour la recherche en cours (calculé à la demande). */
   private edgePenalty: Float32Array = new Float32Array(0);
   private edgePenaltyGen: Uint32Array = new Uint32Array(0);
@@ -577,6 +590,8 @@ export class PathFinder {
     // virages en épingle coûteux pour un véhicule piloté (départ orienté demandé) : un fourgon ne prend pas un virage à
     // 150° d'un boulevard dans une rue de 5 m — il fait le tour par la rue suivante
     const turns = vehicle && this.uturnCost > 0;
+    // (deux-roues parti tout près d'un nœud de son arête de départ : son cap réel compte aussi, voir PathStart.tightTurns)
+    const ownHeading = turns && this.tightTurns && !Number.isNaN(this.startHeading);
     while (this.heapSize > 0) {
       // Le plus petit f restant ne peut plus améliorer la meilleure arrivée connue : terminé.
       if (this.heapF[0] >= bestTotal) break;
@@ -603,14 +618,17 @@ export class PathFinder {
       // cap d'arrivée au nœud (virages serrés : voir sharpTurn)
       const pk = parentAdj[n];
       let inHeading = NaN;
+      let fromStart = false;
       if (turns) {
         if (pk >= 0) {
           const pe = this.adjEdge[pk];
           inHeading = (adjFlags[pk] & ADJ_FORWARD) !== 0 ? this.leaveB[pe] + Math.PI : this.leaveA[pe] + Math.PI;
         } else if (pk === FROM_START_FORWARD) {
           inHeading = this.leaveB[startEdge] + Math.PI;
+          fromStart = ownHeading && es.length - startS < START_NODE_REACH;
         } else if (pk === FROM_START_BACKWARD) {
           inHeading = this.leaveA[startEdge] + Math.PI;
+          fromStart = ownHeading && startS < START_NODE_REACH;
         }
       }
       for (let k = adjStart[n], end = adjStart[n + 1]; k < end; k++) {
@@ -629,7 +647,8 @@ export class PathFinder {
         if (turns && !Number.isNaN(inHeading)) {
           const ek = this.adjEdge[k];
           const out = (adjFlags[k] & ADJ_FORWARD) !== 0 ? this.leaveA[ek] : this.leaveB[ek];
-          cost += this.sharpTurn(inHeading, out);
+          const sharp = this.sharpTurn(inHeading, out);
+          cost += fromStart && sharp > 0 ? Math.min(sharp, this.sharpTurn(this.startHeading, out)) : sharp;
         }
         if (seen[to] === gen && cost >= g[to]) continue;
         g[to] = cost;

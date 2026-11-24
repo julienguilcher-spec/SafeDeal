@@ -161,6 +161,102 @@ describe('radio — file d\'attente (logique pure)', () => {
     expect(urgent[0]!.text).toBe('urgent 10');
   });
 
+  it('silent : écrit tout de suite même sur un canal occupé, sans occuper le canal ni passer par l\'anti-répétition', () => {
+    const { q, played } = make();
+    q.submit(msg('Un message assez long pour occuper le canal du commandement pendant plusieurs secondes.', 1, 'commandement', 'CENTRAL'), 0);
+    const busy = q.busyUntil('commandement');
+    const order: RadioMessage = { ...msg('MISTRAL 1, barrez la rue Saint-Gilles.', 1, 'commandement', 'MISTRAL'), silent: true };
+    expect(q.submit(order, 1)).toBe('played');
+    expect(played.map((p) => p.text)).toContain('MISTRAL 1, barrez la rue Saint-Gilles.');
+    expect(played[played.length - 1]!.t).toBe(1);
+    expect(q.busyUntil('commandement')).toBe(busy);
+    expect(q.pending('commandement')).toBe(0);
+    // le même ordre redonné s'écrit à nouveau
+    expect(q.submit({ ...order }, 3)).toBe('played');
+  });
+
+  it('reply : l\'accusé coupe un message de priorité 1 en cours, passe aussitôt, et le message coupé est redit après', () => {
+    const { q, played } = make();
+    const long = 'MISTRAL ICI CENTRAL. Point de situation, cortège arrêté boulevard Beaumarchais, rien à signaler de plus pour le moment. PARLEZ.';
+    q.submit(msg(long, 1, 'commandement', 'CENTRAL'), 0);
+    q.submit(msg('Trafic ordinaire en attente.', 1, 'commandement', 'MISTRAL 3'), 0.2);
+    const ack: RadioMessage = { ...msg('ICI MISTRAL UN. REÇU, je barre la rue, rue Saint-Gilles. TERMINÉ.', 1, 'commandement', 'MISTRAL 1'), reply: true };
+    expect(q.submit(ack, 1)).toBe('played');
+    expect(played[played.length - 1]).toEqual({ text: ack.text, t: 1 });
+    // le canal reste occupé le temps de l'accusé puis de redire le message coupé : le trafic en attente passe après
+    const free = 1 + estimateDuration(ack.text) + DEFAULT_QUEUE_CONFIG.gap + estimateDuration(long) + DEFAULT_QUEUE_CONFIG.gap;
+    expect(q.busyUntil('commandement')).toBeCloseTo(free, 5);
+    q.update(free - 0.1);
+    expect(played).toHaveLength(2);
+    q.update(free + 0.01);
+    expect(played.map((p) => p.text)).toEqual([long, ack.text, 'Trafic ordinaire en attente.']);
+    // coupé une seconde fois pendant sa redite (deux ordres de suite), il n'est plus redit : le second accusé passe
+    // aussitôt et le canal se libère à la fin de celui-ci
+    const { q: q2, played: p2 } = make();
+    q2.submit(msg(long, 1, 'commandement', 'CENTRAL'), 0);
+    expect(q2.submit({ ...ack }, 0.5)).toBe('played');
+    const second: RadioMessage = { ...msg('ICI MISTRAL DEUX. REÇU, je tiens la position. TERMINÉ.', 1, 'commandement', 'MISTRAL 2'), reply: true };
+    const t2 = 0.5 + estimateDuration(ack.text) + DEFAULT_QUEUE_CONFIG.gap + 0.3;
+    q2.update(t2);
+    expect(q2.submit(second, t2)).toBe('played');
+    expect(p2[p2.length - 1]).toEqual({ text: second.text, t: t2 });
+    expect(q2.busyUntil('commandement')).toBeCloseTo(t2 + estimateDuration(second.text) + DEFAULT_QUEUE_CONFIG.gap, 5);
+  });
+
+  it('reply : ne coupe ni un urgent ni le joueur, mais passe le premier dès que le canal se libère', () => {
+    const played: { text: string; t: number }[] = [];
+    const q = new RadioQueue((m, now) => played.push({ text: m.text, t: now }));
+    q.fromPlayer = (m) => m.personId === 7;
+    const urgent = 'MISTRAL ICI CENTRAL. URGENT. Agent à terre, rue de la Roquette, il faut le dégager sans délai. PARLEZ.';
+    q.submit(msg(urgent, 2, 'commandement', 'CENTRAL'), 0);
+    q.submit(msg('Autre urgence en attente sur le réseau.', 2, 'commandement', 'MISTRAL 4'), 0.1);
+    q.submit(msg('Compte rendu ordinaire en attente.', 1, 'commandement', 'MISTRAL 3'), 0.2);
+    const ack: RadioMessage = { ...msg('ICI FAUCON UN. REÇU, en colonne vers le point. TERMINÉ.', 1, 'commandement', 'FAUCON 1'), reply: true };
+    expect(q.submit(ack, 0.5)).toBe('queued');
+    const free = estimateDuration(urgent) + DEFAULT_QUEUE_CONFIG.gap;
+    q.update(free + 0.01);
+    expect(played.map((p) => p.text)).toEqual([urgent, ack.text]);
+    // le message du joueur en cours n'est pas coupé non plus
+    const played2: string[] = [];
+    const q2 = new RadioQueue((m) => played2.push(m.text));
+    q2.fromPlayer = (m) => m.personId === 7;
+    q2.submit({ ...msg('MISTRAL UN ICI MISTRAL. Barrez la rue Saint-Gilles, toute sa largeur. PARLEZ.', 1, 'commandement', 'MISTRAL'), personId: 7 }, 0);
+    expect(q2.submit({ ...ack }, 0.3)).toBe('queued');
+  });
+
+  it('reply : jamais avant l\'ordre — la phrase du joueur en attente passe avant l\'accusé', () => {
+    const played: { text: string; t: number }[] = [];
+    const q = new RadioQueue((m, now) => played.push({ text: m.text, t: now }));
+    q.fromPlayer = (m) => m.personId === 7;
+    const urgent = 'MISTRAL ICI CENTRAL. URGENT. Feu de véhicule rue de Lyon, je demande un moyen d’extinction. PARLEZ.';
+    q.submit(msg(urgent, 2, 'commandement', 'CENTRAL'), 0);
+    const order: RadioMessage = { ...msg('MISTRAL UN ICI MISTRAL. Tenez la position. PARLEZ.', 1, 'commandement', 'MISTRAL'), personId: 7 };
+    expect(q.submit(order, 0.2)).toBe('queued');
+    const ack: RadioMessage = { ...msg('ICI MISTRAL UN. REÇU, je tiens la position. TERMINÉ.', 1, 'commandement', 'MISTRAL 1'), reply: true };
+    expect(q.submit(ack, 0.6)).toBe('queued');
+    let t = 0;
+    for (let i = 0; i < 300; i++) q.update((t += 0.1));
+    expect(played.map((p) => p.text)).toEqual([urgent, order.text, ack.text]);
+  });
+
+  it('reply : jamais abandonné, ni par l\'attente ni par une file pleine, et redit pour un ordre redonné', () => {
+    const played: string[] = [];
+    const q = new RadioQueue((m) => played.push(m.text), { ...DEFAULT_QUEUE_CONFIG, maxPending: 3 });
+    q.submit(msg('URGENT. Occupation du canal par un message très long, avec beaucoup de mots, encore et encore, sans fin.', 2, 'unite'), 0);
+    const ack: RadioMessage = { ...msg('ICI MISTRAL UN. REÇU, je tiens la position. TERMINÉ.', 1, 'unite', 'MISTRAL 1'), reply: true };
+    q.submit(ack, 0.1);
+    for (let i = 0; i < 5; i++) q.submit(msg(`Urgent numéro ${i}.`, 2, 'unite', `MISTRAL ${i + 2}`), 0.2);
+    expect(q.pending('unite')).toBe(3);
+    q.update(500);
+    expect(played).toContain(ack.text);
+    // le même accusé, pour le même ordre redonné quelques secondes plus tard, est redit (pas d'anti-répétition)
+    const played2: string[] = [];
+    const q2 = new RadioQueue((m) => played2.push(m.text));
+    expect(q2.submit({ ...ack }, 0)).toBe('played');
+    expect(q2.submit({ ...ack }, 6)).toBe('played');
+    expect(played2).toHaveLength(2);
+  });
+
   it('estimateDuration croît avec la longueur et reste bornée', () => {
     expect(estimateDuration('Reçu.')).toBe(2);
     expect(estimateDuration('a'.repeat(130))).toBeCloseTo(11, 5);
@@ -227,6 +323,81 @@ describe('radio — service dans le moteur', () => {
     // l'anti-répétition est remise à zéro avec la session
     ctx.radio.say(msg('Un message assez long pour occuper le canal quelques secondes.'));
     expect(ctx.radio.log).toHaveLength(1);
+  });
+
+  it('accusé d\'un ordre du joueur dans la seconde, après la phrase d\'ordre, avec la salle qui sature le réseau', async () => {
+    const { ctx, step } = await start();
+    const aired: { msg: RadioMessage; t: number }[] = [];
+    ctx.events.on('radio:message', (e) => aired.push(e));
+    const subtitles: { who: string; text: string; t: number }[] = [];
+    ctx.ui.subtitle = (who, text) => subtitles.push({ who, text, t: ctx.clock.now });
+    // la salle et les unités parlent sans arrêt sur les deux réseaux (un message toutes les 2 s, chacun différent)
+    let n = 0;
+    const chatter = (): void => {
+      ctx.radio.say(msg(`MISTRAL ICI CENTRAL. Point de situation numéro ${n}, circulation dense boulevard Voltaire, sans incident. PARLEZ.`, 1, 'commandement', 'CENTRAL'));
+      ctx.radio.say(msg(`MISTRAL ICI MISTRAL ${(n % 3) + 2}. Rien à signaler sur mon secteur, compte rendu numéro ${n}. PARLEZ.`, 1, 'unite', `MISTRAL ${(n % 3) + 2}`));
+      n++;
+    };
+    for (let i = 0; i < 20; i++) {
+      chatter();
+      step(2);
+    }
+    const order = 'MISTRAL UN ICI MISTRAL. Barrez la rue, rue Saint-Gilles. PARLEZ.';
+    const delays: number[] = [];
+    for (let k = 0; k < 6; k++) {
+      // (un ordre toutes les 7 à 9 s : deux accusés ne se coupent pas l'un l'autre, voir le test suivant)
+      chatter();
+      step(2);
+      chatter();
+      step(2);
+      chatter();
+      step(2.7 + k * 0.37);
+      const t0 = ctx.clock.now;
+      ctx.radio.say({ channel: 'commandement', from: 'MISTRAL', priority: 1, text: order, silent: true });
+      // l'unité accuse réception 0,3 s plus tard (maneuver.ts : ackAt d'un ordre du joueur)
+      step(0.3);
+      const ack = `ICI MISTRAL UN. REÇU, je barre la rue, rue Saint-Gilles, compte ${k}. TERMINÉ.`;
+      ctx.radio.say({ channel: 'commandement', from: 'MISTRAL 1', priority: 1, text: ack, reply: true });
+      for (let i = 0; i < 20; i++) step(0.05);
+      const o = aired.filter((a) => a.msg.text === order).pop()!;
+      const a = aired.find((x) => x.msg.text === ack);
+      expect(o.t).toBeCloseTo(t0, 5);
+      expect(a, `accusé ${k} non diffusé`).toBeDefined();
+      expect(a!.t).toBeGreaterThanOrEqual(o.t);
+      delays.push(a!.t - t0);
+      // le sous-titre de l'ordre vient avant celui de l'accusé
+      const so = subtitles.filter((s) => s.text === order).pop()!;
+      const sa = subtitles.find((s) => s.text === ack)!;
+      expect(so.t).toBeLessThanOrEqual(sa.t);
+    }
+    console.log('délais ordre → accusé (s) :', delays.map((d) => d.toFixed(2)).join(' '));
+    for (const d of delays) expect(d).toBeLessThanOrEqual(1.0);
+    // la phrase d'ordre est au journal, elle ne passe pas par la voix (événement marqué silent)
+    expect(aired.filter((a) => a.msg.text === order).every((a) => a.msg.silent === true)).toBe(true);
+  });
+
+  it('deux ordres coup sur coup : le second accusé coupe le premier, qui est redit juste après, devant tout le trafic', async () => {
+    const { ctx, step } = await start();
+    const aired: { msg: RadioMessage; t: number }[] = [];
+    ctx.events.on('radio:message', (e) => aired.push(e));
+    for (let i = 0; i < 6; i++) ctx.radio.say(msg(`MISTRAL ICI CENTRAL. Message de la salle numéro ${i}, sans urgence particulière. PARLEZ.`, 1, 'commandement', 'CENTRAL'));
+    step(1);
+    const a1 = 'ICI MISTRAL UN. REÇU, je tiens la position. TERMINÉ.';
+    const a2 = 'ICI MISTRAL DEUX. REÇU, je barre la rue. TERMINÉ.';
+    ctx.radio.say({ channel: 'commandement', from: 'MISTRAL 1', priority: 1, text: a1, reply: true });
+    step(0.5);
+    ctx.radio.say({ channel: 'commandement', from: 'MISTRAL 2', priority: 1, text: a2, reply: true });
+    step(20);
+    const order = aired.map((a) => a.msg.text).filter((t) => t === a1 || t === a2 || t.includes('numéro'));
+    const i1 = order.indexOf(a1);
+    expect(order[i1 + 1]).toBe(a2);
+    const t1 = aired.find((a) => a.msg.text === a1)!.t;
+    const t2 = aired.find((a) => a.msg.text === a2)!.t;
+    expect(t2 - t1).toBeCloseTo(0.5, 1);
+    // le premier accusé, coupé, est redit avant le trafic de la salle : la salle ne reprend qu'après les deux, plus
+    // la redite (le canal est occupé d'autant)
+    const firstCentral = aired.find((a) => a.msg.text.includes('numéro 1'))!;
+    expect(firstCentral.t).toBeGreaterThanOrEqual(t2 + estimateDuration(a2) + DEFAULT_QUEUE_CONFIG.gap + estimateDuration(a1) - 0.01);
   });
 
   it('une nouvelle session repart de zéro', async () => {

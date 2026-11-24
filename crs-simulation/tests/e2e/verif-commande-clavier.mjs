@@ -226,7 +226,9 @@ try {
   n0 = (await sends()).length;
   await press('KeyI');
   const t4 = await tac();
-  C.check(t4 && t4.intent === 'interpeller' && /Interpeller/.test(t4.lineLabel), 'I : « Interpeller… » surlignée', JSON.stringify(t4));
+  // (aucun fait constaté près du point visé : la ligne dit d'emblée « Aller constater » — intents.ts NO_FACT_LABEL ;
+  // « Interpeller… » quand un auteur est là)
+  C.check(t4 && t4.intent === 'interpeller' && /^(Aller constater|Interpeller)/.test(t4.lineLabel), 'I : « Aller constater » (ou « Interpeller… ») surlignée', JSON.stringify(t4));
   await enter();
   await step(page, 0.3);
   s = (await sends()).slice(n0);

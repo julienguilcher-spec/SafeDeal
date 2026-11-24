@@ -164,7 +164,12 @@ describe('robot joueur — commissariats', () => {
       for (const u of sent) {
         const e = api.entry(u.id)!;
         const v = ctx.vehicles.get(e.vehicleIds[0]!)!;
-        expect(Math.hypot(v.x - u.tx, v.z - u.tz), `${e.callsign} arrivée`).toBeLessThan(80);
+        // BRAV-M (ordre du joueur, plan « ordres directs » P4) : motos arrêtées à moins de 250 m du point — elle met pied
+        // à terre et finit à pied, ses pilotes gardent les machines là où elles se sont arrêtées ; c'est son chef qui
+        // arrive au point
+        const chief = e.kind === 'bravm' ? ctx.people.get(ctx.squads.get(u.squad)!.leaderId) : undefined;
+        const at = chief && chief.vehicleId === 0 ? chief : v;
+        expect(Math.hypot(at.x - u.tx, at.z - u.tz), `${e.callsign} arrivée`).toBeLessThan(80);
       }
       // retour
       for (const u of sent) {

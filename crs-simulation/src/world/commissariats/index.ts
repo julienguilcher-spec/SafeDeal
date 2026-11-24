@@ -15,4 +15,4 @@ export {
   BAC_COLOR, COMMISSARIATS, COMMISSARIAT_SEEDS, SPARE_LEN, SPARE_WIDTH, STOCK_CALLSIGN_PATTERN, VEHICLE_LEN, VEHICLE_WIDTH,
   commissariatById, fileCentre, nearestCommissariat, reservedBays, vehicleLen, vehicleWidth,
 } from './data';
-export { isHeldVehicle, isReturningHome } from './held';
+export { isAtPost, isHeldVehicle, isReturningHome } from './held';

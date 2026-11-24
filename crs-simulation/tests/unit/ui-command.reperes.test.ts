@@ -124,6 +124,13 @@ describe('repères — rues à bloquer (intention B)', () => {
 
   it('Encercler : la foule la plus proche de la visée d’abord ; Disperser : la plus grosse et la plus tendue', () => {
     const env = crowdEnv([other, main]);
+    // Encercler demande deux unités au moins (une rue chacune) : sans unité, l'intention n'a aucun candidat
+    expect(intentCandidates('encercler', env, { x: 610, z: 0 })).toEqual([]);
+    const section = (squadId: number, name: string): CardEnv['units'][number] => ({
+      squadId, key: squadId, name, symbol: 'section', x: 0, z: -150, total: 19, valid: 19, morale: 1, ammo: 0, order: null, orderPlace: '', status: '',
+      embarked: false, hasVehicles: true, mine: true, patrol: false, homeStation: '', targetEntity: 0, parentId: 0, hasPlayer: false,
+    });
+    env.units = [section(1, 'MISTRAL 1'), section(2, 'MISTRAL 2')];
     expect(intentCandidates('encercler', env, { x: 610, z: 0 })[0]!.crowdKey).toBe('f2');
     expect(intentCandidates('disperser', env, { x: 610, z: 0 }).map((r) => r.crowdKey)).toEqual(['c', 'f2']);
   });

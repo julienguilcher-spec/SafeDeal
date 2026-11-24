@@ -102,7 +102,11 @@ describe('commissariats et ordres du commandant', () => {
     const sq = ctx.squads.get(r.squadId)!;
     const road = roadFrom(ctx, 'cite', 520);
     expect(core.issue('faire_mouvement', [sq], [{ x: road.x, z: road.z, heading: road.heading, width: 0 }]).ok).toBe(true);
-    // la colonne roule ; le commandant donne son ordre quand elle arrive (stationnement, ou tête à moins de 120 m)
+    // la colonne roule ; le commandant donne son ordre quand elle arrive (stationnement, ou tête à moins de 120 m), le
+    // chef de section à moins de 140 m du point de l'ordre — au-delà de 150 m, une unité assise y va en véhicules, dans
+    // une nouvelle colonne (direct/travel.ts motorizes, la règle de la fiche et du terrain)
+    const tx = road.x + Math.sin(road.heading) * 35, tz = road.z + Math.cos(road.heading) * 35;
+    const chief = (): number => { const p = ctx.people.get(sq.leaderId); return p ? Math.hypot(p.x - tx, p.z - tz) : Infinity; };
     let at = -1;
     let stageAt = '';
     for (let s = 0; s < 600 && at < 0; s++) {
@@ -110,11 +114,10 @@ describe('commissariats et ordres du commandant', () => {
       const st = cmd.convoyOf(sq.id);
       const lead = api.entry('cite:aquilon1')!.vehicleIds.map((id) => ctx.vehicles.get(id)!).filter(Boolean)
         .reduce((m, v) => Math.min(m, Math.hypot(v.x - road.x, v.z - road.z)), Infinity);
-      if (st && (st.stage === 'stationnement' || (st.stage === 'route' && lead < 120))) { at = ctx.clock.now; stageAt = `${st.stage}, tête à ${lead.toFixed(0)} m`; }
+      if (st && (st.stage === 'stationnement' || (st.stage === 'route' && lead < 120)) && chief() < 140) { at = ctx.clock.now; stageAt = `${st.stage}, tête à ${lead.toFixed(0)} m`; }
     }
     expect(at, 'la colonne arrive').toBeGreaterThan(0);
     // « Tenir une ligne » 35 m plus loin, au même endroit pour toute la section
-    const tx = road.x + Math.sin(road.heading) * 35, tz = road.z + Math.cos(road.heading) * 35;
     expect(core.issue('ligne', [sq], [{ x: tx, z: tz, heading: road.heading, width: 20 }]).ok).toBe(true);
     for (let s = 0; s < 150; s++) {
       t.step(1);

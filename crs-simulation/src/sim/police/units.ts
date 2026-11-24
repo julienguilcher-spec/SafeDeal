@@ -106,9 +106,11 @@ function letter(group: string): string {
 
 /**
  * Place un véhicule derrière le point de mise en place : deux files, le long du cap, à 22 m et au-delà. `len` : longueur
- * du véhicule (m) — il lui faut de la place libre au-delà de chaque pare-chocs (voir parkBody).
+ * du véhicule (m) — il lui faut de la place libre au-delà de chaque pare-chocs (voir parkBody). `firm` : jamais sur une
+ * pelouse (motos de la BRAV-M : garées sur le gazon de l'esplanade des Invalides, elles n'en sortaient qu'au pas, et la
+ * BRAV-M, désormais rattachée à la compagnie, en est un véhicule comme les autres).
  */
-function parkSpot(k: Kernel, b: Build, n: number, out: { x: number; z: number; heading: number }, len: number = PARK_LEN): boolean {
+function parkSpot(k: Kernel, b: Build, n: number, out: { x: number; z: number; heading: number }, len: number = PARK_LEN, firm = false): boolean {
   const fx = Math.sin(b.heading);
   const fz = Math.cos(b.heading);
   const rx = -fz;
@@ -121,6 +123,7 @@ function parkSpot(k: Kernel, b: Build, n: number, out: { x: number; z: number; h
     const back = 24 + row * 7.6;
     const x = b.x - fx * back + rx * file * 1.8;
     const z = b.z - fz * back + rz * file * 1.8;
+    if (firm && SOFT_GROUND.has(world.surfaceAt(x, z))) continue;
     if (parkBody(k, x, z, fx, fz, len) && !parkTaken(b, x, z) && !acrossRoad(k, x, z, b.heading) && parkReach(k, b, x, z)) {
       out.x = x;
       out.z = z;
@@ -205,6 +208,8 @@ function parkAround(k: Kernel, b: Build, out: { x: number; z: number; heading: n
 }
 
 const PARK_FILES: readonly number[] = [-1, 1, 0, -3, 3, -5, 5];
+/** Sols où un véhicule `firm` ne se gare pas (voir parkSpot ; parkClear les écarte de toute façon). */
+const SOFT_GROUND: ReadonlySet<string> = new Set(['park', 'water', 'building', 'interior']);
 const parkHit = { hit: false, t: 0, x: 0, z: 0, nx: 0, nz: 0, kind: 'none', id: 0, height: 0 } as RayHit;
 const parkPath: number[] = [];
 /** Détour à pied admis jusqu'au véhicule : au plus deux fois la distance à vol d'oiseau, plus une marge (m). */
@@ -370,9 +375,10 @@ function cellAtRear(b: Build, cell: Vehicle, x: number, z: number, h: number): b
  * quelle : elle a été validée sur le plan réel), sinon la recherche habituelle. Véhicule en surnombre des places
  * réservées : recherche qui contrôle TOUS les véhicules alentour (parkClear) — le premier essai de parkSpot ne vérifie
  * que l'écart aux véhicules de l'unité rangés sur ses deux files, pas aux places réservées, posées en file le long
- * d'un trottoir. `len` : longueur du véhicule (m), voir parkSpot.
+ * d'un trottoir. `len` : longueur du véhicule (m), voir parkSpot ; `firm` : jamais sur un sol meuble au premier essai
+ * (moto de BRAV-M).
  */
-function placeVehicle(k: Kernel, b: Build, n: number, out: { x: number; z: number; heading: number }, len: number = PARK_LEN): boolean {
+function placeVehicle(k: Kernel, b: Build, n: number, out: { x: number; z: number; heading: number }, len: number = PARK_LEN, firm = false): boolean {
   const reserved = b.parking ? b.parking[n] : undefined;
   if (reserved) {
     out.x = reserved.x;
@@ -381,12 +387,13 @@ function placeVehicle(k: Kernel, b: Build, n: number, out: { x: number; z: numbe
     return true;
   }
   if (b.parking) return parkAround(k, b, out, true, undefined, len) || parkAround(k, b, out, false, undefined, len);
-  return parkSpot(k, b, n, out, len);
+  return parkSpot(k, b, n, out, len, firm);
 }
 
 function spawnVehicle(k: Kernel, b: Build, kind: VehicleKind, squad: Squad | null, color?: number): Vehicle | null {
   const def = k.ctx.vehicles.def(kind);
-  if (!placeVehicle(k, b, b.handle.vehicles.length, spot, def ? def.length : PARK_LEN)) return null;
+  // (places réservées d'un commissariat d'abord ; une moto de BRAV-M jamais sur une pelouse au premier essai)
+  if (!placeVehicle(k, b, b.handle.vehicles.length, spot, def ? def.length : PARK_LEN, kind === 'moto_bravm')) return null;
   if (!b.road && spot.heading !== b.heading) b.road = { x: spot.x, z: spot.z, heading: spot.heading };
   const v = k.ctx.vehicles.spawn(kind, spot.x, spot.z, spot.heading, { faction: 'police', color });
   if (b.parking) v.y = k.ctx.world.heightAt(spot.x, spot.z);
@@ -516,7 +523,7 @@ export function createCompany(k: Kernel, options: CompanyOptions = {}): UnitHand
     }
   }
   for (let s = 1; s <= sections; s++) buildSection(k, b, callsign + ' ' + s, s, company, slots, vehicles, 'section');
-  if (vehicles) {
+  if (vehicles && options.cellular !== false) {
     const cell = spawnVehicle(k, b, 'fourgon_cellulaire', null);
     if (cell) parkCellAtRear(k, b, cell);
     syncTree(k, true);
@@ -600,12 +607,15 @@ export function createBravm(k: Kernel, binomes: number, options: BravmOptions = 
   const count = Math.max(1, Math.min(18, Math.round(binomes)));
   const base = options.callsign ?? 'FAUCON';
   const groupsN = Math.ceil(count / 6);
-  const top = groupsN > 1 ? ctx.squads.create('section', 'police', base) : null;
+  // rattachée à la compagnie engagée quand on la donne (sinon unité de tête, comme avant)
+  const parent = options.parentId ? ctx.squads.get(options.parentId) : undefined;
+  const parentId = parent && parent.faction === 'police' ? parent.id : 0;
+  const top = groupsN > 1 ? ctx.squads.create('section', 'police', base, parentId) : null;
   const b = begin(k, top as unknown as Squad, options, options.seed, undefined);
   const vehicles = options.vehicles !== false;
   let made = 0;
   for (let gi = 0; gi < groupsN; gi++) {
-    const group = ctx.squads.create('groupe', 'police', base + ' ' + (gi + 1), top ? top.id : 0);
+    const group = ctx.squads.create('groupe', 'police', base + ' ' + (gi + 1), top ? top.id : parentId);
     b.handle.sections.push(group);
     if (!top && gi === 0) b.handle.squad = group;
     const inGroup = Math.min(6, count - made);

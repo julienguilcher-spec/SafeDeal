@@ -70,7 +70,13 @@ export const ROLES: readonly RoleInfo[] = [
   {
     id: 'bravm', name: 'BRAV-M', desc: 'À moto : arrivez vite, interpellez.', police: true,
     ranks: ['gardien', 'brigadier', 'brigadier_chef'], defaultRank: 'gardien',
-    postes: ['passager_moto', 'pilote_moto'], defaultPoste: 'passager_moto', variantes: [],
+    // chef de la BRAV-M : le poste « chef de groupe » de l'unité (il commande ses binômes depuis la selle, derrière son
+    // pilote) ; il est brigadier-chef au moins (roster.ts)
+    postes: ['chef_groupe', 'passager_moto', 'pilote_moto'], defaultPoste: 'passager_moto', variantes: [],
+    posteLabels: { chef_groupe: 'Chef de la BRAV-M' },
+    posteNotes: {
+      chef_groupe: 'Vous commandez la BRAV-M depuis la selle, derrière votre pilote : où aller, qui interpeller ; elle part avec vous.',
+    },
   },
   {
     id: 'gendarme_centaure', name: 'Centaure', desc: 'Blindé : pilotez, tirez au lance-grenades, ouvrez les barricades.', police: true,

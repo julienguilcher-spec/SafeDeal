@@ -2,9 +2,10 @@
  * Droit — sommations, cadre d'emploi de la force, infractions et preuves, interpellations.
  *
  * Publie ctx.law (LawApi complet) et les services 'law.records' (dossier pour le compte rendu et
- * la carrière), 'law.advisor' (aide à la décision sans effet), 'law.config' (réglages) et
- * 'law.handover' (points de regroupement, s'il n'existe pas déjà). Enregistre les gestionnaires
- * d'interaction de l'interpellation.
+ * la carrière), 'law.advisor' (aide à la décision sans effet), 'law.config' (réglages),
+ * 'law.handover' (points de regroupement, s'il n'existe pas déjà) et 'law.custody' (l'interpellé
+ * du joueur, sa meilleure issue, la ligne d'aide, la remise et l'appel du fourgon par Entrée).
+ * Enregistre les gestionnaires d'interaction de l'interpellation.
  *
  * Deux systèmes :
  *   - « law » (ordre RULES) : état des règles d'engagement recalculé à chaque pas, suivi de la
@@ -22,13 +23,14 @@ import type {
 } from '@/core/contracts';
 import { SystemOrder } from '@/core/contracts';
 import type { LawAdvisor, LawHandover } from './api';
-import { LAW_ADVISOR_SERVICE, LAW_CONFIG_SERVICE, LAW_HANDOVER_SERVICE, LAW_RECORDS_SERVICE } from './api';
+import { LAW_ADVISOR_SERVICE, LAW_CONFIG_SERVICE, LAW_CUSTODY_SERVICE, LAW_HANDOVER_SERVICE, LAW_RECORDS_SERVICE } from './api';
 import { AttackTracker } from './attack';
 import { Attroupement } from './attroupement';
 import { applySessionConfig, createLawConfig, LEVEL_CONTACT } from './config';
 import { Controls } from './controls';
 import { Custody } from './custody';
 import { custodyPreMove, custodyUpdate } from './custody-step';
+import { DetaineeWays } from './detainee';
 import { wireEvents } from './events';
 import { ForceJudge } from './force';
 import { Handover } from './handover';
@@ -75,6 +77,7 @@ export const createSystems: ModuleFactory = (): GameSystem[] => {
       },
     } as Kernel;
     k.records = new Records();
+    k.records.clock = () => ctx.clock.now;
     k.eyes = new Perception(k);
     k.attack = new AttackTracker(k);
     k.offenses = new Offenses(k);
@@ -84,6 +87,7 @@ export const createSystems: ModuleFactory = (): GameSystem[] => {
     k.custody = new Custody(k);
     k.subdue = new Subduing(k);
     k.handover = new Handover(k);
+    k.ways = new DetaineeWays(k);
     k.controls = new Controls(k);
     return k;
   }
@@ -98,6 +102,7 @@ export const createSystems: ModuleFactory = (): GameSystem[] => {
     k.offenses.reset();
     k.force.reset();
     k.custody.reset();
+    k.ways.reset();
     k.subdue.reset();
     k.controls.reset();
     k.roe.underAttack = false;
@@ -178,6 +183,7 @@ export const createSystems: ModuleFactory = (): GameSystem[] => {
       ctx.provide(LAW_RECORDS_SERVICE, k.records);
       ctx.provide(LAW_CONFIG_SERVICE, k.cfg);
       ctx.provide(LAW_ADVISOR_SERVICE, createAdvisor(k));
+      ctx.provide(LAW_CUSTODY_SERVICE, k.ways);
       if (ctx.service<LawHandover>(LAW_HANDOVER_SERVICE) === undefined) {
         ownHandover = { points: [] };
         ctx.provide(LAW_HANDOVER_SERVICE, ownHandover);
@@ -224,6 +230,6 @@ export const createSystems: ModuleFactory = (): GameSystem[] => {
 };
 
 export type {
-  ArrestRecord, AuthorizationRecord, ComplaintRecord, ControlRecord, ForceRecord, HandoverPoint, LawAdvisor,
-  LawConfig, LawHandover, LawRecords, LawStats, SommationRecord,
+  ArrestRecord, AuthorizationRecord, ComplaintRecord, ControlRecord, CustodyDrop, CustodyVanCall, CustodyWay, CustodyWayKind,
+  ForceRecord, HandoverPoint, LawAdvisor, LawConfig, LawCustody, LawHandover, LawRecords, LawStats, SommationRecord,
 } from './api';

@@ -113,20 +113,22 @@ export const PHRASES_MANOEUVRES_INCIDENTS: readonly PhraseDef[] = [
     'Je procède à une interpellation, secteur {lieu}. Groupe d\'interpellation engagé, la ligne couvre.',
     'Interpellation engagée, secteur {lieu}. Saisie de l\'individu désigné en cours.',
   ]),
+  // (un mot par chose : l'interpellé est « conduit » au fourgon cellulaire par deux collègues, il y attend son transfert ;
+  // « remis à l'officier de police judiciaire » ne se dit qu'au commissariat)
   arr('interpellation_effectuee', {}, [
-    'Un interpellé pour {motif}, à {heure}, secteur {lieu}. Il est conduit au point de regroupement.',
-    'Interpellation effectuée à {heure}, secteur {lieu}. Motif : {motif}. L\'individu est conduit au point de regroupement.',
-    'Individu interpellé à {heure}, secteur {lieu}, pour {motif}. Conduite au point de regroupement, pour remise à l\'officier de police judiciaire.',
+    'Un interpellé pour {motif}, à {heure}, secteur {lieu}. Il est conduit au fourgon cellulaire.',
+    'Interpellation effectuée à {heure}, secteur {lieu}. Motif : {motif}. L\'individu est conduit au fourgon cellulaire.',
+    'Individu interpellé à {heure}, secteur {lieu}, pour {motif}. Conduit au fourgon cellulaire, en attente de transfert.',
   ]),
   arr('interpelle_conduit', {}, [
-    'Un interpellé est conduit au point de regroupement, secteur {lieu}. Escorte de deux agents.',
-    'Interpellé en cours de transfert vers le point de regroupement, secteur {lieu}. Deux agents l\'escortent.',
-    'Personne interpellée escortée par deux agents vers le point de regroupement, secteur {lieu}.',
+    'Un interpellé conduit au fourgon cellulaire, secteur {lieu}. Deux agents l\'accompagnent.',
+    'Interpellé conduit par deux agents au fourgon cellulaire, secteur {lieu}.',
+    'Deux agents conduisent un interpellé au fourgon cellulaire, secteur {lieu}.',
   ]),
   arr('remise_interpelle', {}, [
-    'Remise à l\'officier de police judiciaire effectuée à {heure}. Nombre d\'interpellés remis : {nombre}. Fiches transmises.',
-    'Interpellés remis au point de regroupement à {heure}. Nombre : {nombre}. Fiches d\'interpellation transmises.',
-    'Remise effectuée à {heure}, avec les fiches d\'interpellation. Nombre d\'interpellés remis à l\'officier de police judiciaire : {nombre}.',
+    'Interpellés à bord du fourgon cellulaire à {heure}, en attente de transfert. Nombre : {nombre}. Fiches transmises.',
+    'Nombre d\'interpellés à bord du fourgon cellulaire : {nombre}, à {heure}. En attente de transfert, fiches d\'interpellation jointes.',
+    'Interpellés en attente de transfert au commissariat, à bord du fourgon cellulaire à {heure}. Nombre : {nombre}. Fiches transmises.',
   ]),
 
   // ── incidents : signalement, délégation, compte rendu ──

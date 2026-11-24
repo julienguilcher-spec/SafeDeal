@@ -3,6 +3,9 @@
 // suivent jusqu'au point — en journée de service (départ d'un commissariat) comme en mode libre (ordre « colonne »
 // donné à l'unité). Défaut d'origine : le joueur commençait à pied, à côté de motos sans pilote (0/0), et la BRAV-M
 // partait sans lui — ou ne partait pas.
+// Poste « Chef de la BRAV-M » (ordres directs §4.1.6) : le joueur prend la tête de la BRAV-M du dispositif, en selle
+// derrière son pilote ; en journée de service elle part avec lui (au plus 20 s après la colonne de la compagnie) ; en
+// mode libre, son ordre à l'unité fait partir toutes les motos avec la sienne, et l'ordre affiché reste le sien.
 import { describe, expect, it } from 'vitest';
 
 import type { GameContext, Person, Squad, Vehicle } from '@/core/contracts';
@@ -22,6 +25,7 @@ import { createSystems as radio } from '@/gameplay/radio';
 import { createSystems as session } from '@/gameplay/session';
 import { JOURNEE_SERVICE, SERVICE_BASES } from '@/gameplay/session';
 import type { JourneeApi } from '@/gameplay/session';
+import { computeScope } from '@/ui/command/scope';
 
 const SIM = [world, roles, people, vehicles, traffic, crowd, police, items, props, hazards, law, radio, session];
 const MEANS = { sections: 1, fourgons: 3, centaure: 0, canon_eau: 0, bravm: 1, drone: 0, pompiers: 0, samu: 0, secours_sur_appel: true };
@@ -171,4 +175,120 @@ describe('BRAV-M, poste passager : en selle derrière son pilote, toutes les mot
       expect(worst, 'les motos restent avec celle du joueur').toBeLessThan(250);
     }, 1800000);
   }
+  it('chef de la BRAV-M, journée : en selle derrière son pilote, la BRAV-M part avec lui (au plus 20 s après la colonne)', async () => {
+    const base = SERVICE_BASES[3]!;
+    const c = { place: 'Place de la Concorde', x: -10, z: 15, seed: 11 };
+    const t = createTestContext({ seed: c.seed, strict: false, modules: SIM });
+    await t.start({
+      mode: 'libre', role: 'bravm', rank: 'gardien', place: c.place, x: c.x, z: c.z, crowdSize: 120, tension: 0.2, volatility: 0.2, duration: 'standard',
+      extra: { moyens: MEANS, journee: true, base: { x: base.x, z: base.z, name: base.name }, poste: 'chef_groupe', baseBravm: { x: base.x, z: base.z, name: base.name } },
+    });
+    const { ctx } = t;
+    const me = ctx.player.person()!;
+    expect(me.poste).toBe('chef_groupe');
+    expect(me.rank, 'le chef est brigadier-chef au moins').toBe('brigadier_chef');
+    expect(seatedBehindPilot(ctx, me), 'au départ').toBe('ok');
+    const root = rootOf(ctx, ctx.squads.get(me.squadId)!);
+    const faucon = ctx.squads.list.find((q) => q.faction === 'police' && q.leaderId === me.id && q.kind === 'groupe')!;
+    expect(faucon, 'il commande un groupe de BRAV-M').toBeTruthy();
+    expect(faucon.name).toBe('FAUCON 1');
+    const sc = computeScope(ctx);
+    expect(sc.level).toBe('unite');
+    expect(sc.label).toBe('Chef de la BRAV-M — FAUCON 1');
+    expect(sc.squadIds.has(faucon.id)).toBe(true);
+    const mine = ctx.vehicles.get(me.vehicleId)!;
+    const motos = unitMotos(ctx, me);
+    expect(motos.length, 'les six motos de la BRAV-M').toBe(6);
+    const start = { x: mine.x, z: mine.z };
+    // départ de la colonne de la compagnie (son premier fourgon roule) et de la moto du chef
+    const vans = ctx.vehicles.list.filter((v) => v.kind === 'fourgon_crs' || v.kind === 'vl_commandement').map((v) => ({ v, x: v.x, z: v.z }));
+    const t0 = ctx.clock.now;
+    let colAt = -1;
+    let goAt = -1;
+    let meAt = -1;
+    const ap = ctx.service<{ isActive(v: Vehicle): boolean }>('vehicles.autopilot')!;
+    const sp0 = ctx.service<{ special(id: number): { stage: string } | null }>('police.command')!;
+    for (let i = 0; i < 240 && (colAt < 0 || meAt < 0); i++) {
+      t.step(1);
+      if (colAt < 0 && vans.some((o) => Math.hypot(o.v.x - o.x, o.v.z - o.z) > 30)) colAt = ctx.clock.now;
+      // la BRAV-M part : en route, toutes ses motos sous le pilote automatique (colonne lancée), le chef à bord
+      if (goAt < 0 && sp0.special(faucon.id)?.stage === 'route' && motos.every((v) => ap.isActive(v))) goAt = ctx.clock.now;
+      if (meAt < 0 && Math.hypot(mine.x - start.x, mine.z - start.z) > 50) meAt = ctx.clock.now;
+      if (process.env['BRAVM_DEBUG'] && i % 5 === 0) {
+        const ap = ctx.service<{ status(v: Vehicle): { mode: string; state: string; reason?: string; leaderId: number } }>('vehicles.autopilot')!;
+        const sp = ctx.service<{ special(id: number): { stage: string } | null }>('police.command')!.special(faucon.id);
+        console.log(`t=${ctx.clock.now.toFixed(0)} ${sp?.stage} ordre=${ctx.squads.get(faucon.id)!.order.type} vans=${vans.map((o) => Math.round(Math.hypot(o.v.x - o.x, o.v.z - o.z))).join(',')} ` + motos.map((v) => { const a = ap.status(v); return `#${v.id}${v === mine ? '*' : ''}:${a.mode}/${a.state}/${a.reason ?? ''}`; }).join(' '));
+      }
+    }
+    console.log(`  chef de la BRAV-M : colonne de la compagnie partie à t=${colAt.toFixed(0)} s, BRAV-M en route à t=${goAt.toFixed(0)} s, sa moto à 50 m à t=${meAt.toFixed(0)} s (${root.name})`);
+    expect(goAt, 'la BRAV-M part').toBeGreaterThan(0);
+    expect(goAt).toBeLessThanOrEqual(Math.max(colAt, t0) + 20);
+    // (sortie du même commissariat que les fourgons de la compagnie : les motos sortent derrière eux)
+    expect(meAt, 'sa moto est partie').toBeGreaterThan(0);
+    expect(meAt - t0).toBeLessThanOrEqual(180);
+    expect(seatedBehindPilot(ctx, me), 'en route').toBe('ok');
+    // l'ordre que la BRAV-M affiche est son ordre de mouvement, jamais un ordre interne
+    expect(ctx.squads.get(faucon.id)!.order.type).toBe('colonne');
+    const j = ctx.service<JourneeApi>(JOURNEE_SERVICE)!;
+    for (let i = 0; i < 160 && j.stage !== 'sur_place'; i++) t.step(5);
+    expect(j.stage).toBe('sur_place');
+    t.step(30);
+    const dest = j.destination!;
+    expect(Math.hypot(mine.x - dest.x, mine.z - dest.z), 'le chef sur place').toBeLessThan(250);
+    // toutes les motos de sa BRAV-M le rejoignent (les retardataires de la traversée de Paris rallient la tête)
+    for (let i = 0; i < 40 && !motos.every((v) => Math.hypot(v.x - dest.x, v.z - dest.z) < 250); i++) t.step(10);
+    const far = motos.map((v) => Math.round(Math.hypot(v.x - dest.x, v.z - dest.z)));
+    console.log(`  chef de la BRAV-M : ${j.stage} ; motos à ${far.join(' / ')} m du point`);
+    for (const v of motos) expect(Math.hypot(v.x - dest.x, v.z - dest.z), `moto#${v.id} sur place`).toBeLessThan(250);
+  }, 1800000);
+
+  it('chef de la BRAV-M, mode libre (République, graine 21) : son ordre fait partir toute la BRAV-M avec lui', async () => {
+    const t = createTestContext({ seed: 21, strict: false, modules: SIM });
+    await t.start({
+      mode: 'libre', role: 'bravm', rank: 'brigadier_chef', place: 'Place de la République', x: 3123, z: -208, crowdSize: 60, tension: 0.1,
+      volatility: 0.1, duration: 'standard', extra: { moyens: MEANS, poste: 'chef_groupe' },
+    });
+    const { ctx } = t;
+    t.step(3);
+    const me = ctx.player.person()!;
+    expect(seatedBehindPilot(ctx, me), 'en selle derrière son pilote').toBe('ok');
+    const faucon = ctx.squads.list.find((q) => q.faction === 'police' && q.leaderId === me.id && q.kind === 'groupe')!;
+    expect(faucon, 'il commande la BRAV-M du dispositif').toBeTruthy();
+    expect(computeScope(ctx).label).toBe('Chef de la BRAV-M — FAUCON 1');
+    // tous le suivent, en selle (« avec vous ») : ordre « suivre » affiché sur la BRAV-M et ses binômes
+    expect(faucon.order.type).toBe('suivre');
+    for (const b of ctx.squads.childrenOf(faucon.id)) expect(b.order.type, b.name).toBe('suivre');
+    const mine = ctx.vehicles.get(me.vehicleId)!;
+    const motos = unitMotos(ctx, me);
+    expect(motos.length).toBe(6);
+    const path: number[] = [];
+    let tx = 0, tz = 0;
+    for (const [dx, dz] of [[700, 0], [-700, 0], [0, 700], [0, -700], [500, 500], [-500, -500]] as const) {
+      const road = { x: 0, z: 0 } as { x: number; z: number };
+      if (!ctx.world.nearestRoad(mine.x + dx, mine.z + dz, road as never, 120)) continue;
+      if (!ctx.world.findPath(mine.x, mine.z, road.x, road.z, 'vehicle', path)) continue;
+      tx = road.x; tz = road.z;
+      break;
+    }
+    expect(tx !== 0 || tz !== 0, 'un point atteignable').toBe(true);
+    // l'ordre du chef (ordres directs : byPlayer)
+    ctx.squads.issue(faucon.id, { type: 'colonne', x: tx, z: tz, issuedBy: me.id, byPlayer: true });
+    const start = { x: mine.x, z: mine.z };
+    const cmd = ctx.service<{ special(id: number): { stage: string } | null }>('police.command')!;
+    let worst = 0;
+    for (let i = 0; i < 80; i++) {
+      t.step(5);
+      expect(ctx.squads.get(faucon.id)!.order.type, `ordre affiché à t=${ctx.clock.now.toFixed(0)} s`).toBe('colonne');
+      if (Math.hypot(mine.x - start.x, mine.z - start.z) > 150) for (const v of motos) worst = Math.max(worst, Math.hypot(v.x - mine.x, v.z - mine.z));
+      if (i > 6 && motos.every((v) => Math.abs(v.speed) < 0.3) && cmd.special(faucon.id)?.stage === 'repos') break;
+    }
+    t.step(20);
+    const at = motos.map((v) => Math.round(Math.hypot(v.x - tx, v.z - tz)));
+    console.log(`  chef de la BRAV-M, République : moto du chef à ${Math.round(Math.hypot(mine.x - tx, mine.z - tz))} m du point ; motos à ${at.join(' / ')} m ; écart max en route ${worst.toFixed(0)} m`);
+    expect(seatedBehindPilot(ctx, me)).toBe('ok');
+    expect(Math.hypot(mine.x - start.x, mine.z - start.z), 'la moto du chef est partie').toBeGreaterThan(300);
+    expect(Math.hypot(mine.x - tx, mine.z - tz), 'la moto du chef au point').toBeLessThan(180);
+    for (const v of motos) expect(Math.hypot(v.x - mine.x, v.z - mine.z), `moto#${v.id} avec celle du chef`).toBeLessThan(90);
+    expect(worst).toBeLessThan(250);
+  }, 1800000);
 });

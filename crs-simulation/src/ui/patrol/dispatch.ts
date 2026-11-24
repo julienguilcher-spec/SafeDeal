@@ -9,6 +9,9 @@
  *     au clavier. Sans effet quand un champ de saisie a le focus ou qu'un écran modal est ouvert. Au bout de 20 s sans
  *     changement, la carte se replie en une pastille « Appel en cours » (un toucher ou Y la rouvre).
  *   - écran radio (chemin manette) : section « Appel en cours » avec les mêmes boutons, renforts toujours visibles.
+ * Fourgon cellulaire demandé tout seul pour l'interpellé de l'équipage (service 'transfer', patrolRequest) : une ligne
+ * sous celle de l'appel (« Fourgon cellulaire demandé — 2 min ; ou ramenez-le à la voiture (150 m) ») ; sans appel en
+ * cours, la carte « FOURGON CELLULAIRE DEMANDÉ » à elle seule.
  * Le répartiteur (service 'patrol.mode', src/gameplay/patrols/mode.ts) fait tout le travail : ce module ne fait
  * qu'afficher son état (rafraîchi toutes les 0,5 s) et lui transmettre les réponses du joueur.
  * ===================================================================================== */
@@ -127,6 +130,8 @@ export class CallPanel {
   private readonly title: HTMLElement;
   private readonly line: HTMLElement;
   private readonly note: HTMLElement;
+  /** Fourgon cellulaire demandé tout seul pour l'interpellé de l'équipage (service 'transfer', patrolRequest). */
+  private readonly van: HTMLElement;
   private readonly answerRow: HTMLDivElement;
   private readonly actRow: HTMLDivElement;
   private readonly backupRow: HTMLDivElement;
@@ -171,6 +176,8 @@ export class CallPanel {
     this.line = el('div', 'pd-line', '');
     this.line.dataset.id = p + 'appel-ligne';
     this.note = el('div', 'pd-note', '');
+    this.van = el('div', 'pd-line pd-off', '');
+    this.van.dataset.id = p + 'appel-fourgon';
 
     this.answerRow = el('div', 'pd-row');
     this.takeBtn = button('Prendre l’appel', () => this.act(() => this.accept()), { icon: 'check', id: p + 'appel-prendre', className: 'pd-go', title: 'Prendre l’appel' });
@@ -204,7 +211,7 @@ export class CallPanel {
     }
     if (variant === 'radio') this.backupRow.prepend(el('div', 'cm-sub', 'Renforts'));
 
-    this.root.append(this.kick, this.title, this.line, this.note, this.answerRow, this.actRow, this.backupRow);
+    this.root.append(this.kick, this.title, this.line, this.van, this.note, this.answerRow, this.actRow, this.backupRow);
     this.render(null, false);
   }
 
@@ -282,8 +289,36 @@ export class CallPanel {
     return me ? Math.hypot(me.x - x, me.z - z) : -1;
   }
 
+  /** Fourgon cellulaire demandé par CENTRAL pour l'interpellé de l'équipage (« Fourgon cellulaire demandé — 2 min ; … »). */
+  private vanRequest(): string {
+    const t = this.ctx.service<{ readonly patrolRequest: { text: string } | null }>('transfer');
+    const r = t ? t.patrolRequest : null;
+    return r && typeof r.text === 'string' ? r.text : '';
+  }
+
   private render(call: DispatchCall | null, ending: boolean): void {
     const api = this.api();
+    const van = this.vanRequest();
+    if (!call && !ending && van !== '') {
+      // pas d'appel, mais CENTRAL envoie un fourgon cellulaire pour l'interpellé : la carte le dit (sans menu)
+      this.callId = 0;
+      this.backupOpen = false;
+      this.shown = 'fourgon';
+      this.root.dataset.state = 'fourgon';
+      setClass(this.answerRow, 'pd-off', true);
+      setClass(this.actRow, 'pd-off', true);
+      setClass(this.backupRow, 'pd-off', true);
+      setText(this.kickText, 'CENTRAL');
+      setText(this.title, 'FOURGON CELLULAIRE DEMANDÉ');
+      setText(this.line, van);
+      setText(this.van, '');
+      setClass(this.van, 'pd-off', true);
+      setText(this.note, 'Gardez l’interpellé : le fourgon vient au plus près, remettez-le à côté du fourgon.');
+      setClass(this.note, 'pd-off', false);
+      return;
+    }
+    setText(this.van, call ? van : '');
+    setClass(this.van, 'pd-off', !call || van === '');
     if (!call) {
       this.callId = 0;
       this.backupOpen = false;
@@ -552,9 +587,9 @@ export class PatrolDispatchHud implements HudWidget {
     if (this.collapsed) {
       const state = this.panel.shown;
       this.pill.dataset.state = state;
-      setText(this.pillText, state === 'fin' ? 'Fin de vacation' : state === 'annonce' ? 'Appel de CENTRAL' : 'Appel en cours');
+      setText(this.pillText, state === 'fin' ? 'Fin de vacation' : state === 'annonce' ? 'Appel de CENTRAL' : state === 'fourgon' ? 'Fourgon cellulaire demandé' : 'Appel en cours');
       const device = this.ctx.input.device;
-      const keyText = device === 'kbm' && state !== 'fin' ? callKeyLabel(this.ctx) : '';
+      const keyText = device === 'kbm' && state !== 'fin' && state !== 'fourgon' ? callKeyLabel(this.ctx) : '';
       setText(this.pillKey, keyText);
       setClass(this.pillKey, 'pd-off', keyText === '');
       this.pill.title = state === 'annonce' ? 'Afficher l’appel (Y : le prendre)' : 'Afficher l’appel';

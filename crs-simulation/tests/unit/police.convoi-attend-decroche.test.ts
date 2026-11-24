@@ -1,8 +1,9 @@
 // Colonne de l'IA (police/command/convoy.ts) arrivée au point alors qu'un de ses fourgons, resté loin derrière, finit le
-// trajet seul : s'il est arrêté un moment en route (feu, file, piétons), le stationnement ne doit pas conclure que « plus
-// rien ne bouge » et débarquer tout le monde — le fourgon était alors arrêté là où il était (pilote coupé), à des
-// centaines de mètres du point, et son équipage (le joueur passager avec lui) descendait là (journée de service :
-// caserne de la Cité → République, joueur à 736 m du point).
+// trajet seul : s'il est arrêté un moment en route (feu, file, piétons), le fourgon ne doit pas être arrêté là où il est
+// (pilote coupé) pour débarquer son équipage à des centaines de mètres du point — le joueur passager avec lui (journée
+// de service : caserne de la Cité → République, joueur à 736 m du point). Depuis les ordres directs, la colonne ne
+// l'attend plus pour débarquer les autres (trente secondes de stationnement au plus) : lui finit le trajet, et ses
+// passagers descendent à sa place.
 import { describe, expect, it } from 'vitest';
 
 import type { RoadSample, Vehicle } from '@/core/contracts';
@@ -67,6 +68,9 @@ describe('colonne de l’IA : un fourgon décroché arrêté en route', () => {
     const lead = list[0]!;
     let releaseAt = -1;
     let disembarkFar = -1;
+    // passagers du fourgon décroché : là où ils descendent
+    const riders = last.seats.slice(1).filter((id) => id !== 0).map((id) => ctx.people.get(id)!).filter((p) => p);
+    const outAt = new Map<number, number>();
     for (let i = 0; i < 2400; i++) {
       // (relâché 30 s après que les autres se sont garés)
       if (releaseAt < 0 && cmd.convoyOf(sec.squad.id)!.stage !== 'route' && list.every((v) => v === last || ap.status(v).mode === 'idle')) releaseAt = ctx.clock.now + 30;
@@ -74,11 +78,19 @@ describe('colonne de l’IA : un fourgon décroché arrêté en route', () => {
       t.step(0.25);
       const st = cmd.convoyOf(sec.squad.id)!.stage;
       if (disembarkFar < 0 && (st === 'debarquement' || st === 'en_place')) disembarkFar = Math.hypot(last.x - dest!.x, last.z - dest!.z);
+      for (const p of riders) if (!outAt.has(p.id) && p.vehicleId === 0) outAt.set(p.id, Math.hypot(p.x - dest!.x, p.z - dest!.z));
       if (disembarkFar >= 0 && i % 4 === 0 && ctx.clock.now > releaseAt + 120) break;
     }
     const s = ap.status(last);
     console.log(`débarquement avec le dernier fourgon à ${disembarkFar.toFixed(0)} m du point ; à la fin : ${Math.hypot(last.x - dest!.x, last.z - dest!.z).toFixed(0)} m (${s.mode}/${s.state}${s.reason ? '/' + s.reason : ''})`);
-    expect(disembarkFar, 'la colonne débarque au complet, pas avec un fourgon resté à des centaines de mètres').toBeGreaterThanOrEqual(0);
-    expect(disembarkFar).toBeLessThan(160);
+    const out = [...outAt.values()].map((d) => Math.round(d));
+    console.log(`passagers du fourgon décroché descendus à ${out.join(' / ')} m du point (${riders.length} à bord au départ)`);
+    // la colonne débarque sans l'attendre (elle ne retient plus tout le monde assis), mais lui finit le trajet : son
+    // pilote n'est pas coupé loin du point, ses passagers descendent à sa place — pas à des centaines de mètres
+    expect(disembarkFar, 'la colonne débarque').toBeGreaterThanOrEqual(0);
+    expect(Math.hypot(last.x - dest!.x, last.z - dest!.z)).toBeLessThan(160);
+    expect(riders.length).toBeGreaterThan(0);
+    expect(out.length, 'tous ses passagers sont descendus').toBe(riders.length);
+    expect(Math.max(...out)).toBeLessThan(160);
   }, 300000);
 });

@@ -57,6 +57,10 @@ describe('convoi', () => {
       }
       return st.stage === 'en_place' || st.stage === 'echec';
     });
+    // tout le monde est descendu (chacun dès que son fourgon était garé, sans attendre les autres) : le dernier fourgon
+    // finit sa manœuvre, la ligne se resserre avec ceux qui l'ont rejointe
+    const placedAt = ctx.clock.now;
+    t.run(120, 0.5, () => t.api.convoyOf(cie.squad.id)!.parked === fleet.length && ctx.clock.now - placedAt > 40);
     const st = t.api.convoyOf(cie.squad.id)!;
     const onFoot = cie.people.filter((p) => p.vehicleId === 0 && p.poste !== 'conducteur');
     const pt: PoliceTest = { t: t.t, ctx, system: t.police, units: t.units, status: t.status, slots: ctx.require('police.slot'), formation: t.formation, tuning: ctx.require('police.tuning'), step: t.step, run: t.run };

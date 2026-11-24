@@ -28,6 +28,12 @@ export interface SpeechRequest {
   y: number;
   z: number;
   priority: 0 | 1 | 2;
+  /**
+   * Dit tout de suite (accusé de réception d'un ordre du joueur) : passe devant toute la file et coupe la parole en
+   * cours si elle n'est pas urgente (l'accusé d'un ordre précédent compris) ; la parole coupée est redite une fois juste
+   * après.
+   */
+  interrupt?: boolean;
 }
 
 interface Job extends SpeechRequest {
@@ -39,6 +45,8 @@ interface Job extends SpeechRequest {
   bed: number;
   utter: SpeechSynthesisUtterance | null;
   done: boolean;
+  /** Redite d'une parole coupée par un accusé : coupée à son tour, elle n'est plus redite. */
+  cut: boolean;
 }
 
 /** Timbres : hauteur et débit selon l'indice de voix (en plus du choix de la voix du navigateur). */
@@ -106,19 +114,35 @@ export class SpeechQueue {
     if (req.priority === 0 && this.queue.length >= 2) return;
     this.lastText = text;
     this.lastTextAt = this.time;
-    const job: Job = { ...req, text, stage: 'queued', t: 0, until: 0, bed: 0, utter: null, done: false };
-    if (req.priority === 2) {
-      // l'urgent passe devant tout ce qui attend (mais ne coupe pas la parole en cours)
+    const job: Job = { ...req, text, stage: 'queued', t: 0, until: 0, bed: 0, utter: null, done: false, cut: false };
+    if (req.interrupt === true) {
+      // derrière les accusés déjà en attente (pas encore dits), devant tout le reste
       let i = 0;
-      while (i < this.queue.length && this.queue[i]!.priority === 2) i++;
+      while (i < this.queue.length && this.queue[i]!.interrupt === true && !this.queue[i]!.cut) i++;
+      this.queue.splice(i, 0, job);
+      const cur = this.current;
+      if (cur && cur.priority < 2 && (cur.stage === 'opening' || cur.stage === 'speaking')) {
+        // coupée (bip de fin, comme une émission interrompue), puis redite une fois après l'accusé (une redite coupée
+        // à son tour n'est plus redite)
+        this.close(cur);
+        if (!cur.cut) this.queue.splice(i + 1, 0, { ...cur, stage: 'queued', t: 0, until: 0, bed: 0, utter: null, done: false, cut: true });
+      }
+    } else if (req.priority === 2) {
+      // l'urgent passe devant tout ce qui attend (mais ne coupe pas la parole en cours), sauf les accusés de réception
+      let i = 0;
+      while (i < this.queue.length && (this.queue[i]!.priority === 2 || this.queue[i]!.interrupt === true)) i++;
       this.queue.splice(i, 0, job);
     } else {
       this.queue.push(job);
     }
     while (this.queue.length > MAX_QUEUE) {
-      // file pleine : on abandonne le message le moins prioritaire, le plus ancien à égalité
-      let drop = 0;
-      for (let i = 1; i < this.queue.length; i++) if (this.queue[i]!.priority < this.queue[drop]!.priority) drop = i;
+      // file pleine : on abandonne le message le moins prioritaire, le plus ancien à égalité (jamais un accusé)
+      let drop = -1;
+      for (let i = 0; i < this.queue.length; i++) {
+        if (this.queue[i]!.interrupt === true) continue;
+        if (drop < 0 || this.queue[i]!.priority < this.queue[drop]!.priority) drop = i;
+      }
+      if (drop < 0) break;
       this.queue.splice(drop, 1);
     }
   }

@@ -1,7 +1,12 @@
 /* =====================================================================================
  * Éléments de HUD du commandement :
- *   « mon unité »        état résumé du groupe ou de la section du joueur et ordre en cours, avec les mots de la carte
- *                        (« MISTRAL 1 ALFA · EN LIGNE », « SANS ORDRE » — jamais un type brut ni « INITIATIVE ») ;
+ *   « mon unité »        la puce d'état en haut au centre. Pour qui commande, la ligne d'état des ordres directs
+ *                        (fieldHud.ts) : « AVEC VOUS · 3 sections + BRAV-M · en ligne face à la foule », et pendant 6 s
+ *                        après un ordre le ticket de l'unité (« MISTRAL 1 · Bloquer rue Saint-Gilles · reçu ») — jamais
+ *                        « SANS ORDRE », « MONTE », « DESCEND » ni « EN FILE » pour une unité sous ses ordres. Au toucher,
+ *                        pendant 5 s après un ordre, elle devient le bouton « ↶ Annuler — MISTRAL 1 · Bloquer » (44 px).
+ *                        Pour l'exécutant : son groupe et l'ordre en cours avec les mots de la carte (« MISTRAL 1 ALFA ·
+ *                        EN LIGNE », « SANS ORDRE » — jamais un type brut ni « INITIATIVE ») ;
  *   « incident confié »  pour un joueur exécutant : libellé, distance et direction de l'incident.
  * Chacun n'écrit dans le DOM que si une valeur a changé ; la flèche tourne par transformation CSS.
  * ===================================================================================== */
@@ -15,9 +20,39 @@ import type { CommandCore } from './core';
 import { unitIconUrl } from './panelUnits';
 import type { SquadOrder } from '@/core/contracts';
 import { tagOf, verbOf } from './orders';
+import type { DirectApi } from './direct/runtime';
+import { undoButtonText } from './direct/words';
+import { FIELD_DIRECT_SERVICE, sharedFieldHud, splitHead } from './fieldHud';
 import { ensureCommandStyle } from './style';
 
 const PERIOD = 0.25;
+
+const STYLE_ID = 'cm-chip-style';
+
+/** Puce d'état des ordres directs : la ligne en casse normale, et le bouton « ↶ Annuler » du téléphone (44 px). */
+export const CHIP_CSS = `
+.ch .ch-line{min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:12px;font-weight:600;color:#dfe6f1;order:1}
+.ch .ch-ord.is-off,.ch .ch-line.is-off{display:none}
+.ch.is-line{max-width:min(430px,56vw)}
+.ch.is-line b{flex:none}
+.ch.is-line .ch-num{order:2;opacity:.75}
+.ui-hud:not([data-touch="none"]) .ch.is-line{max-width:min(360px,56vw)}
+.ch.is-ticket{border-color:rgba(88,166,255,.55)}
+.ch.is-ticket .ch-num{display:none}
+.ch .ch-line.is-new{animation:ch-flash 1.2s ease-out}
+.ch .ch-undo{display:none}
+.ch.is-undo{height:auto;min-height:44px;padding:0;pointer-events:auto;border-color:rgba(255,213,138,.65)}
+.ch.is-undo>*{display:none}
+.ch.is-undo .ch-undo{display:flex;align-items:center;min-height:44px;padding:0 14px;border:0;background:none;color:#ffd58a;font:inherit;font-size:12.5px;font-weight:700;white-space:nowrap;cursor:pointer;max-width:min(360px,70vw);overflow:hidden;text-overflow:ellipsis}
+`;
+
+function ensureChipStyle(): void {
+  if (document.getElementById(STYLE_ID)) return;
+  const s = document.createElement('style');
+  s.id = STYLE_ID;
+  s.textContent = CHIP_CSS;
+  document.head.appendChild(s);
+}
 
 /** Étiquette d'unité quand elle n'a pas d'ordre (ordre « libre », ou aucun). */
 export const NO_ORDER_TAG = 'SANS ORDRE';
@@ -45,13 +80,18 @@ export class UnitHud implements HudWidget {
   private readonly name: HTMLElement;
   private readonly num: HTMLElement;
   private readonly ord: HTMLElement;
+  /** Ligne d'état des ordres directs (qui commande) ; bouton « ↶ Annuler » du téléphone. */
+  private readonly line: HTMLElement;
+  private readonly undoBtn: HTMLButtonElement;
   private last = -1;
   private iconKey = '';
   private orderKey = '';
+  private chipKey = '';
   private flashUntil = 0;
 
   constructor(private readonly core: CommandCore, host: HTMLElement) {
     ensureCommandStyle();
+    ensureChipStyle();
     this.root = el('div', 'cm-root ch is-off');
     this.root.dataset.id = 'hud-unit';
     this.img = document.createElement('img');
@@ -59,8 +99,75 @@ export class UnitHud implements HudWidget {
     this.name = el('b');
     this.num = el('span', 'ch-num');
     this.ord = el('span', 'ch-ord');
-    this.root.append(this.img, this.name, this.num, this.ord);
+    this.line = el('span', 'ch-line is-off');
+    this.undoBtn = document.createElement('button');
+    this.undoBtn.type = 'button';
+    this.undoBtn.className = 'ch-undo';
+    this.undoBtn.dataset.id = 'hud-undo';
+    // le bouton ne garde pas le focus : Entrée donne l'ordre prêt, jamais une annulation
+    this.undoBtn.tabIndex = -1;
+    this.undoBtn.addEventListener('mousedown', (e) => e.preventDefault());
+    this.undoBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.undoBtn.blur();
+      this.undo();
+    });
+    this.root.append(this.img, this.name, this.num, this.ord, this.line, this.undoBtn);
     host.appendChild(this.root);
+  }
+
+  private direct(): DirectApi | undefined {
+    const d = this.core.ctx.service<DirectApi>(FIELD_DIRECT_SERVICE);
+    return d && typeof d.ready === 'function' ? d : undefined;
+  }
+
+  private touch(): boolean {
+    const hud = this.root.closest('.ui-hud');
+    return !!hud && (hud.getAttribute('data-touch') ?? 'none') !== 'none';
+  }
+
+  /** « ↶ Annuler » (téléphone) : comme ⌫, chaque unité reprend l'ordre qu'elle avait. */
+  private undo(): void {
+    const d = this.direct();
+    if (!d) return;
+    const r = d.undo();
+    if (r.ok && r.text !== '') this.core.ctx.ui.notify(r.text, 'info', 3);
+    this.last = -1;
+  }
+
+  /**
+   * Qui commande : la ligne d'état (ou le ticket du dernier ordre) ; au toucher, 5 s après un ordre, « ↶ Annuler ».
+   * false : la puce garde son texte d'exécutant.
+   */
+  private paintDirect(): boolean {
+    const direct = this.direct();
+    const m = direct ? sharedFieldHud(this.core, direct) : null;
+    const on = !!m && m.commander && m.chip !== '';
+    const undo = on && this.touch() && m!.undo !== null ? undoButtonText(m!.undo!.who, m!.undo!.verb) : '';
+    setClass(this.root, 'is-line', on);
+    setClass(this.root, 'is-undo', undo !== '');
+    setClass(this.root, 'is-ticket', on && m!.chipTicket);
+    setClass(this.line, 'is-off', !on);
+    setClass(this.ord, 'is-off', on);
+    if (undo !== '') {
+      setText(this.undoBtn, undo);
+      if (this.undoBtn.title !== undo) this.undoBtn.title = undo;
+    }
+    if (!on) return false;
+    const h = splitHead(m!.chip);
+    setText(this.name, h.head);
+    setText(this.line, h.rest);
+    if (this.root.title !== m!.chip) {
+      this.root.title = m!.chip;
+      this.root.setAttribute('aria-label', m!.chip);
+    }
+    // une nouvelle ligne de ticket clignote brièvement
+    if (m!.chipTicket && this.chipKey !== m!.chip && this.chipKey !== '') {
+      this.line.classList.add('is-new');
+      this.flashUntil = this.core.maps.time + 1.3;
+    }
+    this.chipKey = m!.chip;
+    return true;
   }
 
   update(): void {
@@ -69,6 +176,7 @@ export class UnitHud implements HudWidget {
     if (this.flashUntil !== 0 && t > this.flashUntil) {
       this.flashUntil = 0;
       this.ord.classList.remove('is-new');
+      this.line.classList.remove('is-new');
     }
     if (t - this.last < PERIOD) return;
     this.last = t;
@@ -92,9 +200,11 @@ export class UnitHud implements HudWidget {
       this.iconKey = iconKey;
       this.img.src = unitIconUrl(u.symbol, u.faction);
     }
-    setText(this.name, u.name);
     setText(this.num, u.total > 0 ? `${u.valid}/${u.total}` : '');
     setClass(this.num, 'is-low', u.total > 0 && u.valid / u.total < 0.6);
+    // qui commande : la ligne d'état des ordres directs, jamais l'ordre interne de la simulation
+    if (this.paintDirect()) return;
+    setText(this.name, u.name);
     const o = u.order;
     const free = !o || o.type === 'libre';
     const verb = o ? verbOf(o.type) : undefined;

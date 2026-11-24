@@ -91,7 +91,14 @@ export class Adjoint {
     const e = this.entries[i];
     this.remove(i);
     if (!e.exec) return false;
-    e.exec();
+    // acceptée par le joueur : ce sont ses ordres (byPlayer), qu'aucun ordre interne ne remplace ensuite
+    const core = this.core;
+    core.asPlayer = true;
+    try {
+      e.exec();
+    } finally {
+      core.asPlayer = false;
+    }
     return true;
   }
 

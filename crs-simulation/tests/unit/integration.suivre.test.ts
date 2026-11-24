@@ -116,7 +116,7 @@ describe('l’unité suit le joueur', () => {
     expect(van.siren).toBe(1);
   }, 300000);
 
-  it('commandant au volant : toute la compagnie embarque, suit en colonne, puis débarque en ligne (le canon garde son équipage)', async () => {
+  it('commandant au volant : toute la compagnie embarque, suit en colonne, puis débarque en ligne et le suit (le canon garde son équipage)', async () => {
     const t = createTestContext({ seed: 7, strict: false, modules: SIM });
     await t.start({ mode: 'libre', role: 'commandant', place: 'essai', x: -10, z: 15, crowdSize: 30, tension: 0, volatility: 0, duration: 'standard', extra: { moyens: COMPANY, variante: 'terrain' } });
     const { ctx } = t;
@@ -134,8 +134,17 @@ describe('l’unité suit le joueur', () => {
     expect(vans.every((x) => x.siren === 1)).toBe(true);
     ctx.vehicles.exit(me);
     t.step(10);
-    expect(groups.every((s) => s.order.type === 'debarquer')).toBe(true);
     const cannon = ctx.squads.list.find((s) => s.kind === 'equipage' && ctx.vehicles.get(s.vehicleId)?.kind === 'canon_eau')!;
+    // (ils débarquent en ligne à côté de leur fourgon, puis le suivent à pied : jamais laissés à « débarquer » — sauf le
+    // groupe repris pour l'escorte à pied du canon à eau, un seul : « tout le monde me suit » ne retient pas l'escorte d'un
+    // blindé, spécification « ordres directs » §3.3, session/engins.ts)
+    const guards = (s: (typeof groups)[number]) => (s.order.type === 'proteger' || s.order.type === 'suivre') && s.order.targetId === cannon.vehicleId;
+    const follows = (s: (typeof groups)[number]) => s.order.type === 'suivre' && s.order.targetId === me.id;
+    expect(groups.filter((s) => !(s.order.type === 'debarquer' || follows(s) || guards(s))).map((s) => `${s.name}=${s.order.type}`)).toEqual([]);
+    for (let i = 0; i < 20 && !groups.every((s) => follows(s) || guards(s)); i++) t.step(2);
+    expect(groups.filter((s) => !follows(s) && !guards(s)).map((s) => `${s.name}=${s.order.type}`)).toEqual([]);
+    expect(groups.filter(guards).length).toBeLessThanOrEqual(1);
+    expect(groups.filter(follows).length).toBeGreaterThanOrEqual(groups.length - 1);
     expect(cannon.members.filter((id) => ctx.people.get(id)!.vehicleId !== 0).length).toBe(cannon.members.length);
   }, 300000);
 

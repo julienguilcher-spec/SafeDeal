@@ -8,6 +8,7 @@ import type { AttackTracker } from './attack';
 import type { Attroupement } from './attroupement';
 import type { Controls } from './controls';
 import type { Custody } from './custody';
+import type { DetaineeWays } from './detainee';
 import type { ForceJudge } from './force';
 import type { Handover } from './handover';
 import type { Offenses } from './offenses';
@@ -32,6 +33,8 @@ export interface Kernel {
   custody: Custody;
   subdue: Subduing;
   handover: Handover;
+  /** L'interpellé de chaque agent et sa meilleure issue (service 'law.custody'). */
+  ways: DetaineeWays;
   controls: Controls;
   /** Message au joueur s'il incarne `p` (sans effet pour un PNJ). Les répétitions rapprochées sont filtrées. */
   notify(p: Person | null | undefined, text: string, kind?: NoticeKind, seconds?: number): void;

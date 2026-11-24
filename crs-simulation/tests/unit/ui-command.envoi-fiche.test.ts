@@ -161,8 +161,11 @@ describe('« Donner l’ordre » sur une ligne de fiche (vraie partie, place de 
     // plus large
     const heldBy = (c: { exits: readonly { held: boolean; squadId: number }[] }): number => c.exits.filter((e) => e.held && core.canCommand(e.squadId)).length;
     const best = () => core.maps.scene.crowdExits.slice().sort((a, b) => heldBy(b) - heldBy(a))[0];
+    // (la scène de la carte ne se rafraîchit qu'à intervalles d'horloge réelle — ensureFresh — : l'essai la force à
+    // chaque pas, sinon ce qu'il lit dépend de la vitesse de la machine et le résultat change d'une exécution à l'autre)
     for (let i = 0; i < 60 && !(best() && heldBy(best()!) >= 2); i++) {
       t.step(2);
+      core.maps.scene.invalidate();
       core.maps.scene.ensureFresh();
     }
     expect(best() && heldBy(best()!)).toBeGreaterThanOrEqual(1);

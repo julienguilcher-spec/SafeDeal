@@ -12,7 +12,7 @@
 // Pour chaque tentative : acceptée ou refusée (texte), délai jusqu'au premier mouvement d'un agent de l'unité, ce que
 // fait chaque unité 5 s, 20 s et 60 s plus tard, où elle est, et l'étape de la journée, de la colonne et de la mission.
 // Foule allégée (300 personnes au plus) pour que chaque mission tienne en quelques minutes.
-import type { GameContext, GameSystem, ModuleFactory, OrderType, Person, SessionConfig, Squad, Vehicle } from '@/core/contracts';
+import type { GameContext, GameSystem, ModuleFactory, OrderType, Person, SessionConfig, Squad, SquadOrder, Vehicle } from '@/core/contracts';
 import { EXT } from '@/core/extensions';
 import type { ObjectivesApi } from '@/core/extensions';
 import { createTestContext } from '@/core/testing';
@@ -73,6 +73,11 @@ const LIGHT_CROWD = 300;
 const TRAVEL_LIMIT = 1300;
 /** Durée jouée après l'arrivée (s). */
 const PLAY = 192;
+/**
+ * Essais retirés du plan (PLAYTEST_SANS=42,62 : secondes du plan) — pour mesurer la suite quand un ordre du robot met
+ * lui-même fin à la partie (« Repousser la foule » sur une veillée pacifique : mission échouée, à juste titre).
+ */
+const SKIP: ReadonlySet<number> = new Set((process.env['PLAYTEST_SANS'] ?? '').split(',').filter((x) => x !== '').map(Number));
 /** En deçà, le joueur qui part devant y va à pied (m). */
 const WALK_AHEAD = 1500;
 
@@ -108,23 +113,239 @@ export function walk(ctx: GameContext, me: Person, x: number, z: number, dist: n
   }
 }
 
-/** Le joueur au volant conduit `dist` mètres vers (x, z) par les rues (comme au clavier). */
-function drive(ctx: GameContext, v: Vehicle, x: number, z: number, dist: number, path: number[]): void {
-  if (Math.hypot(x - v.x, z - v.z) < 8) { v.speed = 0; v.vx = 0; v.vz = 0; return; }
-  path.length = 0;
-  if (!ctx.world.findPath(v.x, v.z, x, z, 'vehicle', path) || path.length < 4) return;
-  let left = dist;
-  for (let i = 2; i < path.length && left > 0; i += 2) {
-    const dx = path[i]! - v.x, dz = path[i + 1]! - v.z;
-    const l = Math.hypot(dx, dz);
-    if (l < 0.01) continue;
-    v.heading = Math.atan2(dx, dz);
-    if (l <= left) { v.x = path[i]!; v.z = path[i + 1]!; left -= l; } else { v.x += (dx / l) * left; v.z += (dz / l) * left; left = 0; }
+/** Allure du joueur au volant (m/s) : en tête de sa colonne, et seul devant — jamais plus de 50 km/h en ville. */
+export const CRUISE_LEAD = 10;
+export const CRUISE_ALONE = 12.5;
+const TOWN_MAX = 13.8;
+/** Il s'arrête à tant de mètres du point (m). */
+const STOP_AT = 40;
+/** Pas de la simulation tant qu'il conduit (s) : celui d'un joueur au clavier. */
+const DRIVE_DT = 0.1;
+
+interface Hit { hit: boolean; t: number; x: number; z: number; nx: number; nz: number; kind: string; id: number; height: number }
+interface Stepper { ctx: GameContext; step(seconds: number): void }
+
+/**
+ * Le joueur au volant, comme au clavier : il suit par les rues l'itinéraire que montre son GPS (ctx.world.findPath,
+ * calculé une fois, recalculé seulement s'il s'en est écarté ou reste coincé), accélère, freine et braque avec les
+ * commandes du jeu (ctx.input) — au plus 50 km/h, au pas dans les virages serrés, derrière le véhicule qui le précède ;
+ * il contourne un véhicule arrêté et recule quand il est coincé. Rien n'est déplacé à la main : c'est la simulation des
+ * véhicules qui le fait rouler (collisions, traces relevées par session/follow.ts comme pour un joueur).
+ *
+ * Usage : `aim()` désigne le véhicule et le point pour la seconde qui vient ; `step()` remplace `t.step(1)`.
+ */
+export class StreetDriver {
+  /** Distance parcourue au volant (m) et vitesse maximale atteinte (m/s). */
+  driven = 0;
+  topSpeed = 0;
+  private v: Vehicle | null = null;
+  private tx = 0;
+  private tz = 0;
+  private cruise = CRUISE_LEAD;
+  private readonly route: number[] = [];
+  private idx = 2;
+  private planned = false;
+  private plannedAt = -1e9;
+  private stuck = 0;
+  private back = 0;
+  private backTurn = 0;
+  private jams = 0;
+  private held = false;
+  /** Ce qui le retient en ce moment (journal PLAYTEST_DEBUG). */
+  private note = '';
+  private readonly hit: Hit = { hit: false, t: 0, x: 0, z: 0, nx: 0, nz: 0, kind: 'none', id: 0, height: 0 };
+
+  /** Pour la seconde qui vient : conduire `v` vers (x, z) à l'allure `cruise` (m/s). */
+  aim(v: Vehicle, x: number, z: number, cruise: number): void {
+    if (this.v !== v && !this.held) this.planned = false;
+    if (Math.hypot(x - this.tx, z - this.tz) > 15) this.planned = false;
+    this.v = v;
+    this.tx = x;
+    this.tz = z;
+    this.cruise = Math.min(cruise, TOWN_MAX);
   }
-  const s = Math.hypot(x - v.x, z - v.z) < 8 ? 0 : dist;
-  v.speed = s; v.vx = Math.sin(v.heading) * s; v.vz = Math.cos(v.heading) * s;
-  const me = ctx.player.person();
-  if (me) { me.x = v.x; me.z = v.z; }
+
+  /** Une seconde de jeu : au volant si `aim()` vient de le demander et que le joueur y est, sinon `t.step(1)`. */
+  step(t: Stepper): void {
+    const v = this.v;
+    this.v = null;
+    const input = t.ctx.input as unknown as { moveX: number; moveY: number };
+    const me = t.ctx.player.person();
+    if (!v || !me || v.seats[0] !== me.id) {
+      if (this.held) { input.moveX = 0; input.moveY = 0; this.held = false; this.planned = false; }
+      t.step(1);
+      return;
+    }
+    this.held = true;
+    for (let k = 0; k < Math.round(1 / DRIVE_DT); k++) {
+      this.control(t.ctx, v, input);
+      const x0 = v.x, z0 = v.z;
+      t.step(DRIVE_DT);
+      this.driven += Math.hypot(v.x - x0, v.z - z0);
+      if (Math.abs(v.speed) > this.topSpeed) this.topSpeed = Math.abs(v.speed);
+    }
+    if (process.env['PLAYTEST_DEBUG'] && Math.floor(t.ctx.clock.now) % 15 === 0) {
+      console.log(`  volant t=${t.ctx.clock.now.toFixed(0)} (${v.x.toFixed(0)}, ${v.z.toFixed(0)}) cap ${v.heading.toFixed(2)} ${(v.speed * 3.6).toFixed(0)} km/h, but à ${Math.hypot(this.tx - v.x, this.tz - v.z).toFixed(0)} m, point ${this.idx / 2}/${this.route.length / 2}, parcouru ${this.driven.toFixed(0)} m, coincé ${this.jams} fois${this.note ? ' ; ' + this.note : ''}`);
+    }
+  }
+
+  /** Il lâche les commandes (arrivée, descente). */
+  release(ctx: GameContext): void {
+    const input = ctx.input as unknown as { moveX: number; moveY: number };
+    input.moveX = 0;
+    input.moveY = 0;
+    this.held = false;
+    this.v = null;
+    this.planned = false;
+  }
+
+  private plan(ctx: GameContext, v: Vehicle): void {
+    this.route.length = 0;
+    let ok = false;
+    try { ok = ctx.world.findPath(v.x, v.z, this.tx, this.tz, 'vehicle', this.route); } catch { ok = false; }
+    if (!ok || this.route.length < 4) { this.route.length = 0; this.route.push(v.x, v.z, this.tx, this.tz); }
+    this.idx = 2;
+    this.planned = true;
+    this.plannedAt = ctx.clock.now;
+  }
+
+  private control(ctx: GameContext, v: Vehicle, input: { moveX: number; moveY: number }): void {
+    const toGoal = Math.hypot(this.tx - v.x, this.tz - v.z);
+    // arrivé (le lieu est devant lui, à quelques dizaines de mètres : il ne roule pas jusque dans le rassemblement) : il
+    // freine jusqu'à l'arrêt
+    if (toGoal < STOP_AT) {
+      input.moveX = 0;
+      input.moveY = Math.abs(v.speed) > 0.3 ? (v.speed > 0 ? -1 : 1) : 0;
+      return;
+    }
+    if (!this.planned) this.plan(ctx, v);
+    const path = this.route;
+    // point visé : d'autant plus loin qu'il roule vite
+    const look = 9 + Math.abs(v.speed) * 0.9;
+    while (this.idx < path.length - 2 && Math.hypot(path[this.idx]! - v.x, path[this.idx + 1]! - v.z) < look) this.idx += 2;
+    // écarté de son itinéraire de plus de 30 m (contournement, recul) : il regarde de nouveau son GPS
+    {
+      const ax = path[this.idx - 2]!, az = path[this.idx - 1]!;
+      const sx = path[this.idx]! - ax, sz = path[this.idx + 1]! - az;
+      const l2 = sx * sx + sz * sz;
+      const u = l2 > 0.01 ? Math.max(0, Math.min(1, ((v.x - ax) * sx + (v.z - az) * sz) / l2)) : 0;
+      if (Math.hypot(v.x - (ax + sx * u), v.z - (az + sz * u)) > 30 && ctx.clock.now - this.plannedAt > 5) {
+        this.plan(ctx, v);
+        return;
+      }
+    }
+    let dx = path[this.idx]! - v.x, dz = path[this.idx + 1]! - v.z;
+    const hit = this.hit;
+    // mur sur la ligne droite jusqu'au point visé : il le longe du côté du point
+    if (ctx.world.raycast(v.x, v.z, path[this.idx]!, path[this.idx + 1]!, hit as never) && hit.t * Math.hypot(dx, dz) < 25) {
+      let wx = -hit.nz, wz = hit.nx;
+      if (wx * (path[this.idx]! - hit.x) + wz * (path[this.idx + 1]! - hit.z) < 0) { wx = -wx; wz = -wz; }
+      dx = hit.x + hit.nx * 7 + wx * 8 - v.x;
+      dz = hit.z + hit.nz * 7 + wz * 8 - v.z;
+    }
+    // mobilier fixe devant lui (candélabre, borne, poubelle), dans l'axe ou devant un flanc : il passe à côté
+    {
+      const l = Math.hypot(dx, dz) || 1;
+      const ux = dx / l, uz = dz / l;
+      const half = v.def.width * 0.5;
+      const reach = v.def.length * 0.5 + 7;
+      for (const side of [0, 1, -1]) {
+        const ox = uz * side * half, oz = -ux * side * half;
+        if (!ctx.props.raycast(v.x + ox, v.z + oz, v.x + ox + ux * reach, v.z + oz + uz * reach, hit as never, 'move') || !hit.hit) continue;
+        // (écart de l'objet à droite de l'axe visé : à droite, il passe à gauche, et inversement)
+        const lat = (hit.x - v.x) * uz - (hit.z - v.z) * ux;
+        const pass = lat >= 0 ? -1 : 1;
+        this.note = 'contourne un objet';
+        dx = hit.x + uz * pass * (half + 1.5) + ux * 3 - v.x;
+        dz = hit.z - ux * pass * (half + 1.5) + uz * 3 - v.z;
+        break;
+      }
+    }
+    // véhicule devant lui : arrêté, il passe à côté ; lent, il règle son allure sur la sienne
+    let ahead = Infinity;
+    let aheadSpeed = 0;
+    this.note = '';
+    {
+      const l = Math.hypot(dx, dz) || 1;
+      const ux = dx / l, uz = dz / l;
+      const nose = v.def.length * 0.5 + 0.3;
+      let shift = 0;
+      for (let k = 0; k < 4; k++) {
+        const ax = v.x + ux * nose, az = v.z + uz * nose;
+        const reach = Math.max(18, Math.abs(v.speed) * 2.5 + 8);
+        const bx = ax + ux * reach, bz = az + uz * reach;
+        if (!ctx.vehicles.raycast(ax, az, bx, bz, hit as never, 'move') || !hit.hit || hit.kind !== 'vehicle' || hit.id === v.id) break;
+        const o = ctx.vehicles.get(hit.id);
+        if (!o) break;
+        const d = hit.t * reach;
+        const os = o.speed * (Math.sin(o.heading) * ux + Math.cos(o.heading) * uz);
+        if (Math.abs(o.speed) > 0.5 || d > 15) {
+          ahead = d;
+          aheadSpeed = Math.max(0, os);
+          this.note = `derrière ${o.kind}#${o.id} à ${d.toFixed(0)} m (${o.speed.toFixed(1)} m/s)`;
+          break;
+        }
+        this.note = `contourne ${o.kind}#${o.id}`;
+        if (shift === 0) shift = (o.x - v.x) * -uz + (o.z - v.z) * ux > 0 ? -1 : 1;
+        const side = (o.def.width + v.def.width) * 0.5 + 1.5 + k * 3;
+        dx = o.x + -uz * shift * side + ux * (o.def.length * 0.5 + 3) - v.x;
+        dz = o.z + ux * shift * side + uz * (o.def.length * 0.5 + 3) - v.z;
+      }
+    }
+    const fwd = dx * Math.sin(v.heading) + dz * Math.cos(v.heading);
+    const right = -dx * Math.cos(v.heading) + dz * Math.sin(v.heading);
+    const ang = Math.atan2(right, fwd);
+    if (this.back > 0) {
+      // (d'abord droit, pour se dégager de ce qui l'arrête, puis en contre-braquant ; demi-tour en plusieurs temps quand
+      // le point visé est derrière lui)
+      this.back--;
+      input.moveX = this.back > this.backTurn ? 0 : ang > 0 ? -1 : 1;
+      input.moveY = -0.7;
+      return;
+    }
+    input.moveX = Math.max(-1, Math.min(1, ang * 2.2));
+    // allure : croisière en ligne droite, au pas dans les virages serrés, ralenti avant le virage suivant et à l'arrivée
+    let want = Math.abs(ang) > 0.5 ? 4 : Math.abs(ang) > 0.22 ? 7 : this.cruise;
+    const turn = this.turnAhead(v);
+    if (turn.dist < 12 + v.speed * v.speed / 5) want = Math.min(want, turn.angle > 0.9 ? 4.5 : turn.angle > 0.4 ? 7 : want);
+    want = Math.min(want, Math.max(3, Math.sqrt(Math.max(0, toGoal - STOP_AT) * 5)));
+    if (ahead < Infinity) want = Math.min(want, ahead < 6 ? 0 : aheadSpeed + (ahead - 6) * 0.5);
+    input.moveY = v.speed < want - 0.5 ? (want - v.speed > 3 ? 1 : 0.6) : v.speed > want + 2.5 ? -1 : v.speed > want + 0.4 ? -0.4 : 0;
+    // coincé (il accélère sans avancer) : marche arrière en contre-braquant ; coincé plusieurs fois : il reprend son GPS
+    this.stuck = input.moveY > 0 && Math.abs(v.speed) < 0.3 ? this.stuck + 1 : 0;
+    if (this.stuck > 15) {
+      if (process.env['PLAYTEST_DEBUG'] && this.jams < 6) {
+        const fx = Math.sin(v.heading), fz = Math.cos(v.heading);
+        const rel = (x: number, z: number): string => `av=${((x - v.x) * fx + (z - v.z) * fz).toFixed(1)} lat=${((x - v.x) * fz - (z - v.z) * fx).toFixed(1)}`;
+        const wall = ctx.world.raycast(v.x, v.z, v.x + fx * 8, v.z + fz * 8, hit as never) ? `mur à ${(hit.t * 8).toFixed(1)} m` : 'pas de mur';
+        console.log(`  COINCÉ t=${ctx.clock.now.toFixed(0)} (${v.x.toFixed(1)}, ${v.z.toFixed(1)}) cap ${v.heading.toFixed(2)} vise ${rel(v.x + dx, v.z + dz)} ; ${wall} ; véhicules : ${ctx.vehicles.list.filter((o) => o !== v && Math.hypot(o.x - v.x, o.z - v.z) < 12).map((o) => `${o.kind}#${o.id} ${rel(o.x, o.z)} cap ${o.heading.toFixed(2)} v=${o.speed.toFixed(1)}`).join(' | ')} ; personnes : ${ctx.people.list.filter((q) => q.vehicleId === 0 && Math.hypot(q.x - v.x, q.z - v.z) < 5).map((q) => `${q.faction}#${q.id} ${rel(q.x, q.z)}`).join(' | ')} ; objets : ${ctx.props.list.filter((q) => Math.hypot(q.x - v.x, q.z - v.z) < 6).map((q) => `${q.kind} ${rel(q.x, q.z)}`).join(' | ')}`);
+      }
+      this.stuck = 0;
+      this.back = Math.abs(ang) > 1.5 ? 40 : 25;
+      this.backTurn = this.back - 10;
+      if (++this.jams % 3 === 0) this.planned = false;
+    }
+  }
+
+  /** Prochain changement de direction de l'itinéraire devant le véhicule : distance (m) et angle (rad). */
+  private turnAhead(v: Vehicle): { dist: number; angle: number } {
+    const path = this.route;
+    let px = v.x, pz = v.z;
+    let run = 0;
+    for (let i = this.idx; i < path.length - 2 && run < 80; i += 2) {
+      const ax = path[i]! - px, az = path[i + 1]! - pz;
+      const bx = path[i + 2]! - path[i]!, bz = path[i + 3]! - path[i + 1]!;
+      const la = Math.hypot(ax, az), lb = Math.hypot(bx, bz);
+      run += la;
+      if (la > 0.5 && lb > 0.5) {
+        const a = Math.abs(Math.atan2(ax * bz - az * bx, ax * bx + az * bz));
+        if (a > 0.4) return { dist: run, angle: a };
+      }
+      px = path[i]!;
+      pz = path[i + 1]!;
+    }
+    return { dist: Infinity, angle: 0 };
+  }
 }
 
 /** Une tentative de commandement et ce qui s'ensuit. */
@@ -138,6 +359,8 @@ export interface Attempt {
   at: number;
   /** Délai jusqu'au premier mouvement d'un agent (s ; −1 : aucun). */
   moved: number;
+  /** La partie a pris fin moins de sept secondes après l'ordre : il n'a pas pu être observé. */
+  cut?: boolean;
   target?: { x: number; z: number };
   /** Ordre donné (type), et type relevé 9 s plus tard sur la première unité. */
   type: string;
@@ -171,6 +394,27 @@ export interface MissionRun {
   notes: string[];
 }
 
+/**
+ * Journal des ordres (PLAYTEST_TRACE=<expression régulière sur le nom des unités>) : chaque ordre donné à une unité qui
+ * correspond, avec son auteur (issuedBy, byPlayer) et d'où il vient dans le code — pour savoir qui remplace un ordre du
+ * joueur. Sans la variable : rien.
+ */
+function traceOrders(ctx: GameContext): void {
+  const pat = process.env['PLAYTEST_TRACE'];
+  if (!pat) return;
+  const re = new RegExp(pat);
+  const squads = ctx.squads as unknown as { issue(id: number, o: Partial<SquadOrder>): unknown };
+  const issue = squads.issue.bind(ctx.squads);
+  squads.issue = (id: number, o: Partial<SquadOrder>): unknown => {
+    const q = ctx.squads.get(id);
+    if (q && re.test(q.name)) {
+      const from = (new Error().stack ?? '').split('\n').slice(2, 7).map((l) => l.trim().replace(/^at /, '').replace(/\(?.*\/crs-simulation\//, '(')).join(' < ');
+      console.log(`  ordre t=${ctx.clock.now.toFixed(1)} ${q.name} : ${o.type}${o.byPlayer ? ' (joueur)' : ''} issuedBy=${o.issuedBy ?? '-'} ← ${from}`);
+    }
+    return issue(id, o);
+  };
+}
+
 export async function playCommandant(id: string, arrival: Arrival): Promise<MissionRun> {
   const t = createTestContext({ seed: 7, strict: false, modules: SIM });
   await t.ready;
@@ -178,6 +422,7 @@ export async function playCommandant(id: string, arrival: Arrival): Promise<Miss
   const cfg = launchFromSheet(ctx, id);
   cfg.crowdSize = Math.min(cfg.crowdSize ?? LIGHT_CROWD, LIGHT_CROWD);
   await t.start(cfg);
+  traceOrders(ctx);
   const m = ctx.service<MissionsApi>('missions')!;
   const obj = ctx.service<ObjectivesApi>(EXT.objectives)!;
   const j = ctx.service<JourneeApi>(JOURNEE_SERVICE)!;
@@ -189,10 +434,11 @@ export async function playCommandant(id: string, arrival: Arrival): Promise<Miss
   };
   // ── trajet ──
   const path: number[] = [];
+  const wheel = new StreetDriver();
   let s = 0;
   let alone = false;
   for (; s < TRAVEL_LIMIT && m.phaseIndex < 0 && !m.result; s++) {
-    t.step(1);
+    wheel.step(t);
     const me = ctx.player.person()!;
     const d = j.destination;
     if (arrival === 'devant' && d && s >= 3) {
@@ -210,7 +456,7 @@ export async function playCommandant(id: string, arrival: Arrival): Promise<Miss
         } else if (me.vehicleId !== 0) ctx.vehicles.exit(me);
       }
       const v = me.vehicleId !== 0 ? ctx.vehicles.get(me.vehicleId) : undefined;
-      if (v && v.seats[0] === me.id) drive(ctx, v, d.x, d.z, 12, path);
+      if (v && v.seats[0] === me.id) wheel.aim(v, d.x, d.z, CRUISE_ALONE);
       else { if (me.vehicleId !== 0) ctx.vehicles.exit(me); walk(ctx, me, d.x, d.z, 4, path); }
       continue;
     }
@@ -227,8 +473,9 @@ export async function playCommandant(id: string, arrival: Arrival): Promise<Miss
       continue;
     }
     const v = ctx.vehicles.get(me.vehicleId)!;
-    if (arrival === 'volant' && v.seats[0] === me.id && d) drive(ctx, v, d.x, d.z, 9, path);
+    if (arrival === 'volant' && v.seats[0] === me.id && d) wheel.aim(v, d.x, d.z, CRUISE_LEAD);
   }
+  wheel.release(ctx);
   const me = ctx.player.person()!;
   if (m.phaseIndex < 0) {
     run.notes.push(`mission jamais commencée après ${s} s (journée ${j.stage})`);
@@ -404,9 +651,27 @@ export async function playCommandant(id: string, arrival: Arrival): Promise<Miss
       track('BRAV-M : « Suivez-moi à pied » (carte, fiche VOUS) vers moi', true, res.ok, res.text, res.ok ? [b[0]!] : [], 'suivre_pied');
     }],
   ];
+  let endedAt = -1;
   for (let k = 0; k <= PLAY; k++) {
     if (m.result && !run.failedEarly && ctx.clock.now - tArr < 30) run.failedEarly = m.result.summary;
-    for (const [when, f] of plan) if (when === k && ctx.session.phase === 'playing') f();
+    // (partie finie avant la fin des essais : dit, avec le compte rendu de la mission — les essais suivants ne sont pas joués)
+    if (endedAt < 0 && ctx.session.phase !== 'playing') {
+      endedAt = k;
+      // (un ordre donné dans les six secondes d'avant n'a pas pu être observé : il n'est pas jugé)
+      for (const a of run.attempts) if (ctx.clock.now - a.at < 7 && a.moved < 0) a.cut = true;
+      run.notes.push(`partie finie ${k} s après l’arrivée (${ctx.session.phase})${m.result ? ` : ${m.result.success ? 'mission réussie' : 'mission échouée'} — ${m.result.summary}` : ''}`);
+      // (emplois de la force fautifs depuis l'arrivée : qui, avec quoi, quel ordre tenait son unité)
+      for (const f of ctx.law.forceLog) {
+        if (f.t < tArr || f.verdict.severity < 3) continue;
+        const by = ctx.people.get(f.byId);
+        const q = by ? ctx.squads.get(by.squadId) : undefined;
+        const fv = by && by.vehicleId ? ctx.vehicles.get(by.vehicleId) : undefined;
+        const fa = fv ? ctx.service<{ status(v: Vehicle): { mode: string; state: string; reason: string; urgence: boolean } }>('vehicles.autopilot')?.status(fv) : undefined;
+        const tg = ctx.people.get(f.targetId);
+        run.notes.push(`force fautive +${(f.t - tArr).toFixed(0)} s : ${q?.name ?? '?'} (${by?.poste ?? '?'}${fv ? `, à bord de ${fv.kind} #${fv.id} en (${fv.x.toFixed(0)}, ${fv.z.toFixed(0)}), ${fv.speed.toFixed(1)} m/s, pilote ${fa ? `${fa.mode}/${fa.state}/${fa.reason}${fa.urgence ? ' urgence' : ''}` : '-'}` : ''}, ordre ${q?.order.type ?? '-'}) — ${f.means}, ${f.verdict.kind}, gravité ${f.verdict.severity}, à ${Math.hypot(f.x - me.x, f.z - me.z).toFixed(0)} m du commandant ; touché : ${tg ? `${tg.faction}, ${tg.posture}, sol « ${ctx.world.surfaceAt(tg.x, tg.z)} »` : '?'}`);
+      }
+    }
+    for (const [when, f] of plan) if (when === k && ctx.session.phase === 'playing' && !SKIP.has(when)) f();
     tick();
   }
   // ── « Suivez-moi à pied » final : les groupes autour du joueur, avec un état lisible ──
@@ -415,6 +680,21 @@ export async function playCommandant(id: string, arrival: Arrival): Promise<Miss
     const gs = groupsOf().filter((q) => agents([q.id]).length > 0);
     run.aroundOf = gs.length;
     run.around = gs.filter((q) => { const d = meanDist([q.id], me.x, me.z); return d >= 0 && d < 50; }).length;
+    // (ceux qui manquent : distance moyenne de leurs agents au joueur, du plus proche au plus loin, et leur ordre)
+    const away = gs.filter((q) => meanDist([q.id], me.x, me.z) >= 50).map((q) => {
+      const ds = agents([q.id]).map((p) => { const ps = posOf(p.id); return Math.hypot(ps.x - me.x, ps.z - me.z); });
+      const seated = agents([q.id]).filter((p) => p.vehicleId !== 0).length;
+      return `${q.name} ${meanDist([q.id], me.x, me.z).toFixed(0)} m (${Math.min(...ds).toFixed(0)}–${Math.max(...ds).toFixed(0)} m, ${q.order.type}${seated ? `, ${seated} à bord` : ''})`;
+    });
+    if (away.length > 0) run.notes.push(`pas autour du commandant 60 s après « Suivez-moi à pied » : ${away.join(' ; ')}`);
+    if (process.env['PLAYTEST_DEBUG']) for (const q of gs) {
+      if (meanDist([q.id], me.x, me.z) < 50) continue;
+      for (const p of agents([q.id])) {
+        const a = p.brain as unknown as { tag?: string; hasSlot?: boolean; sx?: number; sz?: number; boardId?: number; op?: unknown; act?: number; stuckT?: number; able?: boolean; pathN?: number } | null;
+        const ps = posOf(p.id);
+        console.log(`    ${q.name} ${p.poste} à ${Math.hypot(ps.x - me.x, ps.z - me.z).toFixed(0)} m (${ps.x.toFixed(0)},${ps.z.toFixed(0)}) v=${Math.hypot(p.vx, p.vz).toFixed(1)} ${p.vehicleId ? 'à bord #' + p.vehicleId : 'à pied'} ${p.posture} place ${a && a.hasSlot ? `à ${Math.hypot((a.sx ?? 0) - me.x, (a.sz ?? 0) - me.z).toFixed(0)} m du joueur` : 'aucune'} boardId=${a?.boardId} op=${a?.op ? 'oui' : 'non'} act=${a?.act} apte=${a?.able} coincé=${(a?.stuckT ?? 0).toFixed(1)} chemin=${a?.pathN}`);
+      }
+    }
   }
   const e = cardEnvFromCore(core);
   for (const u of e.units) {
@@ -458,7 +738,7 @@ export function defects(r: MissionRun): string[] {
   if (r.groups > 0 && r.farGroups * 2 > r.groups) out.push(`mission commencée, compagnie ailleurs : ${r.farGroups}/${r.groups} groupes à plus de 300 m du commandant`);
   if (r.startAfter >= 0 && (r.firstOrderAt < 0 || r.firstOrderAt > 10)) out.push(`premier ordre accepté à ${r.firstOrderAt} s`);
   for (const a of r.attempts) {
-    if (!a.units || !a.ok || a.squads.length === 0) continue;
+    if (!a.units || !a.ok || a.squads.length === 0 || a.cut) continue;
     // (déjà sur place : rien à faire bouger)
     const there = a.d0 >= 0 && a.d0 < 6;
     if (!there && (a.moved < 0 || a.moved > 6)) out.push(`${a.label} : accepté, premier mouvement ${a.moved < 0 ? 'aucun' : `${a.moved} s`}`);

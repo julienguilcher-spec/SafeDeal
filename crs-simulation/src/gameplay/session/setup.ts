@@ -20,13 +20,20 @@
  *
  * Rôle 'patrouille' (équipage d'une voiture de BAC ou de Police secours) : le joueur part À BORD de sa voiture, garée
  * au bord de la chaussée, ses deux collègues avec lui (equipage.ts) ; service 'session.equipage'.
+ *
+ * « Tout le monde me suit, c'est obligatoire » : au départ, chaque unité que le joueur commande le suit — commandant et
+ * commissaire compris (toute la compagnie, BRAV-M, engins et fourgons cellulaires compris), chef de section (toute sa
+ * section), chef de groupe, chef de bord d'engin. La BRAV-M est rattachée à la compagnie (pas en journée de service : elle
+ * part de son propre commissariat, en colonne de motos). Les fourgons cellulaires sont engagés avec leur équipage
+ * au point de remise des interpellés (remise.ts, service 'session.remise').
  * ===================================================================================== */
 
 import type {
-  CameraMode, EntityId, GameContext, GameSystem, Person, PersonKind, RayHit, SessionConfig, Squad, Unsubscribe, Vec2, Vehicle,
+  CameraMode, EntityId, GameContext, GameSystem, Person, PersonKind, PoliceRank, RayHit, SessionConfig, Squad, Unsubscribe, Vec2, Vehicle,
 } from '@/core/contracts';
 import { SystemOrder } from '@/core/contracts';
 import { getCore } from '@/core/context';
+import { pointOnPolyline, wrapAngle } from '@/core/math';
 import { EXT } from '@/core/extensions';
 import type { MetroApi, TrafficControlApi } from '@/core/extensions';
 import type { RenderCameraApi } from '@/render/base/api';
@@ -45,12 +52,18 @@ import type { EquipageApi, EquipageInfo } from './equipage';
 import { readVacation } from '@/gameplay/patrols/model';
 import type { Cast, CastSlot, RequestedMeans } from './roster';
 import { baseOf, bravmBaseOf, isJournee } from './journee-data';
+import { REMISE_SERVICE, REMISE_WIDE, RemiseTracker, cellularCount, remiseNearest, remiseSpot } from './remise';
+import type { RemiseApi } from './remise';
 
 /** Sections par compagnie (au-delà, les sections suivantes lui sont rattachées en renfort). */
 const COMPANY_SECTIONS = 4;
 const COMPANY_LAYOUT: 'colonne' | 'ligne' = 'ligne';
 /** Rôles où le joueur commande sa petite unité : elle le suit à pied et en véhicule (voir follow.ts). */
 const LEADER_ROLES: ReadonlySet<string> = new Set(['chef_groupe', 'bravm', 'gendarme_centaure', 'operateur_canon_eau', 'telepilote']);
+/** BRAV-M du joueur devant la compagnie (aheadOfForces) : distance le long de la route du départ (m), et écart libre exigé (m). */
+const AHEAD_MIN = 30;
+const AHEAD_MAX = 180;
+const AHEAD_CLEAR = 22;
 /** Véhicules de l'unité que l'on gare nez vers la sortie (les engins à équipage restent face au front). */
 const PARKED_KINDS: readonly string[] = ['fourgon_crs', 'car_crs', 'vl_commandement', 'fourgon_cellulaire', 'voiture_police', 'moto_bravm'];
 /** Longueur (m) du début d'itinéraire où une sortie ne doit croiser aucun véhicule arrêté hors du bloc (voir crossesParked). */
@@ -63,6 +76,14 @@ const BLOCK_CLEAR = 6;
  */
 const CELL_SPOTS: readonly number[] = [7.6, 0, 7.6, 3.6, 7.6, -3.6, 0, 3.6, 0, -3.6, 15.2, 0];
 const isProtester = (p: { faction: string }): boolean => p.faction === 'protest';
+
+/**
+ * Graine d'apparence de l'équipage du fourgon cellulaire n° `i` : tirée de la graine de la session, sans puiser dans le
+ * générateur du module de police (les unités créées ensuite, et toute l'IA, gardent les mêmes tirages qu'avant).
+ */
+function cellSeed(ctx: GameContext, i: number): number {
+  return (((ctx.session.config?.seed ?? 1) * 7919 + i * 104729 + 31) | 0) >>> 1;
+}
 const propsScratch: unknown[] = [];
 
 const DEFAULT_BYSTANDERS = 10;
@@ -84,6 +105,8 @@ export class SessionSetupSystem implements GameSystem {
   private readonly hit: RayHit = { hit: false, t: 0, x: 0, z: 0, nx: 0, nz: 0, kind: 'none', id: 0, height: 0 };
   private readonly spot = { x: 0, z: 0, heading: 0 };
   private readonly routeScratch: number[] = [];
+  /** Fourgons cellulaires engagés et point de remise des interpellés. */
+  private readonly remise = new RemiseTracker();
 
   provide(ctx: GameContext): void {
     this.ctx = ctx;
@@ -101,16 +124,29 @@ export class SessionSetupSystem implements GameSystem {
       },
     };
     ctx.provide<EquipageApi>(EQUIPAGE_SERVICE, equipage);
+    const remise = this.remise;
+    const remiseApi: RemiseApi = {
+      point: () => remise.point(),
+      vans: () => remise.vans(),
+      track: (companyId, vans, awayHeading, line, spots) => remise.track(companyId, vans, awayHeading, line, spots),
+    };
+    ctx.provide<RemiseApi>(REMISE_SERVICE, remiseApi);
   }
 
   init(ctx: GameContext): void {
+    this.remise.bind(ctx);
     this.offs.push(ctx.events.on('session:started', ({ config }) => this.onStarted(config)));
+  }
+
+  update(): void {
+    if (this.ctx) this.remise.update(this.ctx.clock.now);
   }
 
   reset(): void {
     this.summary_ = null;
     this.equipage_ = null;
     this.people.length = 0;
+    this.remise.clear(false);
   }
 
   dispose(): void {
@@ -145,6 +181,7 @@ export class SessionSetupSystem implements GameSystem {
       // journée de service : les forces prennent leur service à la caserne (île de la Cité) et rejoignent la
       // manifestation en colonne (session/journee.ts) — elles ne sont pas posées à côté du rassemblement
       const journee = isJournee(config);
+      this.remise.clear(journee);
       const apart = crowd && !journee ? chooseStandOffCrowd(ctx, x, z, ctx.director.route, isProtester) : null;
       const base = baseOf(config);
       const forces = journee ? chooseStand(ctx, base.x, base.z, rand) : apart ?? chooseStand(ctx, x, z, rand);
@@ -154,7 +191,7 @@ export class SessionSetupSystem implements GameSystem {
       const summary: SessionSetupSummary = {
         playerId: 0, role: config.role, x: stand.x, z: stand.z, heading: stand.heading, squadId: 0, rootSquadId: 0,
         teammates: 0, vehicleIds: [], bystanders: 0, usedPoliceUnits: false, offCrowd: apart !== null,
-        means: { agents: 0, sections: 0, fourgons: 0, centaure: 0, canon_eau: 0, bravm: 0, drone: 0 },
+        means: { agents: 0, sections: 0, fourgons: 0, centaure: 0, canon_eau: 0, bravm: 0, drone: 0, cellulaires: 0 },
       };
 
       // équipage de patrouille : la compagnie du Mode libre (moyens engagés, manifestation en cours) est construite
@@ -175,12 +212,18 @@ export class SessionSetupSystem implements GameSystem {
       }
       if (!player) {
         // l'équipe du joueur est créée directement ; si une compagnie tient déjà l'emplacement, elle se range à côté
-        if (summary.usedPoliceUnits && withForces) stand = this.besideForces(forces);
+        if (summary.usedPoliceUnits && withForces) {
+          // (journée de service, BRAV-M du joueur à la base de la compagnie : devant elle sur la route du départ)
+          stand = (journee && config.role === 'bravm' ? this.aheadOfForces(forces, x, z) : null) ?? this.besideForces(forces);
+        }
         summary.x = stand.x;
         summary.z = stand.z;
         summary.heading = stand.heading;
         player = this.buildCast(cast, stand, helper, rand, summary);
       }
+      // forces de l'ordre sans compagnie (BRAV-M seule, engin, équipe drone, groupe en patrouille libre) : un fourgon
+      // cellulaire avec son équipage pour leurs interpellés (jamais pour une vacation de patrouille : la voiture suffit)
+      if (!(patrol && readVacation(config))) this.loneCellular(forces, summary);
       this.countMeans(summary);
       // personne posée au ras d'une façade, sur une case « bâti » de la grille des sols (au mètre, plus large que les
       // collisions) : ramenée sur le sol libre le plus proche, pour que tout le jeu la voie dehors
@@ -205,7 +248,11 @@ export class SessionSetupSystem implements GameSystem {
         if (config.role === 'commandant' && config.extra && config.extra['variante'] === 'salle') this.seatInCommandRoom(player);
         // BRAV-M, poste passager : opérateur d'un binôme, en selle derrière son pilote ; le chef de groupe de l'IA
         // commande (voir mountBravm) — le joueur ne prend pas la tête de l'unité, son pilote ne le « suit » pas à pied
-        const bravmPassenger = config.role === 'bravm' && player.poste === 'passager_moto' && this.mountBravm(player);
+        // (chef de la BRAV-M de la distribution, sans BRAV-M engagée : il se met en selle de même, derrière son pilote, et
+        // prend la tête du groupe — voir mountBravm)
+        const bravmMounted = config.role === 'bravm' && (player.poste === 'passager_moto' || (player.poste === 'chef_groupe' && player.vehicleId === 0))
+          && this.mountBravm(player);
+        const bravmPassenger = bravmMounted && player.poste === 'passager_moto';
         // rôles à responsabilité : le joueur prend la tête de son unité (BRAV-M, équipage d'engin, équipe du drone)
         if (LEADER_ROLES.has(config.role) && player.squadId !== 0 && !bravmPassenger) {
           const own = ctx.squads.get(player.squadId);
@@ -213,15 +260,12 @@ export class SessionSetupSystem implements GameSystem {
           // canon à eau, Centaure : un groupe de CRS de la compagnie l'escorte et le suit
           if (own && (config.role === 'operateur_canon_eau' || config.role === 'gendarme_centaure')) this.attachEscort(player, own, config.role === 'gendarme_centaure');
         }
-        // le joueur chef d'une unité (groupe, section) : son unité le suit tant qu'il ne lui donne pas d'autre ordre
-        // (pas l'équipage de patrouille : il est à bord avec lui, et descend sur son ordre)
-        if (config.role !== 'commandant' && config.role !== 'commissaire' && !bravmPassenger && !patrol) {
-          for (const s of ctx.squads.list) {
-            if (s.faction === 'police' && s.leaderId === player.id && s.members.length > 1) {
-              ctx.squads.issue(s.id, { type: 'suivre', targetId: player.id, issuedBy: player.id });
-            }
-          }
-        }
+        // « Tout le monde me suit » : chaque unité que le joueur commande le suit tant qu'il ne lui donne pas d'autre
+        // ordre — commandant et commissaire compris (toute la compagnie), chef de section (toute sa section : elle n'a pas
+        // de membre direct, ses groupes suivent avec elle). Pas l'équipage de patrouille (il est à bord avec lui, et
+        // descend sur son ordre), ni le commandant en salle de commandement (il n'est pas sur le terrain).
+        const salle = config.extra !== undefined && config.extra['variante'] === 'salle';
+        if (!bravmPassenger && !patrol && !salle) this.everyoneFollows(player);
       } else {
         console.error('[session] aucun personnage n’a pu être créé pour le joueur');
       }
@@ -408,14 +452,18 @@ export class SessionSetupSystem implements GameSystem {
     try {
       // Patrouille libre (aucune manifestation, joueur non commandant) : une compagnie n'aurait rien à y faire,
       // même si la page d'accueil a transmis ses « moyens engagés » — le joueur part avec son seul groupe.
-      const wantCompany = commander || (crowd && (means !== null || foot));
+      // chef de la BRAV-M : il prend la tête de la BRAV-M du dispositif (la BravmUnit du commandement, rattachée à la
+      // compagnie), pas celle d'un petit groupe à côté
+      const chefBravm = role === 'bravm' && !!mine && mine.poste === 'chef_groupe';
+      const wantCompany = commander || (crowd && (means !== null || foot || chefBravm));
       if (wantCompany && typeof units.createCompany === 'function') {
         // sans réglage (session lancée par l'URL) : une section et ses trois fourgons
-        const asked: RequestedMeans = means ?? { sections: 1, fourgons: 3, centaure: 0, canon_eau: 0, bravm: 0, drone: 0 };
-        const handles = this.buildCompany(units, stand, asked, summary);
+        const asked: RequestedMeans = means ?? { sections: 1, fourgons: 3, centaure: 0, canon_eau: 0, bravm: 0, drone: 0, cellulaires: 0 };
+        const handles = this.buildCompany(units, stand, chefBravm ? { ...asked, bravm: Math.max(1, asked.bravm) } : asked, summary);
         if (handles.length === 0) return null;
         summary.usedPoliceUnits = true;
         summary.rootSquadId = handles[0]!.squad.id;
+        if (chefBravm && mine) return this.takeBravm(handles, mine.rank, summary);
         if (!foot || !mine) return null;
         const person = this.pickPlayer(handles, role, mine.poste);
         if (!person) return null;
@@ -472,6 +520,8 @@ export class SessionSetupSystem implements GameSystem {
     const rz = fx;
     const company = units.createCompany!({
       x: stand.x, z: stand.z, heading: stand.heading, sections: Math.min(COMPANY_SECTIONS, sections), vehicles: vans, drivers: vans, layout: COMPANY_LAYOUT,
+      // (fourgons cellulaires engagés plus bas, avec leur équipage)
+      cellular: false,
     });
     out.push(company);
     this.progress(0.47, 'Mise en place de la compagnie');
@@ -535,8 +585,13 @@ export class SessionSetupSystem implements GameSystem {
     }
     if (typeof units.createBravm === 'function') {
       for (let i = 0; i < means.bravm; i++) {
-        // journée de service : la BRAV-M attend l'ordre de mouvement en selle (départ immédiat derrière la colonne)
-        special((x, z, heading) => units.createBravm!(6, { x, z, heading, vehicles: true, mounted: journee, callsign: means.bravm > 1 ? `FAUCON ${i + 1}` : undefined }), 3, 'la BRAV-M', 44, bstand);
+        // rattachée à la compagnie : sous les ordres du commandant, dans « Toute la compagnie » et « Avec moi », journée de
+        // service comprise. Journée de service : elle attend l'ordre de mouvement en selle, à son commissariat, et fait
+        // sa propre colonne de motos (journee.ts, engageOthers) — les ordres de colonne de la compagnie (embarquer,
+        // débarquer) et un ordre de ligne à toute la compagnie ne la concernent pas (police/command/bravm.ts, relayFrom)
+        special((x, z, heading) => units.createBravm!(6, {
+          x, z, heading, vehicles: true, mounted: journee, callsign: means.bravm > 1 ? `FAUCON ${i + 1}` : undefined, parentId,
+        }), 3, 'la BRAV-M', 44, bstand);
       }
     }
     if (typeof units.createEquipage === 'function') {
@@ -546,6 +601,48 @@ export class SessionSetupSystem implements GameSystem {
     const command = ctx.service<PoliceCommandLike>('police.command');
     if (command && typeof command.createDroneTeam === 'function') {
       for (let i = 0; i < means.drone; i++) special((x, z, heading) => command.createDroneTeam!({ x, z, heading, parentId }), 2, 'l’équipe du drone');
+    }
+    // fourgons cellulaires, chacun avec son équipage, rattachés à la compagnie (ses interpellations s'en servent) :
+    // déjà sur place, au point de remise des interpellés, derrière la ligne et dos à la foule ; en journée de
+    // service, garés au plus près de la caserne (ils partent avec la colonne, le point de remise est fixé à l’arrivée)
+    if (typeof units.createEquipage === 'function') {
+      const n = cellularCount(ctx.session.config?.crowdSize ?? 0, true, means.cellulaires);
+      const vansMade: number[] = [];
+      const spots: { x: number; z: number; heading: number }[] = [];
+      const taken: number[] = [];
+      const def = ctx.vehicles.def('fourgon_cellulaire');
+      const len = def ? def.length : 6;
+      const wid = def ? def.width : 2.05;
+      const away = wrapAngle(stand.heading + Math.PI);
+      for (let i = 0; i < n; i++) {
+        const make = (x: number, z: number, heading: number): PoliceUnitHandleLike | undefined => {
+          const h = units.createEquipage!('fourgon_cellulaire', { x, z, heading, parentId, seed: cellSeed(ctx, i) });
+          if (h) vansMade.push(h.squad.id);
+          return h;
+        };
+        const at = (band?: readonly [number, number]): boolean =>
+          remiseSpot(ctx, stand.x, stand.z, Math.sin(away), Math.cos(away), { taken, van: null, len, wid, people: true, band }, spot);
+        // (journée de service : sur la chaussée la plus proche de la base, hors du bloc des unités — garés sur les flancs
+        // du bloc, dans une cour de caserne ou de commissariat, ils s'y trouvaient enfermés par le stationnement réservé
+        // du commissariat et bloquaient la sortie de la colonne)
+        if ((!journee && (at() || at(REMISE_WIDE)))
+          || remiseNearest(ctx, stand.x, stand.z, Math.sin(away), Math.cos(away), { taken, van: null, len, wid, people: true }, spot)) {
+          taken.push(spot.x, spot.z);
+          spots.push({ x: spot.x, z: spot.z, heading: spot.heading });
+          try {
+            const h = make(spot.x, spot.z, spot.heading);
+            if (h) out.push(h);
+          } catch (err) {
+            console.error('[session] création d’un fourgon cellulaire impossible', err);
+            if (getCore(ctx).strict) throw err;
+          }
+          continue;
+        }
+        // (aucune chaussée libre à la bonne distance, ou journée de service) : sur les flancs, en retrait — déjà sur place,
+        // à partir de 40 m derrière la ligne, pas au ras du premier rang
+        special(make, 3.5, 'un fourgon cellulaire', 0, journee ? stand : { ...stand, x: stand.x - fx * 40, z: stand.z - fz * 40 });
+      }
+      this.remise.track(parentId, vansMade, away, journee ? null : { x: stand.x, z: stand.z }, journee || spots.length < vansMade.length ? [] : spots);
     }
 
     for (const h of out) {
@@ -651,6 +748,8 @@ export class SessionSetupSystem implements GameSystem {
   private nearBlock(x: number, z: number, length: number, own: readonly Vehicle[]): boolean {
     for (const o of this.ctx.vehicles.list) {
       if (own.indexOf(o) >= 0 || o.faction !== 'police' || o.def.flying || Math.abs(o.speed) > 0.5 || PARKED_KINDS.indexOf(o.kind) < 0) continue;
+      // (un fourgon cellulaire garé au point de remise, à l'écart, n'est pas le bloc de la compagnie)
+      if (o.kind === 'fourgon_cellulaire') continue;
       if (Math.hypot(o.x - x, o.z - z) < (o.def.length + length) * 0.5 + BLOCK_CLEAR) return true;
     }
     return false;
@@ -905,6 +1004,28 @@ export class SessionSetupSystem implements GameSystem {
     return null;
   }
 
+  /**
+   * Chef de la BRAV-M (rôle BRAV-M, poste « chef de groupe ») : le joueur est l'opérateur qui commande la BRAV-M du
+   * dispositif (premier binôme, à pied près de sa moto ; en journée de service, en selle derrière son pilote, à son
+   * commissariat). null : pas de BRAV-M engagée — il prend alors la tête de celle de la distribution (buildCast).
+   */
+  private takeBravm(handles: PoliceUnitHandleLike[], rank: PoliceRank | null, summary: SessionSetupSummary): Person | null {
+    const ctx = this.ctx;
+    for (const h of handles) {
+      if (!h.vehicles.some((v) => ctx.vehicles.get(v.id)?.kind === 'moto_bravm')) continue;
+      const leader = h.leader ? ctx.people.get(h.leader.id) : undefined;
+      if (!leader || leader.faction !== 'police') continue;
+      if (rank) leader.rank = rank;
+      let root = leader.squadId !== 0 ? ctx.squads.get(leader.squadId) : undefined;
+      for (let guard = 0; root && root.parentId !== 0 && guard < 8; guard++) root = ctx.squads.get(root.parentId);
+      summary.squadId = leader.squadId;
+      summary.rootSquadId = root ? root.id : summary.rootSquadId;
+      summary.teammates = Math.max(0, h.people.length - 1);
+      return leader;
+    }
+    return null;
+  }
+
   /** Emplacement de l'équipe du joueur quand une compagnie tient déjà l'emplacement des forces : sur son flanc. */
   private besideForces(forces: Stand): Stand {
     const spot = this.spot;
@@ -912,6 +1033,36 @@ export class SessionSetupSystem implements GameSystem {
     const fx = Math.sin(forces.heading);
     const fz = Math.cos(forces.heading);
     return { x: forces.x + fz * 14 - fx * 4, z: forces.z - fx * 14 - fz * 4, heading: forces.heading, facing: forces.facing };
+  }
+
+  /**
+   * Journée de service, BRAV-M du joueur qui prend son service à la même base que la compagnie : elle se range SUR LA
+   * CHAUSSÉE, DEVANT la compagnie, le long des premiers mètres de la route du départ, à l'écart de ses rangs et de ses
+   * véhicules — elle part la première, sans rien devant elle. Rangée sur le flanc des forces (besideForces), dans une
+   * rue étroite (commissariat du 9e, rue Chauchat : 5,20 m de chaussée), ses motos se trouvaient au milieu des rangs de
+   * la compagnie, qui ne pouvaient pas s'écarter : une moto restait à sa place jusqu'au départ des fourgons. null : pas
+   * d'itinéraire ou pas de place libre (elle se range alors sur le flanc, comme sans journée).
+   */
+  private aheadOfForces(forces: Stand, tx: number, tz: number): Stand | null {
+    const ctx = this.ctx;
+    const path: number[] = [];
+    let ok = false;
+    try {
+      ok = ctx.world.findPath(forces.x, forces.z, tx, tz, 'vehicle', path) && path.length >= 4;
+    } catch { ok = false; }
+    if (!ok) return null;
+    ctx.people.rebuildIndex();
+    const p = { x: 0, z: 0 };
+    const spot = this.spot;
+    const near: Vehicle[] = [];
+    for (let s = AHEAD_MIN; s <= AHEAD_MAX; s += 6) {
+      const h = pointOnPolyline(path, s, p);
+      // à l'écart des véhicules et des rangs de la compagnie (sa file de départ se range derrière, journee.ts lineUp)
+      if (ctx.vehicles.queryRadius(p.x, p.z, AHEAD_CLEAR, near) > 0 || ctx.people.countIn(p.x, p.z, AHEAD_CLEAR) > 0) continue;
+      if (!roadSpot(ctx, p.x, p.z, 12, 3, spot) || Math.hypot(spot.x - p.x, spot.z - p.z) > 12) continue;
+      return { x: spot.x, z: spot.z, heading: h, facing: forces.facing };
+    }
+    return null;
   }
 
   /**
@@ -967,6 +1118,8 @@ export class SessionSetupSystem implements GameSystem {
       // le binôme est commandé par son opérateur ; le groupe, par l'opérateur du premier binôme (chef de groupe)
       b.leaderId = op.id;
       if (group.leaderId === 0 && !op.isPlayer) group.leaderId = op.id;
+      // (chef de la BRAV-M : c'est lui qui commande le groupe)
+      if (op === player && player.poste === 'chef_groupe') group.leaderId = player.id;
       if (op === player) seated = true;
     }
     return seated;
@@ -1051,6 +1204,61 @@ export class SessionSetupSystem implements GameSystem {
     }
   }
 
+  /**
+   * « Tout le monde me suit » : les unités les plus hautes que le joueur commande (celle dont l'échelon supérieur n'est
+   * pas aussi le sien) reçoivent « suivre » sur lui ; leurs subordonnées suivent avec elles (module de police : un ordre
+   * de formation vaut pour toute la descendance). Commandant : la compagnie, sa BRAV-M, ses engins et ses fourgons
+   * cellulaires ; chef de section : la section et ses trois groupes ; chef de groupe, chef d'engin : son unité.
+   */
+  private everyoneFollows(player: Person): void {
+    const ctx = this.ctx;
+    for (const s of ctx.squads.list) {
+      if (s.faction !== 'police' || s.leaderId !== player.id) continue;
+      const parent = s.parentId !== 0 ? ctx.squads.get(s.parentId) : undefined;
+      if (parent && parent.leaderId === player.id) continue;
+      // (une unité vide — groupe sans personne, section sans groupe — n'a rien à faire suivre)
+      if (s.members.length === 0 && ctx.squads.childrenOf(s.id).length === 0) continue;
+      ctx.squads.issue(s.id, { type: 'suivre', targetId: player.id, issuedBy: player.id });
+    }
+  }
+
+  /**
+   * Forces de l'ordre sans compagnie (aucun fourgon cellulaire engagé) : un fourgon avec son équipage, au point de
+   * remise derrière les forces (dos au lieu), à défaut sur leurs flancs ou sur la chaussée la plus proche. Unité de tête,
+   * hors de toute unité : la BRAV-M qui interpelle le trouve parmi les fourgons du dispositif.
+   */
+  private loneCellular(forces: Stand, summary: SessionSetupSummary): void {
+    const ctx = this.ctx;
+    if (this.remise.vans().length > 0) return;
+    const units = ctx.service<PoliceUnitsLike>('police.units');
+    if (!units || typeof units.createEquipage !== 'function') return;
+    let police = false;
+    for (const p of ctx.people.list) if (p.faction === 'police') { police = true; break; }
+    if (!police) return;
+    const def = ctx.vehicles.def('fourgon_cellulaire');
+    const len = def ? def.length : 6;
+    const wid = def ? def.width : 2.05;
+    const away = wrapAngle(forces.heading + Math.PI);
+    const spot = this.spot;
+    const at = (band?: readonly [number, number]): boolean =>
+      remiseSpot(ctx, forces.x, forces.z, Math.sin(away), Math.cos(away), { taken: [], van: null, len, wid, people: true, band }, spot);
+    const placed = at() || at(REMISE_WIDE)
+      || remiseNearest(ctx, forces.x, forces.z, Math.sin(away), Math.cos(away), { taken: [], van: null, len, wid, people: true }, spot);
+    if (!placed && !supportSpot(ctx, forces, 0, 3.5, [], spot) && !roadSpot(ctx, forces.x, forces.z, len, wid, spot)) {
+      console.warn('[session] pas de place pour un fourgon cellulaire près des forces : aucun engagé');
+      return;
+    }
+    try {
+      const h = units.createEquipage('fourgon_cellulaire', { x: spot.x, z: spot.z, heading: spot.heading, seed: cellSeed(ctx, 0) });
+      for (const p of h.people) if (ctx.people.get(p.id)) this.people.push(p.id);
+      for (const v of h.vehicles) if (ctx.vehicles.get(v.id)) summary.vehicleIds.push(v.id);
+      this.remise.track(0, [h.squad.id], away, placed ? { x: forces.x, z: forces.z } : null, placed ? [{ x: spot.x, z: spot.z, heading: spot.heading }] : []);
+    } catch (err) {
+      console.error('[session] création du fourgon cellulaire impossible', err);
+      if (getCore(ctx).strict) throw err;
+    }
+  }
+
   /** Recense les moyens réellement présents (ce que la page d'accueil a demandé et qui a pu être placé). */
   private countMeans(summary: SessionSetupSummary): void {
     const ctx = this.ctx;
@@ -1074,6 +1282,12 @@ export class SessionSetupSystem implements GameSystem {
       else if (v.kind === 'drone') m.drone++;
     }
     m.bravm = Math.ceil(motos / 6);
+    m.cellulaires = 0;
+    for (const id of this.remise.vans()) {
+      const sq = ctx.squads.get(id);
+      const v = sq && sq.vehicleId !== 0 ? ctx.vehicles.get(sq.vehicleId) : undefined;
+      if (v && v.kind === 'fourgon_cellulaire') m.cellulaires++;
+    }
     // le drone est un engin déployé par son télépilote : on compte les équipes
     if (m.drone === 0) for (const p of ctx.people.list) if (p.faction === 'police' && p.poste === 'telepilote' && !p.isPlayer) m.drone++;
   }

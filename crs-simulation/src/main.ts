@@ -42,6 +42,7 @@ import { createSystems as medics } from '@/sim/roles/medics';        // médecin
 import { createSystems as session, installLoadingGate } from '@/gameplay/session'; // mise en place de la session
 import { createSystems as patrols } from '@/gameplay/patrols';         // voitures de police en patrouille dans Paris
 import { createSystems as commissariats } from '@/gameplay/commissariats'; // stock des commissariats, engagement, retour
+import { createSystems as transfer } from '@/gameplay/transfer';       // transfert des interpellés au commissariat, relève des fourgons
 import { createSystems as missions, missionById, missionConfig } from '@/gameplay/missions'; // cadre de mission
 import { createSystems as career } from '@/gameplay/career';         // carrière : grades, chapitres, sanctions
 import { createSystems as history } from '@/gameplay/history';       // historique des parties jouées
@@ -184,8 +185,9 @@ const MODULES: ModuleFactory[] = [
   // (la circulation après les véhicules : elle attend leur pilote automatique)
   // (la police après la foule : à ordre égal, les manifestants décident avant les unités qui leur répondent)
   // (les commissariats après la session et les patrouilles : ils garnissent les places à la mise en place)
+  // (le transfert des interpellés après les commissariats : il se sert de leurs sites et de leur rappel)
   input, env, worldQuery, simRoles, simPeople, simVehicles, simTraffic, simCrowd, simPolice, simItems, simProps, simHazards,
-  law, radio, incidents, rescue, medics, session, patrols, commissariats, missions, career, history,
+  law, radio, incidents, rescue, medics, session, patrols, commissariats, transfer, missions, career, history,
   // présentation — le rendu de base d'abord
   renderBase, worldView, map2dAdapter, monuments, monumentsClearAir, renderPeople, renderVehicles, renderProps, renderCommissariats, renderFx, ui, audio,
 ];

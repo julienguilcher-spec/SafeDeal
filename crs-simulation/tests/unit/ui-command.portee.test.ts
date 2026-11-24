@@ -101,6 +101,9 @@ describe('commandement — étendue selon le rôle et le grade', () => {
     expect(sc.level).toBe('unite');
     expect([...sc.squadIds].sort()).toEqual([s.section.id, s.groupA.id, s.groupB.id].sort());
     expect(sc.ownSquadId).toBe(s.section.id);
+    // sa fonction, pas « Chef de groupe »
+    expect(sc.label).toBe('Chef de section — MISTRAL 1');
+    expect(as(s, s.chefA, 'chef_groupe').label).toBe('Chef de groupe — MISTRAL 1 ALFA');
   });
 
   it('simple CRS : lecture seule ; un gradé à la tête de son groupe le commande', async () => {
@@ -115,9 +118,11 @@ describe('commandement — étendue selon le rôle et le grade', () => {
     expect([...graded.squadIds]).toEqual([s.groupA.id]);
   });
 
-  it('équipage de patrouille, chef de bord brigadier-chef compris : carte en lecture seule, « Suivez-moi » permis', async () => {
+  it('équipage de patrouille, chef de bord brigadier-chef compris : carte en lecture seule, son équipage lui obéit', async () => {
     // fusion modes × refonte : le chef de bord d'une BAC se voyait proposer d'envoyer « en véhicules » son propre
-    // équipage, assis avec lui dans la voiture, barrer une rue ou disperser une foule
+    // équipage, assis avec lui dans la voiture, barrer une rue ou disperser une foule. Ordres directs (§1.4, §4.3) : ses
+    // deux collègues lui obéissent pour ce qu'un équipage fait à trois — avec vous, interpeller, secours ; le reste
+    // (barrer, disperser) passe par CENTRAL
     const s = await scene();
     const crew = s.ctx.squads.create('equipage', 'police', 'BAC 75N');
     const chef = agent(s.ctx, crew, 300, 300, 'brigadier_chef', 'interpellation');
@@ -125,12 +130,23 @@ describe('commandement — étendue selon le rôle et le grade', () => {
     crew.leaderId = chef.id;
     const sc = as(s, chef, 'patrouille');
     expect(sc.level).toBe('lecture');
-    expect(sc.squadIds.size).toBe(0);
+    expect(sc.crew).toBe(true);
+    expect([...sc.squadIds]).toEqual([crew.id]);
     expect(sc.ownSquadId).toBe(crew.id);
+    expect(sc.label).toBe('Chef de bord — BAC 75N · votre équipage');
     const core = s.ctx.require<CommandCore>(COMMAND_SERVICE);
     expect(core.followUnit()?.id).toBe(crew.id);
+    expect(core.canCommand(crew.id)).toBe(true);
     expect(core.check(verbOf('suivre_pied')!).ok).toBe(true);
+    expect(core.check(verbOf('interpeller')!).ok).toBe(true);
     expect(core.check(verbOf('ligne')!).ok).toBe(false);
+    expect(core.check(verbOf('refoulement')!).ok).toBe(false);
+    // le conducteur, lui, reste en lecture seule (il n'a personne sous ses ordres)
+    const conducteur = s.ctx.people.list.find((p) => p.squadId === crew.id && p.poste === 'conducteur')!;
+    const sc2 = as(s, conducteur, 'patrouille');
+    expect(sc2.crew).toBeUndefined();
+    expect(sc2.squadIds.size).toBe(0);
+    expect(sc2.label).toMatch(/lecture seule/);
   });
 
   it('journaliste et manifestant : lecture seule, aucune prérogative', async () => {

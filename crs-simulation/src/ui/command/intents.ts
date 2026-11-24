@@ -35,6 +35,7 @@ import {
   BARRAGE_LET_PASSERSBY, EXTRA_PLAIN, ORDER_GROUP_LABELS, ORDER_VERBS, authorizeWord, doingAt, forceWord, plainOf, upperTitle, verbOf,
 } from './orders';
 import type { OrderGroup, OrderVerb } from './orders';
+import { travelOf } from './direct/travel';
 import {
   capFirst, crowdRepere, crowdWeight, exitRepere, incidentOpen, incidentRepere, mainCrowd, orderedCrowds, peopleText, placeRepere,
   pointRepere, roadRepere, unitTitle,
@@ -97,10 +98,8 @@ export function intentOfCode(code: string): IntentDef | undefined {
 
 /** Distance (m) à une foule en deçà de laquelle « Y aller » se fait en formation (`avancer`) plutôt qu'en file. */
 export const NEAR_CROWD = 60;
-/** Vitesses de calcul des délais : à pied (m/s), en véhicules (m/s), seuil du mouvement en véhicules (m). */
-export const WALK_SPEED = 1.4;
-export const DRIVE_SPEED = 11;
-export const MOTOR_DISTANCE = 250;
+/** Vitesses de calcul des délais (m/s) : au pas, en véhicules. Quand rouler : direct/travel.ts motorizes (une règle). */
+export { DRIVE_SPEED, WALK_SPEED } from './direct/travel';
 
 function dist(ax: number, az: number, bx: number, bz: number): number {
   return Math.hypot(ax - bx, az - bz);
@@ -112,11 +111,16 @@ export function nearCrowd(env: Pick<CardEnv, 'crowds'>, x: number, z: number): b
   return false;
 }
 
-/** Délai d'arrivée estimé (s) d'une unité jusqu'au point : à pied, en véhicules au-delà de 250 m si elle en a. */
-export function etaFor(u: Pick<CardUnit, 'x' | 'z' | 'hasVehicles'>, x: number, z: number): { eta: number; vehicles: boolean; distance: number } {
-  const d = dist(u.x, u.z, x, z);
-  const vehicles = d > MOTOR_DISTANCE && u.hasVehicles;
-  return { eta: vehicles ? d / DRIVE_SPEED : d / WALK_SPEED, vehicles, distance: d };
+/**
+ * Délai d'arrivée estimé (s) d'une unité jusqu'au point, à pied ou en véhicules selon motorizes (direct/travel.ts) :
+ * jamais en véhicules pour l'unité du joueur à pied ; à bord au-delà de 150 m ; à pied au-delà de 450 m.
+ */
+export function etaFor(
+  u: Pick<CardUnit, 'x' | 'z' | 'hasVehicles'> & Partial<Pick<CardUnit, 'embarked' | 'hasPlayer' | 'symbol' | 'patrol'>>, x: number, z: number,
+  playerAboard = false,
+): { eta: number; vehicles: boolean; distance: number } {
+  const t = travelOf(u, x, z, playerAboard);
+  return { eta: t.eta, vehicles: t.mode === 'vehicules', distance: t.distance };
 }
 
 /** Durée en clair : « 1 min », « 4 min » (au moins 1 min). */
@@ -167,13 +171,37 @@ export function verbLine(env: CardEnv, type: OrderType, geom: VerbGeom, x: numbe
   const legal = legalOf(v, env, x, z);
   const verb: Extract<LineAction, { kind: 'verb' }> = opts.targetId !== undefined ? { kind: 'verb', type, geom, targetId: opts.targetId } : { kind: 'verb', type, geom };
   // « Interpeller » sans auteur désigné et sans fait constaté autour : l'unité ira constater, mais n'interpellera
-  // personne (la fiche disait « interpelle l'auteur », puis l'unité répondait « négatif » à la radio)
+  // personne (la fiche disait « interpelle l'auteur », puis l'unité répondait « négatif » à la radio) — la ligne le dit
+  // d'emblée : « Aller constater » (mêmes mots sur le terrain, direct/words.ts)
   if (type === 'interpeller' && (opts.targetId ?? 0) === 0 && env.offenderAt && !env.offenderAt(x, z, NO_FACT_RADIUS)) verb.noFact = true;
   const action: LineAction = verb;
+  const label = verb.noFact ? NO_FACT_LABEL : opts.label ?? v.plain;
+  const explain = verb.noFact ? NO_FACT_EXPLAIN : opts.explain ?? v.explain;
   return {
-    label: opts.label ?? v.plain, explain: opts.explain ?? v.explain, icon: opts.icon ?? VERB_ICONS[type] ?? 'nav', action,
+    label, explain, icon: opts.icon ?? VERB_ICONS[type] ?? 'nav', action,
     coercive: legal.coercive, lock: legal.lock, needsWho: opts.needsWho ?? true, rule: v.rule,
   };
+}
+
+/** Ligne « Interpeller » sans fait constaté près du point : l'unité va constater et surveille. */
+export const NO_FACT_LABEL = 'Aller constater';
+export const NO_FACT_EXPLAIN = 'Personne n’a rien commis ici\u00a0: ils surveillent.';
+
+/** Unités qui peuvent tenir une rue d'une nasse (sections, groupes, BRAV-M sous mes ordres, valides). */
+const NASSE_SYMBOLS: ReadonlySet<string> = new Set(['section', 'groupe', 'bravm']);
+
+/** « Encercler » demande au moins deux unités : sinon l'intention et la ligne ne sont pas proposées. */
+export const NASSE_MIN_UNITS = 2;
+
+/** Nombre d'unités sous mes ordres qui peuvent tenir une rue d'une nasse (la BRAV-M compte une fois, sans ses binômes). */
+export function encircleUnitCount(env: Pick<CardEnv, 'units'>): number {
+  let n = 0;
+  for (const u of env.units) {
+    if (!u.mine || u.valid <= 0 || !NASSE_SYMBOLS.has(u.symbol)) continue;
+    if (u.symbol === 'bravm' && u.parentId > 0 && env.units.some((q) => q.squadId === u.parentId && q.symbol === 'bravm')) continue;
+    n++;
+  }
+  return n;
 }
 
 /** Ligne sans ordre du catalogue (secours, métro, proposition…). */
@@ -190,7 +218,7 @@ function goLine(env: CardEnv, x: number, z: number): CardLine | null {
   if (nearCrowd(env, x, z)) {
     return verbLine(env, 'avancer', 'point', x, z, { label: 'Y aller', explain: 'À pied, en formation\u00a0: la foule est à moins de 60\u00a0m.', icon: 'nav' });
   }
-  return verbLine(env, 'colonne', 'point', x, z, { label: 'Y aller', explain: 'À pied\u00a0; en véhicules au-delà de 250\u00a0m.' });
+  return verbLine(env, 'colonne', 'point', x, z, { label: 'Y aller', explain: 'À pied\u00a0; en véhicules au-delà de 450\u00a0m (150\u00a0m si l’unité est à bord).' });
 }
 
 const RESCUE_EXPLAIN = {
@@ -332,8 +360,12 @@ function fouleCard(r: Repere, env: CardEnv): Built {
   const c = crowdOf(env, r.crowdKey);
   const x = r.x, z = r.z;
   const lines: CardLine[] = [];
-  lines.push(plainLine('Encercler (nasse)', 'Chaque rue autour de la foule est tenue par une unité.', 'target', { kind: 'nasse' }, true,
-    'Une issue doit rester ouverte et annoncée.'));
+  // une nasse demande deux unités au moins (une rue chacune) : avec une seule, la ligne ne promet pas ce qu'elle ne peut
+  // pas tenir (diag-arrivee P7)
+  if (encircleUnitCount(env) >= NASSE_MIN_UNITS) {
+    lines.push(plainLine('Encercler (nasse)', 'Chaque rue autour de la foule est tenue par une unité.', 'target', { kind: 'nasse' }, true,
+      'Une issue doit rester ouverte et annoncée.'));
+  }
   push(lines, verbLine(env, 'ligne', 'autoLine', x, z, { label: 'Contenir\u00a0: ligne face à la foule', explain: 'Une ligne entre vos unités et la foule, boucliers levés.' }));
   push(lines, verbLine(env, 'refoulement', 'point', x, z));
   push(lines, verbLine(env, 'disperser_gaz', 'point', x, z));
@@ -486,6 +518,10 @@ function uniteCard(r: Repere, env: CardEnv): Built {
   const x = u.x, z = u.z;
   const lines: CardLine[] = [];
   const others: CardLine[] = [];
+  // fourgon cellulaire : il part au commissariat avec ses interpellés (le transfert fait venir un autre fourgon)
+  if (u.cellular && u.mine) {
+    lines.push(plainLine('Partir au commissariat', `${u.status !== '' ? u.status + '\u00a0; ' : ''}ses interpellés y sont remis, un autre fourgon prend la remise.`, 'flag', { kind: 'transfer', squadId: u.squadId }));
+  }
   lines.push(plainLine('L’envoyer ailleurs…', 'Montrez ensuite le lieu sur la carte.', 'nav', { kind: 'sendElsewhere' }, true));
   push(lines, verbLine(env, 'tenir', 'immediate', x, z));
   push(lines, verbLine(env, 'cesser', 'immediate', x, z));
@@ -928,6 +964,7 @@ export function intentCandidates(intent: IntentId, env: CardEnv, from: { x: numb
       return road ? [roadRepere(road)] : [];
     }
     case 'encercler': {
+      if (encircleUnitCount(env) < NASSE_MIN_UNITS) return [];
       const near = env.crowds.slice().sort((a, b) => dist(a.x, a.z, from.x, from.z) - dist(b.x, b.z, from.x, from.z))[0];
       return dedupe([near ? crowdRepere(near) : null, ...crowdsByWeight(env)]);
     }

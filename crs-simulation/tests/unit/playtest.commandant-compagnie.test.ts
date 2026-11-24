@@ -53,7 +53,9 @@ import { fixedCandidate } from '@/ui/command/tacticalState';
 import { wholeCandidate } from '@/ui/command/bestUnit';
 
 describe('commandant : « Toute la compagnie » (T) fait ce que dit la fiche', () => {
-  it('Concorde : T + « Y aller » à 600 m, commandant à pied — la phrase dit que la colonne l’attend, et elle l’attend', async () => {
+  // ordres-directs (§2.1, B2) : l'unité qui contient le joueur à pied n'embarque plus pour l'attendre (« ils me suivent
+  // mais n'ont pas d'ordre ») — elle y va à pied, la phrase le dit, et aucune colonne n'attend le commandant
+  it('Concorde : T + « Y aller » à 600 m, commandant à pied — la compagnie y va à pied, la phrase le dit, aucune colonne ne l’attend', async () => {
     const { t, ctx, core, sendEnv } = await start('Place de la Concorde', 21, -10, 15);
     const e0 = cardEnvFromCore(core);
     const sec = e0.units.find((u) => u.symbol === 'section' && u.mine && u.hasVehicles)!;
@@ -74,14 +76,16 @@ describe('commandant : « Toute la compagnie » (T) fait ce que dit la fiche', (
     const who2 = wholeCandidate(r, we)!;
     expect(e0.player!.inVehicle).toBe(false);
     const what = sentenceOf(line, who, r).what;
-    expect(who.mode, what).toBe('vehicules');
-    expect(what).toMatch(/La colonne vous attend pour partir/);
-    expect(sentenceOf(line, who2, r).what).toMatch(/La colonne vous attend pour partir/);
+    expect(who.mode, what).toBe('pied');
+    expect(what).not.toMatch(/vous attend/);
+    expect(who2.mode).toBe('pied');
+    expect(sentenceOf(line, who2, r).what).not.toMatch(/vous attend/);
     expect(sendCardLine(sendEnv(e0), line, who, r).ok).toBe(true);
     t.step(60);
     const cv = ctx.service<{ convoyOf(id: number): { awaitingPlayer?: boolean } | null }>('police.command')!.convoyOf(who.squadIds[0]!);
-    // sur le terrain : la colonne est embarquée et attend bien le commandant
-    expect(cv?.awaitingPlayer).toBe(true);
+    // sur le terrain : pas de colonne qui attend le commandant ; l'ordre est celui de la fiche, donné à pied
+    expect(cv?.awaitingPlayer ?? false).toBe(false);
+    expect(ctx.squads.get(who.squadIds[0]!)!.order.type).toBe('colonne');
     // une section seule (le commandant n'en fait pas partie) ne l'attend pas, et la phrase ne le dit pas
     const one = fixedCandidate(e0, [sec.squadId], r);
     expect(sentenceOf(line, one, r).what).not.toMatch(/vous attend/);

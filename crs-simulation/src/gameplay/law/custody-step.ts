@@ -7,14 +7,20 @@
  *   custodyUpdate()   après la locomotion (système « law ») : la personne maintenue au sol y reste,
  *                     l'escorté trop éloigné est ramené au contact (c'est ce qui le fait suivre quand
  *                     aucun module de locomotion n'est branché), postures et animations sont
- *                     réaffirmées, les évasions et les liens rompus sont traités.
+ *                     réaffirmées, les évasions et les liens rompus sont traités ; le joueur qui monte dans un
+ *                     véhicule en escortant un interpellé menotté le remet (fourgon cellulaire) ou le confie au
+ *                     binôme libre le plus proche (plan ordres-directs §5.3).
  *
  * Quelques personnes au plus : boucles indexées sur des tableaux, aucune allocation.
  * ===================================================================================== */
 
 import type { Person } from '@/core/contracts';
+import type { ArrestTakeOver } from '@/sim/police/arrest-service';
+import { CUSTODY_TEXTS } from '@/ui/command/direct/words';
 import type { Kernel } from './kernel';
 import { PLAYER_CUSTODY_END_DELAY } from './custody';
+import type { HandoverDest } from './handover';
+import { passengerSeat } from './handover';
 import { GRIP_LENGTH, tether } from './subdue';
 
 /** Distance au-delà de laquelle l'escorté est ramené au contact, et au-delà de laquelle il est replacé d'un coup (m). */
@@ -29,6 +35,40 @@ const UNGUARDED_DELAY = 2;
 /** Probabilité par seconde, à résistance maximale, qu'un escorté non menotté se dégage. */
 const ESCAPE_RATE = 0.06;
 
+/** Destination réutilisée : le véhicule où monte le joueur qui escortait. */
+const boardDest: HandoverDest = { kind: 'vehicle', vehicle: null, seat: -1, point: null, x: 0, z: 0, label: '', distance: 0 };
+
+/**
+ * Le joueur est monté dans un véhicule en escortant un interpellé menotté : dans un fourgon cellulaire qui a une place,
+ * l'interpellé y est remis ; sinon il est confié au binôme libre le plus proche (« Interpellé confié à MISTRAL 2 ALFA »),
+ * ou, faute de binôme, laissé assis, entravé — le ramassage des unités le prend (police.arrests). true : remis.
+ */
+function playerBoarded(k: Kernel, e: Person, p: Person): boolean {
+  const ctx = k.ctx;
+  const v = ctx.vehicles.get(e.vehicleId);
+  if (v && v.kind === 'fourgon_cellulaire' && v.faction === 'police') {
+    const seat = passengerSeat(v);
+    if (seat >= 0) {
+      boardDest.vehicle = v;
+      boardDest.seat = seat;
+      boardDest.x = v.x;
+      boardDest.z = v.z;
+      boardDest.label = k.handover.nameOf(v);
+      const done = k.custody.handOver(e, p, boardDest);
+      boardDest.vehicle = null;
+      if (done) return true;
+    }
+  }
+  return false;
+}
+
+function confideAfterBoarding(k: Kernel, e: Person, p: Person): void {
+  const arrests = k.ctx.service<{ takeOver?(targetId: number, byPlayer: number): ArrestTakeOver }>('police.arrests');
+  if (!arrests || typeof arrests.takeOver !== 'function') return;
+  const r = arrests.takeOver(p.id, e.id);
+  if (r.ok) k.notify(e, CUSTODY_TEXTS.confided(r.squadName), 'ok', 4);
+}
+
 function still(list: readonly Person[]): void {
   for (let i = 0; i < list.length; i++) {
     const cmd = list[i]!.cmd;
@@ -36,6 +76,13 @@ function still(list: readonly Person[]): void {
     cmd.moveZ = 0;
     cmd.gait = 0;
   }
+}
+
+/** Dossier d'une personne montée à bord par un autre module : le véhicule et son nom. */
+function aboard(k: Kernel, rec: { vehicleId: number; vehicleName: string }, p: Person): void {
+  const v = p.vehicleId !== 0 ? k.ctx.vehicles.get(p.vehicleId) : undefined;
+  rec.vehicleId = v ? v.id : 0;
+  rec.vehicleName = v ? k.handover.nameOf(v) : '';
 }
 
 /** Avant la locomotion : commandes des personnes retenues, saisies ou contrôlées. */
@@ -121,6 +168,8 @@ export function custodyUpdate(k: Kernel): void {
     } else if (state === 'escorted') {
       const e = people.get(h.escortId);
       if (!custody.able(e) || e.carrying !== p.id || e.vehicleId !== 0) {
+        const boarded = e !== undefined && e.isPlayer && e.vehicleId !== 0 && e.carrying === p.id && rec.cuffed;
+        if (boarded && playerBoarded(k, e, p)) continue;
         if (rec.cuffed) {
           // l'escorte est hors de combat ou a lâché prise : la personne reste entravée sur place
           custody.unlink(p);
@@ -128,6 +177,7 @@ export function custodyUpdate(k: Kernel): void {
           if (p.posture !== 'down') p.posture = 'sit';
           h.escortId = 0;
           h.holderId = 0;
+          if (boarded) confideAfterBoarding(k, e, p);
         } else {
           custody.escape(h, "non menotté, son escorte l'a lâché");
         }
@@ -154,7 +204,12 @@ export function custodyUpdate(k: Kernel): void {
     } else {
       // libérée ou prise en charge par un autre module : le dossier est clos en l'état
       custody.unlink(p);
-      custody.close(h, state === 'free' ? 'interrompu' : 'remis', '');
+      if (state === 'in_vehicle') {
+        custody.close(h, 'remis_vehicule', 'vehicule');
+        aboard(k, rec, p);
+      } else {
+        custody.close(h, state === 'free' ? 'interrompu' : 'remis', '');
+      }
     }
   }
 
@@ -163,6 +218,15 @@ export function custodyUpdate(k: Kernel): void {
   for (let i = parked.length - 1; i >= 0; i--) {
     const p = parked[i]!;
     if (p.custody !== 'handed_over' || people.get(p.id) !== p) {
+      // ramassé au point par le fourgon (police.arrests) : le dossier dit qu'il est à bord
+      if (p.custody === 'in_vehicle' && people.get(p.id) === p) {
+        const rec = k.records.lastArrestOf(p.id);
+        if (rec && rec.status === 'remis') {
+          rec.status = 'remis_vehicule';
+          rec.to = 'vehicule';
+          aboard(k, rec, p);
+        }
+      }
       parked[i] = parked[parked.length - 1]!;
       parked.pop();
       continue;

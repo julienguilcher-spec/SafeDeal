@@ -24,6 +24,7 @@ import { createSystems as session } from '@/gameplay/session';
 import { JOURNEE_SERVICE, SERVICE_BASES } from '@/gameplay/session';
 import type { JourneeApi } from '@/gameplay/session';
 import { hasWayOut } from '@/gameplay/session/placement';
+import { parkBehind } from '@/gameplay/session/remise';
 
 const SIM = [world, roles, people, vehicles, traffic, crowd, police, items, props, hazards, law, radio, session];
 const CONVOY = new Set(['fourgon_crs', 'car_crs', 'vl_commandement', 'fourgon_cellulaire', 'canon_eau', 'centaure']);
@@ -191,19 +192,32 @@ describe('départ de la base (journée de service)', () => {
   // « tête bloquée » : même ordre, même tête). Disposition relevée telle quelle dans la partie (commandant, graine 3).
   it('commissariat du 1er : la tête désignée n’a pas un véhicule de sa colonne devant le nez — la colonne part', async () => {
     const { t, ctx, me, j } = await journee({ role: 'commandant', seed: 3, base: 1, where: 'hotel', means: { sections: 2, fourgons: 6 }, crowd: 150 });
-    const col = column(ctx, me).sort((a, b) => (a.kind === 'vl_commandement' ? 0 : 1) - (b.kind === 'vl_commandement' ? 0 : 1) || a.id - b.id);
+    // (les fourgons cellulaires avec leur équipage, engagés depuis par la mise en place, ne font pas partie de la
+    // disposition relevée : ils restent où la mise en place les a garés, et partent aussi avec la colonne)
+    const all = column(ctx, me);
+    const col = all.filter((v) => v.kind !== 'fourgon_cellulaire').sort((a, b) => (a.kind === 'vl_commandement' ? 0 : 1) - (b.kind === 'vl_commandement' ? 0 : 1) || a.id - b.id);
+    const cells = all.filter((v) => v.kind === 'fourgon_cellulaire');
+    expect(cells.length).toBe(2);
     const SPOTS: [number, number, number][] = [[837, -194, 1.28], [827, -197, 1.29], [818, -201, 1.30], [809, -204, 1.30], [799, -204, 1.30], [790, -209, 1.24], [766, -216, 1.08]];
     expect(col.length).toBe(SPOTS.length);
     col.forEach((v, i) => { [v.x, v.z, v.heading] = SPOTS[i]!; v.vx = 0; v.vz = 0; v.speed = 0; });
+    // les fourgons cellulaires se garent en file derrière le dernier (ils n'étaient pas là dans la partie relevée)
+    for (const v of cells) { v.x = 1e6; v.z = 1e6; }
+    const tail = SPOTS[SPOTS.length - 1]!;
+    const spot = { x: 0, z: 0, heading: 0 };
+    for (const v of cells) {
+      expect(parkBehind(ctx, tail[0], tail[1], tail[2], v.def.length, v.def.width, spot), 'place derrière la file').toBe(true);
+      v.x = spot.x; v.z = spot.z; v.heading = spot.heading; v.vx = 0; v.vz = 0; v.speed = 0;
+    }
     // le commandant monte dans son VL (la colonne ne l'attend pas)
     const vl = col[0]!;
     me.x = vl.x + 2.5; me.z = vl.z;
     expect(ctx.vehicles.enter(me, vl, 'passenger')).toBe(true);
-    const from = new Map(col.map((v) => [v.id, { x: v.x, z: v.z }]));
+    const from = new Map([...col, ...cells].map((v) => [v.id, { x: v.x, z: v.z }]));
     for (let i = 0; i < 300 && j.stage !== 'route'; i++) t.step(1);
     expect(j.stage).toBe('route');
     // (file tournée à l'est, sortie par le sud : chacun fait demi-tour à son tour — quatre minutes au plus)
-    const stay = (): string[] => col.filter((v) => Math.hypot(v.x - from.get(v.id)!.x, v.z - from.get(v.id)!.z) < 15).map((v) => `${v.kind}#${v.id}`);
+    const stay = (): string[] => [...col, ...cells].filter((v) => Math.hypot(v.x - from.get(v.id)!.x, v.z - from.get(v.id)!.z) < 15).map((v) => `${v.kind}#${v.id}`);
     for (let i = 0; i < 48 && stay().length > 0; i++) t.step(5);
     console.log(`4 min après le départ, restés sur place : ${stay().join(', ') || 'aucun'}`);
     expect(stay()).toEqual([]);

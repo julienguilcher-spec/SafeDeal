@@ -17,7 +17,7 @@ import type { Person } from '@/core/contracts';
 import { distSqPointObb, segmentVsObb } from '@/core/math';
 import type { SegmentCast } from '@/core/math';
 import type { Agent } from './brain';
-import { ACT_AIM, F_COLUMN } from './brain';
+import { ACT_AIM, F_COLUMN, agentOf } from './brain';
 import type { Kernel } from './kernel';
 import * as T from './tuning';
 
@@ -309,9 +309,14 @@ export function navigate(k: Kernel, a: Agent, tx: number, tz: number, interval: 
     if (a.stuckT >= T.WAY_TIME && k.now - a.wayAt >= 1.2) {
       a.wayAt = k.now;
       askWay(k, a, tx, tz);
+      // agent en opération (binôme qui emmène un interpellé, extraction) : les collègues des autres blocs, rangés
+      // autour du joueur ou en ligne sur son trajet, s'écartent aussi
+      if (a.op !== null) askWayAround(k, a, tx, tz);
     }
     if (a.stuckT >= T.STUCK_TIME) {
       a.stuckT = 0;
+      // premier tronçon d'un itinéraire à pied, derrière un véhicule à l'arrêt : il vise le point suivant
+      if (a.pathN > 0 && aroundParked(k, a)) return;
       // pas de côté : du même côté trois fois de suite (le temps de longer l'obstacle), puis de l'autre
       const d = Math.sqrt(d2);
       if (k.now - a.sideUntil > 8) a.sideCount = 0;
@@ -461,6 +466,70 @@ function cornerDetour(k: Kernel, a: Agent, cx: number, cz: number, halfX: number
   a.pathI = 2;
   a.pathGx = tx;
   a.pathGz = tz;
+}
+
+/**
+ * L'agent piétine sur le premier tronçon d'un itinéraire à pied, contre un véhicule à l'arrêt. Ce tronçon mène au
+ * point de la voie le plus proche de lui : pour un agent qui vient de descendre de son fourgon arrêté sur la chaussée,
+ * ce point est de l'autre côté du fourgon. Le pas de côté (1,6 m) ne suffit pas à longer une caisse de 6 m, et une
+ * colonne s'arrête pare-chocs contre pare-chocs : il vise le point suivant de l'itinéraire, s'il n'y a pas de mur
+ * jusque-là, et longe la file jusqu'à son bout. Sans cela, deux groupes sur trois d'une section restaient plaqués
+ * contre leurs fourgons, l'ordre du joueur accusé, affiché « en route », jamais exécuté (commandant, mission cdt-01,
+ * « Bloquer le boulevard de Magenta » à l'arrivée de la colonne). Réservé aux unités qui exécutent un ordre du joueur.
+ */
+function aroundParked(k: Kernel, a: Agent): boolean {
+  // (après un premier pas de côté resté sans effet : un obstacle qu'un pas de côté suffit à passer n'est pas concerné)
+  if (a.pathI !== 2 || a.pathN < 6 || a.boardId !== 0 || a.sideCount < 1) return false;
+  // (seulement pour un ordre du joueur : les autres déplacements — embarquement, ordres du commandement — sont inchangés)
+  const order = a.root ? a.root.order : null;
+  if (!order || order.byPlayer !== true) return false;
+  const p = a.p;
+  const wx = a.path[2];
+  const wz = a.path[3];
+  const dx = wx - p.x;
+  const dz = wz - p.z;
+  const d = Math.sqrt(dx * dx + dz * dz);
+  if (d < 0.5) return false;
+  const reach = d < 7 ? d : 7;
+  const hit = k.hit;
+  const ctx = k.ctx;
+  if (!ctx.vehicles.raycast(p.x, p.z, p.x + (dx / d) * reach, p.z + (dz / d) * reach, hit, 'move') || !hit.hit) return false;
+  const v = ctx.vehicles.get(hit.id);
+  if (!v || Math.abs(v.speed) > 0.5 || !walkable(k, p.x, p.z, a.path[4], a.path[5])) return false;
+  a.pathI = 4;
+  a.sideUntil = 0;
+  return true;
+}
+
+const aroundTmp: Person[] = [];
+
+/**
+ * Laisser passer un agent en opération : les agents à leur place (de n'importe quel bloc) juste devant lui, sur son
+ * trajet vers (tx, tz), font un pas de côté du côté où ils sont déjà (WAY_HOLD s), puis reprennent leur place.
+ */
+function askWayAround(k: Kernel, a: Agent, tx: number, tz: number): void {
+  const p = a.p;
+  let ux = tx - p.x;
+  let uz = tz - p.z;
+  const d = Math.sqrt(ux * ux + uz * uz);
+  if (d < 1e-3) return;
+  ux /= d;
+  uz /= d;
+  const n = k.ctx.people.queryRadius(p.x + ux * 1.5, p.z + uz * 1.5, 2, aroundTmp);
+  const until = k.now + T.WAY_HOLD;
+  for (let i = 0; i < n; i++) {
+    const b = agentOf(aroundTmp[i]);
+    if (!b || b === a || b.op !== null || !b.hasSlot || b.p.isPlayer) continue;
+    const ox = b.p.x - p.x;
+    const oz = b.p.z - p.z;
+    // de quel côté du trajet il se trouve (vers la droite : −uz, ux)
+    const lat = ox * -uz + oz * ux;
+    const side = lat < 0 ? -1 : 1;
+    b.yieldX = -uz * side * T.WAY_HALF * 2;
+    b.yieldZ = ux * side * T.WAY_HALF * 2;
+    b.yieldUntil = until;
+  }
+  aroundTmp.length = 0;
 }
 
 /** Coin n° i (0 à 3) d'une boîte orientée agrandie de la marge (mx, mz). */

@@ -13,6 +13,7 @@ import type { PeopleGearApi, PeopleHealthApi, PeopleLocomotionApi } from '@/sim/
 import type { AutopilotApi } from '@/sim/vehicles/api';
 import type { PoliceTuning, VehicleReserve } from './api';
 import type { Agent, Unit } from './brain';
+import { replyFlag } from './radio';
 import { RESERVE_FOURGON, RESERVE_NONE, defaultTuning } from './tuning';
 
 /** Zone à éviter (nappe de feu, engin incendiaire qui arrive). */
@@ -71,6 +72,18 @@ export class Kernel {
    * tout traitement ; retourner true pour le prendre en charge (le module ne fait alors rien de cet ordre).
    */
   orderHook: ((u: Unit, o: SquadOrder) => boolean) | null = null;
+  /**
+   * Manœuvre interne d'une unité spéciale (BRAV-M : retour aux machines, approche à pied, remontée en selle) à exécuter
+   * pour cette unité à la place de l'ordre du magasin : son ordre affiché (Squad.order) reste celui qu'elle a reçu — le
+   * joueur lit « Envoyer », jamais « embarquer » ou « colonne ». null : l'ordre du magasin.
+   */
+  internalOrder: ((u: Unit) => SquadOrder | null) | null = null;
+  /**
+   * Unité spéciale subordonnée qui ne se fond pas dans la manœuvre d'un ordre reçu par une unité supérieure (BRAV-M
+   * dans un ordre « ligne » de toute la compagnie : elle ne tient pas de barrage) : true l'en écarte, elle et sa
+   * descendance ; le commandement lui transmet lui-même ce qu'elle doit en faire.
+   */
+  keepsOwnOrder: ((d: Unit, o: SquadOrder, root: Unit) => boolean) | null = null;
 
   bind(ctx: GameContext): void {
     this.ctx = ctx;
@@ -106,10 +119,18 @@ export class Kernel {
     return this.ctx.service<LawHandover>('law.handover');
   }
 
-  /** Message radio d'une unité (personne qui parle : son chef). */
+  /**
+   * Message radio d'une unité (personne qui parle : son chef). L'accusé de réception ou le refus d'un ordre que le
+   * joueur vient de donner (`replyFlag`) part sur le réseau du commandement, en priorité (`reply`) : il s'entend dans
+   * la seconde, après l'ordre, quel que soit le trafic.
+   */
   say(from: Unit, text: string, priority: 0 | 1 | 2 = 1, channel: RadioChannel = 'unite'): void {
     const leader = from.squad.leaderId;
-    this.ctx.radio.say({ channel, from: from.squad.name, text, priority, personId: leader !== 0 ? leader : undefined, voice: from.id % 7 });
+    const reply = replyFlag(from.squad.order, this.ctx.clock.now, text);
+    this.ctx.radio.say({
+      channel: reply ? 'commandement' : channel, from: from.squad.name, text, priority,
+      personId: leader !== 0 ? leader : undefined, voice: from.id % 7, ...(reply ? { reply: true } : {}),
+    });
   }
 
   emit(name: string, payload: unknown): void {

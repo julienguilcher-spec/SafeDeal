@@ -16,6 +16,20 @@ export type UnitSymbol =
 interface PatrolsLike {
   statusOf(squadId: number): { label: string; state: string } | null;
 }
+/** Étiquettes des fourgons cellulaires (service 'transfer.labels', gameplay/transfer/labels.ts) : la même que dans le monde. */
+interface VanLabelsLike {
+  labelOf(squadId: number): string;
+}
+/** Tickets des ordres du joueur (service 'command.direct') : le verbe de son ordre, pas l'ordre interne de la colonne. */
+interface DirectTicketsLike {
+  readonly tickets: readonly { squadId: number; verb: string; state: string; issuedAt: number }[];
+}
+/** Dernier ordre du joueur à une unité (service 'ui.command', CommandCore.playerOrderRecord). */
+interface PlayerOrdersLike {
+  playerOrderRecord(squadId: number): {
+    type: string; geom: { x: number; z: number; heading: number; width: number } | null; targetId: number; issuedAt: number;
+  } | null;
+}
 
 export interface MapUnit {
   /** Clé stable : identifiant d'unité (> 0), ou −identifiant du véhicule pour un véhicule hors unité. */
@@ -59,6 +73,15 @@ export interface MapUnit {
   status: string;
   /** Voiture de patrouille (Police secours, BAC) gérée par le service 'police.patrols'. */
   patrol: boolean;
+  /** Fourgon cellulaire suivi par le transfert : `status` est son étiquette (« CELLULAIRE 1 · 3/8 »). */
+  cellular: boolean;
+  /**
+   * Ordre du joueur en cours (ticket de 'command.direct') : son verbe (« bloquer », « envoyer »…) et l'ordre tel qu'il
+   * l'a donné (type, point, cap, largeur) — même quand l'unité exécute encore un ordre interne (embarquer, colonne).
+   * '' / null : aucun ordre du joueur en cours.
+   */
+  playerVerb: string;
+  playerOrder: SquadOrder | null;
   /** Horodatage interne de rafraîchissement. */
   stamp: number;
 }
@@ -152,6 +175,12 @@ export class UnitModel {
   private readonly accs = new Map<number, Acc>();
   private stamp = 0;
   private patrols: PatrolsLike | undefined = undefined;
+  private vanLabels: VanLabelsLike | undefined = undefined;
+  private playerOrders: PlayerOrdersLike | undefined = undefined;
+  /** Ticket en cours par unité (le plus récent). */
+  private readonly tickets = new Map<number, { verb: string; issuedAt: number }>();
+  /** Ordres du joueur recopiés (un objet par unité, réutilisé). */
+  private readonly playerOrderOf = new Map<number, SquadOrder>();
 
   get(key: number): MapUnit | undefined {
     const u = this.byKey.get(key);
@@ -170,6 +199,19 @@ export class UnitModel {
     const playerId = ctx.player.state.personId;
     const squadVehicles = new Set<number>();
     this.patrols = ctx.service<PatrolsLike>('police.patrols');
+    const labels = ctx.service<VanLabelsLike>('transfer.labels');
+    this.vanLabels = labels && typeof labels.labelOf === 'function' ? labels : undefined;
+    const core = ctx.service<PlayerOrdersLike>('ui.command');
+    this.playerOrders = core && typeof core.playerOrderRecord === 'function' ? core : undefined;
+    this.tickets.clear();
+    const direct = ctx.service<DirectTicketsLike>('command.direct');
+    const tickets = direct && Array.isArray(direct.tickets) ? direct.tickets : [];
+    for (let i = 0; i < tickets.length; i++) {
+      const t = tickets[i]!;
+      if (t.state === 'remplace' || t.state === 'refuse' || t.verb === 'rien') continue;
+      const cur = this.tickets.get(t.squadId);
+      if (!cur || t.issuedAt >= cur.issuedAt) this.tickets.set(t.squadId, { verb: t.verb, issuedAt: t.issuedAt });
+    }
 
     for (let i = 0; i < squads.length; i++) {
       const s = squads[i]!;
@@ -224,6 +266,9 @@ export class UnitModel {
       u.own = occupants;
       u.status = '';
       u.patrol = false;
+      u.cellular = false;
+      u.playerVerb = '';
+      u.playerOrder = null;
       list.push(u);
     }
     return list;
@@ -235,7 +280,8 @@ export class UnitModel {
       u = {
         key, squadId: 0, vehicleId: 0, symbol: 'groupe', faction: 'police', name: '', code: '', x: 0, z: 0, heading: 0,
         parentKey: 0, depth: 0, childCount: 0, total: 0, valid: 0, injured: 0, morale: 1, ammo: -1, order: null,
-        orderDist: 0, embarked: false, hasPlayer: false, leaderId: 0, own: 0, status: '', patrol: false, stamp: 0,
+        orderDist: 0, embarked: false, hasPlayer: false, leaderId: 0, own: 0, status: '', patrol: false, cellular: false,
+        playerVerb: '', playerOrder: null, stamp: 0,
       };
       this.byKey.set(key, u);
     }
@@ -345,12 +391,37 @@ export class UnitModel {
     u.morale = acc.moraleN > 0 ? acc.morale / acc.moraleN : s.morale;
     u.ammo = acc.ammoKnown ? acc.ammo : -1;
     u.order = s.order;
-    u.orderDist = Math.hypot(s.order.x - u.x, s.order.z - u.z);
+    // l'ordre du joueur en cours (ticket) : c'est lui que la carte montre, pas l'ordre interne de la colonne
+    u.playerVerb = '';
+    u.playerOrder = null;
+    const ticket = this.tickets.get(s.id);
+    const rec = ticket && this.playerOrders ? this.playerOrders.playerOrderRecord(s.id) : null;
+    if (ticket && rec && rec.geom && rec.issuedAt + 1e-6 >= ticket.issuedAt) {
+      let po = this.playerOrderOf.get(s.id);
+      if (!po) {
+        po = { ...s.order };
+        this.playerOrderOf.set(s.id, po);
+      }
+      Object.assign(po, s.order);
+      po.type = rec.type as SquadOrder['type'];
+      po.x = rec.geom.x;
+      po.z = rec.geom.z;
+      po.heading = rec.geom.heading;
+      po.width = rec.geom.width;
+      po.targetId = rec.targetId;
+      u.playerVerb = ticket.verb;
+      u.playerOrder = po;
+    }
+    const shown = u.playerOrder ?? s.order;
+    u.orderDist = Math.hypot(shown.x - u.x, shown.z - u.z);
     u.hasPlayer = acc.hasPlayer;
     u.leaderId = s.leaderId;
     const patrol = s.faction === 'police' && this.patrols ? this.patrols.statusOf(s.id) : null;
     u.patrol = patrol !== null;
-    u.status = patrol ? patrol.label : statusOfOrder(s.order, u.orderDist);
+    // fourgon cellulaire : son étiquette (charge, départ au commissariat), la même que dans le monde
+    const van = !patrol && vehicle && vehicle.kind === 'fourgon_cellulaire' && this.vanLabels ? this.vanLabels.labelOf(s.id) : '';
+    u.cellular = van !== '';
+    u.status = patrol ? patrol.label : van !== '' ? van : statusOfOrder(shown, u.orderDist);
     return acc;
   }
 }

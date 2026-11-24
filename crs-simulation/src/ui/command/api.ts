@@ -3,7 +3,7 @@
  *
  * Écrans enregistrés auprès de UiKit :
  *   'carte_tactique'  carte de commandement (non bloquante pour la simulation) ;
- *                     ctx.ui.open('carte_tactique', { x?, z?, mpp?, incidentId?, squadId?, tab? })
+ *                     ctx.ui.open('carte_tactique', { x?, z?, mpp?, incidentId?, squadId?, tab?, squadIds?, intent?, fromField? })
  *   'roue_ordres'     roue d'ordres rapide en vue de jeu (touche « Ordres » maintenue ou brève)
  *   'radio'           panneau radio : journal et messages rapides
  * Éléments de HUD (zone 'top') : 'command.unit' (mon unité), 'command.incident' (incident confié).
@@ -11,6 +11,7 @@
  * ===================================================================================== */
 
 import type { ForceLevel, OrderType } from '@/core/contracts';
+import type { IntentId } from './cardTypes';
 
 export const COMMAND_SERVICE = 'ui.command';
 
@@ -33,6 +34,13 @@ export interface TacticalOpenData {
   commissariatId?: string;
   /** Section de « Plus… » à ouvrir d'emblée (« Tous les incidents et secours », « Circulation et métro »…). */
   tab?: TacticalTab;
+  /**
+   * Ouverte depuis le terrain (« Trop loin pour viser : Tab, la carte s'ouvre sur ce point ») : la fiche du point (x, z)
+   * s'ouvre avec cette intention et ces unités pour Qui ; après « Donner l'ordre », la carte se referme d'elle-même.
+   */
+  squadIds?: number[];
+  intent?: IntentId;
+  fromField?: boolean;
 }
 
 /** États de l'écran de la carte de commandement (tacticalState.ts), pour les modules qui s'y branchent. */
@@ -59,6 +67,11 @@ export interface CommandScope {
   canDelegate: boolean;
   /** Libellé affiché (« Commandant — toute la compagnie », « Lecture seule »). */
   label: string;
+  /**
+   * Chef de bord d'une patrouille (niveau 'lecture') : ses deux collègues (`squadIds`) lui obéissent pour les ordres d'un
+   * équipage — avec vous, interpeller, secours (CommandCore.check, CREW_ORDERS) ; le reste passe par CENTRAL.
+   */
+  crew?: boolean;
 }
 
 /** Ordre donné par l'interface (trace pour les tests et le journal). */

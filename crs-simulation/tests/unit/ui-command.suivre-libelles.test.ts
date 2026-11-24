@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 import { ORDER_VERBS, verbOf } from '@/ui/command/orders';
 import { WHEEL } from '@/ui/command/orderWheel';
+import { sectorForDigit } from '@/ui/command/direct/words';
 import { QUICK_LABELS, followTitles, smartFollowColumn, wheelHint } from '@/ui/command/quickActions';
 
 describe('commandement — ordres « me suivre »', () => {
@@ -32,24 +33,24 @@ describe('commandement — ordres « me suivre »', () => {
     expect(ORDER_VERBS.filter((v) => /colonne/i.test(v.label)).map((v) => v.type)).toEqual(['avec_moi']);
   });
 
-  it('mêmes mots partout : « Suivez-moi à pied » / « Suivez-moi en véhicules » (HUD, roue, fiche « VOUS », carte)', () => {
+  it('mêmes mots partout : « Suivez-moi à pied » / « Suivez-moi en véhicules » (fiche « VOUS », carte) ; « Avec moi » sur le terrain', () => {
     expect(verbOf('suivre_pied')!.plain).toBe('Suivez-moi à pied');
     expect(verbOf('avec_moi')!.plain).toBe('Suivez-moi en véhicules');
-    // roue d'ordres : secteurs 1 et 2, côte à côte
-    const wf = WHEEL.findIndex((w) => w.type === 'suivre_pied');
-    const wc = WHEEL.findIndex((w) => w.type === 'avec_moi');
+    // roue d'ordres (ordres directs) : un seul secteur « Avec moi » (1), qui s'adapte à la façon dont il se déplace ; le
+    // 2 (l'ancien « Suivez-moi en véhicules ») en est l'alias, non dessiné
+    const wf = WHEEL.findIndex((w) => w.action === 'avec_moi');
     expect(wf).toBe(0);
-    expect(wc).toBe(wf + 1);
-    expect(WHEEL[wf]!.label).toBe(verbOf('suivre_pied')!.plain);
-    expect(WHEEL[wc]!.label).toBe(verbOf('avec_moi')!.plain);
-    expect(WHEEL.some((w) => w.type === 'suivre')).toBe(false);
-    // bloc « ORDRES » du HUD : les mêmes libellés, et la touche écrite « F puis 1 » (jamais « F1 », touche de fonction du Mac)
-    expect(QUICK_LABELS.foot).toBe('Suivez-moi à pied');
-    expect(QUICK_LABELS.column).toBe('Suivez-moi en véhicules');
-    expect(wheelHint('F', WHEEL[wf]!.key)).toBe('F puis 1');
-    expect(wheelHint('F', WHEEL[wc]!.key)).toBe('F puis 2');
+    expect(WHEEL[wf]!.label).toBe('Avec moi');
+    expect(WHEEL[wf]!.key).toBe(1);
+    expect(sectorForDigit(WHEEL, 2)).toBe(WHEEL[wf]);
+    expect(WHEEL.some((w) => w.key === 2)).toBe(false);
+    // bloc d'ordres du HUD (ordres directs) : « A avec moi » dans la ligne des touches, la pastille « Avec moi » du
+    // téléphone (le même mot que le secteur 1), et la touche de la roue écrite « F puis 7 » (jamais « F7 », touche de
+    // fonction du Mac)
+    expect(QUICK_LABELS.withMe).toBe(WHEEL[wf]!.label);
+    expect(wheelHint('F', 7)).toBe('F puis 7');
     expect(wheelHint('F', 7)).not.toMatch(/F\s?\d/);
-    // téléphone : une seule pastille, l'ordre qui convient (à pied → à pied ; à bord ou au volant → en véhicules)
+    // « Avec moi » s'adapte : à pied → ils le suivent à pied ; à bord ou au volant → derrière son véhicule
     expect(smartFollowColumn(0)).toBe(false);
     expect(smartFollowColumn(42)).toBe(true);
   });

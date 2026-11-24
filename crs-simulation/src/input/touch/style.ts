@@ -48,6 +48,17 @@ export const TOUCH_CSS = `
 .ct-pill .ct-t{font-size:calc(var(--s)*13px);letter-spacing:.02em;text-transform:none;overflow:hidden;text-overflow:ellipsis}
 .ct-pedal .ct-t{font-size:calc(var(--s)*10.5px)}
 .ct-w2 .ct-t{white-space:normal;max-width:90%}
+/* pastille « Ordre prêt » : 128 px fixes, deux lignes (verbe 15 px gras, unité 11,5 px), sans pictogramme ; la police
+   est celle dont direct/words.ts connaît les largeurs (les formes courtes y sont vérifiées) */
+.crs-touch .ct-pill.ct-order{width:calc(var(--s)*128px)!important;min-width:0;max-width:none;flex-direction:column;gap:calc(var(--s)*1px);
+  padding:0 calc(var(--s)*6.5px);border-radius:calc(var(--s)*16px);background:rgba(16,28,52,.66);border-color:rgba(150,190,255,.7)}
+.ct-order .ct-t,.ct-order .ct-t2{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;letter-spacing:0;text-transform:none;
+  font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;text-shadow:0 1px 2px rgba(0,0,0,.85);pointer-events:none}
+.crs-touch .ct-order .ct-t{font-size:calc(var(--s)*15px);font-weight:700;line-height:1.1}
+.ct-order .ct-t2{font-size:calc(var(--s)*11.5px);font-weight:400;line-height:1.15;opacity:.92}
+.ct-order.is-one .ct-t2{display:none}
+.ct-order.is-dim{opacity:.62;border-color:rgba(255,255,255,.4)}
+.ct-order.is-flash{border-color:#ffd36a;box-shadow:0 0 0 calc(var(--s)*3px) rgba(255,211,106,.45),0 calc(var(--s)*2px) calc(var(--s)*7px) rgba(0,0,0,.38)}
 .ct-accent{border-color:rgba(255,255,255,.8);background:rgba(20,32,58,.6);border-width:calc(var(--s)*2px)}
 .ct-c.is-down{background:rgba(255,255,255,.36);border-color:#fff;transform:scale(.94)}
 .ct-c.is-on{background:rgba(40,104,214,.82);border-color:#d6e4ff}
@@ -65,6 +76,9 @@ export const TOUCH_CSS = `
 .crs-touch[data-layout="pied"] .ct-stick,.crs-touch[data-layout="vehicule"] .ct-stick,.crs-touch[data-layout="drone"] .ct-stick{display:block}
 .ct-stick.is-track{border-radius:calc(var(--s)*40px)}
 .ct-stick.is-idle{opacity:.78}
+/* joystick tenu : au-dessus des boutons — posé depuis la pastille d'ordre (le pouce qui glisse), le socle et son
+   libellé « Course » restent visibles par-dessus la rangée Radio / ordre prêt / « À qui » (il ne prend aucun toucher) */
+.ct-stick:not(.is-idle){z-index:2}
 .ct-stick.is-full{border-color:#9cc0ff;box-shadow:0 0 0 calc(var(--s)*4px) rgba(84,146,255,.5),0 calc(var(--s)*2px) calc(var(--s)*9px) rgba(0,0,0,.3)}
 .ct-knob{position:absolute;left:50%;top:50%;border-radius:50%;background:rgba(244,247,251,.82);
   border:calc(var(--s)*1.5px) solid rgba(13,19,33,.55);box-shadow:0 calc(var(--s)*2px) calc(var(--s)*6px) rgba(0,0,0,.45);will-change:transform}

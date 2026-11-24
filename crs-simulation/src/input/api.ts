@@ -71,6 +71,19 @@ export interface InputTouchApi {
   setToggle(button: Button, toggle: boolean): void;
   /** true / false : force l'affichage ou le masquage ; null : automatique (dernier périphérique utilisé). */
   setForced(forced: boolean | null): void;
+  /**
+   * Pastille « Ordre prêt » (téléphone) : ligne 1 le verbe en forme courte (« Bloquer la rue »), ligne 2 l'unité et la
+   * distance (« MISTRAL 1 · 90 m »), `ready = false` : ligne grise. La surcouche l'alimente elle-même en lisant le service
+   * 'command.direct' quatre fois par seconde ; `text = null` rend la main à cette lecture.
+   */
+  setOrderLabel(text: string | null, who?: string, ready?: boolean): void;
+  /**
+   * Doigt qui a ouvert la roue d'ordres par un appui long sur la pastille, en coordonnées écran : posé (`down`) ou
+   * relâché depuis moins d'une seconde ; null sinon. La roue surligne le secteur sous lui et donne celui qu'on relâche.
+   */
+  wheelFinger(): { x: number; y: number; down: boolean } | null;
+  /** Dernier toucher bref de la zone du regard (coordonnées écran), rendu une seule fois ; null sinon. */
+  takeWorldTap(): { x: number; y: number } | null;
 }
 
 // ───────────────────────────── libellés ─────────────────────────────

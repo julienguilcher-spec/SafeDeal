@@ -65,6 +65,8 @@ export function createLawConfig(): LawConfig {
     controlTime: 5,
     handoverPointRadius: 6,
     handoverVehicleRange: 5,
+    // fourgon cellulaire : on y fait monter l'interpellé par la porte arrière, le véhicule garé en retrait (plan §5.3)
+    handoverCellularRange: 12,
   };
 }
 

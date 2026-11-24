@@ -115,23 +115,77 @@ plus reconstruite pour l'instant, à la demande du joueur.
 - Téléphone : sous-titres radio qui recouvraient les boutons ; CRS bloqués devant des barrières Vauban ; missions
   lancées depuis l'accueil au mauvais poste ; nasse et évacuation ; textes divers.
 
-### En cours au 18 novembre (non livré)
-- **Ordres directs sur le terrain** : regarder une rue, une personne ou un carrefour, appuyer sur Entrée, l'unité y va ;
-  « Avec moi » (A), choix de l'unité (U) ; unités assises qui descendent puis exécutent ; arrivée en secondes ;
-  BRAV-M dans la compagnie ; plus jamais « sans ordre ». Cahier des charges : `chantiers-en-cours/ordres-directs/`.
-- **Interpellés** : fourgons cellulaires avec équipage toujours présents, lieu de remise indiqué, « Confier » à des
-  collègues, transfert au commissariat, fourgon de relève.
-- **Commissariats dessinés** (sept sites, véhicules garés en colonnes, unités engagées et renvoyées depuis la carte) :
-  terminés et vérifiés sur une version antérieure, en cours de report sur la version 21.
+## Version 22 (18 novembre) : commissariats
+
+- **Commissariats dessinés dans Paris** : sept sites, cour et véhicules garés en colonnes ; le commandant engage et
+  renvoie leurs unités depuis la carte de commandement ; les unités rentrent se garer elles-mêmes.
+- Sirène deux-tons corrigée.
+
+## Version 23 (24 novembre) : ordres directs, fourgons cellulaires
+
+Après un essai du joueur en commandant, en mission : « je pouvais donner zéro ordre, ils ne suivaient pas, la BRAV-M
+ne bougeait pas, j'interpelle des gens mais je ne sais pas où les mettre ».
+
+### Nouveautés
+- **Ordres directs sur le terrain** : regarder une rue, une personne, la foule ou un carrefour ; la ligne « Entrée … »
+  dit l'ordre prêt et l'unité qui le recevra ; **Entrée** le donne. **Maj+Entrée** : l'autre ordre possible. **A** :
+  « Avec moi », toutes les unités suivent. **U** : une autre unité. **⌫** : annuler et rendre les ordres précédents.
+  **F** puis un chiffre : la roue des ordres. Sur téléphone : la pastille « Ordre prêt » (toucher = donner), « ⟳ À
+  qui », appui long = la roue, toucher le décor pour désigner.
+- **Accusé de réception en moins d'une seconde**, puis une ligne d'état par unité (« reçu », « descend des fourgons —
+  prêt dans 3 s », « en route — 120 m », « rue barrée ✓ », ou le refus en une phrase avec la sortie : « U : une autre
+  unité »). Une unité sous les ordres du joueur n'est plus jamais « sans ordre ».
+- **Unités assises dans les fourgons** : elles descendent puis exécutent ; un ordre donné pendant que la colonne roule
+  ou se gare est exécuté à l'arrêt.
+- **BRAV-M dans la compagnie** : elle suit le véhicule du joueur en selle, obéit aux ordres directs, revient « avec
+  vous » après une interpellation. Nouveau poste « Chef de la BRAV-M ».
+- **Interpellés** : au moins deux **fourgons cellulaires** avec équipage accompagnent la compagnie ; après la
+  palpation, la ligne d'aide dit où emmener l'interpellé (« E : le confier à MISTRAL 2 ALFA (10 m) », ou « Faire venir
+  le fourgon cellulaire 1 ») ; le fourgon plein part au commissariat (deux-tons s'il est retenu), un second prend la
+  relève ; le compte rendu de fin donne les mêmes chiffres que le terrain.
+- **Grande compagnie** : la mission attend que la queue de colonne soit arrivée (120 s au plus) ; une colonne à moins
+  de 300 m du point qui n'a plus qu'un long détour s'arrête, débarque et finit à pied, en le disant à la radio.
+
+### Bugs corrigés
+- Commandant en mission, arrivée en colonne : l'ordre de barrer une rue était accusé puis deux groupes sur trois
+  restaient collés contre leurs fourgons garés pare-chocs contre pare-chocs.
+- « Suivez-moi » suivi 19 s plus tard d'un ancien ordre redonné tout seul à une section.
+- Abribus ou long mobilier au bord du trottoir pris pour un barrage : la tête de colonne faisait demi-tour entre les
+  façades et restait à 390 m du lieu pendant que la compagnie arrivait sans le commandant.
+- Second Centaure qui perdait le premier au départ ; moto de la BRAV-M qui faisait le tour du pâté de maisons à
+  l'entrée d'un sens unique ; BRAV-M du joueur garée derrière la file de la compagnie.
+- Monter en véhicule en escortant un interpellé ; nasse à sortie filtrée (fourgon arrêté à 160 m de la porte) ;
+  binôme de la BRAV-M qui suivait un fuyard sans jamais l'interpeller ; fourgon cellulaire appelé déclaré « coincé »
+  au bout de 12 s alors qu'il sortait de sa file.
+- Textes : « barré / barrée » selon la voie ; « en selle », « remontent sur les motos » pour la BRAV-M ; distance de
+  l'unité (et non du joueur) sur la ligne d'ordre.
+
+### Mesures
+- Suite de tests : 4 198 verts, 0 rouge (117 joués sur demande).
+- Robot « commandant en mission, arrivée en passager », quinze missions : 10 sans défaut (version 22 : 4).
 
 ## Limites connues
 
-- **Version 21** : des unités assises dans leurs fourgons n'exécutent pas un ordre à pied ; quand le commandant conduit
-  sa voiture ou part devant, la colonne peut débarquer à 1 ou 2 km ; « Suivez-moi à pied » fait marcher des sections
-  à plus de 250 m ; la BRAV-M est lente dans une foule dense ; un véhicule déjà nez à un mur ne s'en dégage pas ; le
-  lieu où déposer un interpellé n'est pas affiché et le fourgon cellulaire n'a pas toujours d'équipage ; sur
-  téléphone, la carte reste chargée quand une fiche d'ordre est ouverte. (Tous en cours de correction, voir
-  ci-dessus.)
+- **Version 23, ordres directs** (relevés par le robot de recette, non corrigés) :
+  - la **BRAV-M appelée vers le joueur** (« Y aller » vers moi, « Suivez-moi ») reste parfois à 100–160 m (missions 4
+    et 8) ; le **chef de la BRAV-M** qui envoie son unité à plus de 300 m est accusé mais les motos ne partent qu'au
+    bout de 30 s et n'arrivent pas (itinéraire moto de 900 m pour 320 m à vol d'oiseau à la Concorde) ; son « Avec
+    moi » passe 5 s par « débarquer » ;
+  - **journée de service** (République) : à la première intervention, la section désignée peut être à plus de 200 m
+    et annoncer « la foule barre la route » ; ⌫ ne rend pas toujours le barrage ; le fourgon cellulaire peut être à
+    plus de 250 m de l'interpellation ;
+  - **fourgon cellulaire** : à bord en 87 s dans la première mission, 125 s dans la quatrième (objectif 120 s) quand
+    le rendez-vous tombe sur une rue voisine à sens unique ; un fourgon envoyé au commissariat peut rester un moment
+    derrière un fourgon de la compagnie en travers ;
+  - missions « Minuit sur le parvis » (colonne arrêtée court, étalée sur 400 m de quai) et « Une heure du matin »
+    (section envoyée sur le quai bas qui revient au trot) : « Suivez-moi » ne ramène pas la moitié des groupes en une
+    minute ; des agents restent coincés entre leurs propres fourgons garés ;
+  - une moto de police derrière des voitures en file peut y rester plusieurs minutes ; les véhicules à l'arrêt
+    roulent seuls dans la pente de la Concorde ;
+  - affichage : à 1280×800 la ligne d'ordre est coupée par un nom de lieu très long ; sur téléphone un bandeau
+    d'alerte peut recouvrir le bouton « Oui » de l'adjoint ;
+  - les postes chef de section, chef de groupe et le mode patrouille n'ont pas été rejoués de bout en bout par le
+    robot de recette (leurs tests unitaires sont verts).
 - **Colonnes** : sur le banc de mesure (6 bases × 10 lieux), il reste des trajets où la colonne n'arrive pas complète dans le délai, surtout vers Châtelet (colonne retenue par la foule à 150–250 m du point). Le filet de sécurité replace alors les véhicules, hors de la vue du joueur.
 - Une colonne qui doit faire demi-tour dans une rue étroite peut encore se gêner elle-même.
 - Concorde : le point de départ de certains véhicules est en dehors du réseau de rues.

@@ -33,8 +33,16 @@ const AVOID_GIVE_UP = 45;
 /** Attente derrière un véhicule arrêté avant de le contourner (s) : en intervention urgente, en conduite normale. */
 const AVOID_WAIT_URGENT = 1.5;
 const AVOID_WAIT = 4;
+/** Véhicule de police arrêté derrière un véhicule de police immobile, hors pilote automatique : attente avant de le contourner (s). */
+const POLICE_IDLE_WAIT = 6;
 /** Suivant arrêté par une personne immobile sur la trace de son meneur : attente avant de la contourner au pas (s). */
 const FOLLOW_PEOPLE_DODGE = 5;
+/**
+ * Véhicule de police arrêté par des personnes debout qui ne s'écartent pas : attente avant d'avancer au pas (s), et cette
+ * allure (m/s : celle d'un homme qui marche, sous la vitesse où un choc blesse — collide.ts PERSON_HIT_SPEED).
+ */
+const PEOPLE_CREEP = 15;
+const CREEP_SPEED = 0.9;
 /** Arrêt devant un obstacle fixe infranchissable avant de chercher un autre itinéraire (s) : en conduite normale, en urgence. */
 const OBSTACLE_REROUTE = 10;
 const OBSTACLE_REROUTE_URGENT = 6;
@@ -271,7 +279,9 @@ export class ApDriver {
     if (ap.mode === 'follow' && ap.cruise === 0 && !ap.convoy) {
       // une colonne tient l'allure de son meneur (+ de quoi recoller), même là où la voie la plus proche est un
       // cheminement piéton à vitesse de marche (place, quai) : c'est le meneur qui choisit où et à quelle vitesse on passe (les convois de l'IA ont leur propre allure de croisière)
-      const lv = ctx.vehicles.get(ap.leaderId);
+      // (meneur suivi en tant que personne, à bord d'un véhicule — BRAV-M en selle derrière le joueur qui roule,
+      // police/command/bravm.ts : l'allure est celle de son véhicule)
+      const lv = this.leaderRide(ap);
       if (lv && lv.speed + 4 > vt) vt = lv.speed + 4;
     }
     // intervention urgente : une fois et demie l'allure (demandée ou limite de la voie), 50 km/h au moins
@@ -332,7 +342,8 @@ export class ApDriver {
       const tx = lx - ap.path[ap.n * 2 - 2]!;
       const tz = lz - ap.path[ap.n * 2 - 1]!;
       goal = ap.total - ap.s + Math.sqrt(tx * tx + tz * tz) - rt.halfL - half - ap.followDist;
-      if (lv) leaderSpeed = Math.max(0, lv.speed);
+      const ride = lv ?? this.leaderRide(ap);
+      if (ride) leaderSpeed = Math.max(0, ride.speed);
       else if (lp) leaderSpeed = Math.sqrt(lp.vx * lp.vx + lp.vz * lp.vz);
       // accordéon : on règle sa vitesse sur celle du meneur, corrigée de l'écart
       // et l'on anticipe ses freinages (une demi-seconde d'avance) pour ne pas venir mourir sur son pare-chocs
@@ -455,6 +466,18 @@ export class ApDriver {
         obstacle = vt < 0.3;
       }
     }
+    // des personnes debout qui ne s'écartent pas devant un véhicule de police depuis PEOPLE_CREEP s (manifestants, passants
+    // arrêtés sur la chaussée) : il avance au pas, avertisseur et deux-tons (session/engins.ts fait s'écarter la foule
+    // devant lui) — il les attendait sans fin, et la colonne arrivait sans lui. Jamais sur une personne à terre.
+    // (le compte baisse doucement quand le capteur voit un instant autre chose — un véhicule voisin, une personne qui
+    // passe — et repart à zéro quand le véhicule roule de nouveau)
+    if (ap.obsReason === 'personne' && ap.obsDist < 8 && au < 1.2) ap.pedWaitT += dt;
+    else if (au > 2) ap.pedWaitT = 0;
+    else if (ap.pedWaitT > 0) ap.pedWaitT = Math.max(0, ap.pedWaitT - dt * 0.5);
+    if (obstacle && ap.obsReason === 'personne' && ap.pedWaitT > PEOPLE_CREEP && v.faction === 'police' && !finalLeg
+      && goal > 2 && vt < CREEP_SPEED && !this.lyingAhead(rt, ap)) {
+      vt = CREEP_SPEED;
+    }
 
     // ── décoincement : consigne d'avancer mais véhicule immobile ──
     if (ap.unstickT > 0) {
@@ -473,7 +496,10 @@ export class ApDriver {
       return;
     }
     // nez contre un mur (angle de façade, mobilier fixe) : même reprise en marche arrière qu'un véhicule qui force
-    const wallStall = obstacle && ap.obsReason === 'mur' && !finalLeg && au < 0.12 && ap.blockedFor > 1.5;
+    // (de même nez contre un objet fixe tout proche — candélabre, borne, banc — : sans marche arrière, ni contournement ni
+    // demi-tour n'ont la place de braquer, et le fourgon cellulaire restait « bloqué / obstacle » pour de bon)
+    const wallStall = obstacle && !finalLeg && au < 0.12 && ap.blockedFor > 1.5
+      && (ap.obsReason === 'mur' || (ap.obsReason === 'obstacle' && ap.obsStatic && ap.obsDist < 1.5));
     if ((vt > 0.8 && au < 0.12) || wallStall) {
       ap.stuckT += dt;
       if (ap.stuckT > 2.5) {
@@ -574,6 +600,17 @@ export class ApDriver {
       if (ap.blockedFor < ap.rerouteAt) ap.rerouteAt = 0;
       if (stopped && !closed && v.faction !== 'civil' && ap.avoidVeh === 0 && ap.avoidProp === 0 && (ap.mode === 'drive' || ap.mode === 'follow')
         && ap.blockedFor > ap.rerouteAt + (ap.urgence ? OBSTACLE_REROUTE_URGENT : OBSTACLE_REROUTE) && this.replan && ap.replans < 8 && this.fixedBlocker(rt, ap)) {
+        // (mobilier fixe long au bord de la chaussée — un abribus le long du trottoir — que le cercle de prudence du
+        // capteur fait déborder sur la voie : sa vraie emprise laisse passer, il ne ferme pas la rue. On repart, le
+        // capteur le mesure désormais à sa boîte ; la rue n'est pas signalée fermée.)
+        if (ap.obsReason === 'obstacle' && ap.obsPropId !== 0 && ap.uturn === 0 && this.sensor.boxClear(rt, ap.obsPropId)) {
+          ap.blockedFor = 0;
+          ap.rerouteAt = 0;
+          ap.obsDist = Infinity;
+          ap.scanT = 0;
+          this.setStatus(rt, ap, 'en_route', '');
+          return;
+        }
         ap.replans++;
         ap.rerouteAt = ap.blockedFor;
         if (this.replan(rt, ap, false, true)) {
@@ -720,12 +757,14 @@ export class ApDriver {
     // là où le meneur s'est faufilé — : on la contourne au pas comme un obstacle fixe, si un couloir libre le permet)
     // (de même, un véhicule de police conduit seul, arrêté par des collègues à pied immobiles devant lui — les hommes de
     // son unité, une autre compagnie rangée sur la chaussée — : ils tiennent leur place, ils ne s'écartent pas ; sans
-    // contournement il les attendait pour de bon)
+    // contournement il les attendait pour de bon — ou par des personnes debout immobiles, qui ne s'écartent pas)
     // (suivant d'une colonne de l'IA — départ de la caserne, mouvement motorisé — : seulement une personne à terre, qui ne
     // se relèvera pas ; il l'attendait jusqu'à la fin, et la colonne arrivait sans le fourgon du joueur, resté à 2 km)
+    // (ou une personne debout immobile — passant arrêté, manifestant planté sur la chaussée — : contournée de même, sans
+    // quoi le suivant l'attendait tant qu'elle ne bougeait pas ; pas quelqu'un qui marche, qui va dégager de lui-même)
     const standing = ap.obsReason === 'personne' && ap.blockedFor > FOLLOW_PEOPLE_DODGE && au < 0.3
-      && (ap.convoy ? ap.mode === 'follow' && this.lyingAhead(rt, ap)
-        : ap.mode === 'follow' || (ap.mode === 'drive' && v.faction === 'police' && this.colleaguesAhead(rt)));
+      && (ap.convoy ? ap.mode === 'follow' && (this.lyingAhead(rt, ap) || this.stillAhead(rt, ap))
+        : ap.mode === 'follow' || (ap.mode === 'drive' && v.faction === 'police' && (this.colleaguesAhead(rt) || this.stillAhead(rt, ap))));
     // (personnes immobiles, ou à terre — un blessé allongé sur la chaussée —, devant un suivant : on les contourne
     // franchement, en leur laissant un mètre, comme un objet arrêté sur la voie ; un petit pas de côté ne suffisait pas
     // et la colonne attendait derrière un blessé jusqu'à la fin)
@@ -785,8 +824,11 @@ export class ApDriver {
       const urgent = ap.urgence || ap.convoy;
       // un véhicule qui suit un meneur (colonne du joueur, escorte) contourne aussi un véhicule GARÉ (sans conducteur)
       // qui lui barre la voie : sinon, sorti d'un stationnement en bloc, il attendait derrière indéfiniment
-      if (!urgent && !(parked && ap.mode === 'follow')) return false;
-      if (!parked && ap.blockedFor < (urgent ? AVOID_WAIT_URGENT : AVOID_WAIT)) return false;
+      // (un véhicule de police contourne de même, au bout d'un moment, un véhicule de police arrêté que personne ne
+      // conduit vers nulle part — fourgon garé, conducteur à bord, devant les motos de la BRAV-M qui l'attendaient sans fin)
+      const policeIdle = v.faction === 'police' && o.v.faction === 'police' && !o.apActive && ap.blockedFor > POLICE_IDLE_WAIT;
+      if (!urgent && !policeIdle && !(parked && ap.mode === 'follow')) return false;
+      if (!parked && !policeIdle && ap.blockedFor < (urgent ? AVOID_WAIT_URGENT : AVOID_WAIT)) return false;
       vehId = o.v.id;
     } else {
       return false;
@@ -985,6 +1027,40 @@ export class ApDriver {
     }
     this.nearPeople.length = 0;
     return found;
+  }
+
+
+  /** Véhicule du meneur : le meneur lui-même, ou le véhicule où se trouve la personne suivie (undefined : à pied, ou aucun). */
+  private leaderRide(ap: ApState): Vehicle | undefined {
+    const ctx = this.k.ctx;
+    const lv = ctx.vehicles.get(ap.leaderId);
+    if (lv) return lv;
+    const lp = ctx.people.get(ap.leaderId);
+    return lp && lp.vehicleId !== 0 ? ctx.vehicles.get(lp.vehicleId) : undefined;
+  }
+
+  /** Les personnes à pied dans mon couloir, juste devant l'obstacle qui m'arrête, sont-elles toutes immobiles (au moins une) ? */
+  private stillAhead(rt: VehicleRt, ap: ApState): boolean {
+    const v = rt.v;
+    const sn = Math.sin(v.heading), cs = Math.cos(v.heading);
+    const reach = Math.max(0, ap.obsDist) + 3;
+    const n = this.k.ctx.people.queryRadius(v.x + sn * (rt.halfL + reach * 0.5), v.z + cs * (rt.halfL + reach * 0.5), reach * 0.5 + rt.halfW + 1, this.nearPeople);
+    let found = 0;
+    for (let i = 0; i < n; i++) {
+      const p = this.nearPeople[i]!;
+      if (p.vehicleId !== 0 || p.dormant) continue;
+      const dx = p.x - v.x, dz = p.z - v.z;
+      const f = dx * sn + dz * cs - rt.halfL;
+      const l = dx * cs - dz * sn;
+      if (f < -0.5 || f > reach || l > rt.halfW + 0.9 || l < -(rt.halfW + 0.9)) continue;
+      if (p.vx * p.vx + p.vz * p.vz > 0.09) {
+        found = 0;
+        break;
+      }
+      found++;
+    }
+    this.nearPeople.length = 0;
+    return found > 0;
   }
 
   /** L'obstacle qui m'arrête est-il là pour de bon : objet, ou véhicule garé sans conducteur, ou épave (hors de ma colonne) ? */

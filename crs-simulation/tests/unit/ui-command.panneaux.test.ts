@@ -386,7 +386,8 @@ describe('panneaux d’une vraie partie (place de la Concorde)', () => {
     expect(rows.length).toBeLessThanOrEqual(6);
     expect(rows.filter((r) => r.name.startsWith('Section MISTRAL')).length).toBe(3);
     expect(rows.every((r) => r.depth === 0)).toBe(true);
-    expect(rows.some((r) => r.name === 'Engins (2)')).toBe(true);
+    // Centaure, canon à eau et les deux fourgons cellulaires avec leur équipage (mise en place P5, 300 manifestants)
+    expect(rows.some((r) => r.name === 'Engins (4)'), rows.map((r) => r.name).join(', ')).toBe(true);
     for (const r of rows) {
       expect(r.doing, r.name).not.toMatch(/_/);
       expect(r.doing.trim(), r.name).not.toBe('');

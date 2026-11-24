@@ -109,6 +109,8 @@ export type LineAction =
   | { kind: 'follow'; column: boolean }
   /** Centrer la carte sur le repère (aucun ordre). */
   | { kind: 'centre' }
+  /** « Partir au commissariat » : le fourgon cellulaire part avec ses interpellés (service 'transfer', depart). */
+  | { kind: 'transfer'; squadId: number }
   /** Proposition de l'adjoint : accepter, ou « Plus tard ». */
   | { kind: 'proposal'; accept: boolean }
   /** Sommations : `all` les trois à la suite (chaîne légale), sinon la suivante seulement. */
@@ -274,6 +276,8 @@ export interface CardUnit {
   /** Unité supérieure (0 : aucune) ; le joueur en fait partie. */
   parentId: number;
   hasPlayer: boolean;
+  /** Fourgon cellulaire suivi par le transfert (son état : `status`, « CELLULAIRE 1 · 3/8 »). */
+  cellular?: boolean;
 }
 
 export interface CardClosure {
@@ -344,6 +348,8 @@ export interface CardPlayer {
   /** « Commandant Carlier ». */
   title: string;
   inVehicle: boolean;
+  /** Personne du joueur (une unité qui le suit est « avec vous », donc libre — bestUnit.ts isFree) ; absent : inconnu. */
+  personId?: number;
 }
 
 export interface CardRoad {

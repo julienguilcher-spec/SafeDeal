@@ -26,7 +26,8 @@ const QWERTY_SIGNS: Readonly<Record<string, string>> = {
 /** Touches nommées. */
 const NAMED: Readonly<Record<string, string>> = {
   Space: 'Espace', Enter: 'Entrée', NumpadEnter: 'Entrée (pavé)', Escape: 'Échap', Tab: 'Tab',
-  Backspace: 'Retour arrière', Delete: 'Suppr', Insert: 'Inser', Home: 'Début', End: 'Fin',
+  // ⌫ : le signe gravé sur la touche d'un Mac (« delete ») comme sur celle d'un PC (« Retour arrière »)
+  Backspace: '⌫', Delete: 'Suppr', Insert: 'Inser', Home: 'Début', End: 'Fin',
   PageUp: 'Page préc.', PageDown: 'Page suiv.', CapsLock: 'Verr. maj',
   ShiftLeft: 'Maj', ShiftRight: 'Maj droite', ControlLeft: 'Ctrl', ControlRight: 'Ctrl droite',
   AltLeft: 'Alt', AltRight: 'Alt Gr', MetaLeft: 'Méta', MetaRight: 'Méta droite', ContextMenu: 'Menu',
@@ -36,6 +37,14 @@ const NAMED: Readonly<Record<string, string>> = {
   Mouse0: 'Clic gauche', Mouse1: 'Clic molette', Mouse2: 'Clic droit', Mouse3: 'Souris 4', Mouse4: 'Souris 5',
   WheelUp: 'Molette ↑', WheelDown: 'Molette ↓',
 };
+
+/**
+ * Libellé d'une touche lue avec la touche Maj (« Maj+Entrée » : la ligne « autre » des ordres directs, « Maj+U » : à
+ * qui, à l'envers) — la même forme partout (bloc d'ordres, aide, réaffectation). Libellé vide : vide.
+ */
+export function withShift(label: string): string {
+  return label === '' ? '' : `Maj+${label}`;
+}
 
 /** Devine la disposition du clavier d'après les langues du navigateur. */
 export function guessKeyboardLayout(languages: readonly string[]): KeyboardLayout {

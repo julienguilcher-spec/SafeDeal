@@ -19,6 +19,7 @@ const BUTTON_TABLE = {
   zoom_in: 34, zoom_out: 35,
   ui_accept: 36, ui_back: 37, ui_up: 38, ui_down: 39, ui_left: 40, ui_right: 41,
   jog: 42,
+  order_go: 43, order_who: 44, order_undo: 45, with_me: 46,
 } as const satisfies Record<Button, number>;
 
 export const BUTTON_INDEX: Readonly<Record<Button, number>> = BUTTON_TABLE;
@@ -90,6 +91,7 @@ const CONTEXTS: Record<BindAction, ActionContext> = {
   megaphone: 'commun', fast_forward: 'commun', zoom_in: 'commun', zoom_out: 'commun',
   ui_accept: 'menu', ui_back: 'menu', ui_up: 'menu', ui_down: 'menu', ui_left: 'menu', ui_right: 'menu',
   jog: 'pied',
+  order_go: 'commun', order_who: 'commun', order_undo: 'commun', with_me: 'commun',
   move_forward: 'commun', move_back: 'commun', move_left: 'commun', move_right: 'commun',
   look_left: 'commun', look_right: 'commun', look_up: 'commun', look_down: 'commun',
 };
@@ -119,6 +121,7 @@ const NAMES: Record<BindAction, string> = {
   ui_accept: 'Valider', ui_back: 'Retour', ui_up: 'Menu : haut', ui_down: 'Menu : bas',
   ui_left: 'Menu : gauche', ui_right: 'Menu : droite',
   jog: 'Marcher / trottiner',
+  order_go: 'Donner l’ordre prêt', order_who: 'À qui', order_undo: 'Annuler l’ordre', with_me: 'Avec moi',
   move_forward: 'Avancer', move_back: 'Reculer', move_left: 'Aller à gauche', move_right: 'Aller à droite',
   look_left: 'Regarder à gauche', look_right: 'Regarder à droite', look_up: 'Regarder en haut', look_down: 'Regarder en bas',
 };

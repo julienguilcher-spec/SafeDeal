@@ -16,11 +16,11 @@ import type { Op, Unit } from './brain';
 import { F_NONE, OP_ARREST, OP_CLEAR, OP_EXTINGUISH, OP_GAS, OP_RESCUE, OP_RESUPPLY, createOp } from './brain';
 import { forceCap, recentFlagrant } from './force';
 import type { Kernel } from './kernel';
-import { createArrest, updateArrest } from './ops-arrest';
+import { STAGE_WATCH, WATCH_NOTHING, arrestKind, createArrest, createWatch, updateArrest } from './ops-arrest';
 import { finish } from './ops-core';
 import { carriable, createExtinguish, createRescue, updateExtinguish, updateRescue } from './ops-rescue';
 import { createClear, isParticipant, resupplyNext, updateClear, updateGas, updateResupply } from './ops-supply';
-import { designate, sectorOf } from './radio';
+import { sectorOf } from './radio';
 import * as T from './tuning';
 
 // ───────────────────────────── ordres de tâche ─────────────────────────────
@@ -50,8 +50,15 @@ export function startTask(k: Kernel, owner: Unit, o: SquadOrder): string {
         }
       }
     }
-    if (!target) return 'Aucun individu à interpeller sur fait constaté.';
-    if (!ctx.law.canArrest(target)) return 'Aucun fait constaté contre ' + designate(target) + ' : interpellation non fondée, je ne l’exécute pas.';
+    // « Aller constater » (plan §4.3) : personne n'a rien commis au point, ou la personne désignée n'a commis aucun fait
+    // constaté — l'ordre n'est pas refusé : le binôme se porte à 10 m, observe, et interpelle au premier fait constaté
+    // (jamais une interpellation sans fait constaté). La surveillance précédente de l'unité cesse.
+    if (!target || !ctx.law.canArrest(target)) {
+      const ops = root.ops;
+      for (let i = 0; i < ops.length; i++) if (ops[i].owner === owner && ops[i].kind === OP_ARREST && ops[i].stage === STAGE_WATCH) finish(k, ops[i], false, '');
+      const watched = target && target.custody === 'free' ? target.id : 0;
+      return createWatch(k, root, owner, target ? target.x : o.x, target ? target.z : o.z, watched) ? '' : 'Aucun binôme d’interpellation disponible.';
+    }
     return createArrest(k, root, owner, target, true) ? '' : 'Aucun binôme d’interpellation disponible.';
   }
   if (type === 'secourir') {
@@ -164,8 +171,9 @@ export function abortOps(k: Kernel, root: Unit, within: Unit | null, reason: str
       for (let x: Unit | null = op.owner; x; x = x.parent) if (x === within) under = true;
       if (!under) continue;
     }
-    // une personne déjà maîtrisée n'est pas abandonnée : l'interpellation va à son terme
-    if (op.kind === OP_ARREST && op.stage >= 2) continue;
+    // une personne déjà maîtrisée n'est pas abandonnée : l'interpellation va à son terme (une surveillance « Aller
+    // constater », elle, cesse)
+    if (op.kind === OP_ARREST && op.stage >= 2 && op.stage !== STAGE_WATCH) continue;
     if (op.kind === OP_RESCUE && op.stage >= 2) continue;
     finish(k, op, false, reason);
   }
@@ -243,7 +251,10 @@ function hasOpAt(root: Unit, kind: number, x: number, z: number): boolean {
 export function opReport(k: Kernel, op: Op): string {
   if (op.reason === 'refus') return '';
   switch (op.kind) {
-    case OP_ARREST: return op.ok ? '' : 'Interpellation non aboutie. ' + op.reason;
+    case OP_ARREST:
+      if (op.ok || op.reason === '') return '';
+      if (op.reason === WATCH_NOTHING) return 'Rien constaté sur place, aucun interpellé. Je reprends ma place';
+      return (arrestKind(op) === 'escort' ? 'Interpellé non pris en charge. ' : 'Interpellation non aboutie. ') + op.reason;
     case OP_RESCUE: return op.ok ? (op.reason !== '' ? op.reason : '') : 'Extraction non aboutie. ' + op.reason;
     case OP_EXTINGUISH: return op.ok ? 'Feu éteint' + (sectorOf(k, op.x, op.z) !== '' ? ', ' + sectorOf(k, op.x, op.z) : '') : op.reason;
     case OP_CLEAR: return op.ok ? 'Barricade dégagée, passage ouvert' : op.reason;

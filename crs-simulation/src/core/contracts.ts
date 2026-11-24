@@ -798,6 +798,8 @@ export interface PathStartOptions {
   contraflow?: number;
   /** Largeur de chaussée confortable pour le véhicule (m) : les voies plus étroites coûtent cher. */
   minWidth?: number;
+  /** Deux-roues : parti tout près d'un carrefour, le virage à ce carrefour est jugé sur son cap réel (world/query/pathfind.ts). */
+  tightTurns?: boolean;
 }
 
 export interface RoadNodeInfo {
@@ -964,6 +966,12 @@ export interface SquadOrder {
    * suivi disent ce nom-là, celui de la fiche. Absent : le secteur du point.
    */
   place?: string;
+  /**
+   * Ordre donné par le joueur lui-même (carte, terrain, « Avec moi », proposition de l'adjoint acceptée). Le seul moyen
+   * sûr de le reconnaître : `issuedBy` vaut aussi le joueur pour les ordres internes du convoi et de l'adjoint. Toute
+   * copie de l'ordre le garde ; les ordres du convoi et de l'IA ne le posent jamais.
+   */
+  byPlayer?: boolean;
 }
 
 export interface Squad {
@@ -1013,6 +1021,16 @@ export interface RadioMessage {
   personId?: EntityId;
   /** Voix synthétique à utiliser (indice libre). */
   voice?: number;
+  /**
+   * Écrit tout de suite (sous-titre, journal), jamais dit : pas de file d'attente, pas de voix, le canal reste libre
+   * (phrase d'ordre du joueur).
+   */
+  silent?: boolean;
+  /**
+   * Accusé de réception d'un ordre du joueur : passe avant tout ce qui attend sur le canal et coupe un message de
+   * priorité 0 ou 1 en cours.
+   */
+  reply?: boolean;
 }
 
 export interface RadioApi {
@@ -1265,7 +1283,12 @@ export type Button =
   | 'siren' | 'beacons' | 'horn' | 'handbrake' | 'headlights' | 'megaphone' | 'fast_forward'
   | 'zoom_in' | 'zoom_out' | 'ui_accept' | 'ui_back' | 'ui_up' | 'ui_down' | 'ui_left' | 'ui_right'
   /** Bascule d'allure au clavier : marche (par défaut) ↔ petite foulée. Ajout de l'assemblage 2. */
-  | 'jog';
+  | 'jog'
+  /**
+   * Ordres directs sur le terrain (ui/command/direct) : donner l'ordre prêt (Entrée), changer d'unité (« À qui », U),
+   * annuler le dernier ordre (⌫, 5 s), tout le monde avec moi (A).
+   */
+  | 'order_go' | 'order_who' | 'order_undo' | 'with_me';
 
 export interface InputState {
   readonly device: InputDevice;

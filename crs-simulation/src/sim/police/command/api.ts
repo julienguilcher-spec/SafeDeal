@@ -59,7 +59,7 @@
  *     repli / cesser      rappel et pose
  * ===================================================================================== */
 
-import type { CrowdPhase, EntityId, ForceLevel, OrderType, Squad } from '@/core/contracts';
+import type { CrowdPhase, EntityId, ForceLevel, OrderType, Squad, SquadOrder } from '@/core/contracts';
 import type { UnitHandle } from '../api';
 
 export const POLICE_COMMAND_SERVICE = 'police.command';
@@ -291,7 +291,11 @@ export interface SpecialStatus {
 
 export interface SpecialEvent { squadId: number; kind: SpecialKind; stage: string; ok: boolean; reason: string }
 
-export type ConvoyStage = 'route' | 'stationnement' | 'debarquement' | 'en_place' | 'rembarquement' | 'depart' | 'parti' | 'echec';
+/**
+ * Étapes d'un convoi. 'annule' : un ordre du joueur a libéré toute l'unité de la colonne (police.command.takeOver) —
+ * annoncé par l'événement 'command:convoy', puis le convoi est oublié (convoyOf rend null).
+ */
+export type ConvoyStage = 'route' | 'stationnement' | 'debarquement' | 'en_place' | 'rembarquement' | 'depart' | 'parti' | 'echec' | 'annule';
 
 export interface ConvoyDestination {
   /** Point de stationnement (milieu du rang de véhicules) et cap des véhicules garés. */
@@ -317,6 +321,12 @@ export interface ConvoyDestination {
    * stationnement en bloc (ordre de mouvement donné par le joueur).
    */
   stagger?: boolean;
+  /**
+   * Le joueur, s'il fait partie de l'unité et qu'il est encore à pied, est attendu au départ (cinq minutes au plus,
+   * rappels radio). Défaut : seulement s'il est près des véhicules (moins de 300 m) et loin du point (plus de 100 m) —
+   * départ de la journée de service, « avec moi » en véhicules ; jamais une colonne qui vient à lui.
+   */
+  waitPlayer?: boolean;
   /**
    * false : trajet sans urgence (retour au commissariat) — ni deux tons ni gyrophares, allure de la circulation, et les
    * voitures civiles arrêtées devant la colonne ne sont pas retirées de la chaussée. Défaut true (deux tons).
@@ -481,10 +491,25 @@ export interface CommandApi {
   depart(squadId: number, exit?: { x: number; z: number }): boolean;
   convoyOf(squadId: number): ConvoyStatus | null;
   /**
-   * Le joueur donne un ordre à cette unité (carte, roue, bloc « ORDRES ») : la colonne en cours d'arrivée dont elle fait
-   * partie ne lui donnera plus l'ordre de débarquer en fin de trajet (il remplacerait le sien).
+   * Le joueur donne un ordre à cette unité (carte, roue, bloc « ORDRES », « avec moi ») — LA règle unique entre ses ordres
+   * et les colonnes : appelée par l'interface avant l'envoi (sans `order`), puis par le commandement pour tout ordre
+   * `byPlayer` (avec lui). Embarquement : l'unité quitte la colonne, sauf « avec moi » (rien sans l'ordre). Colonne qui
+   * roule : point à moins de 150 m du véhicule de tête de l'unité → libérée ; plus loin (ou sans l'ordre) → emportée
+   * jusqu'à l'arrêt, sans le débarquement de fin de trajet. Stationnement, débarquement : libérée. Libérée : ses
+   * véhicules quittent la colonne et s'arrêtent, ses agents descendent et exécutent l'ordre ; toute l'unité libérée →
+   * colonne annulée (étape 'annule'). true si une unité a été libérée.
    */
-  takeOver?(squadId: number): void;
+  takeOver?(squadId: number, order?: Partial<SquadOrder>): boolean;
+  /**
+   * Ce véhicule roule-t-il dans une colonne en route (trajet en cours, ou départ de fin de mission) ? Ses passagers n'en
+   * descendent pas avant l'arrêt, même pour un ordre du joueur emporté jusqu'au point (sim/police/maneuver.ts).
+   */
+  carrying?(vehicleId: number): boolean;
+  /**
+   * La colonne garde-t-elle les passagers de ce véhicule à bord : en route, ou au stationnement tant qu'il roule encore
+   * vers sa place ou s'y gare ? Le « débarquer » d'un ordre qui n'est pas du joueur attend qu'il soit garé.
+   */
+  holding?(vehicleId: number): boolean;
   /**
    * Le véhicule roule-t-il dans une colonne sans urgence (retour au commissariat) encore en route ? Les autres systèmes
    * n'y allument pas les deux-tons (l'avertisseur seul).

@@ -152,3 +152,42 @@ describe('HUD — sous-titres et bandeaux du haut', () => {
     expect(subtitlePlacement(W, H, baseLeft, baseRight, bottomTop, zone, above)).toEqual(p);
   });
 });
+
+/**
+ * Téléphone : tout ce qui se touche dans le HUD fait au moins 44 px (bloqueur B14 : les pastilles « Suivez-moi » /
+ * « Secours ici » faisaient 30 px, les boutons des bandeaux 36 px). Vérifié sur les feuilles de style elles-mêmes : chaque
+ * règle du toucher (surcouche tactile, bandeaux du haut, pointeur grossier) qui fixe une hauteur minimale la fixe à 44 px
+ * au moins ; « ↶ Annuler » de la puce d'état aussi.
+ */
+describe('HUD — 44 px au toucher', () => {
+  /** Règles « sélecteur{déclarations} » d'une feuille (les blocs @media sont aplatis, leur condition gardée). */
+  function rules(css: string): { sel: string; body: string }[] {
+    const out: { sel: string; body: string }[] = [];
+    const flat = css.replace(/@media\s*\(([^)]*)\)\s*\{([\s\S]*?\})\s*\}/g, (_m, cond: string, inner: string) =>
+      inner.replace(/([^{}]+)\{([^}]*)\}/g, (_x, sel: string, body: string) => `@${cond} ${sel}{${body}}`));
+    flat.replace(/([^{}]+)\{([^}]*)\}/g, (_x, sel: string, body: string) => {
+      out.push({ sel: sel.trim(), body });
+      return '';
+    });
+    return out;
+  }
+  const touchRule = (sel: string): boolean => /:not\(\[data-touch="none"\]\)|\.cq-banner|pointer:coarse|\.is-undo/.test(sel);
+
+  it('bloc d’ordres et bandeaux : hauteur minimale ≥ 44 px dans toute règle du toucher', async () => {
+    const { QUICK_CSS } = await import('@/ui/command/quickActions');
+    const { CHIP_CSS } = await import('@/ui/command/hud');
+    const checked: string[] = [];
+    for (const r of [...rules(QUICK_CSS), ...rules(CHIP_CSS)]) {
+      if (!touchRule(r.sel)) continue;
+      const m = /min-height:\s*(\d+(?:\.\d+)?)px/.exec(r.body);
+      if (!m) continue;
+      checked.push(`${r.sel} → ${m[1]} px`);
+      expect(Number(m[1]), r.sel).toBeGreaterThanOrEqual(44);
+    }
+    // les pastilles du téléphone, les boutons des bandeaux et « ↶ Annuler » sont bien couverts
+    expect(checked.some((c) => c.includes('.cq .cm-btn'))).toBe(true);
+    expect(checked.some((c) => c.includes('.cq-banner .cm-btn'))).toBe(true);
+    expect(checked.some((c) => c.includes('.ch-undo'))).toBe(true);
+    expect(checked.length).toBeGreaterThanOrEqual(5);
+  });
+});

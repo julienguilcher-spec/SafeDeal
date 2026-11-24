@@ -7,6 +7,17 @@
  * mais pas sur les zones de joystick et de regard, qui restent alors au clavier/souris.
  * Les écritures dans le DOM qui dépendent du mouvement (pommeau, jauges) sont regroupées dans
  * sync(), une fois par image ; les gestionnaires d'événements n'allouent rien.
+ *
+ * Commandes « au toucher » (pastille « Ordre prêt », « ⟳ À qui » : ControlSpec.tap) : elles sont posées dans la
+ * zone du joystick, là où le pouce gauche se pose pour marcher. Rien ne part au contact : un toucher bref (levé en
+ * moins de 600 ms, à moins de 12 px de son départ) donne l'appui ; un doigt qui glisse plus loin devient le doigt du
+ * joystick (socle centré là où il s'est posé) — vouloir marcher ne donne jamais d'ordre. Un second toucher de la
+ * pastille dans les 0,6 s est ignoré. L'appui long sur la pastille (350 ms sans glisser) ouvre la roue d'ordres : le
+ * doigt reste suivi (wheelFinger) pour que la roue surligne le secteur sous lui et donne celui qu'on relâche.
+ * Un toucher bref de la zone du regard (moins de 220 ms, moins de 12 px) est noté (takeWorldTap) : le commandement
+ * désigne ce qui est sous le doigt. Poste sans ordre prêt (l'exécutant : setTapOpensWheel) : le toucher bref de la
+ * pastille ouvre la roue, comme l'appui long. Chaque commande et chaque zone « répond au toucher » (answersTouch) :
+ * le navigateur ne détourne pas vers un bouton voisin du HUD le doigt posé sur elles.
  * ===================================================================================== */
 
 import type { Button, Settings } from '@/core/contracts';
@@ -18,7 +29,7 @@ import { CH_LOOK_X, CH_LOOK_Y } from '../core';
 import type { InputCore } from '../core';
 import { SRC_TOUCH, clearSourceAxes, createSourceAxes } from '../merge';
 import type { SourceAxes } from '../merge';
-import { CONTROLS, ICONS, ITEM_BAR, STICKS, overlayScale } from './layouts';
+import { CONTROLS, ICONS, ITEM_BAR, LONG_PRESS_MS, STICKS, TAP_MAX_MS, TAP_REPEAT_MS, TAP_SLOP_PX, WORLD_TAP_MS, overlayScale } from './layouts';
 import type { ControlSpec, GameLayout, StickSpec, TouchSeatInfo } from './layouts';
 import { STYLE_ID, TOUCH_CSS } from './style';
 
@@ -38,6 +49,47 @@ const K_BUTTON = 3;
 const K_PEDAL = 4;
 const K_ITEM = 5;
 const K_INERT = 6;
+/** Doigt posé sur une commande « au toucher » : rien n'est tenu tant qu'on ne sait pas si c'est un toucher. */
+const K_TAP = 7;
+
+/** Doigt qui a ouvert la roue d'ordres par un appui long (coordonnées écran, comme les événements). */
+export interface WheelFinger {
+  x: number;
+  y: number;
+  /** Encore posé ; false : relâché (la roue donne alors le secteur surligné). */
+  down: boolean;
+}
+/** Un doigt relâché reste lisible ce temps (ms) : la roue peut s'ouvrir une image plus tard. */
+const WHEEL_FINGER_TTL = 1000;
+
+/**
+ * « Cet élément répond au toucher » : un écouteur de clic vide. Chrome (Android) rapproche un toucher des éléments
+ * cliquables voisins (dans un carré de 20 à 32 px autour du doigt) quand ce qui est sous le doigt ne l'est pas — or les
+ * commandes et les zones de la surcouche n'ont d'écouteurs que sur leur racine : sans cela, un doigt posé sur le bord
+ * de « ⟳ À qui » partait au bouton « Avec moi » du HUD (8 px à côté), le haut de la pastille d'ordre à la mini-carte
+ * (4 px au-dessus), et un toucher du monde près d'un bandeau n'arrivait jamais à l'image. Ce que le doigt touche le
+ * reçoit.
+ */
+const NO_CLICK = (): void => {};
+function answersTouch(el: HTMLElement): void {
+  el.addEventListener('click', NO_CLICK);
+}
+
+/** Horloge des gestes (ms) : performance.now(). */
+function nowMs(): number {
+  return typeof performance !== 'undefined' ? performance.now() : 0;
+}
+
+/**
+ * Instant d'un événement (ms, même origine que nowMs) : l'heure du geste lui-même (PointerEvent.timeStamp), pas celle
+ * de son traitement — une image lente retarde le traitement d'un relâchement, pas le geste. Horodatage absent ou d'une
+ * autre origine : l'heure du traitement.
+ */
+function eventMs(e: Event): number {
+  const t = e.timeStamp;
+  const now = nowMs();
+  return t > 0 && t <= now + 1 && now - t < 5000 ? t : now;
+}
 
 interface Finger {
   id: number;
@@ -51,6 +103,14 @@ interface Finger {
   startX: number;
   startY: number;
   el: HTMLElement | null;
+  /** Instant du contact (ms, eventMs). */
+  t0: number;
+  /** Appui long constaté à l'image précédente : il part à la suivante si le doigt n'a ni glissé ni été levé. */
+  long: boolean;
+  /** Doigt posé sur la zone du regard (un toucher bref y désigne le monde). */
+  world: boolean;
+  /** A glissé au-delà du seuil d'un toucher. */
+  moved: boolean;
 }
 
 export interface OverlayHost {
@@ -94,6 +154,17 @@ export class TouchOverlay {
   private readonly toggled = new Uint8Array(BUTTON_COUNT);
   private readonly controlEls: HTMLElement[] = [];
   private readonly labelEls: HTMLElement[] = [];
+  /** Deuxième ligne des commandes à deux lignes (pastille d'ordre : l'unité), null sinon. */
+  private readonly subEls: (HTMLElement | null)[] = [];
+  /** Dernier toucher accepté de chaque commande (ms) : garde du double toucher de la pastille d'ordre. */
+  private readonly lastTap: Float64Array;
+  /** Doigt de l'appui long qui a ouvert la roue (null : aucun). */
+  private hold: { id: number; x: number; y: number; down: boolean; upAt: number } | null = null;
+  private holdListening = false;
+  /** Dernier toucher bref de la zone du regard, pas encore lu (coordonnées écran). */
+  private worldTap: { x: number; y: number } | null = null;
+  /** Poste sans ordre prêt (l'exécutant) : le toucher de la pastille ouvre la roue, comme l'appui long. */
+  private tapOpensWheel = false;
   private readonly fillEls: (HTMLElement | null)[] = [];
   private readonly controlButton: Int16Array;
   private readonly stickEl: HTMLDivElement;
@@ -141,7 +212,7 @@ export class TouchOverlay {
       doc.head.appendChild(style);
     }
     for (let i = 0; i < MAX_FINGERS; i++) {
-      this.fingers.push({ id: -1, kind: K_FREE, ref: -1, toggle: false, dragging: false, x: 0, y: 0, startX: 0, startY: 0, el: null });
+      this.fingers.push({ id: -1, kind: K_FREE, ref: -1, toggle: false, dragging: false, x: 0, y: 0, startX: 0, startY: 0, el: null, t0: 0, long: false, world: false, moved: false });
     }
 
     const root = doc.createElement('div');
@@ -156,6 +227,7 @@ export class TouchOverlay {
       const z = doc.createElement('div');
       z.className = 'ct-zone ' + cls;
       z.dataset.ct = ct;
+      answersTouch(z);
       root.appendChild(z);
     };
     zone('ct-look', 'look');
@@ -174,12 +246,14 @@ export class TouchOverlay {
     root.appendChild(this.stickEl);
 
     this.controlButton = new Int16Array(CONTROLS.length);
+    this.lastTap = new Float64Array(CONTROLS.length).fill(-1e9);
     for (let i = 0; i < CONTROLS.length; i++) {
       const c = CONTROLS[i]!;
       this.controlButton[i] = c.button ? BUTTON_INDEX[c.button] : -1;
       const el = doc.createElement('div');
-      el.className = `ct-c ct-${c.shape} ct-l-${c.layout} ct-k-${c.key}` + (c.accent ? ' ct-accent' : '') + (c.label.indexOf(' ') >= 0 && !c.contextual ? ' ct-w2' : '')
-        + (c.seat === 'conduite' ? ' ct-drv' : c.seat === 'arme' ? ' ct-gun' : '');
+      el.className = `ct-c ct-${c.shape} ct-l-${c.layout} ct-k-${c.key}` + (c.accent ? ' ct-accent' : '')
+        + (c.label.indexOf(' ') >= 0 && !c.contextual && !c.twoLine ? ' ct-w2' : '')
+        + (c.seat === 'conduite' ? ' ct-drv' : c.seat === 'arme' ? ' ct-gun' : '') + (c.twoLine ? ' ct-order' : '');
       el.dataset.ct = (c.pedal ? 'p' : 'b') + i;
       el.setAttribute('role', 'button');
       el.setAttribute('aria-label', c.label);
@@ -187,10 +261,12 @@ export class TouchOverlay {
       el.style.setProperty(c.anchor, anchored(c.anchor, c.y));
       el.style.width = px(c.w);
       el.style.height = px(c.h);
-      el.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[c.icon]}</svg>`;
+      // la pastille d'ordre n'a pas de pictogramme : ses 128 px vont au verbe et à l'unité
+      if (!c.twoLine) el.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[c.icon]}</svg>`;
       const label = doc.createElement('span');
       label.className = 'ct-t';
       label.textContent = c.label;
+      let sub: HTMLElement | null = null;
       if (c.shape === 'round' || c.shape === 'chip') {
         // le texte doit tenir dans le bouton (corde du cercle, largeur de la pastille) :
         // sa taille dépend de la longueur du mot le plus long
@@ -200,12 +276,19 @@ export class TouchOverlay {
         label.style.fontSize = px(Math.round(fs * 10) / 10);
       }
       el.appendChild(label);
+      if (c.twoLine) {
+        sub = doc.createElement('span');
+        sub.className = 'ct-t2';
+        el.appendChild(sub);
+      }
+      this.subEls.push(sub);
       let fill: HTMLElement | null = null;
       if (c.pedal) {
         fill = doc.createElement('div');
         fill.className = 'ct-fill';
         el.appendChild(fill);
       }
+      answersTouch(el);
       this.controlEls.push(el);
       this.labelEls.push(label);
       this.fillEls.push(fill);
@@ -223,6 +306,7 @@ export class TouchOverlay {
     const rotate = doc.createElement('div');
     rotate.className = 'ct-rotate';
     rotate.dataset.ct = 'block';
+    answersTouch(rotate);
     rotate.setAttribute('role', 'alert');
     rotate.innerHTML = '<svg viewBox="0 0 48 48" aria-hidden="true"><rect x="15" y="5" width="18" height="38" rx="3.500"/><path d="M21.500 38.500h5"/></svg>'
       + '<b>Tournez votre appareil</b><span>CRS Simulation France se joue en mode paysage.</span>';
@@ -254,6 +338,7 @@ export class TouchOverlay {
     if (this.disposed) return;
     this.disposed = true;
     this.cancelAll();
+    this.endHold();
     const win = this.root.ownerDocument.defaultView;
     if (win) {
       win.removeEventListener('resize', this.onResize);
@@ -269,6 +354,9 @@ export class TouchOverlay {
     this.visible = visible;
     this.root.hidden = !visible;
     this.cancelAll();
+    // surcouche masquée (autre périphérique) : plus de doigt à suivre pour la roue, plus de toucher du monde à servir
+    this.endHold();
+    this.worldTap = null;
     this.metricsDirty = true;
   }
 
@@ -285,6 +373,33 @@ export class TouchOverlay {
       this.tipEl.textContent = spec.label;
     }
     this.metricsDirty = true;
+  }
+
+  /**
+   * Pastille « Ordre prêt » : ligne 1 le verbe (forme courte, « Bloquer la rue »), ligne 2 l'unité et la distance
+   * (« MISTRAL 1 · 90 m », '' : une seule ligne). `ready = false` : la ligne est grise (rien à donner, ou un refus que
+   * le toucher dira) ; `flash` : elle vient de changer. Écritures seulement quand quelque chose change.
+   */
+  setOrderLabel(verb: string, who: string, ready: boolean, flash: boolean): void {
+    for (let i = 0; i < CONTROLS.length; i++) {
+      const c = CONTROLS[i]!;
+      if (!c.twoLine) continue;
+      const el = this.controlEls[i]!;
+      const label = this.labelEls[i]!;
+      const sub = this.subEls[i];
+      if (label.textContent !== verb) label.textContent = verb;
+      if (sub && sub.textContent !== who) sub.textContent = who;
+      const aria = who !== '' ? `${verb} — ${who}` : verb;
+      if (el.getAttribute('aria-label') !== aria) el.setAttribute('aria-label', aria);
+      el.classList.toggle('is-dim', !ready);
+      el.classList.toggle('is-flash', flash);
+      el.classList.toggle('is-one', who === '');
+    }
+  }
+
+  /** Poste sans ordre prêt : le toucher bref de la pastille donne « Ordres » (la roue) au lieu de l'ordre prêt. */
+  setTapOpensWheel(on: boolean): void {
+    this.tapOpensWheel = on;
   }
 
   /** Libellé des boutons contextuels ; `contextual = false` : libellé par défaut, bouton discret. */
@@ -346,6 +461,7 @@ export class TouchOverlay {
       const el = doc.createElement('div');
       el.className = 'ct-item';
       el.dataset.ct = 'i' + i;
+      answersTouch(el);
       el.setAttribute('role', 'button');
       el.setAttribute('aria-label', it.label ?? `Objet ${i + 1}`);
       const key = doc.createElement('span');
@@ -396,6 +512,7 @@ export class TouchOverlay {
 
   /** Une fois par image : axes, course, rotation du regard. */
   sample(): void {
+    this.checkLongPress();
     const a = this.axes;
     clearSourceAxes(a);
     const latch = this.host.core.latch;
@@ -547,6 +664,10 @@ export class TouchOverlay {
     f.ref = -1;
     f.x = f.startX = e.clientX - this.originX;
     f.y = f.startY = e.clientY - this.originY;
+    f.t0 = eventMs(e);
+    f.long = false;
+    f.world = false;
+    f.moved = false;
     try {
       el.setPointerCapture(e.pointerId);
     } catch {
@@ -555,13 +676,16 @@ export class TouchOverlay {
     const c0 = ct.charCodeAt(0);
     if (ct === 'look') {
       f.kind = K_LOOK;
+      f.world = true;
     } else if (ct === 'stick') {
       if (this.stickFinger >= 0 || !this.stickSpec) f.kind = K_LOOK;   // second doigt à gauche : il regarde
       else this.startStick(f);
     } else if (ct === 'block') {
       f.kind = K_INERT;
     } else if (c0 === 98 /* b */) {
-      this.startButton(f, Number(ct.slice(1)));
+      const ref = Number(ct.slice(1));
+      if (CONTROLS[ref]?.tap) this.startTap(f, ref);
+      else this.startButton(f, ref);
     } else if (c0 === 112 /* p */) {
       f.kind = K_PEDAL;
       f.ref = Number(ct.slice(1));
@@ -589,6 +713,18 @@ export class TouchOverlay {
     if (f.kind === K_LOOK) {
       this.lookPxX += x - f.x;
       this.lookPxY += y - f.y;
+      if (!f.moved) {
+        const dx = x - f.startX;
+        const dy = y - f.startY;
+        if (dx * dx + dy * dy >= TAP_SLOP_PX * TAP_SLOP_PX) f.moved = true;
+      }
+    } else if (f.kind === K_TAP) {
+      const dx = x - f.startX;
+      const dy = y - f.startY;
+      if (dx * dx + dy * dy >= TAP_SLOP_PX * TAP_SLOP_PX) {
+        this.handOff(f, x, y);
+        return;
+      }
     } else if (f.kind === K_STICK) {
       this.updateStick(x, y);
     } else if (f.kind === K_BUTTON) {
@@ -615,7 +751,31 @@ export class TouchOverlay {
     const f = this.finger(e.pointerId);
     if (!f) return;
     e.preventDefault();
+    if (e.type === 'pointerup') {
+      const at = eventMs(e);
+      const dt = at - f.t0;
+      if (f.kind === K_TAP && dt < TAP_MAX_MS) this.fireTap(f.ref, at);
+      else if (f.kind === K_LOOK && f.world && !f.moved && dt < WORLD_TAP_MS) this.worldTap = { x: e.clientX, y: e.clientY };
+    }
     this.release(f);
+  };
+
+  /** Doigt de l'appui long : suivi partout (la pastille est masquée dès que la roue s'ouvre). */
+  private readonly onHoldMove = (e: PointerEvent): void => {
+    const h = this.hold;
+    if (!h || !h.down || e.pointerId !== h.id) return;
+    h.x = e.clientX;
+    h.y = e.clientY;
+  };
+
+  private readonly onHoldUp = (e: PointerEvent): void => {
+    const h = this.hold;
+    if (!h || !h.down || e.pointerId !== h.id) return;
+    h.x = e.clientX;
+    h.y = e.clientY;
+    h.down = false;
+    h.upAt = nowMs();
+    this.unlistenHold();
   };
 
   private readonly onPrevent = (e: Event): void => {
@@ -645,7 +805,7 @@ export class TouchOverlay {
       if (CONTROLS[f.ref]!.pedal === 'throttle') this.throttle = 0;
       else this.brake = 0;
       this.pedalDirty = true;
-    } else if (kind === K_ITEM) {
+    } else if (kind === K_ITEM || kind === K_TAP) {
       if (el) el.classList.remove('is-down');
     } else if (kind === K_STICK) {
       this.stickFinger = -1;
@@ -707,15 +867,122 @@ export class TouchOverlay {
     this.host.haptic(8);
   }
 
-  private startStick(f: Finger): void {
+  /** Commande « au toucher » : rien n'est tenu ; le relâchement dira si c'était un toucher. */
+  private startTap(f: Finger, ref: number): void {
+    f.kind = K_TAP;
+    f.ref = ref;
+    if (f.el) f.el.classList.add('is-down');
+    this.host.haptic(6);
+  }
+
+  /** Toucher valide d'une commande « au toucher » : appui bref de son bouton (le second toucher trop proche est ignoré). */
+  private fireTap(ref: number, at: number): void {
+    const c = CONTROLS[ref];
+    if (!c || !c.tap) return;
+    if (c.longPress && at - this.lastTap[ref]! < TAP_REPEAT_MS) return;
+    this.lastTap[ref] = at;
+    const bi = BUTTON_INDEX[this.tapOpensWheel && c.longPress && c.button ? c.button : c.tap];
+    this.host.core.latch.pulse(SRC_TOUCH, bi);
+    this.host.haptic(10);
+  }
+
+  /**
+   * Le doigt posé sur une commande « au toucher » a glissé : le pouce voulait marcher. Il devient le doigt du joystick,
+   * socle centré là où il s'est posé (le chemin déjà parcouru compte) ; joystick déjà tenu, ou place sans volant : il
+   * regarde. Aucun appui n'est donné.
+   */
+  private handOff(f: Finger, x: number, y: number): void {
+    if (f.el) f.el.classList.remove('is-down');
+    const seat = this.root.dataset.seat;
+    const noStick = this.layout === 'vehicule' && (seat === 'passager' || seat === 'tireur');
+    if (this.stickSpec && this.stickFinger < 0 && !noStick) {
+      this.startStick(f, f.startX, f.startY);
+      this.updateStick(x, y);
+    } else {
+      f.kind = K_LOOK;
+      f.moved = true;
+      this.lookPxX += x - f.startX;
+      this.lookPxY += y - f.startY;
+    }
+    f.x = x;
+    f.y = y;
+  }
+
+  /**
+   * Appui long sur la pastille d'ordre : la roue s'ouvre (appui bref de `button`) et le doigt reste suivi. Constaté à
+   * une image, il ne part qu'à la suivante : les événements du doigt (relâché, glissé) en attente derrière une image
+   * lente sont traités entre les deux — un toucher bref n'ouvre jamais la roue.
+   */
+  private checkLongPress(): void {
+    const t = nowMs();
+    const fs = this.fingers;
+    for (let i = 0; i < fs.length; i++) {
+      const f = fs[i]!;
+      if (f.kind !== K_TAP) continue;
+      const c = CONTROLS[f.ref]!;
+      if (!c.longPress || !c.button || t - f.t0 < LONG_PRESS_MS) continue;
+      if (!f.long) {
+        f.long = true;
+        continue;
+      }
+      this.endHold();
+      this.hold = { id: f.id, x: f.x + this.originX, y: f.y + this.originY, down: true, upAt: 0 };
+      if (typeof window !== 'undefined' && !this.holdListening) {
+        this.holdListening = true;
+        window.addEventListener('pointermove', this.onHoldMove, true);
+        window.addEventListener('pointerup', this.onHoldUp, true);
+        window.addEventListener('pointercancel', this.onHoldUp, true);
+      }
+      // le doigt n'est plus celui d'une commande : le changement de disposition (la roue est un écran) ne le relâche pas
+      if (f.el) f.el.classList.remove('is-down');
+      f.kind = K_FREE;
+      f.id = -1;
+      f.el = null;
+      this.host.core.latch.pulse(SRC_TOUCH, BUTTON_INDEX[c.button]);
+      this.host.haptic(18);
+    }
+  }
+
+  private unlistenHold(): void {
+    if (!this.holdListening || typeof window === 'undefined') return;
+    this.holdListening = false;
+    window.removeEventListener('pointermove', this.onHoldMove, true);
+    window.removeEventListener('pointerup', this.onHoldUp, true);
+    window.removeEventListener('pointercancel', this.onHoldUp, true);
+  }
+
+  private endHold(): void {
+    this.unlistenHold();
+    this.hold = null;
+  }
+
+  /** Doigt de l'appui long qui a ouvert la roue : posé, ou relâché depuis moins d'une seconde ; null sinon. */
+  wheelFinger(): WheelFinger | null {
+    const h = this.hold;
+    if (!h) return null;
+    if (!h.down && nowMs() - h.upAt > WHEEL_FINGER_TTL) {
+      this.hold = null;
+      return null;
+    }
+    return { x: h.x, y: h.y, down: h.down };
+  }
+
+  /** Dernier toucher bref de la zone du regard (coordonnées écran), une seule fois ; null sinon. */
+  takeWorldTap(): { x: number; y: number } | null {
+    const t = this.worldTap;
+    this.worldTap = null;
+    return t;
+  }
+
+  private startStick(f: Finger, atX = f.x, atY = f.y): void {
     const spec = this.stickSpec!;
     f.kind = K_STICK;
     this.stickFinger = f.id;
     // Socle flottant : il se centre sous le doigt, sans sortir de l'écran.
     const r = spec.radius * this.scale;
     const margin = 6 * this.scale;
-    let cx = f.x;
-    let cy = f.y;
+    let cx = atX;
+    let cy = atY;
     if (cx < r + margin) cx = r + margin;
     if (cy > this.height - r - margin) cy = this.height - r - margin;
     if (spec.horizontal) cy = this.homeCy;

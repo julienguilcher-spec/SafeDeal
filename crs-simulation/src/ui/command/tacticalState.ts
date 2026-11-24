@@ -375,7 +375,8 @@ export function fixedCandidate(env: Pick<CardEnv, 'units'> & Partial<Pick<CardEn
     const u = env.units.find((q) => q.squadId === id);
     if (!u) continue;
     names.push(u.name);
-    const e = etaFor(u, to.x, to.z);
+    // (le joueur à bord : l'unité qui le contient part en véhicules, comme l'envoi le fera — ui/command/core.ts drivesTo)
+    const e = etaFor(u, to.x, to.z, u.hasPlayer === true && !!env.player && env.player.inVehicle);
     if (e.eta > eta) eta = e.eta;
     if (e.distance > distance) distance = e.distance;
     vehicles = vehicles || e.vehicles;

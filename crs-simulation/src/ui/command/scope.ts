@@ -2,7 +2,10 @@
  * Étendue du commandement selon le rôle et le grade du joueur (logique sans DOM).
  *
  *   commissaire, commandant (rôle ou grade)  → tout le dispositif des forces de l'ordre ;
- *   chef de groupe (ou gradé à la tête d'une unité) → son unité et ses subordonnées ;
+ *   chef de groupe (ou gradé à la tête d'une unité) → son unité et ses subordonnées (« Chef de section — MISTRAL 1 »,
+ *                                               « Chef de la BRAV-M — FAUCON 1 ») ;
+ *   chef de bord d'une patrouille            → lecture seule, mais ses deux collègues lui obéissent (`crew`) : avec
+ *                                               vous, interpeller, secours, l'interpellé (spécification §1.4, §4.3) ;
  *   tous les autres                          → lecture seule.
  * Les sommations n'appartiennent qu'à l'autorité habilitée (écharpe tricolore), quel que soit le grade.
  * ===================================================================================== */
@@ -75,7 +78,15 @@ export function computeScope(ctx: GameContext): CommandScope {
   // lecture seule, voir CommandCore.check) et les renforts passent par CENTRAL (carte d'appel). La carte de commandement
   // lui proposait sinon d'envoyer « en véhicules, à 800 m » barrer une rue ou disperser une foule… son propre équipage,
   // dans la voiture où il est assis : il a la carte en lecture seule, cadrée sur lui et sur l'appel.
-  if (role === 'patrouille') return readOnly(`${roleLabel(role)} — lecture seule`);
+  // Chef de bord : ses deux collègues lui obéissent pour ce qu'un équipage fait à trois (avec vous, interpeller, secours,
+  // l'interpellé — CommandCore.check, CREW_ORDERS) ; pour barrer ou disperser, il demande des renforts à CENTRAL
+  if (role === 'patrouille') {
+    const crew = p && p.squadId !== 0 ? ctx.squads.get(p.squadId) : undefined;
+    if (p && crew && crew.faction === 'police' && crew.leaderId === p.id) {
+      return { ...readOnly(''), squadIds: new Set<number>([crew.id]), ownSquadId: crew.id, crew: true, label: `Chef de bord — ${crew.name} · votre équipage` };
+    }
+    return readOnly(`${roleLabel(role)} — lecture seule`);
+  }
 
   if (role === 'commandant' || role === 'commissaire' || rank >= RANK_LEVEL.commandant) {
     const ids = new Set<number>();
@@ -91,16 +102,24 @@ export function computeScope(ctx: GameContext): CommandScope {
     };
   }
 
-  if (p && (role === 'chef_groupe' || rank >= RANK_LEVEL.brigadier_chef)) {
+  // BRAV-M : l'opérateur passager suit l'ordre de son chef (lecture seule, quel que soit son grade) ; le chef de la
+  // BRAV-M (poste « chef de groupe ») la commande, quel que soit son grade
+  if (role === 'bravm' && p !== null && p.poste === 'passager_moto') return readOnly(`${roleLabel(role)} — lecture seule`);
+  const chefBravm = role === 'bravm' && p !== null && p.poste === 'chef_groupe';
+  if (p && (role === 'chef_groupe' || chefBravm || rank >= RANK_LEVEL.brigadier_chef)) {
     const led = highestLed(ctx, p);
     // un chef de groupe sans unité à sa tête commande au moins celle dont il fait partie
     const unit = led ?? (role === 'chef_groupe' && p.squadId !== 0 ? ctx.squads.get(p.squadId) ?? null : null);
     if (unit && unit.faction === 'police') {
       const ids = new Set<number>();
       addWithChildren(ctx, unit, ids);
+      // la fonction tenue : chef de la BRAV-M, chef de section (une section, ou le chef de section), chef de groupe
+      const what = role === 'bravm' ? 'Chef de la BRAV-M'
+        : unit.kind === 'section' || p.poste === 'chef_section' ? 'Chef de section'
+          : roleLabel('chef_groupe');
       return {
         level: 'unite', squadIds: ids, ownSquadId: unit.id, canAuthorize: false, canSommation, canTraffic: true,
-        canMetro: false, canDelegate: true, label: `${roleLabel('chef_groupe')} — ${unit.name}`,
+        canMetro: false, canDelegate: true, label: `${what} — ${unit.name}`,
       };
     }
   }

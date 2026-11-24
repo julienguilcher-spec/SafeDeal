@@ -129,19 +129,56 @@ export const CHARGE_MAX = 60;
 export const CHARGE_DEFAULT = 40;
 export const WAVE_LEG = 50;
 export const WAVE_PAUSE = 10;
-/** Réalignement après un bond (s) avant le compte rendu. */
+/** Réalignement après un bond (s) avant le compte rendu ; plus court sur un ordre du joueur (il attend de voir la suite). */
 export const REALIGN_TIME = 2.5;
+export const REALIGN_TIME_PLAYER = 1.5;
 /** Écart toléré à l'emplacement pour déclarer la formation « en place » (m, §E.8 : 0,3). */
 export const IN_PLACE_TOLERANCE = 0.3;
-/** Délai au-delà duquel une mise en place est déclarée faite même si un agent manque (s). */
+/** Délai au-delà duquel une mise en place est déclarée faite même si un agent manque (s) ; ordre du joueur : 10 s. */
 export const FORM_TIMEOUT = 25;
+export const FORM_TIMEOUT_PLAYER = 10;
+/**
+ * Ordre du joueur : la mise en place est faite quand 70 % des agents valides sont à moins de 3 m de leur emplacement
+ * (les derniers rajustent leur place sans retenir le compte rendu).
+ */
+export const PLAYER_READY_SHARE = 0.7;
+export const PLAYER_READY_NEAR = 3;
+/** Accusé de réception d'un ordre du joueur (s) : aussitôt (celui de l'IA garde son délai de 0,35 à 0,75 s). */
+export const ACK_PLAYER = 0.3;
+/** Part minimale de l'unité qui a pris part à la manœuvre pour qu'elle en rende compte (« Tortue formée »…). */
+export const REPORT_SHARE = 0.5;
 /** Relève : la section fraîche s'aligne 10 m derrière ; la section relevée se replie de 30 m. */
 export const RELIEF_BEHIND = 10;
 export const RELIEF_WITHDRAW = 30;
-/** Débarquement : un agent sort toutes les 0,6 s par véhicule (groupe dehors en moins de 10 s). */
-export const EXIT_INTERVAL = 0.6;
+/**
+ * Débarquement : un agent sort toutes les 0,35 s de chaque véhicule, tous les véhicules à la fois (fourgon de neuf
+ * dehors en 3 s environ).
+ */
+export const EXIT_INTERVAL = 0.35;
+/** Un agent ne descend que d'un véhicule à l'arrêt (m/s). */
+export const EXIT_SPEED = 0.3;
 /** Distance à laquelle on monte à bord (m). */
 export const BOARD_REACH = 2.6;
+
+// ───────────────────────────── « avec moi » : posture quand le joueur s'arrête ─────────────────────────────
+
+/**
+ * Une unité qui suit le joueur à pied se met en garde quand il s'arrête : il a bougé de moins de GUARD_STILL mètres
+ * en GUARD_STOP_TIME secondes → ligne à GUARD_BACK mètres derrière lui, face à la foule la plus proche à moins de
+ * GUARD_CROWD mètres (sinon dans son regard) ; il repart de plus de GUARD_LEAVE mètres → colonne derrière lui.
+ * Ce n'est pas un ordre : ni radio, ni compte rendu, l'ordre reste « suivre ».
+ */
+export const GUARD_STILL = 2;
+export const GUARD_STOP_TIME = 3;
+export const GUARD_LEAVE = 8;
+export const GUARD_BACK = 10;
+/** Recul supplémentaire d'une ligne qui ne trouve pas sa place sur le côté (rue étroite) : derrière la précédente. */
+export const GUARD_STACK = 6;
+export const GUARD_CROWD = 120;
+/** Une foule : un manifestant qui en a au moins GUARD_CROWD_MIN autres à moins de 15 m (même règle que l'ordre prêt). */
+export const GUARD_CROWD_MIN = 8;
+/** Écart de cap (rad) au-delà duquel la ligne en garde se retourne vers la foule qui s'est déplacée. */
+export const GUARD_TURN = 0.8;
 
 // ───────────────────────────── pilotage individuel ─────────────────────────────
 

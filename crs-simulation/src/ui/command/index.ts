@@ -20,6 +20,9 @@ import { barragesApi, kettleBanner } from '../maps/barrages';
 import { MapsRuntime } from '../maps/runtime';
 import { COMMAND_SERVICE } from './api';
 import { CommandCore } from './core';
+import { DIRECT_SERVICE, DirectRuntime } from './direct/runtime';
+import { FieldKeys } from './direct/fieldKeys';
+import { simReasonWords, simRefusal } from './direct/caps';
 import { IncidentHud, UnitHud } from './hud';
 import { OrderWheelScreen, WHEEL_SCREEN } from './orderWheel';
 import { QuickActionsHud, quickBanner } from './quickActions';
@@ -32,6 +35,8 @@ import { COMMISSARIATS_SERVICE } from '@/gameplay/commissariats/api';
 export type { CommandApi, CommandLevel, CommandScope, IssuedOrder, TacticalOpenData, TacticalTab } from './api';
 export { COMMAND_SERVICE } from './api';
 export { CommandCore } from './core';
+export { DIRECT_SERVICE, DirectRuntime } from './direct/runtime';
+export type { DirectApi, FarTarget, GiveResult, UndoInfo } from './direct/runtime';
 export { TacticalScreen } from './tacticalScreen';
 export { installTacticalParts } from './tacticalParts';
 
@@ -52,6 +57,10 @@ export class CommandSystem implements GameSystem {
   // même ordre que les cartes : ajouté après elles, ce système passe après (ordre d'ajout à égalité)
   readonly order = SystemOrder.UI + 10;
   core: CommandCore | null = null;
+  /** Moteur des ordres directs du terrain (service 'command.direct'). */
+  direct: DirectRuntime | null = null;
+  /** Touches du terrain (Entrée, Maj+Entrée, A, U, ⌫) et désignation par le regard. */
+  keys: FieldKeys | null = null;
   /** Carte tactique actuellement ouverte (null sinon) : pour les tests et le débogage. */
   tactical: TacticalScreen | null = null;
   private ownMaps: MapsRuntime | null = null;
@@ -68,10 +77,15 @@ export class CommandSystem implements GameSystem {
     if (!maps || typeof maps.use !== 'function') maps = this.ownMaps = new MapsRuntime(ctx);
     this.core = new CommandCore(ctx, maps, undefined);
     ctx.provide(COMMAND_SERVICE, this.core);
+    // ordres directs du terrain : désignation, ordre prêt, À qui, tickets (lus par le clavier, le HUD, le téléphone)
+    this.direct = new DirectRuntime(this.core);
+    ctx.provide(DIRECT_SERVICE, this.direct);
+    this.keys = new FieldKeys(this.core, this.direct);
   }
 
   init(ctx: GameContext): void {
     const core = this.core!;
+    const direct = this.direct!;
     // module des commissariats branché : « Rentrer au commissariat », fiches des postes, « Plus… › Commissariats »
     if (ctx.service(COMMISSARIATS_SERVICE)) installCommissariats();
     const kit = (this.kit = ctx.headless ? undefined : ctx.service<UiKit>(EXT.uiKit));
@@ -89,23 +103,41 @@ export class CommandSystem implements GameSystem {
         core.orderForce = 4;
         core.nasse = null;
         core.legalChain.reset();
+        // ordres du joueur, tickets, choix « À qui », annulation : propres à la session
+        core.resetPlayerOrders();
+        direct.reset();
+        this.keys?.reset();
         this.ordersDirty = true;
       }),
       // nasse fermée (service 'police.barrages') : le commandement en est averti même carte fermée
       ctx.events.onAny('police:kettle', (e) => this.kettleClosed(e as KettleEvent)),
       // un ordre du joueur refusé ou abandonné par l'unité : le motif s'affiche (sinon il croit qu'on l'ignore)
-      ctx.events.onAny('police:order_refused', (e) => this.orderProblem(e as OrderProblem, true)),
-      ctx.events.onAny('police:order_done', (e) => this.orderProblem(e as OrderProblem, false)),
+      ctx.events.onAny('police:order_refused', (e) => {
+        direct.onPoliceEvent('refused', e as OrderProblem);
+        this.orderProblem(e as OrderProblem, true);
+      }),
+      ctx.events.onAny('police:order_done', (e) => {
+        direct.onPoliceEvent('done', e as OrderProblem);
+        this.orderProblem(e as OrderProblem, false);
+      }),
+      // formation en place : le ticket de l'ordre du joueur passe à « en place ✓ »
+      ctx.events.onAny('police:in_place', (e) => direct.onPoliceEvent('in_place', e as OrderProblem)),
       // mouvement motorisé : au débarquement, l'unité exécute l'ordre donné
       ctx.events.onAny('command:convoy', (e) => {
         const c = e as { squadId: number; stage: string };
-        if (c && typeof c.squadId === 'number') core.onConvoyStage(c.squadId, c.stage);
+        if (c && typeof c.squadId === 'number') {
+          // le ticket d'abord : il voit encore l'ordre repris au débarquement (que core redonne ensuite)
+          direct.onConvoyStage(c.squadId, c.stage);
+          core.onConvoyStage(c.squadId, c.stage);
+        }
       }),
     );
     if (!kit) {
       if (!ctx.headless) console.warn('[commandement] boîte à outils d’interface absente : ni carte tactique ni roue d’ordres');
       return;
     }
+    // la touche Maj (Maj+Entrée, Maj+U) et Page préc. / Page suiv. (candidat suivant de la désignation)
+    this.keys?.attach();
     // la fiche, les panneaux de côté, Qui, l'aperçu et l'envoi branchés dans la carte de commandement
     installTacticalParts();
     kit.registerScreen('carte_tactique', (host, data) => {
@@ -132,10 +164,15 @@ export class CommandSystem implements GameSystem {
   update(): void {
     const ctx = this.ctx;
     if (ctx && this.core) this.core.legalChain.tick(ctx.clock.now);
+    // tickets des ordres du joueur et surveillance (unité bloquée en route)
+    this.direct?.update();
   }
 
   frame(): void {
     this.ownMaps?.frame();
+    this.direct?.trackScreens();
+    // Entrée, Maj+Entrée, A, U, ⌫ et la désignation (après le suivi des écrans : la garde de 0,6 s est à jour)
+    this.keys?.frame();
     if (this.ordersDirty) this.syncOrdersButton();
   }
 
@@ -181,8 +218,9 @@ export class CommandSystem implements GameSystem {
     if (!ctx || !core || !e || (!refused && e.ok !== false) || !e.reason) return;
     const s = ctx.squads.get(e.squadId);
     // seulement les unités sous les ordres du joueur (ou la sienne, qu'il appelle à le suivre), pour un ordre qu'il a donné
-    if (!s || !(core.canCommand(s.id) || core.followUnit()?.id === s.id) || s.order.issuedBy !== ctx.player.state.personId) return;
-    ctx.ui.notify(`${s.name} — ${refused ? 'ordre refusé' : 'ordre abandonné'} : ${e.reason}`, 'warn', 6);
+    if (!s || !(core.canCommand(s.id) || core.followUnit()?.id === s.id) || (s.order.issuedBy !== ctx.player.state.personId && s.order.byPlayer !== true)) return;
+    // en une phrase, en clair, et la façon d'en sortir (direct/caps.ts : chaque motif de la simulation a ses mots)
+    ctx.ui.notify(refused ? simRefusal(s.name, e.reason) : `${s.name} — ordre abandonné\u00a0: ${simReasonWords(e.reason)}. U\u00a0: une autre unité.`, 'warn', 6);
   }
 
   reset(): void {
@@ -192,6 +230,7 @@ export class CommandSystem implements GameSystem {
   dispose(): void {
     for (let i = 0; i < this.unsub.length; i++) this.unsub[i]!();
     this.unsub.length = 0;
+    this.keys?.detach();
     this.kit?.removeHudWidget(UNIT_WIDGET_ID);
     this.kit?.removeHudWidget(INCIDENT_WIDGET_ID);
     this.kit?.removeHudWidget(QUICK_BANNER_WIDGET_ID);

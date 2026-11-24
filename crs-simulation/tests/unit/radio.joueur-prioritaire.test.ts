@@ -31,4 +31,33 @@ describe('radio — le message du joueur passe en tête de la file de son canal'
     expect(mine!.t - t0).toBeLessThan(15);
     expect(firstEnd === undefined || firstEnd.t >= mine!.t).toBe(true);
   });
+
+  it('phrase d’ordre du joueur (silent) : écrite à l’instant même derrière six urgents, sans voix ni attente du canal', async () => {
+    const t = createTestContext({ seed: 3, modules: [people, radio] });
+    await t.start({});
+    const ctx = t.ctx;
+    const me = ctx.people.spawn({ kind: 'crs', x: 0, z: 0, faction: 'police' });
+    ctx.player.possess(me.id, 'commandant');
+    t.step(1);
+    const aired: { text: string; t: number; silent: boolean }[] = [];
+    ctx.events.on('radio:message', (e) => aired.push({ text: e.msg.text, t: e.t, silent: e.msg.silent === true }));
+    const subtitles: string[] = [];
+    ctx.ui.subtitle = (_who, text) => subtitles.push(text);
+    for (let i = 0; i < 6; i++) {
+      ctx.radio.say({ channel: 'commandement', from: `CENTRAL ${i}`, priority: 2,
+        text: `Ici CENTRAL, fermeture de la rue numéro ${i} au carrefour suivant, barrières en place, déviation par le boulevard, confirmez la réception.` });
+    }
+    const busy = ctx.service<{ busyUntil(c: string): number }>('radio.control')!.busyUntil('commandement');
+    const t0 = ctx.clock.now;
+    const order = 'MISTRAL UN ICI MISTRAL. Barrez la rue, rue Saint-Gilles. PARLEZ.';
+    ctx.radio.say({ channel: 'commandement', from: 'MISTRAL', priority: 1, personId: me.id, text: order, silent: true });
+    const mine = aired.find((a) => a.text === order);
+    expect(mine).toBeDefined();
+    expect(mine!.t).toBe(t0);
+    expect(mine!.silent).toBe(true);
+    expect(subtitles).toContain(order);
+    expect(ctx.radio.log.some((m) => m.text === order)).toBe(true);
+    // le canal n'est pas occupé par la phrase : la salle continue à son rythme
+    expect(ctx.service<{ busyUntil(c: string): number }>('radio.control')!.busyUntil('commandement')).toBe(busy);
+  });
 });

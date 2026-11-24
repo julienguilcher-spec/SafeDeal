@@ -40,8 +40,17 @@ import { JOURNEE_OBJECTIVE_ID, JOURNEE_SERVICE } from './journee';
 import type { JourneeApi } from './journee';
 import { ORDER_OBJECTIVE_ID, ORDERS_SERVICE, STANDBY_TEXT } from './orders';
 import type { PlayerOrdersApi } from './orders';
-import { chainLabel, chiefLabel, commandText, departureLine, isExecutantRole, plainOrder, resolveInstruction, strayed } from './executant';
-import type { DepartureFacts, Instruction, InstructionInputs, PlainOrder } from './executant';
+import { COMMISSARIATS_SERVICE } from '@/gameplay/commissariats/api';
+import type { CommissariatsApi } from '@/gameplay/commissariats/api';
+import { atName } from '@/gameplay/commissariats/texts';
+import { LAW_CUSTODY_SERVICE } from '@/gameplay/law/api';
+import type { LawCustody } from '@/gameplay/law/api';
+import { commissariatById } from '@/world/commissariats';
+import {
+  chainLabel, chiefLabel, commandText, custodyInstruction, departureLine, isExecutantRole, patrolCustodyInstruction, plainOrder,
+  resolveInstruction, strayed,
+} from './executant';
+import type { CustodyInput, DepartureFacts, Instruction, InstructionInputs, PlainOrder } from './executant';
 import { MISSION_DEST_OBJECTIVE_ID, MISSION_OBJECTIVE_ID, MISSION_SERVICE } from './mission-api';
 import type { MissionBrief, MissionChief, MissionCommand, MissionFamily } from './mission-api';
 
@@ -73,6 +82,17 @@ interface CommandLike {
 }
 interface FollowLike {
   inColumn?(squadId: number): boolean;
+}
+/** Interpellations des unités (police.arrests) : le fourgon appelé par « Faire venir ». */
+interface ArrestsLike {
+  fetching?(targetId: number): { vehicleId: number; name: string } | null;
+}
+/** Transfert des interpellés (gameplay/transfer) : le fourgon demandé pour l'interpellé d'une patrouille. */
+interface TransferLike {
+  readonly patrolRequest: { vanSquadId: number; text: string } | null;
+}
+interface LabelsLike {
+  labelFor(button: string): string;
 }
 /** Étapes d'un convoi en cours : la carte dit où en est le départ. */
 const CONVOY_BUSY: ReadonlySet<string> = new Set(['route', 'stationnement', 'debarquement', 'rembarquement', 'depart']);
@@ -153,6 +173,8 @@ export class MissionBriefSystem implements GameSystem {
   private version = 0;
   private command: (MissionCommand & { distance: number }) | null = null;
   private status = '';
+  /** Patrouille : la carte ne sert qu'à ses interpellés (pas d'objectif d'ordre caché, pas de filtre radio). */
+  private patrolCard = false;
 
   // ordre d'en haut et départ
   private cmdKey = '';
@@ -245,6 +267,7 @@ export class MissionBriefSystem implements GameSystem {
     this.stoppedAt = -1;
     this.refMoved = false;
     this.startRemaining = -1;
+    this.patrolCard = false;
     this.version++;
     this.setListen(false);
   }
@@ -263,6 +286,12 @@ export class MissionBriefSystem implements GameSystem {
     this.nextThink = now + THINK_PERIOD;
     const me = ctx.player.person();
     const role = ctx.session.config?.role ?? ctx.player.state.role;
+    // patrouille : une carte seulement quand l'équipage a des interpellés (voiture, fourgon demandé, le sien)
+    if (role === 'patrouille') {
+      this.thinkPatrol(me, now);
+      return;
+    }
+    this.patrolCard = false;
     // chef de groupe : carte réduite (ordre d'en haut, consigne, colonne), toute la radio
     const chef = role === 'chef_groupe';
     const police = isExecutantRole(role) || chef;
@@ -316,13 +345,15 @@ export class MissionBriefSystem implements GameSystem {
 
     const journee = ctx.service<JourneeApi>(JOURNEE_SERVICE);
     const inputs: InstructionInputs = {};
+    inputs.custody = this.custodyInput(me);
     inputs.incident = this.incidentInput(null);
     inputs.journee = this.journeeInput(me, group, journee);
     // rappel : à pied, hors déplacement commandé, trop loin du chef
     const onFoot = me.vehicleId === 0;
     const travelling = !!journee && journee.travelling;
     // (pas pour le chef de groupe : c'est lui que son groupe suit, il se place où l'ordre l'envoie)
-    const away = !chef && !!chief && onFoot && !travelling && strayed(chief.distance, this.regroup);
+    // (pas non plus quand il tient un interpellé : il l'emmène, c'est sa consigne)
+    const away = !chef && !!chief && onFoot && !travelling && !inputs.custody && strayed(chief.distance, this.regroup);
     if (away && !this.regroup && now - this.regroupNoticeAt > REGROUP_NOTICE_GAP) {
       this.regroupNoticeAt = now;
       ctx.ui.notify(`Rejoignez votre groupe : votre chef est à ${Math.round(chief!.distance)} m`, 'info', 5);
@@ -755,6 +786,16 @@ export class MissionBriefSystem implements GameSystem {
     const dest = journee.destination;
     if (!found && !(journee.travelling && dest)) return null;
     const obj = found ?? { text: `En route vers ${dest!.name}`, x: dest!.x, z: dest!.z };
+    // chef de la BRAV-M (journee.ts) : la BRAV-M l'attend, ou sa moto et son pilote sont restés pour lui — c'est ce qu'il
+    // doit faire maintenant, avant l'ordre de mouvement (repère sur sa moto ; la carte écrit la distance)
+    if (/^Montez sur votre moto/.test(obj.text)) {
+      return { title: obj.text, detail: 'Votre pilote est en selle : montez derrière lui, la BRAV-M part dès que vous êtes à bord.',
+        travelling: journee.travelling, x: obj.x, z: obj.z, target: 'vehicle', lead: true };
+    }
+    if (/^Votre moto vous attend/.test(obj.text)) {
+      return { title: 'Votre moto vous attend', detail: 'La BRAV-M est partie devant : montez derrière votre pilote (E), il vous emmène la rejoindre.',
+        travelling: journee.travelling, x: obj.x, z: obj.z, target: 'vehicle', lead: true };
+    }
     const v = me.vehicleId !== 0 ? ctx.vehicles.get(me.vehicleId) : undefined;
     // « votre fourgon de CRS » ; le véhicule n'est nommé par son unité que s'il est celui d'une AUTRE unité que la sienne
     // (« le fourgon de CRS de MISTRAL 1 BRAVO ») : « le fourgon de CRS MISTRAL 1 BRAVO » se lisait comme le nom de son
@@ -932,6 +973,100 @@ export class MissionBriefSystem implements GameSystem {
     }
   }
 
+  // ───────────────────────────── interpellés (plan ordres-directs §5.3, §5.7) ─────────────────────────────
+
+  /** Touche Interagir du joueur (« E », ou sa nouvelle affectation). */
+  private interactKey(): string {
+    const labels = this.ctx!.service<LabelsLike>('input.labels');
+    const l = labels && typeof labels.labelFor === 'function' ? labels.labelFor('interact') : '';
+    return l !== '' ? l : 'E';
+  }
+
+  /** L'interpellé que tient le joueur : la même issue que la 4e invite de la touche Interagir (law.custody). */
+  private custodyInput(me: Person): CustodyInput | null {
+    const ctx = this.ctx!;
+    const custody = ctx.service<LawCustody>(LAW_CUSTODY_SERVICE);
+    if (!custody || typeof custody.bestWay !== 'function') return null;
+    const way = custody.bestWay(me.id);
+    if (!way) return null;
+    let coming: { name: string; x: number; z: number } | null = null;
+    let drop: { name: string; cellular: boolean; x: number; z: number } | null = null;
+    if (way.kind === 'emmener') {
+      const arrests = ctx.service<ArrestsLike>('police.arrests');
+      const going = arrests && typeof arrests.fetching === 'function' ? arrests.fetching(way.detaineeId) : null;
+      const v = going ? ctx.vehicles.get(going.vehicleId) : undefined;
+      if (going && v) coming = { name: going.name, x: v.x, z: v.z };
+      else if (typeof custody.nearestDrop === 'function') drop = custody.nearestDrop(me.id);
+    }
+    return custodyInstruction({ way: { ...way }, coming, drop, key: this.interactKey() });
+  }
+
+  /**
+   * Interpellés de la patrouille du joueur : assis dans la voiture de l'équipage (« Conduisez l’interpellé au
+   * commissariat du 3e », repère sur la porte) ; fourgon cellulaire demandé tout seul (transfer.patrolRequest).
+   */
+  private patrolInput(me: Person): CustodyInput | null {
+    const ctx = this.ctx!;
+    const crew = me.squadId !== 0 ? ctx.squads.get(me.squadId) : undefined;
+    const car = me.vehicleId !== 0 ? ctx.vehicles.get(me.vehicleId) : crew && crew.vehicleId !== 0 ? ctx.vehicles.get(crew.vehicleId) : undefined;
+    let inCar = 0;
+    if (car && car.faction === 'police') {
+      for (const id of car.seats) {
+        const p = id !== 0 ? ctx.people.get(id) : undefined;
+        if (p && !p.isPlayer && p.custody === 'in_vehicle') inCar++;
+      }
+    }
+    let station: { at: string; x: number; z: number } | null = null;
+    const stations = ctx.service<CommissariatsApi>(COMMISSARIATS_SERVICE);
+    if (inCar > 0 && stations && stations.enabled) {
+      const from = car ?? me;
+      let best = Infinity;
+      for (const c of stations.list) {
+        if (c.kind === 'caserne_gendarmerie') continue;
+        const d = Math.hypot(c.x - from.x, c.z - from.z);
+        if (d >= best) continue;
+        best = d;
+        const def = commissariatById(c.id);
+        station = { at: def ? atName(def) : `au ${c.name}`, x: c.x, z: c.z };
+      }
+    }
+    const req = ctx.service<TransferLike>('transfer')?.patrolRequest ?? null;
+    let request: { text: string; x?: number; z?: number } | null = null;
+    if (req) {
+      const s = ctx.squads.get(req.vanSquadId);
+      const v = s && s.vehicleId !== 0 ? ctx.vehicles.get(s.vehicleId) : undefined;
+      request = v ? { text: req.text, x: v.x, z: v.z } : { text: req.text };
+    }
+    return patrolCustodyInstruction({ inCar, station, request });
+  }
+
+  /** Patrouille : la carte « Ma mission » ne paraît que pour ses interpellés ; la radio reste entière. */
+  private thinkPatrol(me: Person | null, now: number): void {
+    const ctx = this.ctx!;
+    this.patrolCard = true;
+    const custody = me && me.custody === 'free' ? this.custodyInput(me) ?? this.patrolInput(me) : null;
+    this.setListen(false);
+    if (!me || !custody) {
+      if (this.active) this.deactivate();
+      return;
+    }
+    const crew = me.squadId !== 0 ? ctx.squads.get(me.squadId) : undefined;
+    this.active = true;
+    this.family = 'police';
+    this.channels = null;
+    this.radioHidden = 0;
+    this.radioLabel = '';
+    this.heading = 'Équipage de patrouille';
+    this.chain = crew ? `Équipage ${crew.name}` : '';
+    this.chief = null;
+    this.regroup = false;
+    this.command = null;
+    this.status = '';
+    this.apply(resolveInstruction({ custody }), now);
+    if (this.destKey !== '') this.publishDestination();
+    this.version++;
+  }
+
   /** Tâche d'incident confiée au joueur (repère du HUD sur l'incident). */
   private incidentInput(detail: ((label: string, d: number) => string) | null): InstructionInputs['incident'] {
     const ctx = this.ctx!;
@@ -1034,7 +1169,7 @@ export class MissionBriefSystem implements GameSystem {
     this.instruction = ins;
     const covered = [MISSION_OBJECTIVE_ID, MISSION_DEST_OBJECTIVE_ID];
     if (ins.source === 'journee') covered.push(JOURNEE_OBJECTIVE_ID);
-    if (this.family === 'police') covered.push(ORDER_OBJECTIVE_ID);
+    if (this.family === 'police' && !this.patrolCard) covered.push(ORDER_OBJECTIVE_ID);
     if (covered.length !== this.covered.length || covered.some((c, i) => c !== this.covered[i])) this.covered = covered;
     this.publishObjective(ins);
   }
@@ -1048,7 +1183,7 @@ export class MissionBriefSystem implements GameSystem {
   private publishObjective(ins: Instruction): void {
     const api = this.ctx!.service<ObjectivesApi>(EXT.objectives);
     if (!api) return;
-    const own = (ins.source === 'regroup' || ins.source === 'ordre' || ins.source === 'attente' || ins.source === 'tache')
+    const own = (ins.source === 'custody' || ins.source === 'regroup' || ins.source === 'ordre' || ins.source === 'attente' || ins.source === 'tache')
       && ins.x !== undefined && ins.z !== undefined && ins.target !== 'none';
     if (!own) {
       if (this.objKey !== '') this.dropObjective(api);

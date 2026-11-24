@@ -3,13 +3,20 @@
 import { describe, expect, it } from 'vitest';
 import type { RadioMessage } from '@/core/contracts';
 import {
-  chainLabel, chiefLabel, isExecutantRole, plainOrder, resolveInstruction, strayed, surname,
+  chainLabel, chiefLabel, custodyInstruction, isExecutantRole, patrolCustodyInstruction, plainOrder, resolveInstruction, strayed, surname,
 } from '@/gameplay/session/executant';
+import type { CustodyFacts } from '@/gameplay/session/executant';
+import type { MissionBrief } from '@/gameplay/session/mission-api';
+import { vanLabel } from '@/gameplay/transfer/labels';
+import { readiness, emptySnapshot } from '@/ui/command/direct/tickets';
+import { layoutOrderLabels, verbTag } from '@/ui/maps/overlay-units';
+import { detaineesLine } from '@/ui/screens/debrief';
+import { custodyLine } from '@/ui/command/fieldHud';
 import {
   ExecutantRadioFilter, canonicalCallsign, classifyRadio, listenForRole, parseRadioHeader, radioBody,
 } from '@/gameplay/radio/relevance';
 import type { RadioScope } from '@/gameplay/radio/relevance';
-import { arrowAngle, chiefText } from '@/ui/hud/mission';
+import { arrowAngle, chiefText, orderHeadline } from '@/ui/hud/mission';
 
 const msg = (from: string, text: string, extra: Partial<RadioMessage> = {}): RadioMessage => ({ channel: 'commandement', from, text, priority: 1, ...extra });
 
@@ -200,5 +207,131 @@ describe('carte : libellés', () => {
     // cap croissant = rotation vers la gauche (boussole : 180 − cap) ; le point en −x est donc à droite
     expect(Math.round(arrowAngle(0, 0, 0, -10, 0))).toBe(90);
     expect(Math.round(arrowAngle(0, 0, 0, 10, 0))).toBe(-90);
+  });
+});
+
+// ───────────────────────────── interpellés (plan ordres-directs §5.2, §5.3, §5.6, §5.7, §4.1.6) ─────────────────────────────
+
+const NB = '\u00a0';
+const facts = (kind: string, extra: Partial<CustodyFacts> = {}): CustodyFacts => ({
+  way: { kind, name: kind === 'confier' ? 'MISTRAL 2 ALFA' : kind === 'remettre' ? 'Fourgon de CRS' : 'CELLULAIRE 1', guidance: '', x: 10, z: 20, distance: 15 },
+  coming: null, drop: null, key: 'E', ...extra,
+});
+
+describe('carte « Ma mission » : son interpellé d’abord', () => {
+  it('la consigne « interpellé » passe avant la tâche d’incident, la journée, le rappel et l’ordre du groupe', () => {
+    const custody = custodyInstruction(facts('confier', { way: { ...facts('confier').way!, guidance: `Interpellé. E${NB}: le confier à MISTRAL 2 ALFA (15${NB}m)` } }))!;
+    const i = resolveInstruction({
+      custody, incident: { label: 'Feu de poubelle', x: 5, z: 5 }, journee: { title: 'En route', detail: '', travelling: true },
+      regroup: { chief: 'Brigadier Martin', x: 0, z: 0, distance: 80 }, order: { ...plainOrder('ligne', { place: '', poste: null, hasPost: false }) },
+    });
+    expect(i.source).toBe('custody');
+    expect(i.lead).toBe(true);
+    expect(i.title).toBe('Confiez l’interpellé à MISTRAL 2 ALFA');
+    expect(i.detail).toBe(`E${NB}: le confier à MISTRAL 2 ALFA (15${NB}m) — il l’emmène au fourgon, vous avez les mains libres.`);
+    // sans interpellé, rien ne change
+    expect(resolveInstruction({ custody: null, incident: { label: 'Feu', x: 1, z: 1 } }).source).toBe('incident');
+  });
+
+  it('une consigne par issue, la même que la 4e invite ; repère sur le fourgon ; jamais « CELLULAIRE » seul', () => {
+    expect(custodyInstruction({ ...facts('remettre_fourgon'), way: { ...facts('remettre_fourgon').way!, guidance: `Interpellé. E${NB}: le remettre au fourgon cellulaire 1 (8${NB}m)` } }))
+      .toEqual({ title: 'Remettez l’interpellé au fourgon cellulaire 1', detail: `E${NB}: le remettre au fourgon cellulaire 1 (8${NB}m).`, target: 'vehicle', x: 10, z: 20 });
+    expect(custodyInstruction(facts('remettre'))!.title).toBe('Remettez l’interpellé au fourgon de CRS');
+    expect(custodyInstruction(facts('faire_venir'))).toMatchObject({ title: 'Faites venir le fourgon cellulaire 1', target: 'vehicle', x: 10, z: 20 });
+    // l'emmener : au fourgon cellulaire le plus proche (repère dessus) — la carte écrit la distance à côté
+    const drop = { name: 'CELLULAIRE 2', cellular: true, x: 140, z: 0 };
+    expect(custodyInstruction(facts('emmener', { drop }))).toMatchObject({ title: 'Emmenez l’interpellé au fourgon cellulaire 2', target: 'vehicle', x: 140, z: 0 });
+    expect(custodyInstruction(facts('emmener', { drop: { ...drop, name: 'Voiture de police', cellular: false } }))!.title).toBe('Emmenez l’interpellé à la voiture de police');
+    // le fourgon appelé vient : le repère le suit
+    expect(custodyInstruction(facts('emmener', { coming: { name: 'CELLULAIRE 1', x: 60, z: 7 } }))).toMatchObject({ title: 'Le fourgon cellulaire 1 vient vous chercher', x: 60, z: 7 });
+    expect(custodyInstruction(facts('emmener'))).toMatchObject({ title: 'Emmenez l’interpellé', target: 'none' });
+    expect(custodyInstruction({ ...facts('confier'), way: null })).toBeNull();
+    for (const k of ['remettre_fourgon', 'faire_venir', 'emmener']) {
+      const c = custodyInstruction(facts(k, { drop }))!;
+      expect(c.title + c.detail).not.toMatch(/CELLULAIRE/);
+    }
+  });
+
+  it('en tête de carte : « VOTRE INTERPELLÉ », la consigne et sa distance, pas l’ordre d’en haut', () => {
+    const ins = resolveInstruction({ custody: custodyInstruction(facts('emmener', { drop: { name: 'CELLULAIRE 1', cellular: true, x: 0, z: 140 } })) });
+    const b = {
+      instruction: ins, chief: null, status: '', regroup: false,
+      command: { from: 'MISTRAL', by: 'Commandant Carlier', text: 'Tenir la ligne', to: 'Cie MISTRAL', place: 'rue de Rivoli', x: 0, z: -300, at: 0, distance: 300 },
+    } as Pick<MissionBrief, 'command' | 'instruction' | 'chief' | 'status' | 'regroup'>;
+    const h = orderHeadline(b, false, { x: 0, z: 0 });
+    expect(h.head).toBe('VOTRE INTERPELLÉ');
+    expect(h.order).toBe('Emmenez l’interpellé au fourgon cellulaire 1');
+    expect(h.distance).toBe(`140${NB}m`);
+    expect(orderHeadline(b, true, { x: 0, z: 0 }).line1).toBe(`Emmenez l’interpellé au fourgon cellulaire 1 · 140${NB}m`);
+    // sans interpellé : l'ordre d'en haut reprend la tête
+    const back = orderHeadline({ ...b, instruction: resolveInstruction({ chief: { label: 'Brigadier Martin', x: 0, z: 0 } }) }, false, { x: 0, z: 0 });
+    expect(back.head).toBe('ORDRE DU COMMANDANT');
+  });
+
+  it('chef de la BRAV-M : « Montez sur votre moto (E) — la BRAV-M part avec vous » passe avant l’ordre de mouvement', () => {
+    const ins = resolveInstruction({
+      journee: { title: 'Montez sur votre moto (E) — la BRAV-M part avec vous', detail: 'x', travelling: false, x: 4, z: 5, target: 'vehicle', lead: true },
+      regroup: { chief: 'Commandant Carlier', x: 0, z: 0, distance: 90 },
+    });
+    expect(ins).toMatchObject({ source: 'journee', title: 'Montez sur votre moto (E) — la BRAV-M part avec vous', lead: true, x: 4, z: 5 });
+  });
+
+  it('patrouille : « Conduisez l’interpellé au commissariat du 3e » (repère sur la porte) ; fourgon demandé', () => {
+    const station = { at: 'au commissariat du 3e', x: 100, z: 200 };
+    expect(patrolCustodyInstruction({ inCar: 1, station, request: null })).toMatchObject({ title: 'Conduisez l’interpellé au commissariat du 3e', target: 'place', x: 100, z: 200 });
+    expect(patrolCustodyInstruction({ inCar: 2, station, request: null })!.title).toBe('Conduisez les interpellés au commissariat du 3e');
+    const req = { text: `Fourgon cellulaire demandé — 3${NB}min${NB}10${NB}; ou ramenez-le à la voiture (540${NB}m)`, x: 9, z: 8 };
+    expect(patrolCustodyInstruction({ inCar: 0, station: null, request: req }))
+      .toEqual({ title: 'Fourgon cellulaire demandé', detail: `Arrivée dans 3${NB}min${NB}10${NB}; ou ramenez-le à la voiture (540${NB}m).`, target: 'vehicle', x: 9, z: 8 });
+    expect(patrolCustodyInstruction({ inCar: 0, station, request: null })).toBeNull();
+  });
+});
+
+describe('fourgons cellulaires : étiquettes, cartes, compte rendu', () => {
+  const view = { name: 'CELLULAIRE 1', stage: 'sur_place' as const, detainees: 3, seats: 8, eta: 0, station: '' };
+  it('étiquette : présentation, charge, plein, en route', () => {
+    expect(vanLabel(view, true)).toBe('Fourgon cellulaire 1 — pour les interpellés');
+    expect(vanLabel(view, false)).toBe('CELLULAIRE 1 · 3/8');
+    expect(vanLabel({ ...view, detainees: 8 }, false)).toBe('CELLULAIRE 1 · COMPLET — part au commissariat');
+    expect(vanLabel({ ...view, stage: 'aller', station: 'commissariat du 3e' }, false)).toBe('CELLULAIRE 1 · vers le commissariat du 3e');
+    expect(vanLabel({ ...view, stage: 'aller', station: 'préfecture de police' }, false)).toBe('CELLULAIRE 1 · vers la préfecture de police');
+    expect(vanLabel({ ...view, stage: 'releve', eta: 75 }, false)).toBe(`CELLULAIRE 1 · arrive — 1${NB}min${NB}20`);
+  });
+
+  it('compte rendu : combien au commissariat, combien dans le fourgon (comptes du dossier)', () => {
+    const r = (status: string, station = '', vehicleName = '') => ({ status, station, vehicleName }) as never;
+    expect(detaineesLine([])).toBe('');
+    expect(detaineesLine([...Array(8)].map(() => r('depose', 'commissariat du 3e')).concat([r('remis_vehicule', '', 'CELLULAIRE 2')])))
+      .toBe('9 — 8 déposés au commissariat du 3e, 1 dans le fourgon cellulaire 2');
+    expect(detaineesLine([r('depose', 'préfecture de police'), r('remis_vehicule', '', 'Fourgon de CRS'), r('relache'), r('en_cours')]))
+      .toBe('4 — 1 déposé à la préfecture de police, 1 dans le fourgon de CRS, 1 en cours d’interpellation, 1 relâché');
+  });
+
+  it('étiquettes d’ordre de la carte : le verbe du ticket (ce que le joueur a ordonné), pas l’ordre interne', () => {
+    expect(verbTag('bloquer')).toBe('BARRE');
+    expect(verbTag('bloquer', true)).toBe('BARRENT');
+    expect(verbTag('rien')).toBe('');
+    const base = { code: '1A', targetId: 0, x: 100, y: 100, arrived: false, dist: 120, eta: 60, color: '#fff' };
+    // l'unité roule encore en colonne (ordre interne « colonne ») pour barrer une rue : la carte dit « BARRE »
+    const placed = layoutOrderLabels([{ ...base, type: 'colonne', verb: 'bloquer' }], (t) => t.length * 6);
+    expect(placed[0]!.text).toMatch(/^1A · BARRE · /);
+    expect(layoutOrderLabels([{ ...base, type: 'colonne' }], (t) => t.length * 6)[0]!.text).toMatch(/^1A · VA À PIED · /);
+  });
+
+  it('bloc du commandant : « Interpellés 5 · CELLULAIRE 1 3/8 · 2 au commissariat », dès la première interpellation', () => {
+    const st = (n: number, status: string) => [...Array(n)].map(() => ({ status }));
+    const vansNow = [
+      { name: 'CELLULAIRE 1', stage: 'aller', detainees: 8, seats: 8 },
+      { name: 'CELLULAIRE 2', stage: 'sur_place', detainees: 3, seats: 8 },
+    ];
+    expect(custodyLine([], vansNow)).toBe('');
+    expect(custodyLine([...st(2, 'depose'), ...st(3, 'remis_vehicule')], vansNow)).toBe('Interpellés 5 · CELLULAIRE 2 3/8 · 2 au commissariat');
+    expect(custodyLine(st(1, 'en_cours'), [])).toBe('Interpellés 1 · 0 au commissariat');
+  });
+
+  it('BRAV-M en selle : « descend des motos », pas « des fourgons »', () => {
+    const s = { ...emptySnapshot(), agents: 12, seated: 6, seatedPerVehicle: [1, 1, 1, 1, 1, 1], seatedOnMotos: 6 };
+    expect(readiness(s)!.reason).toBe('descend des motos');
+    expect(readiness({ ...s, seatedOnMotos: 0 })!.reason).toBe('descend des fourgons');
   });
 });

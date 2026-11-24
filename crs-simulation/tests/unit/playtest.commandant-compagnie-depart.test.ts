@@ -1,8 +1,11 @@
-// Partie robot du commandant : « Toute la compagnie » (T) en véhicules, commandant à pied, « Y aller » à 600 m, sur la
-// place de la Concorde (piétonne, loin de toute voie carrossable : la file rangée par lineUp le long du tronçon droit
-// vers la voie Georges-Pompidou mettait sa tête, le canon à eau, nez au mur de quai — colonne figée derrière elle, plus
-// de cinq minutes à 563 m du point). Garantie : une fois l'attente du commandant écoulée, CHAQUE véhicule de la
-// compagnie qui a un conducteur part dans un délai borné, et arrive.
+// Partie robot du commandant : « Toute la compagnie » (T) en véhicules, « Y aller » à 600 m, sur la place de la Concorde
+// (piétonne, loin de toute voie carrossable : la file rangée par lineUp le long du tronçon droit vers la voie
+// Georges-Pompidou mettait sa tête, le canon à eau, nez au mur de quai — colonne figée derrière elle, plus de cinq
+// minutes à 563 m du point). Garantie : CHAQUE véhicule de la compagnie qui a un conducteur part dans un délai borné, et
+// arrive. Le commandant est à bord de son véhicule de commandement (passager) : une unité qui le contient, lui à pied,
+// ne part plus en véhicules (règle unique de direct/travel.ts, plan « ordres directs » B2) — elle irait à pied, sans
+// colonne à vérifier. Cinq cas : Concorde (graines 21 et 7), Bastille (graine 5), République (graine 11, et graine 21 en
+// journée de service), ces trois derniers repris par la colonne garantie (plan « ordres directs », P17).
 import { describe, expect, it } from 'vitest';
 import { createTestContext } from '@/core/testing';
 import { createSystems as world } from '@/world/query';
@@ -39,6 +42,10 @@ const MEANS = { sections: 3, fourgons: 9, centaure: 1, canon_eau: 1, bravm: 1, d
 const CASES: [string, number, number, number, Record<string, unknown>][] = [
   ['Place de la Concorde', 21, -10, 15, {}],
   ['Place de la Concorde', 7, -10, 15, {}],
+  // (repris par la colonne garantie, plan « ordres directs » P17)
+  ['Place de la Bastille', 5, 3542, 1395, {}],
+  ['Place de la République', 11, 3123, -208, {}],
+  ['Place de la République', 21, 3123, -208, { journee: true }],
 ];
 
 describe('commandant : « Toute la compagnie » en véhicules — tout le monde part et arrive', () => {
@@ -49,11 +56,25 @@ describe('commandant : « Toute la compagnie » en véhicules — tout le monde 
       t.step(3);
       const ctx = t.ctx;
       const core = ctx.service<CommandCore>('ui.command')!;
+      // le commandant monte en passager de son véhicule de commandement
+      const me = ctx.player.person()!;
+      const company = ctx.squads.get(core.scope().ownSquadId)!;
+      const vl = ctx.vehicles.list.find((v) => v.kind === 'vl_commandement' && ctx.squads.list.some((q) => q.vehicleId === v.id && (q.id === company.id || q.parentId === company.id)))
+        ?? ctx.vehicles.list.find((v) => v.kind === 'vl_commandement')!;
+      expect(vl).toBeTruthy();
+      expect(ctx.vehicles.enter(me, vl, 'passenger')).toBe(true);
+      t.step(1);
       const state = new TacticalState();
       const tmap = new TacticalMap(core, { handlers: null } as unknown as MapCanvas, state);
       const sendEnv = (card: CardEnv): SendEnv => ({ core, map: tmap, setSelection: (ids) => state.setSelection(ids), card, trace: null });
       const e0 = cardEnvFromCore(core);
-      const sec = e0.units.find((u) => u.symbol === 'section' && u.mine && u.hasVehicles)!;
+      const we = whoEnvFromCore(core, e0, []);
+      // (journée de service : la compagnie embarque encore à sa base, étalée dans la cour — le point est pris à 600 m de
+      // la compagnie elle-même, et non d'une de ses sections : à moins de 450 m d'une unité à pied, la fiche dit « à
+      // pied », et c'est juste — règle unique de direct/travel.ts, plan « ordres directs » §2.1 —, il n'y aurait pas de
+      // colonne à vérifier)
+      const sec = (extra.journee ? e0.units.find((u) => u.squadId === we.whole!.squadIds[0]) : undefined)
+        ?? e0.units.find((u) => u.symbol === 'section' && u.mine && u.hasVehicles)!;
       const road = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '', roadClass: 'residential', oneway: false } as never as { x: number; z: number; roadClass: string };
       let target: { x: number; z: number } | null = null;
       for (let a = 0; a < 16 && !target; a++) {
@@ -65,7 +86,6 @@ describe('commandant : « Toute la compagnie » en véhicules — tout le monde 
       const r = pointRepere(target!.x, target!.z, e0);
       const card = buildCard(r, e0, 'envoyer');
       const line = card.lines[card.defaultLine]!;
-      const we = whoEnvFromCore(core, e0, []);
       const who = fixedCandidate(e0, we.whole!.squadIds, r, we.whole!.label);
       expect(who.mode).toBe('vehicules');
       expect(sendCardLine(sendEnv(e0), line, who, r).ok).toBe(true);
@@ -84,9 +104,8 @@ describe('commandant : « Toute la compagnie » en véhicules — tout le monde 
           for (const q of ctx.squads.list) if (q.parentId === id) stack.push(q.id);
         }
       }
-      // attente du commandant (à pied, la colonne l'attend) : elle se termine au plus tard en cinq minutes
-      let waited = 0;
-      while (pc.convoyOf(who.squadIds[0]!)?.awaitingPlayer && waited < 320) { t.step(5); waited += 5; }
+      // le commandant est à bord : la colonne ne l'attend pas
+      expect(pc.convoyOf(who.squadIds[0]!)?.awaitingPlayer ?? false).toBe(false);
       t.step(5);
       const vs = [...ids].map((id) => ctx.vehicles.get(id)!).filter((v) => v && v.seats[0] !== 0 && v.kind !== 'moto_bravm' && !v.def.flying);
       const start = new Map(vs.map((v) => [v.id, { x: v.x, z: v.z }]));

@@ -14,7 +14,8 @@
 
 import type { ForceVerdictKind, GameContext } from '@/core/contracts';
 import type { ScreenInstance } from '@/core/extensions';
-import type { LawRecords, LawStats, SanctionLevel } from '@/gameplay/law/api';
+import type { ArrestRecord, LawRecords, LawStats, SanctionLevel } from '@/gameplay/law/api';
+import { vanWords } from '../command/direct/words';
 import { PATROL_MODE_SERVICE, readVacation } from '@/gameplay/patrols/model';
 import type { PatrolModeApi } from '@/gameplay/patrols/model';
 import type { MissionResultLike } from '../core/api';
@@ -73,6 +74,62 @@ export function countVerdicts(ctx: GameContext, byId: number): { total: number; 
   return { total, faults, byKind };
 }
 
+/** « au commissariat du 3e », « à la préfecture de police » (nom du lieu de dépôt du dossier). */
+function atStation(station: string): string {
+  return /^(préfecture|caserne)/i.test(station) ? `à la ${station}` : `au ${station}`;
+}
+
+/** « dans le fourgon cellulaire 2 », « dans le fourgon de CRS » (véhicule de la remise). */
+function inVehicle(name: string): string {
+  if (/cellulaire/i.test(name)) return `dans le ${vanWords(name)}`;
+  const t = name.trim();
+  const low = t.length > 1 && t[1] === t[1]!.toLocaleLowerCase('fr-FR') ? t.charAt(0).toLocaleLowerCase('fr-FR') + t.slice(1) : t;
+  if (/^[aeéiouh]/i.test(low)) return `dans l’${low}`;
+  return /^(voiture|moto|camionnette|fourgonnette)/i.test(low) ? `dans la ${low}` : `dans le ${low}`;
+}
+
+/**
+ * Où sont les interpellés de l'opération, toutes unités comprises (plan ordres-directs §5.6) : « 9 — 8 déposés au
+ * commissariat du 3e, 1 dans le fourgon cellulaire 2 ». Les comptes sont ceux du dossier (law.records), un par
+ * interpellation. Chaîne vide sans interpellation. Fonction pure.
+ */
+export function detaineesLine(list: readonly Pick<ArrestRecord, 'status' | 'station' | 'vehicleName'>[]): string {
+  if (list.length === 0) return '';
+  const where = new Map<string, number>();
+  const add = (k: string): void => { where.set(k, (where.get(k) ?? 0) + 1); };
+  const plural = (n: number, one: string, many: string): string => `${n} ${n > 1 ? many : one}`;
+  for (const r of list) {
+    switch (r.status) {
+      case 'depose': add(`d|${r.station !== '' ? r.station : 'commissariat'}`); break;
+      case 'remis_vehicule': add(`v|${r.vehicleName !== '' ? r.vehicleName : 'véhicule de police'}`); break;
+      case 'remis': add('p|'); break;
+      case 'en_cours': add('c|'); break;
+      case 'relache': add('r|'); break;
+      case 'evade': add('e|'); break;
+      default: add('i|'); break;
+    }
+  }
+  // déposés d'abord, puis à bord des véhicules, puis le reste (ordre fixe)
+  const parts: string[] = [];
+  const keys = [...where.keys()];
+  const rank = (k: string): number => 'dvpcrei'.indexOf(k.charAt(0));
+  keys.sort((a, b) => rank(a) - rank(b) || (a < b ? -1 : a > b ? 1 : 0));
+  for (const k of keys) {
+    const n = where.get(k)!;
+    const what = k.slice(2);
+    switch (k.charAt(0)) {
+      case 'd': parts.push(`${plural(n, 'déposé', 'déposés')} ${atStation(what)}`); break;
+      case 'v': parts.push(`${n} ${inVehicle(what)}`); break;
+      case 'p': parts.push(`${plural(n, 'remis', 'remis')} à un point de regroupement`); break;
+      case 'c': parts.push(`${plural(n, 'en cours', 'en cours')} d’interpellation`); break;
+      case 'r': parts.push(plural(n, 'relâché', 'relâchés')); break;
+      case 'e': parts.push(plural(n, 'évadé', 'évadés')); break;
+      default: parts.push(plural(n, 'interpellation interrompue', 'interpellations interrompues')); break;
+    }
+  }
+  return `${list.length} — ${parts.join(', ')}`;
+}
+
 function tile(label: string, value: string): HTMLElement {
   return el('div', 'ui-tile', h('b', undefined, label), h('span', undefined, value));
 }
@@ -114,10 +171,13 @@ export function createDebrief(env: UiEnv): (host: HTMLElement) => ScreenInstance
 
     let stats: LawStats | null = null;
     let lawSummary = '';
+    // interpellés de toute l'opération (toutes unités) : où ils sont à la fin (commissariat, fourgon cellulaire)
+    let arrests: readonly ArrestRecord[] = [];
     if (records) {
       try {
         stats = records.stats(police && playerId !== 0 ? playerId : undefined);
         lawSummary = records.summary(police && playerId !== 0 ? playerId : undefined);
+        arrests = Array.isArray(records.interpellations) ? records.interpellations : [];
       } catch (err) {
         console.error('[ui] lecture du dossier juridique impossible', err);
       }
@@ -168,10 +228,18 @@ export function createDebrief(env: UiEnv): (host: HTMLElement) => ScreenInstance
         tile('Manifestants', int(c.total)),
         tile('Dispersés', int(c.dispersed)),
         tile('Blessés', int(c.injured)),
-        tile('Interpellés', int(stats ? stats.arrests : c.arrested)),
+        tile('Interpellés', int(records ? arrests.length : c.arrested)),
         tile('Radicaux', int(c.radicals)),
       );
       left.append(widgets.sectionTitle('Bilan de la manifestation'), tiles);
+    }
+    // les interpellés : combien au commissariat, combien encore dans un fourgon (mêmes comptes que le dossier)
+    const where = detaineesLine(arrests);
+    if (where !== '') {
+      const p = h('p', 'ui-para', `Interpellés : ${where}.`);
+      p.dataset.id = 'debrief-interpelles';
+      p.style.marginTop = '10px';
+      left.append(p);
     }
     if (mission && mission.summary) {
       const p = h('p', 'ui-para', mission.summary);

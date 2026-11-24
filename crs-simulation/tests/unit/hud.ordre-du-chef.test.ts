@@ -25,6 +25,9 @@ import type { MissionBrief } from '@/gameplay/session';
 import type { MissionChief, MissionCommand } from '@/gameplay/session/mission-api';
 import type { Instruction } from '@/gameplay/session/executant';
 import { NO_ORDER_TAG, unitChipText, unitOrderTag } from '@/ui/command/hud';
+import { unitLine } from '@/ui/command/direct/state';
+import { undoButtonText } from '@/ui/command/direct/words';
+import { splitHead } from '@/ui/command/fieldHud';
 import { ORDER_VERBS } from '@/ui/command/orders';
 import { COMPACT_LINE_CHARS, chiefName, issuerTitle, orderHeadline, shortStreet } from '@/ui/hud/mission';
 import type { HeadlineBrief } from '@/ui/hud/mission';
@@ -131,6 +134,24 @@ describe('pastille d’unité : les mots de la carte', () => {
       expect(tag, v.type).toBe(v.type === 'libre' ? NO_ORDER_TAG : v.tag);
       expect(tag, v.type).not.toMatch(/_|INITIATIVE/);
     }
+  });
+});
+
+describe('puce d’état de qui commande : la ligne des ordres directs, jamais l’étiquette interne', () => {
+  it('« AVEC VOUS · … », le ticket, ou « attend vos ordres » — « SANS ORDRE » ne reste que pour les unités qu’il ne commande pas', () => {
+    const base = {
+      name: 'MISTRAL 2', commanded: true, playerVerb: null, place: '', done: false, ticket: null, followsPlayer: false, vehicles: null,
+      playerMoving: false, playerStoppedFor: 0, crowdNear: false, returning: false, simTag: '',
+    } as const;
+    expect(unitLine({ ...base, followsPlayer: true })).toBe('AVEC VOUS · vous suivent');
+    expect(unitLine({ ...base, followsPlayer: true, playerStoppedFor: 4, crowdNear: true })).toBe('AVEC VOUS · en ligne face à la foule');
+    expect(unitLine({ ...base, playerVerb: 'bloquer', place: 'rue de Rivoli' })).toBe('MISTRAL 2 · barre rue de Rivoli');
+    expect(unitLine(base)).toBe('MISTRAL 2 · attend vos ordres');
+    // une unité qu'il ne commande pas garde l'étiquette de la carte
+    expect(unitLine({ ...base, commanded: false })).toBe(`MISTRAL 2 · ${NO_ORDER_TAG}`);
+    // tête en gras, reste à côté (la puce)
+    expect(splitHead('AVEC VOUS · 3 sections + BRAV-M · en garde autour de vous')).toEqual({ head: 'AVEC VOUS', rest: '3 sections + BRAV-M · en garde autour de vous' });
+    expect(undoButtonText('MISTRAL 1', 'Bloquer')).toBe('↶ Annuler — MISTRAL 1 · Bloquer');
   });
 });
 

@@ -80,7 +80,15 @@ try {
   const v2 = Math.hypot(s2.x - s1.x, s2.z - s1.z) / (s2.t - s1.t);
   C.check(v2 > v1 * 1.3, 'joystick à fond : il court', `${R(v2)} m/s contre ${R(v1)}`);
   // regard : glisser à droite de l'écran pendant que le joystick est tenu
-  await F.drag(2, W * 0.62, H * 0.5, W * 0.62 + 110, H * 0.5, 6);
+  // le doigt se pose sur l'image (zone du regard), pas sur un bouton du HUD qui s'y trouverait (zone de gauche)
+  const [lx, ly] = await page.evaluate(([w, h]) => {
+    for (const [fx, fy] of [[0.62, 0.5], [0.66, 0.42], [0.58, 0.36], [0.7, 0.5], [0.55, 0.62]]) {
+      const e = document.elementFromPoint(w * fx, h * fy);
+      if (e && e.closest('[data-ct="look"]') && document.elementFromPoint(w * fx + 110, h * fy)?.closest('[data-ct="look"]')) return [w * fx, h * fy];
+    }
+    return [w * 0.62, h * 0.5];
+  }, [W, H]);
+  await F.drag(2, lx, ly, lx + 110, ly, 6);
   await step(page, 0.4);
   const s3 = await state(page);
   C.check(Math.abs(s3.camYaw - s2.camYaw) > 0.1, 'glisser à droite de l’écran fait tourner le regard', `${R(s2.camYaw)} → ${R(s3.camYaw)} rad`);

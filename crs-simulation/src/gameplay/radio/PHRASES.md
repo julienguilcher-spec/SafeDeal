@@ -238,9 +238,9 @@ L'exemple est la première variante, rendue avec des valeurs d'exemple.
 |---|---|---|---|---|---|---|---|
 | `interpellation_ordre` | commandant → cible | unite | 1 | PARLEZ | 3 | `lieu` `signalement` | MISTRAL TROIS ICI MISTRAL. Interpellez l’individu désigné, secteur place de la Concorde, sur fait constaté. Signalement : veste verte, bonnet noir, sac rouge. PARLEZ. |
 | `interpellation_en_cours` | unite → central | commandement | 1 | PARLEZ | 3 | `lieu` | CENTRAL ICI MISTRAL DEUX. Interpellation en cours, secteur place de la Concorde. Le groupe d’interpellation est sorti de la ligne. PARLEZ. |
-| `interpellation_effectuee` | unite → central | commandement | 1 | PARLEZ | 3 | `motif` `heure` `lieu` | CENTRAL ICI MISTRAL DEUX. Un interpellé pour jet de projectile sur agents, à UNE-SEPT heures ZÉRO-QUATRE, secteur place de la Concorde. Il est conduit au point de regroupement. PARLEZ. |
-| `interpelle_conduit` | unite → central | commandement | 1 | PARLEZ | 3 | `lieu` | CENTRAL ICI MISTRAL DEUX. Un interpellé est conduit au point de regroupement, secteur place de la Concorde. Escorte de deux agents. PARLEZ. |
-| `remise_interpelle` | unite → central | commandement | 1 | PARLEZ | 3 | `heure` `nombre` | CENTRAL ICI MISTRAL DEUX. Remise à l’officier de police judiciaire effectuée à UNE-SEPT heures ZÉRO-QUATRE. Nombre d’interpellés remis : DEUX. Fiches transmises. PARLEZ. |
+| `interpellation_effectuee` | unite → central | commandement | 1 | PARLEZ | 3 | `motif` `heure` `lieu` | CENTRAL ICI MISTRAL DEUX. Un interpellé pour jet de projectile sur agents, à UNE-SEPT heures ZÉRO-QUATRE, secteur place de la Concorde. Il est conduit au fourgon cellulaire. PARLEZ. |
+| `interpelle_conduit` | unite → central | commandement | 1 | PARLEZ | 3 | `lieu` | CENTRAL ICI MISTRAL DEUX. Un interpellé conduit au fourgon cellulaire, secteur place de la Concorde. Deux agents l’accompagnent. PARLEZ. |
+| `remise_interpelle` | unite → central | commandement | 1 | PARLEZ | 3 | `heure` `nombre` | CENTRAL ICI MISTRAL DEUX. Interpellés à bord du fourgon cellulaire à UNE-SEPT heures ZÉRO-QUATRE, en attente de transfert. Nombre : DEUX. Fiches transmises. PARLEZ. |
 
 ### Incidents
 

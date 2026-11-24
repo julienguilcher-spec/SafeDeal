@@ -10,6 +10,7 @@
 import type { GameContext } from '@/core/contracts';
 import type { HudWidget } from '@/core/extensions';
 import { damp } from '@/core/math';
+import { touchCommsRect } from '../hud/layout';
 import { BaseLayer } from './basecache';
 import { el, setClass, setText } from './icons';
 import { ALL_LAYERS, drawOverlay } from './overlay';
@@ -128,21 +129,21 @@ export class Minimap implements HudWidget {
   }
 
   /**
-   * Tactile : si un autre élément du HUD pousse la mini-carte sur les boutons « Radio » et « Ordres » du
-   * module d'entrées (à gauche, au-dessus du joystick), elle se décale à leur droite. Une seule mesure de
+   * Tactile : si un autre élément du HUD pousse la mini-carte sur la rangée « Radio », « Ordre prêt », « À qui » du
+   * module d'entrées (à gauche, au-dessus du joystick), elle se décale à sa droite. Une seule mesure de
    * mise en page, faite ici (redimensionnement, changement de périphérique, contrôle toutes les 2 s).
    */
   private dodgeTouchControls(): void {
     const root = this.root;
     if (root.style.marginLeft !== '') root.style.marginLeft = '';
     if (!this.touchOn) return;
-    // cotes de docs/modules/entrees.md : 844 × 390 à l'échelle 1, échelle bornée entre 0,82 et 1,45
+    // cotes de la surcouche (ui/hud/layout.ts, copie de input/touch/layouts.ts) : 844 × 390 à l'échelle 1
     const W = window.innerWidth, H = window.innerHeight;
-    const scale = Math.min(1.45, Math.max(0.82, Math.min(W / 844, H / 390)));
     const r = this.disc.getBoundingClientRect();
     if (r.width === 0) return;
-    const buttonsTop = H - 250 * scale;
-    const buttonsRight = 136 * scale;
+    const row = touchCommsRect(W, H);
+    const buttonsTop = row.top;
+    const buttonsRight = row.right;
     if (r.bottom > buttonsTop - 4 && r.left < buttonsRight + 4) {
       root.style.marginLeft = Math.round(buttonsRight + 10 - r.left) + 'px';
     }

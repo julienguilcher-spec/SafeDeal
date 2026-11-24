@@ -105,7 +105,13 @@ export class DirectIssuer implements Pick<SendMapLike, 'issueImmediate' | 'issue
   /** Motif du dernier refus ('' sinon). */
   reason = '';
 
-  constructor(private readonly core: CommandCore, private readonly ids: readonly number[]) {}
+  /** @param ids unités qui reçoivent l'ordre (le terrain les change avant chaque envoi : setIds) */
+  constructor(protected readonly core: CommandCore, private ids: readonly number[]) {}
+
+  /** Unités des prochains ordres (envoi d'une ligne de fiche depuis le terrain, sans carte : direct/runtime.ts). */
+  setIds(ids: readonly number[]): void {
+    this.ids = ids.slice();
+  }
 
   private squads(): Squad[] {
     return squadsOf(this.core, this.ids);
@@ -433,6 +439,13 @@ export function sendCardLine(env: SendEnv, line: CardLine, who: WhoCandidate | n
     case 'centre':
       env.centre?.(where.x, where.z);
       return { ok: true, text: '', squads: [] };
+    case 'transfer': {
+      // « Partir au commissariat » : obéi tout de suite par le transfert (gameplay/transfer), qui dit la radio et la relève
+      const tr = ctx.service<{ depart?(squadId: number): { ok: boolean; reason: string; text: string } }>('transfer');
+      if (!tr || typeof tr.depart !== 'function') return fail('Le transfert au commissariat n’est pas disponible dans cette partie.');
+      const r = tr.depart(a.squadId);
+      return r.ok ? done(r.text !== '' ? r.text : 'Le fourgon cellulaire part au commissariat', [a.squadId]) : fail(r.reason);
+    }
     case 'proposal': {
       const cmd = ctx.service<{ accept(id: number): boolean; dismiss(id: number): void }>('police.command');
       const id = where.proposalId ?? 0;

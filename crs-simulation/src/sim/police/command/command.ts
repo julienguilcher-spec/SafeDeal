@@ -265,6 +265,9 @@ export class Command {
     const consider = (s: Squad): void => {
       if (s.faction !== 'police' || this.specials.of(s.id)) return;
       if (s.kind !== 'section' && s.kind !== 'peloton' && s.kind !== 'groupe') return;
+      // section commandée par le joueur (chef de section), ou placée sous une unité qu'il commande : ses groupes le
+      // suivent et n'obéissent qu'à lui
+      if (this.underPlayer(s.id)) return;
       // une section dont les subordonnés sont des unités spéciales (BRAV-M à plusieurs groupes) n'est pas de manœuvre
       const kids = ctx.squads.childrenOf(s.id);
       for (let i = 0; i < kids.length; i++) if (this.specials.of(kids[i].id)) return;
@@ -328,11 +331,10 @@ export class Command {
         // de section) suit le premier d'entre eux
         let first: Squad | null = null;
         let command: Squad | null = null;
-        const pid = ctx.player.state.personId;
         for (let g = 0; g < groups.length; g++) {
           if (core.members(groups[g].id, core.people) === 0) continue;
           // le groupe du joueur chef de groupe n'est pas un élément de manœuvre de l'IA : il obéit au joueur
-          if (pid !== 0 && groups[g].leaderId === pid) continue;
+          if (this.underPlayer(groups[g].id)) continue;
           if (!command && s.leaderId !== 0 && groups[g].members.indexOf(s.leaderId) >= 0) {
             command = groups[g];
             continue;
@@ -351,6 +353,23 @@ export class Command {
     }
   }
 
+  /**
+   * L'unité est-elle commandée par le joueur, ou placée sous une unité qu'il commande (sans compter la compagnie
+   * elle-même : le joueur commandant est conseillé par l'adjoint, il n'est pas écarté de son propre dispositif) ? Le
+   * commandant IA ne lui donne alors aucun ordre : chef de section, ses groupes ; chef de groupe, son groupe.
+   */
+  underPlayer(squadId: number): boolean {
+    const ctx = this.core.ctx;
+    const pid = ctx.player.state.personId;
+    if (pid === 0) return false;
+    let s = ctx.squads.get(squadId);
+    for (let guard = 0; s && s.id !== this.squad.id && guard < 12; guard++) {
+      if (s.leaderId === pid) return true;
+      s = s.parentId !== 0 ? ctx.squads.get(s.parentId) : undefined;
+    }
+    return false;
+  }
+
   /** Une unité retenue par la mission (core.pinned) est-elle cette unité ou l'une de ses subordonnées ? */
   holdsPinned(squadId: number): boolean {
     for (const id of this.core.pinned) if (this.core.isUnder(id, squadId)) return true;
@@ -363,7 +382,7 @@ export class Command {
     const kids = core.ctx.squads.childrenOf(s.id);
     for (let g = 0; g < kids.length; g++) {
       const k = kids[g];
-      if (core.pinned.has(k.id) || core.members(k.id, core.people) === 0 || this.element(k.id)) continue;
+      if (core.pinned.has(k.id) || this.underPlayer(k.id) || core.members(k.id, core.people) === 0 || this.element(k.id)) continue;
       if (this.holdsPinned(k.id)) this.addFreeChildren(k, sectionId);
       else this.addElement(k, sectionId, 'libre');
     }
@@ -483,8 +502,10 @@ export class Command {
   thinkDeploy(): boolean {
     const core = this.core;
     const pic = this.pic;
-    // le convoi roule encore ou l'unité débarque : on attend
-    if (this.convoy.arriving(this.squad.id)) {
+    // le convoi roule encore ou l'unité débarque : on attend — sauf l'adjoint du joueur, qui propose le dispositif dès
+    // que la colonne s'arrête (il ne donne aucun ordre lui-même : le joueur décide, ses ordres priment sur le débarquement)
+    const cv = this.convoy.statusOf(this.squad.id);
+    if (this.convoy.arriving(this.squad.id) && (this.ia || !cv || cv.stage === 'route')) {
       this.setPhase('arrivee');
       return false;
     }

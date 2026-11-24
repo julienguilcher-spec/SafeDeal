@@ -194,7 +194,9 @@ try {
   taps = 1;
   await tapSel('[data-id="intent-interpeller"]');
   st = await tac();
-  C.check(st && st.intent === 'interpeller' && /Interpeller/.test(st.lineLabel), '« Interpeller » : la fiche, « Interpeller… » surlignée', JSON.stringify(st));
+  // (aucun fait constaté près du point touché : la ligne dit d'emblée « Aller constater » — intents.ts NO_FACT_LABEL ;
+  // « Interpeller… » quand un auteur est là)
+  C.check(st && st.intent === 'interpeller' && /^(Aller constater|Interpeller)/.test(st.lineLabel), '« Interpeller » : la fiche, « Aller constater » (ou « Interpeller… ») surlignée', JSON.stringify(st));
   n0 = (await sends()).length;
   await tapSel('[data-id="card-send"]');
   await step(page, 0.3);

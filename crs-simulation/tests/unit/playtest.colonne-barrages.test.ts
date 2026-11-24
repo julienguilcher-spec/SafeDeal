@@ -109,6 +109,12 @@ describe('partie jouée : la colonne suit le joueur à travers la manifestation 
       const barriers = ctx.props.list.filter((p) => p.kind === 'barriere_vauban').length;
       // le fourgon de tête, deux-tons : son chauffeur au volant, le joueur passager ; les suivants, eux, roulent en
       // colonne ordinaire (sans intervention urgente) : les barrages et la foule s'ouvrent quand même devant eux
+      // (sa compagnie, qui le suit à pied depuis la mise en place, reste au rassemblement : « Avec moi » la ferait monter
+      // dans ses fourgons derrière lui dès qu'il monte en passager — session/follow.ts — ; seule la colonne de l'essai le
+      // suit ici)
+      for (const s of ctx.squads.list) {
+        if (s.faction === 'police' && s.parentId === 0 && s.order.type === 'suivre') ctx.squads.issue(s.id, { type: 'tenir', issuedBy: 0 });
+      }
       const ride = ctx.vehicles.spawn('fourgon_crs', s0.x, s0.z, heading);
       const pilot = ctx.people.spawn({ kind: 'crs', x: s0.x + 2, z: s0.z });
       expect(ctx.vehicles.enter(pilot, ride, 'driver')).toBe(true);

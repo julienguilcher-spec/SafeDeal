@@ -25,7 +25,9 @@ describe('ordre repris après une colonne motorisée', () => {
     const { ctx } = t;
     t.step(2);
     const core = ctx.service<CommandCore>('ui.command')!;
-    const company = ctx.squads.list.find((s) => s.kind === 'compagnie')!;
+    // une section (le commandant n'en fait pas partie) : l'unité du joueur à pied ne part jamais en véhicules
+    // (ordres-directs §2.1, direct/travel.ts motorizes)
+    const company = ctx.squads.list.find((s) => s.kind === 'section')!;
     const lead = ctx.people.get(company.leaderId)!;
     // « tenir » à 600 m : mouvement motorisé, « tenir » repris au débarquement
     expect(core.issue('tenir', [company], [{ x: 239, z: -497, heading: 0, width: 20 }]).ok).toBe(true);

@@ -482,6 +482,7 @@ export function cardEnvFromCore(core: CommandCore, selection: readonly number[] 
       orderPlace, status: u.status, embarked: u.embarked, hasVehicles: u.squadId > 0 && withVehicles.has(u.squadId),
       mine: u.squadId > 0 && core.canCommand(u.squadId), patrol: u.patrol, homeStation: '',
       targetEntity: u.vehicleId !== 0 ? u.vehicleId : u.leaderId, parentId: sq ? sq.parentId : 0, hasPlayer: u.hasPlayer,
+      cellular: u.cellular,
     });
   }
 
@@ -513,7 +514,7 @@ export function cardEnvFromCore(core: CommandCore, selection: readonly number[] 
     sommations: roe.sommation, lawful: roe.lawfulForce, authorised: roe.authorizedForce as ForceLevel, underAttack: roe.underAttack,
     riposteAt: (x, z) => (advisor && typeof advisor.riposteAt === 'function' ? advisor.riposteAt(x, z) : roe.underAttack),
     command, crowds, incidents, units, closures, metro, proposals, stations: [],
-    player: me && scene.hasPlayer ? { x: me.x, z: me.z, title: `${rank}${rank && surname ? ' ' : ''}${surname}` || 'Vous', inVehicle: me.vehicleId !== 0 } : null,
+    player: me && scene.hasPlayer ? { x: me.x, z: me.z, title: `${rank}${rank && surname ? ' ' : ''}${surname}` || 'Vous', inVehicle: me.vehicleId !== 0, personId: me.id } : null,
     blocked: block ? { x: block.x, z: block.z, street: block.street } : null,
     hasRescue: !!core.rescue, selection, now,
     farFor: (x, z, squadId) => {

@@ -14,18 +14,21 @@
  * Les ordres particuliers (encerclement, relève, barrages de rue, véhicules) sont dans special.ts.
  * ===================================================================================== */
 
-import type { SquadOrder } from '@/core/contracts';
+import type { Person, SquadOrder, Vehicle } from '@/core/contracts';
 import { angleDiff, cardinalFr } from '@/core/math';
 import type { FormGroup, Unit } from './brain';
 import { F_BOX, F_COLUMN, F_HOLD, F_LINE, F_NONE, F_SCREEN, F_TORTUE } from './brain';
 import type { Kernel } from './kernel';
+import { isAble } from './kernel';
 import {
-  allSettled, columnSpeed, commonRunSpeed, commonTrotSpeed, copyOrder, done, filesFor, followRunSpeed, formBox, formColumn, formHold, formLine, formScreen,
+  allSettled, clearSlots, columnSpeed, commonRunSpeed, commonTrotSpeed, copyOrder, done, filesFor, followRunSpeed, formBox, formColumn, formHold, formLine, formScreen,
   formTortue, formLate, gather, hasFormation, inPlace, isAligned, leaderOf, lineSpeed, mainGroup, moveTo, personById, react, reform,
-  report, setPhase, setStep, staminaCap, stepColumn, stepFrame, stopGroup, underPressure, unitCenter, vehicleById,
+  report, setPhase, setStep, staminaCap, stepColumn, stepFrame, stopGroup, takingPart, underPressure, unitCenter, vehicleById,
 } from './mcore';
+import { seatedToDismount } from './tree';
+import { POLICE_COMMAND_SERVICE } from './command/api';
 import { appendPath, measure, placeGroup, settleSlots } from './place';
-import { ackBody, acknowledge, spell } from './radio';
+import { ackBody, acknowledge, onPointBody, spell } from './radio';
 import { leavePost, progressEncircle, startEncircle } from './encircle';
 import { B_EN_ROUTE, formStreetBarrage, letsPassersby, streetAt } from './barrages';
 import { BARRAGE_LET_PASSERSBY } from './api';
@@ -59,11 +62,112 @@ function retuneBarrage(k: Kernel, u: Unit, o: SquadOrder): boolean {
   cur.issuedAt = o.issuedAt;
   cur.issuedBy = o.issuedBy;
   cur.maxForce = o.maxForce;
-  u.ackAt = k.now + 0.35 + ((u.id * 0.173) % 0.4);
+  if (o.byPlayer) cur.byPlayer = true;
+  else delete cur.byPlayer;
+  u.ackAt = k.now + ackDelay(u, o);
   u.ackText = acknowledge(u.squad.name, want
     ? 'les passants passent' + (m.bStreet !== '' ? ', ' + m.bStreet : '') + ', les manifestants restent bloqués'
     : 'plus personne ne passe' + (m.bStreet !== '' ? ', ' + m.bStreet : '') + ', passants compris');
   return true;
+}
+
+/**
+ * Délai de l'accusé de réception (s) : aussitôt pour un ordre du joueur, un léger décalage propre à l'unité pour l'IA
+ * (les accusés de plusieurs unités ne tombent pas tous au même instant).
+ */
+function ackDelay(u: Unit, o: SquadOrder): number {
+  return o.byPlayer ? T.ACK_PLAYER : 0.35 + ((u.id * 0.173) % 0.4);
+}
+
+/** Personne (ou véhicule) que suit un ordre « suivre » : la cible, ou à défaut celui qui l'a donné, ou le joueur. */
+function followedId(k: Kernel, u: Unit, o: SquadOrder): number {
+  let id = o.targetId > 0 ? o.targetId : o.issuedBy;
+  const leader = leaderOf(k, u);
+  if (id === 0 || (leader && id === leader.id)) id = k.ctx.player.state.personId;
+  return id;
+}
+
+/**
+ * L'ordre s'exécute-t-il à pied (les agents assis descendent d'abord) ? Tous les ordres de formation, sauf
+ * l'embarquement et le débarquement (ils règlent eux-mêmes les places), la colonne du convoi ou de l'IA (seule celle
+ * du joueur fait descendre) et « suivre » quelqu'un qui est à bord, ou un véhicule (l'unité le suit dans ses fourgons).
+ */
+function footOrder(k: Kernel, u: Unit, o: SquadOrder): boolean {
+  const type = o.type;
+  if (type === 'embarquer' || type === 'debarquer') return false;
+  if (type === 'colonne' && !o.byPlayer) return false;
+  if (type === 'suivre') {
+    const id = followedId(k, u, o);
+    const tp = personById(k, id);
+    return !!tp && tp.vehicleId === 0;
+  }
+  return true;
+}
+
+/**
+ * Débarquement préalable d'un ordre à pied : les agents de l'unité assis dans un véhicule en descendent (dismountStep)
+ * et gardent dès maintenant leur place dans la nouvelle formation (tree.ts : refreshFormable). Les agents en chemin
+ * vers un véhicule ou déjà assis (embarquement précédent) y renoncent. Pas d'ordre « débarquer » visible.
+ */
+function beginDismount(k: Kernel, u: Unit, o: SquadOrder): void {
+  u.dismount = false;
+  const agents = u.agents;
+  // (assis compris : sorti du fourgon, il n'y remonterait pas pour l'embarquement abandonné)
+  if (o.type !== 'embarquer') for (let i = 0; i < agents.length; i++) agents[i].boardId = 0;
+  if (u.squad.kind === 'equipage' || !footOrder(k, u, o)) return;
+  u.dismount = true;
+  let seated = false;
+  for (let i = 0; i < agents.length && !seated; i++) seated = seatedToDismount(k, u, agents[i]);
+  u.dismount = seated;
+  // première sortie après le délai de réaction (portes ouvertes en moins d'une demi-seconde)
+  u.dismountAt = k.now + 0.2;
+}
+
+/** Le véhicule `v` laisse-t-il descendre ses passagers pour cet ordre ? À l'arrêt, et pas en route sous le pilote automatique. */
+function canLeave(k: Kernel, v: Vehicle, o: SquadOrder): boolean {
+  if (Math.abs(v.speed) > T.EXIT_SPEED) return false;
+  // ordre du joueur : on descend de tout véhicule arrêté — sauf d'un fourgon que sa colonne emporte encore vers le point
+  // (ordre pour un point éloigné, command/convoy.ts takeOver : il s'exécute à l'arrêt, personne ne saute au feu rouge)
+  if (o.byPlayer) {
+    const cmd = k.ctx.service<{ carrying?(vehicleId: number): boolean }>(POLICE_COMMAND_SERVICE);
+    return !cmd || !cmd.carrying || !cmd.carrying(v.id);
+  }
+  // ordre de l'IA : pas d'un véhicule de colonne arrêté au feu
+  const ap = k.autopilot;
+  if (!ap) return true;
+  const st = ap.status(v);
+  return st.mode === 'idle' || st.mode === 'stop' || st.mode === 'park' || st.state === 'arrive';
+}
+
+const exiting: number[] = [];
+
+/** Une sortie par véhicule toutes les EXIT_INTERVAL secondes ; fin du débarquement quand plus personne n'est assis. */
+function dismountStep(k: Kernel, u: Unit): void {
+  if (k.now < u.dismountAt) return;
+  u.dismountAt = k.now + T.EXIT_INTERVAL;
+  const ctx = k.ctx;
+  const o = u.order;
+  exiting.length = 0;
+  let seated = 0;
+  const agents = u.agents;
+  for (let i = 0; i < agents.length; i++) {
+    const a = agents[i];
+    if (!seatedToDismount(k, u, a)) continue;
+    const p = a.p;
+    seated++;
+    if (!o || exiting.indexOf(p.vehicleId) >= 0) continue;
+    const v = ctx.vehicles.get(p.vehicleId);
+    exiting.push(p.vehicleId);
+    if (!v || !canLeave(k, v, o) || !ctx.vehicles.exit(p)) continue;
+    seated--;
+    a.lastX = p.x;
+    a.lastZ = p.z;
+    a.pathN = 0;
+    a.stuckT = 0;
+    a.able = isAble(ctx, p);
+    if (a.reactAt > k.now + 0.2) a.reactAt = k.now + 0.2;
+  }
+  if (seated === 0) u.dismount = false;
 }
 
 /** Prise en compte d'un ordre de formation par l'unité racine `u`. */
@@ -73,6 +177,8 @@ export function startOrder(k: Kernel, u: Unit, o: SquadOrder): void {
   const order = copyOrder(o);
   u.order = order;
   u.reported = false;
+  u.guard = false;
+  beginDismount(k, u, order);
   u.needsRelief = u.needsRelief && order.type !== 'repli';
   const m = u.man;
   m.step = 0;
@@ -88,11 +194,16 @@ export function startOrder(k: Kernel, u: Unit, o: SquadOrder): void {
   const cx = k.v2.x;
   const cz = k.v2.z;
   const dist = Math.sqrt((order.x - cx) * (order.x - cx) + (order.z - cz) * (order.z - cz));
-  u.ackAt = k.now + 0.35 + ((u.id * 0.173) % 0.4);
+  u.ackAt = k.now + ackDelay(u, order);
   u.ackText = acknowledge(u.squad.name, ackBody(k, order, dist));
 
   if (u.squad.kind === 'equipage' && startCrewOrder(k, u, order)) return;
 
+  // agents encore assis : la formation est refaite avec eux (une halte « sur place » garderait l'ancienne, sans eux)
+  if (u.dismount) {
+    clearSlots(u);
+    u.groups.length = 0;
+  }
   const g = mainGroup(u);
   const type = order.type;
   switch (type) {
@@ -183,30 +294,19 @@ export function startOrder(k: Kernel, u: Unit, o: SquadOrder): void {
     }
 
     case 'suivre': {
-      let id = order.targetId > 0 ? order.targetId : order.issuedBy;
-      const leader = leaderOf(k, u);
-      if (id === 0 || (leader && id === leader.id)) id = k.ctx.player.state.personId;
-      const tp = personById(k, id);
-      const tv = tp ? null : vehicleById(k, id);
-      if (!tp && !tv) {
+      const id = followedId(k, u, order);
+      if (!startFollow(k, u, id, cx, cz)) {
         formHold(k, u);
         inPlace(k, u, '');
         done(k, u, type, false, 'Personne à suivre.');
         break;
       }
-      const tx = tp ? tp.x : tv!.x;
-      const tz = tp ? tp.z : tv!.z;
-      const hx = leader ? leader.x : cx;
-      const hz = leader ? leader.z : cz;
-      const col = formColumn(k, u, hx, hz, tx, tz, filesFor(order.width, u.formed));
-      col.followId = id;
-      col.radius = tv ? tv.def.length * 0.5 + 4 : 2.6;
-      col.moving = true;
-      // la tête règle elle-même son allure sur la cible (followColumn) ; g.speed borne le rattrapage des agents
-      col.speed = commonTrotSpeed(u, k.tuning.trot);
-      m.targetId = id;
-      setStep(k, u, 1);
-      setPhase(k, u, 'mouvement');
+      const tp = personById(k, id);
+      // posture en garde : le joueur est à cet endroit depuis maintenant
+      u.guardX = tp ? tp.x : 0;
+      u.guardZ = tp ? tp.z : 0;
+      u.guardAt = k.now;
+      u.guardCheckAt = k.now;
       break;
     }
 
@@ -280,6 +380,31 @@ export function startOrder(k: Kernel, u: Unit, o: SquadOrder): void {
       u.reported = true;
       break;
   }
+}
+
+/**
+ * Colonne qui suit la personne ou le véhicule `id` : la tête part du chef de l'unité (à défaut du point (cx, cz)) et
+ * marche sur la trace de la cible. false si la cible n'existe pas.
+ */
+function startFollow(k: Kernel, u: Unit, id: number, cx: number, cz: number): boolean {
+  const tp = personById(k, id);
+  const tv = tp ? null : vehicleById(k, id);
+  if (!tp && !tv) return false;
+  const leader = leaderOf(k, u);
+  const tx = tp ? tp.x : tv!.x;
+  const tz = tp ? tp.z : tv!.z;
+  const hx = leader ? leader.x : cx;
+  const hz = leader ? leader.z : cz;
+  const col = formColumn(k, u, hx, hz, tx, tz, filesFor(u.order ? u.order.width : 0, u.formed));
+  col.followId = id;
+  col.radius = tv ? tv.def.length * 0.5 + 4 : 2.6;
+  col.moving = true;
+  // la tête règle elle-même son allure sur la cible (followColumn) ; g.speed borne le rattrapage des agents
+  col.speed = commonTrotSpeed(u, k.tuning.trot);
+  u.man.targetId = id;
+  setStep(k, u, 1);
+  setPhase(k, u, 'mouvement');
+  return true;
 }
 
 /** Mise en colonne puis marche vers (x, z). */
@@ -508,6 +633,8 @@ function lineReport(u: Unit, g: FormGroup): string {
 export function progress(k: Kernel, u: Unit, dt: number): void {
   const o = u.order;
   const groups = u.groups;
+  // débarquement préalable d'un ordre à pied
+  if (u.dismount) dismountStep(k, u);
   // reformation différée (pertes, retours d'agents)
   if (u.reformAt !== 0 && k.now >= u.reformAt) {
     u.reformAt = 0;
@@ -594,7 +721,7 @@ export function progress(k: Kernel, u: Unit, dt: number): void {
             setPhase(k, u, 'mise_en_place');
           } else {
             setStep(k, u, 3);
-            inPlace(k, u, 'Arrivé au point, en colonne par ' + (g.files === 3 ? 'trois' : 'deux'));
+            inPlace(k, u, type === 'avancer' ? onPointBody(o.place ?? '', false, g.ah, u.formed, g.files) : 'Arrivé au point, en colonne par ' + (g.files === 3 ? 'trois' : 'deux'));
             done(k, u, type, true, '');
           }
         }
@@ -605,7 +732,10 @@ export function progress(k: Kernel, u: Unit, dt: number): void {
         setPhase(k, u, 'mise_en_place');
       } else if ((m.step === 2 || u.phase === 'mise_en_place') && (allSettled(u, T.IN_PLACE_TOLERANCE) || formLate(k, u))) {
         setStep(k, u, 3);
-        inPlace(k, u, type === 'repli' ? 'Repli effectué, en position face ' + cardinalFr(g.ah) : g.kind === F_LINE ? lineReport(u, g) : 'En position');
+        // « Avancer » rend compte « sur le point » (pas « Barrage en place » : ce n'était pas l'ordre)
+        inPlace(k, u, type === 'repli' ? 'Repli effectué, en position face ' + cardinalFr(g.ah)
+          : type === 'avancer' ? onPointBody(m.barrage && m.bStreet !== '' ? m.bStreet : o.place ?? '', g.kind === F_LINE, g.ah, u.formed, g.files)
+            : g.kind === F_LINE ? lineReport(u, g) : 'En position');
         done(k, u, type, true, '');
       }
       break;
@@ -621,6 +751,7 @@ export function progress(k: Kernel, u: Unit, dt: number): void {
       break;
 
     case 'suivre':
+      progressFollow(k, u, g);
       break;
 
     case 'encercler':
@@ -683,7 +814,7 @@ function progressRush(k: Kernel, u: Unit, g: FormGroup, arrived: boolean): void 
       break;
     case 3:
       // halte : réalignement, puis compte rendu
-      if (k.now - m.stepT >= T.REALIGN_TIME && (allSettled(u, T.IN_PLACE_TOLERANCE) || k.now - m.stepT > 12)) {
+      if (k.now - m.stepT >= (u.order!.byPlayer ? T.REALIGN_TIME_PLAYER : T.REALIGN_TIME) && (allSettled(u, T.IN_PLACE_TOLERANCE) || k.now - m.stepT > 12)) {
         const first = !u.reported;
         setStep(k, u, 5);
         inPlace(k, u, type === 'bond_offensif' ? 'Bond effectué, ligne réalignée' : 'Refoulement terminé, limite atteinte, je tiens');
@@ -694,8 +825,8 @@ function progressRush(k: Kernel, u: Unit, g: FormGroup, arrived: boolean): void 
       if (arrived) {
         setStep(k, u, 3);
         setPhase(k, u, 'mise_en_place');
-        // le compte rendu de fin de charge est fait après réalignement
-        report(k, u, 'Charge terminée, retour sur la ligne de départ');
+        // le compte rendu de fin de charge est fait après réalignement (par une unité qui a vraiment chargé)
+        if (takingPart(k, u) >= T.REPORT_SHARE) report(k, u, 'Charge terminée, retour sur la ligne de départ');
         u.reported = true;
         done(k, u, type, true, '');
       }
@@ -703,4 +834,173 @@ function progressRush(k: Kernel, u: Unit, g: FormGroup, arrived: boolean): void 
     default:
       break;
   }
+}
+
+// ───────────────────────────── « avec moi » : en garde quand le joueur s'arrête ─────────────────────────────
+
+const crowdTmp: Person[] = [];
+
+const protester = (p: Person): boolean => p.faction === 'protest' && p.vehicleId === 0 && p.custody === 'free' && p.health > 0;
+
+/**
+ * Cap de la ligne en garde autour de (x, z) : vers la foule la plus proche à moins de GUARD_CROWD mètres — le premier
+ * manifestant (du plus proche au plus loin) qui en a au moins GUARD_CROWD_MIN autour de lui à moins de 15 m, et le
+ * barycentre des manifestants à moins de 25 m de lui (quelques isolés plus près ne détournent pas la ligne) —, sinon
+ * dans le regard du joueur.
+ */
+function guardHeading(k: Kernel, x: number, z: number): number {
+  const ctx = k.ctx;
+  const n = ctx.people.queryRadius(x, z, T.GUARD_CROWD, crowdTmp, protester);
+  let best = -1;
+  let bestD = Infinity;
+  for (let i = 0; i < n; i++) {
+    const p = crowdTmp[i];
+    const d = (p.x - x) * (p.x - x) + (p.z - z) * (p.z - z);
+    if (d >= bestD) continue;
+    let around = 0;
+    for (let j = 0; j < n && around < T.GUARD_CROWD_MIN; j++) {
+      const q = crowdTmp[j];
+      if (q !== p && (q.x - p.x) * (q.x - p.x) + (q.z - p.z) * (q.z - p.z) <= 225) around++;
+    }
+    if (around < T.GUARD_CROWD_MIN) continue;
+    best = i;
+    bestD = d;
+  }
+  if (best >= 0) {
+    const c = crowdTmp[best];
+    let sx = 0;
+    let sz = 0;
+    let m = 0;
+    for (let i = 0; i < n; i++) {
+      const p = crowdTmp[i];
+      if ((p.x - c.x) * (p.x - c.x) + (p.z - c.z) * (p.z - c.z) > 625) continue;
+      sx += p.x;
+      sz += p.z;
+      m++;
+    }
+    crowdTmp.length = 0;
+    sx /= m;
+    sz /= m;
+    if ((sx - x) * (sx - x) + (sz - z) * (sz - z) > 1) return Math.atan2(sx - x, sz - z);
+  }
+  crowdTmp.length = 0;
+  return ctx.player.state.camYaw;
+}
+
+/** Rang de l'unité parmi les unités qui suivent le joueur à pied (par identifiant) : sa place autour de lui. */
+function guardIndex(k: Kernel, u: Unit, pid: number): number {
+  let idx = 0;
+  const roots = k.roots;
+  for (let i = 0; i < roots.length; i++) {
+    const r = roots[i];
+    if (r === u || r.id > u.id || !r.order || r.order.type !== 'suivre' || r.man.targetId !== pid || r.squad.kind === 'equipage') continue;
+    idx++;
+  }
+  return idx;
+}
+
+/** Point le plus loin possible de (x, z) vers (x + dx·len, z + dz·len) sans traverser de mur (1,5 m avant lui). */
+function reach(k: Kernel, x: number, z: number, dx: number, dz: number, len: number): number {
+  const hit = k.hit;
+  if (k.ctx.world.raycast(x, z, x + dx * (len + 1.5), z + dz * (len + 1.5), hit) && hit.hit) {
+    const free = hit.t * (len + 1.5) - 1.5;
+    return free < len ? (free > 0 ? free : 0) : len;
+  }
+  return len;
+}
+
+/**
+ * Ligne en garde derrière le joueur arrêté en (px, pz), face au cap h : la première unité juste derrière lui, la
+ * suivante à sa gauche, la troisième à sa droite ; sans place sur le côté (rue étroite), derrière la précédente.
+ */
+function formGuard(k: Kernel, u: Unit, px: number, pz: number, h: number, pid: number): void {
+  const fx = Math.sin(h);
+  const fz = Math.cos(h);
+  // droite de la ligne (même repère que formation.ts : buildLine)
+  const rx = -Math.cos(h);
+  const rz = Math.sin(h);
+  const idx = guardIndex(k, u, pid);
+  const est = Math.max(6, Math.ceil(Math.max(1, u.formed) / 2) * k.tuning.shieldSpacing);
+  let back = T.GUARD_BACK;
+  let side = 0;
+  if (idx === 1) side = 1;
+  else if (idx === 2) side = -1;
+  else if (idx > 2) back += T.GUARD_STACK * (idx - 2);
+  let d = reach(k, px, pz, -fx, -fz, back);
+  if (d < 3) d = Math.min(3, back);
+  let x = px - fx * d;
+  let z = pz - fz * d;
+  let width = 0;
+  if (side !== 0) {
+    const off = est / 2 + 2;
+    const free = reach(k, x, z, rx * side, rz * side, off + est / 2);
+    if (free >= off + est / 2 - 0.5) {
+      x += rx * side * off;
+      z += rz * side * off;
+      width = est;
+    } else {
+      // pas la place sur le côté : derrière la ligne précédente
+      const d2 = reach(k, px, pz, -fx, -fz, back + T.GUARD_STACK * idx);
+      x = px - fx * Math.max(d, d2);
+      z = pz - fz * Math.max(d, d2);
+    }
+  }
+  const g = formLine(k, u, x, z, h, width);
+  g.followId = 0;
+  u.guard = true;
+  u.guardOx = px;
+  u.guardOz = pz;
+  u.guardH = h;
+  u.guardTurnAt = k.now + 2;
+  setPhase(k, u, 'mise_en_place');
+}
+
+/**
+ * « Suivre » le joueur à pied : la colonne le suit tant qu'il marche ; arrêté (moins de GUARD_STILL mètres en
+ * GUARD_STOP_TIME secondes sans chercher à avancer), l'unité se met en ligne derrière lui face à la foule ; il repart de plus de GUARD_LEAVE
+ * mètres, elle reprend la colonne. Pas d'ordre, pas de radio, pas de compte rendu : l'ordre reste « suivre ».
+ */
+function progressFollow(k: Kernel, u: Unit, g: FormGroup): void {
+  if (k.now < u.guardCheckAt) return;
+  u.guardCheckAt = k.now + 0.25;
+  const pid = k.ctx.player.state.personId;
+  const me = pid !== 0 && u.man.targetId === pid ? personById(k, pid) : null;
+  if (!me || me.vehicleId !== 0 || u.squad.kind === 'equipage') {
+    if (u.guard && me) {
+      u.guard = false;
+      unitCenter(k, u);
+      startFollow(k, u, pid, k.v2.x, k.v2.z);
+    }
+    return;
+  }
+  // il marche (ou pousse pour avancer, buté contre un obstacle) : il ne s'est pas arrêté
+  const walks = me.cmd.moveX * me.cmd.moveX + me.cmd.moveZ * me.cmd.moveZ > 0.01;
+  if (walks || (me.x - u.guardX) * (me.x - u.guardX) + (me.z - u.guardZ) * (me.z - u.guardZ) > T.GUARD_STILL * T.GUARD_STILL) {
+    u.guardX = me.x;
+    u.guardZ = me.z;
+    u.guardAt = k.now;
+  }
+  if (u.guard) {
+    const dx = me.x - u.guardOx;
+    const dz = me.z - u.guardOz;
+    if (dx * dx + dz * dz > T.GUARD_LEAVE * T.GUARD_LEAVE) {
+      // il repart : la colonne reprend derrière lui
+      u.guard = false;
+      u.guardX = me.x;
+      u.guardZ = me.z;
+      u.guardAt = k.now;
+      unitCenter(k, u);
+      startFollow(k, u, pid, k.v2.x, k.v2.z);
+      return;
+    }
+    if (g.kind === F_LINE && u.phase === 'mise_en_place' && allSettled(u, T.IN_PLACE_TOLERANCE * 3)) setPhase(k, u, 'en_place');
+    // la foule s'est déplacée autour de lui : la ligne lui refait face (examen toutes les deux secondes)
+    if (k.now >= u.guardTurnAt) {
+      u.guardTurnAt = k.now + 2;
+      const h = guardHeading(k, me.x, me.z);
+      if (Math.abs(angleDiff(u.guardH, h)) > T.GUARD_TURN) formGuard(k, u, u.guardOx, u.guardOz, h, pid);
+    }
+    return;
+  }
+  if (k.now - u.guardAt >= T.GUARD_STOP_TIME) formGuard(k, u, me.x, me.z, guardHeading(k, me.x, me.z), pid);
 }

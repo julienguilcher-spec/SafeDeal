@@ -517,8 +517,11 @@ describe('point de départ de chaque rôle', () => {
     const { ctx } = t;
     const bb = bravmBaseOf(ctx.session.config)!;
     expect(bb).not.toBeNull();
-    const faucon = ctx.squads.list.find((s) => s.name.indexOf('FAUCON') === 0 && s.parentId === 0)!;
+    // (plan « ordres directs » §4.1.1 : la BRAV-M fait partie de la compagnie — à portée de « Avec moi » et des ordres du
+    // commandant — tout en partant de son propre commissariat ; avant, c'était une unité sans unité mère)
+    const faucon = ctx.squads.list.find((s) => s.name.indexOf('FAUCON') === 0 && s.kind === 'groupe')!;
     expect(faucon).toBeDefined();
+    expect(ctx.squads.get(faucon.parentId)?.kind).toBe('compagnie');
     const motos = ctx.vehicles.list.filter((v) => v.kind === 'moto_bravm');
     expect(motos.length).toBeGreaterThanOrEqual(6);
     for (const v of motos) expect(Math.hypot(v.x - bb.x, v.z - bb.z)).toBeLessThan(150);

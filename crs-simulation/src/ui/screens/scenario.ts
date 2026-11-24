@@ -28,6 +28,7 @@ import type { PatrolCrew, PatrolRythme, PatrolSetup } from '@/gameplay/patrols/m
 import { BASE_MAX_DIST, BASE_MIN_DIST, SERVICE_BASES, basePreload, bravmBasePreload, isJournee } from '@/gameplay/session/journee-data';
 import type { ServiceBase } from '@/gameplay/session/journee-data';
 import { sectionsFor } from '@/gameplay/session/manifestations';
+import { cellularCount } from '@/gameplay/session/remise';
 import type {
   DurationPreset, GameMode, PlayableRole, PolicePoste, PoliceRank, Rng, SessionConfig, ViolenceLevel, WeatherKind,
 } from '@/core/contracts';
@@ -909,6 +910,12 @@ export function columnsPreview(draft: ScenarioDraft): ColumnPreview[] {
   if (canon > 0) add('canon_eau', canon > 1 ? `${canon} engins lanceurs d’eau` : 'Engin lanceur d’eau', mainFrom, role === 'operateur_canon_eau');
   const drone = role === 'telepilote' ? Math.max(1, m.drone) : m.drone;
   if (drone > 0) add('drone', `Équipe drone — ${plural(drone, 'appareil', 'appareils')}`, mainFrom, role === 'telepilote');
+  // fourgons cellulaires avec leur équipage (mise en place de session, remise.ts) : 2 à 4 avec la compagnie selon la
+  // foule annoncée, un seul pour des forces sans compagnie (l'équipage de patrouille seul n'en a pas : sa voiture suffit)
+  if (sections > 0 || bravm > 0 || centaure > 0 || canon > 0 || drone > 0) {
+    const cells = cellularCount(d.crowdSize, sections > 0);
+    add('cellulaires', `Fourgons cellulaires — ${plural(cells, 'fourgon', 'fourgons')}, pour les interpellés`, mainFrom, false);
+  }
   const pompier = role === 'secouriste' && d.variante !== 'samu';
   const samu = role === 'secouriste' && d.variante === 'samu';
   const rescueFrom = (mine: boolean): string => (m.secours_sur_appel && !mine ? 'sur appel radio' : 'déjà sur place');

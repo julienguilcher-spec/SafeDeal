@@ -10,6 +10,25 @@ export function touchScale(width: number, height: number): number {
   return s < 0.82 ? 0.82 : s > 1.45 ? 1.45 : s;
 }
 
+/**
+ * Rangée de gauche de la surcouche tactile (Radio, pastille « Ordre prêt », « ⟳ À qui ») : distance au bas de l'écran,
+ * hauteur, bords gauche et droit, à l'échelle 1 — copie de input/touch/layouts.ts COMMS_ROW (les tests vérifient
+ * qu'elles sont égales). La mini-carte et la zone de gauche du HUD restent hors de ce rectangle.
+ */
+export const TOUCH_COMMS_ROW = { bottom: 136, height: 54, left: 18, right: 268 } as const;
+/** Bord gauche de la zone de gauche du HUD en tactile (css/hud.ts) : à droite de la rangée, 8 px d'écart. */
+export const TOUCH_LEFT_ZONE_X = 276;
+
+/** Rectangle de la rangée de gauche de la surcouche tactile, en pixels d'écran. */
+export function touchCommsRect(width: number, height: number, safeLeft = 0, safeBottom = 0): { left: number; right: number; top: number; bottom: number } {
+  const s = touchScale(width, height);
+  const r = TOUCH_COMMS_ROW;
+  return {
+    left: safeLeft + r.left * s, right: safeLeft + r.right * s,
+    top: height - safeBottom - (r.bottom + r.height) * s, bottom: height - safeBottom - r.bottom * s,
+  };
+}
+
 /** Hauteur d'écran sous laquelle le HUD passe en disposition compacte (téléphone en paysage). */
 export const COMPACT_HEIGHT = 520;
 /**
@@ -33,20 +52,24 @@ export interface ScreenBox {
 }
 
 /**
- * Centre vertical (px) de la zone de gauche (« Secours », « Vue drone », proposition de l'adjoint), ou null pour la
- * laisser au milieu de l'écran. Elle descend sous la zone du haut à gauche (état, mini-carte) quand elle la
- * chevauche, mais ne descend jamais sur ce qui est en bas (état physique, tableau de bord, barre d'objets tactile :
- * `floor`, haut de la zone du bas) : sur un téléphone, la proposition de l'adjoint passait sur la barre d'objets
- * et l'état physique. Quand la place manque entre les deux, le bas l'emporte — la zone mord sur le bas de la
+ * Centre vertical (px) de la zone de gauche (« Avec moi », « Secours ici », « Vue drone », proposition de l'adjoint),
+ * ou null pour la laisser au milieu de l'écran. Elle descend sous ce qui est en haut (`above` : la zone du haut à
+ * gauche — état, mini-carte — et, au téléphone, celle du haut au centre — pastille d'unité, bandeaux) quand elle le
+ * chevauche en largeur, mais ne descend jamais sur ce qui est en bas (état physique, tableau de bord, barre d'objets
+ * tactile : `floor`, haut de la zone du bas) : sur un téléphone, la proposition de l'adjoint passait sur la barre
+ * d'objets et l'état physique. Quand la place manque entre les deux, le bas l'emporte — la zone mord sur le bas de la
  * mini-carte plutôt que de cacher des boutons.
  */
-export function leftZoneCenter(zone: ScreenBox, above: ScreenBox, floor: number, screenHeight: number): number | null {
+export function leftZoneCenter(zone: ScreenBox, above: ScreenBox | readonly ScreenBox[], floor: number, screenHeight: number): number | null {
   if (zone.height <= 0) return null;
   const half = zone.height / 2;
   let center = screenHeight / 2;
   let moved = false;
-  if (above.height > 0 && zone.left < above.right && zone.right > above.left) {
-    const under = above.bottom + 8 + half;
+  const boxes: readonly ScreenBox[] = Array.isArray(above) ? above : [above as ScreenBox];
+  for (let i = 0; i < boxes.length; i++) {
+    const b = boxes[i]!;
+    if (!(b.height > 0 && zone.left < b.right && zone.right > b.left)) continue;
+    const under = b.bottom + 8 + half;
     if (under > center) {
       center = under;
       moved = true;

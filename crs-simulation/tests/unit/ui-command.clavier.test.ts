@@ -1,10 +1,11 @@
-// Commandement au clavier seul (Mac portable sans souris) : roue d'ordres (huit secteurs numérotés 1 à 8, la roue du CRS
-// garde les numéros 1, 2 et 7 ; chiffres, flèches, Entrée ; couronnes « Secours ici » et « Plus… »), carte tactique
+// Commandement au clavier seul (Mac portable sans souris) : roue d'ordres (sept secteurs numérotés 1, 3 à 8, le 2 en alias
+// du 1 ; la roue du CRS garde les numéros 1 et 7 ; chiffres, flèches, Entrée ; couronnes « Secours ici » et « Plus… »), carte tactique
 // (sections au chiffre, unité suivante, curseur aux flèches). Logique pure : la partie DOM se contente de l'appliquer.
 import { describe, expect, it } from 'vitest';
 
 import type { Button, InputDevice } from '@/core/contracts';
-import { FOLLOW_WHEEL, MORE_RING, RESCUE_RING, WHEEL, lockedReason, splitLabel, wheelItems, wrapWords } from '@/ui/command/orderWheel';
+import { FOLLOW_WHEEL, MORE_RING, RESCUE_RING, WHEEL, splitLabel, wheelItems, wrapWords } from '@/ui/command/orderWheel';
+import { DIGIT_ALIASES } from '@/ui/command/direct/words';
 import { verbOf } from '@/ui/command/orders';
 import { cycleUnitKey, keyboardSections, sectionKeyIndex } from '@/ui/command/tacticalKeys';
 import type { KeyUnit } from '@/ui/command/tacticalKeys';
@@ -25,25 +26,28 @@ function frame(device: InputDevice, down: Button[] = [], pressed: Button[] = [],
 }
 
 describe('roue d’ordres au clavier — touche → secteur → ordre', () => {
-  it('huit secteurs, les ordres « Suivez-moi » d’abord, numérotés 1 à 8 dans le sens horaire', () => {
-    expect(WHEEL.length).toBe(8);
-    expect(WHEEL.map((w) => w.key)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
-    expect(WHEEL.map((w) => w.type)).toEqual(['suivre_pied', 'avec_moi', 'avancer', 'ligne', 'interpeller', 'degager_obstacle', 'secours', 'plus']);
-    expect(WHEEL.map((w) => w.label)).toEqual([
-      'Suivez-moi à pied', 'Suivez-moi en véhicules', 'Avancer jusqu’ici', 'Tenir une ligne ici', 'Interpeller', 'Pousser un véhicule',
-      'Secours ici', 'Plus…',
-    ]);
+  it('sept secteurs, mêmes mots que la carte, numérotés 1, 3 à 8 dans le sens horaire (le 2 : alias du 1)', () => {
+    expect(WHEEL.length).toBe(7);
+    expect(WHEEL.map((w) => w.key)).toEqual([1, 3, 4, 5, 6, 7, 8]);
+    expect(WHEEL.map((w) => w.action)).toEqual(['avec_moi', 'envoyer', 'bloquer', 'interpeller', 'disperser', 'secours', 'plus']);
+    expect(WHEEL.map((w) => w.label)).toEqual(['Avec moi', 'Envoyer', 'Bloquer une rue', 'Interpeller', 'Disperser', 'Secours ici', 'Plus…']);
     const keys = WHEEL.map((w) => w.key);
-    expect(WHEEL[wheelSectorIndex('Digit1', keys)]!.type).toBe('suivre_pied');
-    expect(WHEEL[wheelSectorIndex('Digit2', keys)]!.type).toBe('avec_moi');
-    expect(WHEEL[wheelSectorIndex('Digit6', keys)]!.type).toBe('degager_obstacle');
-    expect(WHEEL[wheelSectorIndex('Digit8', keys)]!.type).toBe('plus');
+    const at = (code: string): string => WHEEL[wheelSectorIndex(code, keys, DIGIT_ALIASES)]?.action ?? '';
+    expect(at('Digit1')).toBe('avec_moi');
+    // « F puis 2 » (l'ancien « Suivez-moi en véhicules ») : « Avec moi », qui suit en véhicules quand il est à bord
+    expect(at('Digit2')).toBe('avec_moi');
+    expect(wheelSectorIndex('Digit2', keys)).toBe(-1);
+    expect(at('Digit3')).toBe('envoyer');
+    expect(at('Digit4')).toBe('bloquer');
+    expect(at('Digit6')).toBe('disperser');
+    expect(at('Digit8')).toBe('plus');
     // pavé numérique ; chiffres sans secteur ; touches qui ne sont pas des chiffres
-    expect(WHEEL[wheelSectorIndex('Numpad7', keys)]!.type).toBe('secours');
-    expect(wheelSectorIndex('Digit9', keys)).toBe(-1);
-    expect(wheelSectorIndex('Digit0', keys)).toBe(-1);
-    expect(wheelSectorIndex('KeyF', keys)).toBe(-1);
-    expect(wheelSectorIndex('Enter', keys)).toBe(-1);
+    expect(at('Numpad7')).toBe('secours');
+    expect(at('Numpad2')).toBe('avec_moi');
+    expect(wheelSectorIndex('Digit9', keys, DIGIT_ALIASES)).toBe(-1);
+    expect(wheelSectorIndex('Digit0', keys, DIGIT_ALIASES)).toBe(-1);
+    expect(wheelSectorIndex('KeyF', keys, DIGIT_ALIASES)).toBe(-1);
+    expect(wheelSectorIndex('Enter', keys, DIGIT_ALIASES)).toBe(-1);
     expect(keyDigit('Numpad0')).toBe(0);
     expect(keyDigit('KeyA')).toBe(-1);
     // la roue prend pour elle les chiffres (jamais transmis au jeu, qui changerait d'objet en main), pas les lettres
@@ -54,70 +58,68 @@ describe('roue d’ordres au clavier — touche → secteur → ordre', () => {
     expect(isWheelKeyCode('Enter')).toBe(false);
   });
 
-  it('roue du CRS (lecture seule) : trois secteurs, avec les MÊMES numéros 1, 2 et 7', () => {
-    expect(FOLLOW_WHEEL.map((w) => w.type)).toEqual(['suivre_pied', 'avec_moi', 'secours']);
+  it('roue du CRS (lecture seule) : « Avec moi » (1, et 2) et « Secours ici » (7), les MÊMES numéros', () => {
+    expect(FOLLOW_WHEEL.map((w) => w.action)).toEqual(['avec_moi', 'secours']);
     const keys = FOLLOW_WHEEL.map((w) => w.key);
-    expect(keys).toEqual([1, 2, 7]);
-    expect(FOLLOW_WHEEL[wheelSectorIndex('Digit1', keys)]!.type).toBe('suivre_pied');
-    expect(FOLLOW_WHEEL[wheelSectorIndex('Digit2', keys)]!.type).toBe('avec_moi');
-    expect(FOLLOW_WHEEL[wheelSectorIndex('Digit7', keys)]!.type).toBe('secours');
+    expect(keys).toEqual([1, 7]);
+    expect(FOLLOW_WHEEL[wheelSectorIndex('Digit1', keys, DIGIT_ALIASES)]!.action).toBe('avec_moi');
+    expect(FOLLOW_WHEEL[wheelSectorIndex('Digit2', keys, DIGIT_ALIASES)]!.action).toBe('avec_moi');
+    expect(FOLLOW_WHEEL[wheelSectorIndex('Digit7', keys, DIGIT_ALIASES)]!.action).toBe('secours');
     // « 3 » n'est pas « Secours ici » : ce numéro n'existe pas dans la roue du CRS
-    expect(wheelSectorIndex('Digit3', keys)).toBe(-1);
+    expect(wheelSectorIndex('Digit3', keys, DIGIT_ALIASES)).toBe(-1);
     // les numéros imprimés sur les secteurs sont ceux des touches
-    const items = wheelItems(FOLLOW_WHEEL, { roe: { authorizedForce: 1, underAttack: false, sommation: 0 }, hasTarget: false });
-    expect(items.map((i) => i.key)).toEqual(['1', '2', '7']);
+    const items = wheelItems(FOLLOW_WHEEL, [null, null]);
+    expect(items.map((i) => i.key)).toEqual(['1', '7']);
   });
 
-  it('couronnes intérieures : « Secours ici » (1 Pompiers, 2 SAMU) et « Plus… » (1 à 8)', () => {
-    const rescue = WHEEL.find((w) => w.type === 'secours')!.ring!;
+  it('couronnes intérieures : « Secours ici » (1 Pompiers, 2 SAMU) et « Plus… » (1 à 8 d’avant, 9 Pousser)', () => {
+    const rescue = WHEEL.find((w) => w.action === 'secours')!.ring!;
     expect(rescue).toBe(RESCUE_RING);
     expect(rescue.map((w) => `${w.key} ${w.label}`)).toEqual(['1 Pompiers ici', '2 SAMU ici']);
-    const more = WHEEL.find((w) => w.type === 'plus')!.ring!;
+    const more = WHEEL.find((w) => w.action === 'plus')!.ring!;
     expect(more).toBe(MORE_RING);
-    expect(more.map((w) => w.key)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
-    expect(more.map((w) => w.type)).toEqual(['repli', 'bond_offensif', 'charge', 'disperser_gaz', 'tenir', 'cesser', 'libre', 'tortue']);
+    expect(more.map((w) => w.key)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(more.map((w) => w.orders[0])).toEqual(['repli', 'bond_offensif', 'charge', 'disperser_gaz', 'tenir', 'cesser', 'libre', 'tortue', 'degager_obstacle']);
     expect(more.map((w) => w.label)).toEqual([
       'Se replier', 'Bond en avant', 'Charger', 'Disperser au gaz', 'Tenir sa position', 'Arrêter l’action', 'Laisser agir seuls', 'Se protéger (tortue)',
+      'Pousser un véhicule',
     ]);
+    // dans une couronne, pas d'alias : le 2 de « Plus… » est « Bond en avant »
+    expect(more[wheelSectorIndex('Digit2', more.map((w) => w.key))]!.label).toBe('Bond en avant');
     // chaque ordre de la roue existe (aucun secteur qui ne ferait rien)
     for (const w of [...WHEEL, ...MORE_RING]) {
-      if (w.ring) continue;
-      expect(verbOf(w.type), w.type).toBeTruthy();
+      if (w.ring || w.action === 'avec_moi') continue;
+      for (const o of w.orders) expect(verbOf(o), String(o)).toBeTruthy();
+      if (w.action !== 'secours') expect(w.orders.length, w.label).toBeGreaterThan(0);
     }
   });
 
-  it('secteur verrouillé : grisé, avec sa raison en une ligne ; interpeller sans personne visée', () => {
-    const calm = { authorizedForce: 1 as const, underAttack: false, sommation: 0 as const };
-    const items = wheelItems(MORE_RING, { roe: calm, hasTarget: false });
-    const gas = items.find((i) => i.id === 'disperser_gaz')!;
-    expect(gas.disabled).toBe(true);
-    expect(gas.sub).toBe('il faut les sommations et l’autorisation du gaz');
-    const charge = items.find((i) => i.id === 'charge')!;
-    expect(charge.disabled).toBe(true);
-    expect(charge.sub).toBe('il faut les sommations et l’autorisation du bâton');
-    expect(items.find((i) => i.id === 'tenir')!.disabled).toBe(false);
-    // sommations faites, gaz autorisé : plus de verrou ; attaqués : riposte permise
-    expect(lockedReason(verbOf('disperser_gaz')!, { authorizedForce: 3, underAttack: false, sommation: 3 })).toBe('');
-    expect(lockedReason(verbOf('disperser_gaz')!, { authorizedForce: 1, underAttack: true, sommation: 0 })).toBe('');
-    expect(lockedReason(verbOf('disperser_gaz')!, { authorizedForce: 2, underAttack: false, sommation: 3 })).toBe('il faut l’autorisation du gaz');
-    const main = wheelItems(WHEEL, { roe: calm, hasTarget: false });
-    const arrest = main.find((i) => i.id === 'interpeller')!;
-    expect(arrest.disabled).toBe(true);
-    expect(arrest.sub).toBe('visez quelqu’un');
-    expect(wheelItems(WHEEL, { roe: calm, hasTarget: true }).find((i) => i.id === 'interpeller')!.disabled).toBe(false);
+  it('secteur verrouillé : grisé mais choisissable, sa raison en quelques mots ; l’unité qui obéira en deuxième ligne', () => {
+    const order = (whoShort: string, enabled: boolean, legalFirst = false) => ({ whoShort, enabled, legalFirst }) as never;
+    const items = wheelItems(MORE_RING.slice(0, 3), [order('MISTRAL 1 · 40\u00a0m', true), order('sommations d’abord', true, true), order('accord du commandant', false)]);
+    expect(items.map((i) => i.sub)).toEqual(['MISTRAL 1 · 40\u00a0m', 'sommations d’abord', 'accord du commandant']);
+    expect(items.map((i) => i.locked)).toEqual([false, true, true]);
+    // jamais `disabled` pour le menu radial : le choisir dit la raison (ou fait les sommations au second appui)
+    expect(items.every((i) => i.disabled === false)).toBe(true);
+    // ordres de force : surlignés en rouge
+    expect(items.map((i) => i.force)).toEqual([false, true, true]);
+    // sans ordre calculé (couronne, appel) : la deuxième ligne d'origine
+    expect(wheelItems(RESCUE_RING, [null, null]).map((i) => i.sub)).toEqual(['à votre position', 'à votre position']);
     // la raison tient dans le secteur : trois lignes au plus, sans perdre un mot ; libellés longs sur deux lignes
-    const lines = wrapWords(gas.sub!, 19, 3);
+    const long = 'la rue visée, toute sa largeur';
+    const lines = wrapWords(long, 19, 3);
     expect(lines.length).toBeLessThanOrEqual(3);
-    expect(lines.join(' ')).toBe(gas.sub);
-    expect(splitLabel('Suivez-moi en véhicules')).toEqual(['Suivez-moi', 'en véhicules']);
+    expect(lines.join(' ')).toBe(long);
+    expect(splitLabel('Se protéger (tortue)')).toEqual(['Se protéger', '(tortue)']);
     expect(splitLabel('Interpeller')).toBeNull();
     // jamais un niveau de force en chiffre dans la roue
-    for (const i of [...main, ...items]) expect(`${i.label} ${i.sub ?? ''}`).not.toMatch(/force \d|niveau \d/);
+    for (const i of [...wheelItems(WHEEL, WHEEL.map(() => null)), ...wheelItems(MORE_RING, MORE_RING.map(() => null))]) {
+      expect(`${i.label} ${i.sub ?? ''}`).not.toMatch(/force \d|niveau \d/);
+    }
   });
 
   it('chaque secteur affiche sa touche ; la légende est celle demandée', () => {
-    expect(wheelItems(WHEEL, { roe: { authorizedForce: 4, underAttack: false, sommation: 3 }, hasTarget: true }).map((i) => i.key))
-      .toEqual(['1', '2', '3', '4', '5', '6', '7', '8']);
+    expect(wheelItems(WHEEL, WHEEL.map(() => null)).map((i) => i.key)).toEqual(['1', '3', '4', '5', '6', '7', '8']);
     expect(WHEEL_KEYS_LEGEND).toBe('Chiffres, ou flèches puis Entrée');
     // règle générale des menus radiaux sans numéros propres (wheel.ts) : inchangée
     expect(wheelKeyIndex('Digit1', 12)).toBe(0);
@@ -130,7 +132,8 @@ describe('roue d’ordres au clavier — touche → secteur → ordre', () => {
   it('un chiffre tapé donne directement l’ordre (choix), même sans flèches ; les flèches ne servent qu’au clavier', () => {
     const none = { pressed: () => false };
     expect(wheelKeyAction(-1, 8, 'Digit5', none, false)).toEqual({ kind: 'choose', index: 4 });
-    expect(WHEEL[4]!.type).toBe('interpeller');
+    // la roue d'ordres lit le numéro IMPRIMÉ : 5 = Interpeller (4e secteur, le 2 n'étant pas dessiné)
+    expect(WHEEL[wheelSectorIndex('Digit5', WHEEL.map((w) => w.key))]!.action).toBe('interpeller');
     const right = { pressed: (b: string) => b === 'ui_right' };
     expect(wheelKeyAction(-1, 8, '', right, true)).toEqual({ kind: 'highlight', index: 2 });
     // manette : la croix porte aussi « Ordres » → pas de déplacement par les boutons ui_*
@@ -144,8 +147,8 @@ describe('roue d’ordres au clavier — touche → secteur → ordre', () => {
     expect(wheelArrowStep(-1, 'right', 8)).toBe(2);
     expect(wheelArrowStep(-1, 'down', 8)).toBe(4);
     expect(wheelArrowStep(-1, 'left', 8)).toBe(6);
-    // roue du CRS : en haut « Suivez-moi à pied »
-    expect(wheelArrowStep(-1, 'up', 3)).toBe(0);
+    // roue du CRS : en haut « Avec moi »
+    expect(wheelArrowStep(-1, 'up', FOLLOW_WHEEL.length)).toBe(0);
   });
 
   it('flèches avec surlignage : on glisse vers le voisin qui va dans ce sens, sans sauter ni boucler', () => {

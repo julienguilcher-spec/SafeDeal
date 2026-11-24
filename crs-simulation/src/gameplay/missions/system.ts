@@ -75,6 +75,14 @@ const ARRIVE_HOLD = 20;
 const COLUMN_WAIT = 180;
 const COLUMN_NEAR = 300;
 /**
+ * Journée « sur place » (la tête de colonne a débarqué) mais la queue roule encore — le stationnement n'attend plus les
+ * derniers (police/command/convoy.ts, PARK_WAIT) : la mission ne commence que lorsque TAIL_SHARE de la compagnie est à
+ * moins de COLUMN_NEAR m du joueur, au plus TAIL_WAIT s. Relevé du commandant passager (« Trois ponts ») :
+ * mission commencée, treize véhicules sur dix-sept encore sur le quai, à 240–410 m.
+ */
+const TAIL_SHARE = 0.9;
+const TAIL_WAIT = 120;
+/**
  * Ordre des phases de la foule. Une phase de mission qui attend « départ » ou « cortège » est close quand la foule en est
  * déjà plus loin : en journée de service, le cortège part pendant le trajet en colonne, avant le début de la mission.
  */
@@ -175,6 +183,8 @@ export class MissionSystem implements GameSystem {
   private nearSince = -1;
   /** Attente de la colonne déjà annoncée au joueur. */
   private columnTold = false;
+  /** Journée « sur place », queue de la colonne encore en route : depuis quand la mission l'attend (−1 : pas encore). */
+  private tailSince = -1;
   private readonly catalog_: Record<string, unknown>[];
 
   constructor() {
@@ -233,6 +243,7 @@ export class MissionSystem implements GameSystem {
     this.postSince = -1;
     this.nearSince = -1;
     this.columnTold = false;
+    this.tailSince = -1;
     this.tracker?.reset();
     this.def = null;
     this.pending = false;
@@ -304,6 +315,32 @@ export class MissionSystem implements GameSystem {
     if (!this.columnTold) {
       this.columnTold = true;
       ctx.ui.notify('Votre compagnie est encore en route : la mission commence à son arrivée.', 'info', 6);
+    }
+    return false;
+  }
+
+  /**
+   * La queue de la colonne est-elle arrivée (journée « sur place ») : TAIL_SHARE de la compagnie du joueur à moins de
+   * COLUMN_NEAR m de lui ? Sinon la mission l'attend, en le disant une fois, au plus TAIL_WAIT s — s'il est arrivé avec
+   * elle (à moins de TRAVEL_NEAR m du lieu).
+   */
+  private tailIn(now: number, dest: { x: number; z: number } | null): boolean {
+    const ctx = this.ctx!;
+    const me = ctx.player.person();
+    let top = me && me.squadId !== 0 ? ctx.squads.get(me.squadId) : undefined;
+    for (let guard = 0; top && top.parentId !== 0 && guard < 8; guard++) top = ctx.squads.get(top.parentId);
+    const cmd = ctx.service<{ convoyOf?(id: number): { stage: string } | null }>('police.command');
+    const st = top && cmd && cmd.convoyOf ? cmd.convoyOf(top.id) : null;
+    if (!me || !top || !st) return true;
+    // (resté ailleurs — à la base, la colonne partie sans lui : elle ne l'attend pas, la mission non plus)
+    if (!dest || Math.hypot(me.x - dest.x, me.z - dest.z) > TRAVEL_NEAR) return true;
+    if (this.tailSince < 0) this.tailSince = now;
+    if (now - this.tailSince >= TAIL_WAIT) return true;
+    // (autour de lui : c'est lui qui commande — colonne arrêtée avant le lieu, arrêt court, il n'y est pas encore)
+    if (this.shareNear(top.id, me.x, me.z) >= TAIL_SHARE) return true;
+    if (!this.columnTold) {
+      this.columnTold = true;
+      ctx.ui.notify('La fin de votre colonne arrive : la mission commence quand elle est là.', 'info', 6);
     }
     return false;
   }
@@ -623,7 +660,7 @@ export class MissionSystem implements GameSystem {
         } else this.nearSince = -1;
         const inPlace = this.nearSince >= 0 && now - this.nearSince >= ARRIVE_HOLD && this.columnIn(now, d);
         if (!inPlace && (now - this.waitSince < TRAVEL_MAX || far > TRAVEL_NEAR)) return;
-      }
+      } else if (j && j.stage === 'sur_place' && !this.tailIn(ctx.clock.now, j.destination)) return;
       this.begin();
     }
     if (!this.started) return;

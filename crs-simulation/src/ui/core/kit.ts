@@ -20,6 +20,8 @@ const FALLBACK_KEYS: Readonly<Partial<Record<Button, string>>> = {
   item_next: 'Molette', item_prev: 'Molette', radio: 'T', orders: 'F', map: 'M', tactical: 'Tab', camera: 'V', pause: 'Échap',
   flashlight: 'L', mask: 'G', visor: 'H', siren: 'R', beacons: 'B', horn: 'N', handbrake: 'Espace', headlights: 'L', megaphone: 'X',
   fast_forward: '.', jog: 'W', zoom_in: '+', zoom_out: '−', ui_accept: 'Entrée', ui_back: 'Échap', ui_up: '↑', ui_down: '↓', ui_left: '←', ui_right: '→',
+  // ordres directs du terrain : Entrée (l'ordre prêt), U (à qui), ⌫ (annuler), A (avec moi : touche physique KeyQ)
+  order_go: 'Entrée', order_who: 'U', order_undo: '⌫', with_me: 'A',
 };
 
 /** Ce dont les écrans internes ont besoin. */

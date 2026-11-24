@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { GameContext, GameEvents, InteractionHandler, InteractionOption, InteractVerb, Person } from '@/core/contracts';
-import type { LawHandover } from '@/gameplay/law/api';
+import type { LawCustody, LawHandover } from '@/gameplay/law/api';
+import { LAW_CUSTODY_SERVICE } from '@/gameplay/law/api';
 import type { LawTest } from '@/gameplay/law/testkit';
 import { attackOfficer, crs, person, protester, startLaw } from '@/gameplay/law/testkit';
 
@@ -114,16 +115,19 @@ describe('droit — interpellation : chaîne complète', () => {
     expect(agent.carrying).toBe(0);
     expect(handed).toEqual([{ id: lanceur.id, byId: agent.id }]);
 
-    // la procédure est close et notée
+    // la procédure est close et notée : à bord du fourgon, en attente de transfert (pas encore présenté à l'OPJ)
     expect(law.records.arrestOf(lanceur.id)).toBeNull();
-    expect(rec.status).toBe('remis');
+    expect(rec.status).toBe('remis_vehicule');
     expect(rec.to).toBe('vehicule');
+    expect(rec.vehicleId).toBe(fourgon.id);
     expect(rec.regular).toBe(true);
     expect(rec.strength).toBe('fragile'); // constaté par un agent, sans image
     expect(rec.worstVerdict).toBe('licite');
     expect(law.radio.at(-1)?.text).toContain('UN interpellé pour violences');
+    expect(law.radio.at(-1)?.text).toContain('en attente de transfert');
+    expect(law.radio.at(-1)?.text).not.toContain('officier de police judiciaire');
     const st = law.records.stats();
-    expect([st.arrests, st.founded, st.handedOver, st.unfounded]).toEqual([1, 1, 1, 0]);
+    expect([st.arrests, st.founded, st.handedOver, st.unfounded, st.inVan, st.atStation]).toEqual([1, 1, 1, 0, 1, 0]);
     expect(st.score).toBe(100);
   });
 
@@ -189,7 +193,7 @@ describe('droit — interpellation : chaîne complète', () => {
     const voiture = ctx.vehicles.spawn('voiture_police', agent.x + 3, agent.z, 0, { faction: 'police' });
     // la moto et les véhicules civils ne conviennent pas
     const civile = ctx.vehicles.spawn('voiture', agent.x - 3, agent.z, 0);
-    expect(handlers.map((h) => h.verb)).toEqual(['maitriser', 'menotter', 'palper', 'escorter', 'remettre', 'relacher', 'controler']);
+    expect(handlers.map((h) => h.verb)).toEqual(['maitriser', 'menotter', 'palper', 'escorter', 'remettre', 'confier', 'faire_venir', 'relacher', 'controler']);
     const remettre = handlers.find((h) => h.verb === 'remettre')!;
     expect(remettre.find(agent, civile.id)).toBeNull();
     expect(remettre.find(agent, 123456)).toBeNull();
@@ -210,6 +214,125 @@ describe('droit — interpellation : chaîne complète', () => {
     expect(maitriser.find(agent, a.id)!.targetId).toBe(a.id);
     expect(maitriser.find(agent, cible.id)).toBeNull();
     expect(law.records.interpellations[0]!.cuffed).toBe(false);
+  });
+});
+
+/** Les options proposées au joueur, libellés compris, la première d'abord. */
+function prompts(ctx: GameContext, actor: Person): InteractionOption[] {
+  const out: InteractionOption[] = [];
+  ctx.interactions.options(actor, out);
+  return out.map((o) => ({ ...o }));
+}
+
+/** Le joueur interpelle, menotte et palpe : les trois premiers appuis sur la touche Interagir. */
+function threePresses(law: LawTest, agent: Person, target: Person): void {
+  expect(subdue(law, agent, target)).toBeGreaterThan(0);
+  expect(verbs(law.ctx, agent)[0]).toBe('menotter');
+  expect(act(law, agent, 'menotter', target.id)).toBe(true);
+  expect(verbs(law.ctx, agent)[0]).toBe('palper');
+  expect(act(law, agent, 'palper', target.id)).toBe(true);
+}
+
+describe('droit — l\'interpellé du joueur : la 4e invite est la meilleure issue (plan ordres-directs §5.3)', () => {
+  it('« Remettre (CELLULAIRE 1) » à 12 m du fourgon cellulaire, même avec un fourgon de CRS à 4 m ; ligne d\'aide dès la palpation', async () => {
+    const law = await startLaw({ seed: 11 });
+    const { ctx } = law;
+    const agent = crs(ctx, 0, 0);
+    ctx.player.possess(agent.id);
+    const cible = protester(ctx, 0, 1.2, 'pacifique', { name: 'Christian Lopez' });
+    attackOfficer(ctx, cible, crs(ctx, 1.5, 1.5));
+    const van = ctx.vehicles.spawn('fourgon_cellulaire', 11, 0.6, 0, { faction: 'police' });
+    const equipage = ctx.squads.create('equipage', 'police', 'CELLULAIRE 1');
+    equipage.vehicleId = van.id;
+    const crsVan = ctx.vehicles.spawn('fourgon_crs', -4, 0.6, 0, { faction: 'police' });
+    threePresses(law, agent, cible);
+    const custody = ctx.require<LawCustody>(LAW_CUSTODY_SERVICE);
+    // la ligne d'aide est là dès la fin de la palpation (même pas de pas de simulation)
+    expect(custody.guidance(agent.id)).toBe('Interpellé. E\u00a0: le remettre au fourgon cellulaire 1 (' + Math.round(Math.hypot(van.x - agent.x, van.z - agent.z)) + '\u00a0m)');
+    law.t.step(0.5);
+    expect(custody.guidance(agent.id)).not.toBe('');
+    // 4e appui : remettre au fourgon cellulaire, pas au fourgon de CRS plus proche, jamais « Faire asseoir »
+    const top = prompts(ctx, agent)[0]!;
+    expect(top.verb).toBe('remettre');
+    expect(top.label).toBe('Remettre Christian Lopez (CELLULAIRE 1)');
+    expect(custody.bestWay(agent.id)?.kind).toBe('remettre_fourgon');
+    expect(custody.detaineeOf(agent.id)?.id).toBe(cible.id);
+    // Entrée (ordre prêt, règle a) fait la même chose que la touche
+    expect(custody.handover(agent.id)).toBe(true);
+    law.t.step(ctx.interactions.current(agent)!.opt.duration + 0.1);
+    expect(cible.custody).toBe('in_vehicle');
+    expect(cible.vehicleId).toBe(van.id);
+    expect(crsVan.seats.includes(cible.id)).toBe(false);
+    const rec = law.records.interpellations[0]!;
+    expect(rec.status).toBe('remis_vehicule');
+    expect(rec.vehicleName).toBe('CELLULAIRE 1');
+    expect(law.radio.at(-1)?.text).toContain('à bord du CELLULAIRE 1, en attente de transfert');
+    // plus rien à faire de lui : plus de ligne d'aide, plus d'interpellé
+    expect(custody.detaineeOf(agent.id)).toBeNull();
+    expect(custody.guidance(agent.id)).toBe('');
+  });
+
+  it('à 13 m du fourgon cellulaire, c\'est le fourgon de CRS à 4 m ; à 6 m de tout, « Emmener » (jamais « Faire asseoir »)', async () => {
+    const law = await startLaw({ seed: 12 });
+    const { ctx } = law;
+    const agent = crs(ctx, 0, 0);
+    ctx.player.possess(agent.id);
+    const cible = protester(ctx, 0, 1.2, 'pacifique', { name: 'Hervé Michel' });
+    attackOfficer(ctx, cible, crs(ctx, 1.5, 1.5));
+    const van = ctx.vehicles.spawn('fourgon_cellulaire', 13.5, 0, 0, { faction: 'police' });
+    ctx.squads.create('equipage', 'police', 'CELLULAIRE 2').vehicleId = van.id;
+    const crsVan = ctx.vehicles.spawn('fourgon_crs', -4, 0, 0, { faction: 'police' });
+    threePresses(law, agent, cible);
+    let top = prompts(ctx, agent)[0]!;
+    expect(top.verb).toBe('remettre');
+    // (monde neutre : le nom du véhicule est celui de sa fiche)
+    expect(top.label).toBe('Remettre Hervé Michel (' + crsVan.def.name + ')');
+    // le fourgon de CRS s'en va : la 4e invite est « Emmener », vers le fourgon cellulaire (flèche)
+    crsVan.x = -60;
+    top = prompts(ctx, agent)[0]!;
+    expect(top.verb).toBe('escorter');
+    expect(top.label).toBe('Emmener Hervé Michel');
+    const custody = ctx.require<LawCustody>(LAW_CUSTODY_SERVICE);
+    expect(custody.guidance(agent.id)).toMatch(/^Interpellé\. E\u00a0: l’emmener au fourgon cellulaire 2 \(1[0-9]\u00a0m, flèche\)$/);
+    expect(custody.nearestDrop(agent.id)?.vehicleId).toBe(van.id);
+    // il l'emmène : à 12 m du fourgon, la remise passe avant « Faire asseoir »
+    expect(act(law, agent, 'escorter', cible.id)).toBe(true);
+    expect(cible.custody).toBe('escorted');
+    expect(prompts(ctx, agent).map((o) => o.verb)).toEqual(['escorter', 'relacher']);
+    agent.x = 3;
+    law.t.step(0.2);
+    const now = prompts(ctx, agent);
+    expect(now[0]!.verb).toBe('remettre');
+    expect(now[0]!.label).toBe('Remettre Hervé Michel (CELLULAIRE 2)');
+    expect(now.findIndex((o) => o.label.startsWith('Faire asseoir'))).toBeGreaterThan(0);
+  });
+
+  it('dépôt au commissariat : le dossier passe à « déposé », le compte rendu le dit', async () => {
+    const law = await startLaw({ seed: 13 });
+    const { ctx } = law;
+    const agent = crs(ctx, 0, 0);
+    const cible = protester(ctx, 0, 1.2, 'pacifique');
+    attackOfficer(ctx, cible, crs(ctx, 1.5, 1.5));
+    expect(subdue(law, agent, cible)).toBeGreaterThan(0);
+    act(law, agent, 'menotter', cible.id);
+    act(law, agent, 'escorter', cible.id);
+    ctx.vehicles.spawn('fourgon_cellulaire', agent.x + 3, agent.z, 0, { faction: 'police' });
+    expect(act(law, agent, 'remettre', cible.id)).toBe(true);
+    expect(law.records.stats().inVan).toBe(1);
+    expect(law.records.summary()).toContain("1 à bord d'un véhicule de police en attente de transfert");
+    expect(law.records.summary()).not.toContain('officier de police judiciaire');
+    law.t.step(30);
+    expect(law.records.markDelivered([cible.id, 999999], 'commissariat du 3e')).toBe(1);
+    const rec = law.records.lastArrestOf(cible.id)!;
+    expect(rec.status).toBe('depose');
+    expect(rec.station).toBe('commissariat du 3e');
+    expect(rec.deliveredAt).toBeCloseTo(ctx.clock.now, 1);
+    const st = law.records.stats();
+    expect([st.handedOver, st.inVan, st.atStation]).toEqual([1, 0, 1]);
+    expect(law.records.summary()).toContain("1 déposée au commissariat (remises à l'officier de police judiciaire)");
+    expect(law.records.summary()).toContain("déposé au commissariat du 3e, présenté à l'officier de police judiciaire");
+    // déjà déposé : rien ne change
+    expect(law.records.markDelivered([cible.id], 'commissariat du 1er')).toBe(0);
   });
 });
 

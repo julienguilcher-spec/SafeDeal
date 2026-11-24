@@ -60,6 +60,8 @@ export class Records implements LawRecords {
 
   /** Dossiers d'interpellation en cours, par personne retenue. */
   readonly open = new Map<EntityId, ArrestRecord>();
+  /** Horloge de la session (branchée par le module : instant d'un dépôt au commissariat). */
+  clock: () => number = () => -1;
 
   reset(): void {
     this.sommations.length = 0;
@@ -85,6 +87,24 @@ export class Records implements LawRecords {
     const list = this.interpellations;
     for (let i = list.length - 1; i >= 0; i--) if (list[i]!.targetId === personId) return list[i]!;
     return null;
+  }
+
+  /**
+   * Dépôt au commissariat : le dernier dossier de chaque personne, s'il est remis (à bord d'un véhicule ou à un point),
+   * passe à « déposé ». Un dossier déjà déposé, en cours, relâché ou évadé ne change pas.
+   */
+  markDelivered(personIds: readonly EntityId[], station: string): number {
+    const now = this.clock();
+    let n = 0;
+    for (let i = 0; i < personIds.length; i++) {
+      const rec = this.lastArrestOf(personIds[i]!);
+      if (!rec || (rec.status !== 'remis_vehicule' && rec.status !== 'remis')) continue;
+      rec.status = 'depose';
+      rec.station = station;
+      rec.deliveredAt = now;
+      n++;
+    }
+    return n;
   }
 
   /** Ajoute une plainte probable (une seule par plaignant et par nature ; la plus grave est conservée). */
@@ -157,6 +177,8 @@ export class Records implements LawRecords {
     let arrests = 0;
     let founded = 0;
     let handedOver = 0;
+    let inVan = 0;
+    let atStation = 0;
     let released = 0;
     let escaped = 0;
     const al = this.interpellations;
@@ -173,7 +195,9 @@ export class Records implements LawRecords {
         penalty += p;
       }
       if (a.cuffed && !a.cuffJustified) penalty += PENALTY_UNJUSTIFIED_CUFFS;
-      if (a.status === 'remis') handedOver++;
+      if (a.status === 'remis' || a.status === 'remis_vehicule' || a.status === 'depose') handedOver++;
+      if (a.status === 'remis_vehicule') inVan++;
+      else if (a.status === 'depose') atStation++;
       else if (a.status === 'relache') released++;
       else if (a.status === 'evade') escaped++;
     }
@@ -205,7 +229,7 @@ export class Records implements LawRecords {
 
     return {
       sommations, forces, faults, filmedFaults, worstSeverity: worst, byVerdict, byMeans,
-      arrests, founded, unfounded: arrests - founded, handedOver, released, escaped,
+      arrests, founded, unfounded: arrests - founded, handedOver, inVan, atStation, released, escaped,
       controls, unjustifiedControls: unjustified, complaints, score, sanction, inquiry,
     };
   }
@@ -290,9 +314,15 @@ export class Records implements LawRecords {
     if (st.arrests === 0) {
       out.push('Interpellations : aucune.');
     } else {
+      // « remis à l'officier de police judiciaire » : seulement les déposés au commissariat (plan §5.6)
+      const atPoint = st.handedOver - st.inVan - st.atStation;
+      let fate = '';
+      if (st.atStation > 0) fate += plural(st.atStation, 'déposée', 'déposées') + " au commissariat (remises à l'officier de police judiciaire), ";
+      if (st.inVan > 0) fate += plural(st.inVan, 'à bord', 'à bord') + " d'un véhicule de police en attente de transfert, ";
+      if (atPoint > 0) fate += plural(atPoint, 'remise', 'remises') + ' à un point de regroupement, ';
       out.push(
         'Interpellations : ' + st.arrests + ' — ' + plural(st.founded, 'fondée', 'fondées') + ', ' + plural(st.unfounded, 'infondée', 'infondées') +
-        ' ; ' + plural(st.handedOver, 'remise', 'remises') + " à l'officier de police judiciaire, " + plural(st.released, 'remise en liberté', 'remises en liberté') +
+        ' ; ' + fate + plural(st.released, 'remise en liberté', 'remises en liberté') +
         (st.escaped > 0 ? ', ' + plural(st.escaped, 'évasion', 'évasions') : '') + '.',
       );
       const al = this.interpellations;
@@ -302,7 +332,9 @@ export class Records implements LawRecords {
         if (!all && a.byId !== byId) continue;
         shown++;
         const proof = a.filmed && a.witnessed ? 'constaté et filmé' : a.filmed ? 'filmé' : a.witnessed ? 'constaté par un agent, sans image' : 'aucune preuve';
-        const status = a.status === 'remis' ? 'remis' : a.status === 'relache' ? 'remis en liberté' : a.status === 'evade' ? 'évadé'
+        const status = a.status === 'depose' ? (/^préfecture/.test(a.station) ? 'déposé à la ' : 'déposé au ') + (a.station !== '' ? a.station : 'commissariat') + ", présenté à l'officier de police judiciaire"
+          : a.status === 'remis_vehicule' ? 'à bord du ' + (a.vehicleName !== '' ? a.vehicleName : 'véhicule') + ', en attente de transfert'
+          : a.status === 'remis' ? (a.to === 'point' ? 'remis au point de regroupement' : 'remis') : a.status === 'relache' ? 'remis en liberté' : a.status === 'evade' ? 'évadé'
           : a.status === 'interrompu' ? 'procédure interrompue' : 'procédure en cours';
         let line = '  ' + clockText(a.t) + ' — ' + a.targetName + ' par ' + a.byName + ' : ';
         line += a.motif ? offenseLabel(a.motif) + ' (' + proof + ')' : 'aucun fait rattaché';

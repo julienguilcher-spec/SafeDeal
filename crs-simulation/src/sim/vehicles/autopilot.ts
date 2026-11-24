@@ -38,6 +38,11 @@ const TRAIL_SIGHT_TRIES = 40;
 const HOLD_NEAR = 42;
 const HOLD_FAR = 90;
 const HOLD_PACKED = 8.5;
+/**
+ * Suivant pris en charge alors qu'il roulait tout seul dans une pente, sans pilote ni frein (moins de tant de m/s) : c'est
+ * encore un suivant garé (voir follow, holdBehind).
+ */
+const HOLD_ROLLING = 1.5;
 /** Points gardés de la trace du meneur pendant l'attente. */
 const HOLD_TRACE_MAX = 600;
 /** Départ loin de toute chaussée : tronçon d'accroche au-delà duquel on cherche la sortie par les allées ; parcours
@@ -45,6 +50,10 @@ const HOLD_TRACE_MAX = 600;
 const ESCAPE_FAR = 20;
 const ESCAPE_RUN = 400;
 const ESCAPE_SNAP = 10;
+/** Stationnement en rang : le précédent arrêté (attente, bloqué) depuis plus de (s), on se gare sans l'attendre. */
+const ROW_WAIT_STALLED = 8;
+/** Intervalle minimal (m, entre pare-chocs) d'un deux-roues derrière le véhicule qui le précède dans une colonne. */
+const MOTO_GAP = 6;
 /** Tête de colonne : écart (m, entre pare-chocs) en deçà duquel son suivant la serre — pas de demi-tour. */
 const FOLLOWER_CLOSE = 15;
 
@@ -249,6 +258,8 @@ export class Autopilot implements AutopilotApi {
       // intervention urgente : un court sens unique peut être pris à contresens, au pas (voir ApDriver : allure)
       start.contraflow = ap.urgence ? 3 : 0;
       start.minWidth = v.def.width + 1.2;
+      // (deux-roues : au sortir d'un carrefour, le virage est jugé sur son cap réel — voir PathStartOptions.tightTurns)
+      start.tightTurns = rt.spec.handling.twoWheels === true;
     }
     if (world.findPath(v.x, v.z, x, z, 'vehicle', buf, start) && buf.length >= 4) {
       count = buf.length >> 1;
@@ -479,7 +490,13 @@ export class Autopilot implements AutopilotApi {
     if (!ctx.vehicles.get(leaderId) && !ctx.people.get(leaderId)) return false;
     const rt = this.k.rt(v);
     const ap = this.state(rt);
+    // garé dans une pente, conducteur au volant sans rien commander, il roulait tout seul (plus de 0,5 m/s) : holdBehind
+    // le prenait pour un suivant déjà parti et le laissait rejoindre son meneur arrêté à côté de lui — le second Centaure
+    // venait se mettre de travers contre l'engin du joueur, et le perdait au départ. Il est retenu comme tout suivant garé
+    // (le frein de l'attente arrête sa course).
+    const rolling = !rt.apActive && v.brain == null && Math.abs(v.speed) > 0.5 && Math.abs(v.speed) < HOLD_ROLLING;
     ap.resetRun();
+    ap.held = rolling;
     ap.leaderId = leaderId;
     ap.followDist = distance > 0.5 ? distance : 0.5;
     ap.setPath(this.scratch, 0);
@@ -565,7 +582,10 @@ export class Autopilot implements AutopilotApi {
     this.state(this.k.rt(head)).convoy = true;
     for (let i = 1; i < list.length; i++) {
       const v = list[i]!;
-      if (!this.follow(v, prev.id, gap)) continue;
+      // (deux-roues : un intervalle de sécurité d'au moins MOTO_GAP m — les motos de la BRAV-M serrées à 3,5 m se
+      // touchaient à chaque freinage de la file, motocyclistes blessés au départ)
+      const twoWheels = this.k.rt(v).spec.handling.twoWheels;
+      if (!this.follow(v, prev.id, twoWheels && gap < MOTO_GAP ? MOTO_GAP : gap)) continue;
       const ap = this.state(this.k.rt(v));
       ap.convoy = true;
       ap.urgence = options?.urgence === true;
@@ -673,11 +693,20 @@ export class Autopilot implements AutopilotApi {
         ok = false;
         continue;
       }
-      // chacun son tour, en ordre : on attend que le précédent soit garé avant de s'engager
-      if (previous) this.state(this.k.rt(list[i]!)).waitFor = previous.id;
+      // chacun son tour, en ordre : on attend que le précédent soit garé avant de s'engager — sauf en file quand le
+      // précédent est déjà devant soi dans l'axe du rang, tous deux dans son sens (colonne arrivée dans l'ordre) : chacun
+      // avance vers sa place derrière lui, comme une file qui se resserre. À tour de rôle, dix fourgons mettaient deux
+      // à trois minutes à se garer, leurs passagers assis à attendre le leur.
+      if (previous && !(layout === 'file' && this.inFileBehind(list[i]!, previous, sn, cs))) this.state(this.k.rt(list[i]!)).waitFor = previous.id;
       previous = list[i]!;
     }
     return ok;
+  }
+
+  /** `v` est-il derrière `prev` dans l'axe du rang (sn, cs), tous deux tournés dans son sens (à 60° près) ? */
+  private inFileBehind(v: Vehicle, prev: Vehicle, sn: number, cs: number): boolean {
+    if (Math.sin(v.heading) * sn + Math.cos(v.heading) * cs < 0.5 || Math.sin(prev.heading) * sn + Math.cos(prev.heading) * cs < 0.5) return false;
+    return (prev.x - v.x) * sn + (prev.z - v.z) * cs > (prev.def.length + v.def.length) * 0.5;
   }
 
   reroute(v: Vehicle, pushThrough?: boolean, avoid?: DriveOptions['avoid']): boolean {
@@ -775,7 +804,11 @@ export class Autopilot implements AutopilotApi {
     if (ap.waitFor !== 0) {
       const w = this.k.peek(ap.waitFor);
       const wap = w ? (w.ap as ApState | null) : null;
-      if (wap && wap.mode !== 'idle') {
+      // (celui que j'attends est lui-même arrêté depuis un moment — souvent par moi, ou par un véhicule que j'arrête :
+      // un fourgon de la file qui attend la moto qui attend le fourgon cellulaire qui attend le fourgon… — : je vais me
+      // garer sans plus l'attendre, l'interblocage se défait)
+      const stalled = !!wap && (wap.status.state === 'attente' || wap.status.state === 'bloque') && wap.status.blockedFor > ROW_WAIT_STALLED;
+      if (wap && wap.mode !== 'idle' && !stalled) {
         this.hold(v);
         return;
       }

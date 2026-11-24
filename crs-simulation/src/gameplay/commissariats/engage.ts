@@ -15,6 +15,7 @@
 import type { EntityId, GameContext, Person, Squad, Vehicle } from '@/core/contracts';
 import type { PatrolsApi } from '@/gameplay/patrols/api';
 import type { CrewKind, PoliceUnitsApi, UnitHandle } from '@/sim/police/api';
+import { unitOf } from '@/sim/police/brain';
 import type { CommissariatDef, Pose, StockTemplate } from '@/world/commissariats';
 import { homeName } from './texts';
 
@@ -162,19 +163,27 @@ export function buildUnit(
   }
 }
 
-/** Véhicules de l'unité et de sa descendance (sans doublon, dans l'ordre de l'arbre). */
+/**
+ * Véhicules de l'unité et de sa descendance (sans doublon, dans l'ordre de l'arbre), véhicules sans équipage propre
+ * compris (fourgon cellulaire rattaché à une compagnie, `extraVehicles` de son unité de simulation) : sans eux, les
+ * interpellés de ce fourgon n'étaient jamais remis au retour (diag-interpelles P12).
+ */
 export function unitVehicles(ctx: GameContext, squadId: number, out: Vehicle[]): Vehicle[] {
   out.length = 0;
   const seen = new Set<EntityId>();
+  const add = (id: EntityId): void => {
+    if (id === 0 || seen.has(id)) return;
+    const v = ctx.vehicles.get(id);
+    if (v) {
+      seen.add(v.id);
+      out.push(v);
+    }
+  };
   const visit = (s: Squad | undefined, depth: number): void => {
     if (!s || depth > 8) return;
-    if (s.vehicleId !== 0 && !seen.has(s.vehicleId)) {
-      const v = ctx.vehicles.get(s.vehicleId);
-      if (v) {
-        seen.add(v.id);
-        out.push(v);
-      }
-    }
+    add(s.vehicleId);
+    const u = unitOf(s);
+    if (u) for (let i = 0; i < u.extraVehicles.length; i++) add(u.extraVehicles[i]!);
     for (const c of ctx.squads.childrenOf(s.id)) visit(c, depth + 1);
   };
   visit(ctx.squads.get(squadId), 0);

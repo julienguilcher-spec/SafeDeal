@@ -16,12 +16,14 @@
  *   vent        { direction (degrés, d'où il vient ; 0 = nord), vitesse (km/h) }
  *   options     { circulation: 'coupee' | …, metro: 'ferme' | … } — appliqués par les services
  *               EXT.traffic et EXT.metro quand ils existent
- *   moyens      { sections, fourgons, centaure, canon_eau, bravm, drone } (rubrique « Moyens engagés » de la page
+ *   moyens      { sections, fourgons, centaure, canon_eau, bravm, drone, cellulaires } (rubrique « Moyens engagés » de la page
  *               d'accueil) : quand le service 'police.units' est branché et qu'une manifestation se tient (ou que
  *               le joueur est commandant), la mise en place crée la compagnie (1 à 8 sections, fourgons : un par
  *               groupe dans la limite demandée) et les moyens d'appui ; le joueur CRS, chef de groupe ou de section,
  *               ou commandant y tient son poste. Sans cette clé : une section. Sans manifestation (patrouille libre) :
- *               le seul groupe (ou la section) du joueur.
+ *               le seul groupe (ou la section) du joueur. Fourgons cellulaires : avec leur équipage (deux agents),
+ *               au point de remise des interpellés (service 'session.remise', remise.ts) — 2 à 4 avec une compagnie,
+ *               un au moins dès que des forces de l'ordre sont engagées (hors vacation de patrouille).
  *
  * Ce module tient lieu de cadre de mission en attendant le vrai : il ne crée AUCUNE foule.
  * ===================================================================================== */
@@ -79,6 +81,8 @@ export interface EngagedMeans {
   /** Groupes de BRAV-M (six motos). */
   bravm: number;
   drone: number;
+  /** Fourgons cellulaires avec leur équipage. */
+  cellulaires: number;
 }
 
 export interface SessionSetupApi {
@@ -103,9 +107,12 @@ export interface PoliceUnitsLike {
   }): PoliceUnitHandleLike;
   createCompany?(options: {
     x: number; z: number; heading: number; sections?: number; layout?: 'colonne' | 'ligne' | 'embarque'; vehicles?: boolean; drivers?: boolean;
+    cellular?: boolean;
   }): PoliceUnitHandleLike;
-  createBravm?(binomes: number, options: { x: number; z: number; heading: number; vehicles?: boolean; mounted?: boolean; callsign?: string }): PoliceUnitHandleLike;
-  createEquipage?(kind: 'centaure' | 'canon_eau', options: { x: number; z: number; heading: number; parentId?: number }): PoliceUnitHandleLike;
+  createBravm?(binomes: number, options: {
+    x: number; z: number; heading: number; vehicles?: boolean; mounted?: boolean; callsign?: string; parentId?: number;
+  }): PoliceUnitHandleLike;
+  createEquipage?(kind: 'centaure' | 'canon_eau' | 'fourgon_cellulaire', options: { x: number; z: number; heading: number; parentId?: number; callsign?: string; seed?: number }): PoliceUnitHandleLike;
 }
 
 /** Ce que ce module utilise du service 'police.command' (équipe du drone). */

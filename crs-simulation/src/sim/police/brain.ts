@@ -424,6 +424,28 @@ export interface Unit {
   ackAt: number;
   ackText: string;
   reported: boolean;
+  /**
+   * Ordre à pied reçu à bord : les agents de l'unité assis dans un véhicule à l'arrêt en descendent d'abord (un par
+   * véhicule toutes les EXIT_INTERVAL secondes, tous les véhicules à la fois) et rejoignent leur place en sortant ;
+   * prochaine sortie à dismountAt.
+   */
+  dismount: boolean;
+  dismountAt: number;
+  /**
+   * « Suivre » le joueur à pied : posture en garde quand il s'arrête (maneuver.ts, progressFollow). guard : la ligne
+   * est formée ; guardX/Z, guardAt : dernière position où le joueur a bougé de plus de GUARD_STILL mètres, et quand ;
+   * guardOx/Oz : sa position quand la ligne s'est formée ; guardH : cap de la ligne ; guardCheckAt : prochain examen ;
+   * guardTurnAt : prochain examen du cap de la foule.
+   */
+  guard: boolean;
+  guardX: number;
+  guardZ: number;
+  guardAt: number;
+  guardOx: number;
+  guardOz: number;
+  guardH: number;
+  guardCheckAt: number;
+  guardTurnAt: number;
 
   // ── perception, force ──
   sense: Sense;
@@ -542,7 +564,8 @@ export function createUnit(squad: Squad): Unit {
   const u: Unit = {
     tag: UNIT_TAG, squad, id: squad.id, parent: null, children: [], isRoot: true, lead: null as unknown as Unit, joinedTo: null, extraVehicles: [], memberSig: 0, seq: 0, sortLat: 0, accLat: 0, accN: 0,
     own: [], agents: [], groups: [], order: null, task: null, storeOrder: squad.order, restoreOrder: null, placedOrder: null, phase: 'repos', phaseT: 0, formDeadline: 0, lateN: 0, man: createManeuver(), pending: null,
-    ackAt: 0, ackText: '', reported: true,
+    ackAt: 0, ackText: '', reported: true, dismount: false, dismountAt: 0,
+    guard: false, guardX: 0, guardZ: 0, guardAt: 0, guardOx: 0, guardOz: 0, guardH: 0, guardCheckAt: 0, guardTurnAt: 0,
     sense: createSense(), thinkAt: 0, warnedAt: -100, volleyAt: 0, masksAt: 0, lbdAt: 0, attackReportAt: -100, windReportAt: -100,
     duckUntil: 0, trotUntil: 0, briskUntil: 0, shieldsUntil: 0,
     fatigue: 0, pressure: 0, disorder: 0, reliefAt: -1000, needsRelief: false, arrests: 0, ops: [], formed: 0, reformAt: 0,

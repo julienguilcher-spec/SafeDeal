@@ -181,9 +181,20 @@ export function resolveLeads(k: Kernel): void {
 const SLOT_KEEP = 5;
 
 /**
+ * Agent assis dans un véhicule qui doit en descendre pour l'ordre à pied de sa racine (débarquement préalable,
+ * Unit.dismount) : ni conducteur ni équipage (ils restent au véhicule), ni le joueur, valide et libre.
+ */
+export function seatedToDismount(k: Kernel, root: Unit, a: Agent): boolean {
+  const p = a.p;
+  return root.dismount && p.vehicleId !== 0 && !a.crew && !p.isPlayer && !p.dormant && k.ctx.people.get(p.id) === p
+    && p.health > 0 && p.custody === 'free' && p.injury !== 'dead' && p.injury !== 'critical' && p.injury !== 'serious';
+}
+
+/**
  * Met à jour l'état de chaque agent d'une racine : `able` (en état d'agir maintenant) et `formable` (garde
  * son emplacement : un agent jeté à terre le garde quelques secondes, un blessé grave le rend aussitôt).
- * Retourne le nombre d'agents qui gardent un emplacement.
+ * Un agent encore assis d'une unité qui débarque pour exécuter un ordre à pied garde son emplacement (formable) sans
+ * être en état d'agir : il le rejoint en descendant. Retourne le nombre d'agents qui gardent un emplacement.
  */
 export function refreshFormable(k: Kernel, root: Unit): number {
   const ctx = k.ctx;
@@ -192,6 +203,13 @@ export function refreshFormable(k: Kernel, root: Unit): number {
   for (let i = 0; i < agents.length; i++) {
     const a = agents[i];
     const p = a.p;
+    if (seatedToDismount(k, root, a)) {
+      a.able = false;
+      a.downSince = 0;
+      a.formable = true;
+      n++;
+      continue;
+    }
     const present = !a.crew && p.vehicleId === 0 && !p.dormant && ctx.people.get(p.id) === p;
     const able = present && isAble(ctx, p);
     a.able = able;

@@ -345,7 +345,8 @@ describe('commissariats intégrés à la partie', () => {
     const j = ctx.service<JourneeApi>(JOURNEE_SERVICE)!;
     t.step(1);
     expect(j.stage === 'prise_de_service' || j.stage === 'embarquement').toBe(true);
-    const sessionBravm = ctx.squads.list.find((s) => s.parentId === 0 && s.faction === 'police' && s.kind !== 'compagnie' && !api.isStationUnit(s.id)
+    // (la BRAV-M de la journée est rattachée à la compagnie du commandant : unité de tête, ou fille de la compagnie)
+    const sessionBravm = ctx.squads.list.find((s) => (s.parentId === 0 || ctx.squads.get(s.parentId)?.kind === 'compagnie') && s.faction === 'police' && s.kind !== 'compagnie' && !api.isStationUnit(s.id)
       && ctx.squads.list.some((q) => (q.id === s.id || q.parentId === s.id) && q.vehicleId !== 0 && ctx.vehicles.get(q.vehicleId)?.kind === 'moto_bravm'))!;
     expect(sessionBravm).toBeDefined();
     // FAUCON 9 engagée depuis le 9e et envoyée « en véhicules » vers la République (elle part en colonne)

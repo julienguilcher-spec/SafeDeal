@@ -7,6 +7,7 @@
  * ===================================================================================== */
 
 import type { ForceMeans, ForceVerdictKind, OffenseType, SommationStage } from '@/core/contracts';
+import { distText, vanWords } from '@/ui/command/direct/words';
 
 export const SOMMATION_TEXTS: readonly string[] = [
   '',
@@ -207,4 +208,27 @@ export function hourText(timeOfDay: number): string {
 /** Durée en secondes arrondie pour un message (« 12 s »). */
 export function secondsText(s: number): string {
   return Math.max(1, Math.ceil(s - 1e-6)) + ' s';
+}
+
+// ───────────────────────────── l'interpellé du joueur (plan ordres-directs §5.3, §5.8) ─────────────────────────────
+
+/** Lignes d'aide sous l'invite (la touche « E » y est remplacée par celle du joueur). */
+export function guidanceRemettreFourgon(callsign: string, d: number): string {
+  return 'Interpellé. E : le remettre au ' + vanWords(callsign) + ' (' + distText(d) + ')';
+}
+export function guidanceRemettre(label: string, d: number): string {
+  return 'Interpellé. E : le remettre — ' + label + ' (' + distText(d) + ')';
+}
+export function guidanceEmmenerVers(label: string, d: number): string {
+  return 'Interpellé. E : l’emmener — ' + label + ' (' + distText(d) + ', flèche)';
+}
+export function guidanceSansVehicule(): string {
+  return 'Interpellé. E : l’emmener ; aucun véhicule de remise à proximité';
+}
+
+/** Compte rendu radio de la remise (« UN interpellé … à bord du CELLULAIRE 1, en attente de transfert »). */
+export function handoverRadioText(from: string, motif: string, hour: string, to: 'vehicule' | 'point', label: string): string {
+  const where = to === 'vehicule' ? ', à bord du ' + label + ', en attente de transfert'
+    : (/^point\b/i.test(label) ? ', au ' : ', ') + label + ', en attente du fourgon cellulaire';
+  return 'CENTRAL ICI ' + from.toUpperCase() + '. UN interpellé pour ' + motif + ', remis à ' + hour + where + '. PARLEZ.';
 }

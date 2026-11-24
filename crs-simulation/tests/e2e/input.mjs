@@ -718,7 +718,7 @@ s = await snap(mp);
 check(!s.down.includes('secondary'), '« Viser » : l\'appui suivant relâche');
 
 // ── boutons momentanés ──
-for (const [key, button] of [['jump', 'jump'], ['crouch', 'crouch'], ['radio', 'radio'], ['orders', 'orders'], ['pause', 'pause'], ['map', 'map'],
+for (const [key, button] of [['jump', 'jump'], ['crouch', 'crouch'], ['radio', 'radio'], ['pause', 'pause'], ['map', 'map'],
   ['tactical', 'tactical'], ['camera', 'camera'], ['forward', 'fast_forward'], ['mask', 'mask'], ['visor', 'visor'], ['lamp', 'flashlight']]) {
   const c = await centerOf(key);
   await resetCounts(mp);
@@ -730,6 +730,55 @@ for (const [key, button] of [['jump', 'jump'], ['crouch', 'crouch'], ['radio', '
   await frames(mp, 5);
   s = await snap(mp);
   once(s, button, `bouton tactile ${key}`);
+}
+
+// ── pastille « Ordre prêt » et « ⟳ À qui » : rien au contact, l'appui au toucher bref ──
+{
+  const pill = await centerOf('orders');
+  await resetCounts(mp);
+  await fingerDown(6, pill.x, pill.y);
+  await frames(mp, 2);
+  s = await snap(mp);
+  check(!s.down.includes('order_go') && !s.down.includes('orders'), 'pastille d\'ordre : rien n\'est tenu au contact');
+  await fingerUp(6);
+  await frames(mp, 5);
+  s = await snap(mp);
+  once(s, 'order_go', 'toucher la pastille « Ordre prêt »');
+  check(count(s, 'framePressed', 'orders') === 0, 'toucher la pastille : pas de roue d\'ordres');
+  // le pouce posé sur la pastille qui glisse : le joystick, aucun appui
+  await mp.waitForTimeout(700);
+  await resetCounts(mp);
+  await fingerDown(6, pill.x, pill.y);
+  await fingerMove(6, pill.x, pill.y - 50, 6);
+  await frames(mp, 3);
+  s = await snap(mp);
+  check(s.moveY > 0.3, `glisser depuis la pastille : le joystick avance (${s.moveY.toFixed(2)})`);
+  await fingerUp(6);
+  await frames(mp, 5);
+  s = await snap(mp);
+  check(count(s, 'framePressed', 'order_go') === 0 && count(s, 'framePressed', 'orders') === 0 && s.moveY === 0, 'glisser depuis la pastille : aucun ordre, ni roue');
+  // appui long : la roue (« Ordres ») une fois, aucun ordre prêt
+  await resetCounts(mp);
+  await fingerDown(7, pill.x, pill.y);
+  await mp.waitForTimeout(650);
+  await frames(mp, 4);
+  s = await snap(mp);
+  check(count(s, 'framePressed', 'orders') === 1 && count(s, 'framePressed', 'order_go') === 0, `appui long sur la pastille : la roue d'ordres (${count(s, 'framePressed', 'orders')}), pas d'ordre prêt`);
+  const held = await mp.evaluate(() => window.__inputTest.touch.wheelFinger());
+  check(!!held && held.down === true, 'appui long : le doigt reste suivi pour la roue');
+  await fingerUp(7);
+  await frames(mp, 3);
+  const up = await mp.evaluate(() => window.__inputTest.touch.wheelFinger());
+  check(!!up && up.down === false, 'appui long relâché : la roue le voit');
+  // « ⟳ À qui » : U au toucher bref
+  const who = await centerOf('order_who');
+  await resetCounts(mp);
+  await tap(who.x, who.y);
+  await frames(mp, 5);
+  s = await snap(mp);
+  once(s, 'order_who', 'toucher « ⟳ À qui »');
+  const whoText = await mp.evaluate(() => document.querySelector('.crs-touch .ct-l-pied.ct-k-order_who .ct-t')?.textContent ?? '');
+  check(whoText === 'À qui', `« ⟳ » s'appelle « À qui » (${whoText})`);
 }
 
 // ── bouton contextuel « Interagir » ──

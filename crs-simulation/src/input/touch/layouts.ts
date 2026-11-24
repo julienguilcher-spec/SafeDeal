@@ -27,7 +27,7 @@ export function overlayScale(width: number, height: number): number {
 export type IconId =
   | 'action' | 'aim' | 'hand' | 'jump' | 'crouch' | 'radio' | 'orders' | 'map' | 'tactical' | 'camera'
   | 'pause' | 'forward' | 'mask' | 'visor' | 'lamp' | 'siren' | 'beacons' | 'horn' | 'handbrake' | 'exit'
-  | 'gas' | 'brake' | 'up' | 'down' | 'zoomin' | 'zoomout' | 'headlights';
+  | 'gas' | 'brake' | 'up' | 'down' | 'zoomin' | 'zoomout' | 'headlights' | 'who';
 
 /** Pictogrammes au trait (zone 24 × 24), dessinés par le code : aucun fichier d'image. */
 export const ICONS: Readonly<Record<IconId, string>> = {
@@ -58,6 +58,8 @@ export const ICONS: Readonly<Record<IconId, string>> = {
   zoomin: '<circle cx="10.500" cy="10.500" r="6.500"/><path d="M15.300 15.300l5.200 5.200M7.500 10.500h6M10.500 7.500v6"/>',
   zoomout: '<circle cx="10.500" cy="10.500" r="6.500"/><path d="M15.300 15.300l5.200 5.200M7.500 10.500h6"/>',
   headlights: '<path d="M10.500 5a7 7 0 0 0 0 14c1.400 0 2-3.100 2-7s-.6-7-2-7z"/><path d="M15.500 7.500H21M15.500 12H21M15.500 16.500H21"/>',
+  // « À qui » : deux flèches en cercle (unité suivante)
+  who: '<path d="M19 12a7 7 0 0 1-12.300 4.600"/><path d="M5 12a7 7 0 0 1 12.300-4.600"/><path d="M17.800 3.800l-.5 3.800-3.800-.5"/><path d="M6.200 20.200l.5-3.800 3.800.5"/>',
 };
 
 export type ControlShape = 'round' | 'pill' | 'chip' | 'pedal';
@@ -95,7 +97,27 @@ export interface ControlSpec {
    * n'a que « Sortir », la radio et les boutons système ; ses autres boutons ne feraient rien.
    */
   seat?: 'conduite' | 'arme';
+  /**
+   * Commande « au toucher » (pastille d'ordre, « À qui ») : rien n'est tenu au contact. Un toucher bref — commencé
+   * sur la commande, levé en moins de TAP_MAX_MS, à moins de TAP_SLOP_PX de son point de départ — donne un appui bref de
+   * ce bouton ; le doigt qui glisse plus loin est rendu au joystick (le pouce voulait marcher : aucun ordre ne part).
+   */
+  tap?: Button;
+  /** Appui long (LONG_PRESS_MS sans glisser) : appui bref de `button` (la roue d'ordres), le doigt reste suivi. */
+  longPress?: boolean;
+  /** Libellé sur deux lignes (verbe en gras, unité dessous), fourni par setOrderLabel : largeur fixe, sans pictogramme. */
+  twoLine?: boolean;
 }
+
+/** Toucher bref d'une commande « au toucher » : durée maximale (ms) et glissement maximal (px CSS). */
+export const TAP_MAX_MS = 600;
+export const TAP_SLOP_PX = 12;
+/** Appui long sur la pastille d'ordre : la roue s'ouvre (ms). */
+export const LONG_PRESS_MS = 350;
+/** Deux touchers de la pastille d'ordre à moins de cet intervalle : le second est ignoré (ms). */
+export const TAP_REPEAT_MS = 600;
+/** Toucher du monde (zone du regard) qui désigne sous le doigt : durée maximale (ms), même glissement maximal. */
+export const WORLD_TAP_MS = 220;
 
 /** Socle du joystick virtuel : centre par défaut et rayon de course. */
 export interface StickSpec {
@@ -111,10 +133,15 @@ export interface StickSpec {
   label: string;
 }
 
+/** Libellé du socle (« Volant », « Course »), écrit au-dessus de lui : écart au socle et hauteur de ligne (style.ts). */
+export const STICK_TIP = { gap: 7, height: 13 } as const;
+
+// à pied et au drone, le socle au repos est sous la rangée Radio / ordre prêt / « À qui » (COMMS_ROW) ; en véhicule,
+// la piste du volant et son libellé « Volant » aussi (à 84, le libellé passait sous la pastille d'ordre)
 export const STICKS: readonly StickSpec[] = [
-  { layout: 'pied', cx: 104, cy: 96, radius: 62, knob: 54, horizontal: false, label: '' },
-  { layout: 'drone', cx: 104, cy: 96, radius: 62, knob: 54, horizontal: false, label: '' },
-  { layout: 'vehicule', cx: 118, cy: 84, radius: 82, knob: 62, horizontal: true, label: 'Volant' },
+  { layout: 'pied', cx: 104, cy: 68, radius: 62, knob: 54, horizontal: false, label: '' },
+  { layout: 'drone', cx: 104, cy: 68, radius: 62, knob: 54, horizontal: false, label: '' },
+  { layout: 'vehicule', cx: 118, cy: 70, radius: 82, knob: 62, horizontal: true, label: 'Volant' },
 ];
 
 /** Zone de pose du joystick : fraction gauche de l'écran, sous la bande haute. */
@@ -134,11 +161,27 @@ function systemRow(layout: GameLayout): ControlSpec[] {
   ];
 }
 
-/** Radio et Ordres : à gauche, au-dessus du joystick, sous le pouce gauche. */
+/**
+ * Rangée de gauche, au-dessus du joystick, sous le pouce gauche (cotes à l'échelle 1 ; ui/hud/layout.ts en garde une
+ * copie pour le HUD et la mini-carte, vérifiée par les tests) : Radio, la pastille « Ordre prêt » et « ⟳ À qui ».
+ * Elle passe sous la mini-carte (haut de la rangée à 200 px sur 390) : à 140 px, la pastille de 128 px recouvrait le
+ * bas du disque de la mini-carte, qui passait au-dessus d'elle et prenait ses touchers.
+ */
+export const COMMS_ROW = { bottom: 136, height: 54, left: 18, right: 268 } as const;
+
+/** Radio, ordre prêt et « À qui » : à gauche, au-dessus du joystick, sous le pouce gauche. */
 function commsRow(layout: GameLayout): ControlSpec[] {
+  const y = COMMS_ROW.bottom;
+  const h = COMMS_ROW.height;
   return [
-    { key: 'radio', layout, button: 'radio', label: 'Radio', icon: 'radio', shape: 'round', side: 'left', x: 18, anchor: 'bottom', y: 196, w: 54, h: 54 },
-    { key: 'orders', layout, button: 'orders', label: 'Ordres', icon: 'orders', shape: 'round', side: 'left', x: 82, anchor: 'bottom', y: 196, w: 54, h: 54 },
+    { key: 'radio', layout, button: 'radio', label: 'Radio', icon: 'radio', shape: 'round', side: 'left', x: 18, anchor: 'bottom', y, w: 54, h },
+    // toucher : l'ordre prêt (Entrée) ; appui long : la roue d'ordres (F), le secteur « autre » surligné
+    {
+      key: 'orders', layout, button: 'orders', tap: 'order_go', longPress: true, twoLine: true, label: 'Ordres', icon: 'orders', shape: 'pill',
+      side: 'left', x: 82, anchor: 'bottom', y, w: 128, h,
+    },
+    // toujours « À qui » (jamais « Annuler » : choisir l'unité suivante juste après un ordre ne doit pas le défaire)
+    { key: 'order_who', layout, button: 'order_who', tap: 'order_who', label: 'À qui', icon: 'who', shape: 'round', side: 'left', x: 214, anchor: 'bottom', y, w: 54, h },
   ];
 }
 

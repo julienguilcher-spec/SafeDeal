@@ -23,9 +23,11 @@ import {
 } from './mcore';
 import { spell } from './radio';
 import { formStreetBarrage, markBarrage } from './barrages';
+import { withDetainee } from './ops-arrest';
 import { fleetOf } from './tree';
 import { isHeldVehicle } from '@/world/commissariats';
 import * as T from './tuning';
+import { POLICE_COMMAND_SERVICE } from './command/api';
 
 // ───────────────────────────── relève ─────────────────────────────
 
@@ -294,7 +296,8 @@ function reseat(k: Kernel, u: Unit): number {
   for (let i = 0; i < u.agents.length; i++) {
     const a = u.agents[i];
     const p = a.p;
-    if (p.vehicleId !== 0 || p.isPlayer || a.boardId !== 0 || (!a.able && !a.crew) || p.custody !== 'free' || p.posture === 'down') continue;
+    // (ni l'agent pris par une tâche — secours, interpellation — : descendu pour elle, il ne remonte qu'après)
+    if (p.vehicleId !== 0 || p.isPlayer || a.boardId !== 0 || a.op !== null || (!a.able && !a.crew) || p.custody !== 'free' || p.posture === 'down') continue;
     const id = seatFor(k, u, a);
     if (id === 0) continue;
     a.boardId = id;
@@ -344,6 +347,8 @@ export function startEmbark(k: Kernel, u: Unit, o: SquadOrder): void {
     const p = a.p;
     if (!a.able && !a.crew) continue;
     if (p.vehicleId !== 0 || p.isPlayer) continue;
+    // le binôme qui a la charge d'un interpellé ne le lâche pas pour embarquer : il monte après la remise (reseat)
+    if (withDetainee(a)) continue;
     // véhicule de son groupe d'abord, puis le premier qui a de la place
     let pick = -1;
     for (let x: Unit | null = a.home; x && pick < 0; x = x.parent) {
@@ -383,6 +388,20 @@ export function startDisembark(k: Kernel, u: Unit, o: SquadOrder): void {
   for (let i = 0; i < u.agents.length; i++) u.agents[i].boardId = 0;
   setStep(k, u, 0);
   setPhase(k, u, 'action');
+}
+
+/**
+ * Les passagers de `v` peuvent-ils en descendre pour ce « débarquer » ? À l'arrêt ; et, d'un véhicule de colonne
+ * (police.command), pas tant que la colonne le garde : en route (ordre du joueur compris : pas au feu rouge d'un
+ * trajet), ni, pour un ordre qui n'est pas du joueur, tant qu'il roule vers sa place ou s'y gare au stationnement.
+ */
+function mayAlight(k: Kernel, v: Vehicle | undefined, o: SquadOrder): boolean {
+  if (!v) return true;
+  if (Math.abs(v.speed) > T.EXIT_SPEED) return false;
+  const cmd = k.ctx.service<{ carrying?(id: number): boolean; holding?(id: number): boolean }>(POLICE_COMMAND_SERVICE);
+  if (!cmd) return true;
+  if (o.byPlayer) return !cmd.carrying || !cmd.carrying(v.id);
+  return !cmd.holding || !cmd.holding(v.id);
 }
 
 export function progressBoarding(k: Kernel, u: Unit): void {
@@ -431,6 +450,10 @@ export function progressBoarding(k: Kernel, u: Unit): void {
       aboard++;
       if (usedVehicles.indexOf(p.vehicleId) >= 0) continue;
       usedVehicles.push(p.vehicleId);
+      // jamais d'un véhicule qui roule, ni (ordre de la colonne ou de l'IA) d'un véhicule que le pilote automatique
+      // conduit encore ou gare : chacun descend quand SON véhicule est arrêté à sa place (convoy.ts, débarquement à
+      // l'arrêt de la colonne)
+      if (!mayAlight(k, ctx.vehicles.get(p.vehicleId), u.order!)) continue;
       if (ctx.vehicles.exit(p)) {
         aboard--;
         a.lastX = p.x;

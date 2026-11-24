@@ -124,7 +124,9 @@ export class CommandSystem implements GameSystem {
       arrive: (id, dest) => this.convoy.arrive(id, dest),
       depart: (id, exit) => this.convoy.depart(id, exit),
       convoyOf: (id) => this.convoy.statusOf(id),
-      takeOver: (id) => this.convoy.takeOver(id),
+      takeOver: (id, order) => this.convoy.takeOver(id, order),
+      carrying: (id) => this.convoy.carrying(id),
+      holding: (id) => this.convoy.holding(id),
       quietRun: (id) => this.convoy.quietRun(id),
     };
     const post: CommandPost = {
@@ -188,6 +190,9 @@ export class CommandSystem implements GameSystem {
       for (let i = 0; i < this.commands.length; i++) this.reinforce(this.commands[i], e.squadId, e.x, e.z);
     });
     ev.on('order:issued', (e) => {
+      // ordre du joueur (d'où qu'il vienne : carte, terrain, proposition acceptée, « avec moi ») : la colonne où roule
+      // l'unité le laisse s'exécuter — elle la libère ou l'emporte jusqu'à l'arrêt (convoy.ts takeOver)
+      if (e.order.byPlayer) this.convoy.takeOver(e.squadId, e.order);
       // ordre du joueur-commandant : le dispositif conseillé en tient compte
       const pid = ctx.player.state.personId;
       if (pid === 0 || e.order.issuedBy !== pid) return;

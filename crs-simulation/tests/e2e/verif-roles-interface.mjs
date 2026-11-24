@@ -1,8 +1,8 @@
 // Vérification permanente — INTERFACE DE CHAQUE RÔLE, sur ordinateur (1280×720, clavier) et sur téléphone (844×390, doigts).
 // Pour chaque rôle / poste du catalogue : partie lancée par l'URL (une fois depuis l'accueil par appareil), puis HUD (rien hors
 // écran, rien sous une commande tactile, aucun texte anglais ou de remplissage), boutons tactiles du rôle (pertinents et qui
-// reçoivent le doigt), bloc « ORDRES » des chefs, carte « Ma mission » de l'exécutant (l'ordre d'abord), roue d'ordres (8
-// secteurs pour un chef, 3 pour un exécutant), carte de commandement (disposition et nombre de commandes par rôle : chef ou
+// reçoivent le doigt), bloc « ORDRES » des chefs, carte « Ma mission » de l'exécutant (l'ordre d'abord), roue d'ordres (7
+// secteurs pour un chef, 2 pour un exécutant), carte de commandement (disposition et nombre de commandes par rôle : chef ou
 // lecture seule ; ouverture, fermeture), pause (tous les boutons atteignables), zéro erreur console.
 // Code de sortie : 0 seulement si toutes les vérifications passent. Résumé par rôle à la fin.
 // Usage : node tests/e2e/verif-roles-interface.mjs [--device=tel|pc|tous] [--roles=crs:bouclier,manifestant:pacifique] [--accueil=0]
@@ -211,16 +211,19 @@ try {
           return { police: !!p && p.faction === 'police', level: cmd && cmd.scope ? cmd.scope().level : '' };
         });
         const chief = who.police && who.level !== '' && who.level !== 'lecture';
-        // bloc « ORDRES » (chefs) : « Suivez-moi à pied », « Suivez-moi en véhicules », « Secours ici » (ordinateur) ; puce
-        // « Suivez-moi … » sous la mini-carte (téléphone)
+        // bloc d'ordres (chefs, ordres directs §1.6) : ligne d'état, ordre prêt, touches « A avec moi · … », « Secours ici »
+        // (ordinateur) ; pastille « Avec moi » sous la mini-carte (téléphone)
         if (chief) {
           const orders = await page.evaluate(() => {
             const shown = (q) => { const e = document.querySelector(q); return !!e && !e.classList.contains('is-off') && e.getBoundingClientRect().width > 0; };
             const b = document.querySelector('[data-id="hud-orders"]');
-            return { block: !!b && b.getBoundingClientRect().width > 0, text: b ? b.innerText.replace(/\s+/g, ' ') : '', foot: shown('[data-id="quick-follow-foot"]'), column: shown('[data-id="quick-follow-column"]'), rescue: shown('[data-id="quick-rescue"]') };
+            return {
+              block: !!b && b.getBoundingClientRect().width > 0, text: b ? b.innerText.replace(/\s+/g, ' ') : '', withMe: shown('[data-id="quick-with-me"]'),
+              state: shown('[data-id="hud-state"]'), ready: shown('[data-id="hud-ready"]'), rescue: shown('[data-id="quick-rescue"]'),
+            };
           });
-          if (mobile) check(orders.foot || orders.column, 'chef (téléphone) : la puce « Suivez-moi … » sous la mini-carte', J(orders));
-          else check(orders.block && /ORDRES/.test(orders.text) && orders.foot && orders.column && orders.rescue && /Suivez-moi à pied/.test(orders.text) && /Suivez-moi en véhicules/.test(orders.text), 'chef : bloc « ORDRES » (Suivez-moi à pied, Suivez-moi en véhicules, Secours ici)', orders.text.slice(0, 160));
+          if (mobile) check(orders.withMe, 'chef (téléphone) : la pastille « Avec moi » sous la mini-carte', J(orders));
+          else check(orders.block && orders.state && orders.ready && orders.rescue && /avec moi/.test(orders.text) && !/SANS ORDRE/.test(orders.text), 'chef : bloc d’ordres (ligne d’état, ordre prêt, « A avec moi », Secours ici)', orders.text.slice(0, 160));
         }
         // exécutant CRS : la carte « Ma mission » commence par l'ordre (« ORDRE DU … » ou « MA MISSION », puis l'ordre)
         if (role === 'crs') {
@@ -232,7 +235,8 @@ try {
           if (mobile) check(mis.l1 !== '', 'CRS (téléphone) : « Ma mission » en deux lignes, l’ordre d’abord', J(mis));
           else check(/^(ORDRE (DU|DE) |ORDRE REÇU|MA MISSION)/.test(mis.cap) && mis.order !== '', 'CRS : « Ma mission » commence par l’ordre (« ORDRE DU … »)', J(mis));
         }
-        // roue d'ordres : 8 secteurs pour un chef, 3 pour un exécutant (mêmes numéros 1, 2, 7)
+        // roue d'ordres (ordres directs, direct/words.ts) : 7 secteurs pour un chef (1, 3 à 8 ; le 2 est un alias du 1, non
+        // dessiné), 2 pour un exécutant (« Avec moi » 1 et « Secours ici » 7, mêmes numéros)
         if (who.police) {
           if (mobile) { if (!(await tapCtl('orders'))) C.note(`[${current}] bouton « Ordres » absent`); } else await press('KeyF');
           await page.waitForTimeout(400); await frames(page, 3);
@@ -242,7 +246,7 @@ try {
             keys: [...document.querySelectorAll('[data-id="order-wheel"] .cw-key')].map((e) => e.textContent).join(','),
           }));
           if (wheel.screen === 'roue_ordres') {
-            check(chief ? wheel.wedges === 8 && wheel.keys === '1,2,3,4,5,6,7,8' : wheel.wedges === 3 && wheel.keys === '1,2,7', `roue d’ordres : ${chief ? 'huit secteurs (chef)' : 'trois secteurs 1, 2, 7 (exécutant)'}`, J(wheel));
+            check(chief ? wheel.wedges === 7 && wheel.keys === '1,3,4,5,6,7,8' : wheel.wedges === 2 && wheel.keys === '1,7', `roue d’ordres : ${chief ? 'sept secteurs 1, 3 à 8 (chef)' : 'deux secteurs 1 et 7 (exécutant)'}`, J(wheel));
             await page.evaluate(() => window.__CRS.ctx.ui.close('roue_ordres'));
             await frames(page, 3);
           } else C.note(`[${current}] roue d’ordres non ouverte (${wheel.screen})`);

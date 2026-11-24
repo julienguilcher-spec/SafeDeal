@@ -3,7 +3,9 @@
  *
  * Publie :
  *   ctx.radio          RadioApi du contrat : say() avec files d'attente par canal, anti-répétition, voix stable
- *                      par émetteur, journal horodaté, événement 'radio:message' et sous-titre (priorité ≥ 1)
+ *                      par émetteur, journal horodaté, événement 'radio:message' et sous-titre (priorité ≥ 1) ;
+ *                      RadioMessage.silent (phrase d'ordre du joueur) : écrit tout de suite, jamais dit ;
+ *                      RadioMessage.reply (accusé d'un ordre du joueur) : dit en priorité, dans la seconde (queue.ts)
  *   'radio.phrases'    RadioPhrases : deux cents situations environ, 3 à 5 variantes chacune (voir PHRASES.md)
  *   'radio.callsigns'  CallsignBook : indicatifs fictifs cohérents avec la bible (section E)
  *   'radio.control'    RadioControl : ambiance, sous-titres, statistiques et état des files

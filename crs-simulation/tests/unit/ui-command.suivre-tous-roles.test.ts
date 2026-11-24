@@ -19,6 +19,8 @@ import { createSystems as rescueSim } from '@/sim/roles/rescue';
 import { createSystems as command, ordersButtonVisible } from '@/ui/command';
 import type { CommandCore } from '@/ui/command';
 import { FOLLOW_WHEEL, WHEEL, wheelOrders } from '@/ui/command/orderWheel';
+import { DIGIT_ALIASES } from '@/ui/command/direct/words';
+import { wheelSectorIndex } from '@/ui/command/wheelKeys';
 import type { WheelSector } from '@/ui/command/orderWheel';
 import { followButtonsShown, requestRescueAtPlayer } from '@/ui/command/quickActions';
 import { buildCard } from '@/ui/command/intents';
@@ -27,10 +29,11 @@ import { sanitizePatrolSetup, vacationSessionConfig } from '@/gameplay/patrols/m
 
 const SIM = [world, roles, people, vehicles, police, law, radio, session, command];
 
-/** Ce que fait la touche n (« F puis n ») dans la roue de ce niveau de commandement ; '' si rien. */
+/** Ce que fait la touche n (« F puis n ») dans la roue de ce niveau de commandement (2 : alias de 1) ; '' si rien. */
 function sectorOf(level: string, n: number): string {
-  const w: WheelSector | undefined = wheelOrders(level).find((s) => s.key === n);
-  return w ? w.type : '';
+  const ring = wheelOrders(level);
+  const w: WheelSector | undefined = ring[wheelSectorIndex(`Digit${n}`, ring.map((s) => s.key), DIGIT_ALIASES)];
+  return w ? w.action : '';
 }
 
 async function start(role: string, poste?: string, modules = SIM) {
@@ -49,15 +52,15 @@ const EXECUTANTS: [string, string | undefined][] = [
 ];
 
 describe('ordres « me suivre » : tout policier', () => {
-  it('roue réduite : « Suivez-moi » à pied, en véhicules, et « Secours ici », avec les numéros de la roue complète (1, 2, 7)', () => {
-    expect(FOLLOW_WHEEL.map((w) => w.type)).toEqual(['suivre_pied', 'avec_moi', 'secours']);
-    expect(FOLLOW_WHEEL.map((w) => w.key)).toEqual([1, 2, 7]);
+  it('roue réduite : « Avec moi » (1, et 2 l’ancien « en véhicules ») et « Secours ici » (7), les numéros de la roue complète', () => {
+    expect(FOLLOW_WHEEL.map((w) => w.action)).toEqual(['avec_moi', 'secours']);
+    expect(FOLLOW_WHEEL.map((w) => w.key)).toEqual([1, 7]);
     expect(wheelOrders('lecture')).toBe(FOLLOW_WHEEL);
     expect(wheelOrders('unite')).toBe(WHEEL);
     expect(wheelOrders('tout')).toBe(WHEEL);
     // F puis 1 / F puis 2 / F puis 7 : le même ordre pour tout le monde
     for (const level of ['lecture', 'unite', 'section', 'tout']) {
-      expect([sectorOf(level, 1), sectorOf(level, 2), sectorOf(level, 7)], level).toEqual(['suivre_pied', 'avec_moi', 'secours']);
+      expect([sectorOf(level, 1), sectorOf(level, 2), sectorOf(level, 7)], level).toEqual(['avec_moi', 'avec_moi', 'secours']);
     }
   });
 
@@ -70,7 +73,7 @@ describe('ordres « me suivre » : tout policier', () => {
       expect(unit!.id).toBe(me.squadId);
       expect(ordersButtonVisible(core)).toBe(true);
       expect(followButtonsShown(core)).toBe(true);
-      expect([sectorOf(core.scope().level, 1), sectorOf(core.scope().level, 2)]).toEqual(['suivre_pied', 'avec_moi']);
+      expect([sectorOf(core.scope().level, 1), sectorOf(core.scope().level, 2)]).toEqual(['avec_moi', 'avec_moi']);
       // un autre ordre reste refusé (lecture seule)
       expect(core.issue('tenir', [unit!], null).ok).toBe(false);
 
@@ -105,7 +108,7 @@ describe('ordres « me suivre » : tout policier', () => {
       expect(followButtonsShown(core)).toBe(true);
       expect(ordersButtonVisible(core)).toBe(true);
       expect(wheelOrders(core.scope().level)).toBe(WHEEL);
-      expect([sectorOf(core.scope().level, 1), sectorOf(core.scope().level, 2), sectorOf(core.scope().level, 7)]).toEqual(['suivre_pied', 'avec_moi', 'secours']);
+      expect([sectorOf(core.scope().level, 1), sectorOf(core.scope().level, 2), sectorOf(core.scope().level, 7)]).toEqual(['avec_moi', 'avec_moi', 'secours']);
       // la fiche « VOUS » de la carte de commandement : les deux mêmes ordres, en lignes 1 et 2
       const env = cardEnvFromCore(core);
       const vous = collectReperes(env).find((r) => r.kind === 'vous');

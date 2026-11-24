@@ -1,16 +1,17 @@
 /* =====================================================================================
- * Actions rapides du HUD (zone 'left', sous la mini-carte) — toujours visibles, en un clic ou un toucher.
+ * Bloc d'ordres du HUD (zone 'left', sous la mini-carte) — toujours visible, au clavier seul comme au toucher.
  *
- * Ordinateur : un bloc titré « ORDRES » (touche F : roue d'ordres), une ligne par action, sa touche écrite à droite
- * (« F puis 1 », jamais « F1 » : sur un Mac, F1 est une touche de fonction) :
- *   « Suivez-moi à pied »        F puis 1   toute l'unité du joueur descend et le suit à pied ;
- *   « Suivez-moi en véhicules »  F puis 2   toute l'unité remonte et suit son véhicule — pour TOUT policier, qu'il
- *                                           commande ou non (la roue du CRS a les mêmes numéros) ;
+ * Ordinateur (262 px, une idée par ligne ; textes de fieldHud.ts, mêmes mots que la carte de commandement) :
+ *   « AVEC VOUS · 3 sections + BRAV-M · en ligne face à la foule »   ligne d'état ;
+ *   « Entrée  Bloquer la rue Saint-Gilles · MISTRAL 1 · 90 m »        ordre prêt (Entrée, ou un clic sur la ligne) ;
+ *   « Maj+Entrée  Disperser la foule · MISTRAL 1 »                    ligne « autre », quand elle existe ;
+ *   « A avec moi · U autre unité · F tous les ordres · Tab carte »    touches (chacune cliquable), « ⌫ annuler — … »
+ *                                                                     pendant 5 s après un ordre ;
  *   « Secours ici »              F puis 7   déplie « Pompiers ici » / « SAMU ici » : la demande part à la radio et au
  *                                           service des secours, au point où se trouve le joueur, liée à l'incident
  *                                           qu'on lui a confié s'il y en a un (requestRescueAtPlayer, aussi pour la roue) ;
- *   « Carte de commandement »    Tab        (« Carte », M, pour qui ne commande pas) ;
- *   « Vue drone »                O          seulement quand un drone de police est engagé dans la session.
+ *   « Vue drone »                O          seulement quand un drone de police est engagé dans la session ;
+ *   unités détachées (2 au plus, « +1 ») : leur ticket ou ce qu'elles tiennent.
  * Dessous, selon la situation :
  *   « Un véhicule vous bloque (rue X) : Envoyer le blindé Centaure »  tant que police.obstacle.blocked() signale un
  *                                           véhicule qui barre la route du joueur (exécutant : « Demander le Centaure »,
@@ -18,10 +19,13 @@
  *   « L'ADJOINT PROPOSE »        titre en clair (adjointPlays.ts) + « Accepter » (P) / « Plus tard » (Maj + P) ; une
  *                                           nasse préparée sur la carte passe avant (« FERMER LA NASSE — À VALIDER »).
  *                                           Fenêtre basse (< 760 px) : réduite à une ligne.
- * Téléphone (surcouche tactile) : deux pastilles SOUS la mini-carte — « Suivez-moi » qui donne l'ordre qui convient à
- * la façon dont le joueur se déplace (à pied : « Suivez-moi à pied » ; au volant ou à bord : « Suivez-moi en
- * véhicules » ; l'autre est dans la roue « Ordres ») et « Secours ici » ; la proposition de l'adjoint et le véhicule
- * qui bloque deviennent des bandeaux en haut au centre (élément de HUD 'command.banner', zone 'top', quickBanner()).
+ * Téléphone (surcouche tactile) : deux pastilles SOUS la mini-carte — « Avec moi » (le même ordre que A : tout le
+ * monde revient et le suit, à pied ou en véhicules selon qu'il marche ou roule) et « Secours ici » ; la ligne d'état
+ * est la puce du haut (hud.ts), l'ordre prêt est la pastille du module tactile ; la proposition de l'adjoint et le
+ * véhicule qui bloque deviennent des bandeaux en haut au centre (élément de HUD 'command.banner', zone 'top',
+ * quickBanner()). Tout ce qui se touche fait au moins 44 px de haut (pastilles, boutons des bandeaux).
+ * Les boutons ne prennent jamais le focus : Entrée ne « clique » pas un bouton du HUD resté sélectionné (elle donne
+ * l'ordre prêt, et rien d'autre).
  * Demande du commanditaire : « la carte tactique, que ce soit plus intuitif à l'écran plutôt que mettre retour et
  * cliquer sur la carte tactique » ; « il n'y a pas de bouton pour appeler les pompiers, les médecins, le SAMU ».
  * ===================================================================================== */
@@ -34,12 +38,22 @@ import type { DroneFeedApi } from '../drone/api';
 import { DRONE_FEED_SERVICE } from '../drone/api';
 import { proposalTitle } from './adjointPlays';
 import type { CommandCore } from './core';
+import { REFUS } from './direct/caps';
+import { keyedLine } from './direct/words';
+import type { DirectApi, GiveResult } from './direct/runtime';
+import { FIELD_DIRECT_SERVICE, fieldKeyLabels, sharedFieldHud, splitHead } from './fieldHud';
+import type { FieldHudModel, FieldOrderLine } from './fieldHud';
 import { acceptNasse } from './nasse';
-import { verbOf } from './orders';
 import { radioFrame, rescueRequest } from './phrases';
 import { ensureCommandStyle } from './style';
+import { openTacticalAt } from './tacticalOpen';
 
-const PERIOD = 0.5;
+/** Relecture du bloc (s) : l'ordre prêt change au plus toutes les 0,5 s et clignote 0,3 s quand il change. */
+const PERIOD = 0.25;
+/** Écran de la roue d'ordres (orderWheel.ts WHEEL_SCREEN). */
+const WHEEL_SCREEN_ID = 'roue_ordres';
+/** Séparateur de la touche et du texte d'une ligne d'ordre (direct/words.ts keyedLine). */
+const KEY_SEPARATOR = keyedLine('', '');
 
 /** Vue minimale d'une proposition de l'adjoint (police.command). */
 interface ProposalLike { id: number; key: string; text: string; t: number; saidAt: number; priority: number; executable: boolean }
@@ -57,24 +71,19 @@ const PROPOSAL_KEY = 'KeyP';
  * proposer le Centaure.
  */
 const BLOCK_SHOW_AFTER = 4;
-/** Numéros des secteurs de la roue d'ordres (orderWheel.ts) rappelés sur les boutons. */
-const WHEEL_FOOT = 1;
-const WHEEL_COLUMN = 2;
-const WHEEL_PUSH = 6;
+/** « Pousser un véhicule » : « Plus… » (8) puis 9 dans la roue des ordres directs (direct/words.ts). */
+const WHEEL_MORE = 8;
+const WHEEL_PUSH = 9;
+/** « Secours ici » : secteur 7 de la roue. */
 const WHEEL_RESCUE = 7;
 
 const STYLE_ID = 'cm-quick-style';
 
-function ensureQuickStyle(): void {
-  if (document.getElementById(STYLE_ID)) return;
-  const s = document.createElement('style');
-  s.id = STYLE_ID;
-  s.textContent = `
+/** Feuille du bloc d'ordres (exportée : les tests vérifient les 44 px de tout ce qui se touche). */
+export const QUICK_CSS = `
 .cq{display:flex;flex-direction:column;align-items:flex-start;align-self:flex-start;gap:6px;margin-top:8px;pointer-events:auto;width:max-content;max-width:100%}
 .cq.is-off,.cq .is-off,.cq-banner .is-off{display:none!important}
 .cq-block{display:flex;flex-direction:column;gap:1px;width:262px;padding:3px 4px 4px;border-radius:10px;background:rgba(11,18,32,.84);border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(4px)}
-.cq-head{display:flex;align-items:center;gap:8px;padding:3px 6px 2px;font-size:10.5px;font-weight:800;letter-spacing:.12em;color:#b9c5d9}
-.cq-head .cq-key{margin-left:auto}
 .cq .cm-btn{justify-content:flex-start;width:100%;min-height:34px;padding:3px 8px;border-radius:7px;background:transparent;border:1px solid transparent;color:#e8ecf3;font-weight:600;font-size:13px;gap:8px;text-align:left}
 .cq .cm-btn:hover,.cq .cm-btn.is-on{background:rgba(30,44,70,.92);border-color:rgba(255,255,255,.12)}
 .cq .cq-key{margin-left:auto;flex:none;padding:1px 6px;border-radius:5px;background:rgba(255,255,255,.12);font-size:11px;font-weight:600;color:#c3cbda;white-space:nowrap}
@@ -84,6 +93,30 @@ function ensureQuickStyle(): void {
 .cq .cq-fire{border-color:rgba(239,65,53,.55)}
 .cq .cq-samu{border-color:rgba(80,160,255,.55)}
 .cq .cq-drone.is-on{border-color:rgba(255,90,79,.7);background:rgba(60,18,22,.86)}
+/* ligne d'état : « AVEC VOUS » en tête, le reste à côté (deux lignes au plus) */
+.cq-state{display:flex;align-items:baseline;gap:6px;padding:4px 7px 3px;font-size:12px;line-height:1.3;color:#dfe6f1}
+.cq-state b{flex:none;font-size:10.5px;font-weight:800;letter-spacing:.07em;color:#9fd0ff;white-space:nowrap}
+.cq-state span{min-width:0;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2}
+/* ordre prêt et ligne « autre » : la touche en pastille, le texte sur deux lignes au plus */
+.cq .cq-go{align-items:flex-start;min-height:34px;padding:5px 7px;font-size:12.5px;font-weight:650;line-height:1.3;white-space:normal;border-color:rgba(88,166,255,.35);background:rgba(20,34,58,.7)}
+.cq .cq-go .cq-k{flex:none;margin-top:1px;padding:1px 6px;border-radius:5px;background:rgba(255,255,255,.18);font-size:11px;font-weight:700;color:#fff;white-space:nowrap}
+.cq .cq-go .cq-t{min-width:0;overflow:hidden;white-space:normal;overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3}
+.cq .cq-go.cq-other{border-color:rgba(255,196,64,.35);background:rgba(40,32,14,.55);font-weight:600}
+.cq .cq-go.is-dim{border-color:rgba(255,255,255,.08);background:transparent;color:#98a4b8;font-weight:600}
+.cq .cq-go.is-dim .cq-k{background:rgba(255,255,255,.08);color:#aab4c5}
+.cq .cq-go.is-flash{animation:cq-flash .3s ease-out}
+@keyframes cq-flash{0%{background:rgba(88,166,255,.55)}100%{background:rgba(20,34,58,.7)}}
+.cq-hint{padding:0 8px 3px;font-size:11px;line-height:1.3;color:#ffc27a}
+/* touches : chacune se clique (trackpad), aucune ne prend le focus */
+.cq-keys{display:flex;flex-wrap:wrap;gap:1px 2px;padding:1px 2px 2px;font-size:11px;color:#aab6c9}
+.cq-keys button{background:none;border:0;border-radius:4px;padding:2px 4px;color:inherit;font:inherit;cursor:pointer;white-space:nowrap}
+.cq-keys button:hover{background:rgba(255,255,255,.1);color:#e8ecf3}
+.cq-keys b{font-weight:800;color:#e8ecf3}
+.cq-keys.is-undo button{color:#ffd58a}
+.cq-keys .cq-sep{align-self:center;color:#6f7b90}
+.cq-det{padding:1px 8px;font-size:11.5px;line-height:1.35;color:#c9d3e2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:254px}
+.cq-det.is-more{color:#8f9bb0}
+.cq .cq-withme{display:none}
 .cq-blocked,.cq-prop{width:262px;padding:7px 9px;border-radius:10px;background:rgba(11,18,32,.9);color:#e8ecf3;font-size:12px;line-height:1.35;pointer-events:auto}
 .cq-blocked{border:1px solid rgba(255,159,10,.7)}
 .cq-blocked-t{display:block;font-weight:650;margin-bottom:5px}
@@ -106,20 +139,24 @@ function ensureQuickStyle(): void {
   /* le titre en clair sur deux lignes au plus (sur une seule, il ne restait que « Te… ») ; « Adjoint : » en tête */
   .ui-hud[data-touch="none"] .cq-prop-t{flex:1;min-width:0;overflow:hidden;font-size:12px;line-height:1.25;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2}
   .ui-hud[data-touch="none"] .cq-prop-lead{display:inline;font-size:0}
-  .ui-hud[data-touch="none"] .cq-prop-lead::before{content:"Adjoint : ";font-size:12px}
+  .ui-hud[data-touch="none"] .cq-prop-lead::before{content:"Adjoint : ";font-size:12px}
   .ui-hud[data-touch="none"] .cq-prop .cq-row{margin-top:0;flex:none}
   .ui-hud[data-touch="none"] .cq-prop .cq-later{display:none}
 }
-/* écran tactile : deux pastilles sous la mini-carte (la carte a déjà son bouton « TACTIQUE ») */
+/* écran tactile : deux pastilles sous la mini-carte (« Avec moi », « Secours ici ») ; la ligne d'état est la puce du
+   haut, l'ordre prêt la pastille du module tactile ; tout ce qui se touche : 44 px au moins */
 .ui-hud:not([data-touch="none"]) .cq{margin-top:4px}
 .ui-hud:not([data-touch="none"]) .cq-block{flex-direction:row;flex-wrap:nowrap;gap:5px;width:auto;padding:0;background:none;border:0;backdrop-filter:none}
-.ui-hud:not([data-touch="none"]) .cq-head,.ui-hud:not([data-touch="none"]) .cq .cq-map,.ui-hud:not([data-touch="none"]) .cq .cq-alt{display:none}
-.ui-hud:not([data-touch="none"]) .cq .cm-btn{width:auto;min-height:30px;padding:4px 9px;font-size:11.5px;border-radius:8px;background:rgba(11,18,32,.84);border-color:rgba(255,255,255,.14)}
+.ui-hud:not([data-touch="none"]) .cq-state,.ui-hud:not([data-touch="none"]) .cq .cq-go,.ui-hud:not([data-touch="none"]) .cq-hint,
+.ui-hud:not([data-touch="none"]) .cq-keys,.ui-hud:not([data-touch="none"]) .cq-det{display:none!important}
+.ui-hud:not([data-touch="none"]) .cq .cq-withme{display:inline-flex}
+.ui-hud:not([data-touch="none"]) .cq .cm-btn{width:auto;min-height:44px;padding:4px 11px;font-size:12px;border-radius:9px;background:rgba(11,18,32,.84);border-color:rgba(255,255,255,.14)}
 .ui-hud:not([data-touch="none"]) .cq .cq-key{display:none}
 /* sans pictogramme : la rangée reste étroite, les sous-titres passent à sa droite */
 .ui-hud:not([data-touch="none"]) .cq-block .cm-ico{display:none}
 .ui-hud:not([data-touch="none"]) .cq-sub{padding:0;gap:5px}
-.ui-hud:not([data-touch="none"]) .cq.is-rescue .cq-follow{display:none}
+.ui-hud:not([data-touch="none"]) .cq.is-rescue .cq-withme{display:none}
+.ui-hud:not([data-touch="none"]) .cq-row .cm-btn{min-height:44px;min-width:44px}
 @media (pointer:coarse){.cq .cq-key{display:none}.cq .cm-btn{min-height:44px}}
 /* bandeaux du téléphone, en haut au centre (élément 'command.banner') */
 .cq-banner{display:flex;flex-direction:column;align-items:center;gap:4px;pointer-events:none;max-width:100%}
@@ -131,43 +168,45 @@ function ensureQuickStyle(): void {
 .cq-banner .cq-row{margin:0}
 .cq-banner .cq-key,.cq-banner .cq-lg{display:none}
 .cq-banner .cq-sm{display:inline}
-.cq-banner .cm-btn{width:auto;min-height:36px;padding:3px 10px;font-size:12px;border-radius:8px;color:#e8ecf3;font-weight:650;gap:6px}
+.cq-banner .cm-btn{width:auto;min-height:44px;min-width:44px;padding:3px 10px;font-size:12px;border-radius:8px;color:#e8ecf3;font-weight:650;gap:6px}
 .cq-banner .cq-blocked .cm-btn{background:rgba(80,46,10,.85);border:1px solid rgba(255,159,10,.6)}
 .cq-banner .cq-row .cm-btn{background:rgba(20,30,50,.95);border:1px solid rgba(255,255,255,.16)}
 .cq-banner .cq-row .cq-ok{border-color:rgba(64,200,120,.6)}
-@media (pointer:coarse){.cq-banner .cm-btn{min-height:44px}}
 `;
+
+function ensureQuickStyle(): void {
+  if (document.getElementById(STYLE_ID)) return;
+  const s = document.createElement('style');
+  s.id = STYLE_ID;
+  s.textContent = QUICK_CSS;
   document.head.appendChild(s);
 }
 
-/** Libellés du bloc « ORDRES » : les mêmes mots que la roue d'ordres et la fiche « VOUS » de la carte. */
+/** Libellés du bloc d'ordres : les mêmes mots que la roue d'ordres et la carte de commandement. */
 export const QUICK_LABELS = {
-  title: 'ORDRES',
-  foot: 'Suivez-moi à pied',
-  column: 'Suivez-moi en véhicules',
+  /** Pastille du téléphone : le même ordre que A (direct/words.ts, secteur 1 de la roue). */
+  withMe: 'Avec moi',
   rescue: 'Secours ici',
   pompiers: 'Pompiers ici',
   samu: 'SAMU ici',
-  map: 'Carte de commandement',
-  mapReadOnly: 'Carte',
   drone: 'Vue drone',
   push: 'Envoyer le blindé Centaure',
   pushAsk: 'Demander le Centaure',
 } as const;
 
-/** Boutons « me suivre » (à pied, en véhicules) : montrés à tout policier qui a une unité avec lui. */
+/** « Avec moi » (A, pastille du téléphone) : montré à tout policier qui a une unité avec lui. */
 export function followButtonsShown(core: CommandCore): boolean {
   return core.followUnit() !== null;
 }
 
-/** Rappel de touche de la roue d'ordres : « F puis 1 » (jamais « F 1 » ni « F1 »). */
+/** Rappel de touche de la roue d'ordres : « F puis 7 » (jamais « F 7 » ni « F7 » : sur un Mac, F7 est une touche de fonction). */
 export function wheelHint(ordersKey: string, sector: number): string {
   return `${ordersKey !== '' ? ordersKey : 'F'} puis ${sector}`;
 }
 
 /**
- * Infobulles des deux ordres « Suivez-moi » selon l'unité qui suit : la compagnie (commandant, commissaire), la
- * section (chef de section), le groupe (chef de groupe, CRS), l'équipage (engin).
+ * Infobulles de « Avec moi » selon l'unité qui suit : la compagnie (commandant, commissaire), la section (chef de
+ * section), le groupe (chef de groupe, CRS), l'équipage (engin) ; à pied, ou derrière son véhicule.
  */
 export function followTitles(kind: string): { foot: string; column: string } {
   switch (kind) {
@@ -184,8 +223,8 @@ export function followTitles(kind: string): { foot: string; column: string } {
 }
 
 /**
- * Pastille « Suivez-moi » du téléphone : l'ordre qui convient à la façon dont le joueur se déplace — en véhicule (au
- * volant ou passager) « Suivez-moi en véhicules », à pied « Suivez-moi à pied ». true : en véhicules.
+ * « Avec moi » s'adapte à la façon dont le joueur se déplace : en véhicule (au volant ou passager) ses unités
+ * remontent et suivent son véhicule, à pied elles le suivent à pied. true : en véhicules.
  */
 export function smartFollowColumn(playerVehicleId: number): boolean {
   return playerVehicleId !== 0;
@@ -231,6 +270,15 @@ export function requestRescueAtPlayer(core: CommandCore, kind: RescueKind): bool
   return true;
 }
 
+/**
+ * Un bouton du HUD ne garde jamais le focus : sinon Entrée (l'ordre prêt) ou Espace « cliqueraient » aussi le dernier
+ * bouton touché (deux ordres d'un seul appui).
+ */
+function noFocus(b: HTMLButtonElement): void {
+  b.tabIndex = -1;
+  b.addEventListener('mousedown', (e) => e.preventDefault());
+}
+
 /** Bouton du bloc : pictogramme, libellé (long à l'ordinateur, court dans les bandeaux du téléphone), touche. */
 function chip(label: string, onClick: () => void, opts: { icon?: IconName; id?: string; className?: string; title?: string; short?: string; key?: string }): {
   btn: HTMLButtonElement; label: HTMLElement; key: HTMLElement;
@@ -247,32 +295,80 @@ function chip(label: string, onClick: () => void, opts: { icon?: IconName; id?: 
   b.appendChild(key);
   if (opts.title) b.title = opts.title;
   if (opts.id) b.dataset.id = opts.id;
+  noFocus(b);
   b.addEventListener('click', (e) => {
     e.stopPropagation();
+    b.blur();
     onClick();
   });
   return { btn: b, label: lg, key };
 }
 
+/** Ligne d'ordre cliquable (ordre prêt, ligne « autre ») : la touche en pastille, le texte. */
+interface OrderRow {
+  btn: HTMLButtonElement;
+  key: HTMLElement;
+  text: HTMLElement;
+  hint: HTMLElement;
+  shown: string;
+}
+
+function orderRow(id: string, className: string, onClick: () => void): OrderRow {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'cm-btn cq-go is-off' + (className ? ' ' + className : '');
+  b.dataset.id = id;
+  const key = el('span', 'cq-k');
+  const text = el('span', 'cq-t');
+  b.append(key, text);
+  noFocus(b);
+  b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    b.blur();
+    onClick();
+  });
+  const hint = el('div', 'cq-hint is-off');
+  hint.dataset.id = id + '-hint';
+  return { btn: b, key, text, hint, shown: '' };
+}
+
+/** Action d'un morceau de la ligne des touches, d'après ses mots (« A avec moi », « U autre unité »…). */
+export type KeyPartAction = 'with_me' | 'who' | 'wheel' | 'map' | 'undo' | 'none';
+
+export function keyPartAction(part: string): KeyPartAction {
+  if (/annuler\b/.test(part)) return 'undo';
+  if (/avec moi$/.test(part)) return 'with_me';
+  if (/autre unité$/.test(part)) return 'who';
+  if (/ordres$/.test(part)) return 'wheel';
+  if (/carte$/.test(part)) return 'map';
+  return 'none';
+}
+
 export class QuickActionsHud implements HudWidget {
   readonly root: HTMLDivElement;
   private readonly block: HTMLDivElement;
-  private readonly head: HTMLDivElement;
-  private readonly headKey: HTMLElement;
-  private readonly mapBtn: HTMLButtonElement;
-  private readonly mapLabel: HTMLElement;
-  private readonly mapKey: HTMLElement;
   private readonly rescueBtn: HTMLButtonElement;
   private readonly rescueKey: HTMLElement;
   private readonly droneBtn: HTMLButtonElement;
   private droneShown = false;
-  /** Ordres « Suivez-moi » (à pied, en véhicules) à son unité. */
-  private readonly footBtn: HTMLButtonElement;
-  private readonly footKey: HTMLElement;
-  private readonly columnBtn: HTMLButtonElement;
-  private readonly columnKey: HTMLElement;
-  private followShown = false;
-  private followKind = '';
+  /** Téléphone : « Avec moi » (même ordre que A). */
+  private readonly withMeBtn: HTMLButtonElement;
+  private withMeShown = false;
+  private withMeTitle = '';
+  // ordres directs (ordinateur) : ligne d'état, ordre prêt, ligne « autre », touches, unités détachées
+  private readonly stateEl: HTMLDivElement;
+  private readonly stateHead: HTMLElement;
+  private readonly stateRest: HTMLElement;
+  private readonly go: OrderRow;
+  private readonly other: OrderRow;
+  private readonly keysEl: HTMLDivElement;
+  private keysText = '';
+  private readonly detEls: HTMLDivElement[];
+  private readonly moreEl: HTMLDivElement;
+  /** Ligne des interpellés (« Interpellés 5 · CELLULAIRE 1 3/8 · 2 au commissariat »), dès la première interpellation. */
+  private readonly custodyEl: HTMLDivElement;
+  /** Dernier modèle lu (les clics donnent l'ordre affiché, jamais un ordre recalculé). */
+  private model: FieldHudModel | null = null;
   private readonly sub: HTMLDivElement;
   private last = -1;
   private open = false;
@@ -321,19 +417,19 @@ export class QuickActionsHud implements HudWidget {
     this.root = el('div', 'cq is-off');
     this.root.dataset.id = 'hud-quick';
 
-    // bloc « ORDRES »
+    // bloc d'ordres
     this.block = el('div', 'cq-block');
     this.block.dataset.id = 'hud-orders';
-    this.head = el('div', 'cq-head is-off');
-    this.head.append(el('span', undefined, QUICK_LABELS.title));
-    this.headKey = el('span', 'cq-key', 'F');
-    this.head.appendChild(this.headKey);
-    const foot = chip(QUICK_LABELS.foot, () => this.callFollow(false), { icon: 'arrow', id: 'quick-follow-foot', className: 'cq-follow is-off' });
-    this.footBtn = foot.btn;
-    this.footKey = foot.key;
-    const column = chip(QUICK_LABELS.column, () => this.callFollow(true), { icon: 'road', id: 'quick-follow-column', className: 'cq-follow is-off' });
-    this.columnBtn = column.btn;
-    this.columnKey = column.key;
+    this.stateEl = el('div', 'cq-state is-off');
+    this.stateEl.dataset.id = 'hud-state';
+    this.stateHead = el('b');
+    this.stateRest = el('span');
+    this.stateEl.append(this.stateHead, this.stateRest);
+    this.go = orderRow('hud-ready', '', () => this.giveShown('go'));
+    this.other = orderRow('hud-other', 'cq-other', () => this.giveShown('autre'));
+    this.keysEl = el('div', 'cq-keys is-off');
+    this.keysEl.dataset.id = 'hud-keys';
+    this.withMeBtn = chip(QUICK_LABELS.withMe, () => this.withMe(), { icon: 'arrow', id: 'quick-with-me', className: 'cq-withme is-off' }).btn;
     const rescue = chip(QUICK_LABELS.rescue, () => this.toggleRescue(), { icon: 'cross', id: 'quick-rescue', title: 'Appeler les pompiers ou le SAMU là où vous êtes' });
     this.rescueBtn = rescue.btn;
     this.rescueKey = rescue.key;
@@ -342,17 +438,27 @@ export class QuickActionsHud implements HudWidget {
       chip(QUICK_LABELS.pompiers, () => this.call('pompiers'), { icon: 'fire', id: 'quick-pompiers', className: 'cq-fire', title: 'Pompiers à votre position' }).btn,
       chip(QUICK_LABELS.samu, () => this.call('samu'), { icon: 'cross', id: 'quick-samu', className: 'cq-samu', title: 'SAMU (médecin) à votre position' }).btn,
     );
-    const map = chip(QUICK_LABELS.map, () => this.openMap(), { icon: 'layers', id: 'quick-map', className: 'cq-map', key: 'Tab', title: 'Ouvrir la carte de commandement' });
-    this.mapBtn = map.btn;
-    this.mapLabel = map.label;
-    this.mapKey = map.key;
     this.droneBtn = chip(QUICK_LABELS.drone, () => this.toggleDrone(), { icon: 'drone', id: 'quick-drone', className: 'cq-drone is-off', key: 'O', title: 'Retour vidéo du drone (O)' }).btn;
-    this.block.append(this.head, this.footBtn, this.columnBtn, this.rescueBtn, this.sub, this.mapBtn, this.droneBtn);
+    this.detEls = [];
+    for (let i = 0; i < 2; i++) {
+      const d = el('div', 'cq-det is-off');
+      d.dataset.id = 'hud-detached-' + i;
+      this.detEls.push(d);
+    }
+    this.moreEl = el('div', 'cq-det is-more is-off');
+    this.moreEl.dataset.id = 'hud-detached-more';
+    // interpellés : combien, le fourgon cellulaire de la remise et sa charge, combien au commissariat (plan §5.2)
+    this.custodyEl = el('div', 'cq-det is-off');
+    this.custodyEl.dataset.id = 'hud-custody';
+    this.block.append(
+      this.stateEl, this.go.btn, this.go.hint, this.other.btn, this.other.hint, this.keysEl,
+      this.withMeBtn, this.rescueBtn, this.sub, this.droneBtn, ...this.detEls, this.moreEl, this.custodyEl,
+    );
 
     // véhicule qui bloque la colonne du joueur
     this.blocked = el('div', 'cq-blocked is-off');
     this.blocked.dataset.id = 'hud-blocked';
-    this.blockedText = el('span', 'cq-blocked-t', 'Un véhicule vous bloque :');
+    this.blockedText = el('span', 'cq-blocked-t', 'Un véhicule vous bloque :');
     const push = chip(QUICK_LABELS.push, () => this.sendCentaure(), { icon: 'shield', id: 'quick-centaure', short: 'Centaure', title: 'Le blindé Centaure pousse le véhicule hors de la chaussée' });
     this.blockedBtnLabel = push.label;
     this.blockedKey = push.key;
@@ -363,7 +469,7 @@ export class QuickActionsHud implements HudWidget {
     this.prop.dataset.id = 'hud-proposal';
     this.propHead = el('b', 'cq-prop-h', 'L’ADJOINT PROPOSE');
     const txt = el('span', 'cq-prop-t');
-    this.propLead = el('span', 'cq-prop-lead', 'L’adjoint propose : ');
+    this.propLead = el('span', 'cq-prop-lead', 'L’adjoint propose : ');
     this.propText = el('span');
     txt.append(this.propLead, this.propText);
     const row = el('div', 'cq-row');
@@ -378,7 +484,7 @@ export class QuickActionsHud implements HudWidget {
 
   /**
    * Bandeaux du téléphone (zone 'top' du HUD) : sur écran tactile, la proposition de l'adjoint et le véhicule qui
-   * bloque y passent, en haut au centre ; à l'ordinateur ils restent sous le bloc « ORDRES ».
+   * bloque y passent, en haut au centre ; à l'ordinateur ils restent sous le bloc d'ordres.
    */
   attachBanner(host: HTMLElement): void {
     const b = el('div', 'cq-banner');
@@ -398,13 +504,16 @@ export class QuickActionsHud implements HudWidget {
 
   /** Écran tactile (surcouche du module d'entrées) : les deux bandeaux en haut au centre. */
   private placeBanners(): void {
-    const hud = this.root.closest('.ui-hud');
-    const touch = !!hud && (hud.getAttribute('data-touch') ?? 'none') !== 'none';
-    const want = touch && this.banner !== null;
+    const want = this.touch() && this.banner !== null;
     if (want === this.inBanner) return;
     this.inBanner = want;
     if (want) this.banner!.append(this.blocked, this.prop);
     else this.root.append(this.blocked, this.prop);
+  }
+
+  private touch(): boolean {
+    const hud = this.root.closest('.ui-hud');
+    return !!hud && (hud.getAttribute('data-touch') ?? 'none') !== 'none';
   }
 
   /** Proposition « Fermer la nasse » : P exécute les ordres « Barrer la rue », Maj + P l'écarte. */
@@ -430,7 +539,7 @@ export class QuickActionsHud implements HudWidget {
     if (nasse) {
       this.propId = -1;
       setText(this.propHead, 'FERMER LA NASSE — À VALIDER');
-      setText(this.propLead, 'Fermer la nasse : ');
+      setText(this.propLead, 'Fermer la nasse : ');
       setText(this.propText, nasse.text);
       this.prop.title = nasse.text;
       setClass(this.prop, 'is-off', false);
@@ -438,7 +547,7 @@ export class QuickActionsHud implements HudWidget {
     }
     if (this.propId === -1) this.propId = 0;
     setText(this.propHead, 'L’ADJOINT PROPOSE');
-    setText(this.propLead, 'L’adjoint propose : ');
+    setText(this.propLead, 'L’adjoint propose : ');
     const cmd = this.core.ctx.service<{ proposals: readonly ProposalLike[] }>('police.command');
     let best: ProposalLike | null = null;
     if (cmd && this.commander) {
@@ -478,6 +587,11 @@ export class QuickActionsHud implements HudWidget {
     this.last = -1;
   }
 
+  private direct(): DirectApi | undefined {
+    const d = this.core.ctx.service<DirectApi>(FIELD_DIRECT_SERVICE);
+    return d && typeof d.ready === 'function' ? d : undefined;
+  }
+
   update(): void {
     const core = this.core;
     const t = core.maps.time;
@@ -494,37 +608,187 @@ export class QuickActionsHud implements HudWidget {
     setClass(this.root, 'is-off', false);
     this.placeBanners();
     const commander = isPoliceRole(ctx.player.state.role) && core.scope().level !== 'lecture';
-    if (commander !== this.commander) {
-      this.commander = commander;
-      setText(this.mapLabel, commander ? QUICK_LABELS.map : QUICK_LABELS.mapReadOnly);
-      setText(this.mapKey, commander ? 'Tab' : 'M');
-      this.mapBtn.title = commander ? 'Ouvrir la carte de commandement' : 'Ouvrir la carte';
-    }
+    if (commander !== this.commander) this.commander = commander;
     this.refreshDrone();
-    const unit = core.followUnit();
-    const follow = unit !== null;
-    if (follow !== this.followShown) {
-      this.followShown = follow;
-      setClass(this.head, 'is-off', !follow);
-      setClass(this.footBtn, 'is-off', !follow);
-      setClass(this.columnBtn, 'is-off', !follow);
-    }
-    if (unit && unit.kind !== this.followKind) {
-      this.followKind = unit.kind;
-      const titles = followTitles(unit.kind);
-      this.footBtn.title = titles.foot;
-      this.columnBtn.title = titles.column;
-    }
-    // téléphone : une seule pastille « Suivez-moi », l'ordre qui convient à la façon dont le joueur se déplace
-    const column = smartFollowColumn(p.vehicleId);
-    setClass(this.footBtn, 'cq-alt', column);
-    setClass(this.columnBtn, 'cq-alt', !column);
-    this.refreshHints(follow || commander);
+    this.refreshDirect();
+    this.refreshWithMe(p.vehicleId);
+    this.refreshHints(isPoliceRole(ctx.player.state.role) && (commander || core.followUnit() !== null));
     this.refreshBlocked(commander);
     this.refreshProposal();
   }
 
-  /** Rappels de touches de la roue (« F puis 1 ») : seulement pour qui a une roue d'ordres (tout policier avec une unité). */
+  /** Ligne d'état, ordre prêt, ligne « autre », touches, unités détachées (ordinateur ; cachés au toucher). */
+  private refreshDirect(): void {
+    const direct = this.direct();
+    const m = direct && isPoliceRole(this.core.ctx.player.state.role)
+      ? sharedFieldHud(this.core, direct)
+      : null;
+    this.model = m;
+    // ligne d'état
+    const state = m ? m.state : '';
+    setClass(this.stateEl, 'is-off', state === '');
+    if (state !== '') {
+      const h = splitHead(state);
+      setText(this.stateHead, h.head);
+      setText(this.stateRest, h.rest);
+      if (this.stateEl.title !== state) this.stateEl.title = state;
+    }
+    this.paintOrder(this.go, m ? m.go : null);
+    this.paintOrder(this.other, m ? m.other : null);
+    // hors de la police (journaliste, secours, manifestant) : la carte simple, d'un clic ou de sa touche
+    this.paintKeys(m ? m.keys : `${fieldKeyLabels(this.core).map} carte`, m !== null && m.undo !== null);
+    // unités détachées : 2 au plus, puis « +N »
+    const det = m ? m.detached : [];
+    for (let i = 0; i < this.detEls.length; i++) {
+      const d = this.detEls[i]!;
+      const line = det[i] ?? '';
+      setClass(d, 'is-off', line === '');
+      if (line !== '') {
+        setText(d, line);
+        if (d.title !== line) d.title = line;
+      }
+    }
+    const more = m ? m.more : 0;
+    setClass(this.moreEl, 'is-off', more === 0);
+    if (more > 0) setText(this.moreEl, `+${more} ${more > 1 ? 'autres unités' : 'autre unité'} (Tab : la carte)`);
+    const custody = m && m.commander ? m.custody : '';
+    setClass(this.custodyEl, 'is-off', custody === '');
+    if (custody !== '') {
+      setText(this.custodyEl, custody);
+      if (this.custodyEl.title !== custody) this.custodyEl.title = custody;
+    }
+  }
+
+  private paintOrder(row: OrderRow, line: FieldOrderLine | null): void {
+    setClass(row.btn, 'is-off', !line);
+    setClass(row.hint, 'is-off', !line || line.hint === '');
+    if (!line) {
+      row.shown = '';
+      return;
+    }
+    // « Entrée  Bloquer la rue … » (direct/words.ts keyedLine : la touche, une espace demi-cadratin, le texte) : la
+    // touche dans sa pastille, le texte à côté ; la ligne grise du rien visé n'a pas de touche
+    const sp = line.order.rule === 'i' ? -1 : line.text.indexOf(KEY_SEPARATOR);
+    const key = sp > 0 ? line.text.slice(0, sp) : '';
+    const text = sp > 0 ? line.text.slice(sp + KEY_SEPARATOR.length) : line.text;
+    setText(row.key, key);
+    setClass(row.key, 'is-off', key === '');
+    setText(row.text, text);
+    setClass(row.btn, 'is-dim', !line.enabled);
+    const title = line.hint !== '' ? `${line.text}\n${line.hint}` : line.text;
+    if (row.btn.title !== title) row.btn.title = title;
+    if (line.hint !== '') setText(row.hint, line.hint);
+    // une ligne qui vient de changer clignote (le joueur voit ce qu'il ordonne)
+    if (line.flash && row.shown !== line.order.key) {
+      row.btn.classList.remove('is-flash');
+      void row.btn.offsetWidth;
+      row.btn.classList.add('is-flash');
+    }
+    row.shown = line.order.key;
+  }
+
+  /** Ligne des touches : chaque morceau se clique (A avec moi, U autre unité, F tous les ordres, Tab carte, ⌫ annuler). */
+  private paintKeys(text: string, undo: boolean): void {
+    setClass(this.keysEl, 'is-off', text === '');
+    setClass(this.keysEl, 'is-undo', undo);
+    if (text === this.keysText) return;
+    this.keysText = text;
+    this.keysEl.textContent = '';
+    const parts = text === '' ? [] : undo ? [text] : text.split(' · ');
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i]!;
+      if (i > 0) this.keysEl.appendChild(el('span', 'cq-sep', '·'));
+      const b = document.createElement('button');
+      b.type = 'button';
+      const sp = part.indexOf(' ');
+      const key = undo ? part.split(' ')[0]! : sp > 0 ? part.slice(0, sp) : part;
+      b.append(el('b', undefined, key), document.createTextNode(part.slice(key.length)));
+      const action = keyPartAction(part);
+      b.dataset.id = 'hud-key-' + action;
+      noFocus(b);
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        b.blur();
+        this.keyAction(action);
+      });
+      this.keysEl.appendChild(b);
+    }
+  }
+
+  private keyAction(action: KeyPartAction): void {
+    const direct = this.direct();
+    const ctx = this.core.ctx;
+    this.closeRescue();
+    switch (action) {
+      case 'with_me':
+        this.withMe();
+        return;
+      case 'who':
+        direct?.cycle(1);
+        break;
+      case 'wheel':
+        ctx.ui.open(WHEEL_SCREEN_ID);
+        return;
+      case 'map':
+        this.openMap();
+        return;
+      case 'undo':
+        if (direct) {
+          const r = direct.undo();
+          if (r.ok && r.text !== '') ctx.ui.notify(r.text, 'info', 3);
+        }
+        break;
+      default:
+        return;
+    }
+    this.last = -1;
+  }
+
+  /** Clic sur l'ordre prêt (ou la ligne « autre ») : la ligne affichée part, comme Entrée ; trop loin : la carte s'ouvre dessus. */
+  private giveShown(which: 'go' | 'autre'): void {
+    const direct = this.direct();
+    const line = which === 'go' ? this.model?.go : this.model?.other;
+    this.closeRescue();
+    if (!direct || !line) return;
+    if (!line.order.enabled && line.order.lock === REFUS.tropLoin) {
+      openTacticalAt(this.core, line.order.x, line.order.z, line.order.who ? line.order.who.squadIds : [], 'envoyer');
+      return;
+    }
+    this.feedback(direct.give(which));
+  }
+
+  /** « Avec moi » (pastille du téléphone, « A avec moi » du bloc) : le même ordre que A. */
+  private withMe(): void {
+    const direct = this.direct();
+    this.closeRescue();
+    if (!direct) return;
+    this.feedback(direct.avecMoi());
+  }
+
+  /** Un ordre parti : le bip de la radio (le refus a déjà son message, l'appui ignoré ne fait rien). */
+  private feedback(r: GiveResult): void {
+    if (!r.ignored) this.core.ctx.audio.play(r.ok ? 'radio_bip' : 'ui_alerte');
+    this.last = -1;
+  }
+
+  /** Pastille « Avec moi » du téléphone : à tout policier qui a une unité avec lui (ou qui commande). */
+  private refreshWithMe(vehicleId: number): void {
+    const m = this.model;
+    const shown = m !== null && m.canFollow;
+    if (shown !== this.withMeShown) {
+      this.withMeShown = shown;
+      setClass(this.withMeBtn, 'is-off', !shown);
+    }
+    const unit = this.core.followUnit();
+    const titles = followTitles(unit ? unit.kind : '');
+    const title = smartFollowColumn(vehicleId) ? titles.column : titles.foot;
+    if (title !== this.withMeTitle) {
+      this.withMeTitle = title;
+      this.withMeBtn.title = title;
+    }
+  }
+
+  /** Rappels de touches de la roue (« F puis 7 ») : seulement pour qui a une roue d'ordres (tout policier avec une unité). */
   private refreshHints(wheel: boolean): void {
     const kit = this.core.kit;
     let key = 'F';
@@ -538,16 +802,11 @@ export class QuickActionsHud implements HudWidget {
     const state = `${wheel ? 1 : 0}:${key}:${this.commander ? 1 : 0}`;
     if (state === this.hintsFor) return;
     this.hintsFor = state;
-    setText(this.headKey, key);
-    const set = (elt: HTMLElement, sector: number, shown: boolean): void => {
-      setText(elt, shown ? wheelHint(key, sector) : '');
-      setClass(elt, 'is-off', !shown);
-    };
-    set(this.footKey, WHEEL_FOOT, wheel);
-    set(this.columnKey, WHEEL_COLUMN, wheel);
-    set(this.rescueKey, WHEEL_RESCUE, wheel);
-    // « Pousser un véhicule » est un secteur de la roue de ceux qui commandent
-    set(this.blockedKey, WHEEL_PUSH, this.commander);
+    setText(this.rescueKey, wheel ? wheelHint(key, WHEEL_RESCUE) : '');
+    setClass(this.rescueKey, 'is-off', !wheel);
+    // « Pousser un véhicule » est dans « Plus… » de la roue de ceux qui commandent : « F puis 8 puis 9 »
+    setText(this.blockedKey, this.commander ? `${wheelHint(key, WHEEL_MORE)} puis ${WHEEL_PUSH}` : '');
+    setClass(this.blockedKey, 'is-off', !this.commander);
   }
 
   private obstacle(): ObstacleLike | undefined {
@@ -568,7 +827,7 @@ export class QuickActionsHud implements HudWidget {
     const show = !!b && now - this.blockSeenAt >= BLOCK_SHOW_AFTER;
     if (show) {
       const street = b!.street && b!.street !== 'secteur inconnu' ? ` (${b!.street})` : '';
-      setText(this.blockedText, `Un véhicule vous bloque${street} :`);
+      setText(this.blockedText, `Un véhicule vous bloque${street} :`);
       setText(this.blockedBtnLabel, commander ? QUICK_LABELS.push : QUICK_LABELS.pushAsk);
     }
     if (show !== this.blockShown) {
@@ -592,28 +851,13 @@ export class QuickActionsHud implements HudWidget {
       if (!r.ok) {
         ctx.ui.notify(r.reason, 'warn', 5);
         ctx.audio.play('ui_alerte');
-      } else ctx.ui.notify('Ordre donné : le blindé Centaure vient pousser le véhicule. Restez à distance.', 'ok', 4);
+      } else ctx.ui.notify('Ordre donné : le blindé Centaure vient pousser le véhicule. Restez à distance.', 'ok', 4);
     } else {
       const r = desk.radioRequest(core.callsign());
       ctx.audio.play('radio_bip');
       ctx.ui.notify(r.ok ? `${r.name} vient dégager l’obstacle : restez à distance du véhicule.` : `Demande refusée : ${r.reason.charAt(0).toLowerCase()}${r.reason.slice(1)}`, r.ok ? 'ok' : 'warn', 5);
     }
     this.last = -1;
-  }
-
-  /** « Suivez-moi à pied » / « Suivez-moi en véhicules » à son unité (même ordre que la roue d'ordres, secteurs 1 et 2). */
-  private callFollow(column: boolean): void {
-    const core = this.core;
-    this.closeRescue();
-    const unit = core.followUnit();
-    const r = core.callFollow(column);
-    if (!r.ok) {
-      core.ctx.ui.notify(r.reason, 'warn', 5);
-      core.ctx.audio.play('ui_alerte');
-    } else {
-      const verb = verbOf(column ? 'avec_moi' : 'suivre_pied');
-      core.ctx.ui.notify(`Ordre donné : ${unit ? unit.name : 'votre unité'} ${verb ? verb.doing : ''}.`, 'ok', 2.5);
-    }
   }
 
   private droneFeed(): DroneFeedApi | undefined {
@@ -640,10 +884,11 @@ export class QuickActionsHud implements HudWidget {
     setClass(this.droneBtn, 'is-on', feed.open);
   }
 
+  /** « Tab carte » : la carte de commandement (« M carte » : la carte simple pour qui ne commande pas). */
   private openMap(): void {
     const ctx = this.core.ctx;
     this.closeRescue();
-    if (this.commander) ctx.ui.open('carte_tactique');
+    if (this.commander || (this.model !== null && this.model.commander)) ctx.ui.open('carte_tactique');
     else ctx.ui.open('carte');
   }
 

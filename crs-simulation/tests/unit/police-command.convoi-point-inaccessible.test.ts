@@ -35,7 +35,8 @@ describe('colonne : point inaccessible en véhicule', () => {
     expect(pc.arrive(sec.id, { x: tx, z: tz, heading: 0, layout: 'file', boardFirst: true, stagger: true, disembark: true })).toBe(true);
     let stage = '';
     for (let i = 0; i < 400 && stage !== 'en_place'; i++) { t.step(1); stage = pc.convoyOf(sec.id)?.stage ?? ''; }
-    t.step(20);
+    // (le compte rendu passe sur un réseau de commandement chargé : il est dit dans les quarante secondes)
+    t.step(40);
     const said = ctx.radio.log.slice(from).filter((m) => m.from === sec.name).map((m) => m.text);
     console.log(said.join('\n'));
     expect(stage).toBe('en_place');

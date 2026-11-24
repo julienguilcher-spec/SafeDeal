@@ -110,15 +110,37 @@ describe('commandant : « Interpeller » tient sa promesse jusqu’au bout', () 
     expect(ctx.people.list.filter((p) => p.faction === 'protest' && p.custody !== 'free').length).toBe(0);
   }, 600000);
 
-  it('Concorde, sans BRAV-M : aucun fait constaté — la phrase annonce le refus du groupe, et le groupe refuse', async () => {
+  it('Concorde, sans BRAV-M : aucun fait constaté — la phrase dit que le groupe va constater, et il y va (« Aller constater », sans refus)', async () => {
     const { ctx, core, sendEnv, t } = await start('Place de la Concorde', 21, -10, 15, { ...MEANS, bravm: 0 });
     const { e, r, line, who, what } = arrestCard(core);
     expect(who.label).not.toMatch(/^BRAV-M/);
-    expect(what, what).toMatch(/aucun fait constaté .*ne peut interpeller personne et refusera l’ordre/i);
+    expect(what, what).toMatch(/va constater .*sans fait constaté, personne n’est interpellé/);
     const refused: number[] = [];
     ctx.events.onAny('police:order_refused', (ev) => refused.push((ev as { squadId: number }).squadId));
+    const t0 = ctx.clock.now;
     expect(sendCardLine(sendEnv(e), line, who, r).ok).toBe(true);
-    t.step(20);
-    expect(refused.some((id) => who.squadIds.includes(id) || ctx.squads.get(id)?.parentId === who.squadIds[0])).toBe(true);
+    // le binôme se porte à une dizaine de mètres du point et observe ; personne n'est interpellé sans fait constaté
+    let nearest = Infinity;
+    for (let i = 0; i < 90 && nearest > 16; i++) {
+      t.step(1);
+      for (const id of who.squadIds) {
+        const visit = (sid: number): void => {
+          const s = ctx.squads.get(sid);
+          if (!s) return;
+          for (const m of s.members) {
+            const p = ctx.people.get(m);
+            if (p && !p.isPlayer && p.vehicleId === 0) nearest = Math.min(nearest, Math.hypot(p.x - r.x, p.z - r.z));
+          }
+          for (const c of ctx.squads.childrenOf(sid)) visit(c.id);
+        };
+        visit(id);
+      }
+    }
+    const heard = ctx.radio.log.filter((m) => m.t >= t0 && /constater/.test(m.text)).map((m) => m.text);
+    console.log(`agent le plus proche du point : ${nearest.toFixed(1)} m ; radio : ${heard.join(' / ')}`);
+    expect(refused).toEqual([]);
+    expect(nearest).toBeLessThanOrEqual(16);
+    expect(heard.length).toBeGreaterThan(0);
+    expect(ctx.people.list.filter((p) => p.faction === 'protest' && p.custody !== 'free').length).toBe(0);
   }, 600000);
 });

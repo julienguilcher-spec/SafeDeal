@@ -236,7 +236,9 @@ export class Hud {
     if (zone.childElementCount > 0) {
       const s = this.state;
       const r = zone.getBoundingClientRect();
-      const above = this.slots['top-left'].getBoundingClientRect();
+      // au-dessus : la zone du haut à gauche (état, mini-carte) et celle du haut au centre (au téléphone, la zone de
+      // gauche est à droite de la rangée Radio / ordre prêt, sous la pastille d'unité et ses bandeaux)
+      const above = [this.slots['top-left'].getBoundingClientRect(), this.slots.top.getBoundingClientRect()];
       // plancher : haut de la zone du bas si elle est sous la zone de gauche, à défaut haut de la barre d'objets tactile
       const below = this.slots.bottom.getBoundingClientRect();
       let floor = s.touch === 'pied' ? s.height - 68 * touchScale(s.width, s.height) : s.height;

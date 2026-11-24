@@ -277,8 +277,12 @@ export interface AutopilotStatus {
 export interface AutopilotApi {
   /** Conduit le véhicule jusqu'au point par les rues (ctx.world.findPath, mode 'vehicle'). false si impossible. */
   driveTo(v: Vehicle, x: number, z: number, options?: DriveOptions): boolean;
-  /** Suit un meneur (véhicule ou personne) sur sa trace ; `distance` = intervalle entre mon pare-chocs et lui (m, défaut 6). */
-  follow(v: Vehicle, leaderId: EntityId, distance?: number): boolean;
+  /**
+   * Suit un meneur (véhicule ou personne) sur sa trace ; `distance` = intervalle entre mon pare-chocs et lui (m, défaut 6).
+   * `trail` : trace déjà parcourue par le meneur (x, z, x, z… la plus récente en dernier) — le suivant la rejoint au plus
+   * près et la parcourt, au lieu de chercher son propre itinéraire jusqu'à lui.
+   */
+  follow(v: Vehicle, leaderId: EntityId, distance?: number, trail?: readonly number[]): boolean;
   /** Colonne : le premier conduit jusqu'au point, les autres suivent à intervalle régulier et s'arrêtent alignés. */
   convoy(list: readonly Vehicle[], x: number, z: number, options?: ConvoyOptions): boolean;
   /** Se gare au point donné, dans le cap donné (manœuvre d'approche, d'alignement et de reprise). */

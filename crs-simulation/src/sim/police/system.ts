@@ -13,7 +13,7 @@
  * Aucune allocation dans ces boucles.
  * ===================================================================================== */
 
-import type { GameContext, GameSystem, Person, SquadOrder } from '@/core/contracts';
+import type { GameContext, GameSystem, Person, SquadOrder, Vehicle } from '@/core/contracts';
 import { SystemOrder } from '@/core/contracts';
 import type {
   ExitInfo, FormationInfo, PoliceFormationApi, PoliceSlotApi, PoliceStatusApi, PoliceUnitsApi, SlotInfo, UnitStatus, VehicleReserve,
@@ -29,12 +29,14 @@ import {
 import { senseUnit } from './force';
 import { cancelAct, decideForce, updateAct } from './weapons';
 import { lineError } from './place';
-import { Kernel } from './kernel';
+import { Kernel, isAble } from './kernel';
 import { statusOf, updateCondition } from './logistics';
 import { progress, startOrder } from './maneuver';
 import { copyOrder, done, report } from './mcore';
 import { measure, placeGroup } from './place';
 import { abortOps, autoOps, opReport, resupplyNext, startTask, updateOps } from './ops';
+import { watching, withDetainee } from './ops-arrest';
+import { ArrestService, POLICE_ARRESTS_SERVICE } from './arrest-service';
 import { ackBody, acknowledge, negative, spell } from './radio';
 import { looksAhead, thinkAgent } from './reflex';
 import { findExits, unjoin } from './encircle';
@@ -43,6 +45,7 @@ import { Barrages } from './barrages';
 import { EXT } from '@/core/extensions';
 import { halt, steer } from './steer';
 import { eachDescendant, refreshFormable, resolveLeads, syncTree, ledByPlayer, playerDetached } from './tree';
+import { POLICE_COMMAND_SERVICE } from './command/api';
 import * as T from './tuning';
 import { createBravm, createCompany, createEquipage, createGroup, createPeloton, createSection, membersOf } from './units';
 
@@ -56,7 +59,24 @@ const G = 9.81;
 
 /** Ordres de mise en place qu'un joueur fait exécuter au trot quand le point est à plus de PLAYER_RUSH_MIN mètres. */
 const PLAYER_RUSH_ORDERS: ReadonlySet<string> = new Set(['tenir', 'ligne', 'colonne', 'avancer', 'couper_circulation', 'filtrer', 'proteger', 'encercler', 'escorter']);
-const PLAYER_RUSH_MIN = 35;
+const PLAYER_RUSH_MIN = 15;
+/**
+ * Tâche (interpeller, secourir, éteindre…) donnée à une unité assise dans ses véhicules : ses agents en descendent
+ * d'abord, un par véhicule toutes les EXIT_INTERVAL s, tous les véhicules à la fois ; la tâche part dès que TASK_READY
+ * agents sont à pied (un binôme), ou quand plus personne n'est assis, au plus tard TASK_DISMOUNT_MAX s après l'ordre.
+ */
+const TASK_READY = 2;
+const TASK_DISMOUNT_MAX = 3;
+
+/** Tâche en attente du débarquement de son unité (voir TASK_READY). */
+interface TaskWait {
+  u: Unit;
+  /** Ordre du magasin (pour le compte rendu) et copie posée dans u.task (remplacée : l'attente est abandonnée). */
+  order: SquadOrder;
+  task: SquadOrder;
+  until: number;
+  nextAt: number;
+}
 
 export class PoliceSystem implements GameSystem {
   readonly id = POLICE_SYSTEM_ID;
@@ -68,11 +88,16 @@ export class PoliceSystem implements GameSystem {
   private ctx!: GameContext;
   /** Unités ayant reçu un ordre depuis le dernier pas. */
   private readonly ordered: number[] = [];
+  /** Tâches en attente que leur unité descende de ses véhicules. */
+  private readonly taskWaits: TaskWait[] = [];
+  private readonly exiting: number[] = [];
   private pruneAt = 0;
   private readonly slot: SlotInfo = { x: 0, z: 0, heading: 0 };
   private readonly noExits: ExitInfo[] = [];
   private readonly peopleTmp: Person[] = [];
   private readonly opEnded = (op: Op): void => this.onOpEnded(op);
+  /** Interpellés pris en charge par les unités, fourgons cellulaires appelés, ramassage (service 'police.arrests'). */
+  private readonly arrests = new ArrestService(this.k);
   /** Coût du dernier pas (ms), pour les mesures. */
   lastStepMs = 0;
 
@@ -149,6 +174,7 @@ export class PoliceSystem implements GameSystem {
     ctx.provide(EXT.cordons, this.barrages.cordons);
     // service privé du module : le commandement (src/sim/police/command) y trouve le noyau partagé
     ctx.provide(POLICE_KERNEL_SERVICE, k);
+    ctx.provide(POLICE_ARRESTS_SERVICE, this.arrests);
   }
 
   init(ctx: GameContext): void {
@@ -175,6 +201,8 @@ export class PoliceSystem implements GameSystem {
     this.k.reset();
     this.barrages.reset();
     this.ordered.length = 0;
+    this.taskWaits.length = 0;
+    this.arrests.reset();
     this.pruneAt = 0;
   }
 
@@ -342,7 +370,8 @@ export class PoliceSystem implements GameSystem {
       const squad = ctx.squads.get(list[i]);
       const u = unitOf(squad);
       if (!squad || !u) continue;
-      this.handleOrder(u, squad.order);
+      // (manœuvre interne d'une unité spéciale : son ordre affiché reste celui qu'elle a reçu, voir Kernel.internalOrder)
+      this.handleOrder(u, (k.internalOrder !== null ? k.internalOrder(u) : null) ?? squad.order);
     }
     list.length = 0;
     // une unité absorbée par un nouvel ordre ne garde pas ses blocs
@@ -354,7 +383,8 @@ export class PoliceSystem implements GameSystem {
     const type = o.type;
     // ordre de mise en place donné par le JOUEUR sur un point éloigné : l'unité s'y porte au pas de gymnastique
     // (trot) au lieu du pas cadencé — le joueur qui gère la manifestation veut voir ses unités y aller franchement
-    if (o.issuedBy !== 0 && o.issuedBy === this.ctx.player.state.personId && PLAYER_RUSH_ORDERS.has(type)) {
+    const pid = this.ctx.player.state.personId;
+    if ((o.byPlayer === true || (o.issuedBy !== 0 && o.issuedBy === pid)) && PLAYER_RUSH_ORDERS.has(type)) {
       const d = Math.hypot(o.x - u.status.x, o.z - u.status.z);
       if (d > PLAYER_RUSH_MIN) u.briskUntil = k.now + d / T.SPEED_TROT + 25;
     }
@@ -378,18 +408,13 @@ export class PoliceSystem implements GameSystem {
         d.squad.order = c;
         d.placedOrder = c;
       });
-      const dist = Math.hypot(o.x - u.status.x, o.z - u.status.z);
-      const reason = startTask(k, u, u.task);
-      const ops = u.lead.ops;
-      for (let i = 0; i < ops.length; i++) if (ops[i].owner === u && ops[i].ordered && ops[i].taskAt < 0) ops[i].taskAt = o.issuedAt;
-      if (reason !== '') {
-        k.say(u, negative(u.squad.name, reason), 1, 'unite');
-        if (type === 'interpeller') k.emit(ORDER_REFUSED_EVENT, { squadId: u.id, type, reason });
-        done(k, u, type, false, reason);
-        this.endTask(u, false);
-      } else {
-        k.say(u, acknowledge(u.squad.name, ackBody(k, o, dist)), 1, 'unite');
+      // unité assise dans ses véhicules : ses agents descendent d'abord, la tâche part dès qu'un binôme est à pied
+      for (let i = this.taskWaits.length - 1; i >= 0; i--) if (this.taskWaits[i]!.u === u) this.taskWaits.splice(i, 1);
+      if (this.mustDismount(u, u.task)) {
+        this.taskWaits.push({ u, order: o, task: u.task, until: k.now + TASK_DISMOUNT_MAX, nextAt: k.now + 0.2 });
+        return;
       }
+      this.runTask(u, o);
       return;
     }
     u.storeOrder = o;
@@ -407,7 +432,13 @@ export class PoliceSystem implements GameSystem {
     if (u.joinedTo) unjoin(k, u);
     const old = u.lead;
     u.isRoot = true;
-    eachDescendant(u, (d) => {
+    // une unité subordonnée qui exécute un ordre du JOUEUR le garde (avec toute sa descendance) quand l'ordre reçu ici
+    // n'est pas de lui : le « débarquez » d'une colonne, un ordre du commandant IA ou un embarquement ne remplacent
+    // jamais la rue qu'il a fait barrer (SquadOrder.byPlayer) ; un ordre du joueur à l'unité supérieure, lui, s'impose
+    // (une unité spéciale subordonnée — BRAV-M — ne se fond pas dans la manœuvre de l'échelon supérieur : Kernel.keepsOwnOrder)
+    const keeps = (d: Unit): boolean => (!o.byPlayer && d.isRoot && !d.joinedTo && d.squad.order.byPlayer === true)
+      || (k.keepsOwnOrder !== null && k.keepsOwnOrder(d, o, u));
+    eachDescendantUnless(u, keeps, (d) => {
       if (d === u) return;
       // l'unité du joueur garde ses propres ordres
       if (playerDetached(k, d) && !ledByPlayer(k, u)) return;
@@ -429,6 +460,119 @@ export class PoliceSystem implements GameSystem {
     resolveLeads(k);
     if (old !== u && old.isRoot) old.reformAt = k.now;
     startOrder(k, u, o);
+  }
+
+  /** La tâche part : vérifications, opération, accusé de réception ou refus motivé (radio). */
+  private runTask(u: Unit, o: SquadOrder): void {
+    const k = this.k;
+    const type = o.type;
+    const dist = Math.hypot(o.x - u.status.x, o.z - u.status.z);
+    const reason = u.task ? startTask(k, u, u.task) : '';
+    const ops = u.lead.ops;
+    for (let i = 0; i < ops.length; i++) if (ops[i].owner === u && ops[i].ordered && ops[i].taskAt < 0) ops[i].taskAt = o.issuedAt;
+    if (reason !== '') {
+      k.say(u, negative(u.squad.name, reason), 1, 'unite');
+      if (type === 'interpeller') k.emit(ORDER_REFUSED_EVENT, { squadId: u.id, type, reason });
+      done(k, u, type, false, reason);
+      this.endTask(u, false);
+    } else {
+      // (« Aller constater » : aucun fait constaté, le binôme se porte au point et observe)
+      k.say(u, acknowledge(u.squad.name, type === 'interpeller' && watching(u.lead, u) ? 'je vais constater sur place' : ackBody(k, o, dist)), 1, 'unite');
+    }
+  }
+
+  /**
+   * Agents de l'unité (et de sa descendance) qui peuvent mener la tâche : à pied et valides (`able`), ou assis dans un
+   * véhicule et en état d'en descendre (`seated`).
+   */
+  private taskCrew(u: Unit, out: { able: number; seated: number }): void {
+    out.able = 0;
+    out.seated = 0;
+    eachDescendant(u, (d) => {
+      for (let i = 0; i < d.own.length; i++) {
+        const a = d.own[i]!;
+        const p = a.p;
+        if (p.isPlayer || a.crew || p.dormant || p.custody !== 'free') continue;
+        if (p.vehicleId === 0) {
+          if (a.able && a.op === null) out.able++;
+        } else if (p.health > 0 && p.injury !== 'serious' && p.injury !== 'critical' && p.injury !== 'dead') {
+          out.seated++;
+        }
+      }
+    });
+  }
+
+  private readonly crew = { able: 0, seated: 0 };
+
+  /** La tâche doit-elle attendre que l'unité descende de ses véhicules (moins d'un binôme à pied, des agents assis) ? */
+  private mustDismount(u: Unit, task: SquadOrder): boolean {
+    if (u.squad.kind === 'equipage' || task.type === 'ravitailler') return false;
+    this.taskCrew(u, this.crew);
+    return this.crew.able < TASK_READY && this.crew.seated > 0;
+  }
+
+  /**
+   * Débarquement préalable des tâches en attente : une sortie par véhicule toutes les EXIT_INTERVAL s (jamais d'un
+   * véhicule qui roule ; pour un ordre de l'IA, ni d'un véhicule que le pilote automatique conduit encore), puis la
+   * tâche part (runTask) — un binôme à pied, plus personne d'assis, ou le délai écoulé.
+   */
+  private updateTaskWaits(): void {
+    const k = this.k;
+    const ctx = this.ctx;
+    const list = this.taskWaits;
+    for (let i = list.length - 1; i >= 0; i--) {
+      const w = list[i]!;
+      const u = w.u;
+      // tâche remplacée ou unité dissoute : l'attente est abandonnée
+      if (u.task !== w.task || k.units.indexOf(u) < 0) {
+        list.splice(i, 1);
+        continue;
+      }
+      if (k.now >= w.nextAt) {
+        w.nextAt = k.now + T.EXIT_INTERVAL;
+        const busy = this.exiting;
+        busy.length = 0;
+        eachDescendant(u, (d) => {
+          for (let j = 0; j < d.own.length; j++) {
+            const a = d.own[j]!;
+            const p = a.p;
+            if (p.vehicleId === 0 || p.isPlayer || a.crew || p.dormant || p.custody !== 'free' || p.health <= 0
+              || p.injury === 'serious' || p.injury === 'critical' || p.injury === 'dead' || busy.indexOf(p.vehicleId) >= 0) continue;
+            const v = ctx.vehicles.get(p.vehicleId);
+            busy.push(p.vehicleId);
+            if (!v || !this.mayAlight(v, w.task) || !ctx.vehicles.exit(p)) continue;
+            a.lastX = p.x;
+            a.lastZ = p.z;
+            a.pathN = 0;
+            a.stuckT = 0;
+            a.boardId = 0;
+            a.able = isAble(ctx, p);
+          }
+        });
+      }
+      this.taskCrew(u, this.crew);
+      if (this.crew.able >= TASK_READY || this.crew.seated === 0 || k.now >= w.until) {
+        list.splice(i, 1);
+        this.runTask(u, w.order);
+      }
+    }
+  }
+
+  /**
+   * Les passagers de `v` peuvent-ils en descendre pour cette tâche ? À l'arrêt ; ordre du joueur : pas d'un véhicule
+   * que sa colonne emporte encore (police.command carrying) ; ordre de l'IA : quand le pilote automatique ne le conduit
+   * plus (même règle que le débarquement préalable des ordres de formation, maneuver.ts).
+   */
+  private mayAlight(v: Vehicle, o: SquadOrder): boolean {
+    if (Math.abs(v.speed) > T.EXIT_SPEED) return false;
+    if (o.byPlayer) {
+      const cmd = this.ctx.service<{ carrying?(vehicleId: number): boolean }>(POLICE_COMMAND_SERVICE);
+      return !cmd || !cmd.carrying || !cmd.carrying(v.id);
+    }
+    const ap = this.k.autopilot;
+    if (!ap) return true;
+    const st = ap.status(v);
+    return st.mode === 'idle' || st.mode === 'stop' || st.mode === 'park' || st.state === 'arrive';
   }
 
   /** Fin d'une tâche : l'ordre de formation du magasin est rétabli (sauf si un ordre plus récent est arrivé). */
@@ -484,6 +628,7 @@ export class PoliceSystem implements GameSystem {
       k.treeAt = k.now;
     }
     if (this.ordered.length > 0) this.processOrders();
+    if (this.taskWaits.length > 0) this.updateTaskWaits();
     const roots = k.roots;
     const now = k.now;
     for (let i = 0; i < roots.length; i++) {
@@ -496,6 +641,8 @@ export class PoliceSystem implements GameSystem {
         u.ackText = '';
       }
     }
+    // interpellés laissés seuls, fourgons cellulaires appelés
+    this.arrests.update();
     // cordons des lignes à l'arrêt, état des rues barrées, nasses
     this.barrages.update(k);
     // agents : focalisation (réflexion moins fréquente loin du joueur)
@@ -553,7 +700,9 @@ export class PoliceSystem implements GameSystem {
     const k = this.k;
     const p = a.p;
     const now = k.now;
-    if (a.boardId !== 0) {
+    // (l'agent qui a la charge d'un interpellé le remet d'abord, il embarque ensuite : désigné par une colonne pendant
+    // qu'il rejoignait l'interpellé confié par le joueur, il partait à son fourgon et l'interpellé restait seul)
+    if (a.boardId !== 0 && !withDetainee(a)) {
       this.board(a);
       return;
     }
@@ -689,6 +838,17 @@ export class PoliceSystem implements GameSystem {
     }
     info.lineError = g.kind === F_LINE || g.kind === F_TORTUE ? lineError(tmp, tmp.length) : 0;
     return info;
+  }
+}
+
+/**
+ * Comme eachDescendant, sans descendre dans les branches que `skip` écarte (ni la branche elle-même, ni sa descendance).
+ */
+function eachDescendantUnless(u: Unit, skip: (d: Unit) => boolean, fn: (d: Unit) => void): void {
+  fn(u);
+  for (let i = 0; i < u.children.length; i++) {
+    const c = u.children[i]!;
+    if (!skip(c)) eachDescendantUnless(c, skip, fn);
   }
 }
 

@@ -78,6 +78,12 @@ export class ApState {
   obsPropId: EntityId = 0;
   /** Temps passé face à un véhicule lui-même à l'arrêt (s) : règle de priorité. */
   yieldT = 0;
+  /**
+   * Temps passé arrêté (ou au pas) devant des personnes (s) : au-delà de PEOPLE_CREEP, un véhicule de police avance au pas
+   * (voir ApDriver.drive). Gardé d'un trajet au suivant — une colonne relancée toutes les huit secondes n'y arrivait jamais —
+   * et remis à zéro dès que la voie est libre.
+   */
+  pedWaitT = 0;
   // ── contournement d'un obstacle arrêté (objet, épave, véhicule garé ou à l'arrêt devant une urgence) ──
   /** Obstacle contourné : véhicule (avoidVeh) ou objet (avoidProp), 0 sinon. */
   avoidVeh: EntityId = 0;

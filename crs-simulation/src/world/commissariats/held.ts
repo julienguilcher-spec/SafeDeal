@@ -16,6 +16,7 @@ const SERVICE = 'police.commissariats';
 interface HoldsShape {
   holds?: unknown;
   entryOf?: unknown;
+  atPost?: unknown;
 }
 
 /** Le véhicule est-il garé en réserve d'un commissariat (à ignorer par les autres systèmes) ? */
@@ -35,4 +36,14 @@ export function isReturningHome(ctx: Pick<GameContext, 'service'>, squadId: numb
   if (!svc || typeof svc.entryOf !== 'function') return false;
   const e = (svc.entryOf as (id: number) => { state?: string } | undefined)(squadId);
   return !!e && e.state === 'retour';
+}
+
+/**
+ * L'unité est-elle une unité d'un commissariat encore au poste, en alerte dans ses places ou au repos (pas engagée) ?
+ * Son fourgon cellulaire n'est pas un fourgon du dispositif (remise des interpellés). Sans le module : false.
+ */
+export function isAtPost(ctx: Pick<GameContext, 'service'>, squadId: number): boolean {
+  const svc = ctx.service<HoldsShape>(SERVICE);
+  if (!svc || typeof svc.atPost !== 'function' || squadId <= 0) return false;
+  return (svc.atPost as (id: number) => boolean)(squadId) === true;
 }

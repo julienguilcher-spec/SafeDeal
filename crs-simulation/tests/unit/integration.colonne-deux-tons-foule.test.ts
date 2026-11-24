@@ -76,9 +76,11 @@ describe('colonne du joueur : deux-tons d’un suivant arrêté par la foule', (
       }
     }
     console.log(`suivant #${f.id} arrêté par les personnes pendant ${(blocked / 10).toFixed(1)} s ; deux-tons allumés ${(sirenOn / 10).toFixed(1)} s ; VL du joueur : sirène ${vl.siren}`);
-    // (au bout de quelques secondes le suivant contourne les personnes immobiles : il n'est plus arrêté vingt secondes,
-    // mais il l'est assez longtemps pour juger des deux-tons)
-    expect(blocked).toBeGreaterThan(20);
+    // (au bout de cinq secondes environ le suivant recule et contourne les personnes immobiles : il n'est plus arrêté vingt
+    // secondes, mais il l'est assez longtemps pour juger des deux-tons — une seconde au moins au-delà des quatre
+    // premières ; le premier suivant dépend de l'ordre de sortie du bloc, qui a changé quand les fourgons cellulaires ont
+    // cessé d'entrer dans la colonne du commandant)
+    expect(blocked).toBeGreaterThanOrEqual(10);
     expect(sirenOn / blocked).toBeGreaterThan(0.9);
   }, 300000);
 });

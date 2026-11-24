@@ -1,6 +1,8 @@
 // Ordres « Me suivre à pied » et « Me suivre en colonne (véhicules) » donnés par le commandant MISTRAL à une section :
 // à pied, personne ne monte ; en colonne, la section embarque, attend, suit le VL du joueur à travers les rues (virage
-// compris) sans le doubler ni le percuter, se gare derrière lui et reste à bord ; « Me suivre à pied » la fait descendre.
+// compris) sans le doubler ni le percuter, se gare derrière lui ; « Avec moi » ne le quitte pas (spécification §3.3) :
+// quand il descend, elle descend et le suit à pied, sans autre ordre ; quand il monte en passager, ceux qui le suivaient
+// à pied montent dans leurs fourgons et suivent son véhicule.
 import { describe, expect, it } from 'vitest';
 
 import type { GameContext, Squad, Vehicle } from '@/core/contracts';
@@ -254,22 +256,21 @@ describe('ordres « Me suivre à pied » et « Me suivre en colonne (véhicules)
     for (const d of behind) expect(d).toBeLessThan(110);
     for (const v of fleet) expect(along(path, v.x, v.z).s).toBeLessThan(end.s);
 
-    // le joueur descend : la colonne reste garée derrière lui, l'unité à bord
+    // le joueur descend : la colonne s'arrête derrière lui, la section descend et le suit à pied, sans autre ordre
     ctx.vehicles.exit(me);
     t.step(15);
-    const still = ids.filter((id) => ctx.people.get(id)!.vehicleId !== 0).length;
     const parked = fleet.map((v) => Math.round(Math.hypot(v.x - vl.x, v.z - vl.z)));
-    console.log(`joueur descendu : ${still}/${ids.length} à bord ; fourgons à ${parked.join(', ')} m`);
-    expect(still).toBe(ids.length);
+    console.log(`joueur descendu : ordre ${section.order.type} ; fourgons à ${parked.join(', ')} m`);
     for (const v of fleet) expect(Math.abs(v.speed)).toBeLessThan(0.5);
-
-    // « Me suivre à pied » : ils descendent et suivent le joueur à pied
-    expect(core.issue('suivre_pied', [section], null).ok).toBe(true);
-    for (let i = 0; i < 20; i++) t.step(2);
+    for (let i = 0; i < 20 && section.order.type !== 'suivre'; i++) t.step(2);
     const feet = walkers(ctx, ids);
     const left = feet.filter((id) => ctx.people.get(id)!.vehicleId !== 0).length;
     console.log(`à pied : ${left} encore à bord ; ordre ${section.order.type}`);
     expect(left).toBe(0);
+    expect(section.order.type).toBe('suivre');
+    // « Me suivre à pied » donné en plus : rien ne change (ils le suivent déjà)
+    expect(core.issue('suivre_pied', [section], null).ok).toBe(true);
+    t.step(2);
     expect(section.order.type).toBe('suivre');
     walk(t, 12);
     t.step(20);
@@ -327,14 +328,51 @@ describe('ordres « Me suivre à pied » et « Me suivre en colonne (véhicules)
     expect(along(path, vl.x, vl.z).s).toBeGreaterThan(500);
     for (const d of behind) expect(d).toBeLessThan(110);
     expect(fleet.every((v) => v.siren === 2)).toBe(true);
-    // le joueur descend : la colonne reste à l'arrêt, l'unité à bord
+    // le joueur descend : la colonne s'arrête, la section descend et le suit à pied (« Avec moi » ne le quitte pas)
     ctx.vehicles.exit(me);
     t.step(10);
     for (const v of fleet) expect(Math.abs(v.speed)).toBeLessThan(0.5);
-    expect(crew(ctx, section).every((id) => ctx.people.get(id)!.vehicleId !== 0)).toBe(true);
+    for (let i = 0; i < 25 && !(section.order.type === 'suivre' && walkers(ctx, crew(ctx, section)).every((id) => ctx.people.get(id)!.vehicleId === 0)); i++) t.step(2);
+    expect(section.order.type).toBe('suivre');
+    expect(walkers(ctx, crew(ctx, section)).filter((id) => ctx.people.get(id)!.vehicleId !== 0)).toEqual([]);
   }, 900000);
 
-  it('chef de groupe : « en colonne », son groupe embarque ; il conduit le fourgon puis descend, le groupe reste à bord', async () => {
+  it('« Avec moi » ne le quitte pas : la section qui le suit à pied monte quand il prend place en passager, et suit son VL', async () => {
+    const { t, ctx, core, section, me } = await setup(28);
+    const ap = ctx.service<{ status(v: Vehicle): { mode: string; leaderId: number; state: string }; driveTo(v: Vehicle, x: number, z: number, o?: unknown): boolean }>('vehicles.autopilot')!;
+    const fleet = vans(ctx, section);
+    const ids = walkers(ctx, crew(ctx, section));
+    expect(core.issue('suivre_pied', [section], null).ok).toBe(true);
+    t.step(10);
+    expect(section.order.type).toBe('suivre');
+    // il monte à côté du chauffeur de son VL
+    const vl = ctx.vehicles.list.filter((v) => v.kind === 'vl_commandement').sort((a, b) => Math.hypot(a.x - me.x, a.z - me.z) - Math.hypot(b.x - me.x, b.z - me.z))[0]!;
+    me.x = vl.x + 3; me.z = vl.z;
+    if (vl.seats.every((id) => id !== 0)) ctx.vehicles.exit(ctx.people.get(vl.seats[vl.seats.length - 1]!)!);
+    expect(ctx.vehicles.enter(me, vl, 'passenger')).toBe(true);
+    expect(vl.seats[0]).not.toBe(me.id);
+    for (let i = 0; i < 35 && !ids.every((id) => ctx.people.get(id)!.vehicleId !== 0); i++) t.step(2);
+    const aboard = ids.filter((id) => ctx.people.get(id)!.vehicleId !== 0).length;
+    console.log(`passager : la section ${section.order.type}, ${aboard}/${ids.length} à bord`);
+    expect(section.order.type).toBe('embarquer');
+    expect(aboard).toBe(ids.length);
+    // son chauffeur roule : les fourgons de la section le suivent
+    const path = pickRoute(ctx, vl);
+    expect(ap.driveTo(vl, path[path.length - 2]!, path[path.length - 1]!)).toBe(true);
+    for (let i = 0; i < 60 && ap.status(vl).state !== 'arrive'; i++) t.step(2);
+    for (let i = 0; i < 30 && !fleet.every((v) => Math.hypot(v.x - vl.x, v.z - vl.z) < 110 && Math.abs(v.speed) < 0.3); i++) t.step(2);
+    const behind = fleet.map((v) => Math.round(Math.hypot(v.x - vl.x, v.z - vl.z)));
+    console.log(`passager : VL à ${Math.round(along(path, vl.x, vl.z).s)} m du départ ; fourgons à ${behind.join(', ')} m`);
+    expect(along(path, vl.x, vl.z).s).toBeGreaterThan(400);
+    for (const d of behind) expect(d).toBeLessThan(110);
+    // il descend : la section descend et le suit
+    ctx.vehicles.exit(me);
+    for (let i = 0; i < 25 && !(section.order.type === 'suivre' && ids.every((id) => ctx.people.get(id)!.vehicleId === 0)); i++) t.step(2);
+    expect(section.order.type).toBe('suivre');
+    expect(ids.filter((id) => ctx.people.get(id)!.vehicleId !== 0)).toEqual([]);
+  }, 900000);
+
+  it('chef de groupe : « en colonne », son groupe embarque ; il conduit le fourgon puis descend, le groupe descend et le suit', async () => {
     const t = createTestContext({ seed: 27, strict: false, modules: SIM });
     await t.start({ mode: 'libre', role: 'chef_groupe', place: 'essai', x: -10, z: 15, crowdSize: 0, extra: { moyens: MEANS, 'crowd.none': true } } as never);
     const { ctx } = t;
@@ -353,15 +391,12 @@ describe('ordres « Me suivre à pied » et « Me suivre en colonne (véhicules)
     expect(ctx.vehicles.enter(me, van, 'driver')).toBe(true);
     const input = ctx.input as { moveY: number };
     input.moveY = 0.6; t.step(8); input.moveY = -1; t.step(4); input.moveY = 0;
+    // il descend : son groupe descend et le suit (le conducteur reste au volant), sans autre ordre
     ctx.vehicles.exit(me);
-    t.step(10);
-    const aboard = ids.filter((id) => ctx.people.get(id)!.vehicleId !== 0).length;
-    console.log(`chef de groupe en colonne : ${aboard}/${ids.length} à bord après sa descente`);
-    expect(aboard).toBe(ids.length);
-    // « Me suivre à pied » : ils descendent (le conducteur reste au volant)
-    expect(core.issue('suivre_pied', [own], null).ok).toBe(true);
-    for (let i = 0; i < 10; i++) t.step(2);
-    expect(walkers(ctx, ids).every((id) => ctx.people.get(id)!.vehicleId === 0)).toBe(true);
+    for (let i = 0; i < 15 && !(own.order.type === 'suivre' && walkers(ctx, ids).every((id) => ctx.people.get(id)!.vehicleId === 0)); i++) t.step(2);
+    const aboard = walkers(ctx, ids).filter((id) => ctx.people.get(id)!.vehicleId !== 0).length;
+    console.log(`chef de groupe en colonne : ${aboard} encore à bord après sa descente ; ordre ${own.order.type}`);
+    expect(aboard).toBe(0);
     expect(own.order.type).toBe('suivre');
   }, 600000);
 

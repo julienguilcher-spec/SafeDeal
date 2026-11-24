@@ -21,7 +21,46 @@ export class ApSensor {
   private readonly hit: RayHit = makeRayHit();
   private readonly mid: PathPoint = { x: 0, z: 0, dx: 0, dz: 1 };
 
+  /**
+   * Mobilier fixe long reconnu « au bord de la chaussée » (boxClear) : identifiant → position relevée (un objet d'une
+   * autre partie qui porterait le même identifiant ailleurs n'est pas confondu). Le capteur le mesure à sa boîte.
+   */
+  private readonly kerbside = new Map<number, { x: number; z: number }>();
+
   constructor(private readonly k: VehicleKernel) {}
+
+  /**
+   * Mobilier fixe long (abribus de 4,2 m posé le long du trottoir) devant lequel le véhicule est arrêté : sa vraie
+   * emprise — la boîte orientée de la collision (collide.ts), pas le cercle de prudence du capteur — laisse-t-elle
+   * passer le véhicule tout droit, avec `margin` m de chaque côté ? Le pilote le demande avant de tenir l'objet pour
+   * un barrage et de signaler la rue fermée (autopilot-drive.ts) : dans la rue Commines (5,2 m de chaussée), l'abribus
+   * « barrait » la rue ; la tête de colonne, le commandant à bord, faisait demi-tour entre les façades et restait là,
+   * à 390 m de la place où sa compagnie arrivait sans lui.
+   */
+  boxClear(rt: VehicleRt, propId: number, margin = 0.35): boolean {
+    // (déjà reconnu : s'il arrête encore ce véhicule-ci — plus large —, c'est qu'il lui barre vraiment le passage)
+    if (this.kerbside.has(propId)) return false;
+    const v = rt.v;
+    const sn = Math.sin(v.heading);
+    const cs = Math.cos(v.heading);
+    const n = this.k.ctx.props.queryRadius(v.x, v.z, rt.halfL + 12, this.props);
+    for (let i = 0; i < n; i++) {
+      const p = this.props[i]!;
+      if (p.id !== propId) continue;
+      if (p.movable || p.halfX === p.halfZ) return false;
+      const pc = Math.cos(p.heading);
+      const ps = Math.sin(p.heading);
+      // demi-largeur de la boîte en travers de ma route (gauche du véhicule : (cos h, −sin h))
+      const rl = p.halfX * Math.abs(cs * pc + sn * ps) + p.halfZ * Math.abs(cs * ps - sn * pc);
+      const lat = (p.x - v.x) * cs - (p.z - v.z) * sn;
+      if (lat <= rt.halfW + margin + rl && lat >= -(rt.halfW + margin + rl)) return false;
+      // (retenu pour tous : les véhicules qui suivent — toute une colonne — ne s'y arrêtent pas chacun à leur tour)
+      if (this.kerbside.size >= 64) this.kerbside.clear();
+      this.kerbside.set(p.id, { x: p.x, z: p.z });
+      return true;
+    }
+    return false;
+  }
 
   /**
    * Explore le couloir de longueur `horizon` (m). `dir` = 1 en marche avant, −1 en marche arrière ;
@@ -191,10 +230,22 @@ export class ApSensor {
       const rx = p.x - bx;
       const rz = p.z - bz;
       const fwd = rx * sn + rz * cs;
-      const r = p.halfX > p.halfZ ? p.halfX : p.halfZ;
+      // emprise de l'objet : un cercle de sa plus grande demi-dimension (prudence — la conduite de toujours) ; pour le
+      // mobilier fixe long reconnu « au bord de la chaussée » (kerbside, voir boxClear) : sa vraie emprise, la boîte
+      // orientée de la collision projetée sur ma route et en travers.
+      let r = p.halfX > p.halfZ ? p.halfX : p.halfZ;
+      let rl = r;
+      const known = dir > 0 ? this.kerbside.get(p.id) : undefined;
+      if (known !== undefined && known.x === p.x && known.z === p.z) {
+        const pc = Math.cos(p.heading);
+        const ps = Math.sin(p.heading);
+        // (axes de la boîte : gauche (cos h, −sin h) pour halfX, avant (sin h, cos h) pour halfZ)
+        r = p.halfX * Math.abs(sn * pc - cs * ps) + p.halfZ * Math.abs(sn * ps + cs * pc);
+        rl = p.halfX * Math.abs(lx * pc - lz * ps) + p.halfZ * Math.abs(lx * ps + lz * pc);
+      }
       if (fwd + r < 0 || fwd - r > horizon) continue;
       const lat = rx * lx + rz * lz - k2 * fwd * fwd;
-      if (lat > hw + r || lat < -(hw + r)) continue;
+      if (lat > hw + rl || lat < -(hw + rl)) continue;
       const d = fwd - r;
       if (d < best) {
         best = d;

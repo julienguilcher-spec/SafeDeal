@@ -135,7 +135,10 @@ function fill(t: string, where: Repere): string {
   return t.replace('{lieu}', p).replace('{de}', deOf(p)).replace('{jusque}', untilOf(p));
 }
 
-/** « Interpeller » sans fait constaté près du point (LineAction.noFact) : l'unité constate, n'interpelle personne. */
+/**
+ * « Interpeller » sans fait constaté près du point (LineAction.noFact) — « Aller constater » : l'unité (BRAV-M ou troupe,
+ * ops.ts startTask) se porte près du point, observe, et n'interpelle qu'au premier fait constaté.
+ */
 const NO_FACT: Forms = ['va constater près {de}\u00a0; sans fait constaté, personne n’est interpellé.', 'vont constater près {de}\u00a0; sans fait constaté, personne n’est interpellé.'];
 
 /**
@@ -168,10 +171,6 @@ function verbSentence(type: string, targetId: number, who: WhoCandidate | null, 
       return capFirst(`${s.text} s’y rend en voiture, deux-tons, vers ${p} (~${minutesText(who.eta)}), et s’arrête juste avant.`);
     }
     if (PATROL_HOLDS.has(type)) return capFirst(`${s.text} s’arrête et reste sur place, à bord de sa voiture.`);
-  }
-  if (type === 'interpeller' && noFact && !(who && /^BRAV-M\s/.test(who.label))) {
-    // une troupe ne part pas « constater » : sans fait constaté, elle refuse l'ordre sur place (ops.ts startTask)
-    return capFirst(`aucun fait constaté ${fill('près {de}', where)}\u00a0: ${s.text} ne peut interpeller personne et ${s.plural ? 'refuseront' : 'refusera'} l’ordre.`);
   }
   if (type === 'colonne') {
     return capFirst(`${s.text} ${s.plural ? 'partent' : 'part'} ${who ? modeText(who) : 'à pied'}, en file, vers ${p}.`) + waitText(who, type);
@@ -259,6 +258,9 @@ export function sentenceOf(line: CardLine, who: WhoCandidate | null, where: Repe
       break;
     case 'centre':
       what = 'La carte se centre ici.';
+      break;
+    case 'transfer':
+      what = 'Le fourgon cellulaire part au commissariat avec ses interpellés\u00a0; un autre fourgon prend la remise.';
       break;
     case 'liaison':
       what = 'L’équipe de liaison rejoint les organisateurs et négocie le parcours avec eux ; aucune unité ne bouge.';

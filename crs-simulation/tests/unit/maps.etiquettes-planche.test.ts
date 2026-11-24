@@ -46,7 +46,7 @@ function unit(key: number, name: string, code: string, symbol: MapUnit['symbol']
   return {
     key, squadId: key, vehicleId: 0, symbol, faction: 'police', name, code, x, z, heading: 0, parentKey: 0, depth: 0, childCount: 0,
     total: valid, valid, injured: 0, morale: 1, ammo: -1, order: null, orderDist: 0, embarked: false, hasPlayer: false, leaderId: 0,
-    own: valid, status: '', patrol: false, stamp: 0,
+    own: valid, status: '', patrol: false, cellular: false, playerVerb: '', playerOrder: null, stamp: 0,
   };
 }
 

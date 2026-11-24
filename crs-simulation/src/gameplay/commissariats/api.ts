@@ -149,10 +149,23 @@ export interface CommissariatsApi {
   readonly list: readonly CommissariatView[];
   get(id: string): CommissariatView | undefined;
   entry(entryId: string): StockEntryView | undefined;
-  /** Engage une unité (idempotent : une unité déjà engagée renvoie son unité). `by` : personne qui ordonne. */
-  engage(entryId: string, by?: EntityId): EngageResult;
-  /** Prépare le retour d'une unité (adoptée si elle n'appartient à aucun site) ; null si aucun site joignable. */
-  recall(squadId: number): RecallTarget | null;
+  /**
+   * Engage une unité (idempotent : une unité déjà engagée renvoie son unité). `by` : personne qui ordonne. `auto` :
+   * engagement décidé par CENTRAL (relève d'un fourgon cellulaire, transfert des interpellés) — sans les droits du
+   * joueur ni l'annonce « en attente de destination » ; refusé seulement si le module est inactif ou les renforts exclus.
+   */
+  engage(entryId: string, by?: EntityId, auto?: boolean): EngageResult;
+  /**
+   * Prépare le retour d'une unité (adoptée si elle n'appartient à aucun site) ; null si aucun site joignable. `prefer` :
+   * site où accueillir une unité qui n'appartient à aucun (fourgon cellulaire de la compagnie : le commissariat le plus
+   * proche par la route) ; sans effet pour une unité du stock, qui rentre chez elle.
+   */
+  recall(squadId: number, prefer?: string): RecallTarget | null;
+  /**
+   * Un autre module fait repartir l'unité de son site (fourgon cellulaire qui retourne au point de remise) : son
+   * rangement sur les places s'arrête ; elle redevient « engagée » dès qu'elle s'est éloignée.
+   */
+  leave?(squadId: number): void;
   /** Le véhicule est-il garé en réserve (à ignorer par les autres systèmes) ? */
   holds(vehicleId: EntityId): boolean;
   /** L'unité vient-elle d'un commissariat (stock ou adoptée) ? */

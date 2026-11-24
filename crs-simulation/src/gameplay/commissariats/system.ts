@@ -235,8 +235,9 @@ export class CommissariatsSystem implements GameSystem {
       },
       get: (id) => self.siteOf(id)?.view,
       entry: (id) => self.byEntry.get(id)?.view,
-      engage: (id, by) => self.engage(id, by ?? 0),
-      recall: (id) => self.recall(id),
+      engage: (id, by, auto) => self.engage(id, by ?? 0, auto === true),
+      recall: (id, prefer) => self.recall(id, prefer),
+      leave: (id) => self.leave(id),
       holds: (id) => self.held.has(id),
       isStationUnit: (id) => self.entryOfSquad(id) !== null,
       entryOf: (id) => self.entryOfSquad(id)?.view,
@@ -308,6 +309,15 @@ export class CommissariatsSystem implements GameSystem {
     const rank = me && me.rank ? RANK_LEVEL[me.rank] ?? -1 : -1;
     if (role === 'commandant' || role === 'commissaire' || rank >= RANK_LEVEL.commandant) return '';
     return REFUS.role;
+  }
+
+  /** Motif qui empêche CENTRAL d'engager une unité de lui-même ('' : il le peut). */
+  private autoRefusal(): string {
+    const ctx = this.ctx;
+    if (!ctx || !this.active) return REFUS.inactif;
+    const cfg = ctx.session.config;
+    if (cfg && cfg.extra && cfg.extra['renforts'] === false) return REFUS.renforts;
+    return '';
   }
 
   // ───────────────────────────── mise en place ─────────────────────────────
@@ -446,10 +456,11 @@ export class CommissariatsSystem implements GameSystem {
 
   // ───────────────────────────── engagement ─────────────────────────────
 
-  private engage(entryId: string, by: EntityId): EngageResult {
+  private engage(entryId: string, by: EntityId, auto = false): EngageResult {
     const fail = (reason: string): EngageResult => ({ ok: false, reason, squadId: 0, defaultVerb: 'faire_mouvement' });
     const ctx = this.ctx;
-    const refused = this.refusal();
+    // (engagement de CENTRAL : sans les droits du joueur, mais jamais quand l'ordre d'opération exclut les renforts)
+    const refused = auto ? this.autoRefusal() : this.refusal();
     if (!ctx || refused !== '') return fail(refused);
     const e = this.byEntry.get(entryId);
     if (!e) return fail(REFUS.inconnue);
@@ -465,7 +476,7 @@ export class CommissariatsSystem implements GameSystem {
       }
       if (e.view.state === 'au_poste') {
         this.setState(e, 'alerte');
-        this.announce(e, by);
+        if (!auto) this.announce(e, by);
       }
       this.flushChanged();
       return { ok: true, reason: '', squadId: e.view.squadId, defaultVerb: verb };
@@ -521,7 +532,7 @@ export class CommissariatsSystem implements GameSystem {
     e.view.vehicleIds = built.vehicles.map((v) => v.id);
     this.bySquad.set(built.squadId, e);
     this.setState(e, 'alerte');
-    this.announce(e, by);
+    if (!auto) this.announce(e, by);
     const ev: CommissariatEngagedEvent = { commissariatId: e.def.id, entryId: e.view.id, squadId: built.squadId, t: ctx.clock.now };
     ctx.events.emitAny(COMMISSARIAT_ENGAGED_EVENT, ev);
     this.flushChanged();
@@ -558,14 +569,14 @@ export class CommissariatsSystem implements GameSystem {
 
   // ───────────────────────────── rappel ─────────────────────────────
 
-  private recall(squadId: number): RecallTarget | null {
+  private recall(squadId: number, prefer?: string): RecallTarget | null {
     const ctx = this.ctx;
     if (!ctx || !this.active) return null;
     const squad = ctx.squads.get(squadId);
     if (!squad || squad.faction !== 'police') return null;
     let e = this.entryOfSquad(squadId);
     if (!e) {
-      const def = this.homeFor(squadId);
+      const def = (prefer !== undefined ? this.siteOf(prefer)?.def : undefined) ?? this.homeFor(squadId);
       if (!def) return null;
       e = this.adopt(squadId, def);
     }
@@ -584,6 +595,16 @@ export class CommissariatsSystem implements GameSystem {
     }
     this.flushChanged();
     return { commissariatId: e.def.id, x: home.x, z: home.z, heading: home.heading, doorX: e.def.door.x, doorZ: e.def.door.z };
+  }
+
+  /** L'unité repart de son site sur l'ordre d'un autre module : plus de rangement sur ses places (tidy, retryPark). */
+  private leave(squadId: number): void {
+    const ctx = this.ctx;
+    const e = ctx && this.active ? this.entryOfSquad(squadId) : null;
+    if (!ctx || !e) return;
+    e.orderedAt = ctx.clock.now;
+    e.parkUntil = 0;
+    for (const id of e.view.vehicleIds) this.homing.delete(id);
   }
 
   /**

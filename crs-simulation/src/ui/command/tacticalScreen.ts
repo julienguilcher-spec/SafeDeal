@@ -44,7 +44,8 @@ import type {
 } from './cardTypes';
 import { noUnitText, whoAt } from './bestUnit';
 import type { CommandCore } from './core';
-import { INTENTS, LEGAL_CHIP_TOOLTIP, MORE_BUTTON, buildCard, intentById, intentCandidates, plainLine } from './intents';
+import { INTENTS, LEGAL_CHIP_TOOLTIP, MORE_BUTTON, NASSE_MIN_UNITS, buildCard, encircleUnitCount, intentById, intentCandidates, plainLine } from './intents';
+import { REFUS, accepts } from './direct/caps';
 import { buildNasseProposal, holdingSquads, nasseCandidates } from './nasse';
 import { forceWord } from './orders';
 import { cardEnvFromCore, collectReperes, nextInDirection, pickAt, placeRepere, unitRepere } from './reperes';
@@ -55,6 +56,11 @@ import { cycleStation } from './commissariatsModel';
 import type { StationCycle } from './commissariatsModel';
 import { ensureCommandStyle } from './style';
 import { TacticalMap } from './tacticalMap';
+import { fieldOpenData, fieldWhoIds, handWhoBack } from './tacticalOpen';
+import { verbOfOrder } from './core';
+import type { DirectApi } from './direct/runtime';
+import { whoCycle } from './direct/who';
+import { FIELD_DIRECT_SERVICE as DIRECT_KEY } from './fieldHud';
 import {
   CARD_HINT, CARD_HINT_READONLY, HELP_LINES, HELP_MODEL, SENT_SECONDS, UNDO_SECONDS, backStep, commandableUnits, enterAllowed, isSticky, keyboardSections,
   mapKey, stickyNext, unitsByRecentOrder,
@@ -303,6 +309,15 @@ export class TacticalScreen implements ScreenInstance {
   private confirmPlan: LegalPlan | null = null;
   /** Ordre donné non collant : la fiche « ✓ ORDRE DONNÉ » se referme à cet instant. */
   private restAt = -1;
+  /** Ouverte depuis le terrain (« Trop loin pour viser ») : elle se referme d'elle-même après « Donner l'ordre ». */
+  private readonly fromField: boolean;
+  /** Un ordre est parti de la carte (le choix manuel de Qui du terrain est alors consommé). */
+  private sentAny = false;
+  /** Fermeture demandée après l'envoi (faite à l'image suivante, hors du gestionnaire de la touche). */
+  private closeAfterSend = false;
+  /** U dans une fiche : dernière unité choisie à la main avant un envoi (le premier U après y revient). */
+  private lastManualWho = '';
+  private whoJustSent = false;
   private todoIndex = -1;
   /** C : parcours des commissariats (même liste d'une pression à l'autre). */
   private readonly stationCycle: StationCycle = { order: [], index: -1 };
@@ -328,9 +343,18 @@ export class TacticalScreen implements ScreenInstance {
   constructor(readonly core: CommandCore, host: HTMLElement, data: unknown) {
     ensureCommandStyle();
     const ctx = core.ctx;
-    const open = (data && typeof data === 'object' ? data : {}) as TacticalOpenData;
+    let open = (data && typeof data === 'object' ? data : {}) as TacticalOpenData;
     const st = this.state;
     const readOnly = core.scope().level === 'lecture';
+    // Tab sur le terrain alors que l'ordre prêt dit « Trop loin pour viser » : la carte s'ouvre sur ce point
+    if (!readOnly && open.x === undefined && !open.incidentId && !open.squadId && !open.commissariatId && !open.tab) open = fieldOpenData(core) ?? open;
+    this.fromField = !readOnly && (open.fromField === true || open.intent !== undefined);
+    // Qui partagé avec le terrain : les unités données à l'ouverture, sinon l'unité choisie avec U sur le terrain
+    if (!readOnly) {
+      const pre = open.squadIds && open.squadIds.length > 0 ? open.squadIds.filter((id) => core.canCommand(id)) : fieldWhoIds(core);
+      for (const id of pre) st.selection.add(id);
+      st.whoAuto = st.selection.size === 0;
+    }
     this.root = el('div', 'cm-root ct ct2' + (coarsePointer() ? ' cm-coarse' : '') + (readOnly ? ' is-readonly' : ''));
     this.root.dataset.id = 'tactical';
     host.appendChild(this.root);
@@ -708,6 +732,16 @@ export class TacticalScreen implements ScreenInstance {
         this.openRepere(unitRepere(u));
         return;
       }
+    }
+    if (open.intent && open.x !== undefined && open.z !== undefined) {
+      // depuis le terrain : la fiche du point visé, avec l'intention de l'ordre prêt (Qui : les unités préchoisies)
+      const r = placeRepere(open.x, open.z, env);
+      st.intent = open.intent;
+      st.candidates = [r];
+      st.candIndex = 0;
+      st.sheet = 'card';
+      this.openRepere(r);
+      return;
     }
     const todo = this.todoList();
     const crowd = this.reperes.find((r) => r.kind === 'foule' || r.kind === 'nasse');
@@ -1384,7 +1418,8 @@ export class TacticalScreen implements ScreenInstance {
       st.intent = null;
       st.sheet = st.card ? 'card' : 'none';
       this.say(id === 'bloquer' ? 'Aucune rue à bloquer près d’ici : désignez une rue sur la carte (Maj + flèches, ou un clic).'
-        : `${def.label} : rien à désigner pour l’instant.`, 'info', 4);
+        : id === 'encercler' && encircleUnitCount(env) < NASSE_MIN_UNITS ? (encircleUnitCount(env) === 0 ? REFUS.personne : REFUS.encercler)
+          : `${def.label} : rien à désigner pour l’instant.`, 'info', 4);
       return;
     }
     // la visée garde son repère s'il fait partie des candidats (même endroit, autre intention)
@@ -1457,11 +1492,10 @@ export class TacticalScreen implements ScreenInstance {
   private unitKey(step: 1 | -1): void {
     const st = this.state;
     if (st.card && !st.where && st.sheet !== 'qui') {
-      // fiche ouverte : Qui suivant / précédent parmi les candidats du jeu
-      st.clearSelection();
-      st.whole = false;
-      st.whoAuto = true;
-      st.whoIndex += step;
+      // fiche ouverte : le même cycle que U sur le terrain (direct/who.ts whoCycle) — automatique → BRAV-M → sections
+      // → engins → fourgons cellulaires → « Toute la compagnie » → renfort d'un commissariat → automatique ; une unité
+      // qui ne sait pas faire la ligne surlignée est sautée
+      this.cycleWho(step);
       this.lastCard = -1;
       return;
     }
@@ -1483,6 +1517,67 @@ export class TacticalScreen implements ScreenInstance {
     const r = unitRepere(cu);
     this.map.flyTo(r.x, r.z);
     this.openRepere(r);
+  }
+
+  /** Clé du Qui de la fiche : 'auto' (proposé par le jeu), 'tous' (T), 'u<id>' (une unité), 's<n>' (n-ième renfort). */
+  private whoKeyOfCard(): string {
+    const st = this.state;
+    if (st.whole) return 'tous';
+    if (st.selection.size === 1) return `u${Array.from(st.selection)[0]!}`;
+    if (!st.whoAuto && st.who && st.who.fromStation !== undefined) {
+      const i = this.whoList.findIndex((c) => c.fromStation === st.who!.fromStation);
+      return i >= 0 ? `s${i}` : 'auto';
+    }
+    if (!st.whoAuto && st.who && st.who.squadIds.length === 1) return `u${st.who.squadIds[0]!}`;
+    return 'auto';
+  }
+
+  /** U / Maj + U dans une fiche : Qui suivant du cycle partagé avec le terrain (le choix vaut pour le prochain ordre). */
+  private cycleWho(step: 1 | -1): void {
+    const st = this.state;
+    const core = this.core;
+    const direct = core.ctx.service<DirectApi>(DIRECT_KEY);
+    const line = this.currentLine();
+    const verb = line && line.action.kind === 'verb' ? verbOfOrder(line.action.type) : null;
+    let keys: string[] = ['auto'];
+    if (direct && typeof direct.env === 'function') {
+      const env = direct.env();
+      keys = whoCycle(env).filter((k) => {
+        if (k.charAt(0) !== 'u') return true;
+        const u = env.units.find((q) => q.squadId === Number(k.slice(1)));
+        return !!u && core.canOrder(u.squadId) && (verb === null || accepts(u.kind, verb));
+      });
+    }
+    // les renforts d'un commissariat que le jeu propose (U les atteignait déjà) : après « Toute la compagnie » ; en tête
+    // quand aucune de ses unités ne peut faire la ligne
+    const stations = this.whoList.map((c, i) => (c.fromStation !== undefined ? `s${i}` : '')).filter((k) => k !== '');
+    const own = this.whoList.some((c) => c.fromStation === undefined);
+    keys = own ? [...keys, ...stations] : ['auto', ...stations, ...keys.slice(1)];
+    const cur = this.whoKeyOfCard();
+    let next: string;
+    if (this.whoJustSent && step > 0 && cur === 'auto' && this.lastManualWho !== '' && keys.includes(this.lastManualWho)) next = this.lastManualWho;
+    else {
+      const i = keys.indexOf(cur);
+      next = i < 0 ? keys[step > 0 ? Math.min(1, keys.length - 1) : keys.length - 1]! : keys[(i + step + keys.length) % keys.length]!;
+    }
+    this.whoJustSent = false;
+    st.selection.clear();
+    st.whole = false;
+    st.whoAuto = true;
+    st.whoIndex = 0;
+    if (next === 'tous') st.whole = true;
+    else if (next.charAt(0) === 'u') st.selection.add(Number(next.slice(1)));
+    else if (next.charAt(0) === 's') {
+      const c = this.whoList[Number(next.slice(1))];
+      if (c) {
+        st.who = c;
+        st.whoAuto = false;
+      }
+    }
+    if (next !== 'auto') this.lastManualWho = next.charAt(0) === 's' ? '' : next;
+    // le terrain suit le même choix (une unité) : U, Tab, Entrée et la carte ne se contredisent jamais
+    if (direct && typeof direct.setWho === 'function') direct.setWho(next.charAt(0) === 'u' || next === 'tous' ? next : 'auto');
+    st.touch();
   }
 
   private todo(step: 1 | -1): void {
@@ -1945,6 +2040,10 @@ export class TacticalScreen implements ScreenInstance {
   private sent(text: string, squads: number[]): void {
     const st = this.state;
     st.sentAt = this.time;
+    this.sentAny = true;
+    this.whoJustSent = true;
+    // ouverte depuis le terrain : l'ordre est parti, la carte se referme (le terrain montre le ticket et le repère)
+    if (this.fromField && squads.length > 0) this.closeAfterSend = true;
     st.lastSent = { squads: squads.slice(), text, at: this.time, undo: squads.length > 0 };
     this.core.ctx.audio.play('ui_valide');
     // proposition acceptée, nasse validée : la liste « À traiter » change
@@ -1993,6 +2092,7 @@ export class TacticalScreen implements ScreenInstance {
     st.whoAuto = false;
     st.whole = false;
     st.whoTicks.clear();
+    this.whoJustSent = false;
     st.sheet = st.card ? 'card' : 'none';
     this.lastCard = -1;
     // « Confier à une autre unité… » : l'incident part à l'unité choisie
@@ -2234,6 +2334,11 @@ export class TacticalScreen implements ScreenInstance {
       }
     }
     this.followCursor();
+    if (this.closeAfterSend) {
+      this.closeAfterSend = false;
+      this.core.ctx.ui.close('carte_tactique');
+      return;
+    }
     // « ✓ ORDRE DONNÉ » d'une intention non collante : retour au repos après 2 s
     if (this.restAt >= 0 && this.time >= this.restAt) {
       this.restAt = -1;
@@ -2319,6 +2424,16 @@ export class TacticalScreen implements ScreenInstance {
   }
 
   dispose(): void {
+    const st = this.state;
+    // le choix de Qui de la carte vaut pour le prochain ordre du terrain (et un ordre parti de la carte consomme celui du terrain)
+    if (this.core.scope().level !== 'lecture') {
+      const picked = this.whoJustSent ? [] : st.selection.size > 0 ? Array.from(st.selection) : !st.whoAuto && st.who ? st.who.squadIds : [];
+      try {
+        handWhoBack(this.core, picked, this.sentAny);
+      } catch (err) {
+        console.error('[carte de commandement] Qui rendu au terrain', err);
+      }
+    }
     const v = this.map.view;
     MEMORY.set(this.core, {
       cx: v.cx, cz: v.cz, mpp: v.mpp, tab: this.state.tab, selection: [], session: this.core.ctx.session.config, passersby: false,

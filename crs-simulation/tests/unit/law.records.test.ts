@@ -128,7 +128,9 @@ describe('droit — dossier de la session', () => {
     expect(st.score).toBe(100 - 6 - 2);
     expect(st.sanction).toBe('aucune');
     const text = law.records.summary();
-    expect(text).toContain('Interpellations : 2 — 1 fondée, 1 infondée ; 1 remise à l\'officier de police judiciaire, 1 remise en liberté.');
+    // « remis à l'officier de police judiciaire » : au commissariat seulement (plan ordres-directs §5.6)
+    expect(text).toContain('Interpellations : 2 — 1 fondée, 1 infondée ; 1 remise à un point de regroupement, 1 remise en liberté.');
+    expect(text).not.toContain('officier de police judiciaire');
     expect(text).toContain('Manifestante au foulard vert par Brigadier Roche : aucun fait rattaché — remis en liberté, procédure nulle');
     expect(text).toContain('Individu casquette noire par Brigadier Roche : violences sur une personne dépositaire');
     expect(text).toContain('constaté par un agent, sans image');

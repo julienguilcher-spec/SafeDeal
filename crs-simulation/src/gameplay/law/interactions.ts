@@ -5,10 +5,17 @@
  *              de la personne, l'aide de collègues ; l'échec permet la fuite ou la rébellion)
  *   menotter   entraver la personne maîtrisée
  *   palper     palpation de sécurité : objets dangereux retirés et consignés
- *   escorter   la personne retenue suit l'agent (ou est assise sur place si elle est déjà escortée)
- *   remettre   à un véhicule de police ayant une place libre ou à un point de regroupement
- *   relacher   remise en liberté
- *   controler  contrôle d'identité, en situation calme
+ *   escorter     « Emmener » : la personne retenue suit l'agent (ou est assise sur place si elle est déjà escortée)
+ *   remettre     à un véhicule de police ayant une place libre (fourgon cellulaire à 12 m, avant tout autre
+ *                véhicule ; autre véhicule à 5 m) ou à un point de regroupement
+ *   confier      (joueur) au binôme libre le plus proche de son dispositif, 60 m (service 'police.arrests')
+ *   faire_venir  (joueur) faire venir le fourgon cellulaire, à plus de 100 m, quand rien d'autre ne s'applique
+ *   relacher     remise en liberté
+ *   controler    contrôle d'identité, en situation calme
+ *
+ * Après les trois gestes du joueur (interpeller, menotter, palper), la 4e invite est la meilleure issue
+ * (detainee.ts, plan ordres-directs §5.3) : remettre au fourgon (12 m) > confier (60 m) > remettre à un
+ * autre véhicule (5 m) > faire venir le fourgon (au-delà de 100 m) > emmener ; « Faire asseoir » en dernier.
  *
  * Même API pour le joueur (touche « Interagir ») et pour les IA (startVerb). Pour « remettre »,
  * une IA peut désigner l'interpellé ou le véhicule de destination. Chaque gestionnaire réutilise
@@ -18,10 +25,19 @@
 import type { EntityId, InteractionHandler, InteractionOption, InteractVerb, Person } from '@/core/contracts';
 import type { Kernel } from './kernel';
 
+// en escorte : fourgon cellulaire (12 m) > confier > autre véhicule (5 m) > faire venir > faire asseoir
+const PRIORITY_REMETTRE_FOURGON = 92;
+const PRIORITY_CONFIER = 91;
 const PRIORITY_REMETTRE = 90;
 const PRIORITY_MENOTTER = 85;
 const PRIORITY_INTERPELLER = 80;
 const PRIORITY_PALPER = 70;
+// l'interpellé assis à côté de lui, après la palpation : la meilleure issue avant « Emmener »
+const PRIORITY_REMETTRE_FOURGON_ASSIS = 69;
+const PRIORITY_CONFIER_ASSIS = 68;
+const PRIORITY_REMETTRE_ASSIS = 67;
+const PRIORITY_FAIRE_VENIR_ASSIS = 66;
+const PRIORITY_FAIRE_VENIR = 64;
 const PRIORITY_ESCORTER = 60;
 const PRIORITY_RELACHER_INFONDE = 35;
 const PRIORITY_ESCORTER_SANS_MENOTTES = 30;
@@ -43,6 +59,7 @@ export function createArrestHandlers(k: Kernel): InteractionHandler[] {
   const ctx = k.ctx;
   const cfg = k.cfg;
   const custody = k.custody;
+  const ways = k.ways;
   const subdue = k.subdue;
   const controls = k.controls;
   const scratch: Person[] = [];
@@ -269,7 +286,7 @@ export function createArrestHandlers(k: Kernel): InteractionHandler[] {
       const cuffed = target.custody === 'cuffed';
       return fill(
         optEscorter, target,
-        cuffed ? 'Escorter ' + target.name : 'Escorter ' + target.name + ' (sans menottes)',
+        cuffed ? 'Emmener ' + target.name : 'Emmener ' + target.name + ' (sans menottes)',
         cuffed ? PRIORITY_ESCORTER : PRIORITY_ESCORTER_SANS_MENOTTES, cfg.escortTime,
       );
     },
@@ -287,15 +304,27 @@ export function createArrestHandlers(k: Kernel): InteractionHandler[] {
 
   // ───────────────────────────── remettre ─────────────────────────────
 
+  /**
+   * Interpellé à remettre : celui que l'agent escorte ; pour le joueur, aussi celui qu'il tient ou qui est assis,
+   * menotté, à côté de lui (la remise le relève et le conduit au véhicule).
+   */
+  function toHandOver(actor: Person): Person | null {
+    const escorted = custody.escortedBy(actor);
+    if (escorted || !actor.isPlayer) return escorted;
+    return ways.detaineeFor(actor);
+  }
+
   const optRemettre = makeOption('remettre');
   const remettre: InteractionHandler = {
     verb: 'remettre',
     find(actor: Person, targetId?: EntityId): InteractionOption | null {
       if (!custody.canAct(actor)) return null;
-      const detainee = custody.escortedBy(actor);
+      const detainee = toHandOver(actor);
       if (!detainee) return null;
       const dest = k.handover.find(actor);
       if (!dest) return null;
+      const escorted = detainee.custody === 'escorted';
+      const van = dest.vehicle !== null && dest.vehicle.kind === 'fourgon_cellulaire';
       let id = detainee.id;
       if (targetId !== undefined && targetId !== 0 && targetId !== detainee.id) {
         // une IA peut désigner le véhicule de destination plutôt que l'interpellé
@@ -306,26 +335,80 @@ export function createArrestHandlers(k: Kernel): InteractionHandler[] {
       opt.targetKind = id === detainee.id ? 'person' : 'vehicle';
       opt.targetId = id;
       opt.label = 'Remettre ' + detainee.name + ' (' + dest.label + ')';
-      opt.priority = PRIORITY_REMETTRE;
+      opt.priority = escorted ? (van ? PRIORITY_REMETTRE_FOURGON : PRIORITY_REMETTRE)
+        : van ? PRIORITY_REMETTRE_FOURGON_ASSIS : PRIORITY_REMETTRE_ASSIS;
       opt.duration = cfg.handoverTime;
       opt.x = dest.x;
       opt.z = dest.z;
       return opt;
     },
     begin(actor: Person): boolean {
-      return custody.escortedBy(actor) !== null && k.handover.find(actor) !== null;
+      return toHandOver(actor) !== null && k.handover.find(actor) !== null;
     },
     tick(actor: Person): boolean {
-      return custody.escortedBy(actor) !== null;
+      return toHandOver(actor) !== null;
     },
     complete(actor: Person): void {
-      const detainee = custody.escortedBy(actor);
+      const detainee = toHandOver(actor);
       const dest = detainee ? k.handover.find(actor) : null;
       if (!detainee || !dest) {
         k.notify(actor, 'Remise impossible : plus de place à bord ou point de regroupement trop éloigné.', 'warn', 4);
         return;
       }
+      // assis ou maintenu à côté de lui : l'agent le relève et le conduit au véhicule
+      if (detainee.custody !== 'escorted' && !custody.escort(actor, detainee)) return;
       custody.handOver(actor, detainee, dest);
+    },
+  };
+
+  // ───────────────────────────── confier (joueur) ─────────────────────────────
+
+  const optConfier = makeOption('confier');
+  const confier: InteractionHandler = {
+    verb: 'confier',
+    find(actor: Person, targetId?: EntityId): InteractionOption | null {
+      if (!actor.isPlayer || !custody.canAct(actor)) return null;
+      const way = ways.bestFor(actor);
+      if (!way || way.kind !== 'confier') return null;
+      if (targetId !== undefined && targetId !== 0 && targetId !== way.detaineeId) return null;
+      const detainee = ctx.people.get(way.detaineeId);
+      if (!detainee) return null;
+      return fill(optConfier, detainee, way.label, detainee.custody === 'escorted' ? PRIORITY_CONFIER : PRIORITY_CONFIER_ASSIS, 1);
+    },
+    begin(actor: Person, opt: InteractionOption): boolean {
+      const d = ways.detaineeFor(actor);
+      return d !== null && d.id === opt.targetId;
+    },
+    tick(actor: Person, opt: InteractionOption): boolean {
+      const d = ways.detaineeFor(actor);
+      return d !== null && d.id === opt.targetId;
+    },
+    complete(actor: Person): void {
+      ways.confide(actor);
+    },
+  };
+
+  // ───────────────────────────── faire venir le fourgon (joueur) ─────────────────────────────
+
+  const optFaireVenir = makeOption('faire_venir');
+  const faireVenir: InteractionHandler = {
+    verb: 'faire_venir',
+    find(actor: Person, targetId?: EntityId): InteractionOption | null {
+      if (!actor.isPlayer || !custody.canAct(actor)) return null;
+      const way = ways.bestFor(actor);
+      if (!way || way.kind !== 'faire_venir') return null;
+      if (targetId !== undefined && targetId !== 0 && targetId !== way.detaineeId) return null;
+      const detainee = ctx.people.get(way.detaineeId);
+      if (!detainee) return null;
+      // (un appel radio : immédiat ; il garde son interpellé en attendant)
+      return fill(optFaireVenir, detainee, way.label, detainee.custody === 'escorted' ? PRIORITY_FAIRE_VENIR : PRIORITY_FAIRE_VENIR_ASSIS, 0);
+    },
+    begin(actor: Person, opt: InteractionOption): boolean {
+      const d = ways.detaineeFor(actor);
+      return d !== null && d.id === opt.targetId;
+    },
+    complete(actor: Person): void {
+      ways.callVan(actor.id);
     },
   };
 
@@ -401,5 +484,5 @@ export function createArrestHandlers(k: Kernel): InteractionHandler[] {
     },
   };
 
-  return [maitriser, menotter, palper, escorter, remettre, relacher, controler];
+  return [maitriser, menotter, palper, escorter, remettre, confier, faireVenir, relacher, controler];
 }

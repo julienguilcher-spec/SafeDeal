@@ -19,6 +19,7 @@ import type { PoliceFormationApi, PoliceStatusApi, PoliceUnitsApi } from '../api
 import { POLICE_FORMATION_SERVICE, POLICE_KERNEL_SERVICE, POLICE_STATUS_SERVICE, POLICE_UNITS_SERVICE } from '../api';
 import { unitOf } from '../brain';
 import type { Kernel } from '../kernel';
+import { isAckText, replyFlag } from '../radio';
 import { COMMAND_DECISION_EVENT, CROWD_SIGNALS_SERVICE } from './api';
 import type { CommandDecision, CommandTuning, CrowdSignalsLike } from './api';
 
@@ -139,7 +140,17 @@ export class CommandCore {
   // ───────────────────────────── radio, journal ─────────────────────────────
 
   say(from: string, text: string, priority: 0 | 1 | 2 = 1, channel: RadioChannel = 'commandement', personId: EntityId = 0): void {
-    this.ctx.radio.say({ channel, from, text, priority, personId: personId !== 0 ? personId : undefined });
+    // accusé ou refus d'un ordre que le joueur vient de donner (BRAV-M, engins, drone) : en priorité sur le réseau du
+    // commandement, la même règle que kernel.say (sim/police/radio.ts replyFlag)
+    let reply = false;
+    if (isAckText(text)) {
+      const list = this.ctx.squads.list;
+      for (let i = 0; i < list.length && !reply; i++) if (list[i]!.name === from) reply = replyFlag(list[i]!.order, this.ctx.clock.now, text);
+    }
+    this.ctx.radio.say({
+      channel: reply ? 'commandement' : channel, from, text, priority, personId: personId !== 0 ? personId : undefined,
+      ...(reply ? { reply: true } : {}),
+    });
   }
 
   /** Nom de secteur pour la radio ('' si inconnu). */
@@ -159,11 +170,17 @@ export class CommandCore {
 
   // ───────────────────────────── unités ─────────────────────────────
 
+  /**
+   * Proposition de l'adjoint acceptée par le joueur (adjoint.ts accept) : les ordres donnés pendant son exécution sont
+   * les siens (SquadOrder.byPlayer), comme ceux de sa carte.
+   */
+  asPlayer = false;
+
   /** Donne un ordre ; retourne l'objet d'ordre posé dans le magasin (pour le reconnaître ensuite), ou null. */
   issue(squadId: number, order: Partial<SquadOrder> & { type: OrderType }): SquadOrder | null {
     const squad = this.ctx.squads.get(squadId);
     if (!squad) return null;
-    this.ctx.squads.issue(squadId, order);
+    this.ctx.squads.issue(squadId, this.asPlayer ? { ...order, byPlayer: true } : order);
     return squad.order;
   }
 

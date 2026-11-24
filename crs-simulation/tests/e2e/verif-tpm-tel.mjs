@@ -246,8 +246,16 @@ try {
     C.check(Math.hypot(dx, dz) > 1.5, 'joystick vers la gauche : déplacement latéral', `${Math.hypot(dx, dz).toFixed(1)} m, composante gauche ${left.toFixed(2)}`);
     // regard pendant le déplacement : second doigt glissé à droite de l'écran
     const yaw0 = s3.camYaw, pitch0 = s3.camPitch;
-    await F.down(2, W * 0.62, H * 0.45);
-    for (let i = 1; i <= 6; i++) await F.move(2, W * 0.62 + i * 20, H * 0.45 - i * 6);
+    // le doigt se pose sur l'image (zone du regard), pas sur un bouton du HUD qui s'y trouverait (zone de gauche)
+    const [lx, ly] = await page.evaluate(([w, h]) => {
+      for (const [fx, fy] of [[0.62, 0.45], [0.66, 0.42], [0.58, 0.36], [0.7, 0.5], [0.55, 0.62]]) {
+        const e = document.elementFromPoint(w * fx, h * fy);
+        if (e && e.closest('[data-ct="look"]') && document.elementFromPoint(w * fx + 120, h * fy - 36)?.closest('[data-ct="look"]')) return [w * fx, h * fy];
+      }
+      return [w * 0.62, h * 0.45];
+    }, [W, H]);
+    await F.down(2, lx, ly);
+    for (let i = 1; i <= 6; i++) await F.move(2, lx + i * 20, ly - i * 6);
     await step(page, 0.3);
     const s4 = await state(page);
     report.look = { yaw0, yaw1: s4.camYaw, pitch0, pitch1: s4.camPitch };

@@ -7,7 +7,15 @@
  *   - un même message du même émetteur n'est pas redit avant un délai qui dépend de sa priorité ;
  *   - une file saturée écarte d'abord les messages les moins importants ;
  *   - le message du joueur (voir `fromPlayer`) passe en tête de la file de son canal et n'est jamais abandonné : c'est
- *     celui qu'il attend (un compte rendu n'est compté par l'objectif qu'une fois diffusé).
+ *     celui qu'il attend (un compte rendu n'est compté par l'objectif qu'une fois diffusé) ;
+ *   - un message `silent` (la phrase d'ordre du joueur) est écrit tout de suite — journal, sous-titre — sans voix ni
+ *     file d'attente : il n'occupe pas le canal ;
+ *   - un message `reply` (l'accusé de réception d'un ordre du joueur, « REÇU » / « NÉGATIF ») passe juste après le
+ *     joueur, devant tout ce qui attend, n'est jamais abandonné, et coupe un message de priorité 0 ou 1 en cours sur
+ *     son canal (l'accusé d'un ordre précédent compris) : il ne vient jamais avant l'ordre (la phrase du joueur passe
+ *     toujours la première) et s'entend moins d'une seconde après lui, même sur un réseau saturé. Le message coupé
+ *     est redit une fois après l'accusé (le canal reste occupé le temps de le redire) ; coupé pendant sa redite, il
+ *     n'est plus redit. Un urgent en cours (priorité 2) n'est jamais coupé : l'accusé passe juste après lui.
  * ===================================================================================== */
 
 import type { RadioChannel, RadioMessage } from '@/core/contracts';
@@ -58,6 +66,14 @@ interface Pending {
   seq: number;
 }
 
+/** Message sur les ondes (le dernier commencé sur un canal, ou la redite d'un message coupé par un accusé). */
+interface OnAir {
+  msg: RadioMessage;
+  /** Début de l'émission et durée estimée (s). */
+  at: number;
+  duration: number;
+}
+
 export interface QueueCounters {
   broadcast: number;
   repeated: number;
@@ -69,6 +85,9 @@ export class RadioQueue {
   private readonly queues = new Map<RadioChannel, Pending[]>();
   private readonly busy = new Map<RadioChannel, number>();
   private readonly recent = new Map<string, number>();
+  private readonly onAir = new Map<RadioChannel, OnAir>();
+  /** Redite prévue d'un message coupé par un accusé, après lui (une seule fois). */
+  private readonly resay = new Map<RadioChannel, OnAir>();
   private seq = 0;
   /** Reconnaît un message dit par le joueur (null : aucun passe-droit). Renseigné par le module radio. */
   fromPlayer: ((msg: RadioMessage) => boolean) | null = null;
@@ -105,9 +124,17 @@ export class RadioQueue {
   submit(msg: RadioMessage, now: number): SubmitOutcome {
     if (msg.text.trim().length === 0) return 'dropped';
     const key = normalizeKey(msg.from, msg.text);
+    // écrit sans être dit : ni file, ni anti-répétition (le même ordre redonné s'écrit à nouveau), canal laissé libre
+    if (msg.silent === true) {
+      this.counters.broadcast++;
+      this.play(msg, now, estimateDuration(msg.text));
+      return 'played';
+    }
+    const reply = msg.reply === true;
+    // l'accusé d'un ordre redonné se redit : c'est la réponse à cet ordre-là (seul un doublon en attente est écarté)
     const window = this.cfg.repeatWindow[msg.priority];
     const last = this.recent.get(key);
-    if (last !== undefined && now >= last && now - last < window) {
+    if (!reply && last !== undefined && now >= last && now - last < window) {
       this.counters.repeated++;
       return 'repeated';
     }
@@ -115,21 +142,27 @@ export class RadioQueue {
     for (let i = 0; i < q.length; i++) {
       const p = q[i]!;
       if (p.key === key) {
-        // déjà en attente : on garde la copie, avec la plus haute priorité
-        if (msg.priority > p.msg.priority) p.msg = { ...p.msg, priority: msg.priority };
+        // déjà en attente : on garde la copie, avec la plus haute priorité (et le passe-droit de l'accusé)
+        if (msg.priority > p.msg.priority || (reply && p.msg.reply !== true)) {
+          p.msg = { ...p.msg, priority: msg.priority > p.msg.priority ? msg.priority : p.msg.priority, ...(reply ? { reply: true } : {}) };
+        }
         this.counters.repeated++;
         return 'repeated';
       }
     }
     const free = now >= (this.busy.get(msg.channel) ?? -Infinity);
+    if (reply && this.preempt(msg, key, now, q, free)) return 'played';
     if (q.length === 0 && free) {
       this.start(msg, key, now);
       return 'played';
     }
     if (q.length >= this.cfg.maxPending) {
-      let victim = 0;
-      for (let i = 1; i < q.length; i++) if (q[i]!.msg.priority < q[victim]!.msg.priority) victim = i;
-      if (q[victim]!.msg.priority > msg.priority && !this.isPlayer(msg)) {
+      let victim = -1;
+      for (let i = 0; i < q.length; i++) {
+        if (this.isProtected(q[i]!.msg)) continue;
+        if (victim < 0 || q[i]!.msg.priority < q[victim]!.msg.priority) victim = i;
+      }
+      if (victim < 0 || (q[victim]!.msg.priority > msg.priority && !this.isProtected(msg))) {
         this.counters.dropped++;
         return 'dropped';
       }
@@ -140,6 +173,45 @@ export class RadioQueue {
     return 'queued';
   }
 
+  /**
+   * Accusé de réception d'un ordre du joueur : il passe tout de suite si le canal est libre ou porte un message de
+   * priorité 0 ou 1 qui n'est pas du joueur — y compris l'accusé d'un ordre précédent (deux ordres coup sur coup) : ce
+   * message est coupé, puis redit une fois. Il attend derrière un message du joueur (l'ordre d'abord) ou un urgent, en
+   * tête de file. true : diffusé.
+   */
+  private preempt(msg: RadioMessage, key: string, now: number, q: Pending[], free: boolean): boolean {
+    // un message du joueur (ou un accusé plus ancien) attend son tour sur ce canal : l'accusé ne passe pas avant lui
+    for (let i = 0; i < q.length; i++) if (this.isPlayer(q[i]!.msg) || q[i]!.msg.reply === true) return false;
+    if (free) {
+      this.start(msg, key, now);
+      return true;
+    }
+    const ch = msg.channel;
+    const again = this.resay.get(ch);
+    // ce qui est sur les ondes : la redite d'un message coupé si elle a commencé, sinon le dernier message commencé
+    const air = again && now >= again.at ? again : this.onAir.get(ch);
+    if (!air || now >= air.at + air.duration) {
+      // le message est fini, seul le silence entre deux messages reste : l'accusé passe (une redite à venir, après)
+      if (again && now < again.at) this.resay.delete(ch);
+      this.start(msg, key, now);
+      return true;
+    }
+    if (air.msg.priority >= 2 || this.isPlayer(air.msg)) return false;
+    // (la voix coupe le message en cours et le redit après l'accusé : audio/speech.ts, drapeau `reply`)
+    this.start(msg, key, now);
+    if (air === again) {
+      // coupé une seconde fois pendant sa redite : il n'est plus redit (il est au journal et a été entendu)
+      this.resay.delete(ch);
+      return true;
+    }
+    // le message coupé est redit une fois, en entier, juste après l'accusé : le canal reste occupé d'autant
+    const d = estimateDuration(air.msg.text);
+    const at = this.busy.get(ch) ?? now;
+    this.busy.set(ch, at + d + this.cfg.gap);
+    this.resay.set(ch, { msg: air.msg, at, duration: d });
+    return true;
+  }
+
   /** À appeler à chaque pas : libère les canaux dont le message est fini et abandonne les attentes trop longues. */
   update(now: number): void {
     for (const channel of CHANNELS) {
@@ -148,22 +220,35 @@ export class RadioQueue {
       // abandon des messages qui ont trop attendu
       for (let i = q.length - 1; i >= 0; i--) {
         const p = q[i]!;
-        if (now - p.at > this.cfg.maxWait[p.msg.priority] && !this.isPlayer(p.msg)) {
+        if (now - p.at > this.cfg.maxWait[p.msg.priority] && !this.isProtected(p.msg)) {
           q.splice(i, 1);
           this.counters.dropped++;
         }
       }
+      const again = this.resay.get(channel);
+      if (again && now >= again.at + again.duration) this.resay.delete(channel);
+      else if (again && q.some((p) => p.msg.reply === true)) {
+        // un accusé attend : la redite du message coupé (commencée ou non) lui cède la place dès la fin du message
+        // en cours — l'accusé ne patiente pas derrière une redite
+        const cur = this.onAir.get(channel);
+        const end = cur ? cur.at + cur.duration + this.cfg.gap : now;
+        if (now >= again.at || now >= end) {
+          this.resay.delete(channel);
+          this.busy.set(channel, now >= again.at ? now : end);
+        }
+      }
       if (q.length === 0 || now < (this.busy.get(channel) ?? -Infinity)) continue;
       let best = 0;
-      let bestMine = this.isPlayer(q[0]!.msg);
+      let bestMine = this.lane(q[0]!.msg);
       for (let i = 1; i < q.length; i++) {
         const a = q[i]!;
         const b = q[best]!;
-        const mine = this.isPlayer(a.msg);
+        const mine = this.lane(a.msg);
         const pa = rank(a, now);
         const pb = rank(b, now);
-        // le joueur d'abord ; puis priorité décroissante (l'attente comptée, voir rank), puis ancienneté
-        if (mine !== bestMine ? mine : pa > pb || (pa === pb && a.seq < b.seq)) {
+        // le joueur d'abord, puis les accusés de ses ordres (par ancienneté) ; puis priorité décroissante (l'attente
+        // comptée, voir rank), puis ancienneté
+        if (mine !== bestMine ? mine > bestMine : mine === 1 ? a.seq < b.seq : pa > pb || (pa === pb && a.seq < b.seq)) {
           best = i;
           bestMine = mine;
         }
@@ -182,12 +267,24 @@ export class RadioQueue {
   /** Remise à zéro complète (début de session). */
   reset(): void {
     this.flush();
+    this.onAir.clear();
+    this.resay.clear();
     for (const c of CHANNELS) this.busy.set(c, -Infinity);
     this.recent.clear();
     this.counters.broadcast = 0;
     this.counters.repeated = 0;
     this.counters.dropped = 0;
     this.seq = 0;
+  }
+
+  /** File prioritaire : 2 = le joueur, 1 = accusé de réception d'un de ses ordres, 0 = le reste. */
+  private lane(msg: RadioMessage): number {
+    return this.isPlayer(msg) ? 2 : msg.reply === true ? 1 : 0;
+  }
+
+  /** Jamais abandonné (attente, file pleine) : le message du joueur et l'accusé de ses ordres. */
+  private isProtected(msg: RadioMessage): boolean {
+    return msg.reply === true || this.isPlayer(msg);
   }
 
   private isPlayer(msg: RadioMessage): boolean {
@@ -212,6 +309,7 @@ export class RadioQueue {
   private start(msg: RadioMessage, key: string, now: number): void {
     const duration = estimateDuration(msg.text);
     this.busy.set(msg.channel, now + duration + this.cfg.gap);
+    this.onAir.set(msg.channel, { msg, at: now, duration });
     this.recent.set(key, now);
     this.counters.broadcast++;
     this.play(msg, now, duration);

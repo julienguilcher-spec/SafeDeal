@@ -4,7 +4,7 @@
  * Zones : neuf conteneurs « hud-slot ». En tactile (data-touch = pied | vehicule | drone), ils se
  * décalent pour ne jamais recouvrir la surcouche du module d'entrées ; les cotes ci-dessous sont
  * celles de docs/modules/entrees.md (pixels sur 844 × 390, multipliés par l'échelle --ts) :
- * rangée système en haut à droite (290 × 110), Radio / Ordres et joystick à gauche, barre
+ * rangée système en haut à droite (290 × 110), Radio / ordre prêt / « À qui » et joystick à gauche, barre
  * d'objets en bas au centre (60 de haut), groupe d'actions en bas à droite.
  * data-compact = 1 : écran bas (téléphone en paysage) — objectifs sur une ligne sous la boussole.
  * ===================================================================================== */
@@ -36,8 +36,9 @@ export const CSS_HUD = `
 /* en véhicule, la pastille « Sortir » occupe 113…159 sous les boutons système */
 .ui-hud[data-touch="vehicule"] .hud-slot--top-right { top: calc(166px * var(--ts) + var(--ui-safe-t)); }
 .ui-hud[data-touch="drone"] .hud-slot--top-right { right: calc(12px * var(--ts) + var(--ui-safe-r)); top: calc(64px * var(--ts) + var(--ui-safe-t)); }
+/* zone de gauche : à droite de la rangée Radio / ordre prêt / « À qui » (18…268, ui/hud/layout.ts TOUCH_LEFT_ZONE_X) */
 .ui-hud[data-touch="pied"] .hud-slot--left, .ui-hud[data-touch="vehicule"] .hud-slot--left, .ui-hud[data-touch="drone"] .hud-slot--left {
-  left: calc(210px * var(--ts) + var(--ui-safe-l)); }
+  left: calc(276px * var(--ts) + var(--ui-safe-l)); }
 .ui-hud[data-touch="pied"] .hud-slot--right, .ui-hud[data-touch="vehicule"] .hud-slot--right, .ui-hud[data-touch="drone"] .hud-slot--right {
   right: calc(288px * var(--ts) + var(--ui-safe-r)); }
 .ui-hud[data-touch="pied"] .hud-slot--bottom, .ui-hud[data-touch="vehicule"] .hud-slot--bottom, .ui-hud[data-touch="drone"] .hud-slot--bottom { transform: none; max-width: none; }
@@ -195,6 +196,8 @@ export const CSS_HUD = `
 .hud-prompt__pill { display: flex; align-items: center; gap: 9px; padding: 6px 14px 6px 8px; border-radius: 20px; background: rgba(8, 13, 24, .8); border: 1px solid rgba(255, 255, 255, .3);
   font-size: 14.5px; font-weight: 650; white-space: nowrap; }
 .hud-prompt__pill.is-nokey { padding-left: 14px; }
+.hud-prompt__hint { max-width: min(460px, 86vw); padding: 5px 12px; border-radius: 8px; background: rgba(8, 13, 24, .78); border-left: 3px solid var(--ui-yellow);
+  font-size: 13.5px; line-height: 1.3; text-align: center; text-wrap: balance; }
 .hud-prompt__bar { width: 100%; min-width: 140px; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, .22); overflow: hidden; }
 .hud-prompt__bar i { display: block; height: 100%; background: var(--ui-yellow); transform-origin: left center; will-change: transform; }
 

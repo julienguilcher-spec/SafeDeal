@@ -11,6 +11,7 @@
  * ===================================================================================== */
 
 import type { PlayableRole, PolicePoste, PoliceRank } from '@/core/contracts';
+import { vanWords } from '@/ui/command/direct/words';
 
 /** Rôles qui donnent les ordres : ils gardent toute la radio et n'ont pas de carte « Ma mission ». */
 const COMMAND_ROLES: ReadonlySet<string> = new Set(['commandant', 'commissaire', 'chef_groupe']);
@@ -187,7 +188,7 @@ function cap(s: string): string {
 
 // ───────────────────────────── une seule consigne ─────────────────────────────
 
-export type InstructionSource = 'incident' | 'journee' | 'regroup' | 'mission' | 'ordre' | 'tache' | 'attente';
+export type InstructionSource = 'custody' | 'incident' | 'journee' | 'regroup' | 'mission' | 'ordre' | 'tache' | 'attente';
 
 export interface Instruction {
   source: InstructionSource;
@@ -197,13 +198,32 @@ export interface Instruction {
   /** Point visé (GPS), absent s'il n'y en a pas. */
   x?: number;
   z?: number;
+  /**
+   * La consigne passe en tête de la carte, avant l'ordre d'en haut (son interpellé, la moto du chef de la BRAV-M qui
+   * l'attend) : c'est ce que le joueur doit faire maintenant, l'ordre de la compagnie attendra.
+   */
+  lead?: boolean;
+}
+
+/** Consigne « interpellé » : ce que le joueur fait de la personne qu'il tient (prime sur tout le reste). */
+export interface CustodyInput {
+  title: string;
+  detail: string;
+  target: InstructionTarget;
+  x?: number;
+  z?: number;
 }
 
 export interface InstructionInputs {
+  /** L'interpellé du joueur (law.custody) ou celui de sa patrouille : prime sur tout. */
+  custody?: CustodyInput | null;
   /** Tâche d'incident confiée au joueur (prime sur tout) ; `detail` remplace la consigne par défaut. */
   incident?: { label: string; x: number; z: number; detail?: string } | null;
-  /** Déplacement commandé de la journée (embarquement, route, retour) ou consigne sur place de la journée. */
-  journee?: { title: string; detail: string; travelling: boolean; x?: number; z?: number; target?: InstructionTarget } | null;
+  /**
+   * Déplacement commandé de la journée (embarquement, route, retour) ou consigne sur place de la journée. `lead` : la
+   * consigne passe devant l'ordre d'en haut (chef de la BRAV-M : « Montez sur votre moto (E) — la BRAV-M part avec vous »).
+   */
+  journee?: { title: string; detail: string; travelling: boolean; x?: number; z?: number; target?: InstructionTarget; lead?: boolean } | null;
   /** Le joueur s'est éloigné de son groupe (à pied). */
   regroup?: { chief: string; x: number; z: number; distance: number } | null;
   /** Objectif suivi d'une mission (catalogue), s'il y en a un. */
@@ -217,27 +237,122 @@ export interface InstructionInputs {
 }
 
 /**
- * Une seule consigne à l'écran : tâche d'incident > déplacement de la journée > « rejoignez votre groupe » > consigne
- * sur place de la journée > objectif de mission > ordre du groupe > tâche du rôle > attente (« suivez votre chef »).
- * Fonction pure.
+ * Une seule consigne à l'écran : son interpellé > tâche d'incident > déplacement de la journée > « rejoignez votre
+ * groupe » > consigne sur place de la journée > objectif de mission > ordre du groupe > tâche du rôle > attente
+ * (« suivez votre chef »). Fonction pure.
  */
 export function resolveInstruction(i: InstructionInputs): Instruction {
+  const c = i.custody;
+  if (c) return { source: 'custody', title: c.title, detail: c.detail, target: c.target, x: c.x, z: c.z, lead: true };
   if (i.incident) {
     return { source: 'incident', title: `Tâche : ${i.incident.label}`, detail: i.incident.detail ?? 'Le repère vous y conduit. Votre groupe vous attend ensuite.',
       target: 'incident', x: i.incident.x, z: i.incident.z };
   }
   const j = i.journee;
-  if (j && j.travelling) return { source: 'journee', title: j.title, detail: j.detail, target: j.target ?? 'place', x: j.x, z: j.z };
+  const lead = j && j.lead ? { lead: true } : {};
+  if (j && (j.travelling || j.lead)) return { source: 'journee', title: j.title, detail: j.detail, target: j.target ?? 'place', x: j.x, z: j.z, ...lead };
   if (i.regroup) {
     return { source: 'regroup', title: 'Rejoignez votre groupe', detail: `Vous êtes à ${Math.round(i.regroup.distance)} m de votre chef (${i.regroup.chief}) : revenez près de lui.`,
       target: 'chef', x: i.regroup.x, z: i.regroup.z };
   }
-  if (j) return { source: 'journee', title: j.title, detail: j.detail, target: j.target ?? 'place', x: j.x, z: j.z };
+  if (j) return { source: 'journee', title: j.title, detail: j.detail, target: j.target ?? 'place', x: j.x, z: j.z, ...lead };
   if (i.mission) return { source: 'mission', title: i.mission.text, detail: 'Objectif de la mission : le repère vous y conduit.', target: 'place', x: i.mission.x, z: i.mission.z };
   if (i.order) return { source: 'ordre', title: i.order.title, detail: i.order.detail, target: i.order.target, x: i.order.x, z: i.order.z };
   if (i.task) return { source: 'tache', title: i.task.title, detail: i.task.detail, target: i.task.target, x: i.task.x, z: i.task.z };
   if (i.chief) return { source: 'attente', title: 'Restez avec votre groupe', detail: `Suivez votre chef (${i.chief.label}) et attendez les ordres.`, target: 'chef', x: i.chief.x, z: i.chief.z };
   return { source: 'attente', title: 'Attendez les ordres', detail: 'Restez près de vos collègues, la radio vous dira quoi faire.', target: 'none' };
+}
+
+// ───────────────────────────── l'interpellé du joueur (plan ordres-directs §5.3, §5.7) ─────────────────────────────
+
+/** Ce que la carte sait de l'interpellé du joueur (law.custody, police.arrests). */
+export interface CustodyFacts {
+  /** Meilleure issue (law.custody.bestWay) ; null : il ne tient personne. */
+  way: { kind: string; name: string; guidance: string; x: number; z: number; distance: number } | null;
+  /** Fourgon appelé par « Faire venir », en route vers lui (null : aucun) ; la carte écrit sa distance. */
+  coming: { name: string; x: number; z: number } | null;
+  /** Lieu de dépôt le plus proche (law.custody.nearestDrop), fourgons cellulaires d'abord. */
+  drop: { name: string; cellular: boolean; x: number; z: number } | null;
+  /** Touche Interagir du joueur (« E »). */
+  key: string;
+}
+
+/** « au fourgon de CRS », « à la voiture de police », « à l’ambulance » (véhicule ou point de remise). */
+function toThe(label: string): string {
+  const t = label.trim();
+  const low = t.length > 1 && t[1] === t[1]!.toLocaleLowerCase('fr-FR') ? t.charAt(0).toLocaleLowerCase('fr-FR') + t.slice(1) : t;
+  if (/^[aeéiouh]/i.test(low)) return `à l’${low}`;
+  return /^(voiture|moto|camionnette|fourgonnette)/i.test(low) ? `à la ${low}` : `au ${low}`;
+}
+
+/** Ligne d'aide de law.custody sans son « Interpellé. » de tête : « E : le confier à MISTRAL 2 ALFA (15 m) ». */
+function helpOf(guidance: string): string {
+  return guidance.replace(/^Interpellé\.\s*/, '').trim();
+}
+
+/**
+ * Consigne « interpellé » de la carte « Ma mission » (classée avant tout le reste) : la même issue que la 4e invite de
+ * la touche Interagir, en clair, et le repère sur le fourgon où l'emmener — « Emmenez l’interpellé au fourgon
+ * cellulaire 1 » (la carte écrit la distance à côté). null : il ne tient personne. Fonction pure.
+ */
+export function custodyInstruction(f: CustodyFacts): CustodyInput | null {
+  const w = f.way;
+  if (!w) return null;
+  const key = f.key !== '' ? f.key : 'E';
+  const help = helpOf(w.guidance);
+  switch (w.kind) {
+    case 'remettre_fourgon':
+      return { title: `Remettez l’interpellé au ${vanWords(w.name)}`, detail: help !== '' ? `${help}.` : `${key} : « Remettre ».`, target: 'vehicle', x: w.x, z: w.z };
+    case 'confier':
+      return { title: `Confiez l’interpellé à ${w.name}`, detail: `${help !== '' ? help : `${key} : « Confier »`} — il l’emmène au fourgon, vous avez les mains libres.`, target: 'none' };
+    case 'remettre':
+      return { title: `Remettez l’interpellé ${toThe(w.name)}`, detail: help !== '' ? `${help}.` : `${key} : « Remettre ».`, target: 'vehicle', x: w.x, z: w.z };
+    case 'faire_venir':
+      return { title: `Faites venir le ${vanWords(w.name)}`, detail: `${help !== '' ? help : `${key} : « Faire venir »`} — il vient jusqu’à vous.`, target: 'vehicle', x: w.x, z: w.z };
+    default: {
+      const c = f.coming;
+      if (c) {
+        return { title: `Le ${vanWords(c.name)} vient vous chercher`,
+          detail: `Gardez l’interpellé avec vous ; quand le fourgon est à côté, ${key} : « Remettre ».`, target: 'vehicle', x: c.x, z: c.z };
+      }
+      const d = f.drop;
+      if (d && d.cellular) {
+        return { title: `Emmenez l’interpellé au ${vanWords(d.name)}`, detail: `Le repère montre le fourgon. À côté (12 m), ${key} : « Remettre ».`, target: 'vehicle', x: d.x, z: d.z };
+      }
+      if (d) return { title: `Emmenez l’interpellé ${toThe(d.name)}`, detail: `Le repère montre le véhicule. À côté, ${key} : « Remettre ».`, target: 'vehicle', x: d.x, z: d.z };
+      return { title: 'Emmenez l’interpellé', detail: 'Aucun véhicule de remise à proximité : demandez un fourgon cellulaire à la radio.', target: 'none' };
+    }
+  }
+}
+
+/** Ce que la carte sait des interpellés d'une patrouille (mode patrouille, plan §5.1 et §5.7). */
+export interface PatrolCustodyFacts {
+  /** Interpellés assis dans la voiture de l'équipage. */
+  inCar: number;
+  /** Commissariat le plus proche : « au commissariat du 3e » et sa porte (null : aucun sur la carte). */
+  station: { at: string; x: number; z: number } | null;
+  /** Fourgon cellulaire demandé tout seul pour l'interpellé de l'équipage (transfer.patrolRequest). */
+  request: { text: string; x?: number; z?: number } | null;
+}
+
+/**
+ * Consigne de la patrouille qui a des interpellés : dans la voiture, « Conduisez l’interpellé au commissariat du 3e »
+ * (repère sur la porte du commissariat) ; à pied, avec un fourgon demandé, « Fourgon cellulaire demandé » et sa ligne
+ * (« — 2 min ; ou ramenez-le à la voiture (150 m) »). null : rien à dire. Fonction pure.
+ */
+export function patrolCustodyInstruction(f: PatrolCustodyFacts): CustodyInput | null {
+  if (f.inCar > 0 && f.station) {
+    const who = f.inCar > 1 ? 'les interpellés' : 'l’interpellé';
+    return { title: `Conduisez ${who} ${f.station.at}`, detail: 'Arrêtez la voiture devant la porte du commissariat : ils y sont remis à l’officier de police judiciaire.',
+      target: 'place', x: f.station.x, z: f.station.z };
+  }
+  if (f.request) {
+    const rest = f.request.text.replace(/^Fourgon cellulaire demandé\s*—\s*/, '').trim();
+    const hasPoint = f.request.x !== undefined && f.request.z !== undefined;
+    return { title: 'Fourgon cellulaire demandé', detail: rest !== '' ? `Arrivée ${rest.replace(/^(\d)/, 'dans $1')}.` : 'Il arrive : gardez l’interpellé.',
+      target: hasPoint ? 'vehicle' : 'none', x: f.request.x, z: f.request.z };
+  }
+  return null;
 }
 
 /** Distance (m) au-delà de laquelle le joueur à pied est rappelé à son groupe, et en deçà de laquelle le rappel cesse. */

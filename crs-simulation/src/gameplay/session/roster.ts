@@ -49,6 +49,9 @@ const POSTES: readonly string[] = [
   'commandant_unite', 'autorite_civile', 'pilote_moto', 'passager_moto', 'telepilote',
 ];
 
+/** Grades qui commandent un groupe (chef de la BRAV-M). */
+const CHIEF_RANKS: readonly PoliceRank[] = ['brigadier_chef', 'major', 'capitaine', 'commandant', 'commissaire'];
+
 /** « Moyens engagés » demandés sur la page d'accueil (SessionConfig.extra.moyens), bornés. */
 export interface RequestedMeans {
   sections: number;
@@ -57,6 +60,8 @@ export interface RequestedMeans {
   canon_eau: number;
   bravm: number;
   drone: number;
+  /** Fourgons cellulaires demandés (0 : selon la foule annoncée, voir remise.ts cellularCount). */
+  cellulaires: number;
 }
 
 /** Lit extra.moyens ; null quand la clé est absente (session lancée sans passer par la page d'accueil). */
@@ -68,7 +73,7 @@ export function meansOf(config: SessionConfig): RequestedMeans | null {
     const v = Number(m[key]);
     return Number.isFinite(v) ? Math.max(0, Math.min(hi, Math.round(v))) : 0;
   };
-  return { sections: n('sections', 16), fourgons: n('fourgons', 48), centaure: n('centaure', 10), canon_eau: n('canon_eau', 10), bravm: n('bravm', 8), drone: n('drone', 4) };
+  return { sections: n('sections', 16), fourgons: n('fourgons', 48), centaure: n('centaure', 10), canon_eau: n('canon_eau', 10), bravm: n('bravm', 8), drone: n('drone', 4), cellulaires: n('cellulaires', 4) };
 }
 
 function posteOf(config: SessionConfig): PolicePoste | null {
@@ -247,7 +252,9 @@ export function castFor(config: SessionConfig, helper: SpawnHelperApi | undefine
     case 'bravm': {
       // trois binômes à pied près de leurs machines
       const g = group('BRAV-M 1');
-      const want: PolicePoste = poste === 'pilote_moto' ? 'pilote_moto' : 'passager_moto';
+      // poste « chef de groupe » : le chef de la BRAV-M (opérateur du premier binôme, en selle derrière son pilote) —
+      // dans une session avec une compagnie, il prend la tête de la BRAV-M du dispositif (setup.ts) ; sinon de celle-ci
+      const want: PolicePoste = poste === 'pilote_moto' ? 'pilote_moto' : poste === 'chef_groupe' ? 'chef_groupe' : 'passager_moto';
       const s: UnitSlot[] = [
         slot('bravm', 'chef_groupe', 'brigadier_chef', 'Chef de groupe (opérateur)', 'groupe'),
         slot('bravm', 'lbd', 'gardien', 'Opérateur porteur de LBD'),
@@ -257,9 +264,10 @@ export function castFor(config: SessionConfig, helper: SpawnHelperApi | undefine
         slot('bravm', 'pilote_moto', 'gardien', 'Pilote'),
       ];
       cast.slots = attach(s, g);
-      if (want === 'passager_moto') {
+      if (want === 'passager_moto' || want === 'chef_groupe') {
         // passager : trois binômes (opérateur + pilote, une moto chacun) sous le chef de groupe IA, comme toute BRAV-M ;
-        // le joueur est l'opérateur du troisième, son pilote le conduit et la colonne part avec lui
+        // le joueur est l'opérateur du troisième, son pilote le conduit et la colonne part avec lui (chef de la BRAV-M :
+        // l'opérateur du premier, qui commande le groupe)
         const b = [group('BRAV-M 1-1', 'binome', 'police', g), group('BRAV-M 1-2', 'binome', 'police', g), group('BRAV-M 1-3', 'binome', 'police', g)];
         cast.slots = [
           { ...s[0]!, squad: b[0]! }, { ...s[3]!, squad: b[0]! },
@@ -341,6 +349,8 @@ export function castFor(config: SessionConfig, helper: SpawnHelperApi | undefine
   // le grade choisi sur la page d'accueil s'applique au joueur
   const mine = cast.slots[cast.player];
   if (mine && config.rank && isPoliceRole(role)) mine.rank = config.rank;
+  // le chef de la BRAV-M est brigadier-chef au moins (un gardien ne commande pas un groupe)
+  if (mine && role === 'bravm' && mine.poste === 'chef_groupe' && (!mine.rank || CHIEF_RANKS.indexOf(mine.rank) < 0)) mine.rank = 'brigadier_chef';
   // équipage de patrouille : le chef de bord n'est jamais moins gradé que le conducteur (un major au volant a un
   // major pour chef de bord)
   if (role === 'patrouille' && cast.player !== 0 && config.rank === 'major' && cast.slots[0]) cast.slots[0].rank = 'major';

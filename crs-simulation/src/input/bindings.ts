@@ -50,6 +50,11 @@ export const DEFAULT_KBM: Readonly<Table> = {
   zoom_in: ['Equal', 'NumpadAdd'], zoom_out: ['Minus', 'NumpadSubtract'],
   ui_accept: ['Enter', 'NumpadEnter'], ui_back: ['Escape', 'Backspace'],
   ui_up: ['ArrowUp'], ui_down: ['ArrowDown'], ui_left: ['ArrowLeft'], ui_right: ['ArrowRight'],
+  // Ordres directs du terrain (ui/command/direct/fieldKeys.ts), en jeu seulement : Entrée = l'ordre prêt (Maj+Entrée :
+  // la ligne « autre », lue avec la touche Maj), A (touche physique KeyQ, « A » en AZERTY) = « Avec moi », U = à qui
+  // (Maj+U : à l'envers), ⌫ = annuler le dernier ordre (5 s). Entrée et ⌫ restent Valider / Retour dans les écrans
+  // (contexte « menu », à part) : le jeu les ignore tant qu'un écran est ouvert et 0,6 s après sa fermeture.
+  order_go: ['Enter', 'NumpadEnter'], with_me: ['KeyQ'], order_who: ['KeyU'], order_undo: ['Backspace'],
 };
 
 /**

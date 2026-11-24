@@ -38,13 +38,22 @@ describe('BRAV-M à pied : retour aux machines', () => {
     // point à environ 700 m par les rues
     const far = { x: 0, z: 0 } as { x: number; z: number };
     expect(ctx.world.nearestRoad(road.x + 700, road.z, far as never, 200)).toBe(true);
+    const nearMoto = (p: { x: number; z: number }): number => Math.min(...motos.map((v) => Math.hypot(v.x - p.x, v.z - p.z)));
+    const ops0 = h.people.map((r) => ctx.people.get(r.id)!).filter((p) => p && p.poste !== 'pilote_moto');
+    const before = ops0.map((p) => nearMoto(p));
     ctx.squads.issue(group.id, { type: 'colonne', x: far.x, z: far.z, issuedBy: group.leaderId });
-    t.step(1);
-    // ordre interne de regroupement aux machines : à côté des motos
-    const o = ctx.squads.get(group.id)!.order;
-    const toMotos = Math.min(...motos.map((v) => Math.hypot(v.x - o.x, v.z - o.z)));
-    console.log(`  ordre interne ${o.type} (${o.x.toFixed(0)}, ${o.z.toFixed(0)}) : ${toMotos.toFixed(0)} m de la moto la plus proche`);
-    expect(toMotos).toBeLessThan(30);
+    // regroupement aux machines : les opérateurs vont à leurs motos (à quelques mètres), jamais vers l'origine de la
+    // carte ; l'ordre affiché reste celui donné (la manœuvre interne ne le remplace pas : ordres directs §4.1)
+    for (let s = 0; s < 6; s++) {
+      t.step(1);
+      const o = ctx.squads.get(group.id)!.order;
+      expect(o.type).toBe('colonne');
+      expect(Math.hypot(o.x - far.x, o.z - far.z)).toBeLessThan(1);
+      ops0.forEach((p, i) => {
+        if (p.vehicleId === 0) expect(nearMoto(p), `opérateur #${p.id} vers ses machines`).toBeLessThan(before[i]! + 5);
+      });
+    }
+    console.log(`  opérateurs à ${ops0.map((p) => nearMoto(p).toFixed(0)).join(' / ')} m de leurs motos (au départ ${before.map((d) => d.toFixed(0)).join(' / ')} m)`);
     // ils remontent en selle et la colonne part
     const cmd = ctx.service<{ special(id: number): { stage: string } | null }>('police.command')!;
     for (let i = 0; i < 30; i++) {

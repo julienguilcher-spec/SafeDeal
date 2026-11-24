@@ -5,6 +5,9 @@
  * En tactile, la barre d'objets est celle de la surcouche du module d'entrées : createTouchFeed la
  * remplit (InputTouchApi.setItemBar) et la barre du HUD se masque ; de même l'invite passe par le
  * bouton contextuel (setInteractLabel) et seule la progression reste affichée ici.
+ *
+ * Sous l'invite, la ligne d'aide de l'interpellé (service 'law.custody' : « Interpellé. E : le confier
+ * à MISTRAL 2 ALFA (15 m) »), affichée dès la fin de la palpation, au clavier comme au doigt.
  * ===================================================================================== */
 
 import type { ItemStack, Person } from '@/core/contracts';
@@ -197,7 +200,8 @@ export function createPrompt(env: HudEnv): HudPart {
   const barEl = h('div', 'hud-prompt__bar');
   const fillEl = h('i');
   barEl.append(fillEl);
-  root.append(pill, barEl);
+  const hintEl = h('div', 'hud-prompt__hint');
+  root.append(pill, hintEl, barEl);
 
   const key = new Txt(keyEl);
   const keyShown = new Shown(keyEl);
@@ -206,7 +210,16 @@ export function createPrompt(env: HudEnv): HudPart {
   const pillShown = new Shown(pill);
   const barShown = new Shown(barEl);
   const fill = new Transform(fillEl);
+  const hint = new Txt(hintEl);
+  const hintShown = new Shown(hintEl);
+  hintShown.set(false);
   let touchLabel: string | null | undefined = undefined;
+
+  /** Ligne d'aide de l'interpellé ('' : rien à dire). */
+  function guidance(p: Person): string {
+    const custody = ctx.service<{ guidance?(actorId: number): string }>('law.custody');
+    return custody && typeof custody.guidance === 'function' ? custody.guidance(p.id) : '';
+  }
 
   function feedTouch(text: string | null): void {
     if (text === touchLabel) return;
@@ -223,7 +236,7 @@ export function createPrompt(env: HudEnv): HudPart {
     },
     visible(s: HudState): boolean {
       if (!s.person) return false;
-      return ctx.player.state.prompt !== null || ctx.interactions.current(s.person) !== null;
+      return ctx.player.state.prompt !== null || ctx.interactions.current(s.person) !== null || guidance(s.person) !== '';
     },
     tick(s: HudState): void {
       const p = s.person;
@@ -231,7 +244,15 @@ export function createPrompt(env: HudEnv): HudPart {
       const current = ctx.interactions.current(p);
       const prompt = ctx.player.state.prompt;
       const opt = current ? current.opt : prompt;
-      if (!opt) return;
+      const help = guidance(p);
+      hint.set(help);
+      hintShown.set(help !== '');
+      if (!opt) {
+        pillShown.set(false);
+        barShown.set(false);
+        feedTouch(null);
+        return;
+      }
       const busy = current !== null && opt.duration > 0;
       label.set(busy ? opt.label + '…' : opt.label);
       const touch = s.touch !== 'none';

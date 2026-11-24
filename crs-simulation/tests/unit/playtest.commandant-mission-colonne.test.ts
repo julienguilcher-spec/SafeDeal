@@ -72,7 +72,9 @@ describe('commandant en mission : à l’arrivée de « Nuit des vitrines »', (
     const seated = ctx.squads.list.filter((q) => q.faction === 'police' && core.scope().ownSquadId !== 0 && q.parentId !== 0 && /MISTRAL/.test(q.name))
       .flatMap((q) => q.members.map((id) => ctx.people.get(id)!)).filter((p) => p && !p.isPlayer && p.vehicleId !== 0 && p.poste !== 'conducteur');
     expect(seated.map((p) => p.poste)).toEqual([]);
-    const groups = ctx.squads.list.filter((q) => q.faction === 'police' && q.kind === 'groupe' && /FAUCON/.test(q.name) && q.parentId === 0);
+    // (les BRAV-M de la journée de service sont rattachées à la compagnie : celles dont l'unité mère n'est pas une BRAV-M)
+    const groups = ctx.squads.list.filter((q) => q.faction === 'police' && q.kind === 'groupe' && /FAUCON/.test(q.name)
+      && !/FAUCON/.test(ctx.squads.get(q.parentId)?.name ?? ''));
     expect(groups.length).toBeGreaterThan(1);
     const opsOf = (b: { id: number }): Person[] => ctx.squads.list.filter((q) => q.parentId === b.id).flatMap((q) => q.members.map((id) => ctx.people.get(id)!))
       .filter((p) => p && p.poste !== 'pilote_moto' && p.custody === 'free');
@@ -97,7 +99,7 @@ describe('commandant en mission : à l’arrivée de « Nuit des vitrines »', (
     if (!(y60 < 30 || y0 - y60 >= 30)) {
       // (avec les commissariats, le stationnement réservé des sites reste libre : la colonne de la journée ne roule plus
       // dans la même circulation et la BRAV-M arrive ailleurs, ici à plus de 200 m du point, la tête de ses motos arrêtée
-      // au pas devant le mobilier jeté sur la chaussée — « Itinéraire barré » : pied à terre, la suite à pied, 190 m au pas
+      // au pas devant le mobilier jeté sur la chaussée — « Les motos n’avancent plus » : pied à terre, la suite à pied, 190 m au pas
       // à travers la foule (la compagnie, descendue former sa ligne, n'est plus assise dans ses fourgons : la foule ne
       // s'écarte plus de la même façon). Au bout de trois minutes au plus, elle y est.)
       for (let s = 0; s < 120 && meanAt(near, tx, tz) >= 30; s++) t.step(1);
@@ -119,7 +121,9 @@ describe('commandant en mission : à l’arrivée de « Nuit des vitrines »', (
     const d0 = meanTo();
     const res = sendCardLine(sendEnv, line, null, r);
     expect(res.ok).toBe(true);
-    expect(res.text).toContain(bravm.name);
+    // (la BRAV-M de la journée de service est rattachée à la compagnie : la fiche « VOUS » appelle toute la compagnie, la
+    // BRAV-M comprise — elle reçoit « suivre » le commandant, relayé par sa compagnie)
+    expect([bravm.name, ctx.squads.get(core.scope().ownSquadId)!.name].some((n) => res.text.indexOf(n) >= 0), res.text).toBe(true);
     t.step(1);
     // l'ordre du commandant est à la BRAV-M (« Me suivre à pied » : pied à terre d'abord, « suivre » ensuite)
     expect(bravm.order.issuedBy, `${bravm.name} : ${bravm.order.type}`).toBe(me.id);

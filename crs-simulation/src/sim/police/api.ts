@@ -131,6 +131,11 @@ export interface CompanyOptions extends UnitPlacement {
   sections?: number;
   /** Fourgons (un par groupe), véhicule de commandement et fourgon cellulaire. Défaut true. */
   vehicles?: boolean;
+  /**
+   * Fourgon cellulaire SANS équipage garé avec le bloc (défaut true, avec `vehicles`). La mise en place de session passe
+   * false : elle engage ses fourgons cellulaires avec leur équipage (createEquipage('fourgon_cellulaire')).
+   */
+  cellular?: boolean;
   /** Conducteurs restés aux véhicules (défaut : comme `vehicles`). */
   drivers?: boolean;
   /** Le commandant porte l'écharpe : commandant unique, autorité habilitée (défaut true). */
@@ -168,6 +173,11 @@ export interface BravmOptions extends UnitPlacement {
   vehicles?: boolean;
   /** true : en selle ; false (défaut) : à pied à côté des machines. */
   mounted?: boolean;
+  /**
+   * Unité de rattachement (la compagnie engagée) : la BRAV-M est alors sous ses ordres — « Toute la compagnie », « Avec
+   * moi », le cycle « À qui » du commandant. Défaut : unité de tête, sans rattachement.
+   */
+  parentId?: number;
   seed?: number;
 }
 

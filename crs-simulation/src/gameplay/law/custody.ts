@@ -16,7 +16,8 @@
  *   cuffed    menottée (upper 'cuffed'), assise ou au sol, sans gardien nécessaire ;
  *   escorted  debout, tenue par le bras : le module de locomotion la fait marcher devant l'agent
  *             (lien heldBy / carrying) ; sans lui, custody-step.ts la ramène au contact ;
- *   in_vehicle / handed_over  remise : la procédure est close.
+ *   in_vehicle / handed_over  remise : la procédure est close (à bord : « remis_vehicule », en attente du transfert ;
+ *             au commissariat, Records.markDelivered : « depose », présenté à l'officier de police judiciaire).
  * ===================================================================================== */
 
 import type { EntityId, ItemId, Person } from '@/core/contracts';
@@ -25,7 +26,7 @@ import { CAMERA_THIRD_PARTY } from './api';
 import type { HandoverDest } from './handover';
 import type { Kernel } from './kernel';
 import { PROTECTED_LABELS } from './perception';
-import { SEIZED_ITEMS, WEAPON_ITEMS, hourText, offenseLabel } from './texts';
+import { SEIZED_ITEMS, WEAPON_ITEMS, handoverRadioText, hourText, offenseLabel } from './texts';
 
 /** Fenêtre avant l'interpellation dont les emplois de la force sont rattachés au dossier (s). */
 const FORCE_LOOKBACK = 30;
@@ -127,7 +128,7 @@ export class Custody {
       protectedTarget: prot === 'collegue' ? '' : prot,
       force: [], worstVerdict: 'licite', worstSeverity: 0,
       resisted, cuffed: false, cuffJustified: true, searched: false, seized: [],
-      status: 'en_cours', closedAt: -1, to: '',
+      status: 'en_cours', closedAt: -1, to: '', vehicleId: 0, vehicleName: '', station: '', deliveredAt: -1,
       strength: founded ? (motif && motif.filmed ? 'solide' : 'fragile') : 'nulle',
       regular: founded, notes: [],
     };
@@ -144,6 +145,7 @@ export class Custody {
     };
     this.holds.push(hold);
     this.holdOf.set(target.id, hold);
+    k.ways.touched(actor, target);
 
     target.custody = 'held';
     target.heldBy = actor.id;
@@ -215,6 +217,7 @@ export class Custody {
     target.upperT = 0;
     rec.cuffed = true;
     rec.cuffJustified = this.cuffsJustified(rec, target);
+    k.ways.touched(actor, target);
     if (actor.upper === 'restrain') actor.upper = 'none';
     k.ctx.events.emit('sfx', { id: 'menottes', x: target.x, y: target.y + 0.8, z: target.z });
     if (!rec.cuffJustified) k.notify(actor, 'Menottage non justifié : la personne n\'est ni dangereuse ni susceptible de fuir (art. 803 du code de procédure pénale).', 'warn', 6);
@@ -265,6 +268,8 @@ export class Custody {
     if (loot) k.offenses.record(target, 'recel', target.x, target.z, undefined, true);
     if (found !== '') rec.notes.push('saisi à la palpation : ' + found);
     ctx.events.emitAny('law:search', { id: target.id, byId: actor.id, seized: rec.seized });
+    // la ligne d'aide (« Interpellé. E : le confier à … ») s'affiche sous l'invite dès maintenant
+    k.ways.searched(actor, target);
     if (found === '') k.notify(actor, 'Palpation de sécurité : aucun objet dangereux.', 'info', 4);
     else k.notify(actor, 'Palpation de sécurité : ' + found + (weapon ? ". Port d'arme constaté." : '.'), weapon ? 'ok' : 'info', 6);
   }
@@ -301,6 +306,7 @@ export class Custody {
     h.escortId = actor.id;
     h.holderId = actor.id;
     h.nextEscapeCheck = this.k.ctx.clock.now + 1;
+    this.k.ways.touched(actor, target);
     return true;
   }
 
@@ -315,6 +321,7 @@ export class Custody {
     h.escortId = 0;
     h.pinX = target.x;
     h.pinZ = target.z;
+    this.k.ways.touched(actor, target);
     if (h.rec.cuffed) {
       target.heldBy = 0;
       actor.carrying = 0;
@@ -338,14 +345,20 @@ export class Custody {
     target.heldBy = 0;
     target.vx = 0;
     target.vz = 0;
-    let to = 'point';
+    let to: 'vehicule' | 'point' = 'point';
+    let where = dest.label;
+    let vehicleId = 0;
     if (dest.kind === 'vehicle' && dest.vehicle) {
-      to = 'vehicule';
       if (ctx.vehicles.enter(target, dest.vehicle, dest.seat)) {
+        to = 'vehicule';
         target.custody = 'in_vehicle';
+        vehicleId = dest.vehicle.id;
+        where = k.handover.radioName(dest.vehicle);
       } else {
+        // la portière ne s'ouvre pas (place prise entre-temps) : assis, entravé, à côté du véhicule
         target.custody = 'handed_over';
         target.posture = 'sit';
+        where = 'à côté du ' + k.handover.radioName(dest.vehicle);
         this.parked.push(target);
       }
     } else {
@@ -356,19 +369,21 @@ export class Custody {
     target.upper = h.rec.cuffed ? 'cuffed' : 'none';
     this.returnCuffs(h, actor);
     const rec = h.rec;
-    this.close(h, 'remis', to);
+    this.close(h, to === 'vehicule' ? 'remis_vehicule' : 'remis', to);
+    rec.vehicleId = vehicleId;
+    rec.vehicleName = to === 'vehicule' && dest.vehicle ? dest.label : '';
     ctx.events.emit('person:handed_over', { id: target.id, byId: actor.id });
 
     // compte rendu radio (docs/research/01-doctrine-cadre-legal.md §5.5)
     const squad = actor.squadId !== 0 ? ctx.squads.get(actor.squadId) : undefined;
     const from = squad ? squad.name : actor.name;
     const hour = hourText(ctx.env.state.timeOfDay);
+    // (« pour présentation à l'officier de police judiciaire » : au commissariat seulement, plan §5.4)
     ctx.radio.say({
       channel: 'commandement', from, priority: 1, personId: actor.id,
-      text: 'CENTRAL ICI ' + from.toUpperCase() + '. UN interpellé pour ' + (rec.motif ? offenseLabel(rec.motif) : 'fait non précisé') + ', remis à ' + hour +
-        (to === 'vehicule' ? ', à bord du véhicule' : ', au point de regroupement') + " pour présentation à l'officier de police judiciaire. PARLEZ.",
+      text: handoverRadioText(from, rec.motif ? offenseLabel(rec.motif) : 'fait non précisé', hour, to, where),
     });
-    k.notify(target, "Vous êtes remis à l'officier de police judiciaire : la garde à vue commence.", 'alert', 8);
+    k.notify(target, (to === 'vehicule' ? 'Vous êtes placé à bord du ' + where : 'Vous êtes remis aux policiers, ' + where) + ' : la garde à vue commence.', 'alert', 8);
     if (target.isPlayer && target.faction !== 'police') {
       this.playerHandedAt = ctx.clock.now;
       this.playerHandedId = target.id;
@@ -474,6 +489,7 @@ export class Custody {
     rec.regular = rec.founded && rec.worstVerdict === 'licite' && (!rec.cuffed || rec.cuffJustified) && status !== 'evade';
     k.records.open.delete(rec.targetId);
     this.holdOf.delete(rec.targetId);
+    k.ways.forget(rec.targetId);
     const i = this.holds.indexOf(h);
     if (i >= 0) {
       this.holds[i] = this.holds[this.holds.length - 1]!;

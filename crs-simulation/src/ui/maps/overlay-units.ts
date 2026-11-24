@@ -359,7 +359,8 @@ export function drawUnits(g: CanvasRenderingContext2D, t: MapTransform, scene: M
       SYM.injured = u.injured > 0;
       SYM.code = u.code;
       // voiture de patrouille : son état (patrouille, en route, sur place) se lit de loin ; les autres unités, leur effectif
-      if (u.patrol) SYM.detail = selected || t.mpp < 6 ? u.status : '';
+      // (fourgon cellulaire : son étiquette « CELLULAIRE 1 · 3/8 », la même que dans le monde)
+      if (u.patrol || u.cellular) SYM.detail = selected || t.mpp < 6 ? u.status : '';
       else SYM.detail = (selected || t.mpp < 0.75) && u.squadId !== 0 && u.total > 0 ? `${u.valid}/${u.total}${selected && u.status !== '' ? ' · ' + u.status : ''}` : '';
       SYM.compact = false;
       if (board) {
@@ -426,6 +427,26 @@ export const ORDER_TAGS_PLURAL: Readonly<Record<string, string>> = {
   suivre: 'SUIVENT', embarquer: 'MONTENT', debarquer: 'DESCENDENT', cesser: 'ARRÊTENT', libre: 'SANS ORDRE',
   retour_poste: 'RENTRENT',
 };
+
+/**
+ * Étiquette d'un ordre du joueur d'après le verbe de son ticket (service 'command.direct', DirectVerb) : ce qu'il a
+ * ordonné, même quand l'unité exécute encore un ordre interne (embarquer, colonne, approche de la BRAV-M). Singulier,
+ * pluriel. Verbe absent de la table : l'étiquette du type d'ordre (orderTag).
+ */
+export const VERB_TAGS: Readonly<Record<string, readonly [string, string]>> = {
+  envoyer: ['VA', 'VONT'], bloquer: ['BARRE', 'BARRENT'], face_foule: ['EN LIGNE', 'EN LIGNE'],
+  interpeller: ['INTERPELLE', 'INTERPELLENT'], constater: ['SURVEILLE', 'SURVEILLENT'], disperser: ['REPOUSSE', 'REPOUSSENT'],
+  secours: ['SECOURT', 'SECOURENT'], pousser: ['POUSSE UN VÉHICULE', 'POUSSENT UN VÉHICULE'], tenir: ['TIENT', 'TIENNENT'],
+  repli: ['SE REPLIE', 'SE REPLIENT'], bond: ['BOND', 'BOND'], charge: ['CHARGE', 'CHARGENT'], gaz: ['GAZ', 'GAZ'],
+  encercler: ['ENCERCLE', 'ENCERCLENT'], venir: ['VIENT', 'VIENNENT'], partir: ['PART AU COMMISSARIAT', 'PARTENT AU COMMISSARIAT'],
+  faire_venir: ['VIENT', 'VIENNENT'],
+};
+
+/** Étiquette d'un ordre du joueur par son verbe ('' : verbe sans étiquette propre). */
+export function verbTag(verb: string, plural = false): string {
+  const t = verb !== '' ? VERB_TAGS[verb] : undefined;
+  return t ? t[plural ? 1 : 0] : '';
+}
 
 /** « Barrer la rue, passants admis » (SquadOrder.targetId = −2, BARRAGE_LET_PASSERSBY de orders.ts). */
 const LET_PASSERSBY = -2;
@@ -655,6 +676,8 @@ export interface OrderLabelItem {
   code: string;
   type: string;
   targetId: number;
+  /** Verbe de l'ordre du joueur (ticket de 'command.direct'), '' sans ordre du joueur en cours. */
+  verb?: string;
   /** Ancrage à l'écran (px) : centre de l'étiquette sans décalage. */
   x: number;
   y: number;
@@ -698,7 +721,8 @@ export function layoutOrderLabels(items: readonly OrderLabelItem[], measure: (te
   for (const it of items) {
     let g = groups.find((q) => {
       const a = q.items[0]!;
-      return a.type === it.type && a.targetId === it.targetId && a.arrived === it.arrived && Math.hypot(q.x - it.x, q.y - it.y) <= LABEL_MERGE_PX;
+      return a.type === it.type && (a.verb ?? '') === (it.verb ?? '') && a.targetId === it.targetId && a.arrived === it.arrived
+        && Math.hypot(q.x - it.x, q.y - it.y) <= LABEL_MERGE_PX;
     });
     if (!g) {
       g = { items: [], x: it.x, y: it.y };
@@ -718,7 +742,8 @@ export function layoutOrderLabels(items: readonly OrderLabelItem[], measure: (te
     const codes = g.items.map((q) => q.code).filter((c) => c !== '');
     const eta = Math.max(...g.items.map((q) => q.eta));
     const dist = Math.max(...g.items.map((q) => q.dist));
-    const parts = [codes.join(' '), orderTag(first.type, first.targetId, plural), followText(first.arrived, dist, eta, !plural)].filter((p) => p !== '');
+    const tagText = verbTag(first.verb ?? '', plural) || orderTag(first.type, first.targetId, plural);
+    const parts = [codes.join(' '), tagText, followText(first.arrived, dist, eta, !plural)].filter((p) => p !== '');
     const text = parts.join(' · ');
     const w = measure(text) + 6;
     const h = LABEL_HEIGHT;
@@ -744,7 +769,8 @@ export function drawOrders(g: CanvasRenderingContext2D, t: MapTransform, scene: 
   LABELS.length = 0;
   for (let i = 0; i < units.length; i++) {
     const u = units[i]!;
-    const ord = u.order;
+    // l'ordre du joueur en cours (son ticket) plutôt que l'ordre interne de la colonne ou de la BRAV-M
+    const ord = u.playerOrder ?? u.order;
     if (!ord || u.total === 0) continue;
     if (o.compact && !u.hasPlayer) continue;
     const shape = ORDER_SHAPES[ord.type as OrderType] ?? 'arrow';
@@ -784,7 +810,7 @@ export function drawOrders(g: CanvasRenderingContext2D, t: MapTransform, scene: 
       const len = route ? route.length : u.orderDist;
       const off = shape === 'circle' ? -(Math.max(8, (ord.width * 0.5) / t.mpp) + 12) : -14;
       LABELS.push({
-        code: u.code, type: String(ord.type), targetId: ord.targetId, x: tx, y: ty + off, arrived, dist: len,
+        code: u.code, type: String(ord.type), targetId: ord.targetId, verb: u.playerOrder ? u.playerVerb : '', x: tx, y: ty + off, arrived, dist: len,
         eta: len / (u.embarked ? 8 : 1.8), color,
       });
     }

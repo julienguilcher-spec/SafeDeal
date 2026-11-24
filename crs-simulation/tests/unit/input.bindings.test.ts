@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { BINDINGS_SECTION, BindingStore, DEFAULT_GAMEPAD, DEFAULT_KBM, isValidCode } from '@/input/bindings';
+import { BINDINGS_SECTION, BindingStore, DEFAULT_GAMEPAD, DEFAULT_KBM, RESERVED_KBM, isValidCode } from '@/input/bindings';
+import { withShift } from '@/input/labels';
+import { SAFE_LETTERS, mapKey } from '@/ui/command/tacticalKeys';
 import { ACTIONS, BUTTONS, BUTTON_COUNT, BUTTON_INDEX, actionContext, actionIndex, actionName, contextsOverlap } from '@/input/buttons';
 import type { BindAction } from '@/input/buttons';
 import { createFakeContext } from '@/input/dev/fakeContext';
@@ -76,6 +78,53 @@ describe('entrées — table par défaut conforme à docs/ARCHITECTURE.md §5', 
     expect(kbm('handbrake')).toEqual(['Space']);
     expect(kbm('fast_forward')).toEqual(['Period']);
     expect(kbm('pause')).toEqual(['Escape']);
+  });
+
+  it('ordres directs du terrain : Entrée, A (KeyQ), U, ⌫ — en jeu ; Entrée et ⌫ restent Valider / Retour dans les menus', () => {
+    expect(kbm('order_go')).toEqual(['Enter', 'NumpadEnter']);
+    expect(kbm('with_me')).toEqual(['KeyQ']);
+    expect(kbm('order_who')).toEqual(['KeyU']);
+    expect(kbm('order_undo')).toEqual(['Backspace']);
+    for (const a of ['order_go', 'with_me', 'order_who', 'order_undo'] as const) {
+      expect(actionContext(a)).toBe('commun');
+      expect(pad(a)).toEqual([]);
+    }
+    // les menus gardent Entrée et ⌫ (contexte « menu », à part : pas de conflit, les deux actions sont déclenchées)
+    expect(kbm('ui_accept')).toEqual(['Enter', 'NumpadEnter']);
+    expect(kbm('ui_back')).toEqual(['Escape', 'Backspace']);
+    const names = (code: string): string[] => s.actionsFor('kbm', code).map((i) => ACTIONS[i]!).sort();
+    expect(names('Enter')).toEqual(['order_go', 'ui_accept']);
+    expect(names('NumpadEnter')).toEqual(['order_go', 'ui_accept']);
+    expect(names('Backspace')).toEqual(['order_undo', 'ui_back']);
+    // A (KeyQ, « A » sur un clavier AZERTY) et U n'ont aucune autre action en jeu
+    expect(names('KeyQ')).toEqual(['with_me']);
+    expect(names('KeyU')).toEqual(['order_who']);
+    // noms de l'écran de réaffectation (§1.1) ; Maj+Entrée lu avec la touche Maj (pas de ligne à part)
+    expect(actionName('order_go')).toBe('Donner l’ordre prêt');
+    expect(actionName('with_me')).toBe('Avec moi');
+    expect(actionName('order_who')).toBe('À qui');
+    expect(actionName('order_undo')).toBe('Annuler l’ordre');
+    expect(withShift('Entrée')).toBe('Maj+Entrée');
+    expect(withShift('')).toBe('');
+  });
+
+  it('ordres directs : aucune touche réservée (O, P, Y) ; la carte de commandement lit ces touches dans le même sens', () => {
+    for (const a of ['order_go', 'with_me', 'order_who', 'order_undo'] as const) {
+      for (const code of kbm(a)) {
+        expect(RESERVED_KBM[code], `${a} ${code}`).toBeUndefined();
+        expect(isValidCode('kbm', code)).toBe(true);
+      }
+    }
+    // carte ouverte, elle a la main (le terrain ignore ces touches) : Entrée y envoie, ⌫ y revient, U y choisit
+    // l'unité — le même sens ; A (KeyQ) n'y fait rien
+    const ctx = { level: 'tout' as const, card: false };
+    expect(mapKey('Enter', false, ctx)).toEqual({ kind: 'accept' });
+    expect(mapKey('NumpadEnter', false, ctx)).toEqual({ kind: 'accept' });
+    expect(mapKey('Backspace', false, ctx)).toEqual({ kind: 'back' });
+    expect(mapKey('KeyQ', false, ctx).kind).toBe('none');
+    expect(SAFE_LETTERS.has('KeyQ')).toBe(false);
+    expect(SAFE_LETTERS.has('KeyU')).toBe(true);
+    expect(mapKey('KeyU', false, ctx).kind).not.toBe('none');
   });
 
   it('manette (mapping standard)', () => {

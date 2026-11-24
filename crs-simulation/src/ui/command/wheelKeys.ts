@@ -2,8 +2,9 @@
  * Roues d'ordres au clavier (sans souris : Mac portable) — logique pure, sans DOM.
  *
  *   1 … 8        : secteurs numérotés de la roue d'ordres (sens horaire à partir du haut) ; le numéro d'un secteur
- *                  est le même pour tous les rôles (« F puis 1 » = « Suivez-moi à pied » pour le commandant comme
- *                  pour le CRS, dont la roue réduite n'a que les secteurs 1, 2 et 7) ; couronne intérieure
+ *                  est le même pour tous les rôles et le même qu'avant (« F puis 1 » = « Avec moi » pour le commandant
+ *                  comme pour le CRS, dont la roue réduite n'a que les secteurs 1 et 7) ; un chiffre non dessiné peut
+ *                  être l'alias d'un secteur (2 → 1 : l'ancien « Suivez-moi en véhicules ») ; couronne intérieure
  *                  (« Secours ici », « Plus… ») : 1 … n ; pavé numérique compris ;
  *   flèches      : le surlignage se déplace vers le secteur voisin qui va dans la direction demandée (sans
  *                  surlignage, la flèche désigne le secteur placé dans cette direction) ;
@@ -42,11 +43,17 @@ export function isWheelKeyCode(code: string): boolean {
 
 /**
  * Secteur d'une roue numérotée : `keys[i]` est le numéro (1…9) du secteur i, celui qui est imprimé dessus. -1 si la
- * touche ne correspond à aucun secteur (la roue réduite du CRS n'a que 1, 2 et 7 : 3 ne choisit rien).
+ * touche ne correspond à aucun secteur (la roue réduite du CRS n'a que 1 et 7 : 3 ne choisit rien). `aliases` : chiffres
+ * non dessinés qui choisissent un autre secteur (« F puis 2 », l'ancien « Suivez-moi en véhicules », donne « Avec moi »,
+ * le 1 : direct/words.ts DIGIT_ALIASES) — un chiffre imprimé l'emporte toujours sur un alias.
  */
-export function wheelSectorIndex(code: string, keys: readonly number[]): number {
+export function wheelSectorIndex(code: string, keys: readonly number[], aliases: Readonly<Record<number, number>> = {}): number {
   const d = keyDigit(code);
-  return d > 0 ? keys.indexOf(d) : -1;
+  if (d <= 0) return -1;
+  const i = keys.indexOf(d);
+  if (i >= 0) return i;
+  const alias = aliases[d];
+  return alias !== undefined ? keys.indexOf(alias) : -1;
 }
 
 /** Libellé de repli de la touche d'un secteur (avant que la disposition du clavier soit connue). */

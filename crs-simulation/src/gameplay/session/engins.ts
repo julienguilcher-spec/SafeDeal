@@ -55,6 +55,15 @@ const VEHICLE_AFTER = 5;
  * engin en intervention la contourne (pilote automatique) bien avant.
  */
 const CIVIL_AFTER = 40;
+/**
+ * En intervention urgente (deux-tons), arrêté par la même voiture civile immobile depuis (s) — reprises du pilote
+ * automatique comprises (voir heldByCivil) : elle se range, retirée de la chaussée, comme devant une colonne en urgence
+ * (police/command/convoy.ts, CIVIL_CLEAR). Relevé gardé tant que l'engin n'a pas bougé de CIVIL_SPAN m, oublié après
+ * CIVIL_LAPSE s sans arrêt derrière elle.
+ */
+const URGENT_CIVIL = 20;
+const CIVIL_SPAN = 8;
+const CIVIL_LAPSE = 20;
 /** Bloqué contre un mur ou un obstacle fixe depuis : nouvel itinéraire, puis marche arrière (s). */
 const WALL_AFTER = 12;
 /** Coincé depuis (s), hors de vue du joueur (m) : replacé plus loin sur l'itinéraire (m). */
@@ -64,6 +73,19 @@ const SKIP_DIST = 30;
 /** Progression minimale attendue (m) sur la fenêtre (s). */
 const PROGRESS_MIN = 15;
 const PROGRESS_WINDOW = 60;
+/** Suivant au-delà de tant de mètres de son chef de file : il a décroché (m). */
+const TRAIL_FAR = 40;
+/**
+ * Colonne en retard (voir advanceLate) : le joueur à moins de LATE_NEAR m du lieu depuis LATE_AFTER s ; un véhicule de sa
+ * compagnie encore à plus de LATE_FAR m de lui est avancé sur son itinéraire jusqu'à LATE_AT m de lui environ (m, s) ;
+ * revue toutes les LATE_THINK s ; intervalle gardé entre deux véhicules replacés (m).
+ */
+const LATE_NEAR = 150;
+const LATE_AFTER = 30;
+const LATE_FAR = 400;
+const LATE_AT = 325;
+const LATE_THINK = 5;
+const LATE_GAP = 5;
 
 /** Service de lecture des interventions du filet de sécurité (tests, débogage). */
 export const ENGINS_SERVICE = 'session.engins';
@@ -115,11 +137,23 @@ export class EnginsSystem implements GameSystem {
   private readonly stillSince = new Map<EntityId, number>();
   /** Suivi de la progression des véhicules sous pilote automatique. */
   private readonly progress = new Map<EntityId, { remaining: number; at: number }>();
+  /** Suivants loin de leur chef de file : distance au chef de file, instant de la mesure, chef de file. */
+  private readonly trail = new Map<EntityId, { d: number; at: number; leaderId: EntityId }>();
+  /** Véhicules qui se garent : position et instant de la mesure (immobilité). */
+  private readonly still = new Map<EntityId, { x: number; z: number; at: number }>();
+  /** Colonne en retard : instant depuis lequel le joueur est au lieu (−1 : il n'y est pas), prochaine revue. */
+  private placeSince = -1;
+  private nextLate = 0;
+  /** Points d'un itinéraire relevés tous les 5 m (x, z, cap) : tampon de advanceOne. */
+  private readonly samples: number[] = [];
   /**
    * Engins qui reculent de quelques mètres pour laisser manœuvrer l'automobiliste qu'ils font dégager (collés à son
    * pare-chocs, ils l'enfermaient) : fin du recul, position de départ, conduite à reprendre (destination ou meneur).
    */
   private readonly backoff = new Map<EntityId, { until: number; x: number; z: number; mode: string; leaderId: number; tx: number; tz: number }>();
+
+  /** Engins retenus par une voiture civile à l'arrêt : depuis quand, dernier relevé, où (voir heldByCivil). */
+  private readonly civilHeld = new Map<EntityId, { since: number; seen: number; x: number; z: number }>();
 
   readonly stats: EnginsStats = { unstickFollow: 0, skipAhead: 0, wallNudge: 0, civilRemoved: 0, log: [] };
 
@@ -152,7 +186,12 @@ export class EnginsSystem implements GameSystem {
     this.target.clear();
     this.stillSince.clear();
     this.progress.clear();
+    this.trail.clear();
+    this.still.clear();
+    this.placeSince = -1;
+    this.nextLate = 0;
     this.backoff.clear();
+    this.civilHeld.clear();
   }
 
   update(_dt: number): void {
@@ -164,6 +203,10 @@ export class EnginsSystem implements GameSystem {
       this.nextThink = now + THINK;
       this.clearWay(now);
       this.escortsMove(now);
+    }
+    if (now >= this.nextLate) {
+      this.nextLate = now + LATE_THINK;
+      this.advanceLate(now);
     }
     if (now >= this.nextEscort) {
       this.nextEscort = now + ESCORT_THINK;
@@ -182,6 +225,8 @@ export class EnginsSystem implements GameSystem {
     const quiet = ctx.service<{ quietRun?(vehicleId: number): boolean }>('police.command');
     for (const v of ctx.vehicles.list) {
       if (v.faction !== 'police' || v.def.flying || v.seats[0] === 0) continue;
+      // (véhicule garé dans sa place de commissariat, en réserve : ni dégagé ni replacé, jamais)
+      if (isHeldVehicle(ctx, v.id)) continue;
       const st = ap.status(v);
       // filet de sécurité, hors de la vue du joueur : un véhicule coincé depuis longtemps (cour étroite, interblocage
       // entre colonnes au départ de la caserne) est retrouvé derrière son chef de file ou plus loin sur son itinéraire
@@ -193,6 +238,16 @@ export class EnginsSystem implements GameSystem {
         const t = this.destinationOf(v, ap);
         if (t && this.skipAhead(v, ap, t, 'sans_progres')) { this.progress.delete(v.id); continue; }
       }
+      // suivant resté loin derrière son chef de file sans le rattraper depuis une minute (demi-tour sans fin, au pas dans
+      // la foule, détour) : retrouvé derrière lui, à sa place dans la file — hors de la vue du joueur
+      if (st.mode === 'follow' && st.leaderId && this.trailing(v, st.leaderId, now) && this.unseen(v) && this.unstick(v, ap, st)) {
+        this.trail.delete(v.id);
+        continue;
+      }
+      if (st.mode !== 'follow') this.trail.delete(v.id);
+      // stationnement sans fin (manœuvre qui n'aboutit pas, rang qui ne se forme pas) : garé d'office à sa place
+      if (st.mode !== 'park') this.still.delete(v.id);
+      else if (this.stillFor(v, now) > PROGRESS_WINDOW && this.unseen(v) && this.parkInPlace(v, ap)) continue;
       // (les motos de la BRAV-M ont leur propre conduite de colonne : bravm.ts)
       if (v.kind === 'moto_bravm') continue;
       if (st.mode !== 'drive' && st.mode !== 'follow') { this.release(v, st); continue; }
@@ -206,7 +261,10 @@ export class EnginsSystem implements GameSystem {
         continue;
       }
       const byPeople = (st.state === 'attente' || st.state === 'bloque') && (st.reason === 'personne' || st.reason === '');
-      if (!byPeople || !stopped || st.blockedFor < CLEAR_AFTER) {
+      // (arrêté, ou qui avance au pas dans la foule qui ne s'écarte pas — pilote automatique, PEOPLE_CREEP — : la foule
+      // devant lui continue d'être écartée, deux-tons allumés)
+      const crawling = Math.abs(v.speed) < 1.2;
+      if (!byPeople || !crawling || st.blockedFor < CLEAR_AFTER) {
         if (Math.abs(v.speed) > 1.5) this.release(v, st);
         continue;
       }
@@ -282,6 +340,25 @@ export class EnginsSystem implements GameSystem {
         if (ap.driveTo(ov, tx, tz, { speed: 3, stopBefore: 1 })) return;
       }
     }
+    // en intervention urgente, la même voiture civile immobile depuis URGENT_CIVIL s : elle se range (retirée de la
+    // chaussée). L'automobiliste « rangé » qui n'avait pas la place de se serrer restait en travers de la voie ; l'engin
+    // reculait pour le laisser manœuvrer, repartait, butait de nouveau sur lui — son temps d'arrêt remis à zéro à
+    // chaque reprise, il n'atteignait jamais le délai de dernier recours : le fourgon cellulaire appelé pour un
+    // interpellé restait cent secondes derrière une citadine, puis renonçait (République). Jamais la voiture du joueur.
+    if (ov && ov.faction === 'civil' && Math.abs(ov.speed) < 0.3) {
+      const held = this.heldByCivil(v, blockedFor);
+      const me = ctx.player.person();
+      const urgent = v.siren !== 0 || ap.status(v).urgence === true;
+      // (pas un véhicule qu'une colonne du commandement emmène : elle a sa propre règle, police/command/convoy.ts)
+      const column = ctx.service<{ carrying?(vehicleId: number): boolean; holding?(vehicleId: number): boolean }>('police.command');
+      const carried = !!column && ((typeof column.carrying === 'function' && column.carrying(v.id)) || (typeof column.holding === 'function' && column.holding(v.id)));
+      if (!carried && urgent && held > URGENT_CIVIL && ov.seats.every((id) => id === 0 || !ctx.people.get(id)?.isPlayer) && !(me && me.vehicleId === ov.id)) {
+        this.note(ov, 'civilRemoved', `urgence_${v.kind}`);
+        ctx.vehicles.remove(ov.id);
+        this.civilHeld.delete(v.id);
+        return;
+      }
+    }
     // automobiliste arrêté devant l'engin (autobus trop long pour se ranger, véhicule retenu par la foule) : coup
     // d'avertisseur, et on le fait dégager — il se serre sur le côté, au besoin à cheval sur le trottoir (le contourner
     // ou le retirer hors de la vue du joueur ne suffit pas : le joueur, dans la colonne, restait bloqué derrière lui)
@@ -319,6 +396,23 @@ export class EnginsSystem implements GameSystem {
         this.blocked.set(v.id, { since: this.ctx!.clock.now, rerouted: true, hornAt: 0, firstAt: this.ctx!.clock.now });
       }
     }
+  }
+
+  /**
+   * Temps (s) depuis lequel une voiture civile à l'arrêt retient cet engin au même endroit (à CIVIL_SPAN m près),
+   * reprises du pilote automatique comprises (recul pour laisser manœuvrer, nouvel itinéraire) : le premier relevé part
+   * du temps d'arrêt du pilote (`blockedFor`), les suivants ne le remettent pas à zéro.
+   */
+  private heldByCivil(v: Vehicle, blockedFor: number): number {
+    const now = this.ctx!.clock.now;
+    let rec = this.civilHeld.get(v.id);
+    if (rec && (Math.hypot(v.x - rec.x, v.z - rec.z) > CIVIL_SPAN || now - rec.seen > CIVIL_LAPSE)) rec = undefined;
+    if (!rec) {
+      rec = { since: now - blockedFor, seen: now, x: v.x, z: v.z };
+      this.civilHeld.set(v.id, rec);
+    }
+    rec.seen = now;
+    return now - rec.since;
   }
 
   /**
@@ -465,6 +559,230 @@ export class EnginsSystem implements GameSystem {
     return now - p.at > PROGRESS_WINDOW && remaining > 30;
   }
 
+  /**
+   * Suivant à plus de TRAIL_FAR m de son chef de file, qui ne s'en est pas rapproché de PROGRESS_MIN m depuis
+   * PROGRESS_WINDOW s.
+   */
+  private trailing(v: Vehicle, leaderId: EntityId, now: number): boolean {
+    const lead = this.ctx!.vehicles.get(leaderId);
+    if (!lead) {
+      this.trail.delete(v.id);
+      return false;
+    }
+    const d = Math.hypot(lead.x - v.x, lead.z - v.z);
+    const p = this.trail.get(v.id);
+    if (d < TRAIL_FAR || !p || d < p.d - PROGRESS_MIN || p.leaderId !== leaderId) {
+      this.trail.set(v.id, { d, at: now, leaderId });
+      return false;
+    }
+    return now - p.at > PROGRESS_WINDOW;
+  }
+
+  /** Temps (s) depuis lequel le véhicule n'a pas bougé de plus de 4 m. */
+  private stillFor(v: Vehicle, now: number): number {
+    const p = this.still.get(v.id);
+    if (!p || Math.hypot(v.x - p.x, v.z - p.z) > 4) {
+      this.still.set(v.id, { x: v.x, z: v.z, at: now });
+      return 0;
+    }
+    return now - p.at;
+  }
+
+  /**
+   * Véhicule qui n'en finit pas de se garer, hors de la vue du joueur : posé à sa place (celle que le pilote automatique
+   * vise), moteur coupé, comme s'il venait de s'y ranger. Pas s'il attend son tour derrière un autre du même rang, ni si la
+   * place est occupée. false si rien n'est fait.
+   */
+  private parkInPlace(v: Vehicle, ap: Autopilot): boolean {
+    const ctx = this.ctx!;
+    let st: { parkX?: number; parkZ?: number; parkH?: number; waitFor?: number } | null = null;
+    try {
+      const rt = (ap as { k?: { rt?(v: Vehicle): { ap?: typeof st } } }).k?.rt?.(v);
+      st = rt && rt.ap ? rt.ap : null;
+    } catch {
+      st = null;
+    }
+    if (!st || typeof st.parkX !== 'number' || typeof st.parkZ !== 'number' || typeof st.parkH !== 'number') return false;
+    if (st.waitFor) {
+      const w = ctx.vehicles.get(st.waitFor);
+      if (w && ap.status(w).mode !== 'idle') return false;
+    }
+    const x = st.parkX, z = st.parkZ, h = st.parkH;
+    if (Math.hypot(x - v.x, z - v.z) < 1 || !ctx.world.isFree(x, z, v.def.width * 0.5) || ctx.people.countIn(x, z, v.def.length * 0.5) > 0) return false;
+    const list = this.near;
+    const n = ctx.vehicles.queryRadius(x, z, v.def.length * 0.5 + 1.5, list);
+    let free = true;
+    for (let i = 0; i < n && free; i++) if (list[i] !== v && !list[i]!.dormant && !list[i]!.def.flying) free = false;
+    list.length = 0;
+    if (!free) return false;
+    this.note(v, 'skipAhead', 'stationnement');
+    v.x = x;
+    v.z = z;
+    v.heading = h;
+    v.vx = 0;
+    v.vz = 0;
+    v.speed = 0;
+    if (ap.stop) ap.stop(v);
+    this.still.delete(v.id);
+    return true;
+  }
+
+  /**
+   * « Tout le monde doit me suivre » — la colonne en retard. Le joueur est au lieu de la journée depuis LATE_AFTER s (parti
+   * devant, au volant de sa voiture : il roule plus vite que douze fourgons en file) : chaque véhicule de sa compagnie
+   * encore en route à plus de LATE_FAR m de lui, hors de sa vue, est avancé le long de SON itinéraire jusqu'au point de
+   * la chaussée à LATE_AT m de lui environ, puis finit le trajet normalement. L'ordre de la file est gardé (les têtes
+   * d'abord, chaque suivant derrière le précédent) ; jamais un véhicule en réserve dans un commissariat, jamais à moins
+   * de UNSEEN_DIST m de lui : il ne voit aucun véhicule apparaître.
+   */
+  private advanceLate(now: number): void {
+    const ctx = this.ctx!;
+    const me = ctx.player.person();
+    const day = ctx.service<{ destination: { x: number; z: number } | null }>('session.journee');
+    const place = day ? day.destination : null;
+    if (!me || me.faction !== 'police' || me.squadId === 0 || !place || Math.hypot(me.x - place.x, me.z - place.z) > LATE_NEAR) {
+      this.placeSince = -1;
+      return;
+    }
+    if (this.placeSince < 0) this.placeSince = now;
+    if (now - this.placeSince < LATE_AFTER) return;
+    const ap = ctx.service<Autopilot>('vehicles.autopilot');
+    if (!ap) return;
+    const root = this.rootOf(me.squadId);
+    const late: { v: Vehicle; depth: number; d: number }[] = [];
+    for (const s of ctx.squads.list) {
+      if (s.faction !== 'police' || s.vehicleId === 0 || this.rootOf(s.id) !== root) continue;
+      const v = ctx.vehicles.get(s.vehicleId);
+      if (!v || v.def.flying || v.seats[0] === 0 || v.id === me.vehicleId || isHeldVehicle(ctx, v.id) || late.some((e) => e.v === v)) continue;
+      const d = Math.hypot(v.x - me.x, v.z - me.z);
+      if (d <= LATE_FAR) continue;
+      const st = ap.status(v);
+      if (st.mode !== 'drive' && st.mode !== 'follow') continue;
+      late.push({ v, depth: this.chainDepth(v, ap), d });
+    }
+    if (late.length === 0) return;
+    // l'ordre de la file : les têtes d'abord (la plus proche de lui la première), puis chaque rang de suivants
+    late.sort((a, b) => a.depth - b.depth || a.d - b.d);
+    for (const e of late) this.advanceOne(e.v, ap, me.x, me.z);
+  }
+
+  /** Rang du véhicule dans sa file (0 : il conduit vers un point ; 1 : il suit une tête…). */
+  private chainDepth(v: Vehicle, ap: Autopilot): number {
+    const ctx = this.ctx!;
+    let cur: Vehicle | undefined = v;
+    let depth = 0;
+    for (; cur && depth < 24; depth++) {
+      const st = ap.status(cur);
+      if (st.mode !== 'follow' || !st.leaderId) break;
+      cur = ctx.vehicles.get(st.leaderId);
+    }
+    return depth;
+  }
+
+  /** Itinéraire que suit le véhicule : le sien, ou celui de la tête de sa file (points x, z ; null : inconnu). */
+  private routeOf(v: Vehicle, ap: Autopilot): { path: ArrayLike<number>; n: number } | null {
+    const ctx = this.ctx!;
+    let cur: Vehicle | undefined = v;
+    for (let guard = 0; cur && guard < 24; guard++) {
+      const st = ap.status(cur);
+      if (st.mode === 'follow' && st.leaderId) {
+        cur = ctx.vehicles.get(st.leaderId);
+        continue;
+      }
+      if (st.mode !== 'drive') return null;
+      try {
+        const rt = (ap as { k?: { rt?(v: Vehicle): { ap?: { path?: ArrayLike<number>; n?: number } | null } } }).k?.rt?.(cur);
+        if (rt && rt.ap && rt.ap.path && rt.ap.n && rt.ap.n >= 2) return { path: rt.ap.path, n: rt.ap.n };
+      } catch {
+        // état interne indisponible
+      }
+      return null;
+    }
+    return null;
+  }
+
+  /**
+   * Avance un véhicule en retard le long de son itinéraire jusqu'au dernier point libre de la chaussée avant le cercle de
+   * LATE_AT m autour de (mx, mz) — derrière ceux déjà replacés. false si rien n'est fait (itinéraire inconnu, qui ne
+   * vient pas vers le joueur, aucun point libre).
+   */
+  private advanceOne(v: Vehicle, ap: Autopilot, mx: number, mz: number): boolean {
+    const ctx = this.ctx!;
+    const r = this.routeOf(v, ap);
+    if (!r) return false;
+    const { path, n } = r;
+    let best = 0, bd = Infinity;
+    for (let i = 0; i < n; i++) {
+      const d = Math.hypot(Number(path[i * 2]) - v.x, Number(path[i * 2 + 1]) - v.z);
+      if (d < bd) { bd = d; best = i; }
+    }
+    // points de l'itinéraire, tous les 5 m, du véhicule jusqu'à l'entrée dans le cercle
+    const pts = this.samples;
+    pts.length = 0;
+    let entered = false;
+    for (let i = best + 1; i < n && !entered; i++) {
+      const x0 = Number(path[i * 2 - 2]), z0 = Number(path[i * 2 - 1]), x1 = Number(path[i * 2]), z1 = Number(path[i * 2 + 1]);
+      const len = Math.hypot(x1 - x0, z1 - z0);
+      if (len < 0.01) continue;
+      const h = Math.atan2(x1 - x0, z1 - z0);
+      for (let a = 5; a <= len + 4.99 && !entered; a += 5) {
+        const u = Math.min(1, a / len);
+        const x = x0 + (x1 - x0) * u, z = z0 + (z1 - z0) * u;
+        if (Math.hypot(x - mx, z - mz) < LATE_AT) entered = true;
+        else pts.push(x, z, h);
+      }
+    }
+    // (au moins soixante mètres de gagnés : sinon il y est presque, il roule)
+    if (!entered || pts.length < 12 * 3) {
+      pts.length = 0;
+      return false;
+    }
+    const list = this.near;
+    const reach = v.def.length * 0.5 + LATE_GAP;
+    // (un suivant reste derrière son chef de file : jamais posé plus près du joueur que lui)
+    const st0 = ap.status(v);
+    const chief = st0.mode === 'follow' && st0.leaderId ? ctx.vehicles.get(st0.leaderId) : undefined;
+    const floor = chief ? Math.hypot(chief.x - mx, chief.z - mz) + chief.def.length * 0.5 + reach : 0;
+    for (let k = pts.length - 3; k >= 12 * 3; k -= 3) {
+      const x = pts[k]!, z = pts[k + 1]!, h = pts[k + 2]!;
+      const toMe = Math.hypot(x - mx, z - mz);
+      if (toMe <= UNSEEN_DIST || toMe < floor || !ctx.world.isFree(x, z, v.def.width * 0.5)) continue;
+      let free = true;
+      const m = ctx.vehicles.queryRadius(x, z, reach + 4, list);
+      for (let i = 0; i < m && free; i++) {
+        const o = list[i]!;
+        if (o !== v && !o.dormant && !o.def.flying && Math.hypot(o.x - x, o.z - z) < reach + o.def.length * 0.5) free = false;
+      }
+      list.length = 0;
+      if (!free) continue;
+      const t = this.destinationOf(v, ap);
+      const follows = st0.mode === 'follow';
+      this.note(v, 'skipAhead', 'colonne_en_retard');
+      v.x = x;
+      v.z = z;
+      v.heading = h;
+      v.vx = 0;
+      v.vz = 0;
+      v.speed = 0;
+      this.progress.delete(v.id);
+      this.trail.delete(v.id);
+      // (une tête reprend son itinéraire depuis là ; un suivant garde son chef de file, déjà replacé devant lui)
+      if (!follows && t) this.reroute(v, ap, t);
+      pts.length = 0;
+      return true;
+    }
+    pts.length = 0;
+    return false;
+  }
+
+  /** Unité de tête (compagnie) de l'unité. */
+  private rootOf(squadId: number): number {
+    const ctx = this.ctx!;
+    let s = ctx.squads.get(squadId);
+    for (let guard = 0; s && s.parentId !== 0 && guard < 8; guard++) s = ctx.squads.get(s.parentId);
+    return s ? s.id : 0;
+  }
+
   /** Le joueur ne voit pas ce véhicule (loin de lui). */
   private unseen(v: Vehicle): boolean {
     const me = this.ctx!.player.person();
@@ -609,7 +927,10 @@ export class EnginsSystem implements GameSystem {
       if (s.faction !== 'police' || s.kind !== 'groupe' || used.has(s.id) || s.members.length < 3) continue;
       if (s.leaderId === playerId || s.members.indexOf(playerId) >= 0) continue;
       if (!FREE_ORDERS.has(s.order.type)) continue;
-      if (s.order.type === 'suivre' && s.order.targetId === playerId) continue;
+      // (« Avec moi » donné par le joueur : le groupe reste avec lui ; le « suivre » de la mise en place — tout le monde
+      // suit le joueur au début de la partie — ne retient pas l'escorte d'un blindé : sans elle, plus aucun engin n'avait
+      // son groupe à pied quand le joueur commande la compagnie)
+      if (s.order.type === 'suivre' && s.order.targetId === playerId && s.order.byPlayer === true) continue;
       const lead = ctx.people.get(s.leaderId) ?? ctx.people.get(s.members[0]!);
       if (!lead || lead.vehicleId !== 0) continue;
       const d = Math.hypot(lead.x - v.x, lead.z - v.z);

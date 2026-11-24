@@ -1,7 +1,14 @@
 /* =====================================================================================
  * Surcouche tactile — contrôleur : service « input.touch », choix de la disposition et de la
- * visibilité, libellé contextuel, barre d'objets. Fonctionne aussi sans DOM (tests Node) :
- * l'état est conservé et appliqué à la surcouche dès qu'elle existe.
+ * visibilité, libellé contextuel, barre d'objets, pastille « Ordre prêt ». Fonctionne aussi sans
+ * DOM (tests Node) : l'état est conservé et appliqué à la surcouche dès qu'elle existe.
+ *
+ * La pastille « Ordre prêt » n'est alimentée par personne d'autre : quatre fois par seconde, le
+ * contrôleur lit l'ordre prêt AFFICHÉ du service 'command.direct' (le même que la ligne « Entrée »
+ * de l'ordinateur, celui que le toucher donnera) et en écrit la forme courte. « ⟳ À qui » n'est
+ * montré qu'à ceux qui ont plusieurs unités au choix (pas au chef de groupe, ni en lecture seule).
+ * L'exécutant (poste « lecture » : son chef donne les ordres) n'a pas d'ordre prêt, comme sur
+ * l'ordinateur : sa pastille dit « Ordres » et le toucher ouvre la roue (« Avec moi », secours).
  * ===================================================================================== */
 
 import type { Button, GameContext, InputDevice } from '@/core/contracts';
@@ -35,6 +42,34 @@ export interface TouchGear {
 
 /** Période de relecture de l'inventaire pour la barre d'objets automatique (s). */
 const ITEMS_PERIOD = 0.2;
+/** Période de relecture de l'ordre prêt (s) ; du poste (« ⟳ À qui » montré ou non), plus lente. */
+export const ORDER_LABEL_PERIOD = 0.25;
+const POSTE_PERIOD = 1;
+/** Libellé de la pastille sans ordre prêt (pas encore calculé, rien à commander). */
+export const ORDER_PILL_IDLE = { verb: 'Ordres', who: 'appui long\u00a0: la roue' } as const;
+/** Poste sans ordre prêt (l'exécutant : son chef donne les ordres) : le toucher ouvre la roue, comme l'appui long. */
+export const ORDER_PILL_WHEEL = { verb: 'Ordres', who: 'toucher\u00a0: la roue' } as const;
+/** Rien n'est visé (règle i) : la pastille dit quoi faire, le toucher ne donne rien. */
+export const ORDER_PILL_AIM = { verb: 'Visez', who: 'rue, personne, foule' } as const;
+/** Postes sans choix d'unité (direct/who.ts whoCycle : une seule entrée) : « ⟳ À qui » masqué. */
+export const NO_CYCLE_POSTES: readonly string[] = ['groupe', 'equipage', 'lecture'];
+
+/** « ⟳ À qui » a-t-il un sens à ce poste (direct/types.ts DirectEnv.poste) ? */
+export function whoChoiceFor(poste: string): boolean {
+  return NO_CYCLE_POSTES.indexOf(poste) < 0;
+}
+
+/** Ce poste a-t-il un ordre prêt à donner d'un toucher ? (non : l'exécutant — sa pastille ouvre la roue). */
+export function readyOrderFor(poste: string): boolean {
+  return poste !== 'lecture';
+}
+
+/** Service 'command.direct' (src/ui/command/direct/runtime.ts) vu par les seules méthodes lues ici. */
+interface DirectReadLike {
+  ready(): { short: string; whoShort: string; enabled: boolean; rule: string } | null;
+  flashing?(): boolean;
+  env?(): { poste: string };
+}
 
 export class TouchController implements InputTouchApi {
   mode: TouchLayoutMode = 'auto';
@@ -66,6 +101,17 @@ export class TouchController implements InputTouchApi {
   private itemsTimer = ITEMS_PERIOD;
   private readonly autoIds: string[] = [];
   private readonly autoCounts: number[] = [];
+  /** Pastille d'ordre : libellé imposé par setOrderLabel (null : lu sur 'command.direct'), libellé affiché. */
+  private explicitOrder: { verb: string; who: string; ready: boolean } | null = null;
+  /** Libellé lu sur 'command.direct' (verbe, unité, prêt, surbrillance). */
+  readonly order = { verb: ORDER_PILL_IDLE.verb as string, who: ORDER_PILL_IDLE.who as string, ready: false, flash: false };
+  private orderTimer = ORDER_LABEL_PERIOD;
+  private posteTimer = POSTE_PERIOD;
+  /** « ⟳ À qui » : le poste permet-il de choisir une autre unité ? */
+  whoChoice = true;
+  /** Le poste a un ordre prêt (false : l'exécutant — la pastille dit « Ordres », le toucher ouvre la roue). */
+  readyOrder = true;
+  private whoShown: boolean | null = null;
 
   constructor(env: TouchEnv) {
     this.env = env;
@@ -89,6 +135,9 @@ export class TouchController implements InputTouchApi {
     });
     for (let i = 0; i < this.hiddenButtons.length; i++) this.overlay.setButtonVisible(this.hiddenButtons[i]!, false);
     this.shownLabel = undefined;
+    this.whoShown = null;
+    this.orderTimer = ORDER_LABEL_PERIOD;
+    this.posteTimer = POSTE_PERIOD;
     this.itemsDirty = true;
   }
 
@@ -167,6 +216,19 @@ export class TouchController implements InputTouchApi {
     this.forced = forced;
   }
 
+  setOrderLabel(text: string | null, who = '', ready = true): void {
+    this.explicitOrder = typeof text === 'string' && text.length > 0 ? { verb: text, who, ready } : null;
+    this.orderTimer = ORDER_LABEL_PERIOD;
+  }
+
+  wheelFinger(): { x: number; y: number; down: boolean } | null {
+    return this.overlay && this.visible ? this.overlay.wheelFinger() : null;
+  }
+
+  takeWorldTap(): { x: number; y: number } | null {
+    return this.overlay ? this.overlay.takeWorldTap() : null;
+  }
+
   // ───────────────────────────── boucle ─────────────────────────────
 
   /** Scrutation (une fois par image) : axes du joystick et des pédales, rotation du regard. */
@@ -203,7 +265,107 @@ export class TouchController implements InputTouchApi {
       o.setInteract(label);
     }
     if (layout === 'pied') this.updateItems(dt);
+    if (layout === 'pied' || layout === 'vehicule' || layout === 'drone') this.updateOrder(dt);
     o.sync();
+  }
+
+  /**
+   * Pastille « Ordre prêt » : l'ordre prêt affiché par 'command.direct' (au plus quatre lectures par seconde), en forme
+   * courte ; « ⟳ À qui » selon le poste. Sans le service (rôle hors police, tests) : « Ordres », la roue à l'appui long.
+   */
+  private updateOrder(dt: number): void {
+    const o = this.overlay!;
+    this.orderTimer += dt;
+    this.posteTimer += dt;
+    if (this.posteTimer >= POSTE_PERIOD) {
+      this.posteTimer = 0;
+      this.readPoste();
+      o.setTapOpensWheel(!this.readyOrder);
+      // le poste a changé : le libellé suit tout de suite
+      this.orderTimer = ORDER_LABEL_PERIOD;
+    }
+    if (this.orderTimer >= ORDER_LABEL_PERIOD) {
+      this.orderTimer = 0;
+      this.readOrderLabel();
+      const l = this.order;
+      o.setOrderLabel(l.verb, l.who, l.ready, l.flash);
+    }
+    // « À qui » : masqué sans choix d'unité, et avec la pastille quand le commandement la masque (hors police)
+    const show = this.whoChoice && this.hiddenButtons.indexOf('orders') < 0 && this.hiddenButtons.indexOf('order_who') < 0;
+    if (show !== this.whoShown) {
+      this.whoShown = show;
+      o.setButtonVisible('order_who', show);
+    }
+  }
+
+  /**
+   * Lit le poste du joueur sur 'command.direct' : « ⟳ À qui » a-t-il un sens (`whoChoice`), y a-t-il un ordre prêt
+   * (`readyOrder`) ? Sans le service : oui aux deux (sans DOM : les tests le lisent aussi).
+   */
+  readPoste(): void {
+    const direct = this.env.ctx.service<DirectReadLike>('command.direct');
+    let choice = true;
+    let ready = true;
+    if (direct && typeof direct.env === 'function') {
+      try {
+        const poste = direct.env().poste;
+        choice = whoChoiceFor(poste);
+        ready = readyOrderFor(poste);
+      } catch (err) {
+        console.error('[input] pastille d’ordre : poste illisible', err);
+      }
+    }
+    this.whoChoice = choice;
+    this.readyOrder = ready;
+  }
+
+  /** Lit l'ordre prêt affiché (ou le libellé imposé) dans `order` (sans DOM : les tests le lisent aussi). */
+  readOrderLabel(): void {
+    const direct = this.env.ctx.service<DirectReadLike>('command.direct');
+    const l = this.order;
+    const forced = this.explicitOrder;
+    if (forced) {
+      l.verb = forced.verb;
+      l.who = forced.who;
+      l.ready = forced.ready;
+      l.flash = false;
+      return;
+    }
+    if (!this.readyOrder) {
+      // l'exécutant : pas d'ordre prêt (son chef commande) — la pastille ouvre la roue
+      l.verb = ORDER_PILL_WHEEL.verb;
+      l.who = ORDER_PILL_WHEEL.who;
+      l.ready = true;
+      l.flash = false;
+      return;
+    }
+    let nat: ReturnType<DirectReadLike['ready']> = null;
+    let flash = false;
+    if (direct && typeof direct.ready === 'function') {
+      try {
+        nat = direct.ready();
+        flash = typeof direct.flashing === 'function' ? direct.flashing() : false;
+      } catch (err) {
+        console.error('[input] pastille d’ordre : ordre prêt illisible', err);
+        nat = null;
+      }
+    }
+    if (!nat) {
+      l.verb = ORDER_PILL_IDLE.verb;
+      l.who = ORDER_PILL_IDLE.who;
+      l.ready = false;
+      l.flash = false;
+    } else if (nat.rule === 'i' || nat.short === '') {
+      l.verb = ORDER_PILL_AIM.verb;
+      l.who = ORDER_PILL_AIM.who;
+      l.ready = false;
+      l.flash = false;
+    } else {
+      l.verb = nat.short;
+      l.who = nat.whoShort;
+      l.ready = nat.enabled;
+      l.flash = flash;
+    }
   }
 
   /** Place à bord et équipement de la personne incarnée (sans allocation : écrit dans seat et gear). */

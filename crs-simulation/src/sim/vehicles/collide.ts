@@ -19,6 +19,7 @@ import { CLEARED_EVENT, GRAVITY } from './api';
 import { makeObbContact, obbVsObb } from './geometry';
 import type { ObbContact } from './geometry';
 import type { WorldCollider } from './physics';
+import type { ApState } from './autopilot-state';
 import type { VehicleKernel, VehicleRt } from './runtime';
 
 /** Vitesse de choc (m/s) à partir de laquelle une personne est blessée : en dessous, elle est repoussée. */
@@ -34,6 +35,8 @@ const WALL_FRICTION = 0.35;
 const BLADE_RATE = 100;
 /** Effort que la foule oppose par personne repoussée (N). */
 const CROWD_RESIST = 350;
+/** Vitesse de choc (m/s) en deçà de laquelle deux véhicules de police d'une même colonne ne blessent personne (20 km/h). */
+const COLUMN_BUMP = 5.5;
 
 /** Mobilier lourd qu'une lame peut dégager. */
 function clearable(p: Prop): boolean {
@@ -356,6 +359,32 @@ export class Collisions implements WorldCollider {
     }
   }
 
+  /**
+   * Deux véhicules de police d'une même colonne du pilote automatique : l'un suit l'autre (même tête de colonne), ou ils
+   * se garent l'un après l'autre dans le même rang.
+   */
+  private sameColumn(A: VehicleRt, B: VehicleRt): boolean {
+    if (A.v.faction !== 'police' || B.v.faction !== 'police') return false;
+    const a = A.ap as ApState | null;
+    const b = B.ap as ApState | null;
+    if (!a || !b || a.mode === 'idle' || b.mode === 'idle') return false;
+    if (a.waitFor === B.v.id || b.waitFor === A.v.id) return true;
+    return this.columnHead(A) === this.columnHead(B);
+  }
+
+  /** Tête de la colonne d'un véhicule (lui-même s'il ne suit aucun véhicule). */
+  private columnHead(rt: VehicleRt): EntityId {
+    let cur = rt;
+    for (let guard = 0; guard < 24; guard++) {
+      const ap = cur.ap as ApState | null;
+      if (!ap || ap.mode !== 'follow' || ap.leaderId === 0) break;
+      const next = this.k.peek(ap.leaderId);
+      if (!next) break;
+      cur = next;
+    }
+    return cur.v.id;
+  }
+
   /** Le contact (normale n, de l'autre vers moi) est-il sur ma face avant ? */
   private frontHit(rt: VehicleRt, nx: number, nz: number, cx: number, cz: number): boolean {
     const v = rt.v;
@@ -427,7 +456,10 @@ export class Collisions implements WorldCollider {
 
     const impact = -vn;
     const gentlePush = (bladeA || bladeB) && impact < 4;
-    if (impact > 1 && !gentlePush) {
+    // (deux véhicules de police d'une même colonne qui se touchent au pas — motos de la BRAV-M serrées au départ, fourgons
+    // qui se rangent — : un accrochage de tôles, personne n'est blessé ; dix motocyclistes blessés au départ d'une mission)
+    const columnBump = impact < COLUMN_BUMP && this.sameColumn(A, B);
+    if (impact > 1 && !gentlePush && !columnBump) {
       // chacun encaisse d'autant plus que l'autre est lourd
       const dA = this.crashDamage(A, impact) * 2 * (mB / (mA + mB));
       const dB = this.crashDamage(B, impact) * 2 * (mA / (mA + mB));

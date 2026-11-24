@@ -74,9 +74,12 @@ describe('un ordre, un nom de lieu : fiche, radio, accusé de réception, suivi'
     const r = sendCardLine(sendEnv(card), line, who, street);
     expect(r.ok, r.text).toBe(true);
 
-    // l'ordre dit à la radio par le commandant (file d'attente des messages : quelques secondes)
+    // l'ordre dit à la radio par le commandant (écrit tout de suite au journal : RadioMessage.silent)
     const isOrder = (s: string): boolean => / ICI /.test(s) && (/Barrez la rue/.test(s) || /Embarquez/.test(s));
     for (let i = 0; i < 40 && !ctx.radio.log.slice(logBefore).some((m) => isOrder(m.text)); i++) t.step(0.5);
+    // (la carte relit les unités au plus toutes les demi-secondes de temps réel : on la force à les relire, la phrase
+    // d'ordre n'attendant plus la file de la radio)
+    core.maps.scene.invalidate();
     const said = ctx.radio.log.slice(logBefore).map((m) => m.text);
     const order = said.find(isOrder);
     expect(order, said.join('\n')).toBeTruthy();

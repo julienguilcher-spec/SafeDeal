@@ -67,6 +67,8 @@ const CSS = `
 .hud-mis.is-new { animation: hud-mis-flash 1.4s ease-out 2; }
 .hud-mis.is-regroup { border-left-color: #ff9f0a; }
 .hud-mis.is-regroup .hud-mis__order { color: #ffc46b; }
+.hud-mis.is-custody { border-left-color: #c9a0ff; }
+.hud-mis.is-custody .hud-mis__head .hud-cap { color: #d9c2ff; }
 @keyframes hud-mis-flash { 0% { box-shadow: 0 0 0 0 rgba(255, 214, 10, .85); } 100% { box-shadow: 0 0 0 10px rgba(255, 214, 10, 0); } }
 /* écran bas (téléphone) : deux lignes exactement ; l'ordre n'est jamais coupé, le lieu se réduit (points de suspension) */
 .ui-hud[data-compact="1"] .hud-mis { width: min(380px, 100%); padding: 4px 8px 5px; gap: 1px; }
@@ -189,6 +191,14 @@ export interface OrderHeadline {
   line2Status: boolean;
 }
 
+/**
+ * L'ordre d'en haut montré en tête de la carte : aucun quand la consigne passe devant (son interpellé, la moto du chef de
+ * la BRAV-M qui l'attend — Instruction.lead) : c'est ce qu'il doit faire maintenant.
+ */
+export function shownCommand(b: Pick<MissionBrief, 'command' | 'instruction'>): MissionCommand | null {
+  return b.instruction.lead ? null : b.command ?? null;
+}
+
 /** Ce que lit orderHeadline dans la carte « Ma mission ». */
 export type HeadlineBrief = Pick<MissionBrief, 'command' | 'instruction' | 'chief' | 'status' | 'regroup'>;
 
@@ -199,7 +209,7 @@ export type HeadlineBrief = Pick<MissionBrief, 'command' | 'instruction' | 'chie
  */
 export function orderHeadline(b: HeadlineBrief, compact: boolean, from?: { x: number; z: number }): OrderHeadline {
   const ins = b.instruction;
-  const c = b.command ?? null;
+  const c = shownCommand(b);
   let head: string;
   let order: string;
   let place: string;
@@ -215,7 +225,7 @@ export function orderHeadline(b: HeadlineBrief, compact: boolean, from?: { x: nu
       if (what !== '') you = `Vous : ${lowerFirst(what.trim())}`;
     }
   } else {
-    head = ins.source === 'ordre' && b.chief ? `ORDRE DU ${b.chief.role.toLocaleUpperCase('fr-FR')}` : 'MA MISSION';
+    head = ins.source === 'custody' ? 'VOTRE INTERPELLÉ' : ins.source === 'ordre' && b.chief ? `ORDRE DU ${b.chief.role.toLocaleUpperCase('fr-FR')}` : 'MA MISSION';
     order = ins.title;
     place = '';
     if (from && ins.x !== undefined && ins.z !== undefined && ins.target !== 'none') distance = distanceLabel(Math.hypot(ins.x - from.x, ins.z - from.z));
@@ -299,6 +309,7 @@ export function createMissionCard(env: HudEnv): HudPart {
   const l2Shown = new Shown(l2);
   const isNew = new Flag(root, 'is-new');
   const isRegroup = new Flag(root, 'is-regroup');
+  const isCustody = new Flag(root, 'is-custody');
   const l2Status = new Flag(l2, 'is-status');
   const arrowRot = new Transform(arrow);
   const destRot = new Transform(destArrow);
@@ -313,7 +324,8 @@ export function createMissionCard(env: HudEnv): HudPart {
 
   /** Point de l'ordre d'en haut, sinon de la consigne (null s'il n'y en a pas). */
   function destination(b: MissionBrief): { x: number; z: number } | null {
-    if (b.command) return { x: b.command.x, z: b.command.z };
+    const c = shownCommand(b);
+    if (c) return { x: c.x, z: c.z };
     const ins = b.instruction;
     return ins.x !== undefined && ins.z !== undefined && ins.target !== 'none' ? { x: ins.x, z: ins.z } : null;
   }
@@ -400,7 +412,7 @@ export function createMissionCard(env: HudEnv): HudPart {
       youB.set(full.you);
       youShown.set(full.you !== '');
       // détail de la consigne : sous l'ordre quand il n'est pas déjà dans « Vous : … »
-      const showDetail = ins.detail !== '' && (b.command === null ? true : !(ins.source === 'ordre' || ins.source === 'attente'));
+      const showDetail = ins.detail !== '' && (shownCommand(b) === null ? true : !(ins.source === 'ordre' || ins.source === 'attente'));
       detailB.set(ins.detail);
       detailShown.set(showDetail);
       const st = typeof b.status === 'string' ? b.status : '';
@@ -441,6 +453,7 @@ export function createMissionCard(env: HudEnv): HudPart {
       }
       if (!fresh) isNew.set(false);
       isRegroup.set(b.regroup);
+      isCustody.set(ins.source === 'custody');
       tipShown.set(wantTip(b));
     },
     reset(): void {

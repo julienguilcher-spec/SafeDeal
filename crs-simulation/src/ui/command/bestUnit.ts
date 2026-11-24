@@ -25,7 +25,8 @@
 import type { CardEnv, CardLine, CardUnit, Repere, WhoCandidate, WhoEnv } from './cardTypes';
 import type { MapUnit } from '../maps/units';
 import type { CommandCore } from './core';
-import { DRIVE_SPEED, MOTOR_DISTANCE, WALK_SPEED, minutesText } from './intents';
+import { travelOf } from './direct/travel';
+import { minutesText } from './intents';
 import { buildNasseProposal, holdingSquads, nasseCandidates } from './nasse';
 import { FRONT_PER_AGENT, doingAt } from './orders';
 import { unitTitle } from './reperes';
@@ -83,25 +84,42 @@ function nearAnyCrowd(env: CardEnv, x: number, z: number, d: number): boolean {
   return false;
 }
 
-/** Unité libre : sans ordre, « libre », « cesser », ou « tenir » loin de toute foule. */
+/**
+ * L'unité suit-elle le joueur (« avec vous » : « Avec moi », ou « tout le monde me suit » de la mise en place) ? Elle
+ * attend ses ordres à ses côtés : libre (même définition que les ordres directs, direct/who.ts).
+ */
+function withPlayer(u: CardUnit, env: CardEnv): boolean {
+  const o = u.order;
+  if (!o) return false;
+  if (o.type === 'avec_moi' || o.type === 'suivre_pied') return true;
+  const pid = env.player?.personId ?? 0;
+  return o.type === 'suivre' && pid !== 0 && o.targetId === pid;
+}
+
+/** Unité libre : sans ordre, « libre », « cesser », « avec vous », ou « tenir » loin de toute foule. */
 export function isFree(u: CardUnit, env: CardEnv): boolean {
   const o = u.order;
   if (!o) return true;
-  if (IDLE_ORDERS.has(String(o.type))) return true;
+  if (IDLE_ORDERS.has(String(o.type)) || withPlayer(u, env)) return true;
   return o.type === 'tenir' && !nearAnyCrowd(env, u.x, u.z, FREE_HOLD_DISTANCE);
 }
 
 /**
- * Délai (s), distance (m) et mode d'une unité jusqu'au point. Patrouilles et engins roulent toujours ; la BRAV-M roule
- * quand ses opérateurs sont en selle, ou au-delà de 250 m (elle remonte d'abord sur ses motos) — à pied et plus près,
- * elle y va à pied (sim/police/command/bravm.ts).
+ * Délai (s), distance (m) et mode d'une unité jusqu'au point : la règle unique de direct/travel.ts (motorizes).
+ * Patrouilles et engins roulent toujours ; la BRAV-M en selle roule au-delà de 60 m, à pied au-delà de 150 m ; une
+ * unité à bord roule au-delà de 150 m, à pied au-delà de 450 m ; l'unité du joueur à pied n'embarque jamais.
+ * `playerAboard` : le joueur est à bord (son unité peut alors rouler avec lui).
  */
-export function travel(u: Pick<CardUnit, 'x' | 'z' | 'hasVehicles' | 'patrol' | 'symbol'> & { embarked?: boolean }, x: number, z: number): { eta: number; distance: number; mode: 'pied' | 'vehicules' } {
-  const d = Math.hypot(u.x - x, u.z - z);
-  const bravmRides = u.symbol === 'bravm' && (u.embarked !== false || d > MOTOR_DISTANCE);
-  const rolling = u.patrol || bravmRides || u.symbol === 'centaure' || u.symbol === 'canon_eau' || u.symbol === 'vehicule';
-  const vehicles = rolling || (d > MOTOR_DISTANCE && u.hasVehicles);
-  return { eta: vehicles ? d / DRIVE_SPEED : d / WALK_SPEED, distance: d, mode: vehicles ? 'vehicules' : 'pied' };
+export function travel(
+  u: Pick<CardUnit, 'x' | 'z' | 'hasVehicles' | 'patrol' | 'symbol'> & { embarked?: boolean; hasPlayer?: boolean }, x: number, z: number,
+  playerAboard = false,
+): { eta: number; distance: number; mode: 'pied' | 'vehicules' } {
+  return travelOf(u, x, z, playerAboard);
+}
+
+/** Le joueur est-il à bord d'un véhicule (son unité roule alors avec lui) ? */
+function aboard(env: CardEnv): boolean {
+  return env.player !== null && env.player.inVehicle;
 }
 
 /** « à pied · 180 m · ~2 min », « en véhicules · 2,3 km · ~6 min ». */
@@ -134,7 +152,7 @@ function holdsClosedNasse(u: CardUnit, env: CardEnv): boolean {
 
 /** Ce que fait déjà l'unité, en clair (« sans ordre », « barre la rue Royale (la quittera) »). */
 export function busyText(u: CardUnit, env: CardEnv, holding: boolean): string {
-  if (isFree(u, env)) return u.order && u.order.type === 'tenir' ? 'tient sa position' : 'sans ordre';
+  if (isFree(u, env)) return u.order && u.order.type === 'tenir' ? 'tient sa position' : withPlayer(u, env) ? 'avec vous' : 'sans ordre';
   const o = u.order!;
   const doing = lowerFirst(doingAt(o.type, u.orderPlace, o.targetId)) || 'ordre en cours';
   if (holdsClosedNasse(u, env)) return `${doing} (la quittera\u00a0: la nasse s’ouvre)`;
@@ -142,7 +160,7 @@ export function busyText(u: CardUnit, env: CardEnv, holding: boolean): string {
 }
 
 function candidateOf(u: CardUnit, x: number, z: number, env: CardEnv, holding: boolean): WhoCandidate {
-  const t = travel(u, x, z);
+  const t = travel(u, x, z, aboard(env));
   return { squadIds: [u.squadId], label: unitTitle(u), mode: t.mode, eta: t.eta, distance: t.distance, busy: busyText(u, env, holding) };
 }
 
@@ -251,7 +269,7 @@ function rankUnits(kind: WhoKind, line: CardLine, where: Repere, env: WhoEnv): R
     const holding = env.holding.has(u.squadId);
     const weak = u.total > 0 && u.valid / u.total < MIN_VALID_SHARE;
     const tier = weak ? 3 : holding ? 2 : isFree(u, card) ? 0 : 1;
-    out.push({ u, tier, major: fit.major, minor: fit.minor, eta: travel(u, where.x, where.z).eta, holding });
+    out.push({ u, tier, major: fit.major, minor: fit.minor, eta: travel(u, where.x, where.z, aboard(card)).eta, holding });
   }
   out.sort((a, b) => a.major - b.major || a.tier - b.tier || a.minor - b.minor || a.eta - b.eta || a.u.squadId - b.u.squadId);
   return out;
@@ -264,7 +282,7 @@ function selectionCandidate(where: Repere, env: WhoEnv): WhoCandidate {
   let eta = 0, distance = 0;
   let vehicles = false;
   for (const u of units) {
-    const t = travel(u, where.x, where.z);
+    const t = travel(u, where.x, where.z, aboard(env.card));
     if (t.eta > eta) eta = t.eta;
     if (t.distance > distance) distance = t.distance;
     if (t.mode === 'vehicules') vehicles = true;
@@ -309,7 +327,7 @@ export function proposeWho(line: CardLine, where: { x: number; z: number } | Rep
       for (const id of n.squadIds) {
         const u = env.card.units.find((q) => q.squadId === id);
         if (!u) continue;
-        const t = travel(u, r.x, r.z);
+        const t = travel(u, r.x, r.z, aboard(env.card));
         eta = Math.max(eta, t.eta);
         distance = Math.max(distance, t.distance);
       }
@@ -398,7 +416,7 @@ export function wholeCandidate(where: { x: number; z: number }, env: WhoEnv): Wh
   for (const id of w.squadIds) {
     const u = env.card.units.find((q) => q.squadId === id);
     if (!u) continue;
-    const t = travel(u, where.x, where.z);
+    const t = travel(u, where.x, where.z, aboard(env.card));
     eta = Math.max(eta, t.eta);
     distance = Math.max(distance, t.distance);
     if (t.mode === 'vehicules') vehicles = true;

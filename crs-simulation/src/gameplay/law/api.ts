@@ -12,6 +12,11 @@
  *   'law.handover'  LawHandover  points de regroupement où remettre les interpellés. Le module en
  *                                 publie un vide ; un module de mission peut y pousser des points
  *                                 ou le remplacer : ctx.provide('law.handover', { points }).
+ *   'law.custody'   LawCustody   l'interpellé que tient un agent (le joueur) et sa meilleure issue :
+ *                                 remettre au fourgon cellulaire (12 m), confier à un binôme libre
+ *                                 (60 m), remettre à un autre véhicule (5 m), faire venir le fourgon
+ *                                 (au-delà de 100 m), sinon l'emmener ; la ligne d'aide qui le dit ;
+ *                                 la remise par Entrée ; le lieu de dépôt le plus proche.
  *
  * Événements libres émis (ctx.events.onAny) :
  *   'law:sommation_refused'  { byId, code, reason }          sommation refusée (motif en français) ;
@@ -36,6 +41,80 @@ export const LAW_RECORDS_SERVICE = 'law.records';
 export const LAW_ADVISOR_SERVICE = 'law.advisor';
 export const LAW_CONFIG_SERVICE = 'law.config';
 export const LAW_HANDOVER_SERVICE = 'law.handover';
+export const LAW_CUSTODY_SERVICE = 'law.custody';
+
+// ───────────────────────────── l'interpellé de l'agent ─────────────────────────────
+
+/**
+ * Issue proposée pour l'interpellé (plan ordres-directs §5.3), dans l'ordre où elle est cherchée :
+ *   remettre_fourgon  fourgon cellulaire ayant une place à 12 m ou moins ;
+ *   confier           binôme libre du dispositif à 60 m ou moins (service 'police.arrests') ;
+ *   remettre          autre véhicule de police ayant une place (5 m) ou point de regroupement ;
+ *   faire_venir       aucun de ceux-là, fourgon cellulaire à plus de 100 m qui peut venir ;
+ *   emmener           l'emmener soi-même (au fourgon, flèche à l'écran).
+ */
+export type CustodyWayKind = 'remettre_fourgon' | 'confier' | 'remettre' | 'faire_venir' | 'emmener';
+
+export interface CustodyWay {
+  kind: CustodyWayKind;
+  detaineeId: EntityId;
+  detaineeName: string;
+  /** Invite de la touche Interagir (« Confier Christian Lopez à MISTRAL 2 ALFA »). */
+  label: string;
+  /** Ligne d'aide, touche comprise (« Interpellé. E : le confier à MISTRAL 2 ALFA (15 m) »). */
+  guidance: string;
+  /** Destination : indicatif du fourgon, nom du binôme ou du véhicule ('' : aucune). */
+  name: string;
+  /** Véhicule de destination (0 : aucun), unité du binôme ou équipage du fourgon (0 : aucune). */
+  vehicleId: EntityId;
+  squadId: number;
+  x: number;
+  z: number;
+  /** Distance de l'agent à la destination (m ; 0 sans destination). */
+  distance: number;
+}
+
+/** Lieu de dépôt le plus proche, sans limite de distance (objectif « Emmenez l'interpellé au CELLULAIRE 1 »). */
+export interface CustodyDrop {
+  vehicleId: EntityId;
+  /** Équipage du fourgon (0 : véhicule sans équipage). */
+  squadId: number;
+  /** « CELLULAIRE 1 », ou le nom du véhicule (« Fourgon de CRS »). */
+  name: string;
+  cellular: boolean;
+  x: number;
+  z: number;
+  distance: number;
+  /** Interpellés à bord, places de passager encore libres. */
+  detainees: number;
+  freeSeats: number;
+}
+
+/** Résultat de « Faire venir le fourgon cellulaire ». */
+export interface CustodyVanCall {
+  ok: boolean;
+  /** Pourquoi c'est impossible (phrase pour le joueur), '' si le fourgon vient. */
+  reason: string;
+  vanName: string;
+  vanSquadId: number;
+  /** Arrivée estimée (s). */
+  eta: number;
+}
+
+export interface LawCustody {
+  /** Interpellé dont l'agent s'occupe : escorté ou maintenu par lui, ou menotté à côté de lui après ses gestes. */
+  detaineeOf(actorId: EntityId): Person | null;
+  /** Meilleure issue pour cet interpellé (null : l'agent n'en tient aucun). */
+  bestWay(actorId: EntityId): CustodyWay | null;
+  /** Ligne d'aide affichée sous l'invite après la palpation ('' : rien à dire maintenant). */
+  guidance(actorId: EntityId): string;
+  /** « Remettre » par Entrée : la remise au véhicule à portée commence (même action que l'invite). */
+  handover(actorId: EntityId): boolean;
+  /** « Faire venir le fourgon » (`vanSquadId` : ce fourgon-là, sinon le plus proche qui peut venir). */
+  callVan(actorId: EntityId, vanSquadId?: number): CustodyVanCall;
+  /** Lieu de dépôt le plus proche de l'agent (fourgons cellulaires d'abord, pleins ou non). */
+  nearestDrop(actorId: EntityId): CustodyDrop | null;
+}
 
 // ───────────────────────────── points de regroupement ─────────────────────────────
 
@@ -148,7 +227,9 @@ export interface LawConfig {
   releaseTime: number;
   controlTime: number;
   handoverPointRadius: number;
+  /** Portée de la remise à un véhicule de police (m), et à un fourgon cellulaire (porte arrière, m). */
   handoverVehicleRange: number;
+  handoverCellularRange: number;
 }
 
 // ───────────────────────────── dossier ─────────────────────────────
@@ -232,7 +313,12 @@ export interface SeizedItem {
   count: number;
 }
 
-export type ArrestStatus = 'en_cours' | 'remis' | 'relache' | 'evade' | 'interrompu';
+/**
+ * État du dossier : en cours ; remis à un point de regroupement (ou pris en charge par un autre module) ;
+ * remis à un véhicule de police (à bord, en attente de transfert) ; déposé au commissariat (présenté à
+ * l'officier de police judiciaire) ; relâché ; évadé ; interrompu.
+ */
+export type ArrestStatus = 'en_cours' | 'remis' | 'remis_vehicule' | 'depose' | 'relache' | 'evade' | 'interrompu';
 /** Solidité de la procédure pour le parquet. */
 export type ProcedureStrength = 'solide' | 'fragile' | 'nulle';
 
@@ -271,6 +357,12 @@ export interface ArrestRecord {
   closedAt: number;
   /** Destination de la remise : 'vehicule' | 'point' | ''. */
   to: string;
+  /** Véhicule de la remise (0 : aucun) et son nom (« CELLULAIRE 1 », « Fourgon de CRS » ; '' : aucun). */
+  vehicleId: EntityId;
+  vehicleName: string;
+  /** Commissariat où la personne a été déposée ('' : pas encore), et l'instant du dépôt (-1). */
+  station: string;
+  deliveredAt: number;
   strength: ProcedureStrength;
   /** Procédure régulière de bout en bout (fondée, force licite, menottage justifié). */
   regular: boolean;
@@ -325,7 +417,10 @@ export interface LawStats {
   arrests: number;
   founded: number;
   unfounded: number;
+  /** Remis (point, véhicule ou commissariat), dont à bord d'un véhicule et déposés au commissariat. */
   handedOver: number;
+  inVan: number;
+  atStation: number;
   released: number;
   escaped: number;
   controls: number;
@@ -356,4 +451,11 @@ export interface LawRecords {
   summary(byId?: EntityId): string;
   /** Dossier en cours pour une personne retenue (null si elle n'est pas interpellée). */
   arrestOf(personId: EntityId): ArrestRecord | null;
+  /** Dernier dossier (clos ou non) d'une personne. */
+  lastArrestOf(personId: EntityId): ArrestRecord | null;
+  /**
+   * Dépôt au commissariat (transfert) : le dernier dossier de chacune de ces personnes, remis (à bord ou à un point),
+   * passe à « déposé » à `station` (« commissariat du 3e »). Retourne le nombre de dossiers mis à jour.
+   */
+  markDelivered(personIds: readonly EntityId[], station: string): number;
 }

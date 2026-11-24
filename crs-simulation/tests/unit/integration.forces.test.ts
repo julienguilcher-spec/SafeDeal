@@ -118,7 +118,13 @@ describe('intégration : forces de l’ordre réelles (assemblage 2)', () => {
     // face à elle — le premier rang, celui du VL, mène alors la sortie
     const fx = Math.sin(s.heading), fz = Math.cos(s.heading);
     for (const v of ctx.vehicles.list) {
-      if (v.kind !== 'fourgon_crs' && v.kind !== 'vl_commandement' && v.kind !== 'fourgon_cellulaire') continue;
+      // fourgons cellulaires avec leur équipage : au point de remise des interpellés, derrière l'unité, garés le long du
+      // trottoir de leur rue (pas dans l'axe du bloc ; voir session.cellulaires)
+      if (v.kind === 'fourgon_cellulaire') {
+        expect((v.x - s.x) * fx + (v.z - s.z) * fz, 'fourgon cellulaire derrière l’unité').toBeLessThan(-10);
+        continue;
+      }
+      if (v.kind !== 'fourgon_crs' && v.kind !== 'vl_commandement') continue;
       expect((v.x - s.x) * fx + (v.z - s.z) * fz).toBeLessThan(-10);
       const axis = Math.sin(v.heading) * fx + Math.cos(v.heading) * fz;
       expect(Math.abs(axis)).toBeGreaterThan(0.95);

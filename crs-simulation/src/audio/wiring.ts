@@ -74,9 +74,13 @@ export function wireEvents(ctx: GameContext, parts: WiringParts): Unsubscribe[] 
     // écoute filtrée du joueur exécutant (module radio) : le trafic des autres unités n'est pas dit
     const listen = ctx.service<{ muted?(msg: typeof m): boolean }>('radio.control');
     if (listen && listen.muted && listen.muted(m)) return;
+    // écrit sans être dit (phrase d'ordre du joueur : sous-titre et journal seulement)
+    if (m.silent === true) return;
     speech.enqueue({
       text: m.text, mode: 'radio', voice: m.voice !== undefined ? m.voice : hashString(m.from) % 6,
       volume: 1, spatial: false, x: 0, y: 0, z: 0, priority: m.priority,
+      // accusé de réception d'un ordre du joueur : dit tout de suite, il coupe la parole en cours (redite ensuite)
+      interrupt: m.reply === true,
     });
   }));
   offs.push(ev.on('law:sommation', (p) => {

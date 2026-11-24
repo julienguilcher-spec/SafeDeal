@@ -142,13 +142,17 @@ try {
       C.note('bouton « Ordres » masqué : ce poste reçoit les ordres, il n’en donne pas');
       return;
     }
+    // la pastille « Ordre prêt » : le toucher bref donne l'ordre prêt ; l'APPUI LONG ouvre la roue (doigt tenu 0,7 s)
     const r = await ctl('orders');
-    await F.tap(...center(r)); await frames(page, 5); await page.waitForTimeout(400);
+    await F.down(8, ...center(r)); await page.waitForTimeout(700); await frames(page, 5);
     let s = await state(page);
+    // relâché hors de la roue : elle reste affichée (ou donne la ligne « autre » surlignée, et se referme)
+    await F.up(8); await frames(page, 3);
     report.ordersScreen = s.screen;
     await snap(page, `${tag}-ordres`);
     const toast = await page.evaluate(() => [...document.querySelectorAll('.crs-ui [class*="notice"], .crs-ui [class*="toast"]')].map((e) => (e.textContent || '').trim().slice(0, 80)).filter(Boolean));
-    C.check(s.screen !== null || toast.length > 0, `bouton « Ordres » (${role}) : ouvre un écran ou explique pourquoi non`, `écran « ${s.screen} », messages : ${toast.join(' | ') || 'aucun'}`);
+    C.check(s.screen !== null || toast.length > 0, `appui long sur la pastille « Ordres » (${role}) : ouvre la roue ou explique pourquoi non`, `écran « ${s.screen} », messages : ${toast.join(' | ') || 'aucun'}`);
+    s = await state(page);
     if (s.screen !== null) {
       const b = await topButtons();
       report.ordersButtons = b.map((x) => `${x.id || x.text}:${x.w}×${x.h}${x.out ? ':HORS' : ''}`).slice(0, 30);

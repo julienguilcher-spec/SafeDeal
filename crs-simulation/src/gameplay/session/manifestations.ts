@@ -15,6 +15,9 @@
  * colonne une chaussée à l'écart du cortège (command.arrive), puis son commandant IA suit ce cortège. Pas pendant une vacation de patrouille
  * (extra.vacation) : c'est l'équipage du joueur qui demande, ou non, une compagnie en renfort (mode patrouille).
  *
+ * Chaque compagnie engagée a son fourgon cellulaire, avec son équipage, au point de remise de ses interpellés (derrière
+ * sa ligne, dos au cortège — remise.ts ; compagnie arrivée en colonne : il roule avec elle, le point est fixé à l'arrivée).
+ *
  * Clés de SessionConfig.extra : 'manifestations.compagnies' false → aucune compagnie supplémentaire ;
  * 'manifestations.sections' (1 à 4) → sections par compagnie (défaut : selon l'effectif annoncé).
  * ===================================================================================== */
@@ -28,6 +31,8 @@ import { SERVICE_BASES } from './journee-data';
 import type { ServiceBase } from './journee-data';
 import { chooseStand, chooseStandOffCrowd, distanceToRoute, roadSpot } from './placement';
 import type { Stand } from './placement';
+import { REMISE_SERVICE, parkBehind, remiseSpot } from './remise';
+import type { RemiseApi } from './remise';
 
 export const SESSION_MANIFS_SYSTEM_ID = 'session.manifestations';
 
@@ -61,7 +66,9 @@ interface ManifsLike {
 interface UnitsLike {
   createCompany?(options: {
     x: number; z: number; heading: number; sections?: number; layout?: 'colonne' | 'ligne' | 'embarque'; vehicles?: boolean; drivers?: boolean;
+    cellular?: boolean;
   }): PoliceUnitHandleLike;
+  createEquipage?(kind: 'fourgon_cellulaire', options: { x: number; z: number; heading: number; parentId?: number }): PoliceUnitHandleLike;
 }
 interface CommandLike {
   assume(id: number, options?: { base?: { x: number; z: number } }): boolean;
@@ -73,6 +80,36 @@ interface CommandLike {
 interface ManifEventLike {
   id: number;
   state: string;
+}
+
+/**
+ * Fourgon cellulaire de la compagnie `companyId`, avec son équipage, rattaché à elle : au point de remise derrière sa
+ * ligne (x, z, cap `heading` face au cortège) ; `onRoad` (compagnie créée à bord sur la chaussée, avant sa colonne) :
+ * garé derrière ses fourgons, il part avec elle. Rien quand aucune place n'est libre ou que le service manque.
+ */
+function engageCellular(ctx: GameContext, units: UnitsLike, companyId: number, x: number, z: number, heading: number, onRoad: boolean): void {
+  if (typeof units.createEquipage !== 'function') return;
+  const def = ctx.vehicles.def('fourgon_cellulaire');
+  const len = def ? def.length : 6;
+  const wid = def ? def.width : 2.05;
+  let away = heading + Math.PI;
+  if (away > Math.PI) away -= Math.PI * 2;
+  const spot = { x: 0, z: 0, heading: 0 };
+  const placed = onRoad
+    ? parkBehind(ctx, x, z, heading, len, wid, spot)
+    : remiseSpot(ctx, x, z, Math.sin(away), Math.cos(away), { taken: [], van: null, len, wid, people: true }, spot)
+      || roadSpot(ctx, x - Math.sin(heading) * 70, z - Math.cos(heading) * 70, len, wid, spot);
+  if (!placed) {
+    console.warn('[session] pas de place pour le fourgon cellulaire de la compagnie ' + companyId);
+    return;
+  }
+  try {
+    const h = units.createEquipage('fourgon_cellulaire', { x: spot.x, z: spot.z, heading: spot.heading, parentId: companyId });
+    const remise = ctx.service<RemiseApi>(REMISE_SERVICE);
+    if (remise) remise.track(companyId, [h.squad.id], away, onRoad ? null : { x, z }, onRoad ? [] : [{ ...spot }]);
+  } catch (err) {
+    console.error('[session] fourgon cellulaire de la compagnie ' + companyId + ' impossible', err);
+  }
 }
 
 /** Sections d'une compagnie engagée sur une manifestation d'effectif annoncé `declared` (1 à 4). */
@@ -172,8 +209,9 @@ export function dispatchCompany(
     && (roadSpot(ctx, base.x, base.z, 60, 4, spot) || roadSpot(ctx, base.x, base.z, 20, 3, spot));
   const n = Math.max(1, Math.min(4, Math.round(sections)));
   if (atBase && park) {
-    const company = units.createCompany({ x: spot.x, z: spot.z, heading: spot.heading, sections: n, layout: 'embarque', vehicles: true, drivers: true });
+    const company = units.createCompany({ x: spot.x, z: spot.z, heading: spot.heading, sections: n, layout: 'embarque', vehicles: true, drivers: true, cellular: false });
     const id = company.squad.id;
+    engageCellular(ctx, units, id, spot.x, spot.z, spot.heading, true);
     // la ligne se forme 15 m devant les véhicules, face au rassemblement
     const lx = park.x + Math.sin(park.heading) * 15;
     const lz = park.z + Math.cos(park.heading) * 15;
@@ -184,8 +222,9 @@ export function dispatchCompany(
     return { companyId: id, name: company.squad.name ?? 'Compagnie', stand: { x: lx, z: lz, heading: lh, facing: '' }, base: base.name, convoy };
   }
   const stand = chooseStandOffCrowd(ctx, x, z, route, isProtester) ?? chooseStand(ctx, x, z, rand);
-  const company = units.createCompany({ x: stand.x, z: stand.z, heading: stand.heading, sections: n, layout: 'ligne', vehicles: true, drivers: true });
+  const company = units.createCompany({ x: stand.x, z: stand.z, heading: stand.heading, sections: n, layout: 'ligne', vehicles: true, drivers: true, cellular: false });
   const id = company.squad.id;
+  engageCellular(ctx, units, id, stand.x, stand.z, stand.heading, false);
   if (command) command.assume(id, { base: { x: stand.x, z: stand.z } });
   ctx.people.rebuildIndex();
   return { companyId: id, name: company.squad.name ?? 'Compagnie', stand, base: base.name, convoy: false };
@@ -276,8 +315,9 @@ export class ManifestationsForcesSystem implements GameSystem {
         ctx.people.rebuildIndex();
         const stand = chooseStandOffCrowd(ctx, m.x, m.z, m.route, isProtester) ?? chooseStand(ctx, m.x, m.z, () => rng.next());
         const sections = this.sections(m);
-        const company = units.createCompany!({ x: stand.x, z: stand.z, heading: stand.heading, sections, layout: 'ligne', vehicles: true, drivers: true });
+        const company = units.createCompany!({ x: stand.x, z: stand.z, heading: stand.heading, sections, layout: 'ligne', vehicles: true, drivers: true, cellular: false });
         const id = company.squad.id;
+        engageCellular(ctx, units, id, stand.x, stand.z, stand.heading, false);
         this.companies.set(m.id, id);
         manifs.assign(m.id, id);
         if (command) {
