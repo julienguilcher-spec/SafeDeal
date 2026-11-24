@@ -4,7 +4,7 @@ Ce dossier ne fait pas partie du jeu : c'est une sauvegarde du travail des agent
 redémarrage ou une perte de la machine de travail ne le fasse pas disparaître. Il sera supprimé quand chaque
 chantier aura été intégré dans `crs-simulation/`, testé et publié.
 
-État au 23 novembre, 20 h UTC (21 h à Paris) : travail interrompu du 18 au 23 novembre par la limite de dépense du compte, repris le 23 novembre à 18 h 14 UTC (P19 rendu en partie, P18 et P11 en cours). Le jeu publié est la **version 22** (commit `0e488cd`).
+État au 24 novembre, 1 h 50 UTC (2 h 50 à Paris) : tous les paquets P1–P15 et P17–P23 sont écrits ; la suite complète de l'arbre de travail est verte pour la première fois (4138 verts, 0 rouge, 117 ignorés) et la compilation est propre. Reste la recette de bout en bout (P16, en cours), puis l'intégration dans `crs-simulation/` et la publication de la version 23. Le jeu publié est encore la **version 22** (commit `0e488cd`).
 
 ## Correctifs et chantiers
 
