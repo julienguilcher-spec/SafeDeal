@@ -5618,7 +5618,7 @@ index 899c362..dd2c2ea 100644
  export const REGROUP_FAR = 40;
  export const REGROUP_NEAR = 20;
 diff --git a/crs-simulation/src/gameplay/session/follow.ts b/crs-simulation/src/gameplay/session/follow.ts
-index 68b242d..9882a3d 100644
+index 68b242d..dba9d82 100644
 --- a/crs-simulation/src/gameplay/session/follow.ts
 +++ b/crs-simulation/src/gameplay/session/follow.ts
 @@ -14,20 +14,29 @@
@@ -5673,7 +5673,16 @@ index 68b242d..9882a3d 100644
  }
  
  /** Service des ordres « Me suivre à pied » / « Me suivre en colonne (véhicules) ». */
-@@ -55,6 +72,21 @@ export interface FollowApi {
+@@ -51,10 +68,30 @@ export interface FollowApi {
+   release(squadId: number): void;
+   /** L'unité (ou une unité dont elle dépend) est-elle « en colonne » derrière le joueur ? */
+   inColumn(squadId: number): boolean;
++  /**
++   * L'unité (ou une unité dont elle dépend) vient-elle se mettre avec le joueur à pied — elle descend de ses véhicules
++   * pour le suivre, ou vient de loin dans ses fourgons (« Avec moi ») ? La ligne d'état la compte « avec vous ».
++   */
++  coming(squadId: number): boolean;
+ }
  /** Délai maximal d'embarquement avant de se déclarer prête (s) et de débarquement avant de suivre à pied (s). */
  const MOTOR_READY_MAX = 60;
  const DISMOUNT_MAX = 45;
@@ -5695,7 +5704,7 @@ index 68b242d..9882a3d 100644
  /** Rayon dans lequel les véhicules d'une unité « en colonne » rejoignent celle du joueur qui conduit (m). */
  const MOTOR_RADIUS = 3000;
  /** Étapes d'un mouvement motorisé encore en cours (police.command) : la colonne de l'unité roule vers le joueur. */
-@@ -67,6 +99,9 @@ interface VehiclesExt {
+@@ -67,6 +104,9 @@ interface VehiclesExt {
  /** Délai maximal pour rejoindre un véhicule avant d'abandonner (s) et distance de montée (m). */
  const BOARD_TIMEOUT = 40;
  const BOARD_REACH = 4.5;
@@ -5705,7 +5714,7 @@ index 68b242d..9882a3d 100644
  /** Rayon dans lequel on cherche les véhicules de l'unité autour du joueur (m). */
  const FLEET_RADIUS = 90;
  /** Intervalle entre deux véhicules de la colonne (m, pare-chocs à pare-chocs). */
-@@ -106,7 +141,7 @@ const ARMORED: ReadonlySet<string> = new Set(['centaure', 'canon_eau']);
+@@ -106,7 +146,7 @@ const ARMORED: ReadonlySet<string> = new Set(['centaure', 'canon_eau']);
  const FREE_ORDERS: ReadonlySet<string> = new Set(['libre', 'suivre', 'cesser', 'embarquer', 'debarquer', 'colonne', 'escorter']);
  /** Véhicules qui emmènent la compagnie : quand le joueur en conduit un, toute la colonne suit. */
  const TROOP_KINDS: ReadonlySet<string> = new Set(['fourgon_crs', 'car_crs', 'vl_commandement', 'canon_eau', 'centaure', 'fourgon_cellulaire']);
@@ -5714,7 +5723,7 @@ index 68b242d..9882a3d 100644
  /**
   * « Tout le monde me suit » (demande du commanditaire : « c'est obligatoire ») : quel que soit son rôle de police — sauf
   * l'équipage du Centaure, que seul l'engin apparié accompagne —, quand le joueur conduit un véhicule de police (ou est
-@@ -130,6 +165,13 @@ interface Assignment {
+@@ -130,6 +170,13 @@ interface Assignment {
    /** Place attribuée (index dans v.def.seats) : poste de conduite, de tir (lance du canon à eau) ou passager. */
    seat: number;
    since: number;
@@ -5728,7 +5737,7 @@ index 68b242d..9882a3d 100644
  }
  
  export class FollowLeaderSystem implements GameSystem {
-@@ -146,13 +188,33 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -146,13 +193,33 @@ export class FollowLeaderSystem implements GameSystem {
    private escortSince = 0;
    private nextThink = 0;
    private nextJoin = 0;
@@ -5768,7 +5777,20 @@ index 68b242d..9882a3d 100644
    /** Branches d'une unité « en colonne » qui ont reçu un autre ordre : elles ne font plus partie de la colonne. */
    private readonly detached = new Set<number>();
    /** Colonne derrière le véhicule où le joueur est passager (il ne conduit pas) : véhicules dans l'ordre. */
-@@ -214,7 +276,12 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -182,6 +249,12 @@ export class FollowLeaderSystem implements GameSystem {
+         const s = this.ctx?.squads.get(id);
+         return !!s && this.motorRoot(s) !== 0;
+       },
++      coming: (id) => {
++        if (!this.ctx) return false;
++        for (const root of this.dismount.keys()) if (this.isUnder(id, root)) return true;
++        for (const root of this.incoming.keys()) if (this.isUnder(id, root)) return true;
++        return false;
++      },
+     };
+     ctx.provide(FOLLOW_SERVICE, api);
+   }
+@@ -214,7 +287,12 @@ export class FollowLeaderSystem implements GameSystem {
      // ordres « me suivre » : propres à la session (les identifiants d'unités sont réattribués)
      this.motor.clear();
      this.dismount.clear();
@@ -5782,7 +5804,7 @@ index 68b242d..9882a3d 100644
      this.detached.clear();
      this.ride = [];
      this.trails.clear();
-@@ -282,8 +349,16 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -282,8 +360,16 @@ export class FollowLeaderSystem implements GameSystem {
        this.ride = [];
        this.startConvoy(me, driving);
      } else if (!isDriver && this.mounted !== 0) this.endConvoy();
@@ -5799,7 +5821,7 @@ index 68b242d..9882a3d 100644
      // marche vers les véhicules (à chaque pas : l'IA de police réécrit les commandes avant nous)
      // (à pied aussi : équipiers d'une unité « en colonne » restés sans place, voir seatStragglers)
      if (this.mounted !== 0 || this.assign.size > 0) this.walkToSeats(me, now);
-@@ -338,6 +413,8 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -338,6 +424,8 @@ export class FollowLeaderSystem implements GameSystem {
      const rank = new Map<Vehicle, number>();
      for (const v of ctx.vehicles.list) {
        if (v === lead || v.state === 'wrecked' || v.state === 'burnt' || v.def.flying || !POLICE_FLEET.has(v.kind)) continue;
@@ -5808,7 +5830,7 @@ index 68b242d..9882a3d 100644
        if (v.seats.some((id) => id !== 0)) continue;
        const d = Math.hypot(v.x - lead.x, v.z - lead.z);
        if (d > FLEET_RADIUS) continue;
-@@ -405,10 +482,14 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -405,10 +493,14 @@ export class FollowLeaderSystem implements GameSystem {
        // unités en « Me suivre en colonne (véhicules) », elles-mêmes ou par une unité mère
        const root = this.motorRoot(s);
        const called = root !== 0;
@@ -5825,7 +5847,7 @@ index 68b242d..9882a3d 100644
        const under = this.underAny(s, led) || s === pair || called;
        // toute la compagnie, sauf les unités au contact (elles restent : le commandant IA les garde à leur tâche)
        const all = !under && whole.has(this.rootOf(s.id)) && !this.inContact(s);
-@@ -431,7 +512,16 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -431,7 +523,16 @@ export class FollowLeaderSystem implements GameSystem {
      joining.sort((a, b) => ids.indexOf(a.vehicleId) - ids.indexOf(b.vehicleId));
      for (const s of joining) {
        this.escorts.push(s.id);
@@ -5842,7 +5864,7 @@ index 68b242d..9882a3d 100644
        // une unité déjà à bord (« en colonne ») n'est pas réembarquée
        if (!(this.motorRoot(s) !== 0 && s.order.type === 'embarquer')) ctx.squads.issue(s.id, { type: 'embarquer', issuedBy: me.id });
      }
-@@ -495,32 +585,59 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -495,32 +596,59 @@ export class FollowLeaderSystem implements GameSystem {
    }
  
    private readonly near: Person[] = [];
@@ -5907,7 +5929,7 @@ index 68b242d..9882a3d 100644
    /** Branches de l'unité « en colonne » encore dans la colonne (sans les branches détachées par un autre ordre). */
    private columnTree(rootId: number): Squad[] {
      return this.tree(rootId, []).filter((q) => this.motorRoot(q) === rootId);
-@@ -568,6 +685,7 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -568,6 +696,7 @@ export class FollowLeaderSystem implements GameSystem {
        const tree = this.tree(rootId, []);
        for (const v of ctx.vehicles.list) {
          if (v.kind !== 'moto_bravm' || owned.has(v.id) || out.indexOf(v) >= 0 || v.state === 'wrecked' || v.state === 'burnt') continue;
@@ -5915,7 +5937,7 @@ index 68b242d..9882a3d 100644
          if (!out.some((o) => o.kind === 'moto_bravm' && Math.hypot(o.x - v.x, o.z - v.z) < FLEET_RADIUS)) continue;
          if (v.seats.some((id) => id !== 0 && !tree.some((q) => q.members.indexOf(id) >= 0))) continue;
          out.push(v);
-@@ -660,7 +778,7 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -660,7 +789,7 @@ export class FollowLeaderSystem implements GameSystem {
          if (v && v.state !== 'wrecked' && v.state !== 'burnt') continue;
        }
        if (this.motorRoot(q) !== 0) continue;
@@ -5924,7 +5946,7 @@ index 68b242d..9882a3d 100644
        for (const id of q.members) {
          const p = ctx.people.get(id);
          if (!p || p.isPlayer || p.vehicleId !== 0 || p.custody !== 'free' || p.posture === 'down' || this.assign.has(p.id)) continue;
-@@ -889,49 +1007,256 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -889,49 +1018,260 @@ export class FollowLeaderSystem implements GameSystem {
  
    // ───────────────────────────── ordres du joueur ─────────────────────────────
  
@@ -5990,6 +6012,7 @@ index 68b242d..9882a3d 100644
      if (!ctx || !me || !s) return;
      this.leaveColumn(squadId);
 -    this.afoot.add(squadId);
+-    if (this.crewCount(squadId).aboard > 0) {
 +    for (const id of [...this.incoming.keys()]) if (this.isUnder(id, squadId)) this.incoming.delete(id);
 +    const flag = byPlayer ? { byPlayer: true as const } : {};
 +    // la BRAV-M choisit elle-même : en selle derrière lui s'il est loin ou roule, pied à terre près de lui (bravm.ts)
@@ -5998,7 +6021,11 @@ index 68b242d..9882a3d 100644
 +      return;
 +    }
 +    const spared = this.spareApart(squadId);
-     if (this.crewCount(squadId).aboard > 0) {
++    const crew = this.crewCount(squadId);
++    // (presque tout le monde déjà à pied — l'état-major resté dans le véhicule de commandement : « suivre » tout de
++    // suite, ceux qui sont assis descendent d'eux-mêmes ; sans cela chaque « Avec moi » commençait par une à deux
++    // secondes de « débarquez » pour toute la compagnie, affichée « Personne avec vous »)
++    if (crew.aboard > 0 && crew.aboard * 2 >= crew.aboard + crew.onFoot) {
        // à bord : on descend d'abord, à côté du véhicule de l'unité (ou du premier de ses véhicules)
        const v = (s.vehicleId !== 0 ? ctx.vehicles.get(s.vehicleId) : undefined) ?? this.fleetOf(squadId)[0];
        const side = v ? v.heading + Math.PI / 2 : 0;
@@ -6195,7 +6222,7 @@ index 68b242d..9882a3d 100644
    }
  
    /** L'unité quitte la colonne : ses véhicules s'arrêtent où ils sont (ils ne suivent plus le joueur). */
-@@ -971,6 +1296,11 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -971,6 +1311,11 @@ export class FollowLeaderSystem implements GameSystem {
    /** Suivi des ordres : autre ordre reçu (l'unité quitte la colonne), compte rendu « prête », passage à pied. */
    private tendOrders(me: Person, now: number): void {
      const ctx = this.ctx!;
@@ -6207,7 +6234,7 @@ index 68b242d..9882a3d 100644
      for (const [sid, st] of [...this.motor]) {
        const s = ctx.squads.get(sid);
        if (!s) {
-@@ -1003,21 +1333,51 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -1003,21 +1348,51 @@ export class FollowLeaderSystem implements GameSystem {
          text: `${to.toUpperCase()} ICI ${s.name.toUpperCase()}. En colonne, prête à vous suivre${afoot}. TERMINÉ.`,
        });
      }
@@ -6268,7 +6295,7 @@ index 68b242d..9882a3d 100644
      }
    }
  
-@@ -1110,6 +1470,18 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -1110,6 +1485,18 @@ export class FollowLeaderSystem implements GameSystem {
      return s ? s.id : 0;
    }
  
@@ -6287,7 +6314,7 @@ index 68b242d..9882a3d 100644
    /** L'unité est-elle placée (directement ou non) sous l'une de ces unités ? */
    private underAny(s: Squad, set: ReadonlySet<number>): boolean {
      const ctx = this.ctx!;
-@@ -1123,6 +1495,50 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -1123,6 +1510,50 @@ export class FollowLeaderSystem implements GameSystem {
      return false;
    }
  
@@ -6338,7 +6365,7 @@ index 68b242d..9882a3d 100644
    /** Équipage d'une unité accompagnatrice au complet à bord (ou délai d'embarquement écoulé, au moins le conducteur). */
    private escortReady(v: Vehicle): boolean {
      const ctx = this.ctx!;
-@@ -1176,8 +1592,42 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -1176,8 +1607,42 @@ export class FollowLeaderSystem implements GameSystem {
        const v = ctx.vehicles.get(a.vehicleId);
        if (!p || !v || p.vehicleId !== 0) continue;
        if (now - a.since > BOARD_TIMEOUT) continue;
@@ -6383,7 +6410,7 @@ index 68b242d..9882a3d 100644
        let mx = dx / d;
        let mz = dz / d;
        // un autre véhicule en travers du trajet direct (bloc garé) : on le longe, du côté opposé à son centre
-@@ -1210,6 +1660,11 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -1210,6 +1675,11 @@ export class FollowLeaderSystem implements GameSystem {
        if (!p || !v) { this.assign.delete(id); continue; }
        if (p.vehicleId !== 0) continue;
        if (now - a.since > BOARD_TIMEOUT) { this.assign.delete(id); continue; }
@@ -6395,7 +6422,7 @@ index 68b242d..9882a3d 100644
        const reach = Math.max(v.def.length, v.def.width) * 0.5 + BOARD_REACH;
        if (Math.hypot(v.x - p.x, v.z - p.z) <= reach && !ctx.vehicles.enter(p, v, a.seat)) ctx.vehicles.enter(p, v);
      }
-@@ -1315,6 +1770,91 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -1315,6 +1785,91 @@ export class FollowLeaderSystem implements GameSystem {
      return room;
    }
  
@@ -6487,7 +6514,7 @@ index 68b242d..9882a3d 100644
    /** Le joueur descend : la colonne s'arrête, tout le monde descend et reprend « suivre » à pied. */
    private endConvoy(): void {
      const ctx = this.ctx!;
-@@ -1333,17 +1873,31 @@ export class FollowLeaderSystem implements GameSystem {
+@@ -1333,17 +1888,31 @@ export class FollowLeaderSystem implements GameSystem {
        if (sq && this.motorRoot(sq) !== 0) continue;
        if (p && p.vehicleId !== 0) ctx.vehicles.exit(p);
      }
@@ -19879,7 +19906,7 @@ index b4b1720..ff7f530 100644
    }
    if (!ap) {
 diff --git a/crs-simulation/src/sim/police/steer.ts b/crs-simulation/src/sim/police/steer.ts
-index 9262197..a03704e 100644
+index 9262197..bfc4509 100644
 --- a/crs-simulation/src/sim/police/steer.ts
 +++ b/crs-simulation/src/sim/police/steer.ts
 @@ -17,7 +17,7 @@ import type { Person } from '@/core/contracts';
@@ -19891,7 +19918,7 @@ index 9262197..a03704e 100644
  import type { Kernel } from './kernel';
  import * as T from './tuning';
  
-@@ -309,6 +309,9 @@ export function navigate(k: Kernel, a: Agent, tx: number, tz: number, interval:
+@@ -309,9 +309,14 @@ export function navigate(k: Kernel, a: Agent, tx: number, tz: number, interval:
      if (a.stuckT >= T.WAY_TIME && k.now - a.wayAt >= 1.2) {
        a.wayAt = k.now;
        askWay(k, a, tx, tz);
@@ -19901,10 +19928,48 @@ index 9262197..a03704e 100644
      }
      if (a.stuckT >= T.STUCK_TIME) {
        a.stuckT = 0;
-@@ -463,6 +466,37 @@ function cornerDetour(k: Kernel, a: Agent, cx: number, cz: number, halfX: number
++      // premier tronçon d'un itinéraire à pied, derrière un véhicule à l'arrêt : il vise le point suivant
++      if (a.pathN > 0 && aroundParked(k, a)) return;
+       // pas de côté : du même côté trois fois de suite (le temps de longer l'obstacle), puis de l'autre
+       const d = Math.sqrt(d2);
+       if (k.now - a.sideUntil > 8) a.sideCount = 0;
+@@ -463,6 +468,70 @@ function cornerDetour(k: Kernel, a: Agent, cx: number, cz: number, halfX: number
    a.pathGz = tz;
  }
  
++/**
++ * L'agent piétine sur le premier tronçon d'un itinéraire à pied, contre un véhicule à l'arrêt. Ce tronçon mène au
++ * point de la voie le plus proche de lui : pour un agent qui vient de descendre de son fourgon arrêté sur la chaussée,
++ * ce point est de l'autre côté du fourgon. Le pas de côté (1,6 m) ne suffit pas à longer une caisse de 6 m, et une
++ * colonne s'arrête pare-chocs contre pare-chocs : il vise le point suivant de l'itinéraire, s'il n'y a pas de mur
++ * jusque-là, et longe la file jusqu'à son bout. Sans cela, deux groupes sur trois d'une section restaient plaqués
++ * contre leurs fourgons, l'ordre du joueur accusé, affiché « en route », jamais exécuté (commandant, mission cdt-01,
++ * « Bloquer le boulevard de Magenta » à l'arrivée de la colonne). Réservé aux unités qui exécutent un ordre du joueur.
++ */
++function aroundParked(k: Kernel, a: Agent): boolean {
++  // (après un premier pas de côté resté sans effet : un obstacle qu'un pas de côté suffit à passer n'est pas concerné)
++  if (a.pathI !== 2 || a.pathN < 6 || a.boardId !== 0 || a.sideCount < 1) return false;
++  // (seulement pour un ordre du joueur : les autres déplacements — embarquement, ordres du commandement — sont inchangés)
++  const order = a.root ? a.root.order : null;
++  if (!order || order.byPlayer !== true) return false;
++  const p = a.p;
++  const wx = a.path[2];
++  const wz = a.path[3];
++  const dx = wx - p.x;
++  const dz = wz - p.z;
++  const d = Math.sqrt(dx * dx + dz * dz);
++  if (d < 0.5) return false;
++  const reach = d < 7 ? d : 7;
++  const hit = k.hit;
++  const ctx = k.ctx;
++  if (!ctx.vehicles.raycast(p.x, p.z, p.x + (dx / d) * reach, p.z + (dz / d) * reach, hit, 'move') || !hit.hit) return false;
++  const v = ctx.vehicles.get(hit.id);
++  if (!v || Math.abs(v.speed) > 0.5 || !walkable(k, p.x, p.z, a.path[4], a.path[5])) return false;
++  a.pathI = 4;
++  a.sideUntil = 0;
++  return true;
++}
++
 +const aroundTmp: Person[] = [];
 +
 +/**
@@ -22026,7 +22091,7 @@ index 0000000..168dd10
 +  return memo.order[0]!;
 +}
 diff --git a/crs-simulation/src/ui/command/core.ts b/crs-simulation/src/ui/command/core.ts
-index 74c0e7a..62625f1 100644
+index 74c0e7a..d3ae1ea 100644
 --- a/crs-simulation/src/ui/command/core.ts
 +++ b/crs-simulation/src/ui/command/core.ts
 @@ -12,7 +12,7 @@ import type { CommandApi, CommandScope, IssuedOrder } from './api';
@@ -22038,7 +22103,7 @@ index 74c0e7a..62625f1 100644
  import { computeScope } from './scope';
  import { isPoliceRole } from '../maps/visibility';
  import type { FollowApi } from '@/gameplay/session/follow';
-@@ -20,10 +20,14 @@ import type { NasseProposal } from './nasse';
+@@ -20,11 +20,17 @@ import type { NasseProposal } from './nasse';
  import { LegalChain } from './legalChain';
  import { cardEnvFromCore } from './reperes';
  import { coreLegalDeps } from './sendLine';
@@ -22053,9 +22118,12 @@ index 74c0e7a..62625f1 100644
 -const MOTOR_DISTANCE = 250;
 +/** Ordres de mouvement qui se font en véhicules quand le point est loin (règle unique de direct/travel.ts). */
  const MOTOR_AUTO: ReadonlySet<string> = new Set(['colonne', 'avancer', 'tenir', 'ligne', 'proteger', 'encercler', 'couper_circulation', 'filtrer', 'repli']);
++/** Colonne qui se gare ou débarque : un point à moins de cela se rejoint à pied (m) — la portée de la fin à pied des tickets. */
++const PARKING_ON_FOOT = 400;
  const SCOPE_PERIOD = 0.5;
  /** Service des ordres « me suivre » (gameplay/session/follow.ts, FOLLOW_SERVICE). */
-@@ -35,6 +39,8 @@ const FOLLOW_SERVICE = 'session.follow';
+ const FOLLOW_SERVICE = 'session.follow';
+@@ -35,6 +41,8 @@ const FOLLOW_SERVICE = 'session.follow';
   * tu ne l'as pas mis ».
   */
  export const FOLLOW_ORDERS: ReadonlySet<string> = new Set(['suivre_pied', 'avec_moi']);
@@ -22064,7 +22132,7 @@ index 74c0e7a..62625f1 100644
  
  export interface IssueResult {
    ok: boolean;
-@@ -43,6 +49,50 @@ export interface IssueResult {
+@@ -43,6 +51,50 @@ export interface IssueResult {
    count: number;
  }
  
@@ -22115,7 +22183,7 @@ index 74c0e7a..62625f1 100644
  export class CommandCore implements CommandApi {
    readonly issued: IssuedOrder[] = [];
    /** Plafond de force appliqué aux ordres du joueur (borné par la force autorisée au moment de l'ordre). */
-@@ -62,12 +112,48 @@ export class CommandCore implements CommandApi {
+@@ -62,12 +114,48 @@ export class CommandCore implements CommandApi {
  
    constructor(readonly ctx: GameContext, readonly maps: MapsRuntime, public kit: UiKit | undefined) {}
  
@@ -22127,14 +22195,10 @@ index 74c0e7a..62625f1 100644
 +    return a && typeof a.engage === 'function' && a.enabled ? a : undefined;
 +  }
 +
-   /**
--   * Engage une unité d'un commissariat (module des commissariats, qui fournit cette méthode) : elle quitte le poste et
--   * passe sous les ordres du joueur ; l'ordre de la fiche lui est donné dans le même pas (sendLine.ts). Absente : les
--   * lignes de renfort ne sont pas proposées.
++  /**
 +   * Unité d'un commissariat encore au poste, en alerte dans ses places ou au repos : écartée des propositions du jeu
 +   * (Qui), de « Toute la compagnie », de la nasse et du parcours des unités (U).
-    */
--  engageFromCommissariat?(entryId: number): { ok: boolean; squadId: number; reason: string };
++   */
 +  atPost(squadId: number): boolean {
 +    const a = squadId > 0 ? this.commissariats : undefined;
 +    return !!a && a.atPost(squadId);
@@ -22145,11 +22209,15 @@ index 74c0e7a..62625f1 100644
 +    return this.canCommand(squadId) && !this.atPost(squadId);
 +  }
 +
-+  /**
+   /**
+-   * Engage une unité d'un commissariat (module des commissariats, qui fournit cette méthode) : elle quitte le poste et
+-   * passe sous les ordres du joueur ; l'ordre de la fiche lui est donné dans le même pas (sendLine.ts). Absente : les
+-   * lignes de renfort ne sont pas proposées.
 +   * Engage une unité d'un commissariat (numéro d'entrée des fiches, commissariatsModel.entryNumber) : l'équipage est
 +   * créé à bord, « En alerte », et l'unité passe sous les ordres du joueur. L'étendue du commandement est recalculée
 +   * tout de suite : l'ordre de la fiche lui est donné dans le même pas (sendLine.ts).
-+   */
+    */
+-  engageFromCommissariat?(entryId: number): { ok: boolean; squadId: number; reason: string };
 +  engageFromCommissariat(entryId: number): { ok: boolean; squadId: number; reason: string } {
 +    const a = this.commissariats;
 +    if (!a) return { ok: false, squadId: 0, reason: 'Pas de commissariat dans cette partie.' };
@@ -22168,7 +22236,7 @@ index 74c0e7a..62625f1 100644
  
    // ───────────────────────────── services facultatifs ─────────────────────────────
  
-@@ -141,6 +227,22 @@ export class CommandCore implements CommandApi {
+@@ -141,6 +229,22 @@ export class CommandCore implements CommandApi {
      return p ? p.name : 'UNITÉ';
    }
  
@@ -22191,7 +22259,7 @@ index 74c0e7a..62625f1 100644
    /** Force maximale transmise avec un ordre : plafond du joueur, borné par l'autorisation en vigueur. */
    effectiveForce(): ForceLevel {
      const authorized = this.ctx.law.roe.authorizedForce;
-@@ -153,8 +255,9 @@ export class CommandCore implements CommandApi {
+@@ -153,8 +257,9 @@ export class CommandCore implements CommandApi {
     */
    check(verb: OrderVerb): { ok: boolean; reason: string; warning: string } {
      const roe = this.ctx.law.roe;
@@ -22203,7 +22271,7 @@ index 74c0e7a..62625f1 100644
        return { ok: false, reason: 'Lecture seule\u00a0: vous ne donnez pas d’ordre.', warning: '' };
      }
      if (verb.force > roe.authorizedForce && !roe.underAttack) {
-@@ -181,64 +284,88 @@ export class CommandCore implements CommandApi {
+@@ -181,64 +286,92 @@ export class CommandCore implements CommandApi {
      if (!chk.ok) return { ok: false, reason: chk.reason, count: 0 };
      // « Dégager l'obstacle » : c'est un Centaure qui pousse (le désigné, sinon le plus proche sous vos ordres)
      if (type === 'degager_obstacle') return issueObstacle(this, squads, geoms);
@@ -22225,6 +22293,10 @@ index 74c0e7a..62625f1 100644
        const g = geoms ? geoms[geoms.length === 1 ? 0 : i] : undefined;
        // un nouvel ordre annule celui qui attendait le débarquement d'une colonne précédente (motorize le repose au besoin)
        this.afterConvoy.delete(s.id);
++      // sa colonne se gare ou débarque (plan §2.5) : l'unité descend où est son fourgon et va à pied à un point proche —
++      // relancée en véhicules, elle restait prise dans la file qui se gare, sans un agent en mouvement dix secondes après
++      const arriving = this.phaseOf(s.id).convoy;
++      const parking = !!arriving && (arriving.stage === 'stationnement' || arriving.stage === 'debarquement');
 +      // colonne de la journée encore en route ou qui se gare : son « débarquez » de fin de trajet ne remplacera pas cet ordre
 +      ctx.service<{ takeOver?(id: number): void }>('police.command')?.takeOver?.(s.id);
        // voiture de patrouille (Police secours, BAC) : elle roule déjà, elle se rend elle-même sur le point en urgence
@@ -22256,7 +22328,7 @@ index 74c0e7a..62625f1 100644
        // mouvement motorisé : demandé (« Faire mouvement ») ou implicite pour un point éloigné d'une unité qui a ses
        // véhicules — elle embarque, roule en colonne jusqu'au point, débarque, puis exécute l'ordre donné
 -      if (g && !patrol && (type === 'faire_mouvement' || (MOTOR_AUTO.has(type) && this.farFor(s, g.x, g.z)))) {
-+      if (g && !patrol && !bravm && (type === 'faire_mouvement' || (MOTOR_AUTO.has(type) && this.drivesTo(s, g.x, g.z)))) {
++      if (g && !patrol && !bravm && (type === 'faire_mouvement' || (MOTOR_AUTO.has(type) && !(parking && this.leadWithin(s, g.x, g.z, PARKING_ON_FOOT)) && this.drivesTo(s, g.x, g.z)))) {
          // une unité dont un supérieur est aussi désigné fait partie de sa colonne
          if (squads.some((q) => q !== s && this.isAncestor(q.id, s))) { count++; continue; }
 -        if (this.motorize(s, type, gp!, from, false, targetId)) { count++; continue; }
@@ -22303,7 +22375,7 @@ index 74c0e7a..62625f1 100644
              type: t, unit: s.name, from, sector: place, heading: o.heading, width: o.width,
              distance: dist, target: targetName, passersby: targetId === BARRAGE_LET_PASSERSBY,
            }),
-@@ -293,12 +420,130 @@ export class CommandCore implements CommandApi {
+@@ -293,12 +426,136 @@ export class CommandCore implements CommandApi {
    /** Ordres repris au débarquement, par unité (mouvement motorisé implicite). */
    readonly afterConvoy = new Map<number, { type: OrderType; geom: OrderGeom; targetId: number }>();
  
@@ -22436,10 +22508,16 @@ index 74c0e7a..62625f1 100644
 +    walk(s, 0);
 +    if (hasPlayer && me && me.vehicleId !== 0) aboard = fleet.has(me.vehicleId);
 +    return motorizes({ x: lead.x, z: lead.z, hasVehicles: this.hasVehicles(s), hasPlayer, seatedShare: total > 0 ? seated / total : 0, symbol }, x, z, aboard);
++  }
++
++  /** Le chef de l'unité (à défaut son premier membre) est-il à moins de `max` mètres du point ? */
++  private leadWithin(s: Squad, x: number, z: number, max: number): boolean {
++    const lead = this.ctx.people.get(s.leaderId) ?? (s.members.length ? this.ctx.people.get(s.members[0]!) : undefined);
++    return !!lead && Math.hypot(lead.x - x, lead.z - z) <= max;
    }
  
    private isAncestor(id: number, s: Squad): boolean {
-@@ -328,7 +573,7 @@ export class CommandCore implements CommandApi {
+@@ -328,7 +585,7 @@ export class CommandCore implements CommandApi {
      }
      else this.afterConvoy.delete(s.id);
      ctx.radio.say({
@@ -22448,7 +22526,7 @@ index 74c0e7a..62625f1 100644
        text: `${s.name} ICI ${from.toUpperCase()}. Embarquez, mouvement en véhicules, deux tons, sur ${g.place || ctx.world.sectorName(g.x, g.z) || 'le point indiqué'}. PARLEZ.`,
      });
      return true;
-@@ -353,9 +598,10 @@ export class CommandCore implements CommandApi {
+@@ -353,9 +610,10 @@ export class CommandCore implements CommandApi {
      const follow = this.follow;
      const caller = from.toUpperCase();
      const here = { x: me.x, z: me.z, heading: me.heading, width: 0 };
@@ -22461,7 +22539,7 @@ index 74c0e7a..62625f1 100644
      // équipage sans unité subordonnée déjà à bord du véhicule du joueur (voiture de patrouille) : pas d'ordre à la radio
      // dans l'habitacle, il reste à bord
      if (column && me.vehicleId !== 0 && s.members.length > 0 && !ctx.squads.list.some((q) => q.parentId === s.id)
-@@ -389,7 +635,7 @@ export class CommandCore implements CommandApi {
+@@ -389,7 +647,7 @@ export class CommandCore implements CommandApi {
        return true;
      }
      if (follow) follow.onFoot(s.id);
@@ -22470,7 +22548,7 @@ index 74c0e7a..62625f1 100644
      this.trace(s, 'suivre');
      return true;
    }
-@@ -405,15 +651,132 @@ export class CommandCore implements CommandApi {
+@@ -405,15 +663,132 @@ export class CommandCore implements CommandApi {
      return false;
    }
  
@@ -23323,10 +23401,10 @@ index 0000000..4a1c110
 +}
 diff --git a/crs-simulation/src/ui/command/direct/env.ts b/crs-simulation/src/ui/command/direct/env.ts
 new file mode 100644
-index 0000000..415645c
+index 0000000..6ba8ade
 --- /dev/null
 +++ b/crs-simulation/src/ui/command/direct/env.ts
-@@ -0,0 +1,260 @@
+@@ -0,0 +1,262 @@
 +/* =====================================================================================
 + * Ordres directs — LECTURE DE LA PARTIE : la vue étroite (DirectEnv) que la logique pure consomme, remplie depuis la
 + * partie en cours. Lecture seule : aucune écriture dans ctx, aucun DOM.
@@ -23364,7 +23442,7 @@ index 0000000..415645c
 +}
 +interface CommandLike { arrive?(squadId: number, dest: unknown): unknown }
 +interface TransferLike { depart?(squadId: number): unknown }
-+interface FollowLike { inColumn?(squadId: number): boolean }
++interface FollowLike { inColumn?(squadId: number): boolean; coming?(squadId: number): boolean }
 +
 +export interface DirectEnvOptions {
 +  /** Dernier ordre du joueur à une unité (P8 : CommandCore.playerOrder) ; absent : l'ordre en cours s'il est `byPlayer`. */
@@ -23452,7 +23530,9 @@ index 0000000..415645c
 +      : o && o.byPlayer ? { type: o.type, verb: null, issuedAt: o.issuedAt, done: false, place: o.place ?? '' } : null;
 +    const cardUnit = card.units.find((c) => c.squadId === s.id);
 +    const avecVous = (o.type === 'suivre' && playerId !== 0 && o.targetId === playerId) || o.type === 'avec_moi' || o.type === 'suivre_pied'
-+      || (follow && typeof follow.inColumn === 'function' ? follow.inColumn(s.id) : false);
++      || (follow && typeof follow.inColumn === 'function' ? follow.inColumn(s.id) : false)
++      // (elle descend de ses fourgons pour le suivre, ou vient de loin : « Avec moi » est donné, elle est « avec vous »)
++      || (follow && typeof follow.coming === 'function' ? follow.coming(s.id) : false);
 +    const unit: DirectUnit = {
 +      squadId: s.id, name: s.name, symbol: u.symbol, kind: unitKindOf(u.symbol, cellular), x: u.x, z: u.z, total: u.total, valid: u.valid,
 +      parentId: s.parentId, hasPlayer: u.hasPlayer, hasVehicles: cardUnit ? cardUnit.hasVehicles : vehicle !== undefined, seated,
@@ -24236,10 +24316,10 @@ index 0000000..8d42c6a
 +}
 diff --git a/crs-simulation/src/ui/command/direct/runtime.ts b/crs-simulation/src/ui/command/direct/runtime.ts
 new file mode 100644
-index 0000000..f33bfdf
+index 0000000..6f342ef
 --- /dev/null
 +++ b/crs-simulation/src/ui/command/direct/runtime.ts
-@@ -0,0 +1,1175 @@
+@@ -0,0 +1,1215 @@
 +/* =====================================================================================
 + * Ordres directs — LE MOTEUR DU TERRAIN (service 'command.direct') : désignation en entrée, ordre prêt en sortie,
 + * unité qui obéira (« À qui »), envoi, tickets, annulation.
@@ -24323,6 +24403,8 @@ index 0000000..f33bfdf
 +const MOVING_SPEED = 0.6;
 +/** Ordres terminés d'eux-mêmes (pas de « en place » à attendre). */
 +const IMMEDIATE_DONE: ReadonlySet<string> = new Set(['libre', 'cesser']);
++/** Tâche réussie par l'unité elle-même (BRAV-M) : elle reprend son ordre d'avant après tant de secondes (le temps de lire « ✓ »). */
++const RETURN_AFTER_DONE = 2;
 +/** Verbes dont la fin est dite par une tâche d'une sous-unité (binôme qui interpelle, groupe qui secourt). */
 +const TASK_VERBS: ReadonlySet<DirectVerb> = new Set<DirectVerb>(['interpeller', 'constater', 'secours']);
 +
@@ -24402,6 +24484,12 @@ index 0000000..f33bfdf
 +  watchUsed: boolean;
 +  /** Dernier changement d'état (pour retirer un ticket oublié). */
 +  changedAt: number;
++  /** Ordre du joueur que l'unité tenait avant celui-ci (null : aucun) ; fin de la tâche vue à ; retour déjà donné. */
++  before: PlayerOrderRecord | null;
++  doneAt: number;
++  returned: boolean;
++  /** La simulation a dit la tâche finie et réussie par l'unité elle-même ('police:order_done', pas la mise en place). */
++  taskDone: boolean;
 +}
 +
 +interface UndoEntry {
@@ -24509,6 +24597,8 @@ index 0000000..f33bfdf
 +  private ticketAt = -1e9;
 +  private nextTicketId = 1;
 +  private readonly entries: TicketEntry[] = [];
++  /** Dernier ordre du joueur de chaque unité (pour le lui rendre après une interpellation ou un secours). */
++  private readonly lastRecords = new Map<number, PlayerOrderRecord>();
 +  private readonly list: Ticket[] = [];
 +  private readonly field: FieldMap;
 +
@@ -25108,12 +25198,19 @@ index 0000000..f33bfdf
 +      return;
 +    }
 +    const t = newTicket(this.nextTicketId++, s.id, s.name, r.verb, r.type, r.place, r.issuedAt);
++    // l'ordre d'avant : le sien, ou celui de l'unité dont elle dépend s'il est plus récent (« Avec moi » à toute la
++    // compagnie) — pas une autre tâche : c'est l'ordre tenu avant elle qui compte
++    let last = this.lastRecords.get(s.id) ?? null;
++    const up = s.parentId !== 0 ? this.core.playerOrderRecord(s.parentId) : null;
++    if (up && up.squadId !== s.id && (!last || up.issuedAt > last.issuedAt)) last = up;
++    const before = last && last.verb && TASK_VERBS.has(last.verb) ? null : last;
++    if (!TASK_VERBS.has(r.verb)) this.lastRecords.set(s.id, { ...r });
 +    const g = r.geom;
 +    const me = this.core.player();
 +    const lead = s.leaderId !== 0 ? this.ctx.people.get(s.leaderId) : undefined;
 +    const x = g ? g.x : r.verb === 'avec_moi' && me ? me.x : lead ? lead.x : 0;
 +    const z = g ? g.z : r.verb === 'avec_moi' && me ? me.z : lead ? lead.z : 0;
-+    this.addEntry(t, r, r.targetId > 0 && (r.verb === 'interpeller' || r.verb === 'constater') ? r.targetId : 0, x, z);
++    this.addEntry(t, r, r.targetId > 0 && (r.verb === 'interpeller' || r.verb === 'constater') ? r.targetId : 0, x, z, before);
 +  }
 +
 +  private replace(squadId: number): void {
@@ -25124,11 +25221,11 @@ index 0000000..f33bfdf
 +    }
 +  }
 +
-+  private addEntry(t: Ticket, record: PlayerOrderRecord | null, personId: number, x = 0, z = 0): void {
++  private addEntry(t: Ticket, record: PlayerOrderRecord | null, personId: number, x = 0, z = 0, before: PlayerOrderRecord | null = null): void {
 +    this.replace(t.squadId);
 +    this.entries.push({
 +      ticket: t, record, x, z, personId, done: null, refused: null, blocked: null, blockedAt: -1e9, watch: [], watchUsed: false,
-+      changedAt: t.issuedAt,
++      changedAt: t.issuedAt, before, doneAt: -1, returned: false, taskDone: false,
 +    });
 +    this.prune();
 +  }
@@ -25166,10 +25263,30 @@ index 0000000..f33bfdf
 +        // un abandon sans motif (ordre remplacé) n'est pas un refus à dire
 +        if (e.ok !== true && (!e.reason || e.reason === '')) continue;
 +        en.done = { ok: e.ok === true, reason: e.reason ?? '' };
++        if (own && e.ok === true) en.taskDone = true;
 +      } else {
 +        en.refused = e.reason ?? '';
 +      }
 +    }
++  }
++
++  /**
++   * Interpellation ou secours réussi par une unité dont c'est l'ordre même — la BRAV-M, qui n'en fait pas la
++   * tâche d'un de ses groupes : elle reprend l'ordre du joueur qu'elle tenait avant, ou revient avec lui (plan §3.2 :
++   * jamais laissée au fourgon cellulaire, « interpelle » affiché pour de bon). Une section, elle, garde son ordre : la
++   * simulation le lui rend dès que son binôme a fini.
++   */
++  private backAfterTask(e: TicketEntry, now: number): void {
++    const t = e.ticket;
++    const s = this.ctx.squads.get(t.squadId);
++    if (!s || s.order.type !== t.orderType || s.order.byPlayer !== true || s.order.issuedAt + 1e-6 < t.issuedAt) {
++      e.returned = true;
++      return;
++    }
++    if (e.doneAt < 0) e.doneAt = now;
++    if (now - e.doneAt < RETURN_AFTER_DONE) return;
++    e.returned = true;
++    this.core.reissue(s, e.before ?? followRecord(s.id, now));
 +  }
 +
 +  /**
@@ -25210,6 +25327,8 @@ index 0000000..f33bfdf
 +      const n = next(t, snap, now);
 +      if (n.state !== t.state) e.changedAt = now;
 +      e.ticket = n;
++      // (tâche réussie seulement : refusée ou abandonnée, le ticket dit pourquoi et l'unité rend compte d'elle-même)
++      if (!e.returned && e.taskDone && TASK_VERBS.has(t.verb)) this.backAfterTask(e, now);
 +    }
 +    this.prune();
 +  }
@@ -25389,6 +25508,7 @@ index 0000000..f33bfdf
 +    this.ticketAt = -1e9;
 +    this.entries.length = 0;
 +    this.list.length = 0;
++    this.lastRecords.clear();
 +  }
 +}
 +
@@ -26102,10 +26222,10 @@ index 0000000..3213838
 +}
 diff --git a/crs-simulation/src/ui/command/direct/tickets.ts b/crs-simulation/src/ui/command/direct/tickets.ts
 new file mode 100644
-index 0000000..d56a1c0
+index 0000000..818a01e
 --- /dev/null
 +++ b/crs-simulation/src/ui/command/direct/tickets.ts
-@@ -0,0 +1,239 @@
+@@ -0,0 +1,243 @@
 +/* =====================================================================================
 + * Ordres directs — LES TICKETS : un état par ordre du joueur, de « reçu » à « en place », avec sa raison et son
 + * compte à rebours (logique pure : un réducteur sur des instantanés de la simulation ; P8 en fait le moteur).
@@ -26132,7 +26252,7 @@ index 0000000..d56a1c0
 +import type { OrderType } from '@/core/contracts';
 +import { simRefusal } from './caps';
 +import type { DirectVerb } from './types';
-+import { VERB_WORDS, atPlace, distText, durationText, placeBare } from './words';
++import { VERB_WORDS, atPlace, distText, durationText, placeBare, placeWithArticle } from './words';
 +
 +export type TicketState = 'recu' | 'attente' | 'route' | 'action' | 'en_place' | 'bloque' | 'refuse' | 'remplace';
 +
@@ -26287,10 +26407,14 @@ index 0000000..d56a1c0
 +  return w;
 +}
 +
++/** Voie masculine dont l'article s'élide (« l’escalier ») : l'accord ne se lit pas sur l'article. */
++const MASCULINE_ELIDED = /^escalier\b/i;
++
 +/** Ce qui est fait, pour « ✓ » (« rue de Rivoli barrée », « au carrefour Voltaire », « interpellé »). */
 +export function doneText(t: Pick<Ticket, 'verb' | 'place'>): string {
 +  const w = VERB_WORDS[t.verb];
-+  if (t.verb === 'bloquer') return t.place !== '' ? `${t.place} ${w.done}` : 'rue barrée';
++  // (accord avec la voie : « rue de Rivoli barrée », « boulevard de Magenta barré »)
++  if (t.verb === 'bloquer') return t.place !== '' ? `${t.place} ${placeWithArticle(t.place).startsWith('le ') || MASCULINE_ELIDED.test(t.place) ? 'barré' : w.done}` : 'rue barrée';
 +  if (t.verb === 'envoyer' || t.verb === 'venir') return t.place !== '' ? atPlace(t.place) : 'sur le point';
 +  return w.done;
 +}
@@ -34704,6 +34828,236 @@ index 0000000..c886818
 +const real = errors.filter((e) => !/favicon|WebGL|GPU stall|swiftshader/i.test(e));
 +C.check(real.length === 0, 'aucune erreur dans la page', real.slice(0, 3).join(' | '));
 +C.done();
++process.exit(C.failures.length === 0 ? 0 : 1);
+diff --git a/crs-simulation/tests/e2e/ordre-direct-recette.mjs b/crs-simulation/tests/e2e/ordre-direct-recette.mjs
+new file mode 100644
+index 0000000..cf72481
+--- /dev/null
++++ b/crs-simulation/tests/e2e/ordre-direct-recette.mjs
+@@ -0,0 +1,224 @@
++// RECETTE DES ORDRES DIRECTS dans le navigateur (plan ordres-directs, paquet P16) : le commandant, place de la Concorde,
++// joue les parcours §7.1, §7.2 et §7.3 — au CLAVIER SEUL à 1280 × 800 (Mac sans souris), puis AU DOIGT à 844 × 390
++// (téléphone tenu à deux mains).
++//   §7.1  il tourne la vue jusqu'à lire « Bloquer la rue … · MISTRAL n · N m », Entrée (ou la pastille) : le ticket
++//         « reçu » est là à l'instant, l'unité tient l'ordre du joueur, la ligne d'état le dit ;
++//   §7.2  un manifestant lance un projectile (fait constaté) : il tourne la vue vers lui jusqu'à lire « Interpeller le
++//         lanceur de projectile · … », UN appui : l'ordre part, le marqueur suit l'auteur ;
++//   §7.3  U (⟳) : la BRAV-M ; la ligne nomme FAUCON ; « Envoyer » part (Maj+Entrée sur une rue, ou Entrée sur un point).
++// Vérifié par le DOM et window.__CRS ; une capture à chaque étape (ordre-direct-recette-<taille>-<étape>.png), à REGARDER.
++// Usage : node tests/e2e/ordre-direct-recette.mjs [--out=/chemin/vers/le/dossier] [--only=clavier|tel]
++import path from 'node:path';
++import { mkdirSync } from 'node:fs';
++import { startServer, openPage, waitFor, frames, step, makeChecker, fingers, rects, overlap, OUT } from './verif-tpm-lib.mjs';
++
++const args = Object.fromEntries(process.argv.slice(2).map((a) => { const m = /^--([^=]+)(?:=(.*))?$/.exec(a); return m ? [m[1], m[2] ?? '1'] : [a, '1']; }));
++const tag = 'ordre-direct-recette';
++const C = makeChecker(tag);
++const outDir = args.out && args.out !== '1' ? args.out : OUT;
++mkdirSync(outDir, { recursive: true });
++const server = await startServer();
++const query = new URLSearchParams({
++  autostart: 'paris', nomenu: '1', mode: 'libre', role: 'commandant', rank: 'commandant', variante: 'terrain', place: 'Place de la Concorde',
++  crowd: '300', quality: 'bas', seed: '21', time: '12', weather: 'clair',
++});
++
++/** État des ordres directs, des tickets et de ce que le HUD écrit. */
++const lire = (page) => page.evaluate(() => {
++  const c = window.__CRS.ctx;
++  const d = c.service('command.direct');
++  const n = d.ready();
++  const text = (sel) => [...document.querySelectorAll(sel)].filter((e) => e.getBoundingClientRect().width > 0).map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim()).filter((t) => t !== '');
++  return {
++    rule: n ? n.rule : '', text: n ? n.text : '', enabled: n ? n.enabled : false, who: n && n.who ? n.who.label : '', ids: n && n.who ? n.who.squadIds.slice() : [],
++    autre: n && n.autre ? n.autre.text : '', autreOk: !!(n && n.autre && n.autre.enabled), person: n ? n.personId : 0, distance: n ? n.distance : 0,
++    key: d.whoKey(),
++    tickets: d.tickets.map((t) => ({ id: t.squadId, who: t.who, verb: t.verb, state: t.state })),
++    hud: text('.cq, .cm-quick, [data-hud="ordres"], .crs-orders').join(' | ').slice(0, 400),
++    chip: text('.cu-chip, .crs-unit-chip, [data-hud="unite"]').join(' | ').slice(0, 200),
++    now: c.clock.now,
++  };
++});
++const ordreDe = (page, id) => page.evaluate((sid) => {
++  const s = window.__CRS.ctx.squads.get(sid);
++  return s ? { name: s.name, type: String(s.order.type), byPlayer: s.order.byPlayer === true, targetId: s.order.targetId } : null;
++}, id);
++
++/**
++ * Le manifestant libre le plus près de l'axe du regard (à moins de 2,5°, en vue, à 20–110 m) lance un projectile, des
++ * agents le voient (ce que fait le monde) ; null : personne dans l'axe. Le rendu logiciel fait tourner la vue par grands
++ * crans : on ne vise pas à 4° près aux flèches ici, c'est le lanceur qui est pris là où le joueur regarde.
++ */
++const lanceur = (page) => page.evaluate(() => {
++  const c = window.__CRS.ctx;
++  const me = c.player.person();
++  const cam = c.player.state.camYaw;
++  let best = null, ba = 2.5 * Math.PI / 180, bd = 0;
++  for (const p of c.people.list) {
++    if (p.faction !== 'protest' || p.custody !== 'free' || p.vehicleId !== 0 || p.dormant) continue;
++    const d = Math.hypot(p.x - me.x, p.z - me.z);
++    if (d < 20 || d > 110 || !c.world.lineOfSight(me.x, me.z, p.x, p.z)) continue;
++    const yaw = Math.atan2(p.x - me.x, p.z - me.z);
++    const a = Math.abs(Math.atan2(Math.sin(yaw - cam), Math.cos(yaw - cam)));
++    if (a < ba) { ba = a; best = p; bd = d; }
++  }
++  if (!best) return null;
++  c.law.recordOffense(best, 'jet_projectile', best.x, best.z, 3).witnessed = true;
++  return { id: best.id, d: bd, ecart: ba * 180 / Math.PI };
++});
++
++async function jouer(mode) {
++  const tel = mode === 'tel';
++  const W = tel ? 844 : 1280, H = tel ? 390 : 800;
++  const { browser, page, errors } = await openPage(`${server.url}?${query}`, { width: W, height: H, mobile: tel, pointerLock: false });
++  const snap = async (name) => {
++    const file = path.join(outDir, `${tag}-${mode}-${name}.png`);
++    try { await frames(page, 2); } catch { /* page occupée */ }
++    await page.screenshot({ path: file, timeout: 240000 });
++    console.log('  capture : ' + file);
++  };
++  const F = tel ? await fingers(page) : null;
++  const touche = async (code, shift = false) => {
++    if (shift) await page.keyboard.down('Shift');
++    await page.keyboard.down(code);
++    await frames(page, 2);
++    await page.keyboard.up(code);
++    if (shift) await page.keyboard.up('Shift');
++    await frames(page, 2);
++  };
++  /** Centre d'une commande tactile visible (pastille « Ordre prêt » : orders ; « ⟳ À qui » : order_who). */
++  const ctl = async (key) => (await rects(page, `.crs-touch .ct-k-${key}`)).find((r) => r.w > 0) ?? null;
++  const toucher = async (key) => {
++    const r = await ctl(key);
++    if (!r) return false;
++    // (toucher bref, posé et levé d'un seul envoi : tenu plus de 350 ms, c'est l'appui long qui ouvre la roue)
++    const pt = [{ x: r.x + r.w / 2, y: r.y + r.h / 2, id: 7 }];
++    await Promise.all([F.cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: pt }), F.cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })]);
++    await frames(page, 3);
++    return true;
++  };
++  /** Tourne la vue d'un cran : flèche (clavier) ou glissé du pouce droit (téléphone). */
++  const tourner = async (dir) => {
++    if (!tel) {
++      const k = dir > 0 ? 'ArrowRight' : 'ArrowLeft';
++      await page.keyboard.down(k);
++      await frames(page, 2);
++      await page.keyboard.up(k);
++    } else {
++      await F.drag(2, W * 0.72, H * 0.42, W * 0.72 + dir * 90, H * 0.42, 5);
++    }
++    await frames(page, 2);
++    await step(page, 0.3);
++  };
++  const ordonner = async () => (tel ? toucher('orders') : touche('Enter'));
++  const aQui = async () => (tel ? toucher('order_who') : touche('KeyU'));
++  const L = (s) => `${mode} — ${s}`;
++  try {
++    await waitFor(page, 'window.__CRS && window.__CRS.ready === true && window.__CRS.ctx.session.phase === "playing"', 400000);
++    await step(page, 4);
++    await frames(page, 4);
++    await snap('0-depart');
++
++    // ── §7.1 : une bouche de rue, puis l'ordre ──
++    let d = await lire(page);
++    for (let i = 0; i < 60 && !(d.rule === 'g' && d.enabled && d.ids.length === 1); i++) { await tourner(1); d = await lire(page); }
++    C.check(d.rule === 'g' && d.enabled, L('§7.1 la vue tournée : la ligne dit « Bloquer la rue … · unité · distance »'), d.text);
++    C.check(/^Bloquer .+ · MISTRAL \d · \d+ m$/.test(d.text), L('§7.1 la ligne nomme la rue, la section et la distance'), d.text);
++    await snap('1-rue-designee');
++    const section = d.ids[0];
++    const t0 = d.now;
++    await ordonner();
++    let e = await lire(page);
++    const tk = e.tickets.find((t) => t.id === section);
++    C.check(!!tk && tk.verb === 'bloquer', L('§7.1 un appui : le ticket de la section existe aussitôt'), JSON.stringify(tk));
++    const o1 = await ordreDe(page, section);
++    C.check(!!o1 && o1.type === 'couper_circulation' && o1.byPlayer, L('§7.1 la section tient « barrer la rue », ordre du joueur'), JSON.stringify(o1));
++    await snap('2-ordre-donne');
++    await step(page, 12);
++    await frames(page, 3);
++    e = await lire(page);
++    const tk2 = e.tickets.find((t) => t.id === section);
++    C.check(!!tk2 && ['route', 'attente', 'en_place'].includes(tk2.state), L('§7.1 douze secondes plus tard : en route, ou déjà en place'), `${JSON.stringify(tk2)} (t+${(e.now - t0).toFixed(0)} s)`);
++    await snap('3-en-route');
++
++    // ── §7.2 : un lanceur de projectile, un appui ──
++    // il tourne la vue jusqu'à avoir un manifestant dans l'axe ; celui-là lance un projectile
++    let cible = await lanceur(page);
++    for (let i = 0; i < 40 && !cible; i++) { await tourner(1); cible = await lanceur(page); }
++    C.check(!!cible, L('§7.2 un manifestant dans l’axe du regard lance un projectile'), JSON.stringify(cible));
++    if (cible) {
++      await step(page, 1);
++      await frames(page, 3);
++      d = await lire(page);
++      C.check(d.rule === 'c' && d.person === cible.id && /^Interpeller le lanceur de projectile · .+ · \d+\u00a0m$/.test(d.text), L('§7.2 la ligne dit « Interpeller le lanceur de projectile · unité · distance »'), d.text);
++      await snap('4-lanceur-designe');
++      const unit = d.ids[0];
++      await ordonner();
++      const o2 = unit ? await ordreDe(page, unit) : null;
++      C.check(!!o2 && o2.type === 'interpeller' && o2.byPlayer && o2.targetId === cible.id, L('§7.2 un appui : l’unité tient « interpeller » cet auteur'), JSON.stringify(o2));
++      await step(page, 2);
++      await snap('5-interpeller');
++    }
++
++    // ── §7.3 : U (⟳) — la BRAV-M —, puis « Envoyer » ──
++    await step(page, 1);
++    d = await lire(page);
++    for (let i = 0; i < 80 && !((d.rule === 'g' && d.autre.startsWith('Envoyer')) || d.rule === 'h'); i++) { await tourner(-1); d = await lire(page); }
++    C.check((d.rule === 'g' && d.autre.startsWith('Envoyer')) || d.rule === 'h', L('§7.3 la vue tournée : un lieu où envoyer une unité'), `${d.text} / autre : ${d.autre}`);
++    // (la partie lancée par l'adresse a les moyens par défaut : la BRAV-M n'y est que si la foule annoncée le demande)
++    const aBravm = await page.evaluate(() => window.__CRS.ctx.service('command.direct').env().units.some((u) => u.kind === 'bravm'));
++    const avant = d.who;
++    await aQui();
++    await frames(page, 2);
++    d = await lire(page);
++    if (aBravm) C.check(/FAUCON|BRAV-M/.test(d.who), L('§7.3 U (⟳) : la ligne nomme la BRAV-M, première du cycle'), `${d.text} / autre : ${d.autre} / choix ${d.key}`);
++    else C.check(d.key !== 'auto' && d.who !== '', L('§7.3 U (⟳) : le choix devient manuel, la ligne nomme l’unité (pas de BRAV-M dans cette partie)'), `${avant} → ${d.who} / choix ${d.key}`);
++    await snap('6-bravm-choisie');
++    const bravm = d.ids[0];
++    await step(page, 0.7);
++    if (d.rule === 'h') await ordonner();
++    else if (!tel) await touche('Enter', true);
++    else {
++      // téléphone : l'ordre « autre » est sur la roue (appui long sur la pastille, relâcher sur le secteur en surbrillance)
++      const r = await ctl('orders');
++      await F.down(1, r.x + r.w / 2, r.y + r.h / 2);
++      await step(page, 0.5);
++      await frames(page, 4);
++      await snap('7-roue-appui-long');
++      const hot = await page.evaluate(() => { const w = document.querySelector('.cw-wedge.is-hot'); if (!w) return null; const b = w.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; });
++      if (hot) await F.move(1, hot.x, hot.y);
++      await frames(page, 3);
++      await F.up(1);
++      await frames(page, 4);
++    }
++    const o3 = bravm ? await ordreDe(page, bravm) : null;
++    C.check(!!o3 && ['colonne', 'avancer'].includes(o3.type) && o3.byPlayer, L('§7.3 « Envoyer » part à l’unité choisie (ordre du joueur)'), JSON.stringify(o3));
++    await step(page, 3);
++    await snap('8-bravm-envoyee');
++    e = await lire(page);
++    C.check(e.tickets.some((t) => t.id === bravm && t.verb === 'envoyer'), L('§7.3 le ticket « Envoyer » de l’unité choisie est affiché'), JSON.stringify(e.tickets.filter((t) => t.id === bravm)));
++
++    // ── rien ne se chevauche : la pastille, ⟳ et la zone gauche du HUD (téléphone) ──
++    if (tel) {
++      const a = await ctl('orders'), b = await ctl('order_who');
++      C.check(!!a && !!b && a.h >= 44 && b.h >= 44 && b.w >= 44, L('pastille et ⟳ : au moins 44 px'), JSON.stringify({ a, b }));
++      const hudLeft = (await rects(page, '.cq .cm-btn')).filter((r) => r.w > 0);
++      const hits = hudLeft.filter((r) => (a && overlap(a, r)) || (b && overlap(b, r)));
++      C.check(hits.length === 0, L('la pastille et ⟳ ne recouvrent aucun bouton de la zone gauche du HUD'), JSON.stringify(hits));
++    }
++    C.check(errors.length === 0, L('aucune erreur dans la console'), errors.slice(0, 3).join(' | '));
++  } finally {
++    await browser.close();
++  }
++}
++
++try {
++  if (!args.only || args.only === 'clavier') await jouer('clavier');
++  if (!args.only || args.only === 'tel') await jouer('tel');
++} catch (err) {
++  C.check(false, 'le scénario va jusqu’au bout', String(err && err.stack ? err.stack : err).slice(0, 600));
++} finally {
++  C.done();
++  await server.close().catch(() => {});
++}
 +process.exit(C.failures.length === 0 ? 0 : 1);
 diff --git a/crs-simulation/tests/e2e/ordre-direct-tel.mjs b/crs-simulation/tests/e2e/ordre-direct-tel.mjs
 new file mode 100644
@@ -44473,6 +44827,2074 @@ index 0000000..97381f2
 +    expect(ctx.vehicles.list.filter((v) => v.kind === 'moto_bravm' && ctx.squads.get(again.squadId)).length).toBeGreaterThanOrEqual(6);
 +  }, 600000);
 +});
+diff --git a/crs-simulation/tests/unit/playtest.ordre-direct-cdt01-colonne.test.ts b/crs-simulation/tests/unit/playtest.ordre-direct-cdt01-colonne.test.ts
+new file mode 100644
+index 0000000..3f5109b
+--- /dev/null
++++ b/crs-simulation/tests/unit/playtest.ordre-direct-cdt01-colonne.test.ts
+@@ -0,0 +1,65 @@
++// Recette des ordres directs, scénario 1 (b) : COMMANDANT, MISSION SPÉCIALE cdt-01, le MÊME ordre donné PENDANT QUE LA
++// COLONNE ROULE ENCORE, puis PENDANT QU'ELLE SE GARE ET DÉBARQUE (acceptation 2 : « Je donne un ordre pendant qu'ils sont
++// encore dans les fourgons : ils descendent et y vont » — jamais zéro agent en mouvement dix secondes plus tard ; §2.5 :
++// l'écran dit ce que l'unité finit et dans combien de temps). Le joueur est passager de son véhicule de commandement ;
++// il tourne la tête, lit « Entrée  Bloquer … », appuie.
++import { beforeAll, describe, expect, it } from 'vitest';
++
++import { doneText } from '@/ui/command/direct';
++import { Joueur, direEnColonne, etapeEnColonne, releves, verifierEnColonne } from './playtest.ordre-direct.lib';
++import type { EtapeEnColonne } from './playtest.ordre-direct.lib';
++
++let j: Joueur;
++let arrive = -1;
++let enRoute: EtapeEnColonne | null = null;
++let auStationnement: EtapeEnColonne | null = null;
++
++beforeAll(async () => {
++  j = await Joueur.mission('cdt-01-prise-de-commandement');
++  const own = j.core.scope().ownSquadId;
++  const stage = (): string => j.cmd.convoyOf(own)?.stage ?? '-';
++  // en route, à moins de 250 m de la destination : il regarde dehors et ordonne ; puis au stationnement / débarquement
++  arrive = j.trajet(() => j.missions.phaseIndex >= 0 || j.missions.result !== null, 1300, () => {
++    const d = j.journee.destination;
++    const me = j.moi;
++    if (me.vehicleId === 0 || !d) return;
++    const v = j.ctx.vehicles.get(me.vehicleId)!;
++    const st = stage();
++    if (!enRoute && st === 'route' && Math.hypot(d.x - v.x, d.z - v.z) < 250 && Math.abs(v.speed) > 1) {
++      enRoute = etapeEnColonne(j, 'en route (la colonne roule)');
++      if (enRoute) console.log(direEnColonne(enRoute));
++    } else if (!auStationnement && (st === 'stationnement' || st === 'debarquement')) {
++      auStationnement = etapeEnColonne(j, `au ${st === 'stationnement' ? 'stationnement' : 'débarquement'} (la colonne se gare)`, enRoute ? [enRoute.squadId] : [], 300);
++      if (auStationnement) console.log(direEnColonne(auStationnement));
++    }
++  });
++  console.log(`mission commencée à ${arrive} s ; colonne ${stage()} ; lectures interdites ${j.lectures.length} ${j.lectures.slice(0, 4).join(' | ')} ; refus ${j.refus.join(' | ') || 'aucun'} ; attentes ${j.attentes.slice(0, 4).join(' | ') || 'aucune'}`);
++}, 1_500_000);
++
++describe('recette — commandant, cdt-01 : l’ordre donné pendant que la colonne roule, puis pendant qu’elle se gare', () => {
++  it('en route : la section désignée va barrer la rue (acceptation 2, §2.5)', () => {
++    expect(enRoute, 'une ligne « Bloquer … » lue depuis son siège pendant que la colonne roule').not.toBeNull();
++    verifierEnColonne(enRoute!);
++  });
++
++  it('au stationnement : la section désignée descend et va barrer la rue (acceptation 2, §2.5)', () => {
++    expect(auStationnement, 'une ligne « Bloquer … » lue depuis son siège pendant que la colonne se gare').not.toBeNull();
++    verifierEnColonne(auStationnement!);
++  });
++
++  it('le « ✓ » s’accorde avec la voie : « rue … barrée », « boulevard … barré »', () => {
++    expect(doneText({ verb: 'bloquer', place: 'rue René Boulanger' })).toBe('rue René Boulanger barrée');
++    expect(doneText({ verb: 'bloquer', place: 'avenue Gabriel' })).toBe('avenue Gabriel barrée');
++    expect(doneText({ verb: 'bloquer', place: 'boulevard de Magenta' })).toBe('boulevard de Magenta barré');
++    expect(doneText({ verb: 'bloquer', place: 'quai des Tuileries' })).toBe('quai des Tuileries barré');
++    expect(doneText({ verb: 'bloquer', place: 'pont de la Concorde' })).toBe('pont de la Concorde barré');
++    expect(doneText({ verb: 'bloquer', place: '' })).toBe('rue barrée');
++    expect(auStationnement!.ecran[auStationnement!.ecran.length - 1]).toBe('MISTRAL 2 · boulevard de Magenta barré ✓');
++  });
++
++  it('la mission commence, et les relevés permanents tiennent (acceptations 3, 5, 10)', () => {
++    expect(arrive).toBeGreaterThanOrEqual(0);
++    releves(j);
++    expect(j.attentes).toEqual([]);
++  });
++});
+diff --git a/crs-simulation/tests/unit/playtest.ordre-direct-cdt01.test.ts b/crs-simulation/tests/unit/playtest.ordre-direct-cdt01.test.ts
+new file mode 100644
+index 0000000..66f329f
+--- /dev/null
++++ b/crs-simulation/tests/unit/playtest.ordre-direct-cdt01.test.ts
+@@ -0,0 +1,276 @@
++// Recette des ordres directs, scénario 1 (le cas exact du joueur) : COMMANDANT, MISSION SPÉCIALE cdt-01 « Prise de
++// commandement » (place de la République), lancée depuis sa fiche, trajet en passager de son véhicule de commandement,
++// puis à pied au point de ralliement. Le robot joue comme lui (playtest.ordre-direct.lib.ts) :
++//   (a) §7.1 — il regarde une bouche de rue, Entrée : la section libre la plus proche la barre (accusé ≤ 1 s, premier
++//       mouvement ≤ 2 s, en place ≤ 45 s ; des agents encore assis descendent d'abord, et c'est dit) ;
++//   (c) A : tout le monde le suit dans la seconde ; ⌫ rend les ordres d'avant (acceptations 6 et 19) ;
++//   (e) §7.2 — un manifestant lance un projectile, il le regarde, UN appui : interpellé ≤ 60 s, à bord d'un fourgon
++//       cellulaire ≤ 120 s, l'unité revient « avec vous » (acceptation 7) ; deux fourgons cellulaires au moins, dont un
++//       avec une place libre à moins de 150 m du lieu de la remise ;
++//   (f) il interpelle quelqu'un lui-même : la ligne d'aide dit où l'emmener en moins de 0,5 s, quatre appuis au plus
++//       le libèrent (acceptation 11) ;
++//   (g) le fourgon part au commissariat sur ordre (U, Entrée), un second tient la remise (acceptation 12) ;
++//   (h) les nombres du compte rendu de fin sont ceux des registres (acceptation 13).
++// (cdt-01 n'a pas de BRAV-M : (d) et la BRAV-M de (c) et (e) sont jouées dans cdt-04, playtest.ordre-direct-cdt04 ;
++// (b), l'ordre donné pendant que la colonne roule ou se gare, dans playtest.ordre-direct-cdt01-colonne.)
++import { beforeAll, describe, expect, it } from 'vitest';
++
++import type { Person } from '@/core/contracts';
++import { Joueur, direAvecMoi, direInterpeller, etapeAvecMoi, etapeBarrage, etapeInterpeller, jetConstate, releves, verifierBarrage } from './playtest.ordre-direct.lib';
++import type { Appui, EtapeAvecMoi, EtapeBarrage, EtapeInterpeller } from './playtest.ordre-direct.lib';
++
++interface Releve {
++  arrivee: { secondes: number; journee: string; colonne: string; assis: number };
++  a: EtapeBarrage | null;
++  c: EtapeAvecMoi | null;
++  fourgons: number;
++  libreA150: number;
++  e: EtapeInterpeller | null;
++  f: { aide: string; invites: string[]; quatrieme: string; libre: boolean; appuis: number; entree: string; auFourgon: number } | null;
++  g: { ligne: string; appui: Appui; parti: number; secondSurPlace: boolean; sansFourgon: number; depose: number; joue: number; dit: string; pilote: string } | null;
++  h: { compteRendu: string; registres: { total: number; fourgon: number; commissariat: number }; monde: { fourgon: number; commissariat: number }; ligneEtat: string } | null;
++}
++
++/**
++ * Où les interpellés sont remis : le point de remise de la compagnie quand il est fixé ; en journée de service, tant
++ * que la foule est loin de la ligne, il ne l'est pas (session/remise.ts) : les fourgons restent où la colonne s'est
++ * arrêtée, et c'est de là qu'on mesure (le point de ralliement, où il est descendu).
++ */
++let ralliement = { x: 0, z: 0 };
++function lieuDeRemise(): { x: number; z: number } {
++  return j.remise.point() ?? ralliement;
++}
++
++const R: Releve = { arrivee: { secondes: -1, journee: '', colonne: '', assis: 0 }, a: null, c: null, fourgons: 0, libreA150: 0, e: null, f: null, g: null, h: null };
++let j: Joueur;
++
++beforeAll(async () => {
++  j = await Joueur.mission('cdt-01-prise-de-commandement');
++  const { ctx } = j;
++  // ── trajet en passager, jusqu'au début de la mission ──
++  R.arrivee.secondes = j.trajet(() => j.missions.phaseIndex >= 0 || j.missions.result !== null);
++  const own = j.core.scope().ownSquadId;
++  R.arrivee.journee = j.journee.stage;
++  R.arrivee.colonne = j.cmd.convoyOf(own)?.stage ?? '-';
++  R.arrivee.assis = j.agents([own], true).filter((p) => p.vehicleId !== 0).length;
++  j.descendre();
++  ralliement = { x: j.moi.x, z: j.moi.z };
++  console.log(`arrivée : ${R.arrivee.secondes} s de trajet, journée ${R.arrivee.journee}, colonne ${R.arrivee.colonne}, ${R.arrivee.assis} agents encore assis ; état « ${j.ecran()?.state} »`);
++
++  // ── (a) il regarde une bouche de rue, Entrée ──
++  R.a = etapeBarrage(j);
++  if (R.a) console.log(`${j.dire('(a) bouche de rue', R.a.appui, R.a.suivi)}\n      barrage : ${JSON.stringify(R.a.barrage)}`);
++
++  // ── (c) A : tout le monde avec moi ; ⌫ : les ordres d'avant ──
++  R.c = etapeAvecMoi(j, R.a ? R.a.squadId : 0);
++  console.log(`(c) ${direAvecMoi(R.c, R.a ? R.a.unite : '')}`);
++
++  // ── (e) un manifestant lance un projectile : il le regarde, un appui ──
++  {
++    j.pas(2);
++    const vans = j.cellulaires();
++    const remise = lieuDeRemise();
++    R.fourgons = vans.length;
++    R.libreA150 = vans.filter(({ s, v }) => { const w = j.transfert.view(s.id); return w !== null && w.detainees < w.seats && Math.hypot(v.x - remise.x, v.z - remise.z) <= 150; }).length;
++    // il va vers le cortège jusqu'à voir des manifestants à quelques dizaines de mètres
++    const cible = j.approcher(25, 60, 120);
++    if (cible) {
++      R.e = etapeInterpeller(j, cible, 200);
++      console.log(`(e) ${direInterpeller(R.e)} ; ${R.fourgons} fourgons cellulaires, ${R.libreA150} avec une place à moins de 150 m du lieu de la remise`);
++    } else console.log('(e) aucun manifestant en vue à 25–60 m après 120 s de marche');
++  }
++
++  // ── (f) il interpelle quelqu'un lui-même : E, E, E, puis la meilleure issue ──
++  {
++    const me = j.moi;
++    j.a();
++    j.pas(6);
++    const target: Person = ctx.people.spawn({ kind: 'manifestant', x: me.x + Math.sin(me.heading) * 1.2, z: me.z + Math.cos(me.heading) * 1.2, name: 'Christian Lopez' });
++    jetConstate(j, target);
++    ctx.people.rebuildIndex();
++    const invites: string[] = [];
++    let appuis = 0;
++    // (la maîtrise peut échouer — tirage : il recommence, comme le joueur ; ces essais ne sont pas comptés deux fois)
++    for (let i = 0; i < 8 && target.custody !== 'held'; i++) {
++      target.x = me.x + Math.sin(me.heading) * 1.2;
++      target.z = me.z + Math.cos(me.heading) * 1.2;
++      ctx.people.rebuildIndex();
++      const p = j.e();
++      if (i === 0) { invites.push(p ? p.label : '(aucune invite)'); appuis++; }
++      if ((target.custody as string) !== 'held') j.pas(2);
++    }
++    for (let i = 0; i < 2; i++) { const p = j.e(); invites.push(p ? p.label : '(aucune invite)'); appuis++; }
++    // (j.e() a laissé passer 0,25 s après la palpation : la ligne d'aide est lue dans la demi-seconde)
++    const t0 = j.now;
++    const aide = j.custody.guidance(me.id);
++    const entree = j.ligne();
++    const fourth = j.e();
++    appuis++;
++    invites.push(fourth ? fourth.label : '(aucune invite)');
++    const libre = j.custody.detaineeOf(me.id) === null;
++    // le binôme emmène l'interpellé au fourgon
++    let auFourgon = -1;
++    for (let k = 0; k < 240 && auFourgon < 0; k++) {
++      j.pas(1);
++      const v = target.vehicleId !== 0 ? ctx.vehicles.get(target.vehicleId) : undefined;
++      if (target.custody === 'in_vehicle' && v && v.kind === 'fourgon_cellulaire') auFourgon = j.now - t0;
++    }
++    R.f = { aide, invites, quatrieme: fourth ? fourth.verb : '', libre, appuis, entree, auFourgon };
++    console.log(`(f) invites : ${invites.join(' → ')} ; ligne d'aide « ${aide} » ; ligne Entrée « ${entree} » ; libre après ${appuis} appuis : ${libre} ; son interpellé à bord d'un fourgon cellulaire ${auFourgon.toFixed(0)} s plus tard`);
++  }
++
++  // ── (g) U jusqu'au fourgon qui a des interpellés, Entrée : il part au commissariat, un second tient la remise ──
++  {
++    const o = j.uJusqua((u) => u.kind === 'cellulaire' && (u.detainees ?? 0) > 0);
++    const ligne = j.ligne();
++    if (o) {
++      const appui = j.entree();
++      const id = appui.res.squads[0] ?? o.who!.squadIds[0]!;
++      const ap = ctx.service<{ status(v: unknown): { mode: string; state: string; reason: string; remaining: number } }>('vehicles.autopilot')!;
++      let parti = -1, depose = -1, sansFourgon = 0, joue = 0;
++      let secondSurPlace = false;
++      let pilote = '';
++      for (let s = 0; s < 600 && depose < 0 && ctx.session.phase === 'playing' && !j.missions.result; s++) {
++        j.pas(1);
++        joue++;
++        const w = j.transfert.view(id);
++        if (parti < 0 && w && (w.stage === 'aller' || w.stage === 'commissariat')) parti = j.now - appui.at;
++        const remise = lieuDeRemise();
++        const free = j.cellulaires().filter(({ s: q, v }) => { const x = j.transfert.view(q.id); return x !== null && q.id !== id && x.detainees < x.seats && Math.hypot(v.x - remise.x, v.z - remise.z) <= 150; }).length;
++        if (free > 0) secondSurPlace = true; else sansFourgon++;
++        if (j.records.interpellations.some((r) => r.status === 'depose')) depose = j.now - appui.at;
++        if (s % 60 === 59) {
++          const van = j.cellulaires().find((x) => x.s.id === id);
++          if (van) { const st = ap.status(van.v); pilote = `t+${s + 1} s : ${w?.stage} à (${van.v.x.toFixed(0)}, ${van.v.z.toFixed(0)}), ${van.v.speed.toFixed(1)} m/s, pilote ${st.mode}/${st.state}/${st.reason}, reste ${st.remaining.toFixed(0)} m`; }
++        }
++      }
++      const dit = j.messages.filter((m) => m.t >= appui.at - 1e-6 && m.t <= appui.at + 10).map((m) => m.text)
++        .concat(ctx.radio.log.filter((l) => l.t >= appui.at - 1e-6 && l.t <= appui.at + 60 && /CELLULAIRE/.test(l.from)).map((l) => `${l.from} : ${l.text}`)).join(' | ');
++      R.g = { ligne, appui, parti, secondSurPlace, sansFourgon, depose, joue, dit, pilote };
++      console.log(`(g) « ${ligne} » : ${appui.res.ok ? 'accepté' : appui.res.text} ; parti à ${parti.toFixed(0)} s ; second fourgon libre à moins de 150 m du lieu de la remise : ${secondSurPlace} (${sansFourgon} s sans) ; déposés au commissariat à ${depose.toFixed(0)} s (${joue} s jouées) ; ${pilote}\n      dit : ${dit}`);
++    } else {
++      R.g = { ligne, appui: { touche: 'Entrée', at: j.now, ligne, ordre: null, res: { ok: false, text: 'aucun fourgon avec des interpellés dans le cycle de U', squads: [], ignored: false } }, parti: -1, secondSurPlace: false, sansFourgon: 0, depose: -1, joue: 0, dit: '', pilote: '' };
++      console.log(`(g) U n'a proposé aucun fourgon cellulaire avec des interpellés ; fourgons : ${j.transfert.vans.map((v) => `${v.name} ${v.stage} ${v.detainees}/${v.seats}`).join(', ')}`);
++    }
++  }
++
++  // ── (h) le compte rendu de fin et les registres ──
++  {
++    const recs = j.records.interpellations;
++    const monde = { fourgon: 0, commissariat: 0 };
++    for (const { v } of j.cellulaires()) monde.fourgon += j.aBord(v).length;
++    for (const d of j.transfert.delivered) monde.commissariat += d.count;
++    R.h = {
++      compteRendu: j.compteRendu(),
++      registres: { total: recs.length, fourgon: recs.filter((r) => r.status === 'remis_vehicule').length, commissariat: recs.filter((r) => r.status === 'depose').length },
++      monde, ligneEtat: j.ecran()?.custody ?? '',
++    };
++    console.log(`(h) compte rendu « ${R.h.compteRendu} » ; registres ${JSON.stringify(R.h.registres)} ; monde ${JSON.stringify(monde)} ; bloc d'état « ${R.h.ligneEtat} »`);
++  }
++  console.log(`lectures interdites : ${j.lectures.length} ${j.lectures.slice(0, 5).join(' | ')}\nrefus : ${j.refus.join(' | ') || 'aucun'}\nattentes : ${j.attentes.slice(0, 5).join(' | ') || 'aucune'}`);
++}, 1_500_000);
++
++describe('recette — commandant, mission spéciale cdt-01, à l’arrivée sur la manifestation', () => {
++  it('il arrive avec sa colonne : la mission commence, il commande tout', () => {
++    expect(R.arrivee.secondes).toBeGreaterThanOrEqual(0);
++    expect(j.missions.phaseIndex).toBeGreaterThanOrEqual(0);
++    expect(j.core.scope().level).toBe('tout');
++  });
++
++  it('(a) §7.1 : il regarde une bouche de rue, Entrée — la section la barre (accusé ≤ 1 s, mouvement ≤ 2 s, en place ≤ 45 s)', () => {
++    verifierBarrage(R.a);
++    expect(R.a!.ligne).toMatch(/^Bloquer .+ · MISTRAL \d · \d+ m$/);
++  });
++
++  it('(c) A : toutes les unités le suivent dans la seconde (acceptation 6)', () => {
++    const c = R.c!;
++    expect(c.appui.res.ok, c.appui.res.text).toBe(true);
++    expect(c.pasAvecMoi, c.ordres.join(' ')).toEqual([]);
++    expect(c.accuse, 'accusé à la radio').toBeGreaterThanOrEqual(0);
++    expect(c.accuse).toBeLessThanOrEqual(1);
++    expect(c.etat).toMatch(/^AVEC VOUS · /);
++  });
++
++  it('(c) ⌫ dans les 5 s : la section reprend son barrage, les autres restent avec lui (acceptation 19)', () => {
++    const c = R.c!;
++    expect(c.retour.res.ok, c.retour.res.text).toBe(true);
++    expect(c.rendu).toBe('couper_circulation');
++    expect(c.renduApres).toBe('couper_circulation');
++    expect(c.autres).toEqual([]);
++  });
++
++  it('(e) §7.2 : deux fourgons cellulaires au moins, dont un avec une place libre à moins de 150 m du lieu de la remise', () => {
++    expect(R.fourgons).toBeGreaterThanOrEqual(2);
++    expect(R.libreA150).toBeGreaterThanOrEqual(1);
++  });
++
++  it('(e) §7.2 : un lanceur désigné, UN appui — accusé ≤ 1 s, interpellé ≤ 60 s, il finit dans un fourgon cellulaire, l’unité revient « avec vous » ≤ 10 s après', () => {
++    const e = R.e!;
++    expect(e, 'un manifestant en vue').not.toBeNull();
++    expect(e.ligne).toMatch(/^Interpeller le lanceur de projectile · .+ · \d+ m$/);
++    expect(e.appui.res.ok, e.appui.res.text).toBe(true);
++    expect(e.accuse).toBeGreaterThanOrEqual(0);
++    expect(e.accuse).toBeLessThanOrEqual(1);
++    expect(e.interpelle, 'interpellé').toBeGreaterThanOrEqual(0);
++    expect(e.interpelle).toBeLessThanOrEqual(60);
++    expect(e.aBord, 'à bord d’un fourgon cellulaire').toBeGreaterThanOrEqual(0);
++    expect(e.fourgon).toMatch(/^CELLULAIRE \d$/);
++    expect(e.revient, 'l’unité revient avec lui').toBeGreaterThanOrEqual(0);
++    expect(e.revient).toBeLessThanOrEqual(10);
++  });
++
++  // DÉFAUT : le fourgon cellulaire appelé roule 13 m puis reste pris derrière la file des fourgons de la compagnie
++  // (arrêtés pare-chocs contre pare-chocs) ; le binôme emmène l'interpellé à pied sur 130 m — 144 s au lieu de 120.
++  it.fails('(e) §7.2 : à bord d’un fourgon cellulaire en 120 s au plus (acceptation 7)', () => {
++    expect(R.e!.aBord).toBeGreaterThanOrEqual(0);
++    expect(R.e!.aBord).toBeLessThanOrEqual(120);
++  });
++
++  it('(f) il interpelle lui-même : la ligne d’aide dit où l’emmener en moins de 0,5 s, quatre appuis le libèrent (acceptation 11)', () => {
++    const f = R.f!;
++    expect(f.aide).toMatch(/^Interpellé\. E : (le confier à .+ \(\d+ m\)|l’emmener au fourgon cellulaire \d \(\d+ m, flèche\)|faire venir le fourgon cellulaire \d \(\d+ m\)|le remettre au fourgon cellulaire \d \(\d+ m\))$/);
++    expect(['confier', 'remettre', 'faire_venir']).toContain(f.quatrieme);
++    expect(f.invites.some((l) => /^Faire asseoir/.test(l))).toBe(false);
++    // le commandant lit la même issue sur sa ligne Entrée
++    expect(f.entree).toMatch(/^(Confier l’interpellé à |Remettre l’interpellé au fourgon cellulaire |Faire venir le fourgon cellulaire |Emmenez-le au fourgon cellulaire )/);
++    expect(f.appuis).toBeLessThanOrEqual(4);
++    expect(f.libre, 'les mains libres au 4e appui').toBe(true);
++    expect(f.auFourgon, 'son interpellé finit dans un fourgon cellulaire').toBeGreaterThanOrEqual(0);
++  });
++
++  it('(g) U jusqu’au fourgon cellulaire, Entrée : il part tout de suite, un second fourgon tient la remise (acceptation 12)', () => {
++    const g = R.g!;
++    expect(g.ligne).toMatch(/^CELLULAIRE \d : partir au commissariat \(\d\/\d\)$/);
++    expect(g.appui.res.ok, g.appui.res.text).toBe(true);
++    expect(g.parti, 'le fourgon part').toBeGreaterThanOrEqual(0);
++    expect(g.parti).toBeLessThanOrEqual(15);
++    expect(g.secondSurPlace, 'un second fourgon avec une place libre à moins de 150 m du lieu de la remise').toBe(true);
++    expect(g.sansFourgon, 'secondes sans autre fourgon libre au lieu de la remise').toBe(0);
++  });
++
++  // (fragile : dans une partie voisine, le fourgon parti est resté huit minutes derrière un fourgon de la compagnie arrêté
++  // en travers de la voie — pilote « attente / véhicule » — et n'a rien déposé ; voir le compte rendu de la recette)
++  it('(g) ses interpellés sont déposés au commissariat (acceptation 12)', () => {
++    expect(R.g!.depose, R.g!.pilote).toBeGreaterThanOrEqual(0);
++  });
++
++  it('(h) le compte rendu de fin dit les nombres des registres, qui sont ceux du monde (acceptation 13)', () => {
++    const h = R.h!;
++    expect(h.registres.total).toBeGreaterThanOrEqual(2);
++    expect(h.registres.fourgon).toBe(h.monde.fourgon);
++    expect(h.registres.commissariat).toBe(h.monde.commissariat);
++    expect(h.registres.fourgon + h.registres.commissariat).toBe(h.registres.total);
++    expect(h.compteRendu.startsWith(`${h.registres.total} — `)).toBe(true);
++    if (h.registres.commissariat > 0) expect(h.compteRendu).toMatch(new RegExp(`${h.registres.commissariat} déposés? au commissariat`));
++    if (h.registres.fourgon > 0) expect(h.compteRendu).toMatch(new RegExp(`${h.registres.fourgon} dans le fourgon cellulaire \\d`));
++    expect(h.ligneEtat).toMatch(new RegExp(`^Interpellés ${h.registres.total} · `));
++  });
++
++  it('à chaque seconde : aucune unité sous ses ordres ne lit « SANS ORDRE », « MONTE », « DESCEND », « EN FILE » ; tout refus est une phrase du tableau (acceptations 5 et 10)', () => {
++    releves(j);
++  });
++
++  it('toute attente affichée a sa raison et dure 10 s au plus, trajet excepté (acceptation 3)', () => {
++    expect(j.attentes).toEqual([]);
++  });
++});
+diff --git a/crs-simulation/tests/unit/playtest.ordre-direct-cdt04.test.ts b/crs-simulation/tests/unit/playtest.ordre-direct-cdt04.test.ts
+new file mode 100644
+index 0000000..bfe482a
+--- /dev/null
++++ b/crs-simulation/tests/unit/playtest.ordre-direct-cdt04.test.ts
+@@ -0,0 +1,157 @@
++// Recette des ordres directs, scénario 1, seconde mission du commandant, autre lieu : cdt-04 « Nuit des vitrines » (rue
++// Saint-Honoré, deux sections et trois BRAV-M), lancée depuis sa fiche, trajet en passager, puis à pied :
++//   (a) §7.1 — une bouche de rue, Entrée : la section la plus proche la barre ;
++//   (c) A : toutes les unités le suivent dans la seconde, BRAV-M COMPRISES (acceptation 6) ; ⌫ rend le barrage (19) ;
++//   (d) §7.3 — U jusqu'à la BRAV-M (elle est la première du cycle), Entrée sur un carrefour à 300–400 m : elle y
++//       arrive, ou finit à pied et le dit (acceptations 8 et 9) ;
++//   (e) §7.2 — un lanceur de projectile désigné, UN appui : la BRAV-M l'interpelle (≤ 60 s), il finit dans un fourgon
++//       cellulaire (≤ 120 s), elle revient « avec vous » (acceptation 7).
++import { beforeAll, describe, expect, it } from 'vitest';
++
++import { Joueur, direAvecMoi, direEnvoyer, direInterpeller, etapeAvecMoi, etapeBarrage, etapeEnvoyer, etapeInterpeller, releves, verifierBarrage } from './playtest.ordre-direct.lib';
++import type { EtapeAvecMoi, EtapeBarrage, EtapeEnvoyer, EtapeInterpeller } from './playtest.ordre-direct.lib';
++
++let j: Joueur;
++let arrivee = -1;
++let bravmAuDepart: string[] = [];
++let a: EtapeBarrage | null = null;
++let c: EtapeAvecMoi | null = null;
++let d: EtapeEnvoyer | null = null;
++let e: EtapeInterpeller | null = null;
++let fourgons = 0;
++let refusBarrage = '';
++
++beforeAll(async () => {
++  j = await Joueur.mission('cdt-04-nuit-des-vitrines');
++  arrivee = j.trajet(() => j.missions.phaseIndex >= 0 || j.missions.result !== null);
++  const own = j.core.scope().ownSquadId;
++  console.log(`arrivée : ${arrivee} s de trajet, journée ${j.journee.stage}, colonne ${j.cmd.convoyOf(own)?.stage ?? '-'}`);
++  j.descendre();
++  bravmAuDepart = j.bravm().map((u) => `${u.name}:${j.squad(u.squadId).order.type}${u.avecVous ? ' (avec vous)' : ''}`);
++  console.log(`BRAV-M sous ses ordres : ${bravmAuDepart.join(', ') || 'AUCUNE'} ; état « ${j.ecran()?.state} »`);
++
++  a = etapeBarrage(j);
++  if (a) console.log(`${j.dire('(a) bouche de rue', a.appui, a.suivi)}\n      barrage : ${JSON.stringify(a.barrage)}`);
++
++  c = etapeAvecMoi(j, a ? a.squadId : 0);
++  console.log(`(c) ${direAvecMoi(c, a ? a.unite : '')}`);
++
++  // (d) du point de ralliement aucun lieu à 300–400 m ne se désigne (rues étroites ; dans l'axe de la seule avenue qui
++  // porte loin se tient un auteur de faits, et une personne désignée passe avant le sol) : il regarde la rue la plus
++  // lointaine qu'il lit, U (la BRAV-M), et — « Bloquer » lui étant refusé — Maj+Entrée : « Envoyer : rue … »
++  j.pas(3);
++  {
++    let best: { yaw: number; d: number } | null = null;
++    for (let k = 0; k < 24; k++) {
++      const o = j.cap((k * Math.PI) / 12);
++      if (o && o.rule === 'g' && o.autre && o.autre.verb === 'envoyer' && (!best || o.distance > best.d)) best = { yaw: (k * Math.PI) / 12, d: o.distance };
++    }
++    if (best) {
++      j.cap(best.yaw);
++      const o = j.u();
++      refusBarrage = o && !o.enabled ? o.lock ?? '' : '';
++      j.direct.setWho('auto');
++      d = etapeEnvoyer(j, (u) => u.kind === 'bravm', 120, true);
++      if (d) console.log(`(d) « Bloquer » à la BRAV-M : « ${refusBarrage} » ; ${direEnvoyer(d)}`);
++    } else console.log('(d) aucune rue à désigner');
++  }
++
++  // (e) il va vers les casseurs ; l'un d'eux lance un projectile
++  j.a();
++  fourgons = j.cellulaires().length;
++  const cible = j.approcher(25, 60, 150);
++  if (cible) {
++    e = etapeInterpeller(j, cible, 200);
++    console.log(`(e) ${direInterpeller(e)}`);
++  } else console.log('(e) aucun manifestant en vue à 25–60 m après 150 s de marche');
++  console.log(`lectures interdites : ${j.lectures.length} ${j.lectures.slice(0, 5).join(' | ')}\nrefus : ${j.refus.join(' | ') || 'aucun'}\nattentes : ${j.attentes.slice(0, 5).join(' | ') || 'aucune'}`);
++}, 1_500_000);
++
++describe('recette — commandant, mission spéciale cdt-04 (BRAV-M), à l’arrivée', () => {
++  it('il arrive, il commande tout, les BRAV-M sont sous ses ordres et avec lui', () => {
++    expect(arrivee).toBeGreaterThanOrEqual(0);
++    expect(j.core.scope().level).toBe('tout');
++    expect(bravmAuDepart.length).toBeGreaterThanOrEqual(1);
++  });
++
++  it('(a) §7.1 : une bouche de rue, Entrée — la section la barre (acceptation 1)', () => {
++    verifierBarrage(a);
++  });
++
++  it('(c) A : toutes les unités le suivent dans la seconde, BRAV-M comprises (acceptation 6)', () => {
++    expect(c!.appui.res.ok, c!.appui.res.text).toBe(true);
++    expect(c!.pasAvecMoi, c!.ordres.join(' ')).toEqual([]);
++    expect(c!.ordres.some((o) => /^FAUCON/.test(o))).toBe(true);
++    expect(c!.etat).toMatch(/^AVEC VOUS · .*BRAV-M/);
++  });
++
++  it('(c) ⌫ dans les 5 s : la section reprend son barrage, les autres restent avec lui (acceptation 19)', () => {
++    expect(c!.retour.res.ok, c!.retour.res.text).toBe(true);
++    expect(c!.rendu).toBe('couper_circulation');
++    expect(c!.renduApres).toBe('couper_circulation');
++    expect(c!.autres).toEqual([]);
++  });
++
++  it('(d) U : la BRAV-M est la première du cycle ; « Bloquer » lui est refusé par la phrase du tableau (acceptation 10)', () => {
++    expect(d, 'une rue à désigner et une BRAV-M dans le cycle de U').not.toBeNull();
++    expect(d!.u).toBe(1);
++    expect(refusBarrage).toBe('La BRAV-M ne tient pas de barrage\u00a0: envoyez une section.');
++  });
++
++  it('(d) Maj+Entrée « Envoyer : rue … » à la BRAV-M : accusé ≤ 1 s, l’ordre tenu, elle part et arrive en 90 s au plus (acceptations 8 et 9)', () => {
++    expect(d!.ligne).toMatch(/^Envoyer\u00a0: .+$/);
++    expect(d!.unite).toMatch(/^FAUCON \d/);
++    expect(d!.appui.res.ok, d!.appui.res.text).toBe(true);
++    expect(d!.accuse).toBeGreaterThanOrEqual(0);
++    expect(d!.accuse).toBeLessThanOrEqual(1);
++    expect(d!.mouvement, 'premier opérateur ou première moto en mouvement').toBeGreaterThanOrEqual(0);
++    expect(d!.mouvement).toBeLessThanOrEqual(6);
++    expect(d!.autresOrdres, 'l’ordre affiché reste celui du joueur').toEqual([]);
++    expect(d!.arrive, `${d!.unite} : médiane à ${d!.reste.toFixed(0)} m, étapes ${d!.etapes.join(' → ')}`).toBeGreaterThanOrEqual(0);
++    expect(d!.arrive).toBeLessThanOrEqual(90);
++  });
++
++  it('(e) §7.2 : un lanceur désigné, UN appui — la ligne nomme la BRAV-M, l’ordre part, il est écrit à l’instant', () => {
++    expect(fourgons).toBeGreaterThanOrEqual(1);
++    expect(e, 'un manifestant en vue').not.toBeNull();
++    expect(e!.ligne).toMatch(/^Interpeller le lanceur de projectile · BRAV-M · \d+\u00a0m$/);
++    expect(e!.appui.res.ok, e!.appui.res.text).toBe(true);
++    expect(e!.unite).toMatch(/^FAUCON \d/);
++    expect(e!.ecran[0]).toMatch(/ · Interpeller · reçu$/);
++    expect(e!.types).toEqual(['interpeller']);
++  });
++
++  // DÉFAUT : auteur à plus de 120 m d'elle, la BRAV-M ne dit « REÇU » qu'au début de son approche (2,7 à 13,7 s selon
++  // les parties, le canal occupé), pas dans la seconde (sim/police/command/bravm.ts).
++  it.fails('(e) la BRAV-M accuse réception de « Interpeller » à la radio en 1 s au plus (acceptation 9)', () => {
++    expect(e!.accuse).toBeGreaterThanOrEqual(0);
++    expect(e!.accuse).toBeLessThanOrEqual(1);
++  });
++
++  // DÉFAUT : le fourgon cellulaire, à 130 m de l'interpellation, ne s'approche pas : le binôme emmène l'interpellé à pied
++  // (à bord au bout de 125 s) ; d'une partie à l'autre la BRAV-M renonce aussi (« hors d'atteinte », « groupe compact »).
++  it.fails('(e) §7.2 : interpellé ≤ 60 s et dans un fourgon cellulaire ≤ 120 s (acceptation 7)', () => {
++    expect(e!.interpelle).toBeGreaterThanOrEqual(0);
++    expect(e!.interpelle).toBeLessThanOrEqual(60);
++    expect(e!.aBord).toBeGreaterThanOrEqual(0);
++    expect(e!.aBord).toBeLessThanOrEqual(120);
++  });
++
++  it('(e) ensuite la BRAV-M revient avec lui dans les 10 s — l’interpellé remis, ou l’abandon dit en une phrase (§3.2, acceptations 7 et 10)', () => {
++    if (e!.refuse >= 0) {
++      expect(e!.refus).toMatch(/^FAUCON \d.* ne peut pas\u00a0: .+\. U\u00a0: une autre unité\.$/);
++      expect(e!.revientApresRefus, 'de nouveau « avec vous » après le refus').toBeGreaterThanOrEqual(0);
++      expect(e!.revientApresRefus).toBeLessThanOrEqual(10);
++    } else {
++      expect(e!.aBord, 'l’interpellé finit dans un fourgon cellulaire').toBeGreaterThanOrEqual(0);
++      expect(e!.fourgon).toMatch(/^CELLULAIRE /);
++      expect(e!.revient, 'de nouveau « avec vous » après la remise').toBeGreaterThanOrEqual(0);
++      expect(e!.revient).toBeLessThanOrEqual(10);
++    }
++  });
++
++  it('relevés permanents : jamais « SANS ORDRE », « MONTE », « DESCEND », « EN FILE » ; refus du tableau ; attentes dites (acceptations 3, 5, 10)', () => {
++    releves(j);
++    expect(j.attentes).toEqual([]);
++  });
++});
+diff --git a/crs-simulation/tests/unit/playtest.ordre-direct-chef-bravm.test.ts b/crs-simulation/tests/unit/playtest.ordre-direct-chef-bravm.test.ts
+new file mode 100644
+index 0000000..1c1510e
+--- /dev/null
++++ b/crs-simulation/tests/unit/playtest.ordre-direct-chef-bravm.test.ts
+@@ -0,0 +1,222 @@
++// Recette des ordres directs, scénario 3 : CHEF DE LA BRAV-M (acceptation 9 : « La BRAV-M m'obéit comme les autres, et le
++// chef de la BRAV-M peut la commander »). Mode libre « Déjà sur place », place de la Concorde, graine 21 : chaque verbe
++// que la BRAV-M accepte — Envoyer (loin : en selle ; près : à pied), Avec moi (A), Tenir (F 8 5), Se replier (F 8 1),
++// Interpeller (un lanceur désigné, Entrée), Disperser (F 6 : avant les sommations, la phrase qui dit qui décide) — avec
++// l'accusé à la radio (≤ 1 s), l'ordre affiché qui reste celui du joueur, le premier mouvement (≤ 2 s à pied, ≤ 6 s
++// quand il faut remonter en selle). Puis la mission bravm-01, lancée depuis sa fiche : il n'est jamais laissé sans son
++// unité ni sans une moto qui l'attend.
++import { beforeAll, describe, expect, it } from 'vitest';
++
++import type { SessionConfig } from '@/core/contracts';
++import {
++  Joueur, direEnvoyer, direInterpeller, direVerbe, etapeEnvoyer, etapeInterpeller, etapeVerbe, phraseDuTableau, releves,
++} from './playtest.ordre-direct.lib';
++import type { Appui, EtapeEnvoyer, EtapeInterpeller, EtapeVerbe } from './playtest.ordre-direct.lib';
++
++const MEANS = { sections: 3, fourgons: 9, centaure: 1, canon_eau: 1, bravm: 1, drone: 0, pompiers: 0, samu: 0, secours_sur_appel: true };
++
++let j: Joueur;
++let depart = { poste: '', portee: '', unite: '', etat: '', avecLui: false };
++let enSelleAuDepart = false;
++let loin: EtapeEnvoyer | null = null;
++let avecMoi: EtapeVerbe | null = null;
++let revenus = -1;
++let tenir: EtapeVerbe | null = null;
++let repli: EtapeVerbe | null = null;
++let pres: EtapeEnvoyer | null = null;
++let interpeller: EtapeInterpeller | null = null;
++let disperser: Appui | null = null;
++let m: Joueur;
++let mission = { poste: '', portee: '', seul: [] as string[], joue: 0 };
++
++beforeAll(async () => {
++  j = await Joueur.partie({
++    mode: 'libre', role: 'bravm', rank: 'brigadier_chef', place: 'Place de la Concorde', x: -10, z: 15, crowdSize: 300, tension: 0.4, volatility: 0.3,
++    duration: 'standard', extra: { moyens: MEANS, variante: 'terrain', poste: 'chef_groupe' },
++  } as Partial<SessionConfig>, 21);
++  j.pas(4);
++  const own = j.core.scope().ownSquadId;
++  // (il est en selle au début de la partie : E « Descendre », il commande à pied comme dans les parcours du §7)
++  enSelleAuDepart = j.moi.vehicleId !== 0;
++  j.descendre();
++  j.pas(2);
++  const unit = j.unite(own);
++  depart = { poste: j.direct.env().poste, portee: j.core.scope().level, unite: j.squad(own)?.name ?? '', etat: j.ecran()?.state ?? '', avecLui: !!unit && unit.avecVous };
++  console.log(`chef de la BRAV-M (${enSelleAuDepart ? 'en selle au départ, descendu' : 'à pied'}) : poste ${depart.poste}, portée ${depart.portee}, unité ${depart.unite}, état « ${depart.etat} »`);
++
++  // ── Envoyer loin (300–400 m) : Entrée — elle remonte en selle et y roule ──
++  if (j.chercherLoin(300, 400)) {
++    loin = etapeEnvoyer(j, () => true, 120);
++    if (loin) console.log(`Envoyer loin : ${direEnvoyer(loin)}`);
++  } else console.log('Envoyer loin : aucun lieu à 300–400 m en tournant sur lui-même');
++
++  // ── A : avec moi — elle revient ──
++  {
++    const ap = j.a();
++    avecMoi = etapeVerbe(j, 'Avec moi', ap, own, 'suivre', 8);
++    console.log(direVerbe(avecMoi));
++    const me = j.moi;
++    for (let s = 0; s < 150 && revenus < 0; s++) {
++      j.pas(1);
++      const ops = j.agents([own], true);
++      const near = ops.filter((p) => { const q = j.lieu(p); return Math.hypot(q.x - me.x, q.z - me.z) < 40; }).length;
++      if (ops.length > 0 && near * 2 >= ops.length) revenus = j.now - ap.at;
++    }
++    console.log(`      la moitié des opérateurs à moins de 40 m de lui ${revenus.toFixed(0)} s après A ; état « ${j.ecran()?.state} »`);
++  }
++
++  // ── F 8 5 : tenir sa position ; F 8 1 : se replier ──
++  j.cap(j.ctx.player.state.camYaw);
++  tenir = etapeVerbe(j, 'Tenir', j.roue(8, 5), own, 'tenir', 6);
++  console.log(direVerbe(tenir));
++  j.pas(1);
++  repli = etapeVerbe(j, 'Se replier', j.roue(8, 1), own, 'repli', 8);
++  console.log(direVerbe(repli));
++  j.pas(12);
++
++  // ── Envoyer près (un point à moins de 60 m) : à pied ──
++  j.a();
++  j.pas(15);
++  if (j.chercher((n) => (n.rule === 'h' || (n.rule === 'g' && n.autre !== null && n.autre.verb === 'envoyer')) && n.distance >= 20 && n.distance <= 60)) {
++    const o = j.direct.ready()!;
++    pres = etapeEnvoyer(j, () => true, 60, o.rule === 'g');
++    if (pres) console.log(`Envoyer près : ${direEnvoyer(pres)}`);
++  } else console.log('Envoyer près : aucun point à 20–60 m');
++
++  // ── Interpeller : un lanceur de projectile désigné, Entrée ──
++  j.a();
++  const cible = j.approcher(25, 60, 150);
++  if (cible) {
++    interpeller = etapeInterpeller(j, cible, 150);
++    console.log(`Interpeller : ${direInterpeller(interpeller)}`);
++  } else console.log('Interpeller : aucun manifestant en vue à 25–60 m');
++
++  // ── Disperser (F 6) sur la foule, avant les sommations : la phrase dit qui décide ──
++  {
++    const vu = j.approcher(15, 60, 30);
++    if (vu) j.regarder(vu.x, vu.z);
++    disperser = j.roue(6);
++    console.log(`Disperser (F 6) « ${disperser.ligne} » : ${disperser.res.ok ? 'accepté' : `« ${disperser.res.text} »`}`);
++  }
++  console.log(`lectures interdites : ${j.lectures.length} ${j.lectures.slice(0, 5).join(' | ')}\nrefus : ${j.refus.join(' | ') || 'aucun'}\nattentes : ${j.attentes.slice(0, 5).join(' | ') || 'aucune'}`);
++
++  // ── mission bravm-01, lancée depuis sa fiche : jamais sans son unité ni sans une moto qui l'attend ──
++  m = await Joueur.mission('bravm-01-en-selle');
++  m.pas(3);
++  mission.poste = m.moi.poste ?? '';
++  mission.portee = m.core.scope().level;
++  for (let s = 0; s < 240 && m.ctx.session.phase === 'playing' && !m.missions.result; s++) {
++    m.pas(1);
++    mission.joue++;
++    const me = m.moi;
++    if (me.vehicleId !== 0) continue;
++    // à pied : un collègue de son unité à moins de 60 m, ou une moto de la BRAV-M avec une place à moins de 40 m
++    const mates = m.agents([me.squadId]).some((p) => { const q = m.lieu(p); return Math.hypot(q.x - me.x, q.z - me.z) < 60; });
++    const moto = m.ctx.vehicles.list.some((v) => v.kind === 'moto_bravm' && Math.hypot(v.x - me.x, v.z - me.z) < 40 && v.seats.some((id) => id === 0));
++    if (!mates && !moto) mission.seul.push(`t=${m.now.toFixed(0)} s`);
++  }
++  console.log(`bravm-01 : poste ${mission.poste}, portée ${mission.portee}, ${mission.joue} s jouées, seul (ni collègue à 60 m ni moto libre à 40 m) : ${mission.seul.length} s ${mission.seul.slice(0, 3).join(', ')} ; lectures interdites ${m.lectures.length}`);
++}, 1_800_000);
++
++describe('recette — chef de la BRAV-M, Concorde (graine 21, déjà sur place)', () => {
++  it('il commande sa BRAV-M, elle est avec lui au départ', () => {
++    expect(depart.poste).toBe('bravm');
++    expect(depart.portee).toBe('unite');
++    expect(depart.unite).toMatch(/^FAUCON/);
++    expect(depart.avecLui).toBe(true);
++    expect(depart.etat).toMatch(/^AVEC VOUS/);
++  });
++
++  it('Envoyer à 300–400 m, Entrée : la ligne nomme sa BRAV-M, l’ordre part, accusé ≤ 1 s, l’ordre affiché reste le sien (acceptation 9)', () => {
++    expect(loin, 'un lieu à 300–400 m').not.toBeNull();
++    expect(loin!.ligne).toMatch(/^Envoyer\u00a0: .+ · .+ · \d+\u00a0m$/);
++    expect(loin!.u).toBe(0);
++    expect(loin!.appui.res.ok, loin!.appui.res.text).toBe(true);
++    expect(loin!.accuse).toBeGreaterThanOrEqual(0);
++    expect(loin!.accuse).toBeLessThanOrEqual(1);
++    expect(loin!.autresOrdres).toEqual([]);
++  });
++
++  // DÉFAUT : le chef à pied (comme en selle), « Envoyer » à 330 m est accusé puis rien ne part — la BRAV-M reste en selle,
++  // colonne « route », l'écran dit « descend des motos — prêt dans … » ; premier mouvement à 31 s, toujours à 325 m du
++  // point deux minutes plus tard (elle attend son chef sans le dire : session/journee, command/bravm).
++  it.fails('Envoyer à 300–400 m : les motos roulent en 6 s au plus, elle arrive (≤ 30 m) ou finit à pied et le dit en 90 s (acceptations 8 et 9)', () => {
++    expect(loin!.mouvement).toBeGreaterThanOrEqual(0);
++    expect(loin!.mouvement).toBeLessThanOrEqual(6);
++    expect(loin!.arrive, `médiane à ${loin!.reste.toFixed(0)} m, étapes ${loin!.etapes.join(' → ')}`).toBeGreaterThanOrEqual(0);
++    expect(loin!.arrive).toBeLessThanOrEqual(90);
++  });
++
++  it('A : l’ordre part, elle bouge dans les 6 s et revient autour de lui', () => {
++    expect(avecMoi!.appui.res.ok, avecMoi!.appui.res.text).toBe(true);
++    expect(avecMoi!.mouvement).toBeGreaterThanOrEqual(0);
++    expect(avecMoi!.mouvement).toBeLessThanOrEqual(6);
++    expect(revenus, 'la moitié des opérateurs revenue à moins de 40 m').toBeGreaterThanOrEqual(0);
++    expect(revenus).toBeLessThanOrEqual(60);
++  });
++
++  // DÉFAUT : en selle, la BRAV-M appelée « Avec moi » tient d'abord « débarquer » (cinq secondes, sans « REÇU » ; elle dit
++  // « Pied à terre, CINQ à pied » à 5,3 s) avant « suivre » — session/follow.ts orderOnFoot, unité à bord.
++  it.fails('A : elle tient « suivre » dans la seconde et accuse réception en 1 s au plus (acceptations 6 et 9)', () => {
++    expect(avecMoi!.autresOrdres).toEqual([]);
++    expect(avecMoi!.accuse).toBeGreaterThanOrEqual(0);
++    expect(avecMoi!.accuse).toBeLessThanOrEqual(1);
++  });
++
++  it('Tenir (F 8 5) et Se replier (F 8 1) : accusé ≤ 1 s, l’ordre tenu, mouvement ≤ 2 s pour le repli (acceptation 9)', () => {
++    for (const v of [tenir!, repli!]) {
++      expect(v.appui.res.ok, `${v.verbe} : ${v.appui.res.text}`).toBe(true);
++      expect(v.autresOrdres, v.verbe).toEqual([]);
++      expect(v.accuse, v.verbe).toBeGreaterThanOrEqual(0);
++      expect(v.accuse, v.verbe).toBeLessThanOrEqual(1);
++    }
++    expect(repli!.mouvement).toBeGreaterThanOrEqual(0);
++    expect(repli!.mouvement).toBeLessThanOrEqual(2);
++  });
++
++  it('Envoyer à moins de 60 m : à pied, accusé ≤ 1 s, premier mouvement ≤ 2 s, l’ordre tenu (acceptation 9)', () => {
++    expect(pres, 'un point à 20–60 m').not.toBeNull();
++    expect(pres!.appui.res.ok, pres!.appui.res.text).toBe(true);
++    expect(pres!.accuse).toBeGreaterThanOrEqual(0);
++    expect(pres!.accuse).toBeLessThanOrEqual(1);
++    expect(pres!.mouvement).toBeGreaterThanOrEqual(0);
++    expect(pres!.mouvement).toBeLessThanOrEqual(2);
++    expect(pres!.autresOrdres).toEqual([]);
++    expect(pres!.arrive, 'la moitié des opérateurs à moins de 30 m du point').toBeGreaterThanOrEqual(0);
++  });
++
++  // DÉFAUT (mesure) : 55 m à pied, la moitié des opérateurs n'est à moins de 30 m du point qu'au bout de 45 s — l'objectif
++  // du §2.2 est 40 s pour 50 m.
++  it.fails('Envoyer à moins de 60 m : sur le point en 40 s au plus (§2.2)', () => {
++    expect(pres!.arrive).toBeGreaterThanOrEqual(0);
++    expect(pres!.arrive).toBeLessThanOrEqual(40);
++  });
++
++  it('Interpeller un lanceur désigné, Entrée : accusé ≤ 1 s, l’ordre tenu, interpellé ≤ 60 s (acceptations 7 et 9)', () => {
++    expect(interpeller, 'un manifestant en vue').not.toBeNull();
++    expect(interpeller!.ligne).toMatch(/^Interpeller le lanceur de projectile · .+ · \d+ m$/);
++    expect(interpeller!.appui.res.ok, interpeller!.appui.res.text).toBe(true);
++    expect(interpeller!.accuse).toBeGreaterThanOrEqual(0);
++    expect(interpeller!.accuse).toBeLessThanOrEqual(1);
++    expect(interpeller!.types).toEqual(['interpeller']);
++    expect(interpeller!.interpelle).toBeGreaterThanOrEqual(0);
++    expect(interpeller!.interpelle).toBeLessThanOrEqual(60);
++  });
++
++  it('Disperser (F 6) avant les sommations : il n’est pas l’autorité — la phrase du tableau dit qui décide (acceptations 10 et 23)', () => {
++    expect(disperser!.res.ok).toBe(false);
++    expect(disperser!.res.ignored).toBe(false);
++    expect(phraseDuTableau(disperser!.res.text), disperser!.res.text).toBe(true);
++  });
++
++  it('relevés permanents : jamais « SANS ORDRE », « MONTE », « DESCEND », « EN FILE » ; refus du tableau ; attentes dites (acceptations 3, 5, 10)', () => {
++    releves(j);
++    expect(j.attentes).toEqual([]);
++  });
++
++  it('mission bravm-01 : il n’est jamais laissé sans son unité ni sans une moto qui l’attend', () => {
++    expect(mission.joue).toBeGreaterThan(60);
++    expect(mission.seul).toEqual([]);
++    expect(m.lectures).toEqual([]);
++  });
++});
+diff --git a/crs-simulation/tests/unit/playtest.ordre-direct-journee.test.ts b/crs-simulation/tests/unit/playtest.ordre-direct-journee.test.ts
+new file mode 100644
+index 0000000..7a206ec
+--- /dev/null
++++ b/crs-simulation/tests/unit/playtest.ordre-direct-journee.test.ts
+@@ -0,0 +1,170 @@
++// Recette des ordres directs, scénario 2 : COMMANDANT, JOURNÉE DE SERVICE, place de la République, graine 7 (mode libre,
++// départ de la caserne). Chaque étape de la colonne du §2.5 reçoit le même ordre — « Bloquer la rue … », lu puis donné
++// avec Entrée : à la caserne (à pied, avant d'embarquer), sur la route (passager, la colonne roule), à l'arrêt et pendant
++// le débarquement. Puis, à pied sur place, à la première intervention : (a) §7.1, (c) A puis ⌫, (d) §7.3 la BRAV-M à
++// 300–400 m, (e) §7.2 un lanceur de projectile interpellé en un appui.
++import { beforeAll, describe, expect, it } from 'vitest';
++
++import {
++  Joueur, direAvecMoi, direEnColonne, direEnvoyer, direInterpeller, etapeAvecMoi, etapeBarrage, etapeEnColonne, etapeEnvoyer, etapeInterpeller, releves,
++  verifierBarrage, verifierEnColonne, verifierFaitEnColonne, verifierPrisEnColonne,
++} from './playtest.ordre-direct.lib';
++import type { EtapeAvecMoi, EtapeBarrage, EtapeEnColonne, EtapeEnvoyer, EtapeInterpeller } from './playtest.ordre-direct.lib';
++
++let j: Joueur;
++let arrivee = -1;
++let caserne: EtapeEnColonne | null = null;
++let rappel = { ok: false, pasAvecMoi: [] as string[] };
++let route: EtapeEnColonne | null = null;
++let arret: EtapeEnColonne | null = null;
++let a: EtapeBarrage | null = null;
++let c: EtapeAvecMoi | null = null;
++let d: EtapeEnvoyer | null = null;
++let e: EtapeInterpeller | null = null;
++let bravm: string[] = [];
++
++beforeAll(async () => {
++  j = await Joueur.libre({ role: 'commandant' as never, rank: 'commandant' as never, variante: 'terrain', place: 'Place de la République', x: 3123, z: -208, crowdSize: 300 }, 7);
++  const own = j.core.scope().ownSquadId;
++  const stage = (): string => j.cmd.convoyOf(own)?.stage ?? '-';
++  j.pas(4);
++  bravm = j.bravm().map((u) => u.name);
++  console.log(`caserne : journée ${j.journee.stage}, colonne ${stage()} ; BRAV-M ${bravm.join(', ') || 'aucune'} ; état « ${j.ecran()?.state} »`);
++
++  // ── à la caserne, à pied : l'ordre, puis A (tout le monde revient : la colonne partira au complet) ──
++  caserne = etapeEnColonne(j, `à la caserne (journée ${j.journee.stage}, colonne ${stage()})`, [], 90);
++  if (caserne) console.log(direEnColonne(caserne));
++  {
++    const ap = j.a();
++    j.pas(2);
++    const me = j.moi;
++    rappel = { ok: ap.res.ok, pasAvecMoi: j.unites().filter((u) => u.kind !== 'cellulaire' && !u.avecVous && !(j.squad(u.squadId).order.type === 'suivre' && j.squad(u.squadId).order.targetId === me.id)).map((u) => `${u.name} (${j.squad(u.squadId).order.type})`) };
++    console.log(`caserne, A : ${ap.res.ok ? 'accepté' : ap.res.text} ; pas avec lui 2 s après : ${rappel.pasAvecMoi.join(', ') || 'aucune'} ; état « ${j.ecran()?.state} »`);
++  }
++
++  // ── trajet en passager : l'ordre sur la route (à moins de 250 m), puis à l'arrêt / au débarquement ──
++  arrivee = j.trajet(() => j.journee.stage === 'sur_place', 1500, () => {
++    const dest = j.journee.destination;
++    const me = j.moi;
++    if (me.vehicleId === 0 || !dest) return;
++    const v = j.ctx.vehicles.get(me.vehicleId)!;
++    const st = stage();
++    if (!route && st === 'route' && Math.hypot(dest.x - v.x, dest.z - v.z) < 250 && Math.abs(v.speed) > 1) {
++      route = etapeEnColonne(j, 'sur la route (la colonne roule)');
++      if (route) console.log(direEnColonne(route));
++    } else if (!arret && (st === 'stationnement' || st === 'debarquement')) {
++      arret = etapeEnColonne(j, `à l’arrêt (colonne ${st})`, route ? [route.squadId] : []);
++      if (arret) console.log(direEnColonne(arret));
++    }
++  });
++  console.log(`arrivée : ${arrivee} s, journée ${j.journee.stage}, colonne ${stage()}`);
++  j.descendre();
++
++  // ── à pied, à la première intervention ──
++  const tenues = [route, arret].filter((x): x is EtapeEnColonne => !!x && x.appui.res.ok).map((x) => x.squadId);
++  a = etapeBarrage(j, tenues);
++  if (a) console.log(`${j.dire('(a) bouche de rue', a.appui, a.suivi)}\n      barrage : ${JSON.stringify(a.barrage)}`);
++  c = etapeAvecMoi(j, a ? a.squadId : 0);
++  console.log(`(c) ${direAvecMoi(c, a ? a.unite : '')}`);
++  j.pas(3);
++  if (j.chercherLoin(300, 400)) {
++    d = etapeEnvoyer(j, (u) => u.kind === 'bravm', 120);
++    if (d) console.log(`(d) ${direEnvoyer(d)}`);
++  } else console.log('(d) aucun lieu à 300–400 m en tournant sur lui-même');
++  j.a();
++  const cible = j.approcher(25, 60, 150);
++  if (cible) {
++    e = etapeInterpeller(j, cible, 200);
++    console.log(`(e) ${direInterpeller(e)}`);
++  } else console.log('(e) aucun manifestant en vue à 25–60 m après 150 s de marche');
++  console.log(`lectures interdites : ${j.lectures.length} ${j.lectures.slice(0, 5).join(' | ')}\nrefus : ${j.refus.join(' | ') || 'aucun'}\nattentes : ${j.attentes.slice(0, 5).join(' | ') || 'aucune'}`);
++}, 1_800_000);
++
++describe('recette — commandant, journée de service, République (graine 7)', () => {
++  it('§2.5, à la caserne : l’ordre est exécuté à pied ; A ramène tout le monde avant le départ', () => {
++    expect(caserne, 'une ligne « Bloquer … » à la caserne').not.toBeNull();
++    verifierEnColonne(caserne!);
++    expect(rappel.ok).toBe(true);
++    expect(rappel.pasAvecMoi).toEqual([]);
++  });
++
++  it('la colonne part et arrive sur place avec lui', () => {
++    expect(arrivee).toBeGreaterThanOrEqual(0);
++  });
++
++  it('§2.5, sur la route : l’ordre est pris, dit à l’écran, les agents bougent et descendent y aller (acceptation 2)', () => {
++    expect(route, 'une ligne « Bloquer … » lue depuis son siège pendant que la colonne roule').not.toBeNull();
++    verifierPrisEnColonne(route!);
++  });
++
++  // DÉFAUT : la section désignée sur la route (16 assis) descend aussitôt, mais sa rue n'est pas barrée 150 s plus tard —
++  // l'écran alterne « en fourgons » et « bloqué : la route est barrée — ils finissent à pied ».
++  it.fails('§2.5, sur la route : la rue est barrée (« ✓ ») dans les 150 s', () => {
++    verifierFaitEnColonne(route!);
++  });
++
++  // DÉFAUT : à l'arrêt, la « section libre la plus proche » que nomme la ligne (MISTRAL 4 · 16 m) est celle qui a exécuté
++  // l'ordre donné à la caserne : rappelée par A, elle n'a pas embarqué avec la colonne et se trouve à plus d'un kilomètre ;
++  // son ordre devient « embarquer », puis « suivre » — l'ordre du joueur est remplacé, la rue jamais barrée.
++  it.fails('§2.5, à l’arrêt et au débarquement : la section descend, y va et barre la rue (acceptation 2)', () => {
++    expect(arret, 'une ligne « Bloquer … » lue pendant que la colonne se gare').not.toBeNull();
++    verifierEnColonne(arret!);
++  });
++
++  // DÉFAUT : à la première intervention, la section désignée (MISTRAL 2 · 25 m sur la ligne, en fait à 130 m) accuse
++  // réception et part, six agents en marche à 10 s, puis « bloqué : la foule barre la route — ils finissent à pied » :
++  // la rue n'est pas barrée en 60 s (45 s demandés).
++  it.fails('(a) §7.1 à la première intervention : une bouche de rue, Entrée — la section la barre (acceptation 1)', () => {
++    verifierBarrage(a);
++  });
++
++  it('(c) A : l’ordre part, l’écran dit « AVEC VOUS » ; ⌫ est accepté (acceptation 19)', () => {
++    expect(c!.appui.res.ok, c!.appui.res.text).toBe(true);
++    expect(c!.etat).toMatch(/^AVEC VOUS · /);
++    expect(c!.retour.res.ok, c!.retour.res.text).toBe(true);
++  });
++
++  // DÉFAUT : une seconde après A, les sections restées loin (MISTRAL 1, MISTRAL 4 et leurs groupes) tiennent « embarquer »
++  // — elles viennent en fourgons — et non « suivre » ; ⌫ ne rend pas son barrage à la section de (a), restée « embarquer ».
++  it.fails('(c) A : toutes les unités tiennent « suivre » dans la seconde ; ⌫ rend le barrage (acceptations 6 et 19)', () => {
++    expect(c!.pasAvecMoi, c!.ordres.join(' ')).toEqual([]);
++    expect(c!.rendu).toBe('couper_circulation');
++    expect(c!.autres).toEqual([]);
++  });
++
++  // DÉFAUT : du point d'arrivée de cette partie, aucun lieu à 300–400 m ne se désigne ; dans une partie voisine (même
++  // graine, avant les derniers correctifs) « Envoyer : rue Debelleyme · BRAV-M · 390 m » était accusé à 24 s (« les motos
++  // nous rejoignent ») et la BRAV-M, à pied, était à 855 m du point 120 s plus tard.
++  it.fails('(d) §7.3 : U, Entrée — la BRAV-M part pour un carrefour à 300–400 m et y arrive, ou finit à pied et le dit (acceptation 8)', () => {
++    expect(bravm.length, 'une BRAV-M avec la compagnie').toBeGreaterThanOrEqual(1);
++    expect(d, 'un lieu à 300–400 m').not.toBeNull();
++    expect(d!.appui.res.ok, d!.appui.res.text).toBe(true);
++    expect(d!.accuse).toBeGreaterThanOrEqual(0);
++    expect(d!.accuse).toBeLessThanOrEqual(1);
++    expect(d!.arrive).toBeGreaterThanOrEqual(0);
++    expect(d!.arrive).toBeLessThanOrEqual(90);
++  });
++
++  it('(e) §7.2 : un lanceur désigné, UN appui — la ligne nomme l’unité, l’ordre part', () => {
++    expect(e, 'un manifestant en vue').not.toBeNull();
++    expect(e!.ligne).toMatch(/^Interpeller le lanceur de projectile · .+ · \d+\u00a0m$/);
++    expect(e!.appui.res.ok, e!.appui.res.text).toBe(true);
++    expect(e!.types[0]).toBe('interpeller');
++  });
++
++  // DÉFAUT : la BRAV-M désignée (FAUCON 1, encore loin après le trajet) n'accuse réception qu'à 40 s et n'interpelle
++  // personne en 200 s.
++  it.fails('(e) §7.2 : interpellé ≤ 60 s, à bord d’un fourgon cellulaire ≤ 120 s, l’unité revient « avec vous » (acceptation 7)', () => {
++    expect(e!.interpelle, 'interpellé').toBeGreaterThanOrEqual(0);
++    expect(e!.interpelle).toBeLessThanOrEqual(60);
++    expect(e!.aBord, 'à bord d’un fourgon cellulaire').toBeGreaterThanOrEqual(0);
++    expect(e!.aBord).toBeLessThanOrEqual(120);
++    expect(e!.revient).toBeGreaterThanOrEqual(0);
++    expect(e!.revient).toBeLessThanOrEqual(10);
++  });
++
++  it('relevés permanents : jamais « SANS ORDRE », « MONTE », « DESCEND », « EN FILE » ; refus du tableau ; attentes dites (acceptations 3, 5, 10)', () => {
++    releves(j);
++    expect(j.attentes).toEqual([]);
++  });
++});
+diff --git a/crs-simulation/tests/unit/playtest.ordre-direct.lib.ts b/crs-simulation/tests/unit/playtest.ordre-direct.lib.ts
+new file mode 100644
+index 0000000..ff354db
+--- /dev/null
++++ b/crs-simulation/tests/unit/playtest.ordre-direct.lib.ts
+@@ -0,0 +1,1142 @@
++// Recette des ordres directs (plan ordres-directs, paquet P16) : LE ROBOT QUI JOUE COMME LE JOUEUR, de bout en bout.
++// Retour du joueur, commandant en « Missions spéciales » : « Je suis arrivé sur une manifestation, c'était n'importe
++// quoi. Je pouvais donner zéro ordre, ils ne suivaient pas. La BRAV-M, j'arrivais pas à leur donner d'ordre […]
++// J'interpelle des gens, mais je sais même pas où les mettre […] Il faut que je puisse donner directement des ordres et
++// ils y vont direct. »
++//
++// Le robot ne fait que ce que fait le joueur sur son Mac sans souris :
++//   - il TOURNE LA TÊTE (cap de la caméra, tangage à l'horizontale : les flèches du clavier) — le point visé et la
++//     personne sous le réticule sont ceux que le jeu calcule (sim/people/player-aim.ts) ; la désignation est celle du
++//     jeu (ui/command/direct/designate.ts, relue à chaque image comme fieldKeys.ts) ; Page préc. passe au lieu suivant ;
++//   - il LIT la ligne « Entrée  … » (service 'command.direct' ready()) et n'appuie que si elle dit ce qu'il veut ;
++//   - il APPUIE : Entrée, Maj+Entrée, A, U, ⌫ (give / avecMoi / cycle / undo du moteur du terrain) et E (l'invite du
++//     moment de la touche Interagir). Jamais squads.issue, jamais un service de commandement.
++// Il MESURE en secondes de jeu : l'accusé à la radio, le premier agent qui bouge, l'ordre que tient vraiment l'unité
++// (Squad.order.type), le résultat dans le monde (ligne en travers de la rue, personne interpellée, à bord d'un fourgon
++// cellulaire, fourgon parti au commissariat), ce que le joueur lit (puce d'état, bloc d'ordres, tickets) ; et relève,
++// à chaque seconde, toute lecture « SANS ORDRE », « MONTE », « DESCEND » ou « EN FILE » d'une unité sous ses ordres,
++// tout refus (phrase du tableau §4.3 ou forme « X ne peut pas : … U : une autre unité. »), toute attente sans raison.
++import { expect } from 'vitest';
++
++import type { GameContext, GameSystem, InteractionOption, ModuleFactory, OrderType, Person, SessionConfig, Squad, Vehicle } from '@/core/contracts';
++import { EXT } from '@/core/extensions';
++import type { ObjectivesApi } from '@/core/extensions';
++import { createTestContext } from '@/core/testing';
++import { createSystems as env } from '@/env';
++import { createWorldQuerySystems } from '@/world/query';
++import { createSystems as roles } from '@/sim/roles';
++import { createSystems as people } from '@/sim/people';
++import { createSystems as vehicles } from '@/sim/vehicles';
++import { createSystems as traffic } from '@/sim/traffic';
++import { createSystems as crowd } from '@/sim/crowd';
++import { createSystems as police } from '@/sim/police';
++import { createSystems as items } from '@/sim/items';
++import { createSystems as props } from '@/sim/props';
++import { createSystems as hazards } from '@/sim/hazards';
++import { createSystems as law } from '@/gameplay/law';
++import type { LawCustody, LawRecords } from '@/gameplay/law/api';
++import { LAW_CUSTODY_SERVICE, LAW_RECORDS_SERVICE } from '@/gameplay/law/api';
++import { createSystems as radio } from '@/gameplay/radio';
++import { createSystems as incidents } from '@/gameplay/incidents';
++import { createSystems as rescue } from '@/sim/roles/rescue';
++import { createSystems as medics } from '@/sim/roles/medics';
++import { createSystems as session, JOURNEE_SERVICE } from '@/gameplay/session';
++import type { JourneeApi } from '@/gameplay/session';
++import { REMISE_SERVICE } from '@/gameplay/session/remise';
++import type { RemiseApi } from '@/gameplay/session/remise';
++import { createSystems as patrols } from '@/gameplay/patrols';
++import { createSystems as commissariats } from '@/gameplay/commissariats';
++import { createSystems as transfer, TRANSFER_SERVICE } from '@/gameplay/transfer';
++import type { TransferApi } from '@/gameplay/transfer';
++import { createSystems as missions } from '@/gameplay/missions';
++import type { MissionsApi } from '@/gameplay/missions';
++import { createObjectives } from '@/ui/core/objectives';
++import { createSystems as maps } from '@/ui/maps';
++import { createSystems as command, DIRECT_SERVICE } from '@/ui/command';
++import type { CommandCore, DirectApi, DirectRuntime } from '@/ui/command';
++import { CAP_REFUSALS, DIRECT_MORE_RING, DIRECT_WHEEL, REFUS, isKnownSimReason, refusForce, ticketText } from '@/ui/command/direct';
++import { SECTOR_REFUS, sectorOrder } from '@/ui/command/direct/sector';
++import type { DirectUnit, NaturalOrder, Ticket } from '@/ui/command/direct';
++import { Designator, viewOfPlayer } from '@/ui/command/direct/designate';
++import type { GiveResult } from '@/ui/command/direct/runtime';
++import { NOTHING_LINE } from '@/ui/command/direct/words';
++import { sharedFieldHud } from '@/ui/command/fieldHud';
++import type { FieldHudModel } from '@/ui/command/fieldHud';
++import { detaineesLine } from '@/ui/screens/debrief';
++import { buildSessionConfig, defaultDraft, sanitizeDraft } from '@/ui/screens/scenario';
++import type { ScenarioDraft } from '@/ui/screens/scenario';
++import { launchFromSheet, walk } from './playtest.commandant-mission.lib';
++
++const objectives: ModuleFactory = () => [{ id: 'test.objectives', order: 0, provide(ctx: GameContext) { ctx.provide(EXT.objectives, createObjectives()); } } as GameSystem];
++const world: ModuleFactory = () => createWorldQuerySystems({ source: 'paris' });
++/** La partie du joueur : les modules de simulation de main.ts, dans le même ordre (commissariats et transfert compris). */
++export const PARTIE: ModuleFactory[] = [
++  env, world, roles, people, vehicles, traffic, crowd, police, items, props, hazards, law, radio, incidents, rescue, medics,
++  session, patrols, commissariats, transfer, missions, objectives, maps, command,
++];
++
++/** Pas de la partie (s) : quatre « images » par seconde suffisent aux mesures (accusé ≤ 1 s, mouvement ≤ 2 s). */
++export const IMAGE = 0.25;
++/** Ce qu'une unité sous ses ordres ne doit jamais montrer (acceptation 5). */
++export const INTERDITS = /SANS ORDRE|\bMONTE\b|\bDESCEND\b|EN FILE/;
++/** Forme des refus de la simulation (§4.3, dernière ligne). */
++export const FORME_REFUS = /^.+ ne peut pas : .+\. U : une autre unité\.$/;
++
++interface CommandLike {
++  convoyOf(id: number): { stage: string; awaitingPlayer?: boolean; remaining?: number } | null;
++  special(id: number): { kind?: string; stage: string; order?: string } | null;
++}
++
++/** Un appui du joueur sur une touche d'ordre. */
++export interface Appui {
++  /** « Entrée », « Maj+Entrée », « A », « ⌫ », ou la roue : « F 4 », « F 8 5 ». */
++  touche: string;
++  /** Instant de l'appui (temps de la partie). */
++  at: number;
++  /** Ligne lue à l'écran au moment de l'appui (sans la touche). */
++  ligne: string;
++  ordre: NaturalOrder | null;
++  res: GiveResult;
++}
++
++/** Ce que le robot relève après un ordre. */
++export interface Suivi {
++  /** Accusé de réception de l'unité à la radio : secondes après l'appui (−1 : aucun) et sa phrase. */
++  accuse: number;
++  phrase: string;
++  /** Premier agent (ou véhicule) de l'unité déplacé de plus d'un mètre : secondes après l'appui (−1 : aucun). */
++  mouvement: number;
++  /** Agents assis dans les véhicules de l'unité au moment de l'appui. */
++  assisAuDepart: number;
++  /** Agents qui se sont rapprochés du point de 2 m au moins (ou sont à moins de 15 m), 10 s après l'appui. */
++  enMarcheA10: number;
++  /** Secondes jusqu'au ticket « en place ✓ » (−1 : jamais dans la fenêtre). */
++  enPlace: number;
++  /** Échantillons où l'unité ne tenait pas l'ordre donné (« t+3,0 s : debarquer »). */
++  autresOrdres: string[];
++  /** Les lignes du ticket lues, dans l'ordre, sans répétition. */
++  tickets: string[];
++}
++
++/** Arguments d'une partie libre ou d'une journée de service (les mêmes que la fiche de l'accueil). */
++export type Reglages = Partial<SessionConfig>;
++
++export class Joueur {
++  readonly ctx: GameContext;
++  readonly core: CommandCore;
++  readonly direct: DirectApi & DirectRuntime;
++  readonly cmd: CommandLike;
++  readonly designator: Designator;
++  /** Tous les appuis, dans l'ordre. */
++  readonly appuis: Appui[] = [];
++  /** Tout refus rencontré (phrase montrée au joueur). */
++  readonly refus: string[] = [];
++  /** Motifs de refus de la simulation sans mots pour le joueur (acceptation 10). */
++  readonly motifsInconnus: string[] = [];
++  /** Lectures interdites relevées (« t=412 s puce : MISTRAL 2 · DESCEND »). */
++  readonly lectures: string[] = [];
++  /** Tickets en attente sans raison, ou d'une attente de plus de 10 s hors trajet (acceptation 3). */
++  readonly attentes: string[] = [];
++  /** Messages montrés (toasts). */
++  readonly messages: { t: number; text: string }[] = [];
++  private sampleAt = -1e9;
++  private readonly refusedTickets = new Set<number>();
++
++  constructor(readonly t: ReturnType<typeof createTestContext>) {
++    const ctx = t.ctx;
++    this.ctx = ctx;
++    this.core = ctx.require<CommandCore>('ui.command');
++    this.direct = ctx.require<DirectApi & DirectRuntime>(DIRECT_SERVICE);
++    this.cmd = ctx.require<CommandLike>('police.command');
++    this.designator = new Designator(this.core);
++    const ui = ctx.ui;
++    const notify = ui.notify.bind(ui);
++    ui.notify = (text, kind, seconds) => {
++      this.messages.push({ t: ctx.clock.now, text });
++      notify(text, kind, seconds);
++    };
++    ctx.events.onAny('police:order_refused', (e) => {
++      const reason = String((e as { reason?: unknown }).reason ?? '');
++      if (!isKnownSimReason(reason)) this.motifsInconnus.push(reason);
++    });
++  }
++
++  /** Mission lancée depuis sa fiche de l'accueil (« Missions spéciales »), foule allégée à `crowd` personnes au plus. */
++  static async mission(id: string, seed = 7, crowdMax = 300): Promise<Joueur> {
++    const t = createTestContext({ seed, strict: false, modules: PARTIE });
++    await t.ready;
++    const cfg = launchFromSheet(t.ctx, id);
++    cfg.crowdSize = Math.min(cfg.crowdSize ?? crowdMax, crowdMax);
++    await t.start(cfg);
++    return new Joueur(t);
++  }
++
++  /** Partie lancée depuis l'écran « Mode libre » avec ce brouillon (journée de service par défaut, comme le joueur). */
++  static async libre(patch: Partial<ScenarioDraft>, seed: number): Promise<Joueur> {
++    return Joueur.partie(buildSessionConfig(sanitizeDraft({ ...defaultDraft(), mode: 'libre', seed, ...patch })), seed);
++  }
++
++  /** Partie lancée avec ces réglages (mode libre, journée de service, patrouille). */
++  static async partie(cfg: Reglages, seed: number): Promise<Joueur> {
++    const t = createTestContext({ seed, strict: false, modules: PARTIE });
++    await t.ready;
++    await t.start(cfg);
++    return new Joueur(t);
++  }
++
++  get moi(): Person {
++    return this.ctx.player.person()!;
++  }
++
++  get now(): number {
++    return this.ctx.clock.now;
++  }
++
++  // ───────────────────────────── le temps qui passe, ce qu'il lit ─────────────────────────────
++
++  /** Laisse passer `seconds` de jeu, image par image : la désignation suit le regard, l'écran est relu. */
++  pas(seconds: number): void {
++    const n = Math.max(1, Math.round(seconds / IMAGE));
++    for (let i = 0; i < n; i++) {
++      this.t.step(IMAGE);
++      this.image();
++    }
++  }
++
++  /** Une image : comme fieldKeys.ts frame() (désignation), puis l'écran (bloc d'ordres, puce d'état). */
++  image(): void {
++    const ctx = this.ctx;
++    if (ctx.session.phase !== 'playing' || !this.core.player()) return;
++    if (ctx.ui.current === null) {
++      const d = this.designator.update(viewOfPlayer(ctx), ctx.clock.now);
++      if (d) this.direct.setDesignation(d);
++    }
++    this.direct.ready();
++    if (ctx.clock.now - this.sampleAt < 1 - 1e-6) return;
++    this.sampleAt = ctx.clock.now;
++    const hud = this.ecran();
++    if (!hud) return;
++    const at = `t=${ctx.clock.now.toFixed(0)} s`;
++    const read: [string, string][] = [['puce', hud.chip], ['état', hud.state], ...hud.detached.map((l): [string, string] => ['détachée', l])];
++    for (const [where, text] of read) if (INTERDITS.test(text)) this.lectures.push(`${at} ${where} : ${text}`);
++    for (const tk of this.direct.tickets) {
++      if (tk.state === 'refuse' && !this.refusedTickets.has(tk.id)) {
++        this.refusedTickets.add(tk.id);
++        if (tk.why !== '') this.refus.push(tk.why);
++      }
++      // une attente dit pourquoi et pour combien de temps : 10 s au plus, trajet excepté (§2.2, acceptation 3)
++      if (tk.state === 'attente' && (tk.reason === '' || tk.eta > 10 || tk.eta < 0)) this.attentes.push(`${at} ${ticketText(tk)} (raison « ${tk.reason} », ${tk.eta.toFixed(0)} s)`);
++    }
++  }
++
++  /** Ce que montrent le bloc d'ordres et la puce d'état à cet instant. */
++  ecran(): FieldHudModel | null {
++    return sharedFieldHud(this.core, this.direct);
++  }
++
++  /** La ligne « Entrée  … » telle qu'elle est écrite (sans la touche). */
++  ligne(): string {
++    const o = this.direct.ready();
++    if (!o) return '';
++    return o.rule === 'i' ? NOTHING_LINE : o.text;
++  }
++
++  // ───────────────────────────── le regard (flèches du clavier, caméra à l'horizontale) ─────────────────────────────
++
++  /** Il tourne la tête vers ce cap (rad), caméra à l'horizontale, et lit la ligne (0,75 s). */
++  cap(yaw: number, pitch = 0): NaturalOrder | null {
++    const st = this.ctx.player.state;
++    st.camYaw = yaw;
++    st.camPitch = pitch;
++    const me = this.moi;
++    if (me.vehicleId === 0) me.heading = yaw;
++    this.pas(0.75);
++    return this.direct.ready();
++  }
++
++  /** Il se tourne vers ce point. */
++  regarder(x: number, z: number): NaturalOrder | null {
++    const me = this.moi;
++    return this.cap(Math.atan2(x - me.x, z - me.z));
++  }
++
++  /** Page préc. (fn + ↑) : le lieu suivant le long du regard. */
++  plusLoin(): NaturalOrder | null {
++    this.designator.keyStep(1);
++    this.designator.keyRelease();
++    this.pas(0.75);
++    return this.direct.ready();
++  }
++
++  /**
++   * Il tourne sur lui-même par crans de 15° (à gauche, à droite, de plus en plus loin du cap de départ) jusqu'à lire une
++   * ligne qui lui convient ; à chaque cap, il peut passer aux lieux suivants (`pages` appuis de Page préc. au plus).
++   */
++  chercher(veut: (o: NaturalOrder) => boolean, pages = 0, depuis = this.ctx.player.state.camYaw): NaturalOrder | null {
++    for (let k = 0; k < 24; k++) {
++      const turn = ((k + 1) >> 1) * (k % 2 === 0 ? 1 : -1) * (Math.PI / 12);
++      let o = this.cap(depuis + turn);
++      if (o && veut(o)) return o;
++      for (let p = 0; p < pages; p++) {
++        o = this.plusLoin();
++        if (o && veut(o)) return o;
++      }
++      if (pages > 0) this.designator.reset();
++    }
++    return null;
++  }
++
++  /**
++   * §7.3 — il cherche un lieu lointain : il tourne sur lui-même par crans de 15° et, à chaque cap où le regard porte loin,
++   * appuie sur Page préc. (fn + ↑) autant de fois qu'il faut pour que la ligne nomme un lieu entre `min` et `max` mètres
++   * (« Envoyer : … »). Rend la ligne lue, ou null si aucun cap ne porte aussi loin.
++   */
++  chercherLoin(min: number, max: number, depuis = this.ctx.player.state.camYaw): NaturalOrder | null {
++    const bon = (o: NaturalOrder | null): boolean => !!o && o.rule === 'h' && o.verb === 'envoyer' && o.enabled && o.distance >= min && o.distance <= max;
++    for (let k = 0; k < 24; k++) {
++      const turn = ((k + 1) >> 1) * (k % 2 === 0 ? 1 : -1) * (Math.PI / 12);
++      this.designator.reset();
++      let o = this.cap(depuis + turn);
++      if (bon(o)) return o;
++      // (une personne désignée — auteur, blessé — passe avant le sol : ce cap ne convient pas)
++      const d = this.designator.current();
++      if (!d || d.person) continue;
++      const cands = this.designator.candidates();
++      const want = cands.findIndex((c) => c.distance >= min && c.distance <= max);
++      if (want < 0) continue;
++      for (let n = Math.max(0, this.designator.index()); n < want; n++) {
++        o = this.plusLoin();
++        if (bon(o)) return o;
++      }
++      if (bon(o)) return o;
++    }
++    return null;
++  }
++
++  // ───────────────────────────── les touches ─────────────────────────────
++
++  private note(touche: Appui['touche'], ordre: NaturalOrder | null, ligne: string, res: GiveResult): Appui {
++    const a: Appui = { touche, at: this.now, ligne, ordre, res };
++    this.appuis.push(a);
++    if (!res.ok && !res.ignored && res.text !== '') this.refus.push(res.text);
++    return a;
++  }
++
++  /** Entrée : l'ordre affiché. */
++  entree(): Appui {
++    const o = this.direct.ready();
++    const ligne = this.ligne();
++    return this.note('Entrée', o, ligne, this.direct.give('go'));
++  }
++
++  /** Maj+Entrée : la ligne « autre ». */
++  majEntree(): Appui {
++    const o = this.direct.ready();
++    const autre = o ? o.autre : null;
++    return this.note('Maj+Entrée', autre, autre ? autre.text : '', this.direct.give('autre'));
++  }
++
++  /** A : avec moi. */
++  a(): Appui {
++    return this.note('A', null, 'Avec moi', this.direct.avecMoi());
++  }
++
++  /** ⌫ : annuler. */
++  retour(): Appui {
++    return this.note('⌫', null, 'annuler', this.direct.undo());
++  }
++
++  /**
++   * F puis un chiffre — et, pour la couronne « Plus… », F, 8, puis un chiffre : le secteur de la roue d'ordres, calculé et
++   * donné comme la roue le fait (ui/command/orderWheel.ts : sectorOrder, puis giveSector), sur ce qu'il désigne.
++   */
++  roue(chiffre: number, plus = 0): Appui {
++    const des = this.designator.current() ?? this.direct.designation();
++    const roe = this.ctx.law.roe;
++    const touche = `F ${chiffre}${plus > 0 ? ` ${plus}` : ''}`;
++    const sector = (plus > 0 ? DIRECT_MORE_RING : DIRECT_WHEEL).find((w) => w.key === (plus > 0 ? plus : chiffre));
++    const order = sector && des ? sectorOrder(sector, {
++      env: this.direct.env(), des, whoKey: this.direct.whoKey(), yaw: this.ctx.player.state.camYaw,
++      law: { authorizedForce: roe.authorizedForce, underAttack: roe.underAttack, authority: this.core.scope().canAuthorize },
++    }) : null;
++    if (!order) return this.note(touche, null, '', { ok: false, text: '', squads: [], ignored: true });
++    return this.note(touche, order, order.text, this.direct.giveSector(order));
++  }
++
++  /** U : unité suivante ; rend la ligne relue. */
++  u(step: 1 | -1 = 1): NaturalOrder | null {
++    this.direct.cycle(step);
++    return this.direct.ready();
++  }
++
++  /** U jusqu'à ce que la ligne nomme une unité qui convient (un tour de cycle au plus) ; null si aucune. */
++  uJusqua(veut: (u: DirectUnit) => boolean): NaturalOrder | null {
++    for (let i = 0; i < 16; i++) {
++      const o = this.u();
++      const who = o && o.who && o.who.manual ? o.who.squadIds : [];
++      const unit = who.length === 1 ? this.unite(who[0]!) : null;
++      if (o && unit && veut(unit)) return o;
++    }
++    return null;
++  }
++
++  // ───────────────────────────── les unités ─────────────────────────────
++
++  /** Unités sous ses ordres, vues par les ordres directs. */
++  unites(): readonly DirectUnit[] {
++    return this.direct.env().units;
++  }
++
++  unite(squadId: number): DirectUnit | null {
++    return this.unites().find((u) => u.squadId === squadId) ?? null;
++  }
++
++  squad(id: number): Squad {
++    return this.ctx.squads.get(id)!;
++  }
++
++  /** L'unité et toutes ses subordonnées. */
++  lignee(ids: readonly number[]): number[] {
++    const out = new Set<number>();
++    const add = (id: number): void => {
++      if (out.has(id)) return;
++      out.add(id);
++      for (const c of this.ctx.squads.childrenOf(id)) add(c.id);
++    };
++    ids.forEach(add);
++    return [...out];
++  }
++
++  /** Agents (hors joueur) de ces unités et de leurs subordonnées ; `pied` : sans les conducteurs ni les pilotes. */
++  agents(ids: readonly number[], pied = false): Person[] {
++    const out: Person[] = [];
++    for (const id of this.lignee(ids)) {
++      for (const pid of this.ctx.squads.get(id)?.members ?? []) {
++        const p = this.ctx.people.get(pid);
++        if (!p || p.isPlayer || p.custody !== 'free' || p.posture === 'down') continue;
++        if (pied && (p.poste === 'conducteur' || p.poste === 'pilote_moto')) continue;
++        out.push(p);
++      }
++    }
++    return out;
++  }
++
++  /** Où est cet agent (son véhicule s'il est à bord). */
++  lieu(p: Person): { x: number; z: number } {
++    const v = p.vehicleId !== 0 ? this.ctx.vehicles.get(p.vehicleId) : undefined;
++    return v ? { x: v.x, z: v.z } : { x: p.x, z: p.z };
++  }
++
++  /** Les BRAV-M sous ses ordres (l'unité entière, pas ses binômes). */
++  bravm(): DirectUnit[] {
++    const us = this.unites();
++    return us.filter((u) => u.kind === 'bravm' && !(u.parentId !== 0 && us.find((q) => q.squadId === u.parentId)?.kind === 'bravm'));
++  }
++
++  /** Fourgons cellulaires du dispositif (équipage et véhicule). */
++  cellulaires(): { s: Squad; v: Vehicle }[] {
++    const out: { s: Squad; v: Vehicle }[] = [];
++    const remise = this.ctx.service<RemiseApi>(REMISE_SERVICE);
++    const ids = remise ? remise.vans() : [];
++    for (const id of ids) {
++      const s = this.ctx.squads.get(id);
++      const v = s && s.vehicleId !== 0 ? this.ctx.vehicles.get(s.vehicleId) : undefined;
++      if (s && v) out.push({ s, v });
++    }
++    return out;
++  }
++
++  /** Interpellés à bord d'un véhicule. */
++  aBord(v: Vehicle): Person[] {
++    const out: Person[] = [];
++    for (const id of v.seats) {
++      const p = id !== 0 ? this.ctx.people.get(id) : undefined;
++      if (p && p.custody === 'in_vehicle') out.push(p);
++    }
++    return out;
++  }
++
++  // ───────────────────────────── mesures ─────────────────────────────
++
++  /**
++   * Après un ordre aux unités `ids` : joue `secondes` (ou jusqu'à `fini`) et relève l'accusé, le premier mouvement,
++   * l'ordre tenu (`type` : le type attendu, vérifié à chaque image jusqu'à « en place »), le ticket lu.
++   */
++  suivre(appui: Appui, ids: readonly number[], secondes: number, opts: { type?: OrderType | readonly OrderType[]; point?: { x: number; z: number }; fini?: () => boolean; arretEnPlace?: boolean } = {}): Suivi {
++    const ctx = this.ctx;
++    const at = appui.at;
++    const types = opts.type === undefined ? null : typeof opts.type === 'string' ? [opts.type] : opts.type;
++    const names = new Set(this.lignee(ids).map((id) => ctx.squads.get(id)?.name ?? '').filter((n) => n !== ''));
++    const all = this.agents(ids);
++    const start = new Map<number, { x: number; z: number }>();
++    for (const p of all) start.set(p.id, this.lieu(p));
++    const s: Suivi = { accuse: -1, phrase: '', mouvement: -1, assisAuDepart: this.agents(ids, true).filter((p) => p.vehicleId !== 0).length, enMarcheA10: -1, enPlace: -1, autresOrdres: [], tickets: [] };
++    const point = opts.point;
++    const d0 = new Map<number, number>();
++    if (point) for (const p of this.agents(ids, true)) { const q = this.lieu(p); d0.set(p.id, Math.hypot(q.x - point.x, q.z - point.z)); }
++    const read = (): void => {
++      const el = ctx.clock.now - at;
++      if (s.accuse < 0) {
++        const m = ctx.radio.log.find((l) => l.t >= at - 1e-6 && names.has(l.from) && (l.reply === true || /re[çc]u/i.test(l.text)));
++        if (m) { s.accuse = m.t - at; s.phrase = m.text; }
++      }
++      if (s.mouvement < 0) {
++        for (const p of all) {
++          const p0 = start.get(p.id)!;
++          const q = this.lieu(p);
++          if (Math.hypot(q.x - p0.x, q.z - p0.z) > 1) { s.mouvement = el; break; }
++        }
++      }
++      if (point && s.enMarcheA10 < 0 && el >= 10 - 1e-6) {
++        let n = 0;
++        for (const p of this.agents(ids, true)) {
++          const q = this.lieu(p);
++          const d = Math.hypot(q.x - point.x, q.z - point.z);
++          if (d < 15 || (d0.get(p.id) ?? d) - d >= 2) n++;
++        }
++        s.enMarcheA10 = n;
++      }
++      const tk = ids.length > 0 ? this.direct.ticketOf(ids[0]!) : null;
++      if (tk) {
++        const text = ticketText(tk);
++        if (text !== '' && s.tickets[s.tickets.length - 1] !== text) s.tickets.push(text);
++        if (s.enPlace < 0 && tk.state === 'en_place' && tk.issuedAt >= at - 1e-6) s.enPlace = el;
++      }
++      if (types && s.enPlace < 0) {
++        for (const id of ids) {
++          const ty = ctx.squads.get(id)?.order.type ?? '';
++          if (!types.includes(ty as OrderType)) s.autresOrdres.push(`t+${el.toFixed(1)} s ${ctx.squads.get(id)?.name} : ${ty}`);
++        }
++      }
++    };
++    read();
++    const n = Math.round(secondes / IMAGE);
++    for (let i = 0; i < n; i++) {
++      this.pas(IMAGE);
++      read();
++      if (opts.fini && opts.fini()) break;
++      if (opts.arretEnPlace && s.enPlace >= 0 && ctx.clock.now - at >= 10) break;
++    }
++    return s;
++  }
++
++  /**
++   * Le barrage dans le monde : agents à pied de l'unité dans la bande de la rue barrée (à 8 m au plus du point de l'ordre
++   * le long de la rue), et largeur qu'ils couvrent en travers, comparée à celle de la chaussée.
++   */
++  barrage(squadId: number): { dansLaBande: number; agents: number; couvert: number; chaussee: number } {
++    const ctx = this.ctx;
++    const o = this.squad(squadId).order;
++    const road = { edgeId: -1, x: 0, z: 0, heading: 0, dist: 0, width: 0, name: '', roadClass: 'residential', oneway: false };
++    if (!ctx.world.nearestRoad(o.x, o.z, road as never, 25)) return { dansLaBande: 0, agents: 0, couvert: 0, chaussee: 0 };
++    // (le long de la rue : son cap ; en travers : la perpendiculaire)
++    const fx = Math.sin(road.heading), fz = Math.cos(road.heading);
++    let on = 0, min = Infinity, max = -Infinity;
++    const list = this.agents([squadId], true);
++    for (const p of list) {
++      if (p.vehicleId !== 0) continue;
++      const lon = (p.x - o.x) * fx + (p.z - o.z) * fz;
++      const lat = (p.x - o.x) * fz - (p.z - o.z) * fx;
++      if (Math.abs(lon) > 8 || Math.abs(lat) > road.width * 0.5 + 15) continue;
++      on++;
++      if (lat < min) min = lat;
++      if (lat > max) max = lat;
++    }
++    return { dansLaBande: on, agents: list.length, couvert: on > 1 ? max - min : 0, chaussee: road.width };
++  }
++
++  /**
++   * Il marche vers les manifestants les plus proches jusqu'à en avoir un en vue entre `min` et `max` mètres (au plus
++   * `secondes`) ; rend ce manifestant, ou null.
++   */
++  approcher(min: number, max: number, secondes: number): Person | null {
++    for (let s = 0; s < secondes; s++) {
++      const vu = manifestantEnVue(this, min, max);
++      if (vu) return vu;
++      const me = this.moi;
++      let best: Person | null = null;
++      let bd = Infinity;
++      for (const p of this.ctx.people.list) {
++        if (p.faction !== 'protest' || p.custody !== 'free' || p.vehicleId !== 0 || p.dormant) continue;
++        const d = Math.hypot(p.x - me.x, p.z - me.z);
++        if (d < bd) { bd = d; best = p; }
++      }
++      if (!best) return null;
++      if (bd > max) this.marcher(best.x, best.z, 1); else this.pas(1);
++    }
++    return manifestantEnVue(this, min, max);
++  }
++
++  // ───────────────────────────── le trajet d'une mission ou d'une journée ─────────────────────────────
++
++  /**
++   * Trajet en passager de son véhicule (le défaut du robot des missions) : il rejoint le véhicule que montre l'objectif
++   * « Embarquez », monte à la place du passager, et laisse rouler jusqu'à `arrive()` (au plus `limite` s). À chaque
++   * seconde, `enRoute` peut jouer (ordres donnés pendant le trajet). Rend les secondes passées (−1 : jamais arrivé).
++   */
++  trajet(arrive: () => boolean, limite = 1300, enRoute?: (s: number) => void): number {
++    const ctx = this.ctx;
++    const obj = ctx.require<ObjectivesApi>(EXT.objectives);
++    const path: number[] = [];
++    for (let s = 0; s < limite; s++) {
++      if (arrive()) return s;
++      this.pas(1);
++      if (enRoute) enRoute(s);
++      const me = this.moi;
++      if (me.vehicleId !== 0) continue;
++      const e = obj.list.find((o) => o.state === 'actif' && /^(Embarquez|Montez)/.test(o.text) && o.x !== undefined);
++      if (!e) continue;
++      walk(ctx, me, e.x!, e.z!, 4, path);
++      const v = ctx.vehicles.list.find((x) => Math.hypot(x.x - e.x!, x.z - e.z!) < 6 && Math.hypot(x.x - me.x, x.z - me.z) < 6);
++      if (v) ctx.vehicles.enter(me, v, 'passenger');
++    }
++    return arrive() ? limite : -1;
++  }
++
++  /** E « Descendre » : il sort de son véhicule. */
++  descendre(): void {
++    const me = this.moi;
++    if (me.vehicleId !== 0) this.ctx.vehicles.exit(me);
++    this.pas(1);
++  }
++
++  /** Il marche (4 m/s au plus, par le chemin piéton) vers ce point pendant `secondes`. */
++  marcher(x: number, z: number, secondes: number): void {
++    const path: number[] = [];
++    for (let s = 0; s < secondes; s++) {
++      walk(this.ctx, this.moi, x, z, 4, path);
++      this.ctx.people.rebuildIndex();
++      this.pas(1);
++    }
++  }
++
++  // ───────────────────────────── la touche Interagir (E) ─────────────────────────────
++
++  /** Invites de la touche Interagir, la première d'abord (copies). */
++  invites(): InteractionOption[] {
++    const out: InteractionOption[] = [];
++    this.ctx.interactions.options(this.moi, out);
++    return out.map((o) => ({ ...o }));
++  }
++
++  /** Un appui sur E : l'invite du moment, jusqu'au bout de son action. Rend l'invite (null : aucune). */
++  e(): InteractionOption | null {
++    const opts: InteractionOption[] = [];
++    this.ctx.interactions.options(this.moi, opts);
++    const top = opts[0];
++    if (!top) return null;
++    const copy = { ...top };
++    if (!this.ctx.interactions.start(this.moi, top)) return null;
++    const cur = this.ctx.interactions.current(this.moi);
++    this.pas((cur ? cur.opt.duration : 0) + 0.25);
++    return copy;
++  }
++
++  // ───────────────────────────── refus, registres ─────────────────────────────
++
++  /** Refus rencontrés qui ne sont ni une phrase du tableau §4.3 ni de la forme « X ne peut pas : … U : une autre unité. ». */
++  refusHorsTableau(): string[] {
++    return this.refus.filter((r) => !phraseDuTableau(r) && !FORME_REFUS.test(r));
++  }
++
++  get custody(): LawCustody {
++    return this.ctx.require<LawCustody>(LAW_CUSTODY_SERVICE);
++  }
++
++  get records(): LawRecords {
++    return this.ctx.require<LawRecords>(LAW_RECORDS_SERVICE);
++  }
++
++  get transfert(): TransferApi {
++    return this.ctx.require<TransferApi>(TRANSFER_SERVICE);
++  }
++
++  get remise(): RemiseApi {
++    return this.ctx.require<RemiseApi>(REMISE_SERVICE);
++  }
++
++  get journee(): JourneeApi {
++    return this.ctx.require<JourneeApi>(JOURNEE_SERVICE);
++  }
++
++  get missions(): MissionsApi {
++    return this.ctx.require<MissionsApi>('missions');
++  }
++
++  /** La ligne « Interpellés : … » du compte rendu de fin (ui/screens/debrief.ts), d'après les registres. */
++  compteRendu(): string {
++    return detaineesLine(this.records.interpellations);
++  }
++
++  /** Résumé d'un suivi pour le journal de la recette. */
++  dire(titre: string, a: Appui, s: Suivi): string {
++    return `${titre} — « ${a.ligne} » : ${a.res.ok ? 'accepté' : a.res.ignored ? 'IGNORÉ' : `REFUSÉ (${a.res.text})`} ; accusé ${s.accuse < 0 ? 'AUCUN' : `${s.accuse.toFixed(2)} s « ${s.phrase} »`} ; `
++      + `mouvement ${s.mouvement < 0 ? 'AUCUN' : `${s.mouvement.toFixed(2)} s`} ; assis au départ ${s.assisAuDepart} ; en marche à 10 s ${s.enMarcheA10} ; en place ${s.enPlace < 0 ? 'NON' : `${s.enPlace.toFixed(1)} s`}`
++      + `${s.autresOrdres.length > 0 ? ` ; AUTRE ORDRE : ${s.autresOrdres.slice(0, 3).join(' | ')}` : ''}\n      tickets : ${s.tickets.join(' → ')}`;
++  }
++}
++
++// ───────────────────────────── étapes rejouées dans plusieurs scénarios ─────────────────────────────
++
++/** §7.1 : ce qu'on relève quand il fait barrer une rue. */
++export interface EtapeBarrage {
++  ligne: string;
++  appui: Appui;
++  unite: string;
++  squadId: number;
++  suivi: Suivi;
++  barrage: ReturnType<Joueur['barrage']>;
++}
++
++/**
++ * §7.1 — il tourne sur lui-même jusqu'à lire « Bloquer la rue … · UNITÉ · N m » (une rue à 15–150 m, une seule unité,
++ * pas l'une de `sauf`), Entrée, puis 60 s au plus jusqu'à « barrée ✓ » (et 5 s de plus pour la mesure dans le monde).
++ */
++export function etapeBarrage(j: Joueur, sauf: readonly number[] = []): EtapeBarrage | null {
++  const o = j.chercher((n) => n.rule === 'g' && n.enabled && n.who !== null && n.who.squadIds.length === 1 && !sauf.includes(n.who.squadIds[0]!) && n.distance >= 15 && n.distance <= 150);
++  if (!o) return null;
++  const ligne = j.ligne();
++  const appui = j.entree();
++  const id = appui.res.squads[0] ?? o.who!.squadIds[0]!;
++  const suivi = j.suivre(appui, [id], 60, { type: 'couper_circulation', point: { x: o.x, z: o.z }, arretEnPlace: true });
++  j.pas(5);
++  return { ligne, appui, unite: j.squad(id).name, squadId: id, suivi, barrage: j.barrage(id) };
++}
++
++/** Vérifie §7.1 (acceptation 1) : accusé ≤ 1 s, premier mouvement ≤ 2 s, en place ≤ 45 s, la rue barrée sur sa largeur. */
++export function verifierBarrage(a: EtapeBarrage | null): void {
++  expect(a, 'une ligne « Bloquer la rue … » en tournant sur lui-même').not.toBeNull();
++  if (!a) return;
++  expect(a.ligne).toMatch(/^Bloquer .+ · .+ · \d+\u00a0m$/);
++  expect(a.appui.res.ok, a.appui.res.text).toBe(true);
++  expect(a.appui.res.squads.length).toBe(1);
++  // le ticket existe à l'appui même : « reçu »
++  expect(a.suivi.tickets[0]).toMatch(/ · Bloquer .+ · reçu$/);
++  expect(a.suivi.accuse, 'accusé à la radio').toBeGreaterThanOrEqual(0);
++  expect(a.suivi.accuse).toBeLessThanOrEqual(1);
++  expect(a.suivi.mouvement, 'premier agent en mouvement').toBeGreaterThanOrEqual(0);
++  expect(a.suivi.mouvement).toBeLessThanOrEqual(2);
++  // des agents encore assis : ils descendent d'abord, et c'est dit
++  if (a.suivi.assisAuDepart > 0) expect(a.suivi.tickets.some((t) => /descend des fourgons|en fourgons/.test(t)), a.suivi.tickets.join(' → ')).toBe(true);
++  expect(a.suivi.autresOrdres, 'l’unité tient l’ordre donné').toEqual([]);
++  expect(a.suivi.enPlace, `ticket « barrée ✓ » : ${a.suivi.tickets.slice(-2).join(' → ')}`).toBeGreaterThanOrEqual(0);
++  expect(a.suivi.enPlace).toBeLessThanOrEqual(45);
++  expect(a.suivi.tickets[a.suivi.tickets.length - 1]).toMatch(/barrée? ✓$/);
++  // dans le monde : la ligne est en travers de la rue, sur toute la largeur de la chaussée
++  expect(a.barrage.dansLaBande / Math.max(1, a.barrage.agents), JSON.stringify(a.barrage)).toBeGreaterThanOrEqual(0.7);
++  expect(a.barrage.couvert, JSON.stringify(a.barrage)).toBeGreaterThanOrEqual(a.barrage.chaussee * 0.9);
++}
++
++/** A puis ⌫ : ce qu'on relève. */
++export interface EtapeAvecMoi {
++  appui: Appui;
++  accuse: number;
++  /** Unités qui ne tiennent pas « suivre » le joueur une seconde après A. */
++  pasAvecMoi: string[];
++  ordres: string[];
++  etat: string;
++  retour: Appui;
++  /** Ordre de l'unité qui barrait, une seconde et cinq secondes après ⌫. */
++  rendu: string;
++  renduApres: string;
++  /** Autres unités qui ne suivent plus le joueur après ⌫. */
++  autres: string[];
++  /** Ce qui s'est dit à la radio dans les deux secondes après A. */
++  radio: string[];
++}
++
++/**
++ * A : tout le monde avec lui (acceptation 6), l'écran le dit ; une seconde plus tard ⌫ : l'unité `barrait` reprend son
++ * barrage, les autres restent avec lui (acceptation 19). Les fourgons cellulaires gardent la remise : ils ne comptent pas.
++ */
++export function etapeAvecMoi(j: Joueur, barrait: number): EtapeAvecMoi {
++  const appui = j.a();
++  j.pas(1);
++  const me = j.moi;
++  const pasAvecMoi: string[] = [];
++  const ordres: string[] = [];
++  for (const u of j.unites()) {
++    if (u.kind === 'cellulaire') continue;
++    const o = j.squad(u.squadId).order;
++    ordres.push(`${u.name}:${o.type}`);
++    if (!(o.type === 'suivre' && o.targetId === me.id)) pasAvecMoi.push(`${u.name} (${o.type})`);
++  }
++  const names = new Set(j.unites().map((u) => u.name));
++  const ack = j.ctx.radio.log.find((l) => l.t >= appui.at - 1e-6 && names.has(l.from) && (l.reply === true || /re[çc]u/i.test(l.text)));
++  const etat = j.ecran()?.state ?? '';
++  j.pas(1);
++  const radio = j.ctx.radio.log.filter((l) => l.t >= appui.at - 1e-6).map((l) => `${(l.t - appui.at).toFixed(2)} s ${l.from}${l.silent ? ' (écrit)' : ''} : ${l.text}`);
++  const retour = j.retour();
++  j.pas(1);
++  const rendu = barrait ? j.squad(barrait).order.type : '';
++  j.pas(4);
++  const autres: string[] = [];
++  for (const u of j.unites()) {
++    if (u.kind === 'cellulaire' || j.lignee([barrait]).includes(u.squadId) || j.lignee([u.squadId]).includes(barrait)) continue;
++    const o = j.squad(u.squadId).order;
++    if (!(o.type === 'suivre' && o.targetId === me.id)) autres.push(`${u.name} (${o.type})`);
++  }
++  return { appui, accuse: ack ? ack.t - appui.at : -1, pasAvecMoi, ordres, etat, retour, rendu, renduApres: barrait ? j.squad(barrait).order.type : '', autres, radio };
++}
++
++/** Résumé de A puis ⌫ pour le journal de la recette. */
++export function direAvecMoi(c: EtapeAvecMoi, barrait: string): string {
++  return `A : ${c.appui.res.ok ? 'accepté' : c.appui.res.text} ; accusé ${c.accuse.toFixed(2)} s ; pas « suivre » à +1 s : ${c.pasAvecMoi.join(', ') || 'aucune'} ; état « ${c.etat} »\n      radio : ${c.radio.join(' | ')}`
++    + `\n      ⌫ : ${c.retour.res.ok ? `« ${c.retour.res.text} »` : c.retour.res.ignored ? 'IGNORÉ' : c.retour.res.text} ; ${barrait} tient « ${c.rendu} » à +1 s, « ${c.renduApres} » à +5 s ; autres hors « suivre » : ${c.autres.join(', ') || 'aucune'}`;
++}
++
++/** §7.2 : ce qu'on relève quand il fait interpeller un auteur désigné. */
++export interface EtapeInterpeller {
++  ligne: string;
++  appui: Appui;
++  unite: string;
++  squadId: number;
++  accuse: number;
++  /** Secondes après l'appui : interpellé, à bord d'un fourgon cellulaire (−1 : jamais dans la fenêtre). */
++  interpelle: number;
++  aBord: number;
++  fourgon: string;
++  /** Secondes après la mise à bord : l'unité est de nouveau « avec vous » (ou son ordre d'avant), −1 : jamais. */
++  revient: number;
++  /** Ordres tenus par l'unité pendant l'interpellation, dans l'ordre, sans répétition. */
++  types: string[];
++  /** Ce que l'écran a dit de l'unité (ticket), sans les nombres. */
++  ecran: string[];
++  /** Distance du fourgon cellulaire le plus proche à l'interpellé, au moment où il est pris (m). */
++  fourgonA: number;
++  /** Ce qui se disait à la radio autour de l'appui (de −8 s à +8 s). */
++  radio: string[];
++  /** Secondes après l'appui où l'écran a dit « interpellé ✓ » (−1 : jamais), et ce qu'était alors l'auteur (custody). */
++  fait: number;
++  etatAuFait: string;
++  /** Interpellation refusée ou abandonnée : secondes après l'appui (−1 : non), la phrase, et le retour « avec vous » (s après). */
++  refuse: number;
++  refus: string;
++  revientApresRefus: number;
++}
++
++/**
++ * §7.2 — un manifestant lance un projectile (fait constaté), il le regarde, lit « Interpeller le lanceur de projectile ·
++ * UNITÉ · N m », UN appui ; puis il le garde sous les yeux. Joue `secondes` au plus.
++ */
++export function etapeInterpeller(j: Joueur, cible: Person, secondes = 200): EtapeInterpeller {
++  const ctx = j.ctx;
++  jetConstate(j, cible);
++  const o = j.regarder(cible.x, cible.z);
++  const ligne = j.ligne();
++  const appui = j.entree();
++  const id = appui.res.squads[0] ?? (o && o.who ? o.who.squadIds[0]! : 0);
++  const r: EtapeInterpeller = { ligne, appui, unite: id ? j.squad(id).name : '', squadId: id, accuse: -1, interpelle: -1, aBord: -1, fourgon: '', revient: -1, types: [], ecran: [], fourgonA: -1, radio: [], fait: -1, etatAuFait: '', refuse: -1, refus: '', revientApresRefus: -1 };
++  if (!appui.res.ok || !id) return r;
++  const names = new Set(j.lignee([id]).map((q) => j.squad(q).name));
++  const vans = j.cellulaires();
++  for (let k = 0; r.aBord < 0 || r.revient < 0; k++) {
++    // (l'écran a dit « interpellé ✓ » et l'auteur est toujours libre vingt secondes plus tard : rien de plus à attendre)
++    if (r.fait >= 0 && cible.custody === 'free' && j.now - appui.at - r.fait > 20) break;
++    // (après un refus : vingt secondes de plus, le temps de voir l'unité revenir avec lui)
++    if (r.refuse >= 0 ? r.revientApresRefus >= 0 || j.now - appui.at - r.refuse > 20 : k >= secondes * 4) break;
++    // il garde l'auteur sous les yeux tant qu'il est libre
++    if (cible.custody === 'free') ctx.player.state.camYaw = Math.atan2(cible.x - j.moi.x, cible.z - j.moi.z);
++    j.pas(IMAGE);
++    const el = j.now - appui.at;
++    if (r.accuse < 0) {
++      const m = ctx.radio.log.find((l) => l.t >= appui.at - 1e-6 && names.has(l.from) && (l.reply === true || /re[çc]u/i.test(l.text)));
++      if (m) r.accuse = m.t - appui.at;
++    }
++    if (r.interpelle < 0 && cible.custody !== 'free') {
++      r.interpelle = el;
++      r.fourgonA = Math.min(...vans.map(({ v }) => Math.hypot(v.x - cible.x, v.z - cible.z)), Infinity);
++    }
++    const v = cible.vehicleId !== 0 ? ctx.vehicles.get(cible.vehicleId) : undefined;
++    if (r.aBord < 0 && cible.custody === 'in_vehicle' && v && v.kind === 'fourgon_cellulaire') {
++      r.aBord = el;
++      r.fourgon = vans.find((x) => x.v.id === v.id)?.s.name ?? `véhicule ${v.id}`;
++    }
++    const ty = j.squad(id).order.type;
++    if (r.aBord < 0 && r.types[r.types.length - 1] !== ty) r.types.push(ty);
++    const tk = j.direct.ticketOf(id);
++    const shown = (tk ? ticketText(tk) : '').replace(/\d+(\u00a0| )?(m|s|min)\b/g, 'N');
++    if (shown !== '' && r.ecran[r.ecran.length - 1] !== shown) r.ecran.push(shown);
++    if (r.refuse < 0 && tk && tk.state === 'refuse' && tk.issuedAt >= appui.at - 1e-6) { r.refuse = el; r.refus = tk.why; }
++    if (r.fait < 0 && tk && tk.state === 'en_place' && tk.verb === 'interpeller' && Math.abs(tk.issuedAt - appui.at) < 1e-6) { r.fait = el; r.etatAuFait = cible.custody; }
++    if (r.refuse >= 0 && r.revientApresRefus < 0 && j.unite(id)?.avecVous) r.revientApresRefus = el - r.refuse;
++    if (k === 32) r.radio = ctx.radio.log.filter((l) => l.t >= appui.at - 8 && l.t <= appui.at + 8).map((l) => `${(l.t - appui.at).toFixed(2)} s [${l.priority}${l.reply ? ', accusé' : ''}${l.silent ? ', écrit' : ''}] ${l.from} : ${l.text.slice(0, 70)}`);
++    if (r.aBord >= 0 && r.revient < 0) {
++      const u = j.unite(id);
++      const prev = j.core.playerOrder(id);
++      if ((u && u.avecVous) || (prev !== null && prev.verb !== 'interpeller' && prev.verb !== 'constater' && j.squad(id).order.type === prev.type)) r.revient = el - r.aBord;
++    }
++  }
++  return r;
++}
++
++/** Résumé d'une interpellation pour le journal de la recette. */
++export function direInterpeller(r: EtapeInterpeller): string {
++  return `« ${r.ligne} » : ${r.appui.res.ok ? 'accepté' : r.appui.res.ignored ? 'IGNORÉ' : `REFUSÉ (${r.appui.res.text})`} → ${r.unite} ; accusé ${r.accuse.toFixed(2)} s ; interpellé à ${r.interpelle.toFixed(1)} s `
++    + `(fourgon cellulaire le plus proche à ${r.fourgonA.toFixed(0)} m) ; à bord${r.fourgon ? ` du ${r.fourgon}` : ''} à ${r.aBord.toFixed(1)} s ; de nouveau avec lui ${r.revient.toFixed(1)} s après ; ordres tenus ${r.types.join(' → ')}${r.fait >= 0 ? ` ; « ✓ » à ${r.fait.toFixed(1)} s (auteur alors ${r.etatAuFait})` : ''}${r.refuse >= 0 ? ` ; REFUS à ${r.refuse.toFixed(1)} s « ${r.refus} », de nouveau avec lui ${r.revientApresRefus.toFixed(1)} s après` : ''}\n      écran : ${r.ecran.join(' → ')}\n      radio : ${r.radio.join(' | ')}`;
++}
++
++/** §7.3 : ce qu'on relève quand il envoie une unité (la BRAV-M) sur un point éloigné. */
++export interface EtapeEnvoyer {
++  ligne: string;
++  /** Appuis sur U avant Entrée. */
++  u: number;
++  appui: Appui;
++  unite: string;
++  squadId: number;
++  distance: number;
++  accuse: number;
++  phrase: string;
++  mouvement: number;
++  /** Opérateurs en selle au moment de l'appui. */
++  enSelle: number;
++  /** Secondes jusqu'à l'arrivée (la moitié des opérateurs à moins de 30 m du point), −1 : jamais dans la fenêtre. */
++  arrive: number;
++  /** L'écran a dit « ils finissent à pied ». */
++  finitAPied: boolean;
++  /** Distance médiane des opérateurs au point à la fin (m), et combien sont à pied. */
++  reste: number;
++  aPied: number;
++  autresOrdres: string[];
++  ecran: string[];
++  etapes: string[];
++}
++
++/**
++ * §7.3 — la ligne « Envoyer : … » est affichée (point à 300–400 m) ; il appuie sur U jusqu'à lire l'unité voulue, puis
++ * Entrée. Joue `secondes` au plus, s'arrête à l'arrivée. `type` : l'ordre que l'unité doit tenir.
++ */
++export function etapeEnvoyer(j: Joueur, veut: (u: DirectUnit) => boolean, secondes = 120, autre = false): EtapeEnvoyer | null {
++  const ctx = j.ctx;
++  let shown = j.direct.ready();
++  let u = 0;
++  for (; u < 16; u++) {
++    const who = shown && shown.who ? shown.who.squadIds : [];
++    const unit = who.length === 1 ? j.unite(who[0]!) : null;
++    if (shown && unit && veut(unit)) break;
++    shown = j.u();
++  }
++  // (`autre` : la ligne Maj+Entrée — « Envoyer » sans barrer, sur une rue)
++  const o = shown && autre ? shown.autre : shown;
++  if (!o || !o.who || u >= 16) return null;
++  const ligne = autre ? o.text : j.ligne();
++  const point = { x: o.x, z: o.z };
++  const type = o.orderType;
++  const appui = autre ? j.majEntree() : j.entree();
++  const id = appui.res.squads[0] ?? o.who.squadIds[0]!;
++  const ops = j.agents([id], true);
++  const median = (): number => {
++    const ds = j.agents([id], true).map((p) => { const q = j.lieu(p); return Math.hypot(q.x - point.x, q.z - point.z); }).sort((a, b) => a - b);
++    return ds.length > 0 ? ds[ds.length >> 1]! : Infinity;
++  };
++  const r: EtapeEnvoyer = {
++    ligne, u, appui, unite: j.squad(id).name, squadId: id, distance: o.distance, accuse: -1, phrase: '', mouvement: -1, enSelle: ops.filter((p) => p.vehicleId !== 0).length,
++    arrive: -1, finitAPied: false, reste: median(), aPied: 0, autresOrdres: [], ecran: [], etapes: [],
++  };
++  if (!appui.res.ok) return r;
++  const names = new Set(j.lignee([id]).map((q) => j.squad(q).name));
++  const start = new Map(j.agents([id]).map((p) => [p.id, j.lieu(p)]));
++  for (let k = 0; k < secondes * 4 && r.arrive < 0; k++) {
++    j.pas(IMAGE);
++    const el = j.now - appui.at;
++    if (r.accuse < 0) {
++      const m = ctx.radio.log.find((l) => l.t >= appui.at - 1e-6 && names.has(l.from) && (l.reply === true || /re[çc]u/i.test(l.text)));
++      if (m) { r.accuse = m.t - appui.at; r.phrase = m.text; }
++    }
++    if (r.mouvement < 0) for (const p of j.agents([id])) { const q = j.lieu(p), p0 = start.get(p.id); if (p0 && Math.hypot(q.x - p0.x, q.z - p0.z) > 1) { r.mouvement = el; break; } }
++    const ty = j.squad(id).order.type;
++    if (type && ty !== type) r.autresOrdres.push(`t+${el.toFixed(1)} s : ${ty}`);
++    const tk = j.direct.ticketOf(id);
++    const text = tk ? ticketText(tk) : '';
++    if (/finissent à pied/.test(text)) r.finitAPied = true;
++    const shown = text.replace(/\d+(\u00a0| )?(m|s|min)\b( \d+)?/g, 'N');
++    if (shown !== '' && r.ecran[r.ecran.length - 1] !== shown) r.ecran.push(shown);
++    const sp = j.cmd.special(id);
++    if (sp && r.etapes[r.etapes.length - 1] !== sp.stage) r.etapes.push(sp.stage);
++    r.reste = median();
++    if (r.reste <= 30) r.arrive = el;
++  }
++  r.aPied = j.agents([id], true).filter((p) => p.vehicleId === 0).length;
++  return r;
++}
++
++/** Résumé d'un envoi pour le journal de la recette. */
++export function direEnvoyer(r: EtapeEnvoyer): string {
++  return `« ${r.ligne} » (${r.u} × U) : ${r.appui.res.ok ? 'accepté' : r.appui.res.ignored ? 'IGNORÉ' : `REFUSÉ (${r.appui.res.text})`} → ${r.unite}, ${r.enSelle} en selle ; accusé ${r.accuse.toFixed(2)} s « ${r.phrase} » ; `
++    + `mouvement ${r.mouvement.toFixed(2)} s ; arrivée ${r.arrive < 0 ? `NON (médiane à ${r.reste.toFixed(0)} m, ${r.aPied} à pied)` : `${r.arrive.toFixed(0)} s`}${r.finitAPied ? ' ; « ils finissent à pied »' : ''}`
++    + `${r.autresOrdres.length > 0 ? ` ; AUTRE ORDRE ${r.autresOrdres.slice(0, 3).join(' | ')}` : ''} ; étapes ${r.etapes.join(' → ')}\n      écran : ${r.ecran.join(' → ')}`;
++}
++
++/** §2.5 : un ordre donné pendant que l'unité est en colonne (caserne, route, stationnement, débarquement). */
++export interface EtapeEnColonne {
++  etape: string;
++  ligne: string;
++  appui: Appui;
++  unite: string;
++  squadId: number;
++  /** Agents (hors conducteurs) assis au moment de l'appui. */
++  assis: number;
++  /** Agents déplacés de plus de 2 m dix secondes après l'appui, à pied ou dans leur fourgon (acceptation 2). */
++  bougent: number;
++  /** Secondes jusqu'au premier agent à pied en marche vers le point (−1 : aucun). */
++  aPied: number;
++  /** Secondes jusqu'à « barrée ✓ » (−1 : jamais dans la fenêtre). */
++  enPlace: number;
++  /** Ce que l'écran a dit de l'unité, sans les nombres, et les ordres qu'elle a tenus. */
++  ecran: string[];
++  types: string[];
++}
++
++/**
++ * §2.5 — depuis son siège (ou à pied à la caserne), il tourne la tête jusqu'à lire « Bloquer … · UNITÉ · N m » (pas l'une
++ * de `sauf`), Entrée ; puis `secondes` au plus, jusqu'à « barrée ✓ ». null : aucune rue à barrer en vue.
++ */
++export function etapeEnColonne(j: Joueur, etape: string, sauf: readonly number[] = [], secondes = 150): EtapeEnColonne | null {
++  const o = j.chercher((n) => n.rule === 'g' && n.enabled && n.who !== null && n.who.squadIds.length === 1 && !sauf.includes(n.who.squadIds[0]!) && n.distance >= 15 && n.distance <= 150);
++  if (!o) return null;
++  const ligne = j.ligne();
++  const appui = j.entree();
++  const r: EtapeEnColonne = { etape, ligne, appui, unite: '', squadId: 0, assis: 0, bougent: -1, aPied: -1, enPlace: -1, ecran: [], types: [] };
++  if (!appui.res.ok) return r;
++  const id = appui.res.squads[0]!;
++  r.squadId = id;
++  r.unite = j.squad(id).name;
++  const agents = j.agents([id], true);
++  r.assis = agents.filter((p) => p.vehicleId !== 0).length;
++  const start = new Map(agents.map((p) => [p.id, j.lieu(p)]));
++  const d0 = new Map(agents.map((p) => [p.id, Math.hypot(p.x - o.x, p.z - o.z)]));
++  for (let k = 0; k < secondes * 4 && (r.enPlace < 0 || k < 44); k++) {
++    j.pas(IMAGE);
++    const el = j.now - appui.at;
++    if (r.bougent < 0 && el >= 10) r.bougent = agents.filter((p) => { const q = j.lieu(p), s0 = start.get(p.id)!; return Math.hypot(q.x - s0.x, q.z - s0.z) > 2; }).length;
++    if (r.aPied < 0 && agents.some((p) => p.vehicleId === 0 && d0.get(p.id)! - Math.hypot(p.x - o.x, p.z - o.z) > 2)) r.aPied = el;
++    const tk = j.direct.ticketOf(id);
++    if (tk) {
++      const shown = ticketText(tk).replace(/\d+(\u00a0| )?(m|s|min)\b( \d+)?/g, 'N');
++      if (shown !== '' && r.ecran[r.ecran.length - 1] !== shown) r.ecran.push(shown);
++      if (r.enPlace < 0 && tk.state === 'en_place' && tk.issuedAt >= appui.at - 1e-6) r.enPlace = el;
++    }
++    const ty = j.squad(id).order.type;
++    if (r.types[r.types.length - 1] !== ty) r.types.push(ty);
++  }
++  return r;
++}
++
++/** Résumé d'un ordre donné en colonne pour le journal de la recette. */
++export function direEnColonne(r: EtapeEnColonne): string {
++  return `${r.etape} — « ${r.ligne} » → ${r.appui.res.ok ? r.unite : `REFUSÉ (${r.appui.res.text})`} (${r.assis} assis) : bougent à 10 s ${r.bougent} ; premier à pied vers le point ${r.aPied.toFixed(1)} s ; en place ${r.enPlace.toFixed(1)} s ; `
++    + `ordres tenus ${r.types.join(' → ')}\n      écran : ${r.ecran.join(' → ')}`;
++}
++
++/** Vérifie l'acceptation 2 pour un ordre donné en colonne : pris, dit à l'écran, des agents bougent, ils y vont à pied. */
++export function verifierPrisEnColonne(o: EtapeEnColonne): void {
++  expect(o.ligne, o.etape).toMatch(/^Bloquer .+ · .+ · \d+\u00a0m$/);
++  expect(o.appui.res.ok, `${o.etape} : ${o.appui.res.text}`).toBe(true);
++  // acceptation 2 : dix secondes après l'ordre, des agents bougent (jamais zéro), et ils vont au point à pied
++  expect(o.bougent, `${o.etape} : agents en mouvement à 10 s`).toBeGreaterThan(0);
++  expect(o.aPied, `${o.etape} : premier agent à pied vers le point`).toBeGreaterThanOrEqual(0);
++  // §2.5 : l'écran dit ce que l'unité finit
++  expect(o.ecran.some((t) => /descend des fourgons|à l’arrivée|en fourgons|en route|se garent|reçu/.test(t)), `${o.etape} : ${o.ecran.join(' → ')}`).toBe(true);
++}
++
++/** Vérifie que l'ordre donné en colonne va au bout : « barrée ✓ », l'ordre du joueur jamais remplacé. */
++export function verifierFaitEnColonne(o: EtapeEnColonne): void {
++  expect(o.enPlace, `${o.etape} : barrage en place (${o.ecran.slice(-2).join(' → ')})`).toBeGreaterThanOrEqual(0);
++  expect(o.ecran[o.ecran.length - 1], o.etape).toMatch(/barrée? ✓$/);
++  // l'ordre du joueur n'est pas remplacé par le « débarquez » de la colonne
++  expect(o.types[o.types.length - 1], `${o.etape} : ${o.types.join(' → ')}`).toBe('couper_circulation');
++}
++
++/** Vérifie §2.5 et l'acceptation 2 pour un ordre donné en colonne. */
++export function verifierEnColonne(o: EtapeEnColonne): void {
++  verifierPrisEnColonne(o);
++  verifierFaitEnColonne(o);
++}
++
++/** Acceptation 9 : ce qu'on relève d'un verbe donné à une unité (la BRAV-M). */
++export interface EtapeVerbe {
++  verbe: string;
++  appui: Appui;
++  /** Ordre attendu (Squad.order.type), accusé à la radio (s), premier mouvement (s), agents en selle à l'appui. */
++  type: string;
++  accuse: number;
++  phrase: string;
++  mouvement: number;
++  enSelle: number;
++  /** Échantillons où l'unité ne tenait pas l'ordre donné, pendant `secondes`. */
++  autresOrdres: string[];
++  /** Ce que l'unité a dit à la radio pendant ces secondes. */
++  radio: string[];
++}
++
++/** Après un appui (Entrée, A, roue) adressé à `id` : `secondes` de jeu, l'accusé, le premier mouvement, l'ordre tenu. */
++export function etapeVerbe(j: Joueur, verbe: string, appui: Appui, id: number, type: string | readonly string[], secondes = 8): EtapeVerbe {
++  const ctx = j.ctx;
++  const types = typeof type === 'string' ? [type] : type;
++  const names = new Set(j.lignee([id]).map((q) => j.squad(q).name));
++  const start = new Map(j.agents([id]).map((p) => [p.id, j.lieu(p)]));
++  const r: EtapeVerbe = { verbe, appui, type: types.join('|'), accuse: -1, phrase: '', mouvement: -1, enSelle: j.agents([id], true).filter((p) => p.vehicleId !== 0).length, autresOrdres: [], radio: [] };
++  if (!appui.res.ok) return r;
++  for (let k = 0; k < secondes * 4; k++) {
++    j.pas(IMAGE);
++    const el = j.now - appui.at;
++    if (r.accuse < 0) {
++      const m = ctx.radio.log.find((l) => l.t >= appui.at - 1e-6 && names.has(l.from) && (l.reply === true || /re[çc]u/i.test(l.text)));
++      if (m) { r.accuse = m.t - appui.at; r.phrase = m.text; }
++    }
++    if (r.mouvement < 0) for (const p of j.agents([id])) { const q = j.lieu(p), p0 = start.get(p.id); if (p0 && Math.hypot(q.x - p0.x, q.z - p0.z) > 1) { r.mouvement = el; break; } }
++    const ty = j.squad(id).order.type;
++    if (!types.includes(ty)) r.autresOrdres.push(`t+${el.toFixed(1)} s : ${ty}`);
++  }
++  r.radio = ctx.radio.log.filter((l) => l.t >= appui.at - 1e-6 && (names.has(l.from) || l.silent === true)).map((l) => `${(l.t - appui.at).toFixed(2)} s ${l.from}${l.silent ? ' (écrit)' : ''} : ${l.text.slice(0, 90)}`);
++  return r;
++}
++
++/** Résumé d'un verbe pour le journal de la recette. */
++export function direVerbe(r: EtapeVerbe): string {
++  return `${r.verbe} (${r.appui.touche}) « ${r.appui.ligne} » : ${r.appui.res.ok ? 'accepté' : r.appui.res.ignored ? 'IGNORÉ' : `REFUSÉ (${r.appui.res.text})`} ; accusé ${r.accuse.toFixed(2)} s « ${r.phrase.slice(0, 80)} » ; `
++    + `mouvement ${r.mouvement.toFixed(2)} s (${r.enSelle} en selle) ; ordre attendu ${r.type}${r.autresOrdres.length > 0 ? ` ; AUTRE ORDRE ${r.autresOrdres.slice(0, 3).join(' | ')}` : ''}\n      radio : ${r.radio.join(' | ')}`;
++}
++
++/** Phrases du tableau des refus (§4.2, §4.3), celles dont le texte varie comprises. */
++export function phraseDuTableau(text: string): boolean {
++  const fixed: string[] = [
++    ...Object.values(CAP_REFUSALS), ...Object.values(SECTOR_REFUS), REFUS.encercler, REFUS.noCentaure, REFUS.tropLoin, REFUS.lecture, REFUS.equipage, REFUS.personne, REFUS.rien,
++    REFUS.constater, REFUS.centaureAutre, REFUS.canonAutre, REFUS.autreEngin,
++  ];
++  if (fixed.includes(text)) return true;
++  for (const verb of ['charge', 'gaz', 'bond', 'disperser'] as const) if (text === refusForce(verb, true) || text === refusForce(verb, false)) return true;
++  if (/^Disperser : il faut d’abord les 3 sommations \(avertissements à la foule\)\. Appuyez encore : .+ se met en ligne et je les fais faire\.$/.test(text)) return true;
++  if (/^Toute la BRAV-M est déjà sur des interpellations \(\d+ en cours\)\. Envoyez une section\.$/.test(text)) return true;
++  return false;
++}
++
++/** Un manifestant libre, à pied, vu du joueur (ligne de vue), entre `min` et `max` mètres — le plus proche. */
++export function manifestantEnVue(j: Joueur, min: number, max: number): Person | null {
++  const me = j.moi;
++  let best: Person | null = null;
++  let bd = Infinity;
++  for (const p of j.ctx.people.list) {
++    if (p.faction !== 'protest' || p.custody !== 'free' || p.vehicleId !== 0 || p.posture === 'down' || p.dormant) continue;
++    const d = Math.hypot(p.x - me.x, p.z - me.z);
++    if (d < min || d > max || d >= bd) continue;
++    if (!j.ctx.world.lineOfSight(me.x, me.z, p.x, p.z)) continue;
++    bd = d;
++    best = p;
++  }
++  return best;
++}
++
++/** Ce que le monde fait, pas le joueur : ce manifestant lance un projectile, des agents le voient (fait constaté). */
++export function jetConstate(j: Joueur, p: Person): void {
++  j.ctx.law.recordOffense(p, 'jet_projectile', p.x, p.z, 3).witnessed = true;
++}
++
++/** Vérifie les relevés permanents du robot (acceptations 3, 5, 10) ; à appeler à la fin d'un scénario. */
++export function releves(j: Joueur): void {
++  expect(j.lectures, 'jamais « SANS ORDRE », « MONTE », « DESCEND », « EN FILE » pour une unité sous ses ordres').toEqual([]);
++  expect(j.refusHorsTableau(), 'refus hors du tableau §4.3').toEqual([]);
++  expect(j.motifsInconnus, 'motif de refus de la simulation sans mots pour le joueur').toEqual([]);
++}
++
++export type { Ticket };
 diff --git a/crs-simulation/tests/unit/police-command.convoi-point-inaccessible.test.ts b/crs-simulation/tests/unit/police-command.convoi-point-inaccessible.test.ts
 new file mode 100644
 index 0000000..aea5106
