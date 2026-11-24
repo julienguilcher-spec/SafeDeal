@@ -1,0 +1,8 @@
+# Compte rendu — recherche:materiel
+
+> Généré automatiquement à partir du rapport de l'étape. Référence pour les développeurs suivants.
+
+
+## Résumé
+
+Le dossier (653 lignes, 10 sections) couvre les sept sujets demandés avec des tableaux de valeurs, un encadré « Ce que le jeu doit reproduire » par section, une palette hexadécimale, 58 sources et une section « Points incertains ». Chaque valeur porte une marque de fiabilité : [V] vérifié, [P] source secondaire ou connue par simple résumé de recherche, [E] estimation de modélisation non sourcée, [NT] non trouvé. Les parties solides reposent sur des sources primaires lues : instruction de 2017 sur les armes de force intermédiaire, instruction gendarmerie de 2022 (texte exact des sommations), Cour des comptes 2024, dossier de presse Centaure, réponse ministérielle sur les engins lanceurs d'eau, cahier des charges des barrières de chantier de la Ville de Paris. Les parties faibles sont visuelles : aucune source ne donne les cotes ni les couleurs du casque CRS, le marquage dorsal, le dessin des galons, la sérigraphie des fourgons, ni la plupart des dimensions du mobilier urbain ; toutes les couleurs hexadécimales sont des estimations. Les chiffres de l'engin lanceur d'eau (10 000 l, 60 m, 2 canons, équipage de 3) viennent d'une fiche constructeur, pas du parc réellement en service. Deux points à arbitrer : « Cougar » est un nom de modèle commercial alors que le BRIEF le cite, et les « bandes de grade sur le casque » ne sont documentées nulle part — le dossier propose une convention de jeu clairement signalée comme inventée. Les pages officielles de la police nationale et de Gendinfo étaient bloquées à la lecture (403). Aucun autre fichier du dépôt n'a été modifié.

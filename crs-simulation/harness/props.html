@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><title>Banc d'essai — mobilier urbain, vitrines, barricades</title>
+<style>
+html,body{margin:0;height:100%;background:#111;overflow:hidden;font-family:system-ui,Arial,sans-serif}
+canvas{display:block}
+#hud{position:fixed;left:10px;bottom:10px;color:#fff;background:rgba(10,14,22,.72);padding:8px 12px;border-radius:6px;font-size:11px;line-height:1.35;white-space:pre;pointer-events:none;max-width:70vw;opacity:.9}
+#labels{position:fixed;left:0;top:0;width:100%;height:100%;pointer-events:none}
+.lbl{position:absolute;transform:translate(-50%,0);color:#fff;font-size:12px;font-weight:600;text-shadow:0 1px 2px #000,0 0 4px #000;white-space:nowrap}
+.lbl.col{font-size:11px;font-weight:500;color:#ffe9a8}
+#nav{position:fixed;right:10px;bottom:10px;opacity:.6;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;max-width:50vw}
+#nav a{color:#fff;background:rgba(10,14,22,.72);padding:5px 9px;border-radius:5px;font-size:12px;text-decoration:none}
+</style></head>
+<body>
+<div id="hud"></div><div id="labels"></div>
+<div id="nav">
+<a href="?view=planche&page=1">Planche 1</a><a href="?view=planche&page=2">2</a><a href="?view=planche&page=3">3</a><a href="?view=planche&page=4">4</a><a href="?view=planche&page=5">5</a><a href="?view=planche&page=6">6</a>
+<a href="?view=devantures&page=1">Devantures</a><a href="?view=devantures&page=1&nuit=1">Devantures de nuit</a>
+<a href="?view=rue">Rue</a><a href="?view=rue&nuit=1">Rue de nuit</a>
+<a href="?view=barricade">Barricade</a><a href="?view=barricade&nuit=1">Barricade de nuit</a>
+<a href="?view=masse">3 000 objets</a><a href="?view=atlas">Atlas</a><a href="?view=jeu">Jeu intégré</a>
+</div>
+<script type="module" src="./props.ts"></script></body></html>

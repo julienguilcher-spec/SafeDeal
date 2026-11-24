@@ -1,0 +1,8 @@
+# Compte rendu — recherche:dynamique
+
+> Généré automatiquement à partir du rapport de l'étape. Référence pour les développeurs suivants.
+
+
+## Résumé
+
+Le dossier 03 est écrit (903 lignes, 10 sections avec encadrés « Ce que le jeu doit reproduire », 44 sources avec URL, 17 points incertains) ; aucun autre fichier du dépôt n'a été touché. Sa colonne vertébrale est le rapport parlementaire n° 1824 de 2023 sur les violences en manifestation, lu directement, complété par le rapport du Sénat sur les émeutes de 2023, l'étude du Défenseur des droits sur la désescalade et deux réponses ministérielles. Il couvre la chronologie d'une manifestation déclarée, l'anatomie du cortège, les profils de participants, les signes avant-coureurs et les actions de l'escalade, l'effet réel de chaque manœuvre policière, le modèle ESIM, les blessures et secours, la presse, les émeutes nocturnes et soirs de fête, et dix cas parisiens à fictionnaliser. Les identifiants sont alignés sur `src/core/contracts.ts` (phases, profils, `addTension`) sans le modifier. Tout ce qui sert directement à l'IA de foule (seuils de peur et de colère, distances face à une ligne, vitesses de fuite, variations de tension, barème d'image publique) est une proposition de conception marquée [JEU], faute de mesures publiées. Plusieurs faits de presse ne sont connus que par des résumés de recherche (pages bloquées en 403/404) et sont marqués comme tels. Les événements de 2025-2026 (fêtes sportives, manifestations d'octobre 2026) reposent sur des bilans provisoires non recoupés avec un communiqué officiel. Un commit tiers (f6f3918) a embarqué une version intermédiaire du fichier à 840 lignes ; la version complète est dans l'arbre de travail, non commitée.

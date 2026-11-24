@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><title>Banc d'essai — immeubles de Paris</title>
+<style>
+html,body{margin:0;height:100%;background:#111;overflow:hidden;font:12px/1.4 system-ui,sans-serif;color:#ddd}
+canvas{display:block}
+#info{position:fixed;left:8px;top:8px;background:rgba(0,0,0,.55);padding:6px 9px;border-radius:4px;white-space:pre;pointer-events:none}
+#atlas{display:none;position:absolute;inset:0;overflow:auto;background:#333;padding:8px}
+#atlas figure{display:inline-block;margin:3px;text-align:center}
+#atlas figcaption{font-size:10px}
+#atlas canvas{display:inline-block;image-rendering:auto;border:1px solid #000}
+</style></head>
+<body><div id="info">chargement…</div><div id="atlas"></div><script type="module" src="./buildings.ts"></script></body></html>

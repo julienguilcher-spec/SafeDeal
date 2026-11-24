@@ -1,0 +1,628 @@
+/* =====================================================================================
+ * FOULE — types publics du module src/sim/crowd (à importer en `import type` depuis les autres modules).
+ *
+ * Services publiés :
+ *   ctx.director                               DirectorApi du contrat (phase, tension, carte de tension, stats,
+ *                                              parcours déclaré, progression de la tête) ;
+ *   ctx.service<MetroApi>(EXT.metro)           stations, affluence, fermeture, filtrage (extensions.ts) ;
+ *   ctx.service<CrowdCoreApi>(CROWD_CORE)      cœur de la foule : registre de contrôleurs de comportement par
+ *                                              profil, groupes, perception, navigation, cortège, aléas.
+ *
+ * Événements du contrat émis : crowd:phase, crowd:tension, crowd:chant, person:fled, person:radicalized, sfx.
+ * Événements libres (ctx.events.onAny) :
+ *   'crowd:alea'      AleaEvent        un aléa commence ou se termine
+ *   'crowd:density'   DensityEvent     alerte de compression (≥ 4 personnes/m²) ou danger (≥ 5)
+ *   'crowd:metro'     MetroEvent       vague sortie d'une station, fermeture, réouverture, filtrage, report de flux
+ *   'crowd:announce'  AnnounceEvent    annonce des organisateurs (départ, arrêt, arrivée, dispersion, prise de parole)
+ *   'crowd:help'      HelpEvent        la foule appelle les secours pour un blessé
+ *   'crowd:kettle'    KettleEvent      une partie de la foule se sait encerclée (ou ne l'est plus)
+ *   'crowd:foyer'     FoyerEvent       un foyer secondaire se déclare ailleurs dans Paris (ou prend fin) — voir foyers.ts
+ *   'crowd:manif'     ManifEvent       une manifestation supplémentaire est déclarée, part, se détourne, arrive, se disperse,
+ *                                      prend fin — voir manifs.ts
+ *   'crowd:detour'    {id, x, z, toDestination, name, via}  un cortège (id 1 : le principal) se détourne devant des rues
+ *                                      fermées — voir detour.ts
+ *   'crowd:evacuation' {id, state, x, z, out, arrested}  évacuation filtrée d'une nasse : 'debut', 'point', 'fin'
+ *
+ * Service 'crowd.foyers' (FoyersApi) : foyers secondaires en cours (rassemblements sauvages, groupes de casseurs,
+ * blocages), hors du cortège principal.
+ * Service 'crowd.manifs' (ManifsApi) : manifestations déclarées simultanées (manifs.ts).
+ * Service 'crowd.evacuations' (EvacuationsApi) : évacuations filtrées des nasses en cours (evacuation.ts).
+ *
+ * Clés lues dans SessionConfig.extra (toutes facultatives) :
+ *   cause                 string   identifiant de cause (« retraites », « climat »…) — écrit par la page d'accueil
+ *   composition           objet    part de chaque famille visuelle — écrit par la page d'accueil
+ *   derapage              string   'foule' | 'les_deux' : parts de radicaux et de suiveurs × 1,5 (bible F.1)
+ *   options.metro         'ferme'  stations du secteur fermées dès le départ (l'interface le fait aussi par MetroApi)
+ *   crowd.scenario        string   type de journée : 'marche_calme' | 'journee_tendue' | 'samedi_sans_organisateur'
+ *                                  | 'soir_spontane' | 'soir_de_match'
+ *   crowd.route           number[] parcours imposé [x0, z0, x1, z1, …] ; ou string[] : lieux à relier dans l'ordre
+ *   crowd.routeId         string   identifiant d'un parcours de la table (voir routes-data.ts)
+ *   crowd.destination     string | {x, z}  lieu d'arrivée (le trajet est calculé par les rues)
+ *   crowd.static          boolean  rassemblement statique : pas de marche
+ *   crowd.closedStations  (string | number)[]  noms (ou identifiants) de stations fermées au départ
+ *   crowd.aleas           string[] aléas imposés (identifiants du catalogue) ; crowd.noAleas : true pour aucun
+ *   crowd.noPressure      boolean  pas de montée de tension due à la propension (tension pilotée par les seuls événements)
+ *   crowd.present         number   part de la foule déjà sur place au début (défaut 0,3)
+ *   crowd.sono            boolean  forcer ou interdire le camion sono
+ *   crowd.bystanders      number   nombre de badauds en lisière
+ *   crowd.none            boolean  aucune manifestation (patrouille)
+ *   foyers                number | 'auto'  foyers secondaires pendant la session (défaut 'auto' : selon la taille et la
+ *                                  volatilité, 0 à 4 ; 0 en mission sauf mention contraire) ; 0 : aucun
+ *   foyers.types          string[] natures imposées, dans l'ordre ('rassemblement' | 'casseurs' | 'blocage')
+ *   foyers.delai          number   délai avant le premier foyer (s de jeu ; défaut 5 à 8 min)
+ *   foyers.ecart          number   écart entre deux foyers (s ; défaut 2 min 30 à 6 min)
+ *   foyers.duree          number   durée de vie d'un foyer (s ; défaut 8 à 15 min pour un rassemblement)
+ *   foyers.taille         number   effectif imposé de chaque foyer
+ *   manifestations        number | objet[]  manifestations déclarées SUPPLÉMENTAIRES, simultanées (0 à 3) : un nombre (lieux,
+ *                                  causes et effectifs tirés : places réelles à plus de 1,2 km les unes des autres), ou
+ *                                  [{ place, x?, z?, crowdSize, cause?, causeLabel?, destination?, tension?, volatility? }]
+ *                                  (voir manifs.ts ; service 'crowd.manifs', événement 'crowd:manif')
+ *   manifs.rassemblement  number   durée du rassemblement des manifestations supplémentaires (s de jeu ; essais)
+ *   manifs.cortege        number   durée de marche avant l'annonce de la dispersion (s ; essais)
+ *   manifs.vitesse        number   allure de marche des manifestations supplémentaires (× ; 0,5 à 2,2 ; essais)
+ *   crowd.destination     (aussi) destination déclarée : sert de but aux détours quand des rues sont fermées
+ *   crowd.noDetour        boolean  le cortège ne se détourne jamais (il attend devant le barrage)
+ *   crowd.veille          boolean  mode veille : cœur actif sans manifestation principale (mode Patrouille, voir core.ts)
+ *   imprevus              objet    { sauvages, premier?, ecart? } : manifestations SAUVAGES qui naissent en cours de partie
+ *                                  (curseur « Imprévu » du Mode libre ; voir ImprevusConfig et manifs.ts)
+ *
+ * Déclarations à la volée (mode Patrouille, imprévus) : FoyersApi.declare (rassemblement, casseurs, blocage qui se
+ * déclarent tout de suite) et ManifsApi.declare (manifestation déclarée ou sauvage) ; elles fonctionnent en veille
+ * comme dans une session normale et renvoient null quand rien n'est possible (pas de lieu, foule au plafond).
+ * ===================================================================================== */
+
+import type {
+  CrowdPhase, EntityId, Person, PersonInit, ProtestProfile, Vec2,
+} from '@/core/contracts';
+import type { MetroApi } from '@/core/extensions';
+import type { CrowdBrain } from './brain';
+
+export type { CrowdBrain } from './brain';
+
+export const CROWD_CORE = 'crowd.core';
+export const CROWD_CONTROL_SYSTEM = 'sim:crowd.control';
+export const CROWD_DIRECTOR_SYSTEM = 'sim:crowd.director';
+
+export const ALEA_EVENT = 'crowd:alea';
+export const DENSITY_EVENT = 'crowd:density';
+export const METRO_EVENT = 'crowd:metro';
+export const ANNOUNCE_EVENT = 'crowd:announce';
+export const HELP_EVENT = 'crowd:help';
+export const KETTLE_EVENT = 'crowd:kettle';
+export const FOYER_EVENT = 'crowd:foyer';
+export const CROWD_FOYERS = 'crowd.foyers';
+export const CROWD_FOYERS_SYSTEM = 'sim:crowd.foyers';
+export const MANIF_EVENT = 'crowd:manif';
+export const CROWD_MANIFS = 'crowd.manifs';
+export const CROWD_MANIFS_SYSTEM = 'sim:crowd.manifs';
+export const CROWD_EVACUATIONS = 'crowd.evacuations';
+export const CROWD_EVACUATION_SYSTEM = 'sim:crowd.evacuation';
+export const EVACUATION_EVENT = 'crowd:evacuation';
+
+/** Famille visuelle (mêmes identifiants et même ordre que le module des archétypes : look.extras.family). */
+export type CrowdFamily =
+  | 'divers' | 'gilets_jaunes' | 'syndical' | 'etudiants' | 'climat' | 'soignants' | 'agriculteurs' | 'retraites'
+  | 'familles' | 'black_bloc';
+
+export const FAMILIES: readonly CrowdFamily[] = [
+  'divers', 'gilets_jaunes', 'syndical', 'etudiants', 'climat', 'soignants', 'agriculteurs', 'retraites', 'familles',
+  'black_bloc',
+];
+
+export type CrowdScenario =
+  | 'marche_calme' | 'journee_tendue' | 'samedi_sans_organisateur' | 'soir_spontane' | 'soir_de_match';
+
+export interface ChantText { call: string; response: string }
+
+/** Cause de la manifestation du jour, telle que la foule s'en sert. */
+export interface CrowdCause {
+  id: string;
+  label: string;
+  summary: string;
+  /** Index dans le service 'roles.causes' (−1 s'il est absent). */
+  index: number;
+  chants: readonly ChantText[];
+  /** Organisations FICTIVES qui appellent (noms affichables). */
+  orgs: readonly string[];
+  color: number;
+}
+
+// ───────────────────────────── événements libres ─────────────────────────────
+
+export interface AleaEvent {
+  id: string;
+  label: string;
+  /** 0 = sans gravité, 1 = friction, 2 = sérieux. */
+  gravity: number;
+  stage: 'debut' | 'fin';
+  x: number;
+  z: number;
+}
+
+export interface DensityEvent {
+  level: 'alerte' | 'danger' | 'fin';
+  /** Densité équivalente (personnes/m²). */
+  density: number;
+  x: number;
+  z: number;
+  /** Personnes dans la zone comprimée. */
+  people: number;
+}
+
+export interface MetroEvent {
+  type: 'vague' | 'fermeture' | 'ouverture' | 'filtrage' | 'report';
+  stationId: number;
+  name: string;
+  /** Personnes concernées (vague sortie, flux reporté). */
+  count: number;
+  /** Station qui reçoit le report (0 sinon). */
+  toStationId: number;
+}
+
+export interface AnnounceEvent {
+  kind: 'prise_de_parole' | 'depart' | 'arret' | 'reprise' | 'arrivee' | 'dispersion' | 'consigne';
+  text: string;
+  x: number;
+  z: number;
+}
+
+export interface HelpEvent { personId: EntityId; byId: EntityId; x: number; z: number }
+export interface KettleEvent { enclosed: boolean; x: number; z: number; people: number }
+
+// ───────────────────────────── foyers secondaires ─────────────────────────────
+
+/**
+ * Nature d'un foyer secondaire : rassemblement non déclaré (statique, slogans, tension qui monte), groupe de
+ * casseurs (mobile, vitrines et pillage), blocage (sit-in en travers d'un carrefour).
+ */
+export type FoyerKind = 'rassemblement' | 'casseurs' | 'blocage';
+
+/** Événement libre 'crowd:foyer' : un foyer se déclare ('debut') ou prend fin ('fin'). */
+export interface FoyerEvent {
+  id: number;
+  kind: FoyerKind;
+  x: number;
+  z: number;
+  /** Effectif annoncé au début, présents à la fin. */
+  people: number;
+  /** Lieu (« place de l'Hôtel de Ville », « rue de Rivoli »…). */
+  name: string;
+  state: 'debut' | 'fin';
+}
+
+/** Foyer en cours, tel que le publie le service 'crowd.foyers'. */
+export interface FoyerView {
+  readonly id: number;
+  kind: FoyerKind;
+  /** Lieu. */
+  name: string;
+  /** Libellé complet (« Rassemblement non déclaré — place de l'Hôtel de Ville »). */
+  label: string;
+  /** Centre actuel (un groupe de casseurs se déplace). */
+  x: number;
+  z: number;
+  /** Personnes sur place, libres (ni interpellées ni parties). */
+  people: number;
+  /** Instant de début (s de session). */
+  startedAt: number;
+  /** Tension locale 0..1. */
+  tension: number;
+  /** Une nasse des forces de l'ordre l'enferme. */
+  kettled: boolean;
+  /** Unité ctx.squads (type 'cortege') qui regroupe ses groupes d'affinité. */
+  squadId: number;
+}
+
+/** Service 'crowd.foyers'. */
+export interface FoyersApi {
+  /** Foyers en cours (tableau interne : ne pas le modifier). */
+  readonly list: readonly FoyerView[];
+  /** Foyers prévus pour la session (déjà déclarés ou à venir). */
+  readonly planned: number;
+  /** Foyers déjà déclarés depuis le début de la session. */
+  readonly started: number;
+  /** Foyer auquel appartient une personne (null : aucun, ou foyer terminé). */
+  foyerOf(id: EntityId): FoyerView | null;
+  /**
+   * Déclare un foyer TOUT DE SUITE (mode Patrouille) : composition, famille et durée de vie comme pour un foyer
+   * programmé, lieu choisi dans l'anneau `near` s'il est donné (sinon comme d'ordinaire), annonce CENTRAL et événement
+   * 'crowd:foyer' début. Null : cœur inactif, trop de foyers en cours, ou aucun lieu trouvé.
+   */
+  declare(spec: FoyerDeclareSpec): FoyerView | null;
+}
+
+/** Anneau autour d'un point (m) : là où l'on cherche le lieu d'une déclaration. */
+export interface NearRing {
+  x: number;
+  z: number;
+  min: number;
+  max: number;
+}
+
+/** Réglage d'un foyer déclaré à la volée (FoyersApi.declare). */
+export interface FoyerDeclareSpec {
+  kind: FoyerKind;
+  /** Lieu imposé (sinon choisi par le module) et son nom (sinon le nom du secteur). */
+  x?: number;
+  z?: number;
+  name?: string;
+  /** Effectif (3 à 300 ; sinon tiré comme pour un foyer programmé). */
+  size?: number;
+  /** Durée de vie (s de jeu ; sinon tirée). */
+  life?: number;
+  /** Lieu cherché dans cet anneau (ignoré si x et z sont donnés). */
+  near?: NearRing;
+}
+
+// ───────────────────────────── manifestations simultanées ─────────────────────────────
+
+/** Phase d'une manifestation déclarée supplémentaire (mêmes mots que CrowdPhase). */
+export type ManifPhase = 'rassemblement' | 'depart' | 'cortege' | 'dispersion' | 'terminee';
+
+/**
+ * Manifestation déclarée supplémentaire (service 'crowd.manifs', voir manifs.ts) : un vrai cortège, avec son parcours
+ * entre deux lieux de Paris, sa cause, ses organisateurs, ses phases. La manifestation principale n'y figure pas
+ * (ctx.director).
+ */
+export interface ManifView {
+  /** 2, 3, 4… (1 : la manifestation principale). */
+  readonly id: number;
+  /** « Manifestation climat — Place de la Bastille → Place de la Nation ». */
+  label: string;
+  cause: string;
+  causeLabel: string;
+  /** Lieu de rassemblement et destination déclarée. */
+  from: string;
+  to: string;
+  phase: ManifPhase;
+  /** Effectif annoncé (déclaration) et nombre de personnes simulées prévues. */
+  declared: number;
+  planned: number;
+  /** Personnes présentes, libres (ni interpellées ni parties). */
+  people: number;
+  /** Barycentre des présents (lieu de rassemblement avant l'arrivée des premiers). */
+  x: number;
+  z: number;
+  /** Tête du cortège et cap de la marche. */
+  headX: number;
+  headZ: number;
+  headHeading: number;
+  /** Parcours courant [x0, z0, …] (le parcours déclaré, ou le détour pris), abscisses de la tête et de la queue. */
+  route: readonly number[];
+  headS: number;
+  tailS: number;
+  /** Détours pris (rues fermées par les forces de l'ordre). */
+  detours: number;
+  /** Arrêtée sur une place dont toutes les issues sont fermées. */
+  enclosed: boolean;
+  tension: number;
+  kettled: boolean;
+  startedAt: number;
+  /** Unité ctx.squads (type 'cortege') de la manifestation. */
+  squadId: number;
+  /** Compagnie chargée de cette manifestation (0 : aucune). */
+  companyId: number;
+  /**
+   * Manifestation SAUVAGE (non déclarée, née en cours de partie) : ni service d'ordre ni organisateurs, deux fois plus
+   * de radicaux, rassemblement bref (1 à 2 min), marche vers un lieu à 0,8 – 1,8 km.
+   */
+  sauvage: boolean;
+}
+
+/** Réglage d'une manifestation déclarée à la volée (ManifsApi.declare) : tout est facultatif. */
+export interface ManifDeclareSpec {
+  /** Lieu de rassemblement : nom d'une place, ou coordonnées (sinon choisi par le module, dans `near` s'il est donné). */
+  place?: string;
+  x?: number | null;
+  z?: number | null;
+  /** Effectif annoncé (avant l'échelle de foule des réglages ; 1 500 personnes simulées au plus). */
+  crowdSize?: number;
+  /** Identifiant de cause (sinon tirée) et libellé affiché. */
+  cause?: string;
+  causeLabel?: string;
+  /** Destination : nom d'une place ou point (sinon choisie : 0,9 – 2,6 km, 0,8 – 1,8 km pour une sauvage). */
+  destination?: string | { x: number; z: number } | null;
+  tension?: number;
+  volatility?: number;
+  /** Manifestation sauvage (voir ManifView.sauvage). */
+  sauvage?: boolean;
+  /** Lieu de rassemblement cherché dans cet anneau. */
+  near?: NearRing;
+}
+
+/**
+ * Clé extra['imprevus'] (curseur « Imprévu » du Mode libre) : `sauvages` manifestations sauvages (0 à 3) naissent en
+ * cours de partie à 600 – 1 800 m du cortège principal ; la première à `premier` s (sinon entre 600 et 900 s), les
+ * suivantes espacées de `ecart` s (sinon 300 à 600 s). Tirages : fork 'foule:imprevus' (manifs.ts).
+ */
+export interface ImprevusConfig {
+  sauvages: number;
+  premier?: number;
+  ecart?: number;
+}
+
+/** Événement libre 'crowd:manif'. */
+export interface ManifEvent {
+  id: number;
+  state: 'annonce' | 'depart' | 'detour' | 'arrivee' | 'dispersion' | 'fin';
+  x: number;
+  z: number;
+  label: string;
+  people: number;
+}
+
+/** Service 'crowd.manifs'. */
+export interface ManifsApi {
+  /** Manifestations supplémentaires de la session (terminées comprises ; tableau interne). */
+  readonly list: readonly ManifView[];
+  /** Manifestation à laquelle appartient une personne (null : aucune). */
+  manifOf(id: EntityId): ManifView | null;
+  /** Rattache une compagnie à une manifestation (affichage, commandement). */
+  assign(manifId: number, companyId: number): void;
+  /**
+   * Déclare une manifestation TOUT DE SUITE (mode Patrouille, imprévus) : vrai cortège (rassemblement, départ, marche,
+   * dispersion), annonce CENTRAL et 'crowd:manif' annonce. Budget : 4 000 personnes simulées moins celles déjà
+   * présentes, 1 500 au plus (réduite à ce qui reste). Null : cœur inactif, plus de place sous le plafond, ou aucun
+   * lieu, aucune destination, aucun parcours trouvé.
+   */
+  declare(spec: ManifDeclareSpec): ManifView | null;
+}
+
+/** Évacuation filtrée d'une nasse (service 'crowd.evacuations', voir evacuation.ts). */
+export interface EvacuationView {
+  readonly id: number;
+  /** Unité qui filtre la sortie. */
+  squadId: number;
+  /** Porte (point de l'ordre « filtrer ») et centre de la nasse. */
+  x: number;
+  z: number;
+  kettleX: number;
+  kettleZ: number;
+  /** Personnes sorties, interpellées, encore dans la nasse. */
+  out: number;
+  arrested: number;
+  waiting: number;
+  active: boolean;
+}
+
+export interface EvacuationsApi {
+  readonly list: readonly EvacuationView[];
+}
+
+/** Détour d'un cortège : parcours en cours, et le nombre de détours pris. */
+export interface DetourInfo {
+  readonly count: number;
+  /** Arrêté sur une place close (toutes les issues fermées). */
+  readonly enclosed: boolean;
+}
+
+// ───────────────────────────── groupes, cortège, issues ─────────────────────────────
+
+export type GroupKind = 'amis' | 'famille' | 'section' | 'noyau' | 'delegation';
+
+/** Groupe d'affinité : des personnes venues ensemble, qui restent ensemble et repartent ensemble. */
+export interface CrowdGroup {
+  readonly id: number;
+  kind: GroupKind;
+  /** Unité correspondante dans ctx.squads (type 'affinite'). */
+  squadId: number;
+  members: EntityId[];
+  profile: ProtestProfile;
+  family: CrowdFamily;
+  /** Tronçon du cortège (index dans FormationView.sections, −1 hors cortège). */
+  section: number;
+  /** 0..1 : tirage commun du groupe pour les départs (sommations, dispersion). */
+  docility: number;
+  /** Instant de départ décidé pour tout le groupe (Infinity : aucun). */
+  leaveAt: number;
+  /** Issue retenue (index dans CrowdCoreApi.exits, −1). */
+  exit: number;
+  /** Itinéraire commun vers l'issue. */
+  path: number[] | null;
+}
+
+export type SectionKind = 'precortege' | 'carre' | 'bloc' | 'divers' | 'queue';
+
+export interface CortegeSection {
+  readonly index: number;
+  kind: SectionKind;
+  /** Libellé français (« Carré de tête », « Cortège syndical »…). */
+  label: string;
+  family: CrowdFamily;
+  /** Unité ctx.squads de type 'cortege'. */
+  squadId: number;
+  /** Premier et dernier bloc de la chaîne. */
+  firstBlock: number;
+  lastBlock: number;
+  /** Personnes prévues dans le tronçon. */
+  size: number;
+}
+
+/** Point du parcours : position sur l'axe, tangente unitaire, couloir utilisable. */
+export interface RoutePoint {
+  x: number;
+  z: number;
+  /** Tangente unitaire (sens de la marche). */
+  tx: number;
+  tz: number;
+  /** Décalage du milieu du couloir par rapport à l'axe (m, positif à droite du sens de marche). */
+  center: number;
+  /** Demi-largeur utilisable par le cortège (m). */
+  half: number;
+  /** Étirement du cortège à cet endroit (1 = largeur de référence). */
+  stretch: number;
+}
+
+export interface FormationView {
+  /** Abscisse de la tête et de la queue le long du parcours (m). */
+  readonly headS: number;
+  readonly tailS: number;
+  /** Vitesse de la tête (m/s). */
+  readonly headSpeed: number;
+  /** La tête est à l'arrêt volontaire (arrêt de marche, barrage, aléa). */
+  readonly halted: boolean;
+  /** Motif de l'arrêt en cours ('' si aucun) : 'pause' | 'barrage' | 'alea:…' | 'arrivee'. */
+  readonly haltReason: string;
+  readonly sections: readonly CortegeSection[];
+  readonly blockCount: number;
+  /** Abscisse et vitesse d'un bloc de la chaîne. */
+  blockS(block: number): number;
+  blockSpeed(block: number): number;
+  /** Bloc d'une personne (−1 si elle n'a pas de place dans le cortège). */
+  blockOf(p: Person): number;
+  /** Position de l'emplacement d'une personne ; false si elle n'en a pas. */
+  slotPosition(p: Person, out: Vec2): boolean;
+  /** Arrête la tête `seconds` secondes (motif libre). */
+  halt(seconds: number, reason: string): void;
+  /** Arrête un bloc (et, par accordéon, ceux qui le suivent). */
+  holdBlock(block: number, seconds: number): void;
+  /** Véhicule sono (0 s'il n'y en a pas). */
+  readonly sonoVehicleId: EntityId;
+}
+
+export interface CrowdExit {
+  readonly index: number;
+  kind: 'metro' | 'rue';
+  x: number;
+  z: number;
+  /** Station (identifiant MetroApi) pour une bouche, 0 sinon. */
+  stationId: number;
+  open: boolean;
+}
+
+/** Ce que l'on voit des forces de l'ordre autour d'un point. */
+export interface PoliceSight {
+  /** Agent le plus proche. */
+  id: EntityId;
+  x: number;
+  z: number;
+  dist: number;
+  /** Agents dans le rayon demandé. */
+  count: number;
+  /** Vitesse de rapprochement du plus proche (m/s, positive s'il vient vers le point). */
+  closing: number;
+}
+
+export interface AleaInfo {
+  id: string;
+  label: string;
+  gravity: number;
+  /** Instant prévu (s de session) ; −1 si non tiré pour cette mission. */
+  at: number;
+  /** 'prevu' | 'en_cours' | 'termine' | 'ecarte' (conditions non réunies) | '' (non tiré). */
+  status: string;
+}
+
+// ───────────────────────────── contrôleurs de comportement ─────────────────────────────
+
+/**
+ * Contrôleur de comportement : prend la main sur les personnes d'un profil. Le cœur le consulte à chaque
+ * réflexion de la personne (quelques fois par seconde), APRÈS avoir tenu ses émotions à jour et écarté les
+ * cas où personne ne pilote (joueur, personne à terre, interpellée, à bord d'un véhicule).
+ */
+export interface BehaviorController {
+  readonly id: string;
+  /** Plus grand = consulté d'abord (défaut 0). */
+  readonly priority?: number;
+  /**
+   * Réflexion. Retourner true pour prendre (ou garder) la main : l'état de la personne devient S.CUSTOM et le
+   * cœur ne décide rien pour elle à ce tour. Retourner false pour laisser le comportement par défaut (un
+   * radical sans contrôleur se conduit comme un militant agité). `dt` : temps depuis sa dernière réflexion (s).
+   */
+  think(p: Person, brain: CrowdBrain, core: CrowdCoreApi, dt: number): boolean;
+  /**
+   * Pilotage à chaque pas quand le contrôleur a la main. S'il est absent, le cœur conduit la personne vers
+   * (brain.tx, brain.tz) à brain.speed (au pas de course si brain.run), en suivant brain.path s'il existe :
+   * il suffit alors d'appeler core.goTo() dans think().
+   */
+  steer?(p: Person, brain: CrowdBrain, core: CrowdCoreApi, dt: number): void;
+  /** Le contrôleur perd la main (retour au comportement par défaut) ou la personne quitte le jeu. */
+  release?(p: Person, brain: CrowdBrain): void;
+}
+
+export interface SpawnOptions extends Omit<PersonInit, 'kind' | 'x' | 'z' | 'profile'> {
+  family?: CrowdFamily;
+  /** false : ne compte pas dans les statistiques de la manifestation (défaut true). */
+  counted?: boolean;
+  /** Groupe d'affinité auquel le rattacher (identifiant CrowdGroup.id). */
+  group?: number;
+}
+
+/** Service 'crowd.core'. */
+export interface CrowdCoreApi {
+  /** Une manifestation est en cours dans cette session (ou le cœur est en veille : voir `veille`). */
+  readonly active: boolean;
+  /**
+   * Mode veille (extra['crowd.veille'] = true) : cœur actif sans manifestation principale — pas de cortège, phase
+   * 'aucune', aucun parcours (ctx.director.route vide) ; seuls les foyers et manifestations déclarés ont des personnes.
+   */
+  readonly veille: boolean;
+  /** Personnes pilotées par le module (tableau interne : ne pas le modifier ni le conserver). */
+  readonly members: readonly Person[];
+  readonly groups: readonly CrowdGroup[];
+  /** Phase du déroulé, sans les états superposés « tension » et « affrontement ». */
+  readonly basePhase: CrowdPhase;
+  readonly cause: Readonly<CrowdCause>;
+  readonly volatility: number;
+  /** Échelle de temps de la mission (1 = durée standard de 25 min). */
+  readonly timeScale: number;
+  readonly formation: FormationView;
+  readonly metro: MetroApi;
+  readonly exits: readonly CrowdExit[];
+  readonly aleas: readonly AleaInfo[];
+
+  /** Mémoire de foule d'une personne (null si le module ne la pilote pas). */
+  brain(p: Person): CrowdBrain | null;
+  group(id: number): CrowdGroup | undefined;
+
+  // ── registre de contrôleurs ──
+  /** Enregistre un contrôleur pour un profil ('*' : tous). Retourne la fonction de retrait. */
+  registerController(profile: ProtestProfile | 'badaud' | '*', controller: BehaviorController): () => void;
+
+  // ── émotions, légitimité, tension ──
+  tensionAt(x: number, z: number): number;
+  /** Légitimité perçue de l'action des forces (0..1) et cohésion (0..1) du tronçon de 50 m. */
+  legitimacyAt(x: number, z: number): number;
+  cohesionAt(x: number, z: number): number;
+  addLegitimacy(x: number, z: number, delta: number): void;
+  addCohesion(x: number, z: number, delta: number): void;
+  /** Ajoute peur et colère aux personnes de la foule dans un rayon (atténuation avec la distance) ; retourne leur nombre. */
+  stir(x: number, z: number, radius: number, fear: number, anger: number): number;
+  /** Signale un acte violent visible (rend « justifiée » une riposte proche pendant 60 s). */
+  markViolence(x: number, z: number): void;
+  recentViolence(x: number, z: number, radius?: number): boolean;
+
+  // ── perception ──
+  /** Forces de l'ordre à pied dans le rayon ; false si aucune. */
+  nearestPolice(x: number, z: number, radius: number, out: PoliceSight): boolean;
+  /** Manifestants dans le rayon (couverture pour agir, densité). */
+  coverAt(x: number, z: number, radius: number): number;
+  /** Densité équivalente à cet endroit (personnes/m²). */
+  densityAt(x: number, z: number): number;
+  /** Point du parcours à l'abscisse s. */
+  routePoint(s: number, out: RoutePoint): void;
+
+  // ── navigation ──
+  /** Fixe la destination d'une personne (itinéraire par les rues demandé si elle est loin ou masquée). */
+  goTo(p: Person, x: number, z: number, speed?: number, run?: boolean): void;
+  /** Fait quitter la manifestation à une personne (issue la plus adaptée par défaut) : elle est retirée une fois sortie. */
+  leave(p: Person, exit?: number): void;
+  /** Rend une personne au comportement par défaut à son prochain tour de réflexion. */
+  release(p: Person): void;
+
+  // ── population ──
+  /** Crée un manifestant pris en charge par le module (hors cortège : il se place en queue ou suit son contrôleur). */
+  spawn(profile: ProtestProfile, x: number, z: number, opts?: SpawnOptions): Person | null;
+  /** Change le profil d'une personne : événement person:radicalized et ctx.archetypes.equip. */
+  setProfile(p: Person, to: ProtestProfile): void;
+  /** Crée un groupe d'affinité à partir de personnes existantes. */
+  createGroup(kind: GroupKind, members: readonly Person[]): CrowdGroup;
+
+  // ── déroulé ──
+  /** Déclenche un aléa du catalogue tout de suite ; false s'il est inconnu ou si ses conditions ne sont pas réunies. */
+  triggerAlea(id: string): boolean;
+  /** Équipe de liaison au contact des organisateurs : hausses de tension × 0,7 et décroissance doublée (bible F.4). */
+  setLiaison(active: boolean): void;
+  /** Les organisateurs annoncent la dispersion maintenant. */
+  announceDispersal(): void;
+}

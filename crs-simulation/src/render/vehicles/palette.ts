@@ -1,0 +1,25 @@
+/* Palette commune des modèles de véhicules (sRGB). Valeurs des livrées : dossier de recherche 02 §8. */
+
+export const COL = {
+  glass: 0x18222c,
+  glassFrost: 0xa9b6bf,
+  rubber: 0x131417,
+  rim: 0xb9bdc3,
+  rimDark: 0x3a3d42,
+  dark: 0x17181b,
+  plastic: 0x24262a,
+  steel: 0x8d9299,
+  chrome: 0xd0d3d8,
+  headLens: 0xf3f4ec,
+  redLens: 0xb5121f,
+  amber: 0xf08a14,
+  blueLens: 0x1e5bff,
+  white: 0xf4f5f7,
+  policeBlue: 0x1d4e9e,
+  policeRed: 0xef4135,
+  gendBlue: 0x1b2f5e,
+  fireRed: 0xc8102e,
+  fireYellow: 0xe8d21c,
+  samuBlue: 0x003da5,
+  interior: 0x0d0e10,
+} as const;

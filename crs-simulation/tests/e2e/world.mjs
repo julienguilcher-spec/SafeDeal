@@ -1,0 +1,101 @@
+// La ville en 3D : captures du banc d'essai harness/world.html et mesures.
+// Usage : node tests/e2e/world.mjs [qualité] [vues séparées par des virgules | tout] [paramètres d'URL supplémentaires]
+//   sans argument : qualité moyenne, les huit vues demandées (et le pont), la carte 2D, les mesures, l'aller-retour mémoire
+//   ex. : node tests/e2e/world.mjs haut tout "dist=1300"        toutes les vues en qualité haute
+//         node tests/e2e/world.mjs moyen champs,quai,mesure      deux vues et les mesures
+//         node tests/e2e/world.mjs moyen tout "map=test"         sur le quartier d'essai
+// Captures : tests/e2e/out/world-<qualité>-<vue>.png ; rapport : tests/e2e/out/world-report-<qualité>.json
+import { writeFileSync } from 'node:fs';
+import path from 'node:path';
+import { startServer, openPage, waitFor, shot, finish, OUT } from './lib.mjs';
+
+const quality = process.argv[2] ?? 'moyen';
+const all = process.argv[3] === 'tout';
+const only = process.argv[3] && !all ? process.argv[3].split(',') : null;
+const extra = '&' + (process.argv[4] ?? 'dist=1000');
+
+// [nom de la capture, vue, heure, météo, vue supplémentaire (seulement avec « tout » ou si elle est nommée)]
+const SHOTS = [
+  ['champs', 'champs', 15, 'clair', false],
+  ['concorde', 'concorde', 11, 'clair', false],
+  ['rivoli', 'rivoli', 16, 'nuageux', false],
+  ['marais', 'marais', 14, 'clair', false],
+  ['quai', 'quai', 15.5, 'clair', false],
+  ['pont', 'pont', 10, 'clair', false],
+  ['etoile-ciel', 'etoile', 14, 'clair', false],
+  ['nuit', 'chaussee', 22.5, 'clair', false],
+  ['pluie', 'rivoli', 17, 'pluie', false],
+  ['concorde-ciel', 'ciel', 14, 'clair', true],
+  ['pluie-concorde', 'concorde', 13, 'averse', true],
+];
+
+const server = await startServer();
+const t0 = Date.now();
+const { browser, page, errors } = await openPage(`${server.url}harness/world.html?shot=1&quality=${quality}&place=concorde${extra}`, { width: 1280, height: 720 });
+let ok = true;
+let browser2 = null;
+const report = { quality, shots: {}, roundTrip: null, map: null };
+try {
+  await waitFor(page, 'window.__ready === true || window.__error', 600000);
+  const error = await page.evaluate(() => window.__error ?? null);
+  if (error) throw new Error(error);
+  const first = await page.evaluate(() => window.__stats());
+  console.log(`[world] prêt en ${((Date.now() - t0) / 1000).toFixed(1)} s — carte « ${first.source} », textures partagées peintes en ${first.paintMs.toFixed(0)} ms (${(first.sharedGpuBytes / 1048576).toFixed(1)} Mo sur la carte graphique)`);
+  for (const [name, vue, heure, meteo, optional] of SHOTS) {
+    if (only ? !only.includes(name) : optional && !all) continue;
+    const t1 = Date.now();
+    const st = await page.evaluate(([v, h, m]) => window.__goto(v, { heure: h, meteo: m }), [vue, heure, meteo]);
+    const file = await shot(page, `world-${quality}-${name}`);
+    report.shots[name] = st;
+    console.log(`capture : ${file} (${((Date.now() - t1) / 1000).toFixed(1)} s) — ${st.secteur} — ${st.detailTiles} tuiles détaillées, ${st.farTiles} lointaines ; ville ${st.drawCalls} appels / ${Math.round(st.triangles / 1000)} k tri ; immeubles ${st.buildingDrawCalls} appels / ${Math.round(st.buildingTriangles / 1000)} k tri ; image ${st.rendu.appels} appels / ${Math.round(st.rendu.triangles / 1000)} k tri ; étape max ${st.maxStepMs.toFixed(1)} ms`);
+    if (st.maxDetailDrawCalls > 8) { console.error(`[world] ${name} : ${st.maxDetailDrawCalls} appels de dessin pour une tuile détaillée (budget : 8)`); ok = false; }
+  }
+  if (!only || only.includes('carte')) {
+    // mini-carte et carte tactique (service world.map2d)
+    await page.evaluate(() => window.__goto('concorde', { heure: 12, meteo: 'clair' }));
+    let ms = await page.evaluate(() => window.__map({ mpp: 1.2 }));
+    console.log('capture :', await shot(page, `world-${quality}-carte-concorde`), `(dessin ${ms.toFixed(1)} ms)`);
+    ms = await page.evaluate(() => window.__map({ mpp: 5, theme: 'nuit', x: -900, z: -400 }));
+    console.log('capture :', await shot(page, `world-${quality}-carte-tactique`), `(dessin ${ms.toFixed(1)} ms)`);
+    ms = await page.evaluate(() => window.__map({ mpp: 0.5, rotation: 0.6 }));
+    console.log('capture :', await shot(page, `world-${quality}-carte-zoom`), `(dessin ${ms.toFixed(1)} ms)`);
+    report.map = { ms };
+    await page.evaluate(() => window.__map(null));
+  }
+  if (!only || only.includes('mesure')) {
+    // coût de construction d'une tuile détaillée (hors immeubles), étape par étape
+    for (const vue of ['concorde', 'champs', 'marais']) {
+      await page.evaluate((v) => window.__goto(v, { heure: 12, meteo: 'clair' }), vue);
+      const b = await page.evaluate(() => window.__bench(5));
+      if (!b) continue;
+      report.bench = report.bench ?? {};
+      report.bench[vue] = b;
+      console.log(`construction (${vue}) : ${b.totalMs.toFixed(0)} ms en ${b.steps} étapes ; plus longue étape ${b.maxStepMs.toFixed(1)} ms (${b.maxStepLabel}) ; ${b.over4} étapes > 4 ms, ${b.over8} > 8 ms ; ${Math.round(b.triangles / 1000)} k triangles, ${b.drawCalls} appels, ${(b.gpuBytes / 1048576).toFixed(1)} Mo`);
+    }
+  }
+  if (!only || only.includes('memoire')) {
+    // Aller-retour : la mémoire de la carte graphique doit revenir à sa valeur de départ. Page à part, sans les
+    // monuments (un autre module, qui construit ses silhouettes peu à peu et fausserait le décompte).
+    await browser.close();
+    const second = await openPage(`${server.url}harness/world.html?shot=1&quality=${quality}&place=concorde&monuments=0${extra}`, { width: 1280, height: 720 });
+    browser2 = second.browser;
+    errors.push(...second.errors);
+    const page2 = second.page;
+    await waitFor(page2, 'window.__ready === true || window.__error', 600000);
+    await page2.evaluate(() => window.__goto('concorde', { heure: 12, meteo: 'clair' }));
+    const trip = await page2.evaluate(() => window.__roundTrip());
+    errors.push(...second.errors);
+    report.roundTrip = trip;
+    console.log(`aller-retour de ${trip.deplacement} m : géométries ${trip.avant.geometries} → ${trip.ailleurs.geometries} → ${trip.apres.geometries} ; textures ${trip.avant.textures} → ${trip.ailleurs.textures} → ${trip.apres.textures} ; tuiles [détaillées, lointaines] ${JSON.stringify(trip.tuilesAvant)} → ${JSON.stringify(trip.tuilesAilleurs)} → ${JSON.stringify(trip.tuilesApres)}`);
+    if (Math.abs(trip.apres.geometries - trip.avant.geometries) > 2 || Math.abs(trip.apres.textures - trip.avant.textures) > 2) {
+      console.error('[world] la mémoire de la carte graphique ne revient pas à sa valeur de départ après un aller-retour');
+      ok = false;
+    }
+  }
+} catch (err) {
+  console.error('[world] ' + (err && err.stack ? err.stack : String(err)));
+  ok = false;
+}
+writeFileSync(path.join(OUT, `world-report-${quality}.json`), JSON.stringify(report, null, 1));
+if (browser2) await browser2.close().catch(() => {});
+await finish({ browser, server, errors, ok, label: 'world' });

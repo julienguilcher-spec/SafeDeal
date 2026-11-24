@@ -1,0 +1,668 @@
+// Banc d'essai du rendu des véhicules. Le module est branché comme dans le jeu (Game → provide → init → frame) ;
+// les véhicules sont créés dans le magasin du cœur avec les définitions de référence (bible de réalisme, tableau C).
+// Vues (paramètre d'URL `view`) :
+//   alignement : tous les modèles côte à côte avec une silhouette de 1,80 m (&page=1..6 ; &cam=face|profil|trois-quarts|dessus ;
+//                &nuit=1 ; &etat=damaged|wrecked|burning|burnt ; &loin=1 pour voir les modèles lointains au téléobjectif)
+//   fiche      : un modèle sous quatre angles (&kind=… ; &nuit=1 ; &loin=1 ; &portes=1 ; &gis=°, &site=° ; &braq=° ;
+//                &revers=1 : arrière, flanc gauche, trois-quarts arrière et dessus)
+//   etats      : un modèle dans ses cinq états (&kind=…)
+//   interieur  : vue du conducteur (&kind=… ; &regard=° ; &vitesse=km/h ; &braq=° ; &nuit=1)
+//   tourelle   : écran de visée (&kind=centaure|canon_eau ; &gis=° ; &site=°)
+//   parc       : 150 véhicules civils instanciés, dont une partie roule (&n=150 ; &qualite=bas|moyen|haut|ultra)
+//   jeu        : contrôle d'intégration — vrai rendu de base + vraie simulation des véhicules + ce module, le joueur au
+//                volant (&kind=… ; &cam=int|ext|tourelle ; &nuit=1 ; &vitesse=km/h). Les deux autres modules sont chargés
+//                à la demande : les autres vues n'en dépendent pas.
+import * as THREE from 'three';
+import type { QualityLevel, Vec3, Vehicle, VehicleState, ViewApi } from '@/core/contracts';
+import { Game } from '@/core/game';
+import { getCore } from '@/core/context';
+import { defaultSessionConfig } from '@/core/session';
+import type { DynamicLight, DynamicLightInit, RenderLightsApi } from '@/render/base/api';
+import { CIVIL_COLORS, REFERENCE_DEFS, createSystems } from '@/render/vehicles/index';
+import type { VehiclesRenderApi } from '@/render/vehicles/index';
+
+const params = new URLSearchParams(location.search);
+const view = params.get('view') ?? 'alignement';
+const quality = (params.get('qualite') ?? 'haut') as QualityLevel;
+const night = params.get('nuit') === '1';
+const far = params.get('loin') === '1';
+const num = (k: string, d: number): number => { const v = params.get(k); return v === null || v === '' || Number.isNaN(Number(v)) ? d : Number(v); };
+const DEG = Math.PI / 180;
+
+if (view === 'jeu') await runIntegrated();
+else await runStandalone();
+
+/**
+ * Contrôle d'intégration : le module tourne ici dans les conditions du jeu — ctx.view, la caméra, le ciel et les
+ * lumières dynamiques viennent du vrai rendu de base, les véhicules (définitions, portes, tourelles, feux) de la vraie
+ * simulation. Rien n'est simulé par le banc d'essai, hormis un sol et quelques façades.
+ */
+async function runIntegrated(): Promise<void> {
+  const [base, sim] = await Promise.all([import('@/render/base/index'), import('@/sim/vehicles/index')]);
+  const host = document.createElement('div');
+  host.id = 'game';
+  host.style.cssText = 'position:fixed;inset:0';
+  document.body.insertBefore(host, document.body.firstChild);
+  const game = new Game({ headless: false, storage: null });
+  const ctx = game.ctx;
+  ctx.settings.set('quality', quality);
+  game.addModule(base.createSystems);
+  game.addModule(sim.createSystems);
+  game.addModule(createSystems);
+  await game.boot();
+  await ctx.session.start(defaultSessionConfig({ timeOfDay: night ? 23 : 15, x: 0, z: 0 }));
+  ctx.env.setTime(night ? 23 : 15);
+  const v3d = ctx.view;
+  if (!v3d) throw new Error('[banc] le rendu de base n\'a pas fourni ctx.view');
+  const api = ctx.require<VehiclesRenderApi>('vehiclesRender');
+  // décor minimal : chaussée et façades
+  const road = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), new THREE.MeshStandardMaterial({ color: 0x4a4b4d, roughness: 0.95 }));
+  road.rotation.x = -Math.PI / 2;
+  road.receiveShadow = true;
+  v3d.world.add(road);
+  for (let i = 0; i < 10; i++) {
+    for (const sideX of [-1, 1]) {
+      const h = 16 + ((i * 7 + (sideX > 0 ? 3 : 0)) % 5) * 2;
+      const b = new THREE.Mesh(new THREE.BoxGeometry(10, h, 16), new THREE.MeshStandardMaterial({ color: i % 2 ? 0xe2d7be : 0xcfc3a5, roughness: 0.9 }));
+      b.position.set(sideX * 15, h / 2, -10 - i * 17);
+      b.castShadow = true;
+      b.receiveShadow = true;
+      v3d.world.add(b);
+    }
+  }
+  const kind = params.get('kind') ?? 'fourgon_crs';
+  const cam = params.get('cam') ?? 'int';
+  const mine = ctx.vehicles.spawn(kind, 0, 0, Math.PI);
+  mine.beacons = true;
+  mine.headlights = night;
+  const p = ctx.people.spawn({ kind: 'crs', x: 0, z: 2 });
+  const seated = ctx.vehicles.enter(p, mine, cam === 'tourelle' ? 'gunner' : 'driver') || ctx.vehicles.enter(p, mine);
+  ctx.player.possess(p.id);
+  ctx.player.setCameraMode(cam === 'int' ? 'vehicle_int' : cam === 'tourelle' ? 'turret' : 'vehicle_ext');
+  ctx.player.state.camYaw = mine.heading;
+  ctx.player.state.camPitch = num('hausse', cam === 'int' ? -4 : 0) * DEG;
+  // autres véhicules : fourgon gyrophares allumés, Centaure, voiture en feu, trafic à l'arrêt
+  const other = ctx.vehicles.spawn('fourgon_crs', 3.6, -22, 0);
+  other.beacons = true;
+  other.headlights = night;
+  ctx.vehicles.spawn('centaure', -3.8, -34, Math.PI);
+  ctx.vehicles.spawn('voiture', -3.4, -14, Math.PI, { color: 0x6f1d22 });
+  const burning = ctx.vehicles.spawn('citadine', 4.2, -46, 0.4);
+  burning.state = 'burning';
+  burning.burning = 1;
+  burning.health = 5;
+  for (let i = 0; i < mine.turretYaw.length; i++) { mine.turretYaw[i] = num('gis', 15) * DEG; mine.turretPitch[i] = num('site', 30) * DEG; }
+  const speed = num('vitesse', 0) / 3.6;
+  const info: Record<string, unknown> = {};
+  (window as unknown as { __info: unknown }).__info = info;
+  const hudEl = document.getElementById('hud')!;
+  let frames = 0;
+  let last = performance.now();
+  const fixed = num('pas', 0);
+  const cpuLog: number[] = [];
+  const loop = (): void => {
+    if ((window as unknown as { __pause?: boolean }).__pause) { requestAnimationFrame(loop); return; }
+    const nowMs = performance.now();
+    const dt = fixed > 0 ? fixed : Math.min(0.1, (nowMs - last) / 1000);
+    last = nowMs;
+    // la simulation tient le véhicule à l'arrêt (aucune commande) : on impose seulement les grandeurs affichées
+    if (speed > 0) { mine.speed = speed; mine.steerAngle = num('braq', 0) * DEG; }
+    game.frame(dt);
+    frames++;
+    const st = api.stats;
+    info.frames = frames; info.moduleCalls = st.drawCalls; info.moduleTriangles = st.triangles; info.near = st.near; info.far = st.far;
+    cpuLog.push(Math.round(st.cpuMs * 100) / 100);
+    if (cpuLog.length > 24) cpuLog.shift();
+    info.fx = st.fx; info.cpuSerie = cpuLog; info.calls = v3d.renderer.info.render.calls; info.seated = seated; info.seat = p.seat;
+    info.cam = ctx.player.state.cameraMode; info.vehicles = ctx.vehicles.list.length;
+    info.state = burning.state; info.doors = (ctx.service<{ doorOpen(v: Vehicle, seat: number): number }>('vehicles.ext')?.doorOpen(mine, p.seat)) ?? -1;
+    if (frames % 5 === 0) {
+      hudEl.textContent = `vue : jeu intégré (${kind}, caméra ${ctx.player.state.cameraMode})${night ? ' — nuit' : ''}\n`
+        + `module : ${st.drawCalls} appels de dessin, ${st.triangles.toLocaleString('fr-FR')} triangles, ${st.fx} quads lumineux — scène : ${v3d.renderer.info.render.calls} appels\n`
+        + `CPU du module : ${st.cpuMsAvg.toFixed(2)} ms/image`;
+    }
+    (window as unknown as { __frames: number }).__frames = frames;
+    requestAnimationFrame(loop);
+  };
+  (window as unknown as { __ready: boolean }).__ready = true;
+  requestAnimationFrame(loop);
+}
+
+async function runStandalone(): Promise<void> {
+// ── scène ─────────────────────────────────────────────────────────────────────────────
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(1);
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = quality !== 'bas';
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const skyDay = new THREE.Color(0xb4c6d8), skyNight = new THREE.Color(0x070a12);
+scene.background = night ? skyNight : skyDay;
+scene.fog = new THREE.Fog(night ? 0x070a12 : 0xb4c6d8, 120, 700);
+const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.15, 1200);
+const world = new THREE.Group();
+scene.add(world);
+const sun = new THREE.DirectionalLight(night ? 0x8fa6d8 : 0xfff2e0, night ? 0.22 : 2.7);
+sun.position.set(16, 34, 22);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.bias = -0.0005;
+sun.shadow.normalBias = 0.03;
+scene.add(sun, sun.target, new THREE.HemisphereLight(night ? 0x35425f : 0xcfe0ff, night ? 0x1a1712 : 0x5a5448, night ? 0.6 : 1.05));
+if (night) {
+  // lueur chaude d'un candélabre : la nuit parisienne n'est jamais noire
+  const lampPost = new THREE.PointLight(0xffc27a, 90, 60, 1.7);
+  lampPost.position.set(9, 9, 9);
+  scene.add(lampPost);
+}
+
+function setShadowArea(cx: number, cz: number, half: number): void {
+  const c = sun.shadow.camera;
+  c.left = -half; c.right = half; c.top = half; c.bottom = -half; c.near = 1; c.far = 160;
+  c.updateProjectionMatrix();
+  sun.position.set(cx + 16, 34, cz + 22);
+  sun.target.position.set(cx, 0, cz);
+}
+
+function groundTexture(): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 256;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#74746d';
+  g.fillRect(0, 0, 256, 256);
+  let s = 12345;
+  const rnd = (): number => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+  for (let i = 0; i < 1500; i++) {
+    const v = 98 + Math.floor(rnd() * 40);
+    g.fillStyle = `rgb(${v},${v},${v - 4})`;
+    g.fillRect(rnd() * 256, rnd() * 256, 2, 2);
+  }
+  g.strokeStyle = 'rgba(40,40,40,0.4)';
+  g.lineWidth = 2;
+  g.strokeRect(0, 0, 256, 256);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(600, 600);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 8;
+  return t;
+}
+// sol : asphalte quadrillé au mètre (échelle lisible)
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.MeshStandardMaterial({ map: groundTexture(), roughness: 0.95 }));
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+world.add(ground);
+
+// silhouette humaine de 1,80 m
+const manMat = new THREE.MeshStandardMaterial({ color: 0x2c3e66, roughness: 0.8 });
+const skinMat = new THREE.MeshStandardMaterial({ color: 0xd9a47c, roughness: 0.8 });
+function addHuman(x: number, z: number): void {
+  const g = new THREE.Group();
+  const legs = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.86, 0.22), new THREE.MeshStandardMaterial({ color: 0x23262e, roughness: 0.9 }));
+  legs.position.y = 0.43;
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.62, 0.26), manMat);
+  torso.position.y = 1.17;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.115, 12, 10), skinMat);
+  head.position.y = 1.685;
+  const armL = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.62, 0.13), manMat);
+  armL.position.set(0.29, 1.14, 0);
+  const armR = armL.clone();
+  armR.position.x = -0.29;
+  g.add(legs, torso, head, armL, armR);
+  g.position.set(x, 0, z);
+  g.traverse((o) => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  world.add(g);
+}
+
+// ── moteur ────────────────────────────────────────────────────────────────────────────
+const game = new Game({ headless: false, storage: null });
+const ctx = game.ctx;
+const viewApi: ViewApi = {
+  renderer, scene, camera, world, quality, drawDistance: 900,
+  get camX() { return camera.position.x; }, get camY() { return camera.position.y; }, get camZ() { return camera.position.z; },
+  shake() { /* sans objet dans le banc d'essai */ }, setScreenEffect() { /* idem */ },
+};
+ctx.view = viewApi;
+getCore(ctx).stores.vehicles.registerDefs(REFERENCE_DEFS);
+ctx.settings.set('shadows', quality !== 'bas');
+
+// Service facultatif 'render.lights', dans une version minimale conforme à l'interface du rendu de base : des
+// lumières « virtuelles » réglées par le module, dont les plus proches de la caméra reçoivent une vraie lumière
+// (4 ponctuelles et 1 projecteur, en nombre fixe pour ne jamais recompiler les matériaux).
+interface VirtualLight extends DynamicLight { alive: boolean }
+const virtualLights: VirtualLight[] = [];
+const realPoints: THREE.PointLight[] = [];
+const realSpot = new THREE.SpotLight(0xffffff, 0, 60, 0.5, 0.6, 1.4);
+let lightsLit = 0;
+/** Lumières « à l'image » (pulse) : redemandées à chaque frame() par le module. */
+const pulses: { x: number; y: number; z: number; color: number; intensity: number; range: number }[] = [];
+for (let i = 0; i < 24; i++) pulses.push({ x: 0, y: 0, z: 0, color: 0, intensity: 0, range: 0 });
+let pulseCount = 0;
+const camPos = new THREE.Vector3();
+if (params.get('eclairs') !== '0') {
+  for (let i = 0; i < 4; i++) { const l = new THREE.PointLight(0x1e5bff, 0, 20, 1.6); realPoints.push(l); scene.add(l); }
+  scene.add(realSpot, realSpot.target);
+  const make = (kind: 'point' | 'spot', init?: DynamicLightInit): DynamicLight => {
+    const l: VirtualLight = {
+      x: 0, y: 0, z: 0, color: 0xffffff, intensity: 0, range: 10, priority: 0, enabled: true, flicker: 0,
+      dirX: 0, dirY: -1, dirZ: 0, angle: 0.5, penumbra: 0.4, kind, shown: 1, alive: true,
+      release() { l.alive = false; const i = virtualLights.indexOf(l); if (i >= 0) virtualLights.splice(i, 1); },
+      ...init,
+    };
+    virtualLights.push(l);
+    return l;
+  };
+  const lights: RenderLightsApi = {
+    pointBudget: 4, spotBudget: 1,
+    get count() { return virtualLights.length; },
+    point: (init) => make('point', init),
+    spot: (init) => make('spot', init),
+    flash() { /* sans objet dans le banc d'essai */ },
+    pulse(x, y, z, color, intensity, radius) {
+      if (pulseCount >= pulses.length) return;
+      const l = pulses[pulseCount++]!;
+      l.x = x; l.y = y; l.z = z; l.color = color; l.intensity = intensity; l.range = radius;
+    },
+  };
+  ctx.provide('render.lights', lights);
+}
+/** Attribue les vraies lumières aux demandes les plus proches de la caméra (projecteur, puis lumières à l'image). */
+function applyLights(): void {
+  for (const l of realPoints) l.intensity = 0;
+  realSpot.intensity = 0;
+  lightsLit = 0;
+  for (const l of virtualLights) {
+    if (l.kind !== 'spot' || !l.enabled || !(l.intensity > 0)) continue;
+    realSpot.position.set(l.x, l.y, l.z);
+    realSpot.target.position.set(l.x + l.dirX, l.y + l.dirY, l.z + l.dirZ);
+    realSpot.target.updateMatrixWorld();
+    realSpot.color.setHex(l.color); realSpot.intensity = l.intensity * 2.2; realSpot.distance = l.range; realSpot.angle = l.angle; realSpot.penumbra = l.penumbra;
+    lightsLit++;
+    break;
+  }
+  const asked = pulses.slice(0, pulseCount);
+  camPos.copy(camera.position);
+  const d2 = (l: { x: number; y: number; z: number }): number => (l.x - camPos.x) ** 2 + (l.y - camPos.y) ** 2 + (l.z - camPos.z) ** 2;
+  asked.sort((a, b) => d2(a) - d2(b));
+  for (let i = 0; i < asked.length && i < realPoints.length; i++) {
+    const l = asked[i]!, r = realPoints[i]!;
+    r.position.set(l.x, l.y, l.z); r.color.setHex(l.color); r.intensity = l.intensity; r.distance = l.range;
+    lightsLit++;
+  }
+}
+
+game.addModule(createSystems);
+await game.boot();
+await ctx.session.start(defaultSessionConfig({ timeOfDay: night ? 23 : 14, x: 0, z: 0 }));
+ctx.env.setTime(night ? 23 : 14);
+const api = ctx.require<VehiclesRenderApi>('vehiclesRender');
+
+const KINDS = REFERENCE_DEFS.map((d) => d.kind as string);
+const labels: { el: HTMLDivElement; x: number; y: number; z: number }[] = [];
+const labelHost = document.getElementById('labels')!;
+function addLabel(text: string, x: number, y: number, z: number): void {
+  const el = document.createElement('div');
+  el.className = 'lbl';
+  el.textContent = text;
+  labelHost.appendChild(el);
+  labels.push({ el, x, y, z });
+}
+
+function applyState(v: Vehicle, state: string): void {
+  if (state === 'damaged') { v.state = 'damaged'; v.health = 28; }
+  else if (state === 'wrecked') { v.state = 'wrecked'; v.health = 0; }
+  else if (state === 'burning') { v.state = 'burning'; v.health = 10; v.burning = 1; }
+  else if (state === 'burnt') { v.state = 'burnt'; v.health = 0; v.burning = 0; }
+}
+
+function spawn(kind: string, x: number, z: number, heading: number, color?: number): Vehicle {
+  const v = ctx.vehicles.spawn(kind, x, z, heading, color === undefined ? undefined : { color });
+  v.engineOn = true;
+  if (night) { v.headlights = true; v.beacons = v.def.hasBeacons; }
+  if (params.get('gyro') === '1') v.beacons = v.def.hasBeacons;
+  if (params.get('phares') === '1') v.headlights = true;
+  const etat = params.get('etat');
+  if (etat) applyState(v, etat);
+  if (v.def.flying && params.get('vol') !== '0' && view !== 'fiche') v.y = v.kind === 'drone' ? 1.2 : 0;
+  return v;
+}
+
+let frameHook: ((dt: number, t: number) => void) | null = null;
+let target = new THREE.Vector3(0, 1, 0);
+let multiView: { v: Vehicle } | null = null;
+
+// ── vues ──────────────────────────────────────────────────────────────────────────────
+function camPreset(name: string, cx: number, cz: number, span: number, height: number, halfX = 0, halfZ = 0): void {
+  const k = far ? 9 : 1;
+  camera.fov = (multiView ? 34 : 40) / k;
+  camera.updateProjectionMatrix();
+  const t = Math.tan(((multiView ? 34 : 40) * DEG) / 2);
+  // cadrage : l'étendue horizontale `span` et la hauteur doivent tenir dans le champ ; la distance est comptée
+  // depuis la face la plus proche de l'objet (halfX, halfZ = demi-encombrement vers la caméra)
+  const d = Math.max(span / 2 / (t * camera.aspect), (height * 1.2) / 2 / t) * 1.1 + 0.6;
+  target = new THREE.Vector3(cx, height * 0.5, cz);
+  if (name === 'face') camera.position.set(cx, height * 0.5, cz + (halfZ + d) * k);
+  else if (name === 'profil') camera.position.set(cx + (halfX + d) * k, height * 0.5, cz);
+  else if (name === 'dos') camera.position.set(cx, height * 0.5, cz - (halfZ + d) * k);
+  else if (name === 'profil-g') camera.position.set(cx - (halfX + d) * k, height * 0.5, cz);
+  else if (name === 'dessus') { camera.position.set(cx, (height + d) * k, cz + 0.01); target.y = 0; }
+  else {
+    const dd = d + Math.max(halfX, halfZ) * 0.9;
+    target.y = height * 0.42;
+    if (name === 'arriere') camera.position.set(cx - dd * 0.6 * k, height * 0.7 + dd * 0.32 * k, cz - dd * 0.8 * k);
+    else camera.position.set(cx + dd * 0.66 * k, height * 0.7 + dd * 0.32 * k, cz + dd * 0.76 * k);
+  }
+  camera.lookAt(target);
+}
+
+if (view === 'alignement') {
+  // pages de véhicules de gabarits proches, pour que chacun reste lisible
+  const PAGES: string[][] = [
+    ['fourgon_crs', 'vl_commandement', 'fourgon_cellulaire', 'voiture_police'],
+    ['centaure', 'canon_eau', 'car_crs'],
+    ['camion_pompiers', 'ambulance', 'camion_sono', 'moto_bravm'],
+    ['voiture', 'citadine', 'suv', 'taxi', 'utilitaire', 'scooter'],
+    ['camion', 'bus', 'helicoptere', 'drone'],
+  ];
+  const page = Math.max(1, Math.min(PAGES.length, num('page', 1)));
+  const kinds = params.get('kinds') ? params.get('kinds')!.split(',') : PAGES[page - 1]!;
+  const cam = params.get('cam') ?? 'trois-quarts';
+  // rangés côte à côte le long de x, tous tournés vers +z (la caméra « face » les voit de face) ; pour la vue de
+  // profil, ils sont rangés à la file le long de z, afin que la caméra latérale voie chaque silhouette entière
+  const file = cam === 'profil';
+  let cursor = 0;
+  const at: number[] = [];
+  let maxLen = 0, maxH = 0, maxW = 0;
+  for (const k of kinds) {
+    const def = ctx.vehicles.def(k)!;
+    const w = file ? def.length : def.kind === 'helicoptere' ? 10.6 : Math.max(def.width, 1.0);
+    cursor += w / 2;
+    at.push(cursor);
+    cursor += w / 2 + 1.9;
+    maxLen = Math.max(maxLen, def.length);
+    maxH = Math.max(maxH, def.height);
+    maxW = Math.max(maxW, def.width);
+  }
+  const total = cursor - 1.9;
+  for (let i = 0; i < kinds.length; i++) {
+    const k = kinds[i]!;
+    const def = ctx.vehicles.def(k)!;
+    const c = at[i]! - total / 2;
+    const v = file ? spawn(k, 0, -c, 0) : spawn(k, c, 0, 0);
+    v.steerAngle = num('braq', 0) * DEG;
+    if (file) addHuman(0, v.z - def.length / 2 - 0.85);
+    else addHuman(c + Math.max(def.width, 1) / 2 + 0.7, -def.length / 2 + 0.9);
+    addLabel(`${def.name} — ${def.length} × ${def.width} × ${def.height} m`, v.x, -0.05, file ? v.z : def.length / 2 + 1.2);
+  }
+  if (night) {
+    // façade claire derrière l'alignement : les éclairs bleus doivent s'y voir
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(total + 30, 14, 1), new THREE.MeshStandardMaterial({ color: 0xcfc3a5, roughness: 0.9 }));
+    wall.position.set(0, 7, -maxLen / 2 - 5);
+    wall.receiveShadow = true;
+    world.add(wall);
+  }
+  setShadowArea(0, 0, Math.max(total, maxLen) / 2 + 4);
+  const span = file ? total + 1.5 : cam === 'dessus' ? Math.max(total, maxLen * 1.8) : cam === 'face' ? total + 2 : Math.hypot(total, maxLen) * 0.78;
+  camPreset(cam, 0, 0, span, maxH, file ? maxW / 2 : 0, maxLen / 2);
+} else if (view === 'fiche' || view === 'etats') {
+  const kind = params.get('kind') ?? 'fourgon_crs';
+  const def = ctx.vehicles.def(kind)!;
+  if (view === 'fiche') {
+    const v = spawn(kind, 0, 0, 0);
+    v.steerAngle = num('braq', 0) * DEG;
+    for (let i = 0; i < v.turretYaw.length; i++) { v.turretYaw[i] = num('gis', 0) * DEG * (i === 1 ? -1 : 1); v.turretPitch[i] = num('site', 0) * DEG; }
+    if (params.get('portes') === '1') for (let d = 0; d < 4; d++) api.setDoor(v.id, d, true);
+    if (params.get('clig')) v.indicator = params.get('clig') === 'g' ? -1 : 1;
+    if (params.get('frein') === '1') v.braking = true;
+    v.speed = num('vitesse', 0) / 3.6;
+    addHuman(-Math.max(def.width, 1.7) / 2 - 0.75, -def.length / 2 + 0.6);
+    setShadowArea(0, 0, Math.max(def.length, 8) / 2 + 3);
+    multiView = { v };
+    if (night) {
+      const wall = new THREE.Mesh(new THREE.BoxGeometry(40, 14, 1), new THREE.MeshStandardMaterial({ color: 0xcfc3a5, roughness: 0.9 }));
+      wall.position.set(0, 7, -def.length / 2 - 5);
+      world.add(wall);
+    }
+  } else {
+    const states: [string, string][] = [['ok', 'Intact'], ['damaged', 'Endommagé'], ['wrecked', 'Épave'], ['burning', 'En feu'], ['burnt', 'Calciné']];
+    const step = Math.max(def.width, 1) + 2.2;
+    for (let i = 0; i < states.length; i++) {
+      const x = (i - (states.length - 1) / 2) * step;
+      const v = spawn(kind, x, 0, 0.5);
+      applyState(v, states[i]![0]);
+      addLabel(states[i]![1], x, -0.05, def.length / 2 + 1.2);
+    }
+    setShadowArea(0, 0, step * 3);
+    camPreset(params.get('cam') ?? 'trois-quarts', 0, 0, step * states.length, def.height);
+  }
+} else if (view === 'interieur' || view === 'tourelle') {
+  const kind = params.get('kind') ?? (view === 'tourelle' ? 'centaure' : 'fourgon_crs');
+  const v = spawn(kind, 0, 0, Math.PI);       // tourné vers −z, le long d'une « rue »
+  const def = v.def;
+  v.steerAngle = num('braq', 0) * DEG;
+  v.speed = num('vitesse', 0) / 3.6;
+  v.rpm = num('regime', 0);
+  if (params.get('sirene') === '1') v.siren = 1;
+  if (params.get('gyro') === '1') v.beacons = true;
+  if (params.get('clig')) v.indicator = params.get('clig') === 'g' ? -1 : 1;
+  if (params.get('frein') === '1') v.cmd.handbrake = true;
+  // décor : chaussée, immeubles, véhicules et passants devant
+  for (let i = 0; i < 12; i++) {
+    for (const side of [-1, 1]) {
+      const h = 16 + ((i * 7 + (side > 0 ? 3 : 0)) % 5) * 2;
+      const b = new THREE.Mesh(new THREE.BoxGeometry(10, h, 16), new THREE.MeshStandardMaterial({ color: i % 2 ? 0xe2d7be : 0xcfc3a5, roughness: 0.9 }));
+      b.position.set(side * 17, h / 2, -10 - i * 17);
+      b.receiveShadow = true;
+      world.add(b);
+    }
+  }
+  spawn('voiture', -3.4, -16, Math.PI, 0x6f1d22);
+  spawn('fourgon_crs', 3.6, -24, 0);
+  spawn('bus', -3.6, -42, Math.PI);
+  for (let i = 0; i < 6; i++) addHuman(-7 + i * 0.9, -12 - i * 2.5);
+  setShadowArea(0, -20, 40);
+  const p = ctx.people.spawn({ kind: 'crs', x: 0, z: 0 });
+  const eye: Vec3 = { x: 0, y: 0, z: 0 }, dir: Vec3 = { x: 0, y: 0, z: 0 };
+  if (view === 'interieur') {
+    ctx.vehicles.enter(p, v, 'driver');
+    ctx.player.possess(p.id);
+    ctx.player.setCameraMode('vehicle_int');
+    camera.fov = num('fov', 72);
+    camera.near = 0.05;
+    camera.updateProjectionMatrix();
+    frameHook = () => {
+      // même point de vue que la caméra intérieure du rendu de base : 0,68 m au-dessus de l'assise
+      api.seatEye(v, p.seat, eye);
+      camera.position.set(eye.x, eye.y, eye.z);
+      const yaw = v.heading + num('regard', 0) * -DEG, pitch = num('hausse', -6) * DEG;
+      camera.lookAt(eye.x + Math.sin(yaw) * Math.cos(pitch), eye.y + Math.sin(pitch), eye.z + Math.cos(yaw) * Math.cos(pitch));
+    };
+  } else {
+    const ok = ctx.vehicles.enter(p, v, 'gunner') || ctx.vehicles.enter(p, v);
+    if (!ok) console.error('[banc] impossible de monter dans ' + kind);
+    ctx.player.possess(p.id);
+    ctx.player.setCameraMode('turret');
+    for (let i = 0; i < v.turretYaw.length; i++) { v.turretYaw[i] = num('gis', 20) * DEG; v.turretPitch[i] = num('site', 12) * DEG; }
+    camera.fov = 38;
+    camera.updateProjectionMatrix();
+    const tdef = v.def.turrets[0];
+    frameHook = () => {
+      if (!tdef || !api.turretMuzzle(v, 0, eye, dir)) return;
+      // même placement que la caméra de tourelle du rendu de base : 0,32 m au-dessus du tourillon, 0,28 m en avant
+      const c = Math.cos(v.heading), sn = Math.sin(v.heading);
+      const px = v.x + sn * tdef.z - c * tdef.x, pz = v.z + c * tdef.z + sn * tdef.x, py = v.y + tdef.y + 0.32;
+      const hd = Math.hypot(dir.x, dir.z) || 1;
+      camera.position.set(px + (dir.x / hd) * 0.28, py, pz + (dir.z / hd) * 0.28);
+      camera.lookAt(camera.position.x + dir.x * 30, py + dir.y * 30, camera.position.z + dir.z * 30);
+    };
+  }
+  addLabel(def.name, 0, -100, 0);
+} else if (view === 'parc') {
+  // 150 véhicules civils : files de circulation (une partie roule) et stationnement
+  const n = num('n', 150);
+  const mix: [string, number][] = [['voiture', 0.33], ['citadine', 0.23], ['suv', 0.17], ['taxi', 0.07], ['utilitaire', 0.1], ['camion', 0.033], ['bus', 0.033], ['scooter', 0.034]];
+  const picks: string[] = [];
+  for (const [k, share] of mix) for (let i = 0; i < Math.round(n * share); i++) picks.push(k);
+  while (picks.length < n) picks.push('voiture');
+  picks.length = n;
+  // mélange déterministe
+  let s = 4242;
+  const rnd = (): number => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+  for (let i = picks.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); const t = picks[i]!; picks[i] = picks[j]!; picks[j] = t; }
+  const lanes = 6, laneW = 3.6;
+  const cursor = new Array<number>(lanes).fill(-105);
+  const moving: Vehicle[] = [];
+  for (let i = 0; i < n; i++) {
+    const lane = i % lanes;
+    const k = picks[i]!;
+    const def = ctx.vehicles.def(k)!;
+    const dirSign = lane < lanes / 2 ? 1 : -1;
+    const z = cursor[lane]! + def.length / 2;
+    cursor[lane] = z + def.length / 2 + 1.5 + rnd() * 3.5;
+    const color = k === 'bus' ? 0x3fa78a : k === 'taxi' ? (rnd() < 0.5 ? 0x1c1d20 : 0x4a4f57) : CIVIL_COLORS[Math.floor(rnd() * CIVIL_COLORS.length)]!;
+    const v = spawn(k, (lane - (lanes - 1) / 2) * laneW, z, dirSign > 0 ? 0 : Math.PI, color);
+    const edge = lane === 0 || lane === lanes - 1;
+    if (!edge) { v.speed = 5 + rnd() * 4; moving.push(v); }
+    if (rnd() < 0.2) v.braking = true;
+    if (rnd() < 0.15) v.indicator = rnd() < 0.5 ? -1 : 1;
+    if (rnd() < 0.3 || night) v.headlights = true;
+  }
+  const lenTotal = 230;
+  frameHook = (dt) => {
+    for (const v of moving) {
+      const f = Math.cos(v.heading);
+      v.z += f * v.speed * dt;
+      if (v.z > lenTotal / 2) v.z -= lenTotal; else if (v.z < -lenTotal / 2) v.z += lenTotal;
+      v.steerAngle = Math.sin(clockT * 0.7 + v.id) * 0.06;
+    }
+  };
+  setShadowArea(0, 0, 60);
+  const cam = params.get('cam') ?? 'haut';
+  if (cam === 'sol') { camera.position.set(1.8, 1.7, -8); target = new THREE.Vector3(0, 1.2, 40); }
+  else { camera.position.set(62, 52, -128); target = new THREE.Vector3(2, 0, -8); }
+  camera.lookAt(target);
+}
+
+// ── boucle ────────────────────────────────────────────────────────────────────────────
+const hud = document.getElementById('hud')!;
+const info: Record<string, unknown> = {};
+(window as unknown as { __info: unknown }).__info = info;
+let last = performance.now();
+let frames = 0;
+let clockT = 0;
+const fixedDt = num('pas', 0);
+const cpu: number[] = [];
+const proj = new THREE.Vector3();
+const VIEWS: [string, number, number][] = params.get('revers') === '1'
+  // l'autre moitié du tour : arrière, flanc gauche, trois-quarts arrière gauche, dessus (&revers=1)
+  ? [['dos', 0, 0.5], ['profil-g', 0.5, 0.5], ['arriere', 0, 0], ['dessus', 0.5, 0]]
+  : [['face', 0, 0.5], ['profil', 0.5, 0.5], ['trois-quarts', 0, 0], ['dessus', 0.5, 0]];
+
+function renderMulti(v: Vehicle): void {
+  const W = renderer.domElement.width, H = renderer.domElement.height;
+  const def = v.def;
+  renderer.setScissorTest(true);
+  renderer.autoClear = true;
+  const rotor = def.kind === 'helicoptere';
+  for (const [name, fx, fy] of VIEWS) {
+    const vx = Math.floor(fx * W), vy = Math.floor(fy * H), vw = Math.floor(W / 2), vh = Math.floor(H / 2);
+    renderer.setViewport(vx, vy, vw, vh);
+    renderer.setScissor(vx, vy, vw, vh);
+    camera.aspect = vw / vh;
+    const side = def.width + 2.4;
+    const span = name === 'face' || name === 'dos' ? side : name === 'profil' || name === 'profil-g' ? def.length + 0.6 : name === 'dessus' ? Math.max(side, def.length * camera.aspect * 1.05) : Math.max(def.length * 0.8, side) * 1.0;
+    camPreset(name === 'trois-quarts' && params.get('arriere') === '1' ? 'arriere' : name, 0, 0, span * (rotor && name !== 'profil' ? 2.2 : 1), def.height + (rotor ? 0.4 : 0.25), def.width / 2, def.length / 2);
+    renderer.render(scene, camera);
+  }
+  renderer.setScissorTest(false);
+}
+
+function loop(): void {
+  // les tests figent la page avant la capture (le WebGL logiciel est lent : on ne rend pas pendant la capture)
+  if ((window as unknown as { __pause?: boolean }).__pause) { requestAnimationFrame(loop); return; }
+  const nowMs = performance.now();
+  const dt = fixedDt > 0 ? fixedDt : Math.min(0.1, (nowMs - last) / 1000);
+  last = nowMs;
+  clockT += dt;
+  if (frameHook) frameHook(dt, clockT);
+  camera.updateMatrixWorld();
+  pulseCount = 0;
+  game.frame(dt);
+  applyLights();
+  cpu.push(api.stats.cpuMs);
+  if (cpu.length > 240) cpu.shift();
+  renderer.info.reset();
+  renderer.info.autoReset = false;
+  // la carte d'ombres n'est calculée qu'une fois par image, même quand la scène est rendue sous quatre angles
+  renderer.shadowMap.autoUpdate = false;
+  renderer.shadowMap.needsUpdate = true;
+  if (multiView) renderMulti(multiView.v);
+  else renderer.render(scene, camera);
+  frames++;
+  // étiquettes
+  if (!multiView) {
+    for (const l of labels) {
+      proj.set(l.x, l.y, l.z).project(camera);
+      const vis = proj.z < 1 && proj.z > -1;
+      l.el.style.display = vis ? 'block' : 'none';
+      l.el.style.left = `${(proj.x * 0.5 + 0.5) * window.innerWidth}px`;
+      l.el.style.top = `${(-proj.y * 0.5 + 0.5) * window.innerHeight}px`;
+    }
+  } else {
+    for (const l of labels) l.el.style.display = 'none';
+  }
+  const s = api.stats;
+  const sorted = cpu.slice().sort((a, b) => a - b);
+  const med = sorted[Math.floor(sorted.length / 2)] ?? 0;
+  info.frames = frames; info.calls = renderer.info.render.calls; info.triangles = renderer.info.render.triangles;
+  info.moduleCalls = s.drawCalls; info.moduleTriangles = s.triangles; info.near = s.near; info.far = s.far; info.hidden = s.hidden;
+  info.fx = s.fx; info.models = s.models; info.cpuMedian = med; info.cpuMax = sorted[sorted.length - 1] ?? 0; info.cpuMin = sorted[0] ?? 0;
+  info.vehicles = ctx.vehicles.list.length; info.pulses = pulseCount; info.lightsLit = lightsLit;
+  if (frames % 5 === 0) {
+    hud.textContent = `vue : ${view}${night ? ' (nuit)' : ''}${far ? ' (modèles lointains)' : ''} — qualité ${quality}\n`
+      + `véhicules : ${ctx.vehicles.list.length} (${s.near} détaillés, ${s.far} lointains, ${s.hidden} masqués)\n`
+      + `module : ${s.drawCalls} appels de dessin, ${s.triangles.toLocaleString('fr-FR')} triangles, ${s.fx} quads lumineux\n`
+      + `scène entière : ${renderer.info.render.calls} appels, ${renderer.info.render.triangles.toLocaleString('fr-FR')} triangles\n`
+      + `CPU du module : ${med.toFixed(2)} ms/image (médiane)`;
+  }
+  (window as unknown as { __frames: number }).__frames = frames;
+  requestAnimationFrame(loop);
+}
+window.addEventListener('resize', () => {
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+});
+// mesure du coût CPU du module seul : N images à 60 Hz sans rendu (&mesure=600)
+const mesureN = num('mesure', 0);
+if (mesureN > 0) {
+  camera.updateMatrixWorld();
+  const mem = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory;
+  for (let i = 0; i < 30; i++) { if (frameHook) frameHook(1 / 60, i / 60); game.frame(1 / 60); }
+  const heap0 = mem ? mem.usedJSHeapSize : 0;
+  const times: number[] = [];
+  const t0 = performance.now();
+  for (let i = 0; i < mesureN; i++) {
+    if (frameHook) frameHook(1 / 60, (i + 30) / 60);
+    const a = performance.now();
+    game.frame(1 / 60);
+    times.push(performance.now() - a);
+  }
+  const total = performance.now() - t0;
+  const heap1 = mem ? mem.usedJSHeapSize : 0;
+  times.sort((a, b) => a - b);
+  const s = api.stats;
+  (window as unknown as { __mesure: unknown }).__mesure = {
+    images: mesureN, vehicules: ctx.vehicles.list.length, detailles: s.near, lointains: s.far, masques: s.hidden, quads: s.fx,
+    appels: s.drawCalls, triangles: s.triangles,
+    mediane: times[Math.floor(times.length / 2)], p95: times[Math.floor(times.length * 0.95)], max: times[times.length - 1],
+    moyenne: total / mesureN, tasOctetsParImage: mem ? (heap1 - heap0) / mesureN : null,
+  };
+}
+(window as unknown as { __ready: boolean }).__ready = true;
+(window as unknown as { __kinds: string[] }).__kinds = KINDS;
+requestAnimationFrame(loop);
+}
